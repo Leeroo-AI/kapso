@@ -69,7 +69,7 @@ class Source:
         """
         Source from a generic file (text, markdown, code).
         
-        Processed by: FileLearner
+        Processed by: (learner not yet implemented)
         Extracts: Content based on file type
         """
         path: str
@@ -82,7 +82,7 @@ class Source:
         """
         Source from a documentation website.
         
-        Processed by: FileLearner (for now)
+        Processed by: (learner not yet implemented)
         Extracts: Structured documentation content
         """
         url: str
