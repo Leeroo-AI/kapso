@@ -1,5 +1,6 @@
 # Custom
 *.swp
+git_issues/
 .DS_Store
 Pipfile
 public
