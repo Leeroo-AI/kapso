@@ -1,4 +1,4 @@
-# Leeroo LABS
+# Praxium
 
 A framework where AI LeArns, experiments, Builds, and Ships.
 
