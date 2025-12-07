@@ -1,0 +1,54 @@
+Cleaned Problem Statement
+
+Overview
+- You have a 50×50 grid of squares fully covered by rectangular tiles of size 1×1, 1×2, or 2×1 (no gaps).
+- Coordinates: (0,0) is the top-left square. (i,j) is row i from the top and column j from the left.
+- Starting position: (si, sj).
+- Each square (i,j) has an integer value p[i][j].
+- Goal: output a path starting at (si, sj) that maximizes the sum of values of visited squares.
+
+Movement and Constraints
+- From (i,j), you may move in one step to one of: (i-1,j), (i+1,j), (i,j-1), (i,j+1), staying within the grid.
+- Tile-visit constraint: You may step on each tile at most once. The tile containing the initial position is considered already stepped on at the start.
+  - Tiles are defined by identifiers t[i][j]; two squares belong to the same tile iff their t values are equal.
+- The score of a path is the sum of p[i][j] over all visited squares, including the start.
+
+Validity Examples (textual)
+- A path that never enters two squares from the same tile more than once is valid.
+- Invalid example 1: stepping on two adjacent squares of the same tile consecutively (you have stepped on the same tile twice).
+- Invalid example 2: leaving a tile and later coming back to any square of that same tile (you have stepped on the same tile again).
+
+Input
+Provided via standard input in the following format:
+- Line 1: si sj
+- Next 50 lines: t[0][0] t[0][1] ... t[0][49]
+  ...
+  t[49][0] t[49][1] ... t[49][49]
+- Next 50 lines: p[0][0] p[0][1] ... p[0][49]
+  ...
+  p[49][0] p[49][1] ... p[49][49]
+
+Details
+- 0 ≤ si, sj ≤ 49
+- t[i][j] are integers; squares (i,j) and (i',j') are on the same tile iff t[i][j] = t[i'][j'].
+  - If the total number of tiles is M, then 0 ≤ t[i][j] ≤ M-1.
+- p[i][j] are integers with 0 ≤ p[i][j] ≤ 99.
+
+Output
+- Print a single line string consisting of characters U, D, L, R:
+  - U: move from (i,j) to (i-1,j)
+  - D: move from (i,j) to (i+1,j)
+  - L: move from (i,j) to (i,j-1)
+  - R: move from (i,j) to (i,j+1)
+
+Scoring and Judging
+- Your score for a test case is the sum of p[i][j] over the visited squares of your path.
+- If the path violates any condition (e.g., stepping on the same tile more than once or moving out of bounds), the output is judged as WA (wrong answer) for that case.
+- There are 100 test cases; the submission score is the sum of scores across all test cases. If any test case is not AC, the submission score is zero.
+
+Constraints
+- time_limit = 2.0 seconds
+- memory_limit = 1073741824 bytes
+
+Sample
+- Sample input/output not included here.

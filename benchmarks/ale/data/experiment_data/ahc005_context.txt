@@ -1,0 +1,64 @@
+Problem overview
+- You are given an N x N grid with obstacles (#) and road squares (digits 5–9).
+- Starting at a specified road square (si, sj), you must output a route (sequence of U/D/L/R moves) that stays on road squares, returns to (si, sj), and makes every road square visible at least once if possible.
+- A road square’s digit (5–9) is the time cost to enter that square from an adjacent square.
+- Visibility: From a current road square (i, j), any road square in the same row or column is visible if every square between them along that row/column is a road (no obstacles in between).
+
+Grid and visibility
+- Coordinates: (0, 0) is top-left; (i, j) is row i from top and column j from left.
+- Movement allowed only on road squares, in four directions: up, down, left, right.
+- A road square (i', j') is visible from (i, j) if and only if:
+  - i = i' and for all j'' with min(j, j') ≤ j'' ≤ max(j, j'), (i, j'') is a road, or
+  - j = j' and for all i'' with min(i, i') ≤ i'' ≤ max(i, i'), (i'', j) is a road.
+
+Task
+- Output a route starting at (si, sj), moving only on road squares, and returning to (si, sj).
+- The route may revisit squares and may include U-turns.
+- Goal: maximize the number of road squares that become visible at least once; among routes that make all roads visible, minimize total travel time.
+
+Scoring
+- Let r = total number of road squares, v = number of road squares that become visible at least once along your route, and t = total travel time of the route.
+- Score:
+  - If v < r: round(10000 × v / r).
+  - If v = r: round(10000 + 10000000 × N / t).
+- Illegal output (moving outside the grid, stepping on obstacles, or not returning to (si, sj)) is judged as WA.
+
+Input format
+- Standard input:
+  N si sj
+  c0
+  ...
+  cN-1
+- Constraints on input:
+  - N is an odd integer in [49, 69].
+  - si, sj are integers with 0 ≤ si, sj ≤ N − 1.
+  - Each ci is a string of length N consisting of characters ‘#’, ‘5’, ‘6’, ‘7’, ‘8’, ‘9’.
+    - ‘#’ denotes an obstacle (it is guaranteed (si, sj) is not an obstacle).
+    - ‘5’–‘9’ denote road squares; the digit is the time to enter that square from an adjacent square.
+
+Output format
+- Output a single line string consisting only of characters:
+  - U: move from (i, j) to (i−1, j)
+  - D: move from (i, j) to (i+1, j)
+  - L: move from (i, j) to (i, j−1)
+  - R: move from (i, j) to (i, j+1)
+- The path must start at (si, sj), follow valid moves on road squares, and end at (si, sj).
+
+Input generation (for local data)
+- rand(L, U) returns a uniformly random integer in [L, U].
+- Generate:
+  - N = rand(25, 35) × 2 − 1 (odd), K = rand(2N, 4N) (number of roads).
+- Start with all obstacles. Repeat K times:
+  1) d = rand(0, 1) (direction)
+  2) i = rand(0, (N−1)/2) × 2, j = rand(0, N−1) (center)
+  3) h = rand(3, 10) (half-length)
+  4) w = rand(5, 9) (travel time)
+  5) For each k with max(j−h, 0) ≤ k ≤ min(j+h, N−1):
+     - If d = 0: set (i, k) to road with time w
+     - If d = 1: set (k, i) to road with time w
+- Afterward, keep only the largest connected component of road squares; others become obstacles.
+- Choose (si, sj) uniformly at random from road squares.
+
+Constraints
+- time_limit = 3.0
+- memory_limit = 1073741824

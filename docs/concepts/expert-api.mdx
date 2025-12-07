@@ -1,0 +1,152 @@
+---
+title: Expert API
+description: The high-level Expert Agent API for building robust software from knowledge
+---
+
+# Expert API
+
+The Expert API provides a clean interface for the "Brain to Binary" workflow.
+
+## Philosophy: From Brain to Binary
+
+The goal is to bridge the gap between **Abstract Knowledge** (what an expert knows) and **Robust Software** (what an engineer builds).
+
+The system operationalizes the scientific method for software generation:
+
+> **Hypothesis (KG) + Experiment (Search/Trial) = Theory (Robust Software)**
+
+## The Lifecycle
+
+The user journey follows a strict lifecycle that separates **Creation** (expensive, intelligent) from **Execution** (cheap, fast).
+
+1. **Knowledge (The "Brain")**: The Expert ingests knowledge from various sources (Repos, Papers, Heuristics) to build the Knowledge Graph (KG).
+
+2. **Fabrication (The "Build")**: The User defines a Goal and Context. The Expert runs experiments to find the best implementation. Output: A `Solution` object.
+
+3. **Reinforcement (The "Loop")**: The Expert learns from the `Solution`. This updates the KG for future builds.
+
+4. **Deployment (The "Live")**: The `Solution` is deployed as `Software` (Local, Docker, or Cloud) with a universal `.run()` interface.
+
+## Quick Start
+
+```python
+from src.expert import Expert, Source, DeployStrategy
+
+# 1. Initialize
+expert = Expert(domain="healthcare")
+
+# 2. Learn
+expert.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
+
+# 3. Build
+solution = expert.build(goal="Create a triage agent")
+
+# 4. Deploy & Run
+software = solution.deploy(strategy=DeployStrategy.LOCAL)
+result = software.run({"symptoms": "headache"})
+```
+
+## Core Abstractions
+
+### Expert
+
+The central intelligence. It holds the KG and manages the build process.
+
+```python
+expert = Expert(
+    domain="quantitative_finance",  # Domain of expertise
+    kg_location="./my_brain",       # Path to persist KG
+)
+```
+
+### Source
+
+A typed wrapper for knowledge inputs.
+
+| Source Type | Description |
+|-------------|-------------|
+| `Source.Repo(url)` | Git repository |
+| `Source.Paper(path)` | Research paper (PDF) |
+| `Source.File(path)` | Generic file (text, code, markdown) |
+| `Source.Doc(url)` | Documentation website |
+| `Source.Solution(obj)` | Previous solution (experiment logs) |
+
+### SolutionResult
+
+The artifact produced by `.build()`. Contains:
+
+- **Code**: The generated Python package / Dockerfile
+- **Logs**: The trace of experiments run during the build
+- **Context**: The original goal and constraints
+
+```python
+solution = expert.build(
+    goal="Momentum trading bot",
+    constraints=["latency < 50ms"],
+    context=[Source.File("./strategy.pdf")],  # Build-specific knowledge
+    max_iterations=10,
+)
+
+print(solution.explain())  # Show experiment history
+```
+
+### Software
+
+The running instance of a deployed Solution.
+
+| Method | Description |
+|--------|-------------|
+| `.run(input)` | Execute with input data |
+| `.stop()` | Shutdown and cleanup |
+| `.logs()` | Get execution logs |
+| `.is_healthy()` | Health check |
+
+### DeployStrategy
+
+| Strategy | Description |
+|----------|-------------|
+| `LOCAL` | Run as local process (fast, for development) |
+| `DOCKER` | Run in Docker container (isolated, for testing) |
+| `CLOUD` | Deploy to cloud infrastructure (scalable, for production) |
+
+## Implementation
+
+The Expert API is implemented in:
+
+- `src/expert.py`: Main entry point with `Expert`, `Source`, `SolutionResult`
+- `src/knowledge/learners/`: Modular learning system with `LearnerFactory`
+- `src/deployment/`: Modular deployment system with `DeploymentFactory`
+
+## Example: Full Flow
+
+```python
+from src.expert import Expert, Source, DeployStrategy
+
+# Initialize expert in finance domain
+quant = Expert(domain="quantitative_finance")
+
+# Learn from various sources
+quant.learn(
+    Source.Repo("https://github.com/alpaca/alpaca-py"),
+    Source.Paper("./momentum_strategies.pdf"),
+    target_kg="https://skills.leeroo.com",
+)
+
+# Build a trading bot
+solution = quant.build(
+    goal="Momentum Bot for SP500",
+    constraints=["latency < 50ms", "max_drawdown < 2%"],
+    output_path="./bots/sp500_v1"
+)
+
+# Learn from the build experience (feedback loop)
+quant.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+
+# Deploy and run
+software = solution.deploy(strategy=DeployStrategy.LOCAL)
+result = software.run({"ticker": "AAPL", "price": 150.0})
+software.stop()
+```
+
+See `examples/expert_demo.py` for a runnable demonstration.
+

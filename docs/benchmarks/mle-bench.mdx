@@ -1,0 +1,151 @@
+---
+title: "MLE-Bench"
+description: "Solving Kaggle ML competitions"
+---
+
+MLE-Bench provides Kaggle competition problems for evaluating ML agents. Expert Agent generates Python solutions that produce submission files.
+
+## Usage
+
+```bash
+# List available competitions
+PYTHONPATH=. python -m benchmarks.mle.runner --list
+
+# List lite benchmark competitions
+PYTHONPATH=. python -m benchmarks.mle.runner --lite
+
+# Solve a competition
+PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-2021
+
+# With options
+PYTHONPATH=. python -m benchmarks.mle.runner \
+    -c tabular-playground-series-dec-2021 \
+    -i 20 \
+    -m MLE_CONFIGS \
+    -d aider
+```
+
+## CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-c, --competition` | Competition ID | Required |
+| `-i, --iterations` | Max experiment iterations | 20 |
+| `-m, --mode` | Config mode | `MLE_CONFIGS` |
+| `-d, --coding-agent` | Coding agent | From config |
+| `--no-kg` | Disable knowledge graph | Enabled |
+| `--list` | List all competitions | - |
+| `--lite` | List lite competitions | - |
+| `--list-agents` | List coding agents | - |
+
+## Configuration Modes
+
+<Tabs>
+  <Tab title="MLE_CONFIGS">
+    Production configuration with full features.
+    ```yaml
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        reasoning_effort: "high"
+        code_debug_tries: 15
+        node_expansion_limit: 2
+    coding_agent:
+      type: "aider"
+      model: "o3"
+    knowledge_search:
+      enabled: true
+    ```
+  </Tab>
+  <Tab title="MINIMAL">
+    Fast configuration for testing.
+    ```yaml
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        reasoning_effort: "medium"
+        code_debug_tries: 2
+    coding_agent:
+      type: "aider"
+      model: "gpt-4.1-mini"
+    knowledge_search:
+      enabled: false
+    ```
+  </Tab>
+</Tabs>
+
+## Stages
+
+The handler automatically adjusts strategy based on budget progress:
+
+| Stage | Budget | Behavior |
+|-------|--------|----------|
+| **MINI TRAINING** | 0-35% | Sample training data (for datasets >30GB) |
+| **FULL TRAINING** | 35-80% | Train on complete dataset |
+| **FINAL ENSEMBLING** | 80-100% | Ensemble best models from history |
+
+## Output Structure
+
+The agent generates:
+
+```
+experiment_workspace/{uuid}/
+├── main.py                    # Entry point
+├── output_data_{branch}/
+│   ├── final_submission.csv   # Kaggle submission file
+│   └── checkpoints/           # Model checkpoints
+└── sessions/                  # Experiment branches
+```
+
+## Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant R as Runner
+    participant H as MleBenchHandler
+    participant O as Orchestrator
+    participant E as Evaluator
+    
+    R->>H: Initialize(competition_id)
+    H->>H: Prepare data, generate context
+    R->>O: solve(max_iterations)
+    
+    loop Each Iteration
+        O->>H: get_problem_context(budget)
+        O->>O: Generate & implement solution
+        O->>H: run(code_path)
+        H->>H: Run debug mode
+        H->>H: Run full mode
+        H->>E: grade_csv(submission)
+        E-->>O: score
+    end
+    
+    R->>H: final_evaluate(best_path)
+    H->>E: Grade on private test
+```
+
+## Code Requirements
+
+Generated code must:
+- Support `--debug` flag for fast testing
+- Write `final_submission.csv` in the output directory
+- Print progress and metrics
+- Handle GPU efficiently (batch size, device selection)
+- Use early stopping and learning rate scheduling
+
+## Competition Types
+
+| Type | Examples |
+|------|----------|
+| Tabular | `tabular-playground-series-*` |
+| Image | `dogs-vs-cats-*`, `plant-pathology-*` |
+| Text | `spooky-author-identification`, `jigsaw-toxic-*` |
+| Audio | `mlsp-2013-birds` |
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CUDA_DEVICE` | `0` | GPU device ID |
+| `MLE_SEED` | `1` | Random seed |
+

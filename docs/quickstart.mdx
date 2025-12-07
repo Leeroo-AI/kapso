@@ -1,0 +1,85 @@
+---
+title: "Quickstart"
+description: "Get Leeroo LABS running in 5 minutes"
+---
+
+## Prerequisites
+
+- Python 3.10+
+- Git
+- API keys for OpenAI and/or Google (Gemini)
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone <repository-url>
+    cd mle_expert_coding
+    ```
+  </Step>
+  <Step title="Install dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+  </Step>
+  <Step title="Set up API keys">
+    Create a `.env` file in the project root:
+    ```bash
+    OPENAI_API_KEY=your-openai-api-key
+    GOOGLE_API_KEY=your-google-api-key
+    ```
+  </Step>
+</Steps>
+
+## Run Your First Experiment
+
+### Option 1: MLE-Bench (Kaggle)
+
+Requires MLE-Bench installation (see [Installation](/docs/installation)):
+
+```bash
+PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-2021 -i 5
+```
+
+This runs 5 iterations on a tabular classification competition.
+
+### Option 2: Generic Problem
+
+No extra installation needed:
+
+```bash
+PYTHONPATH=. python -m src.runner -p "Create a Python script that calculates the first 100 prime numbers"
+```
+
+## Expected Output
+
+```
+============================================================
+Solving: tabular-playground-series-dec-2021
+============================================================
+  Max iterations: 5
+  Config mode: MLE_CONFIGS
+  Coding agent: from config
+  Knowledge graph: enabled
+
+Experiment 1 completed with cumulative cost: $0.125
+####################################
+Experiment with final score 0.847 :
+# Solution : Use XGBoost with feature engineering...
+####################################
+```
+
+The system creates git branches for each experiment and outputs the best solution path.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Full Installation" icon="download" href="/docs/installation">
+    Set up MLE-Bench, ALE-Bench, and Neo4j
+  </Card>
+  <Card title="Configuration" icon="gear" href="/docs/guides/configuration">
+    Customize modes and parameters
+  </Card>
+</CardGroup>
+

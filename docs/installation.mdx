@@ -1,0 +1,153 @@
+---
+title: "Installation"
+description: "Complete installation guide for Leeroo LABS and benchmarks"
+---
+
+## Core Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone <repository-url>
+    cd mle_expert_coding
+    ```
+  </Step>
+  <Step title="Install core dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+  </Step>
+  <Step title="Configure API keys">
+    Create `.env` in project root:
+    ```bash
+    # Required
+    OPENAI_API_KEY=your-openai-api-key
+    GOOGLE_API_KEY=your-google-api-key
+
+    # Optional
+    ANTHROPIC_API_KEY=your-anthropic-api-key
+    ```
+  </Step>
+</Steps>
+
+## Benchmark Installation
+
+<Tabs>
+  <Tab title="MLE-Bench">
+    MLE-Bench provides Kaggle competition problems.
+
+    **Prerequisites:**
+    - Git LFS (`sudo apt-get install git-lfs` or `brew install git-lfs`)
+
+    **Installation:**
+    ```bash
+    # Clone and install MLE-Bench
+    git clone https://github.com/openai/mle-bench.git
+    cd mle-bench
+    git lfs install
+    git lfs fetch --all
+    git lfs pull
+    pip install -e .
+    cd ..
+
+    # Install MLE-specific dependencies
+    pip install -r benchmarks/mle/requirements.txt
+    ```
+
+    **Verify:**
+    ```bash
+    PYTHONPATH=. python -m benchmarks.mle.runner --list
+    ```
+  </Tab>
+  <Tab title="ALE-Bench">
+    ALE-Bench provides AtCoder algorithmic optimization problems.
+
+    **Prerequisites:**
+    - Docker
+    - libcairo2-dev (`sudo apt-get install -y libcairo2-dev`)
+
+    **Installation:**
+    ```bash
+    # Clone and install ALE-Bench
+    git clone https://github.com/SakanaAI/ALE-Bench.git
+    cd ALE-Bench
+    pip install .
+    pip install ".[eval]"
+
+    # Build Docker container for evaluation
+    bash ./scripts/docker_build_202301.sh $(id -u) $(id -g)
+    cd ..
+    ```
+
+    **Verify:**
+    ```bash
+    PYTHONPATH=. python -m benchmarks.ale.runner --list
+    ```
+  </Tab>
+</Tabs>
+
+## Optional: Neo4j Knowledge Graph
+
+The knowledge graph provides ML domain expertise for better solution generation.
+
+<Steps>
+  <Step title="Start Neo4j">
+    ```bash
+    docker run -d \
+        --name neo4j \
+        --restart unless-stopped \
+        -p 7474:7474 -p 7687:7687 \
+        -e NEO4J_AUTH=neo4j/password \
+        neo4j:latest
+    ```
+  </Step>
+  <Step title="Configure connection">
+    Add to `.env`:
+    ```bash
+    NEO4J_URI=bolt://localhost:7687
+    NEO4J_USER=neo4j
+    NEO4J_PASSWORD=password
+    ```
+  </Step>
+  <Step title="Load knowledge data">
+    ```bash
+    PYTHONPATH=. python -c "
+    from src.knowledge.search.kg_llm_navigation_search import KGLLMNavigationSearch
+    import json
+    search = KGLLMNavigationSearch()
+    with open('benchmarks/mle/data/kg_data.json') as f:
+        search.index(json.load(f))
+    print('Knowledge graph loaded')
+    "
+    ```
+  </Step>
+</Steps>
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key |
+| `GOOGLE_API_KEY` | Yes | - | Google API key for Gemini |
+| `ANTHROPIC_API_KEY` | No | - | Anthropic API key for Claude |
+| `CUDA_DEVICE` | No | `0` | GPU device for ML training |
+| `NEO4J_URI` | No | `bolt://localhost:7687` | Neo4j connection URI |
+| `NEO4J_USER` | No | `neo4j` | Neo4j username |
+| `NEO4J_PASSWORD` | No | `password` | Neo4j password |
+
+## Verify Installation
+
+```bash
+# Check core installation
+python -c "from src.execution.orchestrator import OrchestratorAgent; print('Core OK')"
+
+# Check MLE-Bench
+python -c "import mlebench; print('MLE-Bench OK')"
+
+# Check ALE-Bench
+python -c "import ale_bench; print('ALE-Bench OK')"
+
+# Check Neo4j
+python -c "from neo4j import GraphDatabase; print('Neo4j driver OK')"
+```
+

@@ -1,0 +1,151 @@
+# Search Strategies Configuration
+#
+# Default configurations for all registered search strategies.
+# Each strategy has presets (modes) that can be referenced by benchmarks.
+#
+# To add configs for a new strategy:
+# 1. Add a new section under 'strategies' with your strategy name
+# 2. Define presets with 'params' matching your strategy's expected parameters
+#
+# Benchmark configs (e.g., benchmarks/mle/config.yaml) can override these defaults.
+
+# Default strategy when none specified
+default_strategy: "llm_tree_search"
+
+# Strategy configurations
+strategies:
+  # =========================================================================
+  # LLM Tree Search Strategy
+  # =========================================================================
+  llm_tree_search:
+    description: "Tree-based exploration with LLM-guided solution generation and selection"
+    
+    # Available presets
+    presets:
+      # Production preset - balanced performance
+      PRODUCTION:
+        params:
+          reasoning_effort: "high"
+          code_debug_tries: 10
+          node_expansion_limit: 2
+          node_expansion_new_childs_count: 5
+          idea_generation_steps: 2
+          first_experiment_factor: 1
+          experimentation_per_run: 1
+          per_step_maximum_solution_count: 10
+          exploration_budget_percent: 30
+          idea_generation_model: "gpt-4.1"
+          idea_generation_ensemble_models:
+            - "gpt-4.1"
+            - "gpt-4.1"
+            - "gpt-4.1"
+      
+      # Heavy experimentation - many parallel experiments
+      HEAVY_EXPERIMENTATION:
+        params:
+          reasoning_effort: "high"
+          code_debug_tries: 3
+          node_expansion_limit: 3
+          node_expansion_new_childs_count: 15
+          idea_generation_steps: 1
+          first_experiment_factor: 2
+          experimentation_per_run: 7
+          per_step_maximum_solution_count: 15
+          exploration_budget_percent: 50
+          idea_generation_model: "gpt-4.1"
+          idea_generation_ensemble_models:
+            - "gpt-4.1"
+            - "gpt-4.1"
+            - "gpt-4.1"
+
+      # Heavy thinking - deeper reasoning per solution
+      HEAVY_THINKING:
+        params:
+          reasoning_effort: "high"
+          code_debug_tries: 5
+          node_expansion_limit: 2
+          node_expansion_new_childs_count: 10
+          idea_generation_steps: 1
+          first_experiment_factor: 1
+          experimentation_per_run: 1
+          per_step_maximum_solution_count: 10
+          exploration_budget_percent: 50
+          idea_generation_model: "gpt-4.1"
+          idea_generation_ensemble_models:
+            - "gpt-4.1"
+            - "gpt-4.1"
+            - "gpt-4.1"
+
+      # Minimal - quick testing
+      MINIMAL:
+        params:
+          reasoning_effort: "medium"
+          code_debug_tries: 2
+          node_expansion_limit: 2
+          node_expansion_new_childs_count: 5
+          idea_generation_steps: 1
+          first_experiment_factor: 1
+          experimentation_per_run: 1
+          per_step_maximum_solution_count: 10
+          exploration_budget_percent: 50
+          idea_generation_model: "gpt-4.1-mini"
+          idea_generation_ensemble_models:
+            - "gpt-4.1-mini"
+    
+    # Default preset if none specified
+    default_preset: "PRODUCTION"
+
+  # =========================================================================
+  # Linear Search Strategy
+  # =========================================================================
+  linear_search:
+    description: "Simple sequential search - one solution per iteration, iteratively improving"
+    
+    presets:
+      # Default preset
+      DEFAULT:
+        params:
+          code_debug_tries: 3
+          idea_generation_model: "gpt-4.1-mini"
+      
+      # Minimal for quick testing
+      MINIMAL:
+        params:
+          code_debug_tries: 2
+          idea_generation_model: "gpt-4.1-mini"
+      
+      # Production with better model
+      PRODUCTION:
+        params:
+          code_debug_tries: 5
+          idea_generation_model: "gpt-4.1"
+    
+    default_preset: "DEFAULT"
+
+  # =========================================================================
+  # Example: Random Search Strategy (template for future strategies)
+  # =========================================================================
+  # random_search:
+  #   description: "Simple random sampling of solutions (baseline)"
+  #   presets:
+  #     DEFAULT:
+  #       params:
+  #         samples_per_iteration: 5
+  #         code_debug_tries: 3
+  #   default_preset: "DEFAULT"
+
+  # =========================================================================
+  # Example: Evolutionary Search Strategy (template for future strategies)
+  # =========================================================================
+  # evolutionary_search:
+  #   description: "Genetic algorithm-based solution exploration"
+  #   presets:
+  #     DEFAULT:
+  #       params:
+  #         population_size: 10
+  #         mutation_rate: 0.1
+  #         crossover_rate: 0.7
+  #         generations: 5
+  #         code_debug_tries: 3
+  #   default_preset: "DEFAULT"
+

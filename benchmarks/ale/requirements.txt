@@ -1,0 +1,15 @@
+# ALE-Bench specific dependencies
+#
+# Prerequisites:
+# 1. Install core dependencies: pip install -r requirements.txt (from repo root)
+# 2. Install system dependencies: sudo apt-get install -y libcairo2-dev
+# 3. Install ale-bench separately:
+#    git clone https://github.com/SakanaAI/ALE-Bench.git
+#    cd ALE-Bench && pip install . && pip install ".[eval]"
+# 4. Build Docker container:
+#    cd ALE-Bench && bash ./scripts/docker_build_202301.sh $(id -u) $(id -g)
+#
+# See README.md for full installation instructions.
+
+# No additional pip dependencies required beyond ale-bench
+# All dependencies are installed via ale-bench package

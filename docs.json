@@ -1,0 +1,89 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Expert Agent",
+
+  "colors": {
+    "primary": "#2563EB",
+    "light": "#DBEAFE",
+    "dark": "#1E40AF"
+  },
+
+  "favicon": "docs/favicon.svg",
+
+  "logo": {
+    "light": "docs/logo/leeroo-logo.png",
+    "dark": "docs/logo/leeroo-logo.png"
+  },
+
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "docs/index",
+              "docs/quickstart",
+              "docs/installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "docs/concepts/architecture",
+              "docs/concepts/tree-search",
+              "docs/concepts/experiment-lifecycle",
+              "docs/concepts/knowledge-system"
+            ]
+          },
+          {
+            "group": "Benchmarks",
+            "pages": [
+              "docs/benchmarks/mle-bench",
+              "docs/benchmarks/ale-bench",
+              "docs/benchmarks/generic-problems"
+            ]
+          },
+          {
+            "group": "Components",
+            "pages": [
+              "docs/components/orchestrator",
+              "docs/components/search-strategies/overview",
+              "docs/components/coding-agents/overview",
+              "docs/components/knowledge-search/overview"
+            ]
+          }
+            ]
+          },
+          {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Configuration",
+            "pages": [
+              "docs/guides/configuration",
+              "docs/guides/setup-neo4j"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "docs/reference/cli"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+
+  "footerSocials": {
+    "github": "https://github.com/leeroo"
+  }
+}

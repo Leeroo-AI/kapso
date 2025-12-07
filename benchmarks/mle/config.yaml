@@ -1,0 +1,181 @@
+# MLE-Bench Configuration
+# Configuration for Kaggle ML competition solving
+#
+# Coding agents are configured in: src/agents/coding_agents/agents.yaml
+# Use --developer-agent to select: aider, gemini, claude_code, openhands
+# Use --list-agents to see details
+#
+# Search strategies are pluggable via SearchStrategyFactory.
+# Available: llm_tree_search (more can be added via @register_strategy decorator)
+#
+# Context managers are pluggable via ContextManagerFactory.
+# Available: kg_enriched (more can be added via @register_context_manager decorator)
+#
+# Knowledge search backends are pluggable via KnowledgeSearchFactory.
+# Available: kg_llm_navigation (more can be added via @register_knowledge_search decorator)
+
+# Default mode to use
+default_mode: MLE_CONFIGS
+
+# Available configuration modes
+modes:
+  # ===========================================
+  # Production Modes
+  # ===========================================
+  
+  # Production configuration for MLE-Bench
+  MLE_CONFIGS:
+    # Search strategy configuration
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        reasoning_effort: "high"
+        code_debug_tries: 15
+        node_expansion_limit: 2
+        node_expansion_new_childs_count: 5
+        idea_generation_steps: 2
+        first_experiment_factor: 1
+        experimentation_per_run: 1
+        per_step_maximum_solution_count: 10
+        exploration_budget_percent: 30
+        idea_generation_model: "gemini/gemini-2.5-pro"
+        idea_generation_ensemble_models:
+          - "o3"
+          - "o3"
+          - "gemini/gemini-2.5-pro"
+    
+    # Coding agent configuration
+    coding_agent:
+      type: "aider"
+      model: "o3"
+    
+    # Context manager configuration
+    context_manager:
+      type: "kg_enriched"
+      params:
+        max_experiment_history_count: 5
+        max_recent_experiment_count: 5
+    
+    # Knowledge search configuration
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: true
+      params:
+        search_top_k: 1
+        navigation_steps: 3
+        expansion_limit: 3
+        search_node_type: "specialization"
+    
+    # Other settings
+    fetch_huggingface_models: true
+
+  # Heavy experimentation - many parallel experiments
+  HEAVY_EXPERIMENTATION:
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        reasoning_effort: "high"
+        code_debug_tries: 3
+        node_expansion_limit: 3
+        node_expansion_new_childs_count: 15
+        idea_generation_steps: 1
+        first_experiment_factor: 2
+        experimentation_per_run: 7
+        per_step_maximum_solution_count: 15
+        exploration_budget_percent: 50
+        idea_generation_model: "o4-mini"
+        idea_generation_ensemble_models:
+          - "o3"
+          - "o3"
+          - "o4-mini"
+    
+    coding_agent:
+      type: "aider"
+      model: "gpt-4.1-mini"
+      debug_model: "gpt-4.1-mini"
+    
+    context_manager:
+      type: "kg_enriched"
+      params:
+        max_experiment_history_count: 5
+        max_recent_experiment_count: 5
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: true
+      params:
+        search_top_k: 1
+        navigation_steps: 3
+        expansion_limit: 3
+        search_node_type: "specialization"
+    
+    fetch_huggingface_models: true
+
+  # ===========================================
+  # Testing Modes
+  # ===========================================
+  
+  # Linear search - simple sequential approach (for testing)
+  LINEAR:
+    search_strategy:
+      type: "linear_search"
+      params:
+        code_debug_tries: 2
+        idea_generation_model: "gpt-4.1-mini"
+    
+    coding_agent:
+      type: "aider"
+      model: "gpt-4.1-mini"
+      debug_model: "gpt-4.1-mini"
+    
+    context_manager:
+      type: "kg_enriched"
+      params:
+        max_experiment_history_count: 3
+        max_recent_experiment_count: 3
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
+    
+    fetch_huggingface_models: false
+  
+  # Minimal configuration for quick testing (tree search)
+  MINIMAL:
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        reasoning_effort: "medium"
+        code_debug_tries: 2
+        node_expansion_limit: 2
+        node_expansion_new_childs_count: 5
+        idea_generation_steps: 1
+        first_experiment_factor: 1
+        experimentation_per_run: 1
+        per_step_maximum_solution_count: 10
+        exploration_budget_percent: 50
+        idea_generation_model: "gpt-4.1-mini"
+        idea_generation_ensemble_models:
+          - "gpt-4.1-mini"
+    
+    coding_agent:
+      type: "aider"
+      model: "gpt-4.1-mini"
+      debug_model: "gpt-4.1-mini"
+    
+    context_manager:
+      type: "kg_enriched"
+      params:
+        max_experiment_history_count: 3
+        max_recent_experiment_count: 3
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
+    
+    fetch_huggingface_models: false
+    # To switch agents, use --developer-agent flag:
+    #   python -m benchmarks.mle.runner -c competition -m MINIMAL -d aider
+    #   python -m benchmarks.mle.runner -c competition -m MINIMAL -d gemini
+    #   python -m benchmarks.mle.runner -c competition -m MINIMAL -d claude_code
+    #   python -m benchmarks.mle.runner -c competition -m MINIMAL -d openhands

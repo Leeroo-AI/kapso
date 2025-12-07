@@ -1,0 +1,46 @@
+Problem
+--------
+- Grid: 0 ≤ x, y ≤ 800. Office at (400, 400).
+- There are 1000 orders. Order i (1 ≤ i ≤ 1000) is from restaurant (a_i, b_i) to destination (c_i, d_i).
+- Deliver exactly 50 orders. Choose a subset S ⊆ {1,…,1000} with |S| = 50.
+- Construct a route (x_1, y_1), …, (x_n, y_n) such that:
+  1) For each i ∈ S, visit (a_i, b_i) before (c_i, d_i); i.e., there exist s < t with (x_s, y_s) = (a_i, b_i) and (x_t, y_t) = (c_i, d_i).
+  2) (x_1, y_1) = (x_n, y_n) = (400, 400).
+- Multiple pickups before deliveries are allowed; capacity is unlimited.
+- Travel time between consecutive points is Manhattan distance |x_i − x_{i+1}| + |y_i − y_{i+1}|.
+- Total travel time T = Σ_{i=1}^{n−1} (|x_i − x_{i+1}| + |y_i − y_{i+1}|).
+- Goal: choose S and the route to minimize T.
+
+Scoring
+--------
+- Score = round(10^8 / (1000 + T)).
+- Total score is the sum over 100 test cases.
+
+Input
+--------
+- Standard Input: 1000 lines
+  a_1 b_1 c_1 d_1
+  …
+  a_1000 b_1000 c_1000 d_1000
+- Each a_i, b_i, c_i, d_i is an integer in [0, 800].
+- (a_i, b_i) ≠ (c_i, d_i).
+- Across different orders j, points may coincide with those of i.
+
+Output
+--------
+- Let the chosen order indices be r_1, …, r_m (distinct, 1 ≤ r_i ≤ 1000), and the route be (x_1, y_1), …, (x_n, y_n) with 0 ≤ x_i, y_i ≤ 800.
+- Output:
+  m r_1 … r_m
+  n x_1 y_1 … x_n y_n
+- Final output must satisfy m = 50.
+
+Input Generation
+--------
+- For each i = 1,…,1000:
+  - Sample a_i, b_i, c_i, d_i uniformly from {0,…,800}.
+  - Resample if |a_i − c_i| + |b_i − d_i| < 100.
+
+Constraints
+--------
+- Time limit: 2.0 s
+- Memory limit: 1073741824 bytes

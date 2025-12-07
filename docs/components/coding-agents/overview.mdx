@@ -1,0 +1,166 @@
+---
+title: "Coding Agents"
+description: "Pluggable code generation backends"
+---
+
+Coding agents generate code from solution descriptions. They're abstracted behind a common interface, allowing easy swapping.
+
+## Available Agents
+
+| Agent | Description | Git Support |
+|-------|-------------|-------------|
+| `aider` | Aider CLI tool | Native |
+| `gemini` | Google Gemini API | Session |
+| `claude_code` | Anthropic Claude | Session |
+| `openhands` | OpenHands platform | Session |
+
+## CLI Selection
+
+```bash
+# Use specific agent
+PYTHONPATH=. python -m benchmarks.mle.runner -c competition -d gemini
+
+# List available agents
+PYTHONPATH=. python -m benchmarks.mle.runner --list-agents
+```
+
+## Configuration
+
+In your mode's YAML config:
+
+```yaml
+coding_agent:
+  type: "aider"
+  model: "gpt-4.1"
+  debug_model: "gpt-4.1-mini"
+```
+
+Or via factory:
+
+```python
+from src.execution.coding_agents.factory import CodingAgentFactory
+
+config = CodingAgentFactory.build_config(
+    agent_type="aider",
+    model="gpt-4.1",
+    debug_model="gpt-4.1-mini",
+)
+```
+
+## Agent Interface
+
+All agents implement:
+
+```python
+class CodingAgentInterface(ABC):
+    @abstractmethod
+    def initialize(self, workspace: str) -> None:
+        """Initialize the agent for a workspace."""
+        pass
+    
+    @abstractmethod
+    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
+        """Generate code from a prompt."""
+        pass
+    
+    @abstractmethod
+    def supports_native_git(self) -> bool:
+        """Whether agent handles its own git commits."""
+        pass
+    
+    @abstractmethod
+    def get_cumulative_cost(self) -> float:
+        """Get total cost incurred."""
+        pass
+    
+    @abstractmethod
+    def cleanup(self) -> None:
+        """Clean up resources."""
+        pass
+```
+
+## CodingResult
+
+```python
+@dataclass
+class CodingResult:
+    success: bool
+    output: str              # Generated code or response
+    error: Optional[str]     # Error message if failed
+    files_changed: List[str] # Modified files
+    cost: float              # API cost
+    commit_message: Optional[str]  # Suggested commit message
+```
+
+## Git Integration
+
+Agents either:
+- **Native git**: Handle their own commits (like Aider)
+- **Session git**: `ExperimentSession` commits for them
+
+```python
+class ExperimentSession:
+    def generate_code(self, prompt, debug_mode=False):
+        result = self.coding_agent.generate_code(prompt, debug_mode)
+        
+        # If agent doesn't handle git, we commit
+        if not self._agent_handles_git and result.success:
+            self._commit_with_message(result)
+        
+        return result
+```
+
+## Agent Configuration
+
+From `agents.yaml`:
+
+```yaml
+agents:
+  aider:
+    description: "Aider CLI code assistant"
+    adapter_module: "src.execution.coding_agents.adapters.aider_adapter"
+    adapter_class: "AiderAdapter"
+    default_model: "gpt-4.1"
+    default_debug_model: "gpt-4.1-mini"
+    supports_native_git: true
+    
+  gemini:
+    description: "Google Gemini API"
+    adapter_module: "src.execution.coding_agents.adapters.gemini_adapter"
+    adapter_class: "GeminiAdapter"
+    default_model: "gemini-2.5-pro"
+    supports_native_git: false
+
+default_agent: "aider"
+```
+
+## Debug Mode
+
+When `debug_mode=True`:
+- May use a smaller/faster model
+- Prompts focus on fixing errors
+- Typically faster and cheaper
+
+```python
+# From agent config
+model = config.debug_model if debug_mode else config.model
+```
+
+## Cost Tracking
+
+Each agent tracks API costs:
+
+```python
+def get_cumulative_cost(self):
+    return self._total_cost
+```
+
+The orchestrator aggregates:
+```python
+total = (
+    orchestrator.llm.get_cumulative_cost()
+    + workspace.get_cumulative_cost()  # From coding agents
+    + handler.llm.get_cumulative_cost()
+)
+```
+

@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "expert_agent"
+version = "0.1.0"
+description = "A machine learning expert agent for automated ML experimentation"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "Expert Agent Team"}
+]
+license = {text = "MIT"}
+
+# Core dependencies
+dependencies = [
+    "litellm>=1.0.0",
+    "GitPython",
+    "aider-chat>=0.35.0",
+    "PyYAML",
+    "python-dotenv",
+    "neo4j",
+]
+
+[project.optional-dependencies]
+mle = [
+    "neo4j",
+    "openai",
+    # mlebench installed separately (requires git lfs)
+]
+ale = [
+    # ale-bench installed separately (requires docker setup)
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.scripts]
+expert-mle = "benchmarks.mle.runner:main"
+expert-ale = "benchmarks.ale.runner:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "benchmarks*"]
+exclude = []
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.json", "*.yaml", "*.yml", "*.md"]

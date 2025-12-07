@@ -1,0 +1,33 @@
+# Core dependencies for Expert Agent
+
+# LLM API wrapper - supports OpenAI, Anthropic, Google, etc.
+litellm>=1.0.0
+
+# Git operations for developer agent
+GitPython
+
+# AI-powered code generation - Aider
+aider-chat>=0.35.0
+
+# Knowledge graph database client
+neo4j
+
+# Configuration file parsing
+PyYAML
+
+# Environment variable management
+python-dotenv
+
+# ============================================
+# Pluggable Coding Agent Dependencies
+# ============================================
+
+# Google Gemini SDK - for Gemini coding agent
+google-genai>=1.0.0
+
+# OpenHands SDK - for OpenHands coding agent with Docker sandbox
+# Note: OpenHands requires Docker for sandbox mode
+openhands>=0.10.0
+
+# Claude Code CLI is installed via npm:
+# npm install -g @anthropic-ai/claude-code

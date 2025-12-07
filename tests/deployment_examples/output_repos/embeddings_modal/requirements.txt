@@ -1,0 +1,9 @@
+# Core dependencies
+fastapi>=0.100.0
+torch>=2.0.0
+sentence-transformers>=2.2.0
+numpy>=1.21.0
+
+# Modal deployment
+modal>=0.63.0
+

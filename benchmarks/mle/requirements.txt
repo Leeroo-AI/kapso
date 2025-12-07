@@ -1,0 +1,15 @@
+# MLE-Bench specific dependencies
+#
+# Prerequisites:
+# 1. Install core dependencies: pip install -r requirements.txt (from repo root)
+# 2. Install mlebench separately (requires git lfs):
+#    git clone https://github.com/openai/mle-bench.git
+#    cd mle-bench && git lfs pull && pip install -e .
+#
+# See README.md for full installation instructions.
+
+# Neo4j client for knowledge graph
+neo4j
+
+# OpenAI client for web search in problem context generation
+openai

@@ -1,0 +1,180 @@
+---
+title: "Generic Problems"
+description: "Solving arbitrary problems with custom evaluation"
+---
+
+The generic runner lets you solve any problem without benchmark-specific setup. Configure evaluators and stop conditions to match your needs.
+
+## Usage
+
+```bash
+# Inline problem
+PYTHONPATH=. python -m src.runner -p "Create a script that calculates prime numbers"
+
+# From file
+PYTHONPATH=. python -m src.runner -f problem.txt
+
+# With options
+PYTHONPATH=. python -m src.runner \
+    -f problem.txt \
+    -i 10 \
+    --evaluator regex_pattern \
+    --stop-condition threshold
+```
+
+## CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --problem` | Problem description (inline) | - |
+| `-f, --problem-file` | File with problem description | - |
+| `-i, --iterations` | Max iterations | 10 |
+| `-m, --mode` | Config mode | `GENERIC` |
+| `-d, --coding-agent` | Coding agent | From config |
+| `--main-file` | Entry point file | `main.py` |
+| `--language` | Programming language | `python` |
+| `--timeout` | Execution timeout (seconds) | 300 |
+| `--evaluator` | Evaluator type | `no_score` |
+| `--stop-condition` | Stop condition type | `never` |
+| `--context` | Additional context/tips | - |
+
+## Evaluators
+
+<Tabs>
+  <Tab title="no_score">
+    No scoring, always returns 0. Useful for code generation without evaluation.
+    ```bash
+    --evaluator no_score
+    ```
+  </Tab>
+  <Tab title="regex_pattern">
+    Parse score from output using regex.
+    ```yaml
+    evaluator:
+      type: "regex_pattern"
+      params:
+        pattern: 'SCORE:\s*([-+]?\d*\.?\d+)'
+        default_score: 0.0
+    ```
+    Your code should print: `SCORE: 0.95`
+  </Tab>
+  <Tab title="llm_judge">
+    LLM-based evaluation of output quality.
+    ```yaml
+    evaluator:
+      type: "llm_judge"
+      params:
+        criteria: "correctness, efficiency, readability"
+    ```
+  </Tab>
+</Tabs>
+
+List all evaluators:
+```bash
+PYTHONPATH=. python -m src.runner --list-evaluators
+```
+
+## Stop Conditions
+
+<Tabs>
+  <Tab title="never">
+    Run all iterations.
+    ```bash
+    --stop-condition never
+    ```
+  </Tab>
+  <Tab title="threshold">
+    Stop when score reaches target.
+    ```yaml
+    stop_condition:
+      type: "threshold"
+      params:
+        threshold: 0.95
+    ```
+  </Tab>
+  <Tab title="plateau">
+    Stop if no improvement for N iterations.
+    ```yaml
+    stop_condition:
+      type: "plateau"
+      params:
+        patience: 5
+    ```
+  </Tab>
+  <Tab title="composite">
+    Combine multiple conditions.
+    ```yaml
+    stop_condition:
+      type: "composite"
+      params:
+        conditions:
+          - ["threshold", {"threshold": 0.95}]
+          - ["max_iterations", {"max_iter": 50}]
+        mode: "any"
+    ```
+  </Tab>
+</Tabs>
+
+List all stop conditions:
+```bash
+PYTHONPATH=. python -m src.runner --list-stop-conditions
+```
+
+## Configuration Modes
+
+### GENERIC
+Standard configuration for most problems:
+```yaml
+search_strategy:
+  type: "linear_search"
+  params:
+    code_debug_tries: 5
+coding_agent:
+  type: "aider"
+  model: "gpt-4.1"
+knowledge_search:
+  enabled: false
+```
+
+### TREE_SEARCH
+For complex problems requiring exploration:
+```yaml
+search_strategy:
+  type: "llm_tree_search"
+  params:
+    node_expansion_limit: 2
+    exploration_budget_percent: 40
+```
+
+## Example: Scored Problem
+
+Create `problem.txt`:
+```
+Create a Python script that finds the longest common subsequence
+of two strings. Print the result as: SCORE: <length>
+
+Test with:
+- String A: "ABCDGH"
+- String B: "AEDFHR"
+```
+
+Run with scoring:
+```bash
+PYTHONPATH=. python -m src.runner \
+    -f problem.txt \
+    --evaluator regex_pattern \
+    --stop-condition threshold \
+    -i 10
+```
+
+The agent will iterate until the score threshold is reached or iterations exhausted.
+
+## Output Structure
+
+```
+tmp/experiment_workspace/{uuid}/
+├── main.py                  # Generated solution
+├── output_data_{branch}/    # Any output files
+└── sessions/                # Experiment branches
+```
+

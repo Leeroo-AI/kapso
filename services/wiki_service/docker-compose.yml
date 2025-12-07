@@ -1,0 +1,50 @@
+# Wiki Service - serves wiki files from data/wikis
+# Usage: docker compose up -d
+# Access: http://localhost:${WIKI_PORT:-8080}
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-localroot123}
+      MYSQL_DATABASE: ${MW_DB_NAME:-wiki}
+      MYSQL_USER: ${MW_DB_USER:-mediawiki}
+      MYSQL_PASSWORD: ${MW_DB_PASSWORD:-localpass123}
+    volumes:
+      - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  wiki:
+    build: ./mediawiki
+    image: wiki-service:latest
+    environment:
+      MW_DB_HOST: db
+      MW_DB_NAME: ${MW_DB_NAME:-wiki}
+      MW_DB_USER: ${MW_DB_USER:-mediawiki}
+      MW_DB_PASSWORD: ${MW_DB_PASSWORD:-localpass123}
+      MW_SITE_SERVER: http://localhost:${WIKI_PORT:-8080}
+      MW_SITENAME: ${MW_SITENAME:-Local Wiki}
+      MW_LANG: ${MW_LANG:-en}
+      MW_ADMIN_USER: ${MW_ADMIN_USER:-admin}
+      MW_ADMIN_PASS: ${MW_ADMIN_PASS:-adminpass123}
+      MW_AGENT_USER: ${MW_AGENT_USER:-agent}
+      MW_AGENT_PASS: ${MW_AGENT_PASS:-agentpass123}
+      MW_CREATE_AGENT: "true"
+    ports:
+      - "${WIKI_PORT:-8080}:80"
+    volumes:
+      - ./images:/var/www/html/images
+      - ../../data/wikis:/wikis:rw
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  dbdata:
+

@@ -1,0 +1,64 @@
+# Knowledge Search Configuration
+#
+# Default configurations for all registered knowledge search backends.
+# Each backend has presets that can be referenced by benchmarks.
+
+# Default search backend when none specified
+default_search: "kg_llm_navigation"
+
+# Search backend configurations
+searches:
+  # =========================================================================
+  # KG LLM Navigation Search (Neo4j + LLM-guided navigation)
+  # =========================================================================
+  kg_llm_navigation:
+    description: "Neo4j Knowledge Graph with LLM-guided navigation"
+    
+    presets:
+      # Default preset - balanced exploration
+      DEFAULT:
+        params:
+          search_top_k: 1
+          navigation_steps: 3
+          expansion_limit: 3
+          search_node_type: "specialization"
+      
+      # Deep search - more exploration for complex problems
+      DEEP_SEARCH:
+        params:
+          search_top_k: 3
+          navigation_steps: 5
+          expansion_limit: 5
+          search_node_type: "specialization"
+      
+      # Shallow search - quick retrieval for simpler problems
+      SHALLOW:
+        params:
+          search_top_k: 1
+          navigation_steps: 2
+          expansion_limit: 2
+          search_node_type: "specialization"
+      
+      # Minimal - for testing or low-resource scenarios
+      MINIMAL:
+        params:
+          search_top_k: 1
+          navigation_steps: 1
+          expansion_limit: 1
+          search_node_type: "specialization"
+    
+    default_preset: "DEFAULT"
+
+  # =========================================================================
+  # RAG Search (Future - Template)
+  # =========================================================================
+  # rag:
+  #   description: "Vector-based RAG search using embeddings"
+  #   presets:
+  #     DEFAULT:
+  #       params:
+  #         top_k: 5
+  #         similarity_threshold: 0.7
+  #         embedding_model: "text-embedding-3-small"
+  #   default_preset: "DEFAULT"
+
