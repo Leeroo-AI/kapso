@@ -5,15 +5,17 @@
 #
 # Usage:
 #     adapter = AdapterAgent(coding_agent_type="claude_code")
-#     result = adapter.adapt(solution_path, goal, setting)
+#     result = adapter.adapt(solution, setting)
 
 import re
+import shutil
 from pathlib import Path
 from typing import List, Optional
 
 from src.deployment.base import DeploymentSetting, AdaptationResult
-from src.deployment.adapter.validator import AdaptationValidator
 from src.deployment.strategies import StrategyRegistry
+from src.execution.coding_agents.factory import CodingAgentFactory
+from src.execution.solution import SolutionResult
 
 
 # Path to the adaptation prompt template
@@ -36,7 +38,7 @@ class AdapterAgent:
     def __init__(
         self,
         coding_agent_type: str = "claude_code",
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-opus-4-5",
         fallback_agent_type: str = "gemini",
         max_retries: int = 2,
     ):
@@ -53,26 +55,50 @@ class AdapterAgent:
         self.model = model
         self.fallback_agent_type = fallback_agent_type
         self.max_retries = max_retries
-        self._validator = AdaptationValidator()
         self.registry = StrategyRegistry.get()
+    
+    def _create_adapted_workspace(self, original_path: str, strategy: str) -> str:
+        """
+        Create a copy of the solution for adaptation.
+        
+        The original solution is never modified. All adaptation happens
+        in the new workspace at {original_path}_adapted_{strategy}.
+        
+        Args:
+            original_path: Path to the original solution
+            strategy: Deployment strategy name (used in directory name)
+            
+        Returns:
+            Path to the adapted workspace
+        """
+        original = Path(original_path)
+        adapted = Path(f"{original_path}_adapted_{strategy}")
+        
+        # Remove existing adapted workspace if it exists
+        if adapted.exists():
+            shutil.rmtree(adapted)
+        
+        # Copy the original solution to the adapted workspace
+        shutil.copytree(original, adapted)
+        
+        return str(adapted)
     
     def adapt(
         self,
-        solution_path: str,
-        goal: str,
+        solution: SolutionResult,
         setting: DeploymentSetting,
-        strategies: Optional[List[str]] = None,
-        validate: bool = True,
+        allowed_strategies: Optional[List[str]] = None,
     ) -> AdaptationResult:
         """
         Adapt a solution for the specified deployment setting.
         
+        Creates a copy of the solution at {code_path}_adapted_{strategy} and
+        performs adaptation there. The original solution is never modified.
+        
         Args:
-            solution_path: Path to the solution repository
-            goal: Original goal/objective
+            solution: The SolutionResult from Expert.build()
             setting: Selected deployment configuration
-            strategies: Optional allowed strategies (for validation)
-            validate: Whether to run validation after adaptation
+            allowed_strategies: Optional list of allowed strategies
             
         Returns:
             AdaptationResult with deploy script and run interface
@@ -80,37 +106,43 @@ class AdapterAgent:
         logs: List[str] = []
         logs.append(f"Adapting for {setting.strategy} deployment")
         
-        # Track endpoint extracted from agent output
-        endpoint: Optional[str] = None
-        agent_output: str = ""
+        # Extract from solution
+        original_path = solution.code_path
+        goal = solution.goal
         
         # Validate strategy is available
-        available = self.registry.list_strategies(allowed=strategies)
+        available = self.registry.list_strategies(allowed=allowed_strategies)
         if setting.strategy not in available:
             return AdaptationResult(
                 success=False,
-                adapted_path=solution_path,
+                adapted_path=original_path,
                 deploy_script="",
                 run_interface={},
                 error=f"Strategy '{setting.strategy}' not available. Options: {available}",
                 logs=logs,
             )
         
-        # 1. Load target-specific instructions from registry
+        # 1. Create adapted workspace (copy original, don't modify it)
+        adapted_path = self._create_adapted_workspace(original_path, setting.strategy)
+        logs.append(f"Created adapted workspace: {adapted_path}")
+        
+        # Track endpoint extracted from agent output
+        endpoint: Optional[str] = None
+        agent_output: str = ""
+        
+        # 2. Load target-specific instructions from registry
         target_instructions = self.registry.get_adapter_instruction(setting.strategy)
         logs.append(f"Loaded instructions for {setting.strategy}")
         
-        # 2. Create and run coding agent
+        # 3. Create and run coding agent on the adapted workspace
         try:
-            from src.execution.coding_agents.factory import CodingAgentFactory
-            
             config = CodingAgentFactory.build_config(
                 agent_type=self.coding_agent_type,
                 model=self.model,
-                workspace=solution_path,
+                workspace=adapted_path,
             )
             agent = CodingAgentFactory.create(config)
-            agent.initialize(solution_path)
+            agent.initialize(adapted_path)
             
             logs.append(f"Initialized {self.coding_agent_type} agent")
             
@@ -128,7 +160,7 @@ class AdapterAgent:
             if not result.success:
                 return AdaptationResult(
                     success=False,
-                    adapted_path=solution_path,
+                    adapted_path=adapted_path,
                     deploy_script="",
                     run_interface={},
                     error=result.error or "Coding agent failed",
@@ -149,12 +181,12 @@ class AdapterAgent:
         except (ImportError, ValueError) as e:
             logs.append(f"Primary agent ({self.coding_agent_type}) not available: {e}")
             files_changed, agent_output = self._run_fallback_agent(
-                solution_path, goal, setting, target_instructions, logs
+                adapted_path, goal, setting, target_instructions, logs
             )
             if files_changed is None:
                 return AdaptationResult(
                     success=False,
-                    adapted_path=solution_path,
+                    adapted_path=adapted_path,
                     deploy_script="",
                     run_interface={},
                     error="Both primary and fallback agents failed",
@@ -167,12 +199,12 @@ class AdapterAgent:
         except Exception as e:
             logs.append(f"Primary agent ({self.coding_agent_type}) error: {e}")
             files_changed, agent_output = self._run_fallback_agent(
-                solution_path, goal, setting, target_instructions, logs
+                adapted_path, goal, setting, target_instructions, logs
             )
             if files_changed is None:
                 return AdaptationResult(
                     success=False,
-                    adapted_path=solution_path,
+                    adapted_path=adapted_path,
                     deploy_script="",
                     run_interface={},
                     error=str(e),
@@ -182,38 +214,15 @@ class AdapterAgent:
             if endpoint:
                 logs.append(f"Deployment endpoint extracted: {endpoint}")
         
-        # 3. Validate adaptation
-        if validate:
-            validation = self._validator.validate(solution_path, setting)
-            logs.extend(validation.logs)
-            
-            if not validation.success:
-                logs.append(f"Validation failed: {validation.error}")
-                return AdaptationResult(
-                    success=False,
-                    adapted_path=solution_path,
-                    deploy_script="",
-                    run_interface={},
-                    error=validation.error,
-                    logs=logs,
-                )
+        # 4. Build run interface (how to call the deployed software)
+        run_interface = self._build_run_interface(setting.strategy, endpoint)
         
-        # 4. Generate deploy script and run interface
-        deploy_script = self._get_deploy_script(setting.strategy, target_instructions)
-        run_interface = self._get_run_interface(solution_path, setting.strategy, target_instructions)
-        
-        # Add endpoint to run_interface if extracted
-        if endpoint:
-            run_interface["endpoint"] = endpoint
-            run_interface["deployment_url"] = endpoint
-            logs.append(f"Endpoint added to run_interface: {endpoint}")
-        
-        logs.append("Adaptation complete")
+        logs.append(f"Adaptation complete at: {adapted_path}")
         
         return AdaptationResult(
             success=True,
-            adapted_path=solution_path,
-            deploy_script=deploy_script,
+            adapted_path=adapted_path,
+            deploy_script="",  # Agent already ran deployment
             run_interface=run_interface,
             files_changed=files_changed if isinstance(files_changed, list) else [],
             logs=logs,
@@ -221,7 +230,7 @@ class AdapterAgent:
     
     def _run_fallback_agent(
         self,
-        solution_path: str,
+        adapted_path: str,
         goal: str,
         setting: DeploymentSetting,
         target_instructions: str,
@@ -230,20 +239,25 @@ class AdapterAgent:
         """
         Run the fallback coding agent when primary agent fails.
         
+        Args:
+            adapted_path: Path to the adapted workspace (copy of original)
+            goal: The original goal/objective
+            setting: Selected deployment configuration
+            target_instructions: Strategy-specific instructions
+            logs: Log list to append to
+        
         Returns:
             Tuple of (files_changed, agent_output), or (None, "") if fails
         """
         logs.append(f"Attempting fallback agent: {self.fallback_agent_type}")
         
         try:
-            from src.execution.coding_agents.factory import CodingAgentFactory
-            
             fallback_config = CodingAgentFactory.build_config(
                 agent_type=self.fallback_agent_type,
-                workspace=solution_path,
+                workspace=adapted_path,
             )
             fallback_agent = CodingAgentFactory.create(fallback_config)
-            fallback_agent.initialize(solution_path)
+            fallback_agent.initialize(adapted_path)
             
             logs.append(f"Initialized fallback agent: {self.fallback_agent_type}")
             
@@ -293,73 +307,40 @@ class AdapterAgent:
             target_instructions=target_instructions,
         )
     
-    def _get_deploy_script(self, strategy: str, instructions: str) -> str:
+    def _build_run_interface(self, strategy: str, endpoint: Optional[str]) -> dict:
         """
-        Extract deploy command from adapter instructions.
+        Build the run interface for the deployed software.
         
-        Looks for "## DEPLOY COMMAND" section with bash code block.
+        The coding agent follows standard conventions:
+        - main.py with predict() function
+        - Endpoint reported via <endpoint_url> tag
+        
+        Args:
+            strategy: Deployment strategy name
+            endpoint: Endpoint URL extracted from agent output (if any)
+            
+        Returns:
+            Interface dict for the Runner
         """
-        match = re.search(
-            r'##\s*DEPLOY\s*COMMAND\s*\n+```bash\s*\n(.+?)\n```',
-            instructions,
-            re.IGNORECASE | re.DOTALL
-        )
-        if match:
-            return match.group(1).strip()
-        
-        # Fallback defaults
-        defaults = {
-            "local": "python main.py",
-            "docker": "docker build -t solution . && docker run -p 8000:8000 solution",
-            "modal": "modal deploy modal_app.py",
-            "bentoml": "python deploy.py",
-            "langgraph": "langgraph deploy",
+        # Map strategy to interface type
+        type_map = {
+            "local": "function",
+            "docker": "http",
+            "modal": "modal",
+            "bentoml": "bentocloud",
+            "langgraph": "langgraph",
         }
-        return defaults.get(strategy, "python main.py")
-    
-    def _get_run_interface(
-        self,
-        solution_path: str,
-        strategy: str,
-        instructions: str,
-    ) -> dict:
-        """
-        Extract run interface from adapter instructions.
         
-        Looks for "## RUN INTERFACE" section.
-        """
-        interface = {}
+        interface = {
+            "type": type_map.get(strategy, "function"),
+            "module": "main",
+            "callable": "predict",
+        }
         
-        # Try to extract from instructions
-        match = re.search(
-            r'##\s*RUN\s*INTERFACE\s*\n((?:[-*]\s*\w+:.+\n?)+)',
-            instructions,
-            re.IGNORECASE
-        )
-        if match:
-            for line in match.group(1).strip().split('\n'):
-                if ':' in line:
-                    key, value = line.lstrip('-* ').split(':', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    
-                    # Handle special placeholders
-                    if value == "derived from path":
-                        path = Path(solution_path)
-                        value = path.name.replace("_", "-").replace(" ", "-")
-                    
-                    interface[key] = value
-        
-        # Ensure we have at least type
-        if "type" not in interface:
-            type_map = {
-                "local": "function",
-                "docker": "http",
-                "modal": "modal",
-                "bentoml": "bentocloud",
-                "langgraph": "langgraph",
-            }
-            interface["type"] = type_map.get(strategy, "function")
+        # Add endpoint if available (from agent's deployment output)
+        if endpoint:
+            interface["endpoint"] = endpoint
+            interface["deployment_url"] = endpoint
         
         return interface
     

@@ -5,7 +5,7 @@
 # regardless of the underlying infrastructure (Local, Docker, Modal, etc.).
 #
 # The deployment flow:
-# 1. SolutionResult.deploy() -> DeploymentFactory.create()
+# 1. Expert.deploy(solution) -> DeploymentFactory.create()
 # 2. Selector chooses best strategy (if AUTO)
 # 3. Adapter transforms repo for the strategy
 # 4. Runner handles actual execution
@@ -15,6 +15,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
+
+from src.execution.solution import SolutionResult
 
 
 class DeployStrategy(Enum):
@@ -42,16 +44,14 @@ class DeployConfig:
     Configuration for deploying software.
     
     Attributes:
-        code_path: Path to the generated code/repository
-        goal: The original goal/objective
+        solution: The SolutionResult from Expert.build()
         env_vars: Environment variables to pass to the software
         port: Port to expose (for HTTP-based deployments)
         timeout: Execution timeout in seconds
         coding_agent: Which coding agent to use for adaptation
         validate: Whether to validate the adaptation
     """
-    code_path: str
-    goal: str
+    solution: SolutionResult
     env_vars: Dict[str, str] = None
     port: int = 8000
     timeout: int = 300
@@ -61,6 +61,17 @@ class DeployConfig:
     def __post_init__(self):
         if self.env_vars is None:
             self.env_vars = {}
+    
+    # Convenience accessors for backward compatibility
+    @property
+    def code_path(self) -> str:
+        """Path to the generated code/repository."""
+        return self.solution.code_path
+    
+    @property
+    def goal(self) -> str:
+        """The original goal/objective."""
+        return self.solution.goal
 
 
 @dataclass
@@ -120,7 +131,7 @@ class Software(ABC):
     All infrastructure details are hidden behind this interface.
     
     Usage:
-        software = solution.deploy()  # Returns Software
+        software = expert.deploy(solution)  # Returns Software
         result = software.run({"text": "hello"})  # Always works the same
         software.stop()
         

@@ -297,7 +297,7 @@ class Expert:
         strategy: DeployStrategy = DeployStrategy.AUTO,
         env_vars: Optional[Dict[str, str]] = None,
         port: int = 8000,
-        coding_agent: str = "aider",
+        coding_agent: str = "claude_code",
         validate: bool = True,
     ) -> Software:
         """
@@ -342,8 +342,7 @@ class Expert:
         print()
         
         config = DeployConfig(
-            code_path=solution.code_path,
-            goal=solution.goal,
+            solution=solution,
             env_vars=env_vars,
             port=port,
             coding_agent=coding_agent,

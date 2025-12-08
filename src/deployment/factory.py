@@ -3,15 +3,17 @@
 # Factory for creating deployed Software instances.
 # Handles the full deployment pipeline:
 # 1. Select strategy (if AUTO)
-# 2. Adapt the repo for the strategy
+# 2. Adapt and deploy (coding agent does both)
 # 3. Create appropriate runner
 # 4. Return unified Software instance
 #
+# The coding agent is responsible for:
+# - Creating deployment files
+# - Running the deploy command
+# - Reporting the endpoint URL
+#
 # Usage:
-#     from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
-#     
-#     config = DeployConfig(code_path="./solution", goal="My Goal")
-#     software = DeploymentFactory.create(DeployStrategy.AUTO, config)
+#     software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
 from typing import Optional, List
@@ -34,15 +36,12 @@ class DeploymentFactory:
     
     Handles the full deployment pipeline:
     1. Select strategy (if AUTO)
-    2. Adapt the repo for the strategy
+    2. Adapt and deploy (coding agent handles both)
     3. Create appropriate runner
     4. Return unified Software instance
     
-    Usage:
-        software = DeploymentFactory.create(
-            strategy=DeployStrategy.AUTO,
-            config=DeployConfig(code_path="./solution", goal="My Goal"),
-        )
+    The coding agent creates deployment files, runs the deploy command,
+    and reports the endpoint. No separate deployment step is needed.
     """
     
     @classmethod
@@ -78,45 +77,34 @@ class DeploymentFactory:
         
         print(f"[Deployment] Selected: {setting.strategy} ({setting.reasoning})")
         
-        # Phase 2: Adaptation
-        print(f"[Deployment] Phase 2: Adapting repository...")
+        # Phase 2: Adaptation (coding agent adapts AND deploys)
+        print(f"[Deployment] Phase 2: Adapting and deploying...")
         adaptation = cls._adapt_repo(config, setting, strategies)
         
         if not adaptation.success:
             raise RuntimeError(f"Adaptation failed: {adaptation.error}")
         
+        # Endpoint comes from the coding agent's output (it runs deployment)
+        endpoint = adaptation.run_interface.get("endpoint")
         print(f"[Deployment] Adaptation complete. Files changed: {len(adaptation.files_changed)}")
-        
-        # Phase 3: Deploy to cloud (if applicable)
-        endpoint = None
-        if setting.strategy in ["modal", "bentoml", "langgraph"]:
-            print(f"[Deployment] Phase 3: Deploying to {setting.strategy}...")
-            deploy_result = cls._deploy(config.code_path, setting.strategy, adaptation.deploy_script)
-            if deploy_result.get("success"):
-                endpoint = deploy_result.get("endpoint")
-                print(f"[Deployment] Deployed! Endpoint: {endpoint or 'N/A'}")
-            else:
-                print(f"[Deployment] Deploy warning: {deploy_result.get('error', 'Unknown')}")
-        
-        # Phase 4: Create Runner
-        print(f"[Deployment] Phase 4: Creating runner...")
-        # Update interface with endpoint if we got one from deployment
         if endpoint:
-            adaptation.run_interface["endpoint"] = endpoint
-            adaptation.run_interface["deployment_url"] = endpoint
+            print(f"[Deployment] Endpoint: {endpoint}")
+        
+        # Phase 3: Create Runner
+        print(f"[Deployment] Phase 3: Creating runner...")
         runner = cls._create_runner(config, setting, adaptation)
         
-        # Phase 5: Create unified Software
+        # Phase 4: Create unified Software
         info = DeploymentInfo(
             strategy=setting.strategy,
             provider=setting.provider,
             deploy_command=adaptation.deploy_script,
-            endpoint=endpoint or adaptation.run_interface.get("endpoint"),
+            endpoint=endpoint,
             adapted_files=adaptation.files_changed,
             resources=setting.resources,
         )
         
-        print(f"[Deployment] Ready. Deploy command: {adaptation.deploy_script}")
+        print(f"[Deployment] Ready.")
         
         return DeployedSoftware(config=config, runner=runner, info=info)
     
@@ -175,69 +163,10 @@ class DeploymentFactory:
         )
         
         return adapter.adapt(
-            solution_path=config.code_path,
-            goal=config.goal,
+            solution=config.solution,
             setting=setting,
-            strategies=strategies,
-            validate=config.validate,
+            allowed_strategies=strategies,
         )
-    
-    @classmethod
-    def _deploy(
-        cls,
-        code_path: str,
-        strategy: str,
-        deploy_script: str,
-    ) -> dict:
-        """
-        Execute deployment to cloud provider.
-        
-        Args:
-            code_path: Path to the adapted code
-            strategy: Deployment strategy (modal, bentoml, langgraph)
-            deploy_script: Command to run for deployment
-            
-        Returns:
-            Dict with success, endpoint, and error keys
-        """
-        import subprocess
-        import os
-        
-        result = {"success": False, "endpoint": None, "error": None}
-        
-        try:
-            # Run the deploy command
-            proc = subprocess.run(
-                deploy_script,
-                shell=True,
-                cwd=code_path,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env={**os.environ},
-            )
-            
-            if proc.returncode == 0:
-                result["success"] = True
-                # Try to extract endpoint from output
-                output = proc.stdout + proc.stderr
-                for line in output.split("\n"):
-                    if "https://" in line:
-                        # Extract URL from line
-                        import re
-                        urls = re.findall(r'https://[^\s<>"]+', line)
-                        if urls:
-                            result["endpoint"] = urls[0]
-                            break
-            else:
-                result["error"] = proc.stderr[:200] if proc.stderr else "Deploy failed"
-                
-        except subprocess.TimeoutExpired:
-            result["error"] = "Deploy timeout (300s)"
-        except Exception as e:
-            result["error"] = str(e)
-        
-        return result
     
     @classmethod
     def _create_runner(
