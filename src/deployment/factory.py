@@ -98,8 +98,8 @@ class DeploymentFactory:
         info = DeploymentInfo(
             strategy=setting.strategy,
             provider=setting.provider,
-            deploy_command=adaptation.deploy_script,
             endpoint=endpoint,
+            adapted_path=adaptation.adapted_path,
             adapted_files=adaptation.files_changed,
             resources=setting.resources,
         )
@@ -183,12 +183,13 @@ class DeploymentFactory:
         interface = adaptation.run_interface
         interface_type = interface.get("type", "function")
         strategy = setting.strategy
+        adapted_path = adaptation.adapted_path
         
         # Import runners from strategy packages
         if strategy == "local" or interface_type == "function":
             from src.deployment.strategies.local.runner import LocalRunner
             return LocalRunner(
-                code_path=config.code_path,
+                code_path=adapted_path,
                 module=interface.get("module", "main"),
                 callable=interface.get("callable", "predict"),
             )
@@ -199,26 +200,26 @@ class DeploymentFactory:
                 endpoint=interface.get("endpoint", f"http://localhost:{config.port}"),
                 predict_path=interface.get("path", "/predict"),
                 timeout=config.timeout,
-                code_path=config.code_path,
+                code_path=adapted_path,
             )
         
         elif strategy == "modal" or interface_type == "modal":
             from src.deployment.strategies.modal.runner import ModalRunner
-            app_name = interface.get("app_name", config.code_path.replace("/", "-").replace(".", "-"))
+            app_name = interface.get("app_name", adapted_path.replace("/", "-").replace(".", "-"))
             return ModalRunner(
                 app_name=app_name,
                 function_name=interface.get("callable", "predict"),
-                code_path=config.code_path,
+                code_path=adapted_path,
             )
         
         elif strategy == "bentoml" or interface_type == "bentocloud":
             from src.deployment.strategies.bentoml.runner import BentoMLRunner
-            deployment_name = interface.get("deployment_name", config.code_path.split("/")[-1])
+            deployment_name = interface.get("deployment_name", adapted_path.split("/")[-1])
             return BentoMLRunner(
                 deployment_name=deployment_name,
                 endpoint=interface.get("endpoint"),
                 predict_path=interface.get("path", "/predict"),
-                code_path=config.code_path,
+                code_path=adapted_path,
             )
         
         elif strategy == "langgraph" or interface_type == "langgraph":
@@ -226,14 +227,14 @@ class DeploymentFactory:
             return LangGraphRunner(
                 deployment_url=interface.get("deployment_url"),
                 assistant_id=interface.get("assistant_id", "agent"),
-                code_path=config.code_path,
+                code_path=adapted_path,
             )
         
         else:
             # Default to local runner
             from src.deployment.strategies.local.runner import LocalRunner
             return LocalRunner(
-                code_path=config.code_path,
+                code_path=adapted_path,
                 module="main",
                 callable="predict",
             )

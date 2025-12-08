@@ -100,12 +100,10 @@ class AdaptationResult:
     Produced by the Adapter, consumed by the Factory.
     """
     success: bool
-    adapted_path: str           # Path to adapted repo
-    deploy_script: str          # Command/script to deploy
+    adapted_path: str           # Path to adapted repo (copy of original)
     run_interface: Dict[str, Any]  # How to call .run() after deployment
     files_changed: List[str] = field(default_factory=list)
     error: Optional[str] = None
-    logs: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -117,8 +115,8 @@ class DeploymentInfo:
     """
     strategy: str                    # "local", "docker", "modal", etc.
     provider: Optional[str] = None   # "modal", "bentoml", etc.
-    deploy_command: str = ""         # Command to deploy
     endpoint: Optional[str] = None   # HTTP endpoint if applicable
+    adapted_path: str = ""           # Path to adapted code
     adapted_files: List[str] = field(default_factory=list)
     resources: Dict[str, Any] = field(default_factory=dict)
 

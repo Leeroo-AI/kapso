@@ -153,16 +153,16 @@ class DeployedSoftware(Software):
     # DEPLOYMENT INFO (for advanced users / debugging)
     # =========================================================================
     
-    def get_deploy_command(self) -> str:
+    def get_adapted_path(self) -> str:
         """
-        Get the command to manually deploy this software.
+        Get the path to the adapted code.
         
-        Useful for debugging or deploying outside this system.
+        This is a copy of the original solution, modified for deployment.
         
         Returns:
-            Deploy command string (e.g., "docker build -t solution .")
+            Path to adapted code directory
         """
-        return self._info.deploy_command
+        return self._info.adapted_path
     
     def get_endpoint(self) -> Optional[str]:
         """
@@ -183,8 +183,8 @@ class DeployedSoftware(Software):
         return {
             "strategy": self._info.strategy,
             "provider": self._info.provider,
-            "deploy_command": self._info.deploy_command,
             "endpoint": self._info.endpoint,
+            "adapted_path": self._info.adapted_path,
             "adapted_files": self._info.adapted_files,
             "resources": self._info.resources,
         }

@@ -101,10 +101,9 @@ class AdapterAgent:
             allowed_strategies: Optional list of allowed strategies
             
         Returns:
-            AdaptationResult with deploy script and run interface
+            AdaptationResult with run interface and adapted path
         """
-        logs: List[str] = []
-        logs.append(f"Adapting for {setting.strategy} deployment")
+        print(f"[Adapter] Adapting for {setting.strategy} deployment")
         
         # Extract from solution
         original_path = solution.code_path
@@ -116,15 +115,13 @@ class AdapterAgent:
             return AdaptationResult(
                 success=False,
                 adapted_path=original_path,
-                deploy_script="",
                 run_interface={},
                 error=f"Strategy '{setting.strategy}' not available. Options: {available}",
-                logs=logs,
             )
         
         # 1. Create adapted workspace (copy original, don't modify it)
         adapted_path = self._create_adapted_workspace(original_path, setting.strategy)
-        logs.append(f"Created adapted workspace: {adapted_path}")
+        print(f"[Adapter] Created adapted workspace: {adapted_path}")
         
         # Track endpoint extracted from agent output
         endpoint: Optional[str] = None
@@ -132,7 +129,6 @@ class AdapterAgent:
         
         # 2. Load target-specific instructions from registry
         target_instructions = self.registry.get_adapter_instruction(setting.strategy)
-        logs.append(f"Loaded instructions for {setting.strategy}")
         
         # 3. Create and run coding agent on the adapted workspace
         try:
@@ -144,7 +140,7 @@ class AdapterAgent:
             agent = CodingAgentFactory.create(config)
             agent.initialize(adapted_path)
             
-            logs.append(f"Initialized {self.coding_agent_type} agent")
+            print(f"[Adapter] Running {self.coding_agent_type} agent...")
             
             # Build prompt
             prompt = self._build_adaptation_prompt(
@@ -155,77 +151,68 @@ class AdapterAgent:
             
             # Execute coding agent (agent also runs deployment via Bash tool)
             result = agent.generate_code(prompt)
-            logs.append(f"Coding agent completed: success={result.success}")
             
             if not result.success:
                 return AdaptationResult(
                     success=False,
                     adapted_path=adapted_path,
-                    deploy_script="",
                     run_interface={},
                     error=result.error or "Coding agent failed",
-                    logs=logs,
                 )
             
             files_changed = result.files_changed
             agent_output = result.output
-            logs.append(f"Files changed: {files_changed}")
+            print(f"[Adapter] Files changed: {len(files_changed) if files_changed else 0}")
             
             # Extract endpoint URL from agent output
             endpoint = self._extract_endpoint_from_output(agent_output)
             if endpoint:
-                logs.append(f"Deployment endpoint extracted: {endpoint}")
+                print(f"[Adapter] Endpoint: {endpoint}")
             
             agent.cleanup()
             
         except (ImportError, ValueError) as e:
-            logs.append(f"Primary agent ({self.coding_agent_type}) not available: {e}")
+            print(f"[Adapter] Primary agent not available: {e}")
             files_changed, agent_output = self._run_fallback_agent(
-                adapted_path, goal, setting, target_instructions, logs
+                adapted_path, goal, setting, target_instructions
             )
             if files_changed is None:
                 return AdaptationResult(
                     success=False,
                     adapted_path=adapted_path,
-                    deploy_script="",
                     run_interface={},
                     error="Both primary and fallback agents failed",
-                    logs=logs,
                 )
             endpoint = self._extract_endpoint_from_output(agent_output)
             if endpoint:
-                logs.append(f"Deployment endpoint extracted: {endpoint}")
+                print(f"[Adapter] Endpoint: {endpoint}")
                 
         except Exception as e:
-            logs.append(f"Primary agent ({self.coding_agent_type}) error: {e}")
+            print(f"[Adapter] Primary agent error: {e}")
             files_changed, agent_output = self._run_fallback_agent(
-                adapted_path, goal, setting, target_instructions, logs
+                adapted_path, goal, setting, target_instructions
             )
             if files_changed is None:
                 return AdaptationResult(
                     success=False,
                     adapted_path=adapted_path,
-                    deploy_script="",
                     run_interface={},
                     error=str(e),
-                    logs=logs,
                 )
             endpoint = self._extract_endpoint_from_output(agent_output)
             if endpoint:
-                logs.append(f"Deployment endpoint extracted: {endpoint}")
+                print(f"[Adapter] Endpoint: {endpoint}")
         
         # 4. Build run interface (how to call the deployed software)
         run_interface = self._build_run_interface(setting.strategy, endpoint)
         
-        logs.append(f"Adaptation complete at: {adapted_path}")
+        print(f"[Adapter] Complete: {adapted_path}")
         
         return AdaptationResult(
             success=True,
             adapted_path=adapted_path,
-            deploy_script="",  # Agent already ran deployment
             run_interface=run_interface,
             files_changed=files_changed if isinstance(files_changed, list) else [],
-            logs=logs,
         )
     
     def _run_fallback_agent(
@@ -234,7 +221,6 @@ class AdapterAgent:
         goal: str,
         setting: DeploymentSetting,
         target_instructions: str,
-        logs: List[str],
     ) -> tuple:
         """
         Run the fallback coding agent when primary agent fails.
@@ -244,12 +230,11 @@ class AdapterAgent:
             goal: The original goal/objective
             setting: Selected deployment configuration
             target_instructions: Strategy-specific instructions
-            logs: Log list to append to
         
         Returns:
             Tuple of (files_changed, agent_output), or (None, "") if fails
         """
-        logs.append(f"Attempting fallback agent: {self.fallback_agent_type}")
+        print(f"[Adapter] Trying fallback agent: {self.fallback_agent_type}")
         
         try:
             fallback_config = CodingAgentFactory.build_config(
@@ -259,8 +244,6 @@ class AdapterAgent:
             fallback_agent = CodingAgentFactory.create(fallback_config)
             fallback_agent.initialize(adapted_path)
             
-            logs.append(f"Initialized fallback agent: {self.fallback_agent_type}")
-            
             prompt = self._build_adaptation_prompt(
                 goal=goal,
                 setting=setting,
@@ -268,21 +251,19 @@ class AdapterAgent:
             )
             
             result = fallback_agent.generate_code(prompt)
-            logs.append(f"Fallback agent completed: success={result.success}")
             
             if not result.success:
-                logs.append(f"Fallback agent failed: {result.error}")
+                print(f"[Adapter] Fallback agent failed: {result.error}")
                 return None, ""
             
             files_changed = result.files_changed
             agent_output = result.output
-            logs.append(f"Fallback agent files changed: {files_changed}")
             
             fallback_agent.cleanup()
             return (files_changed if isinstance(files_changed, list) else [], agent_output)
             
         except Exception as e:
-            logs.append(f"Fallback agent ({self.fallback_agent_type}) also failed: {e}")
+            print(f"[Adapter] Fallback agent also failed: {e}")
             return None, ""
     
     def _build_adaptation_prompt(
