@@ -29,7 +29,7 @@ modes:
     search_strategy:
       type: "llm_tree_search"
       params:
-        reasoning_effort: "high"
+        reasoning_effort: "medium"
         code_debug_tries: 15
         node_expansion_limit: 2
         node_expansion_new_childs_count: 5
@@ -38,16 +38,15 @@ modes:
         experimentation_per_run: 1
         per_step_maximum_solution_count: 10
         exploration_budget_percent: 30
-        idea_generation_model: "gemini/gemini-2.5-pro"
+        idea_generation_model: "gpt-5"
         idea_generation_ensemble_models:
-          - "o3"
-          - "o3"
-          - "gemini/gemini-2.5-pro"
+          - "gpt-5"
+          - "gpt-5"
     
     # Coding agent configuration
     coding_agent:
       type: "aider"
-      model: "o3"
+      model: "gpt-5-mini"
     
     # Context manager configuration
     context_manager:

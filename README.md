@@ -230,7 +230,7 @@ Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
 ## Architecture
 
 ```
-mle_expert_coding/
+praxium/
 ├── src/
 │   ├── expert.py              # Main Expert API
 │   ├── cli.py                 # CLI entry point

@@ -22,6 +22,7 @@ searches:
           navigation_steps: 3
           expansion_limit: 3
           search_node_type: "specialization"
+          navigations_model: "gpt-5-mini"
       
       # Deep search - more exploration for complex problems
       DEEP_SEARCH:

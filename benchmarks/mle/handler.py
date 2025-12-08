@@ -29,6 +29,7 @@ class MleBenchHandler(ProblemHandler):
     def __init__(self, competition_id="spooky-author-identification", fetch_huggingface_models: bool = True):
         # No additional context needed - problem context is dynamically generated
         super().__init__(additional_context="")
+        self.llm = llm_utils.LLMBackend()
         self.competition_id = competition_id
         self.problem_id = competition_id
         self.fetch_huggingface_models = fetch_huggingface_models
@@ -37,7 +38,6 @@ class MleBenchHandler(ProblemHandler):
         self.maximize_scoring = not (grade_csv(Path("dummy.csv"), registry.get_competition(self.competition_id)).is_lower_better)
         self._set_problem_context()
         self.got_medal = False
-        self.llm = llm_utils.LLMBackend()
         self.current_stage = "FULL TRAINING"
         print(self.get_problem_context())
 
@@ -52,6 +52,7 @@ class MleBenchHandler(ProblemHandler):
             with open(cache_file, 'w') as f: 
                 f.write(self.raw_problem_context)
         self.data_size = int(subprocess.check_output(['du', '-sb', self.data_dir]).split()[0]) / (1024 ** 3) if os.path.exists(self.data_dir) else 0.0
+        self.raw_problem_context += "\n\nYou are forbidden to use torchaudio, mmcv, openmem, faiss, and pcdet as they are incompatible."
         self.problem_context = self.raw_problem_context + f""" \n\n\n
             # Problem Requirements:
             - you are participating in a kaggle competition and your goal is to solve the competition problem and get the best ranking.
@@ -62,7 +63,7 @@ class MleBenchHandler(ProblemHandler):
             - Do not run the code directly, he should only write the code.
 
             # Coding style:
-            - At the start of the code you must install the necessary packages to run the code if not already installed. Do not show any output and log of the installation progress.
+            - At the start of the code you must install the necessary packages to run the code if not already installed. Do not show any output and log of the installation progress. Do not reinstall existing packages.
             - Your code must be in python, highly structured and modularized and in more than one file that each one has no more than 100 lines of code.
             - Always first run the code in debug mode to check if the code is working correctly and then run the code in full mode. 
                 -- It is crucial to test every part of the code in debug mode so do not discard any part in it, even writing final_submission.csv at the end.
@@ -73,7 +74,8 @@ class MleBenchHandler(ProblemHandler):
                 -- Use the size and number of data files and folders, and the model to have a better estimate on run time.
             
             # Debug mode
-                - Your code must support a debug mode that runs the code with a small proportion of the data (no more than 100 instances but containing all outputs types, for example startified sampling and at least 10 instace from each classes) and all time consuming parameters must be decreased in debug mode. for example no more than 1 epoch in debug mode.
+                - Your code must support a debug mode that runs the code with a small proportion of the data (no more than 100 instances but containing all outputs types, for example startified sampling and at least 5 instace from each classes and if too many classes and labels exists (for example more than 500) use a small subset of these classes (at most 100 classes) in debug and all time consuming parameters must be decreased in debug mode. for example no more than 1 epoch in debug mode.
+                    -- in debug mode sample before train validation split.
                     -- Running debug mode will be like 'python main.py --debug'
                     -- Running full mode will be like 'python main.py'
                     -- ** make sure to test everything from EDA, to training and even running predictions on the final_submission.csv in the debug mode**.
@@ -87,13 +89,19 @@ class MleBenchHandler(ProblemHandler):
                 -- Always print a few columns sample submission file to understand the output format.
                 -- Print size, shape, and content of a few rows.
                 -- Print the content of Problem Data Directory. 
+                -- Print anything specific to the problem that can help to better understand the problem for future solutions.
+                -- Print anything suspiceous based on previous experiments outputs.
+                -- Print any kind of information that can be important in input data, For example, token distribution, image shapes distribution, audio lenght and etc.
             - At the end of the code you must have an error analysis section, It should have anything that can be helpful for future analysis:
                 -- In case of ensembling, you must print the accuracy of each model and the ensemble accuracy.
                 -- Prediction distribution must be printed.
                 -- Incorrect and bad predictions must be printed but not just ids, some information about their features and outputs.
                     --- For images and audios, the average, min, max, median of pixels or data can be the mentioned information.
-            - Do not consider these as something static. you should always update it based on the new data and new information.
-
+                -- Always print a samples of validation prediction and validation true label.
+                -- Always print a few samples of final_submission.csv
+                -- print confusion matrix in cases that it helps.
+            - Print any information that can help to find errors in model. For example top 5 important features (specially in tree classifiers) for understanding train validation leakage and overfitting, candidate features to add and etc.
+            - Do not consider EDAs as something important that should be improved it based on the recent abd best experiments and information every time. In other words when generating solutions, always think on how to add items and improve the EDA of parent solution and previous experiments for finding issues and better solutions.
 
             # ML requirements:
             - When generating new ideas and solutions, consider the output of previous experiments and use it to improve them and address their issues.
@@ -101,18 +109,17 @@ class MleBenchHandler(ProblemHandler):
             - Make sure to read the knowledge base and use it. Its knowledge is very important and can help you to solve the problem.
             - Always avoid running with OOF, cross validation & heavy folding, and multi seeds running as they are time consuming and doesn't help to the performance.
             - It is critical to always consider early stopping and always have schedule for learning rate if using neural network models since this helps to converge to the optimal solution in lower epochs. and consider more descriptive metric for early stopping, for example loss is better than accuracy.
-            - Make sure to define check points and save the result of some heavy steps like after training models, in case it failed in the middle of the run. debug mode should test saving but its file must have a debug tag except for the final_submission.csv.
-                -- It is critical to have version control for the checkpoints and saved models. So, in case of any change, use the version strings and run them again. 
-                -- It is critical to use caching and middle step saving with version to avoid rerunning the same steps.
-                - You may use gpu only for transformers and neural networks and not for other ml models.
             - Make sure to use more well known libraries and models like torch (do not use tensorflow and keras), transformers, sklearn, xgboost and catboost.
                 -- Never use LightGB unless working with sparse matrix of sklearn.
                 -- Never and never train a heavy model from scratch. always find a way to load pretrained weights.
             - It is ok to put small pieces of codes in the solution generation for the better understanding of coder when helpful or necessary.
+            - When splitting train and validation make sure about any kind of leakage. Time-based leakages, content, similar noise, similar type of content (for example similar images and similar speaker voices in train and test), or make sure the models are prune to this kind of leakage. 
+            - Use Large and strong models in ensemble and train them long enough with early stopping. finally use a meta-model that is robust to overfitting. in MINI Training stage, avoid heavy ensemble, start with only one large and strong model.
+            - One of the most important and highly critical requirements is stratified, smartly and problem aware separatining 10% of the training data for test and train nothing on it. not even hyperparameters. at the end of code report only a single float which is the evaluation metric and score for this test set inside <score> and </score> tags. e.g. <score>0.96</score>.
 
             # STAGE
                 - You have below stages make sure to act accordingly as provided in your solution generation. Note that the default STAGE is "FULL TRAINING".
-                    -- STAGE "MINI TRAINING": Startified sampling {round(min(10/self.data_size*100, 10), 1)}% of training dataset and running only on it. Also make sure to take at least 10 sampels from each class and at least 100 total samples.
+                    -- STAGE "MINI TRAINING": Startified sampling {round(min(10/self.data_size*100, 10), 1)}% of training dataset and running only on it. Also make sure to take at least 5 sampels from each class (if more than 2000 classes, do not choose 5 from all, sample 1000 classes randomly and choose from them but make sure revert to full classes in FULL TRAINING) and at least 100 total samples.
                         -- This STAGE is used at early stages of experimentation for faster exploration only and only in big datasets (bigger than > 30 gb).
                     -- STAGE "FULL TRAINING": Training on the Whole dataset.
                         -- This Stage is the default stage of training. working on the whole dataset.
@@ -128,6 +135,7 @@ class MleBenchHandler(ProblemHandler):
                 - Make sure to consider these stages in your pruning, solution generation, selection. For example dont prune efficient solutions in MINI stage while their score may be low compared to FULL ones.
                 - When the STAGE changes make sure to consider the fact that scoring is changed, also make sure to generate solutions and select solutions that performed well the in the previous and exploration stage.
                 - Your code must have a hyper parameter STAGE that handles the sampling, note that it is not handled by arguments and it is hardcoded on top of the code. you should change it in the code according to the problem needs.
+
             # IO
             - You have access to three directories:
                 -- Problem Data Directory: which keeps all the data (trian, test, additional) relevant to the problem and should not be changed.
@@ -138,21 +146,23 @@ class MleBenchHandler(ProblemHandler):
                 -- Experiment Output Data Directory: Everything that the implemented code writes (final_submission, checkpoints, processed data) should be in this direcory.
             - It is of utmost importance and highly critical to completely control output for avoiding printing any warning or redundant output.
             - Print the time for any time consuming stages , for example after each epoch when training big datasets.
+            - When doing a process like loading, caching, or etc. make sure to avoid printing progress bar and set verbose to False and 0 in these cases.
+            - It is critical to be careful when reading and writing non-english characters from train, test and csv data. for example use encoding "utf-8-sig" and follow sample submission about their exact encoding and format.
 
             # Resources
-            - You have access to 1 gpu with 40 gb memory, 20 cpus and 150 gb of ram. 
-                -- it is critical to utilize these resources efficiently. consider these in your code. for example batch size and number of workers and n_jobs.
-                    -- For batch size based on data and model decide it during code to take full utilization of gpu, but make sure to set the epoch size accordingly.
+            - You have access to one h100 gpu with 75 gb memory, 30 cpus and 300 gb of ram. 
+                -- it is critical to utilize these resources efficiently. consider these in your code. fully utilize gpu, and num_workers and n_jobs to 30.
+                    -- For batch size based on data and model decide it during code to take full utilization of gpu and its memory, but make sure to set the epoch size accordingly.
                 -- Make sure to set batch size in a way to maximize gpu memory usage but not overflow it. For example start with a big batch size and if get an out of gpu memory error, in a try and catch reduce batch size and try again but never switch to cpu for training big models like neural networks and transformers.
-                -- If using GPU make sure to set the default cuda device as cuda:{CUDA_DEVICE}, and validate it to make sure it is working.
+                -- If using GPU make sure to set the default cuda device as \" device = torch.device("cuda:{CUDA_DEVICE}"), torch.cuda.set_device(device)\".
                 -- For training transformers and neural networks make sure you are using gpu to its fullests. Under no circumstance train on cpu for these heavy models.
-                -- It is critical to when using gpu for xgboost or catboost or lightgbm, set device to {CUDA_DEVICE}.  
+                -- It is critical and of utmost importance to never use any gpu for xgboost, catboost, and lightgbm and always use cpu.  
+                -- make sure to empty gpu cache after every run torch.cuda.empty_cache().
         """ + (f"""
             # Hugging Face Models and Datasets:
-            Consider these pretrained models and datasets from huggingface and previous similar competitions winners if helpful otherwise ignore completely ignore them:\n\n{self._get_models_n_datasets_from_huggingface()}\n\n
+            Consider these pretrained models and datasets from huggingface if helpful otherwise ignore completely ignore them:\n\n{self._get_models_n_datasets_from_huggingface()}\n\n
             - If dataset is useful for augmentation, do not limit training to its train set and use the test set for augmentation too.
             - Note that you should ensemble these models with mentioned models in the knowledge base and other models as well.
-            - Lieterature methods are previous competition winners, make sure to consider them always if relevant to the problem.
         """ if self.fetch_huggingface_models else "")
 
     
@@ -202,11 +212,15 @@ class MleBenchHandler(ProblemHandler):
             if is_valid:
                 grading_results = grade_csv(submission_path, competition)
                 print(str(grading_results))
-                score = grading_results.score
+                match = re.search(r'<score>(.*?)</score>', output)
+                if match:
+                    score = float(match.group(1))
+                else:
+                    score = -1e3 if self.maximize_scoring else 1e3
                 self.got_medal = self.got_medal or grading_results.any_medal
                 if self.got_medal:
                     print("Got a medal!")
-                    dest_dir = Path(os.path.expanduser(f"~/nadaf/mle_res/{MLE_SEED}/{self.competition_id}"))
+                    dest_dir = Path(os.path.expanduser(f"~/mle_res/{MLE_SEED}/{self.competition_id}"))
                     dest_dir.mkdir(parents=True, exist_ok=True)
                     dest_path = dest_dir / "final_submission.csv"
                     shutil.copy2(str(submission_path), str(dest_path))
@@ -228,7 +242,7 @@ class MleBenchHandler(ProblemHandler):
         return str(grade_csv(submission_path, competition))
     
     def get_current_stage(self, budget_progress):
-        if budget_progress < 35 and self.data_size > 30:
+        if budget_progress < 20 and self.data_size > 30:
             self.current_stage = "MINI TRAINING"
             return "MINI TRAINING"
         elif budget_progress > 80:
@@ -269,7 +283,7 @@ class MleBenchHandler(ProblemHandler):
             print(line, end='', flush=True)
             sys.stdout.flush()
             output_lines.append(line)
-            if len(output_lines) > 5000:
+            if len(output_lines) > 25000:
                 process.kill()
         try:
             process.wait(timeout) 
@@ -278,8 +292,8 @@ class MleBenchHandler(ProblemHandler):
             print("Process timed out and was killed.")
         end_time = time.time()
         execution_time = end_time - start_time
-        if len(output_lines) > 200:
-            output_lines = output_lines[:100] + [" ...\n"] + output_lines[-100:]
+        if len(output_lines) > 400:
+            output_lines = output_lines[:200] + [" ...\n"] + output_lines[-200:]
         output = ''.join(output_lines)
         if process.returncode != 0:
             run_had_error = True
@@ -473,8 +487,7 @@ class MleBenchHandler(ProblemHandler):
             - Return the models and datasets in a dictionaries.
             - Note that if you can't find any related model or dataset, return an empty dictionary. among all the available models and datasets, return the most similar ones to the problem.
             - Do note write anything extra, just the dictionary.
-            - Provide at most 5 models, 3 literature methods and 1 dataset. These models and datasets must be specific and the most similar ones to the problem. If none found return the most downloaded models in the domain of problem (e.g. speech recognition, text generation, etc.)""" + """
-            - Provide at least 2 model and 2 literature methods.
+            - Provide at least 2 and at most 5 models and 1 dataset. These models and datasets must be specific and the most similar ones to the problem. If none found return the most downloaded models in the domain of problem (e.g. speech recognition, text generation, etc.)""" + """
             - Note that model size should not be bigger than 10 B parameters.
             - Do not drop a dataset if it is for a model and vice versa. make sure to return both if relevant to the the problem.
             - Search throughly and make sure you are not missing any model or dataset.
@@ -487,11 +500,13 @@ class MleBenchHandler(ProblemHandler):
                         "name": "model_name",
                         "description": "summary of the model",
                         "number_of_parameters": number of parameters of the model,
+                        "usage": "python code of usage",
                     },
                     {
                         "name": "model_name",
                         "description": "summary of the model",
                         "number_of_parameters": number of parameters of the model,
+                        "usage": "python code of usage",
                     }
                 ],
                 "datasets": [
@@ -504,17 +519,6 @@ class MleBenchHandler(ProblemHandler):
                         "description": "dataset_description",
                     },
                 ]
-                "literature methods": [
-                    {
-                        "title": "solution_name",
-                        "description": "summary of method, whole pipeline from data handling, models, training and test.",
-                        "problem name": "problem_name",
-                    },
-                    {
-                        "title": "solution_name",
-                        "description": "summary of method, whole pipeline from data handling, models, training and test.",
-                        "problem name": "problem_name",
-                    }
             } \n """ + f"Problem statement: \n\n + {self.raw_problem_context}"
         
         messages = [{"role": "user", "content": prompt}]
@@ -535,7 +539,7 @@ class MleBenchHandler(ProblemHandler):
             messages=[{
                 "role": "user", 
                 "content": cleaned_output + """
-                clean the above outputs, remove repeating models, datasets and literature methods but keep everything else specially content. 
+                clean the above outputs, remove repeating models, datasets but keep everything else specially content. 
                 your final output must be a single dictionary like below:
                 {
                     "models": [
@@ -543,11 +547,13 @@ class MleBenchHandler(ProblemHandler):
                             "name": "model_name",
                             "description": "summary of the model",
                             "number_of_parameters": number of parameters of the model,
+                            "usage": "python code of usage",
                         },
                         {
                             "name": "model_name",
                             "description": "summary of the model",
                             "number_of_parameters": number of parameters of the model,
+                            "usage": "python code of usage",
                         }
                     ],
                     "datasets": [
@@ -560,17 +566,6 @@ class MleBenchHandler(ProblemHandler):
                             "description": "dataset_description",
                         },
                     ]
-                    "literature methods": [
-                        {
-                            "title": "solution_name",
-                            "description": "summary of method, whole pipeline from data handling, models, training and test.",
-                            "problem name": "problem_name",
-                        },
-                        {
-                            "title": "solution_name",
-                            "description": "summary of method, whole pipeline from data handling, models, training and test.",
-                            "problem name": "problem_name",
-                        }
             """
             }]
         )
