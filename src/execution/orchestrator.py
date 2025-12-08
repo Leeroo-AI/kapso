@@ -36,7 +36,6 @@ class OrchestratorAgent:
     
     Args:
         problem_handler: Handler for the problem being solved
-        search_strategy: Pre-configured SearchStrategy instance (optional)
         config_path: Path to benchmark-specific config.yaml file
         mode: Configuration mode to use (if None, uses default_mode from config)
         coding_agent: Coding agent to use (overrides config if specified)
@@ -46,7 +45,6 @@ class OrchestratorAgent:
     def __init__(
         self, 
         problem_handler: ProblemHandler,
-        search_strategy: Optional[SearchStrategy] = None,
         config_path: Optional[str] = None,
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
@@ -275,7 +273,7 @@ class OrchestratorAgent:
             
             # Run one iteration of search strategy
             self.search_strategy.run(experiment_context, budget_progress=budget_progress)
-            
+
             print(
                 f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
                 '#' * 100,
@@ -284,5 +282,6 @@ class OrchestratorAgent:
                 '\n', 
                 '#' * 100
             )
-        
+            self.search_strategy.export_checkpoint()
+
         return self.search_strategy.get_best_experiment()

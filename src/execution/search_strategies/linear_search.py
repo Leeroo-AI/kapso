@@ -4,6 +4,8 @@
 # implement it, and keep track of the best result.
 # No tree structure - just iterate and improve.
 
+import os
+import pickle
 from typing import List, Optional
 
 from src.execution.context_manager.types import ContextData
@@ -30,24 +32,26 @@ class LinearSearch(SearchStrategy):
         - idea_generation_model: Model for solution generation (default: gpt-4.1-mini)
     """
     
-    def __init__(self, config: SearchStrategyConfig):
+    def __init__(self, config: SearchStrategyConfig, workspace_folder: Optional[str] = None, import_from_checkpoint: bool = False):
         """Initialize linear search strategy."""
-        super().__init__(config)
+        super().__init__(config, workspace_folder, import_from_checkpoint)
         
         # Config params
         self.code_debug_tries = self.params.get("code_debug_tries", 3)
         self.idea_generation_model = self.params.get("idea_generation_model", "gpt-4.1-mini")
         
         # State
-        self.experiment_history: List[ExperimentResult] = []
+        if not import_from_checkpoint: 
+            self.experiment_history: List[ExperimentResult] = []
         self.iteration_count = 0
-        
+
         print(f"[LinearSearch] Initialized:")
         print(f"  - code_debug_tries: {self.code_debug_tries}")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
         
         # Initialize workspace with empty main file
-        self._initialize_workspace()
+        if workspace_folder is None:
+            self._initialize_workspace()
     
     def _initialize_workspace(self) -> None:
         """Create initial empty main file."""
@@ -56,7 +60,7 @@ class LinearSearch(SearchStrategy):
         )
         session.generate_code(
             f"<problem>\n{self.problem_handler.get_problem_context()}\n</problem>\n\n"
-            + "Create an empty main.py with a main() function placeholder. No comments."
+            + "Create an empty main with a main() function placeholder. No comments."
         )
         self.workspace.finalize_session(session)
         self.workspace.repo.git.stash()
@@ -128,31 +132,30 @@ class LinearSearch(SearchStrategy):
                 history_summary += f"\nBest so far (score={best.score}): {best.solution[:300]}..."
         
         prompt = f"""Generate a solution for this problem. Be specific and detailed.
+                PROBLEM:
+                {context.problem}
 
-PROBLEM:
-{context.problem}
+                {history_summary}
 
-{history_summary}
+                KNOWLEDGE BASE:
+                {context.kg_results if context.kg_results else "No additional knowledge available."}
 
-KNOWLEDGE BASE:
-{context.kg_results if context.kg_results else "No additional knowledge available."}
+                Requirements:
+                - Provide a complete, implementable solution
+                - Include specific steps, methods, and hyperparameters
+                - If there are previous experiments, improve upon the best one
+                - Consider the current budget progress: {budget_progress:.1f}%
 
-Requirements:
-- Provide a complete, implementable solution
-- Include specific steps, methods, and hyperparameters
-- If there are previous experiments, improve upon the best one
-- Consider the current budget progress: {budget_progress:.1f}%
+                Format your solution with:
+                # Core Idea: 
+                [Brief description]
 
-Format your solution with:
-# Core Idea: 
-[Brief description]
+                # Solution Steps:
+                [Detailed implementation steps]
 
-# Solution Steps:
-[Detailed implementation steps]
-
-# Hyperparameters:
-[Specific values to use]
-"""
+                # Hyperparameters:
+                [Specific values to use]
+        """
         
         response = self.llm.llm_completion(
             model=self.idea_generation_model,
@@ -198,3 +201,15 @@ Format your solution with:
             self.workspace.switch_branch(best.branch_name)
         else:
             print("[LinearSearch] No successful experiments to checkout")
+
+    def export_checkpoint(self) -> None:
+        with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
+            pickle.dump(self.experiment_history, f)
+
+    def import_checkpoint(self) -> None:
+        try:
+            with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
+                self.experiment_history = pickle.load(f)
+        except FileNotFoundError:
+            print("[LinearSearch] No checkpoint found")
+            raise FileNotFoundError(f"[LinearSearch] No checkpoint found in {self.workspace_dir}")

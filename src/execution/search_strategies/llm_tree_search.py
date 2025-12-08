@@ -5,6 +5,7 @@
 
 import json
 import os
+import pickle
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -63,9 +64,9 @@ class LlmSteeredTreeSearch(SearchStrategy):
         - idea_generation_ensemble_models: Models for ensemble generation
     """
     
-    def __init__(self, config: SearchStrategyConfig):
+    def __init__(self, config: SearchStrategyConfig, workspace_folder: Optional[str] = None, import_from_checkpoint: bool = False):
         """Initialize LLM-steered tree search."""
-        super().__init__(config)
+        super().__init__(config, workspace_folder, import_from_checkpoint)
         
         # Extract config params with defaults
         params = config.params
@@ -91,19 +92,21 @@ class LlmSteeredTreeSearch(SearchStrategy):
 
         # Tree state
         self.experimentation_count = 0
-        self.experiment_history: List[ExperimentResult] = []
-        self.nodes: List[Node] = []
-        
-        # Initialize root nodes
-        for i in range(self.node_expansion_limit):
-            self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch()))
+
+        if not import_from_checkpoint:
+            self.experiment_history: List[ExperimentResult] = []
+            self.nodes: List[Node] = []
+            # Initialize root nodes
+            for i in range(self.node_expansion_limit):
+                self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch()))
         
         # Thread locks
         self.experiment_history_lock = threading.Lock()
         self.nodes_lock = threading.Lock()
 
         # Initialize with empty main file
-        self._initialize_workspace()
+        if workspace_folder is None:
+            self._initialize_workspace()
 
     def _initialize_workspace(self) -> None:
         """Create initial empty main file in workspace."""
@@ -522,3 +525,20 @@ class LlmSteeredTreeSearch(SearchStrategy):
         
         with open(filepath, 'w') as f:
             json.dump(nodes_data, f, indent=2)
+
+    def export_checkpoint(self) -> None:
+        with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
+            pickle.dump({
+                "experiment_history": self.experiment_history,
+                "nodes": self.nodes,
+            }, f)
+
+    def import_checkpoint(self) -> None:
+        try:
+            with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
+                checkpoint = pickle.load(f)
+            self.experiment_history = checkpoint["experiment_history"]
+            self.nodes = checkpoint["nodes"]
+        except FileNotFoundError:
+            print("[LlmSteeredTreeSearch] No checkpoint found")
+            raise FileNotFoundError(f"[LlmSteeredTreeSearch] No checkpoint found in {self.workspace_dir}")

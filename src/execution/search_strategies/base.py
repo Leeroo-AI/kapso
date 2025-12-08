@@ -69,20 +69,30 @@ class SearchStrategy(ABC):
     - _implement_n_debug(): Full implement + debug loop
     """
     
-    def __init__(self, config: SearchStrategyConfig):
+    WORKSPACE_FOLDER_BASE = 'tmp/search_strategy_workspace'
+    
+    def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
         """
         Initialize search strategy.
         
         Args:
             config: SearchStrategyConfig with problem_handler, llm, coding_agent_config, params
+            workspace_dir: Path to the workspace directory (optional)
         """
         self.problem_handler = config.problem_handler
         self.llm = config.llm
         self.params = config.params
         
         # Create experiment workspace with coding agent config
-        self.workspace = ExperimentWorkspace(coding_agent_config=config.coding_agent_config)
-        
+        if workspace_dir is None:
+            self.workspace_dir = os.path.join(self.WORKSPACE_FOLDER_BASE, str(uuid.uuid4()))
+        else:
+            self.workspace_dir = workspace_dir
+        self.workspace = ExperimentWorkspace(coding_agent_config=config.coding_agent_config, workspace_dir=self.workspace_dir)
+
+        if import_from_checkpoint:
+            self.import_checkpoint()
+
         # Shared state for tracking errors
         self.previous_errors: List[str] = []
         self.recent_error_count = 10
@@ -124,7 +134,17 @@ class SearchStrategy(ABC):
     def checkout_to_best_experiment_branch(self) -> None:
         """Checkout git to the best experiment's branch."""
         pass
-    
+
+    @abstractmethod
+    def export_checkpoint(self) -> None:
+        """Export checkpoint to the workspace folder."""
+        pass
+
+    @abstractmethod
+    def import_checkpoint(self) -> None:
+        """Import checkpoint from the workspace folder."""
+        pass
+
     # =========================================================================
     # Shared Implementation - Available to all subclasses
     # =========================================================================
