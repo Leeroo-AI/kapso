@@ -33,7 +33,7 @@ solution = expert.build(
 )
 
 # Deploy and run
-software = solution.deploy(strategy=DeployStrategy.LOCAL)
+software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"ticker": "AAPL", "price": 150.0})
 software.stop()
 
@@ -73,7 +73,7 @@ solution = quant.build(
 )
 
 # 4. Deploy and run
-software = solution.deploy(strategy=DeployStrategy.LOCAL)
+software = quant.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"ticker": "AAPL", "price": 150.0})
 
 # 5. Learn from the build experience
@@ -103,7 +103,7 @@ triage_agent = doctor_ai.build(
 )
 
 # 3. Deploy to cloud
-software = triage_agent.deploy(strategy=DeployStrategy.MODAL)
+software = doctor_ai.deploy(triage_agent, strategy=DeployStrategy.MODAL)
 diagnosis = software.run({"audio": "<binary_audio_data>", "patient_id": "12345"})
 
 # 4. Learn from the successful build

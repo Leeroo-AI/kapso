@@ -2,7 +2,7 @@
 #
 # The primary user-facing API for the Expert Agent system.
 # Provides a clean interface for the "Brain to Binary" workflow:
-#   Expert.learn() -> Expert.build() -> Solution.deploy() -> Software.run()
+#   Expert.learn() -> Expert.build() -> Expert.deploy() -> Software.run()
 #
 # Usage:
 #     from src.expert import Expert, Source, DeployStrategy
@@ -10,7 +10,7 @@
 #     expert = Expert(domain="healthcare")
 #     expert.learn(Source.Repo("https://github.com/..."), target_kg="https://skills.leeroo.com")
 #     solution = expert.build(goal="Create a triage agent")
-#     software = solution.deploy(strategy=DeployStrategy.LOCAL)
+#     software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
 import os
@@ -51,7 +51,7 @@ class Expert:
         expert = Expert(domain="quantitative_finance")
         expert.learn(Source.Repo("https://github.com/alpaca/alpaca-py"), target_kg="https://skills.leeroo.com")
         solution = expert.build(goal="Create a momentum trading bot")
-        software = solution.deploy()
+        software = expert.deploy(solution)
         result = software.run({"ticker": "AAPL"})
         
         # Advanced usage with evaluator and stop condition
@@ -290,6 +290,67 @@ class Expert:
         print(f"Total cost: ${cost:.3f}")
         
         return solution
+    
+    def deploy(
+        self,
+        solution: SolutionResult,
+        strategy: DeployStrategy = DeployStrategy.AUTO,
+        env_vars: Optional[Dict[str, str]] = None,
+        port: int = 8000,
+        coding_agent: str = "aider",
+        validate: bool = True,
+    ) -> Software:
+        """
+        Deploy a solution to create running software.
+        
+        Uses the deployment pipeline:
+        1. Selector: Analyzes solution and selects strategy (if AUTO)
+        2. Adapter: Transforms code for the target deployment
+        3. Runner: Creates execution backend
+        
+        Args:
+            solution: The SolutionResult from build()
+            strategy: Where to deploy (AUTO, LOCAL, DOCKER, MODAL, BENTOML)
+                - AUTO: System analyzes code and chooses best strategy
+                - LOCAL: Run as local Python process (fastest)
+                - DOCKER: Run in Docker container (isolated)
+                - MODAL: Deploy to Modal.com (serverless, GPU)
+                - BENTOML: Deploy with BentoML (production ML)
+            env_vars: Environment variables to pass to the software
+            port: Port to expose (for HTTP-based deployments)
+            coding_agent: Which coding agent for adaptation (aider, gemini, etc.)
+            validate: Whether to validate the adaptation before returning
+            
+        Returns:
+            Software instance with unified interface:
+            - .run(inputs) -> {"status": "success", "output": ...}
+            - .stop() -> cleanup resources
+            - .logs() -> execution logs
+            - .is_healthy() -> health check
+            
+        Example:
+            solution = expert.build(goal="Create a trading bot")
+            software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+            result = software.run({"ticker": "AAPL"})
+            software.stop()
+        """
+        print(f"\n{'='*60}")
+        print(f"DEPLOYING: {solution.goal}")
+        print(f"{'='*60}")
+        print(f"  Strategy: {strategy}")
+        print(f"  Code path: {solution.code_path}")
+        print()
+        
+        config = DeployConfig(
+            code_path=solution.code_path,
+            goal=solution.goal,
+            env_vars=env_vars,
+            port=port,
+            coding_agent=coding_agent,
+            validate=validate,
+        )
+        
+        return DeploymentFactory.create(strategy, config)
     
     def _build_problem_description(
         self, 
