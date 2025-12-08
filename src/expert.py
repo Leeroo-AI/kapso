@@ -296,16 +296,14 @@ class Expert:
         solution: SolutionResult,
         strategy: DeployStrategy = DeployStrategy.AUTO,
         env_vars: Optional[Dict[str, str]] = None,
-        port: int = 8000,
         coding_agent: str = "claude_code",
-        validate: bool = True,
     ) -> Software:
         """
         Deploy a solution to create running software.
         
         Uses the deployment pipeline:
         1. Selector: Analyzes solution and selects strategy (if AUTO)
-        2. Adapter: Transforms code for the target deployment
+        2. Adapter: Adapts and deploys via coding agent
         3. Runner: Creates execution backend
         
         Args:
@@ -317,9 +315,7 @@ class Expert:
                 - MODAL: Deploy to Modal.com (serverless, GPU)
                 - BENTOML: Deploy with BentoML (production ML)
             env_vars: Environment variables to pass to the software
-            port: Port to expose (for HTTP-based deployments)
-            coding_agent: Which coding agent for adaptation (aider, gemini, etc.)
-            validate: Whether to validate the adaptation before returning
+            coding_agent: Which coding agent for adaptation
             
         Returns:
             Software instance with unified interface:
@@ -344,9 +340,7 @@ class Expert:
         config = DeployConfig(
             solution=solution,
             env_vars=env_vars,
-            port=port,
             coding_agent=coding_agent,
-            validate=validate,
         )
         
         return DeploymentFactory.create(strategy, config)

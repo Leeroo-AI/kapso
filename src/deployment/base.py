@@ -46,23 +46,19 @@ class DeployConfig:
     Attributes:
         solution: The SolutionResult from Expert.build()
         env_vars: Environment variables to pass to the software
-        port: Port to expose (for HTTP-based deployments)
         timeout: Execution timeout in seconds
         coding_agent: Which coding agent to use for adaptation
-        validate: Whether to validate the adaptation
     """
     solution: SolutionResult
     env_vars: Dict[str, str] = None
-    port: int = 8000
     timeout: int = 300
-    coding_agent: str = "claude_code"  # Use Claude Code for adaptation
-    validate: bool = True
+    coding_agent: str = "claude_code"
     
     def __post_init__(self):
         if self.env_vars is None:
             self.env_vars = {}
     
-    # Convenience accessors for backward compatibility
+    # Convenience accessors
     @property
     def code_path(self) -> str:
         """Path to the generated code/repository."""

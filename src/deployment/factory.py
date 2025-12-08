@@ -73,7 +73,7 @@ class DeploymentFactory:
             if strategies and strategy.value not in strategies:
                 raise ValueError(f"Strategy '{strategy.value}' not in allowed: {strategies}")
             print(f"[Deployment] Phase 1: Using specified strategy: {strategy.value}")
-            setting = cls._create_setting(strategy, config.code_path)
+            setting = cls._create_setting(strategy)
         
         print(f"[Deployment] Selected: {setting.strategy} ({setting.reasoning})")
         
@@ -124,19 +124,18 @@ class DeploymentFactory:
         from src.deployment.selector.agent import SelectorAgent
         
         selector = SelectorAgent()
-        return selector.select(config.code_path, config.goal, strategies=strategies)
+        return selector.select(config.solution, strategies=strategies)
     
     @classmethod
     def _create_setting(
         cls, 
         strategy: DeployStrategy,
-        code_path: str,
     ) -> DeploymentSetting:
         """Create setting from explicit strategy (user-specified)."""
         from src.deployment.selector.agent import SelectorAgent
         
         selector = SelectorAgent()
-        return selector._create_setting_for_strategy(strategy.value, code_path)
+        return selector._create_setting_for_strategy(strategy.value)
     
     @classmethod
     def _adapt_repo(
@@ -197,7 +196,7 @@ class DeploymentFactory:
         elif strategy == "docker" or interface_type == "http":
             from src.deployment.strategies.docker.runner import DockerRunner
             return DockerRunner(
-                endpoint=interface.get("endpoint", f"http://localhost:{config.port}"),
+                endpoint=interface.get("endpoint", "http://localhost:8000"),
                 predict_path=interface.get("path", "/predict"),
                 timeout=config.timeout,
                 code_path=adapted_path,

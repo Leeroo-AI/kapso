@@ -1,7 +1,7 @@
 """
 Deployment Selector Agent
 
-Uses LLM to analyze repositories and select optimal deployment strategies.
+Uses coding agent to analyze repositories and select optimal deployment strategies.
 Loads strategy information from the strategies/ registry.
 
 Example:
@@ -10,22 +10,23 @@ Example:
     setting = selector.select(code_path, goal, strategies=["local", "modal"])
 """
 
-from __future__ import annotations
-
 import json
 import re
-from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.core.llm import LLMBackend
 from src.deployment.base import DeploymentSetting
 from src.deployment.strategies import StrategyRegistry
+from src.execution.coding_agents.factory import CodingAgentFactory
+from src.execution.solution import SolutionResult
+
+# Path to the selection prompt template
+SELECTION_PROMPT_PATH = Path(__file__).parent / "selection_prompt.md"
 
 
 class SelectorAgent:
     """
-    LLM-based agent for deployment strategy selection.
+    Coding agent for deployment strategy selection.
     
     Analyzes repositories and determines:
     - Deployment strategy (local, docker, modal, bentoml, langgraph)
@@ -33,63 +34,58 @@ class SelectorAgent:
     
     Uses StrategyRegistry to discover available strategies and their
     selector_instruction.md files.
-    
-    Attributes:
-        model: LLM model for selection
-        registry: Strategy registry for discovering available options
     """
     
-    _CORRECTION_PROMPT_PATH = Path(__file__).parent / "correction_prompt.md"
-    
-    def __init__(self, model: str = "claude-sonnet-4-20250514"):
+    def __init__(
+        self,
+        coding_agent_type: str = "claude_code",
+        model: str = "claude-opus-4-5",
+    ):
         """
         Initialize selector agent.
         
         Args:
-            model: LLM model for selection
+            coding_agent_type: Coding agent to use (claude_code, aider, gemini)
+            model: LLM model for the coding agent
         """
+        self.coding_agent_type = coding_agent_type
         self.model = model
         self.registry = StrategyRegistry.get()
     
-    @cached_property
-    def _correction_prompt_template(self) -> str:
-        """Load correction prompt template (cached)."""
-        if self._CORRECTION_PROMPT_PATH.exists():
-            return self._CORRECTION_PROMPT_PATH.read_text()
-        return "Extract valid JSON from this text:\n{text}"
-    
     def select(
         self,
-        code_path: str,
-        goal: str,
+        solution: SolutionResult,
         strategies: Optional[List[str]] = None,
         resources: Optional[Dict[str, Any]] = None,
     ) -> DeploymentSetting:
         """
-        Select deployment configuration for a repository.
+        Select deployment configuration for a solution.
         
         Args:
-            code_path: Path to the solution directory
-            goal: What the code is supposed to do
+            solution: The SolutionResult from Expert.build()
             strategies: Optional list of strategies to consider (default: all)
             resources: Optional user-specified resources
             
         Returns:
             Complete deployment setting
         """
+        # Extract from solution
+        code_path = solution.code_path
+        goal = solution.goal
+        
         # Get available strategies (filtered if specified)
         available = self.registry.list_strategies(allowed=strategies)
         
         if not available:
             raise ValueError(f"No valid strategies found. Requested: {strategies}")
         
-        # If only one option, skip LLM
+        # If only one option, skip agent
         if len(available) == 1:
             strategy = available[0]
             return self._create_setting(strategy, resources, "Single option selected")
         
-        # Query LLM to select best strategy
-        result = self._query_llm(code_path, goal, available)
+        # Use coding agent to select best strategy
+        result = self._query_agent(code_path, goal, available)
         
         if result:
             strategy = result.get("strategy", "local")
@@ -173,14 +169,14 @@ class SelectorAgent:
                 return resources
         return None
     
-    def _query_llm(
+    def _query_agent(
         self,
         code_path: str,
         goal: str,
         strategies: List[str],
     ) -> Optional[Dict[str, Any]]:
         """
-        Query LLM to select best strategy.
+        Use coding agent to analyze code and select best strategy.
         
         Args:
             code_path: Repository path
@@ -188,23 +184,30 @@ class SelectorAgent:
             strategies: Available strategies to choose from
             
         Returns:
-            Parsed LLM response or None on failure
+            Parsed response or None on failure
         """
         prompt = self._build_prompt(goal, strategies)
         
         try:
-            llm = LLMBackend()
-            response = llm.llm_completion(
+            config = CodingAgentFactory.build_config(
+                agent_type=self.coding_agent_type,
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                workspace=code_path,
             )
+            agent = CodingAgentFactory.create(config)
+            agent.initialize(code_path)
             
-            if response:
-                return self._parse_response(response)
+            print(f"[Selector] Running {self.coding_agent_type} agent...")
+            result = agent.generate_code(prompt)
+            
+            agent.cleanup()
+            
+            if result.success and result.output:
+                return self._parse_response(result.output)
             return None
             
         except Exception as e:
-            print(f"[Selector] LLM error: {e}")
+            print(f"[Selector] Agent error: {e}")
             return None
     
     def _build_prompt(self, goal: str, strategies: List[str]) -> str:
@@ -216,37 +219,13 @@ class SelectorAgent:
             instruction = self.registry.get_selector_instruction(name)
             strategy_descriptions.append(instruction)
         
-        return f"""Analyze this project and select the best deployment strategy.
-
-## Goal
-{goal}
-
-## Available Strategies
-
-{chr(10).join(strategy_descriptions)}
-
-## Your Task
-
-Based on the goal, select the most appropriate deployment strategy.
-Consider:
-- Complexity of the solution
-- Resource requirements (GPU, memory)
-- Whether it's an agent/LangGraph application
-- Production vs development needs
-
-## Output Format
-
-Return ONLY a JSON object:
-```json
-{{
-    "strategy": "<strategy_name>",
-    "resources": {{"gpu": "...", "memory": "..."}},
-    "reasoning": "<brief explanation>"
-}}
-```
-
-The strategy MUST be one of: {', '.join(strategies)}
-"""
+        template = SELECTION_PROMPT_PATH.read_text()
+        
+        return template.format(
+            goal=goal,
+            strategy_descriptions="\n".join(strategy_descriptions),
+            allowed_strategies=", ".join(strategies),
+        )
     
     def _parse_response(self, output: str) -> Optional[Dict[str, Any]]:
         """Extract JSON from LLM output."""
@@ -275,14 +254,13 @@ The strategy MUST be one of: {', '.join(strategies)}
     def _create_setting_for_strategy(
         self,
         strategy: str,
-        code_path: str,
     ) -> DeploymentSetting:
         """Create setting for explicit strategy (for factory use)."""
         return self._create_setting(strategy, None, f"User specified {strategy}")
     
-    def explain(self, code_path: str, goal: str) -> str:
+    def explain(self, solution: SolutionResult) -> str:
         """Get human-readable explanation of selection."""
-        setting = self.select(code_path, goal)
+        setting = self.select(solution)
         
         return "\n".join([
             "Deployment Selection Analysis",
