@@ -60,7 +60,7 @@ class ExperimentWorkspace:
         # Initialize main branch
         if 'main' not in [ref.name for ref in self.repo.heads]:
             self.create_branch('main')
-            with open(os.path.join(self.workspace_folder, '.gitignore'), 'w') as f:
+            with open(os.path.join(self.workspace_dir, '.gitignore'), 'w') as f:
                 f.write('sessions/*\n*.log')
             self.repo.git.add(['.gitignore'])
             self.repo.git.commit('-m', 'chore: initialize repository')
@@ -123,7 +123,7 @@ class ExperimentWorkspace:
         """
         print(f"Creating experiment session for branch {branch_name} with parent {parent_branch_name}")
         
-        session_folder = os.path.join(self.workspace_folder, 'sessions', branch_name)
+        session_folder = os.path.join(self.workspace_dir, 'sessions', branch_name)
         
         # Create session with coding agent config
         session = ExperimentSession(
@@ -156,7 +156,7 @@ class ExperimentWorkspace:
         
         Removes the workspace folder and all its contents.
         """
-        shutil.rmtree(self.workspace_folder, ignore_errors=True)
+        shutil.rmtree(self.workspace_dir, ignore_errors=True)
 
     def get_cumulative_cost(self) -> float:
         """
@@ -173,7 +173,7 @@ if __name__ == "__main__":
     print("Testing ExperimentWorkspace with default config...")
     
     workspace = ExperimentWorkspace.with_default_config()
-    print(f"Workspace: {workspace.workspace_folder}")
+    print(f"Workspace: {workspace.workspace_dir}")
     print(f"Agent type: {workspace.coding_agent_config.agent_type}")
     
     session = workspace.create_experiment_session("test_branch")

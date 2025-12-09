@@ -305,7 +305,7 @@ PYTHONPATH=. python -m benchmarks.mle.runner
 ```bash
 # Install ALE-Bench
 git clone https://github.com/SakanaAI/ALE-Bench.git
-cd ALE-Bench && pip install . && pip install ".[eval]" && cd ..
+cd ALE-Bench && pip install . && pip install ".[eval]" && bash ./scripts/docker_build_202301.sh 1000 1000 && cd ..
 
 # Run
 PYTHONPATH=. python -m benchmarks.ale.runner

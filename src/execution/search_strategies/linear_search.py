@@ -32,9 +32,9 @@ class LinearSearch(SearchStrategy):
         - idea_generation_model: Model for solution generation (default: gpt-4.1-mini)
     """
     
-    def __init__(self, config: SearchStrategyConfig, workspace_folder: Optional[str] = None, import_from_checkpoint: bool = False):
+    def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
         """Initialize linear search strategy."""
-        super().__init__(config, workspace_folder, import_from_checkpoint)
+        super().__init__(config, workspace_dir, import_from_checkpoint)
         
         # Config params
         self.code_debug_tries = self.params.get("code_debug_tries", 3)

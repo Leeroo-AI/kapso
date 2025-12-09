@@ -104,6 +104,8 @@ class SearchStrategyFactory:
         coding_agent_config: CodingAgentConfig,
         params: Optional[Dict[str, Any]] = None,
         preset: Optional[str] = None,
+        workspace_dir: Optional[str] = None,
+        start_from_checkpoint: bool = False,
     ) -> SearchStrategy:
         """
         Create a search strategy instance.
@@ -115,6 +117,8 @@ class SearchStrategyFactory:
             coding_agent_config: Config for coding agent
             params: Strategy-specific parameters (overrides preset)
             preset: Preset name to use (e.g., "MINIMAL", "PRODUCTION")
+            workspace_dir: Path to workspace directory (optional)
+            start_from_checkpoint: Whether to import from checkpoint
         
         Returns:
             Configured SearchStrategy instance
@@ -140,7 +144,11 @@ class SearchStrategyFactory:
             params=resolved_params,
         )
         
-        return cls._registry[strategy_type_lower](config)
+        return cls._registry[strategy_type_lower](
+            config,
+            workspace_dir=workspace_dir,
+            import_from_checkpoint=start_from_checkpoint,
+        )
     
     @classmethod
     def _resolve_params(

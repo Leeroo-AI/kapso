@@ -64,9 +64,9 @@ class LlmSteeredTreeSearch(SearchStrategy):
         - idea_generation_ensemble_models: Models for ensemble generation
     """
     
-    def __init__(self, config: SearchStrategyConfig, workspace_folder: Optional[str] = None, import_from_checkpoint: bool = False):
+    def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
         """Initialize LLM-steered tree search."""
-        super().__init__(config, workspace_folder, import_from_checkpoint)
+        super().__init__(config, workspace_dir, import_from_checkpoint)
         
         # Extract config params with defaults
         params = config.params
@@ -105,7 +105,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         self.nodes_lock = threading.Lock()
 
         # Initialize with empty main file
-        if workspace_folder is None:
+        if workspace_dir is None:
             self._initialize_workspace()
 
     def _initialize_workspace(self) -> None:
@@ -477,6 +477,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             system_prompt=f""" 
                 You are a world class problem solver. Choose {final_solution_count} best solutions from the list.
                 Output must be a list of solution ids between <output> and </output> tags.
+                <output> [1, 2, 3] </output>
             """,
             user_message=f"""
                 # Problem: \n {context.problem} \n\n 
@@ -539,6 +540,10 @@ class LlmSteeredTreeSearch(SearchStrategy):
                 checkpoint = pickle.load(f)
             self.experiment_history = checkpoint["experiment_history"]
             self.nodes = checkpoint["nodes"]
+            print(f"[LlmSteeredTreeSearch] Checkpoint imported successfully from {self.workspace_dir}")
+            print(f"[LlmSteeredTreeSearch] Experiment history: {len(self.experiment_history)}")
+            print(f"[LlmSteeredTreeSearch] Nodes: {len(self.nodes)}")
+            print( f"[LlmSteeredTreeSearch] last Node: {self.nodes[-1]}")
         except FileNotFoundError:
             print("[LlmSteeredTreeSearch] No checkpoint found")
             raise FileNotFoundError(f"[LlmSteeredTreeSearch] No checkpoint found in {self.workspace_dir}")

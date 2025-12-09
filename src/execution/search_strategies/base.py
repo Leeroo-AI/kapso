@@ -7,6 +7,8 @@
 # 2. Implement abstract methods: run(), get_experiment_history(), get_best_experiment()
 # 3. Register with @register_strategy("your_name") decorator in factory.py
 
+import os
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
