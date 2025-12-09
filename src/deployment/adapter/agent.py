@@ -291,17 +291,25 @@ class AdapterAgent:
         Build the prompt for the coding agent.
         
         Loads template from adaptation_prompt.md and fills in placeholders.
+        
+        Note: Uses .replace() instead of .format() because the template and
+        target_instructions contain Python code examples with dictionary literals
+        like {"status": "success"}, which .format() would incorrectly interpret
+        as format placeholders.
         """
         template = self.adaptation_prompt_path.read_text()
         
-        return template.format(
-            goal=goal,
-            strategy=setting.strategy,
-            provider=setting.provider or "N/A",
-            interface=setting.interface,
-            resources=setting.resources,
-            target_instructions=target_instructions,
-        )
+        # Use .replace() instead of .format() to avoid interpreting
+        # dictionary literals in code examples as format placeholders
+        result = template
+        result = result.replace("{goal}", goal)
+        result = result.replace("{strategy}", setting.strategy)
+        result = result.replace("{provider}", setting.provider or "N/A")
+        result = result.replace("{interface}", setting.interface)
+        result = result.replace("{resources}", str(setting.resources))
+        result = result.replace("{target_instructions}", target_instructions)
+        
+        return result
     
     def _build_run_interface(
         self,

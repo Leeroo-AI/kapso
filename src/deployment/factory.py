@@ -124,7 +124,7 @@ class DeploymentFactory:
         from src.deployment.selector.agent import SelectorAgent
         
         selector = SelectorAgent()
-        return selector.select(config.solution, strategies=strategies)
+        return selector.select(config.solution, allowed_strategies=strategies)
     
     @classmethod
     def _create_setting(

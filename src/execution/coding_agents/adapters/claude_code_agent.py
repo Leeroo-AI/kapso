@@ -42,7 +42,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     Configuration (agent_specific):
     - claude_md_path: Path to CLAUDE.md file (optional)
     - planning_mode: True (default) - use planning
-    - timeout: 300 (default) - CLI timeout in seconds
+    - timeout: 3600 (default) - CLI timeout in seconds (1 hour)
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
     
     Environment:
@@ -57,7 +57,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Get Claude Code-specific settings
         self._claude_md_path = config.agent_specific.get("claude_md_path", None)
         self._planning_mode = config.agent_specific.get("planning_mode", True)
-        self._timeout = config.agent_specific.get("timeout", 300)
+        self._timeout = config.agent_specific.get("timeout", 3600)
         self._allowed_tools = config.agent_specific.get(
             "allowed_tools", 
             ["Edit", "Read", "Write", "Bash"]
