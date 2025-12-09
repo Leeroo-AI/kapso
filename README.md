@@ -35,7 +35,12 @@ solution = expert.build(
 # Deploy and run
 software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"ticker": "AAPL", "price": 150.0})
-software.stop()
+
+# Lifecycle management
+software.stop()   # Stop the deployment
+software.start()  # Restart the deployment
+result = software.run({"ticker": "MSFT", "price": 400.0})  # Run again
+software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
 expert.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
@@ -341,6 +346,41 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 | `Evaluator` | Score solutions |
 | `StopCondition` | Control when to stop |
 | `ProblemHandler` | Problem-specific logic |
+
+## Software Lifecycle
+
+After deploying, the returned `Software` instance supports full lifecycle management:
+
+```python
+software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+
+# Run
+result = software.run({"input": "data"})
+
+# Check health
+if software.is_healthy():
+    print("Service is running")
+
+# Stop (cleanup resources)
+software.stop()
+
+# Restart (re-initialize)
+software.start()
+
+# Run again after restart
+result = software.run({"input": "more data"})
+
+# Final cleanup
+software.stop()
+```
+
+| Method | Description |
+|--------|-------------|
+| `run(inputs)` | Execute with input data, returns `{"status": "success/error", "output": ...}` |
+| `stop()` | Stop and cleanup resources (containers, modules, cloud deployments) |
+| `start()` | Restart a stopped deployment (re-deploy for cloud, reload for local) |
+| `is_healthy()` | Check if the service is running and ready |
+| `logs()` | Get execution logs for debugging |
 
 ## Running Documentation Locally
 

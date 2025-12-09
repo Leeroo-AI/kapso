@@ -1,0 +1,16 @@
+service: "service:QAService"
+
+labels:
+  owner: expert-agent
+  project: qa-bentoml
+
+include:
+  - "*.py"
+  - "requirements.txt"
+
+python:
+  requirements_txt: "./requirements.txt"
+
+docker:
+  distro: debian
+  python_version: "3.11"

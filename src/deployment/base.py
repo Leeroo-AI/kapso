@@ -203,6 +203,21 @@ class Software(ABC):
         pass
     
     @abstractmethod
+    def start(self) -> None:
+        """
+        Start or restart a stopped deployment.
+        
+        This method re-initializes the deployment after stop() was called.
+        Behavior varies by strategy:
+        - LOCAL: Reloads the Python module
+        - DOCKER: Creates and starts a new container
+        - MODAL: Re-lookups the Modal function
+        - BENTOML: Re-deploys using deploy.py
+        - LANGGRAPH: Reconnects to the platform
+        """
+        pass
+    
+    @abstractmethod
     def logs(self) -> str:
         """
         Get execution logs.

@@ -6,7 +6,9 @@
 # Usage:
 #     software = solution.deploy()  # Returns DeployedSoftware
 #     result = software.run({"input": "data"})  # Unified interface
-#     software.stop()
+#     software.stop()   # Stop and cleanup
+#     software.start()  # Restart
+#     result = software.run({"input": "more data"})  # Run again
 
 from typing import Any, Dict, List, Optional, Union
 
@@ -133,6 +135,21 @@ class DeployedSoftware(Software):
             self._runner.stop()
             self._running = False
             self._logs.append("Stopped")
+    
+    def start(self) -> None:
+        """
+        Start or restart a stopped deployment.
+        
+        Re-initializes the deployment by calling the runner's start() method.
+        After calling start(), the software can be used again with run().
+        """
+        if not self._running:
+            self._logs.append("Starting...")
+            self._runner.start()
+            self._running = True
+            self._logs.append("Started")
+        else:
+            self._logs.append("Already running, skipping start()")
     
     def logs(self) -> str:
         """Get execution logs from both software and runner."""

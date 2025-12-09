@@ -119,14 +119,31 @@ class LocalRunner(Runner):
             Result from the function
         """
         if self._fn is None:
-            raise RuntimeError("Function not loaded. Call _load() first.")
+            raise RuntimeError("Function not loaded. Call start() to restart.")
         
         self._logs.append(f"Calling {self.callable_name} with inputs")
         return self._fn(inputs)
     
+    def start(self) -> None:
+        """
+        Start or restart the runner.
+        
+        Re-loads the module and function. Can be called after stop()
+        to restart the runner, or to reload the module if it changed.
+        """
+        self._logs.append("Starting/restarting runner...")
+        self._load()
+        self._logs.append("Runner started")
+    
     def stop(self) -> None:
-        """Clean up the loaded module."""
+        """
+        Stop and cleanup the loaded module.
+        
+        Unloads the module from sys.modules and clears references.
+        Can be restarted with start().
+        """
         self._fn = None
+        self._module = None
         if self.module_name in sys.modules:
             del sys.modules[self.module_name]
         self._logs.append("Stopped")

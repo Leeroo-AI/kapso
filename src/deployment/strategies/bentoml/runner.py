@@ -1,14 +1,18 @@
 # BentoML Runner
 #
 # Executes software by calling BentoCloud deployed endpoints.
-# For BENTOML deployment strategy with cloud hosting.
+# Manages BentoCloud deployment lifecycle using bentoml CLI.
 #
 # Usage:
-#     runner = BentoMLRunner(deployment_name="my-service")
+#     runner = BentoMLRunner(deployment_name="my-service", code_path="/path/to/adapted/repo")
 #     result = runner.run({"input": "data"})
+#     runner.stop()  # Terminates the BentoCloud deployment
+#     runner.start()  # Re-deploys from code_path
 
 import os
-from typing import Any, Dict, List, Union
+import re
+import subprocess
+from typing import Any, Dict, List, Optional, Union
 
 from src.deployment.strategies.base import Runner
 
@@ -17,12 +21,20 @@ class BentoMLRunner(Runner):
     """
     Runs by calling a BentoCloud deployed service.
     
-    This runner provides the interface to BentoCloud deployments.
-    It handles authentication and API calls to the deployed service.
+    Manages BentoCloud deployment lifecycle using CLI commands:
+    - start(): Re-deploy from code_path using deploy script
+    - stop(): Terminate deployment via `bentoml deployment terminate`
+    - run(): Call the service endpoint via HTTP
     
     Usage:
-        runner = BentoMLRunner(deployment_name="text-classifier")
+        runner = BentoMLRunner(
+            deployment_name="text-classifier",
+            endpoint="https://text-classifier.bentoml.ai",
+            code_path="/path/to/adapted/repo"
+        )
         result = runner.run({"text": "hello"})
+        runner.stop()   # Terminates deployment
+        runner.start()  # Re-deploys and gets new endpoint
     """
     
     def __init__(
@@ -38,9 +50,9 @@ class BentoMLRunner(Runner):
         
         Args:
             deployment_name: Name of the BentoCloud deployment
-            endpoint: BentoCloud endpoint URL (auto-detected if not provided)
+            endpoint: BentoCloud endpoint URL
             predict_path: Path for prediction endpoint
-            code_path: Path to the code directory (for deploy command)
+            code_path: Path to the adapted code directory (for re-deployment)
             **kwargs: Additional parameters (ignored)
         """
         self.deployment_name = deployment_name
@@ -48,56 +60,220 @@ class BentoMLRunner(Runner):
         self.code_path = code_path
         self._endpoint = endpoint
         self._api_key = os.environ.get("BENTO_CLOUD_API_KEY")
-        self._api_endpoint = os.environ.get("BENTO_CLOUD_API_ENDPOINT", "https://cloud.bentoml.com")
         self._deployed = False
         self._logs: List[str] = []
         
-        self._connect()
-    
-    def _connect(self) -> None:
-        """Try to connect to the BentoCloud deployment."""
-        if not self._api_key:
-            self._logs.append("BENTO_CLOUD_API_KEY not set")
-            self._logs.append(f"To deploy: cd {self.code_path} && python deploy.py")
-            return
-        
-        if not self._endpoint:
-            try:
-                self._endpoint = self._discover_endpoint()
-            except Exception as e:
-                self._logs.append(f"Could not discover endpoint: {e}")
-                return
-        
+        # If endpoint provided, mark as deployed
         if self._endpoint:
             self._deployed = True
             self._logs.append(f"Connected to BentoCloud: {self._endpoint}")
+        else:
+            self._logs.append("No endpoint provided - call start() to deploy")
     
-    def _discover_endpoint(self) -> str:
-        """Discover the deployment endpoint from BentoCloud."""
+    def start(self) -> None:
+        """
+        Start or restart the BentoCloud deployment.
+        
+        Runs the deploy script from code_path to create a new deployment.
+        Parses the output to extract the new endpoint URL.
+        """
+        self._logs.append(f"Starting BentoCloud deployment from {self.code_path}...")
+        
+        if not self.code_path:
+            self._logs.append("No code_path specified, cannot deploy")
+            return
+        
+        if not os.path.exists(self.code_path):
+            self._logs.append(f"Code path does not exist: {self.code_path}")
+            return
+        
+        # Look for deploy script
+        deploy_script = os.path.join(self.code_path, "deploy.py")
+        if not os.path.exists(deploy_script):
+            self._logs.append(f"Deploy script not found: {deploy_script}")
+            self._logs.append("Trying bentoml deploy command...")
+            self._deploy_with_bentoml_cli()
+            return
+        
         try:
-            import requests
+            self._logs.append(f"Running: python deploy.py in {self.code_path}")
             
-            headers = {
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            }
+            result = subprocess.run(
+                ["python", "deploy.py"],
+                cwd=self.code_path,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 min timeout for deployment
+            )
             
-            api_url = f"{self._api_endpoint}/api/v1/deployments/{self.deployment_name}"
-            response = requests.get(api_url, headers=headers, timeout=10)
+            output = result.stdout + result.stderr
+            self._logs.append(f"Deploy output:\n{output[-500:]}")  # Last 500 chars
             
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("endpoint") or data.get("url")
-            
-            self._logs.append(f"Deployment not found: {self.deployment_name}")
-            return None
-            
-        except ImportError:
-            self._logs.append("requests package required. Run: pip install requests")
-            return None
+            if result.returncode == 0:
+                # Try to extract deployment name from output
+                deploy_name = self._extract_deployment_name(output)
+                if deploy_name:
+                    self.deployment_name = deploy_name
+                    self._logs.append(f"New deployment: {deploy_name}")
+                
+                # Fetch endpoint from BentoCloud API
+                endpoint = self._fetch_endpoint_from_deployment()
+                if endpoint:
+                    self._endpoint = endpoint
+                    self._deployed = True
+                    self._logs.append(f"Deployment successful! Endpoint: {self._endpoint}")
+                else:
+                    # Fallback: try to extract from output
+                    endpoint = self._extract_endpoint(output)
+                    if endpoint:
+                        self._endpoint = endpoint
+                        self._deployed = True
+                        self._logs.append(f"Deployment successful! Endpoint: {self._endpoint}")
+                    else:
+                        self._logs.append("Deployment completed but couldn't extract endpoint")
+                        self._deployed = True
+            else:
+                self._logs.append(f"Deploy failed with code {result.returncode}")
+                    
+        except FileNotFoundError:
+            self._logs.append("Python not found")
+        except subprocess.TimeoutExpired:
+            self._logs.append("Timeout waiting for deployment (5 min)")
         except Exception as e:
-            self._logs.append(f"API error: {e}")
+            self._logs.append(f"Error during deployment: {e}")
+    
+    def _deploy_with_bentoml_cli(self) -> None:
+        """Fallback: Deploy using bentoml deploy command."""
+        try:
+            self._logs.append(f"Running: bentoml deploy in {self.code_path}")
+            
+            result = subprocess.run(
+                ["bentoml", "deploy", "."],
+                cwd=self.code_path,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            
+            output = result.stdout + result.stderr
+            self._logs.append(f"Deploy output:\n{output[-500:]}")
+            
+            if result.returncode == 0:
+                endpoint = self._extract_endpoint(output)
+                if endpoint:
+                    self._endpoint = endpoint
+                    self._deployed = True
+                    self._logs.append(f"Deployment successful! Endpoint: {self._endpoint}")
+                else:
+                    self._deployed = True
+                    self._logs.append("Deployment completed but couldn't extract endpoint")
+            else:
+                self._logs.append(f"bentoml deploy failed with code {result.returncode}")
+                
+        except FileNotFoundError:
+            self._logs.append("bentoml CLI not found. Install with: pip install bentoml")
+        except subprocess.TimeoutExpired:
+            self._logs.append("Timeout waiting for bentoml deploy")
+        except Exception as e:
+            self._logs.append(f"Error during bentoml deploy: {e}")
+    
+    def _extract_deployment_name(self, output: str) -> Optional[str]:
+        """Extract deployment name from deploy output."""
+        # Look for patterns like 'Created deployment "qa-service-87iv"'
+        patterns = [
+            r'[Cc]reated deployment ["\']([^"\']+)["\']',
+            r'deployment ["\']([^"\']+)["\']',
+            r'qa-service-[a-z0-9]+',  # Common naming pattern
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, output)
+            if match:
+                return match.group(1) if match.lastindex else match.group(0)
+        
+        return None
+    
+    def _fetch_endpoint_from_deployment(self) -> Optional[str]:
+        """Fetch endpoint URL from BentoCloud deployment info."""
+        if not self.deployment_name:
             return None
+        
+        try:
+            result = subprocess.run(
+                ["bentoml", "deployment", "get", self.deployment_name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            
+            if result.returncode == 0:
+                # Look for endpoint_urls in the output
+                match = re.search(r'https://[a-zA-Z0-9-]+\S*\.bentoml\.ai', result.stdout)
+                if match:
+                    return match.group(0)
+        except Exception as e:
+            self._logs.append(f"Could not fetch endpoint: {e}")
+        
+        return None
+    
+    def _extract_endpoint(self, output: str) -> Optional[str]:
+        """Extract endpoint URL from deployment output."""
+        # Common patterns for BentoCloud endpoint URLs
+        patterns = [
+            r'https://[a-zA-Z0-9-]+[a-zA-Z0-9-]*\.mt-[a-z0-9]+\.bentoml\.ai',  # Most specific
+            r'https://[a-zA-Z0-9-]+\..*\.bentoml\.ai',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, output, re.IGNORECASE)
+            if match:
+                endpoint = match.group(0)
+                endpoint = endpoint.rstrip('.,;:')
+                return endpoint
+        
+        return None
+    
+    def stop(self) -> None:
+        """
+        Terminate the BentoCloud deployment.
+        
+        Uses `bentoml deployment terminate <name>` to stop the deployment.
+        Can be restarted later with start() which will re-deploy.
+        """
+        self._logs.append(f"Terminating BentoCloud deployment: {self.deployment_name}...")
+        
+        # Clear local state
+        self._deployed = False
+        self._endpoint = None
+        
+        if not self.deployment_name:
+            self._logs.append("No deployment name specified, skipping termination")
+            return
+        
+        try:
+            # Use bentoml CLI to terminate the deployment
+            result = subprocess.run(
+                ["bentoml", "deployment", "terminate", self.deployment_name],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            
+            if result.returncode == 0:
+                self._logs.append(f"BentoCloud deployment {self.deployment_name} terminated successfully")
+                if result.stdout:
+                    self._logs.append(f"Output: {result.stdout.strip()}")
+            else:
+                self._logs.append(f"Terminate returned code {result.returncode}")
+                if result.stderr:
+                    self._logs.append(f"Error: {result.stderr.strip()}")
+                    
+        except FileNotFoundError:
+            self._logs.append("bentoml CLI not found. Install with: pip install bentoml")
+        except subprocess.TimeoutExpired:
+            self._logs.append("Timeout waiting for bentoml deployment terminate")
+        except Exception as e:
+            self._logs.append(f"Error terminating deployment: {e}")
     
     def run(self, inputs: Union[Dict, str, bytes]) -> Any:
         """
@@ -111,13 +287,13 @@ class BentoMLRunner(Runner):
         """
         if not self._deployed or not self._endpoint:
             return {
-                "error": "BentoCloud service not deployed or not authenticated",
+                "error": "BentoCloud service not deployed or not connected",
                 "instructions": [
                     "1. Set BENTO_CLOUD_API_KEY environment variable",
-                    f"2. Deploy: cd {self.code_path} && python deploy.py",
+                    f"2. Call runner.start() to deploy from {self.code_path}",
                     f"3. Deployment name: {self.deployment_name}",
                 ],
-                "deploy_command": f"cd {self.code_path} && python deploy.py",
+                "start_hint": "Call runner.start() to deploy",
             }
         
         try:
@@ -129,12 +305,13 @@ class BentoMLRunner(Runner):
             if self._api_key:
                 headers["Authorization"] = f"Bearer {self._api_key}"
             
+            # Format input for BentoML endpoint
             if isinstance(inputs, dict):
-                json_body = {"inputs": inputs}
+                json_body = inputs  # Send directly, let BentoML handle it
             elif isinstance(inputs, bytes):
-                json_body = {"inputs": {"data": inputs.decode('utf-8')}}
+                json_body = {"data": inputs.decode('utf-8')}
             else:
-                json_body = {"inputs": {"text": str(inputs)}}
+                json_body = {"text": str(inputs)}
             
             self._logs.append(f"POST {url}")
             
@@ -151,10 +328,6 @@ class BentoMLRunner(Runner):
             self._logs.append(f"BentoCloud call error: {e}")
             return {"error": str(e)}
     
-    def stop(self) -> None:
-        """No-op for BentoCloud - services are managed by BentoCloud."""
-        self._logs.append("Disconnected from BentoCloud")
-    
     def is_healthy(self) -> bool:
         """Check if the BentoCloud service is available."""
         if not self._deployed or not self._endpoint:
@@ -162,8 +335,10 @@ class BentoMLRunner(Runner):
         
         try:
             import requests
-            headers = {"Authorization": f"Bearer {self._api_key}"}
-            response = requests.get(f"{self._endpoint.rstrip('/')}/health", headers=headers, timeout=10)
+            headers = {}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
+            response = requests.get(f"{self._endpoint.rstrip('/')}/healthz", headers=headers, timeout=10)
             return response.status_code == 200
         except Exception:
             return False
@@ -177,4 +352,3 @@ class BentoMLRunner(Runner):
         if self.code_path:
             return f"cd {self.code_path} && python deploy.py"
         return "python deploy.py"
-

@@ -34,9 +34,16 @@ class Runner(ABC):
     Users never interact with runners directly - they're wrapped
     by DeployedSoftware which provides the unified interface.
     
+    Lifecycle:
+    - __init__(): Initialize and prepare runner (ready state)
+    - run(): Execute with inputs
+    - stop(): Stop and cleanup resources (stopped state)
+    - start(): Re-initialize a stopped runner (ready state again)
+    
     Each runner knows how to:
     - Execute code (via import, subprocess, HTTP, etc.)
     - Check health
+    - Start/restart resources
     - Clean up resources
     
     To add a new strategy:
@@ -59,8 +66,31 @@ class Runner(ABC):
         pass
     
     @abstractmethod
+    def start(self) -> None:
+        """
+        Start or restart the runner.
+        
+        Re-initializes a stopped runner back to ready state.
+        Can be called after stop() to restart the runner.
+        
+        For local runners: Reloads the module and function.
+        For cloud runners: Reconnects to the service.
+        For container runners: Starts the container.
+        """
+        pass
+    
+    @abstractmethod
     def stop(self) -> None:
-        """Stop and cleanup resources."""
+        """
+        Stop and cleanup resources.
+        
+        Transitions runner to stopped state.
+        After stop(), the runner can be restarted with start().
+        
+        For local runners: Unloads the module.
+        For cloud runners: Terminates the deployment.
+        For container runners: Stops and removes the container.
+        """
         pass
     
     @abstractmethod

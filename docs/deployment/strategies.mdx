@@ -15,6 +15,36 @@ The deployment system supports multiple strategies, each optimized for different
 | **BENTOML** | BentoCloud | HTTP | ⚙️ | Production ML serving |
 | **LANGGRAPH** | LangGraph Platform | LangGraph | ❌ | Stateful agents |
 
+## Lifecycle Management
+
+All strategies support full lifecycle management with `start()` and `stop()` methods:
+
+```python
+software = expert.deploy(solution, strategy=DeployStrategy.DOCKER)
+
+# Run
+result = software.run(inputs)
+
+# Stop (cleanup resources)
+software.stop()
+
+# Restart
+software.start()
+
+# Run again
+result = software.run(inputs)
+```
+
+Each strategy handles lifecycle differently:
+
+| Strategy | `stop()` Action | `start()` Action |
+|----------|-----------------|------------------|
+| **LOCAL** | Unload module from `sys.modules` | Reload module |
+| **DOCKER** | Stop + remove container | Create + start new container |
+| **MODAL** | Run `modal app stop` | Re-lookup Modal function |
+| **BENTOML** | Run `bentoml deployment terminate` | Run `bentoml deployment apply` |
+| **LANGGRAPH** | Delete thread + disconnect | Reconnect to platform |
+
 ---
 
 ## LOCAL
@@ -78,6 +108,20 @@ software = DeploymentFactory.create(DeployStrategy.LOCAL, config)
 result = software.run({"text": "hello"})
 print(result)
 # {"status": "success", "output": {"result": "..."}}
+```
+
+### Lifecycle
+
+```python
+# Run
+result = software.run(inputs)
+
+# Stop unloads module
+software.stop()
+
+# Start reloads module (picks up code changes!)
+software.start()
+result = software.run(inputs)
 ```
 
 ### Requirements
@@ -159,9 +203,29 @@ print(software.get_endpoint())
 # http://localhost:8000
 ```
 
+### Lifecycle
+
+```python
+# Run
+result = software.run(inputs)
+
+# Stop removes the container
+software.stop()
+# Logs: "Stopping container...", "Container removed"
+
+# Start creates a new container
+software.start()
+# Logs: "Creating new container...", "Container started"
+
+result = software.run(inputs)
+```
+
+The Docker runner uses the `docker-py` SDK for programmatic container management.
+
 ### Requirements
 
 - Docker installed and running
+- `docker` Python package (`pip install docker`)
 - Port 8000 available (configurable)
 
 ### Generated Files
@@ -261,6 +325,25 @@ result = software.run({"text": "Generate embeddings for this"})
 print(result)
 # {"status": "success", "output": {"embeddings": [...]}}
 ```
+
+### Lifecycle
+
+```python
+# Run
+result = software.run(inputs)
+
+# Stop terminates the Modal app
+software.stop()
+# Runs: modal app stop {app_name}
+
+# Start re-looks up the function
+software.start()
+# Calls: modal.Function.lookup(app_name, function_name)
+
+result = software.run(inputs)
+```
+
+> **Note:** After `stop()`, the Modal app is terminated and won't consume resources. `start()` reconnects to an existing deployment (you may need to re-deploy if the app was fully stopped).
 
 ### Requirements
 
@@ -382,6 +465,26 @@ print(software.get_endpoint())
 # https://your-bento.bentoml.ai
 ```
 
+### Lifecycle
+
+```python
+# Run
+result = software.run(inputs)
+
+# Stop terminates the deployment
+software.stop()
+# Runs: bentoml deployment terminate {deployment_name}
+
+# Start re-deploys by running deploy.py
+software.start()
+# Runs: python {code_path}/deploy.py
+# Then connects to the new endpoint
+
+result = software.run(inputs)
+```
+
+> **Note:** `stop()` actually terminates the BentoCloud deployment to avoid billing. `start()` re-deploys the service, which may take a minute.
+
 ### Requirements
 
 1. Install BentoML: `pip install bentoml`
@@ -389,6 +492,7 @@ print(software.get_endpoint())
    ```bash
    bentoml cloud login
    ```
+3. `BENTO_CLOUD_API_KEY` environment variable for API access
 
 ### Generated Files
 
@@ -482,6 +586,25 @@ result = software.run({
     "thread_id": "conversation-123"
 })
 ```
+
+### Lifecycle
+
+```python
+# Run (creates a conversation thread)
+result = software.run({"messages": [...]})
+
+# Stop deletes the thread and disconnects
+software.stop()
+# Thread is deleted, client is cleared
+
+# Start reconnects to LangGraph Platform
+software.start()
+# New conversation thread is created on next run()
+
+result = software.run({"messages": [...]})
+```
+
+> **Note:** LangGraph Platform manages the actual deployment. `stop()` only cleans up the local client and thread. The deployed agent remains available.
 
 ### Requirements
 

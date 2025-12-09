@@ -302,10 +302,57 @@ Stop the software and cleanup resources.
 def stop(self) -> None
 ```
 
+**Behavior by Strategy:**
+
+| Strategy | What `stop()` Does |
+|----------|-------------------|
+| **LOCAL** | Unloads Python module from `sys.modules` |
+| **DOCKER** | Stops and removes the Docker container |
+| **MODAL** | Runs `modal app stop` to terminate the deployment |
+| **BENTOML** | Runs `bentoml deployment terminate` to stop the service |
+| **LANGGRAPH** | Deletes the conversation thread and disconnects |
+
 **Example:**
 
 ```python
 software.stop()
+print(software.is_healthy())  # False
+```
+
+---
+
+#### start()
+
+Start or restart a stopped deployment.
+
+```python
+@abstractmethod
+def start(self) -> None
+```
+
+**Behavior by Strategy:**
+
+| Strategy | What `start()` Does |
+|----------|---------------------|
+| **LOCAL** | Reloads the Python module |
+| **DOCKER** | Creates and starts a new container |
+| **MODAL** | Re-lookups the Modal function |
+| **BENTOML** | Re-deploys by running `deploy.py` from code_path |
+| **LANGGRAPH** | Reconnects to LangGraph Platform |
+
+**Example:**
+
+```python
+# After stop()
+software.stop()
+print(software.is_healthy())  # False
+
+# Restart
+software.start()
+print(software.is_healthy())  # True
+
+# Can run again
+result = software.run({"text": "hello again"})
 ```
 
 ---
@@ -724,6 +771,22 @@ Base class for strategy-specific runners.
 from src.deployment.strategies.base import Runner
 ```
 
+### Lifecycle
+
+Runners follow this lifecycle:
+1. `__init__()` → Ready state
+2. `run()` → Execute (can be called multiple times)
+3. `stop()` → Stopped state (resources cleaned up)
+4. `start()` → Ready state (can run again)
+
+```
+┌─────────────┐    stop()    ┌─────────────┐
+│   READY     │ ──────────>  │   STOPPED   │
+│ is_healthy  │              │ !is_healthy │
+│   = True    │  <──────────  │   = False   │
+└─────────────┘    start()   └─────────────┘
+```
+
 ### Abstract Methods
 
 ```python
@@ -731,6 +794,11 @@ class Runner(ABC):
     @abstractmethod
     def run(self, inputs: Union[Dict, str, bytes]) -> Any:
         """Execute with inputs and return result."""
+        pass
+    
+    @abstractmethod
+    def start(self) -> None:
+        """Start or restart the runner."""
         pass
     
     @abstractmethod
@@ -787,7 +855,17 @@ info = software.get_deployment_info()
 print(f"Strategy: {info['strategy']}")
 print(f"Adapted path: {info['adapted_path']}")
 
-# 8. Clean up
+# 8. Stop and restart (full lifecycle)
+software.stop()
+print(f"Is healthy after stop: {software.is_healthy()}")  # False
+
+software.start()
+print(f"Is healthy after start: {software.is_healthy()}")  # True
+
+# 9. Run again after restart
+result = software.run({"text": "Working again!"})
+
+# 10. Final cleanup
 software.stop()
 ```
 

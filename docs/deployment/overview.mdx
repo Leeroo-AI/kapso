@@ -24,7 +24,8 @@ flowchart LR
 
 | Feature | Description |
 |---------|-------------|
-| **Unified Interface** | Same `run()`, `stop()`, `logs()` API regardless of deployment target |
+| **Unified Interface** | Same `run()`, `stop()`, `start()`, `logs()` API regardless of deployment target |
+| **Full Lifecycle** | Start, stop, and restart deployments programmatically |
 | **Plugin Architecture** | Strategies are self-contained packages - add new ones without changing core code |
 | **Auto-Selection** | LLM-based selector chooses optimal strategy based on your code |
 | **Agent-Driven Adaptation** | Coding agents transform your code and handle deployment |
@@ -49,6 +50,28 @@ print(result)
 # {"status": "success", "output": {"sentiment": "positive"}}
 
 # Clean up
+software.stop()
+```
+
+### Full Lifecycle Management
+
+```python
+# Deploy
+software = expert.deploy(solution, strategy=DeployStrategy.DOCKER)
+
+# Run
+result = software.run({"text": "hello"})
+
+# Stop (terminates container/cloud deployment)
+software.stop()
+
+# Restart (re-creates container/re-deploys to cloud)
+software.start()
+
+# Run again after restart
+result = software.run({"text": "world"})
+
+# Final cleanup
 software.stop()
 ```
 

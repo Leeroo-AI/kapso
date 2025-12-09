@@ -6,6 +6,8 @@
 # Usage:
 #     runner = LangGraphRunner(deployment_url="https://...", assistant_id="agent")
 #     result = runner.run({"messages": [{"role": "user", "content": "Hello"}]})
+#     runner.stop()  # Deletes thread and disconnects
+#     runner.start()  # Reconnects to platform
 
 import os
 import asyncio
@@ -18,10 +20,18 @@ class LangGraphRunner(Runner):
     """
     Runs agents deployed to LangGraph Platform.
     
+    Manages LangGraph Platform connection lifecycle:
+    - start(): Reconnect to the LangGraph Platform
+    - stop(): Delete current thread and disconnect
+    - run(): Call the agent with message inputs
+    
     Features:
     - Thread management (conversation persistence)
     - Streaming responses
     - Checkpointing support
+    
+    Note: LangGraph Platform manages deployments externally.
+    stop() cleans up threads but doesn't undeploy the agent.
     
     Usage:
         runner = LangGraphRunner(
@@ -29,6 +39,7 @@ class LangGraphRunner(Runner):
             assistant_id="agent"
         )
         result = runner.run({"messages": [{"role": "user", "content": "Hello!"}]})
+        runner.stop()  # Deletes thread and disconnects
     """
     
     def __init__(
@@ -104,6 +115,72 @@ class LangGraphRunner(Runner):
         thread_id = thread.get("thread_id") or thread.get("id")
         self._logs.append(f"Created thread: {thread_id}")
         return thread_id
+    
+    async def _delete_thread(self, thread_id: str) -> None:
+        """Delete a thread."""
+        try:
+            await self._client.threads.delete(thread_id)
+            self._logs.append(f"Deleted thread: {thread_id}")
+        except Exception as e:
+            self._logs.append(f"Failed to delete thread {thread_id}: {e}")
+    
+    def start(self) -> None:
+        """
+        Start or restart the LangGraph runner.
+        
+        Reconnects to the LangGraph Platform.
+        If previously stopped, creates a fresh connection.
+        """
+        self._logs.append("Starting LangGraph runner...")
+        
+        # Clear previous state
+        self._client = None
+        self._deployed = False
+        self._current_thread_id = None
+        
+        # Reload API key in case it changed
+        self._api_key = os.environ.get("LANGSMITH_API_KEY")
+        
+        # Reconnect
+        self._connect()
+        
+        if self._deployed:
+            self._logs.append("LangGraph runner started - connected to platform")
+        else:
+            self._logs.append("LangGraph runner started - not connected")
+    
+    def stop(self) -> None:
+        """
+        Stop and cleanup the LangGraph runner.
+        
+        Deletes the current conversation thread (if exists) and disconnects.
+        The deployment on LangGraph Platform continues to run.
+        Can be reconnected with start().
+        """
+        self._logs.append("Stopping LangGraph runner...")
+        
+        # Delete current thread if exists
+        if self._current_thread_id and self._client:
+            try:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                            pool.submit(asyncio.run, self._delete_thread(self._current_thread_id)).result()
+                    else:
+                        loop.run_until_complete(self._delete_thread(self._current_thread_id))
+                except RuntimeError:
+                    asyncio.run(self._delete_thread(self._current_thread_id))
+            except Exception as e:
+                self._logs.append(f"Error deleting thread: {e}")
+        
+        # Clear state
+        self._client = None
+        self._current_thread_id = None
+        self._deployed = False
+        
+        self._logs.append("LangGraph runner stopped")
     
     def run(self, inputs: Union[Dict, str, bytes]) -> Any:
         """
@@ -198,12 +275,6 @@ class LangGraphRunner(Runner):
         self._current_thread_id = None
         self._logs.append("Thread reset")
     
-    def stop(self) -> None:
-        """Cleanup resources."""
-        self._client = None
-        self._current_thread_id = None
-        self._logs.append("Disconnected")
-    
     def is_healthy(self) -> bool:
         """Check if connected."""
         return self._deployed and self._client is not None
@@ -217,4 +288,3 @@ class LangGraphRunner(Runner):
         if self.code_path:
             return f"cd {self.code_path} && langgraph deploy"
         return "langgraph deploy"
-

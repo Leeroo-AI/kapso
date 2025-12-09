@@ -6,19 +6,22 @@ Best for reproducibility, isolation, and HTTP-based APIs.
 ## DEPLOY COMMAND
 
 ```bash
-docker build -t solution . && docker run -p 8000:8000 solution
+docker build -t solution . && docker run -d --name solution-container -p 8000:8000 solution
 ```
 
-Run this command to build and start the Docker container. If it fails, debug and fix the error.
+Run this command to build and start the Docker container. The `-d` runs in detached mode, `--name` gives a consistent container name.
+If it fails, debug and fix the error.
 
 ## RUN INTERFACE
 - type: http
 - endpoint: http://localhost:8000
 - path: /predict
+- container_name: solution-container
+- image_name: solution
 
 After successful deployment, output this JSON (update endpoint if different):
 ```
-<run_interface>{"type": "http", "endpoint": "http://localhost:8000", "path": "/predict"}</run_interface>
+<run_interface>{"type": "http", "endpoint": "http://localhost:8000", "path": "/predict", "container_name": "solution-container", "image_name": "solution"}</run_interface>
 ```
 
 ## CRITICAL: YOU MUST BUILD AND TEST THE CONTAINER

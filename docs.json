@@ -54,10 +54,20 @@
               "docs/components/coding-agents/overview",
               "docs/components/knowledge-search/overview"
             ]
-          }
-            ]
           },
           {
+            "group": "Deployment",
+            "pages": [
+              "docs/deployment/overview",
+              "docs/deployment/architecture",
+              "docs/deployment/strategies",
+              "docs/deployment/adding-strategies",
+              "docs/deployment/api-reference"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Guides",
         "groups": [
           {
