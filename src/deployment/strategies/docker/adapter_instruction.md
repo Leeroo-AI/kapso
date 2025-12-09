@@ -16,6 +16,11 @@ Run this command to build and start the Docker container. If it fails, debug and
 - endpoint: http://localhost:8000
 - path: /predict
 
+After successful deployment, output this JSON (update endpoint if different):
+```
+<run_interface>{"type": "http", "endpoint": "http://localhost:8000", "path": "/predict"}</run_interface>
+```
+
 ## CRITICAL: YOU MUST BUILD AND TEST THE CONTAINER
 
 **Do NOT just create files. You MUST build and verify the Docker image works.**

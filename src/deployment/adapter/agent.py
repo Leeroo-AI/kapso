@@ -7,19 +7,16 @@
 #     adapter = AdapterAgent(coding_agent_type="claude_code")
 #     result = adapter.adapt(solution, setting)
 
+import json
 import re
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.deployment.base import DeploymentSetting, AdaptationResult
 from src.deployment.strategies import StrategyRegistry
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.execution.solution import SolutionResult
-
-
-# Path to the adaptation prompt template
-ADAPTATION_PROMPT_PATH = Path(__file__).parent / "adaptation_prompt.md"
 
 
 class AdapterAgent:
@@ -56,6 +53,9 @@ class AdapterAgent:
         self.fallback_agent_type = fallback_agent_type
         self.max_retries = max_retries
         self.registry = StrategyRegistry.get()
+        
+        # Path to the adaptation prompt template
+        self.adaptation_prompt_path = Path(__file__).parent / "adaptation_prompt.md"
     
     def _create_adapted_workspace(self, original_path: str, strategy: str) -> str:
         """
@@ -123,8 +123,9 @@ class AdapterAgent:
         adapted_path = self._create_adapted_workspace(original_path, setting.strategy)
         print(f"[Adapter] Created adapted workspace: {adapted_path}")
         
-        # Track endpoint extracted from agent output
+        # Track values extracted from agent output
         endpoint: Optional[str] = None
+        run_interface_from_agent: Optional[Dict[str, Any]] = None
         agent_output: str = ""
         
         # 2. Load target-specific instructions from registry
@@ -164,8 +165,11 @@ class AdapterAgent:
             agent_output = result.output
             print(f"[Adapter] Files changed: {len(files_changed) if files_changed else 0}")
             
-            # Extract endpoint URL from agent output
+            # Extract run_interface and endpoint from agent output
+            run_interface_from_agent = self._extract_run_interface_from_output(agent_output)
             endpoint = self._extract_endpoint_from_output(agent_output)
+            if run_interface_from_agent:
+                print(f"[Adapter] Run interface from agent: {run_interface_from_agent}")
             if endpoint:
                 print(f"[Adapter] Endpoint: {endpoint}")
             
@@ -183,7 +187,10 @@ class AdapterAgent:
                     run_interface={},
                     error="Both primary and fallback agents failed",
                 )
+            run_interface_from_agent = self._extract_run_interface_from_output(agent_output)
             endpoint = self._extract_endpoint_from_output(agent_output)
+            if run_interface_from_agent:
+                print(f"[Adapter] Run interface from agent: {run_interface_from_agent}")
             if endpoint:
                 print(f"[Adapter] Endpoint: {endpoint}")
                 
@@ -199,12 +206,20 @@ class AdapterAgent:
                     run_interface={},
                     error=str(e),
                 )
+            run_interface_from_agent = self._extract_run_interface_from_output(agent_output)
             endpoint = self._extract_endpoint_from_output(agent_output)
+            if run_interface_from_agent:
+                print(f"[Adapter] Run interface from agent: {run_interface_from_agent}")
             if endpoint:
                 print(f"[Adapter] Endpoint: {endpoint}")
         
         # 4. Build run interface (how to call the deployed software)
-        run_interface = self._build_run_interface(setting.strategy, endpoint)
+        # Use agent output if available, otherwise fall back to strategy defaults
+        run_interface = self._build_run_interface(
+            strategy=setting.strategy,
+            endpoint=endpoint,
+            agent_run_interface=run_interface_from_agent,
+        )
         
         print(f"[Adapter] Complete: {adapted_path}")
         
@@ -277,7 +292,7 @@ class AdapterAgent:
         
         Loads template from adaptation_prompt.md and fills in placeholders.
         """
-        template = ADAPTATION_PROMPT_PATH.read_text()
+        template = self.adaptation_prompt_path.read_text()
         
         return template.format(
             goal=goal,
@@ -288,35 +303,37 @@ class AdapterAgent:
             target_instructions=target_instructions,
         )
     
-    def _build_run_interface(self, strategy: str, endpoint: Optional[str]) -> dict:
+    def _build_run_interface(
+        self,
+        strategy: str,
+        endpoint: Optional[str],
+        agent_run_interface: Optional[Dict[str, Any]] = None,
+    ) -> dict:
         """
         Build the run interface for the deployed software.
         
-        The coding agent follows standard conventions:
-        - main.py with predict() function
-        - Endpoint reported via <endpoint_url> tag
+        Priority:
+        1. Use run_interface from agent output (if provided)
+        2. Fall back to default from strategy's adapter_instruction.md
         
         Args:
             strategy: Deployment strategy name
             endpoint: Endpoint URL extracted from agent output (if any)
+            agent_run_interface: Run interface JSON from agent output (if any)
             
         Returns:
             Interface dict for the Runner
         """
-        # Map strategy to interface type
-        type_map = {
-            "local": "function",
-            "docker": "http",
-            "modal": "modal",
-            "bentoml": "bentocloud",
-            "langgraph": "langgraph",
-        }
+        # Start with agent-provided interface or strategy defaults from registry
+        if agent_run_interface:
+            interface = agent_run_interface.copy()
+        else:
+            # Get defaults from strategy's adapter_instruction.md (no hardcoding!)
+            interface = self.registry.get_default_run_interface(strategy)
         
-        interface = {
-            "type": type_map.get(strategy, "function"),
-            "module": "main",
-            "callable": "predict",
-        }
+        # Ensure we have at least a type (safe fallback)
+        if "type" not in interface:
+            interface["type"] = "function"
         
         # Add endpoint if available (from agent's deployment output)
         if endpoint:
@@ -324,6 +341,38 @@ class AdapterAgent:
             interface["deployment_url"] = endpoint
         
         return interface
+    
+    def _extract_run_interface_from_output(self, output: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract run_interface JSON from coding agent output.
+        
+        The agent is instructed to output the run interface in XML-style tags:
+        <run_interface>{"type": "function", "module": "main", ...}</run_interface>
+        
+        Args:
+            output: Full output from the coding agent
+            
+        Returns:
+            Parsed run_interface dict, or None if not found/invalid
+        """
+        if not output:
+            return None
+        
+        # Extract JSON from <run_interface>...</run_interface> tags
+        match = re.search(
+            r'<run_interface>\s*(\{[^<]+\})\s*</run_interface>',
+            output,
+            re.DOTALL
+        )
+        
+        if match:
+            try:
+                return json.loads(match.group(1).strip())
+            except json.JSONDecodeError as e:
+                print(f"[Adapter] Warning: Invalid run_interface JSON: {e}")
+                return None
+        
+        return None
     
     def _extract_endpoint_from_output(self, output: str) -> Optional[str]:
         """

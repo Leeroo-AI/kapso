@@ -113,6 +113,46 @@ class StrategyInfo:
     def has_runner(self) -> bool:
         """Check if strategy has a runner.py file."""
         return (self.directory / "runner.py").exists()
+    
+    def get_default_run_interface(self) -> Dict[str, Any]:
+        """
+        Parse default RUN INTERFACE section from adapter_instruction.md.
+        
+        This provides fallback values if the coding agent doesn't output
+        a run_interface JSON. The adapter_instruction.md should have:
+        
+            ## RUN INTERFACE
+            - type: function
+            - module: main
+            - callable: predict
+        
+        Returns:
+            Dict with default interface configuration
+        """
+        import re
+        
+        content = self.get_adapter_instruction()
+        interface: Dict[str, Any] = {}
+        
+        # Find RUN INTERFACE section
+        match = re.search(
+            r'##\s*RUN INTERFACE\s*\n((?:- [^\n]+\n?)+)',
+            content,
+            re.IGNORECASE
+        )
+        
+        if match:
+            # Parse each "- key: value" line
+            lines = match.group(1).strip().split('\n')
+            for line in lines:
+                # Match "- key: value" format
+                kv_match = re.match(r'-\s*(\w+):\s*(.+)', line.strip())
+                if kv_match:
+                    key = kv_match.group(1).strip()
+                    value = kv_match.group(2).strip()
+                    interface[key] = value
+        
+        return interface
 
 
 class StrategyRegistry:
@@ -259,3 +299,18 @@ class StrategyRegistry:
     def strategy_exists(self, name: str) -> bool:
         """Check if a strategy exists."""
         return name in self._strategies
+    
+    def get_default_run_interface(self, name: str) -> Dict[str, Any]:
+        """
+        Get default run interface for a strategy.
+        
+        Parses the RUN INTERFACE section from adapter_instruction.md.
+        Used as fallback when coding agent doesn't output run_interface JSON.
+        
+        Args:
+            name: Strategy name
+            
+        Returns:
+            Dict with default interface configuration
+        """
+        return self.get_strategy(name).get_default_run_interface()
