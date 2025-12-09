@@ -142,8 +142,20 @@ class LangGraphRunner(Runner):
             except RuntimeError:
                 return asyncio.run(self._run_async(messages))
         except Exception as e:
-            self._logs.append(f"Run error: {e}")
-            return {"status": "error", "error": str(e)}
+            # Handle common LangGraph SDK errors with helpful messages
+            error_type = type(e).__name__
+            error_msg = str(e) or error_type
+            
+            # NotFoundError means the agent isn't deployed
+            if error_type == "NotFoundError":
+                error_msg = (
+                    f"Agent '{self.assistant_id}' not found at {self.deployment_url}. "
+                    f"The agent may not be deployed yet. "
+                    f"Deploy with: cd {self.code_path} && langgraph deploy"
+                )
+            
+            self._logs.append(f"Run error: {error_type}: {error_msg}")
+            return {"status": "error", "error": error_msg}
     
     def _prepare_messages(self, inputs: Union[Dict, str, bytes]) -> List[Dict]:
         """Convert inputs to message format."""
