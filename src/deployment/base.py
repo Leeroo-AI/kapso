@@ -14,28 +14,61 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from src.execution.solution import SolutionResult
 
 
-class DeployStrategy(Enum):
+def _discover_strategies() -> Dict[str, str]:
     """
-    Deployment target for a Solution.
+    Discover available deployment strategies from the strategies/ directory.
     
-    AUTO: Let the system analyze and choose the best strategy
-    LOCAL: Run as a local process (fast, for development)
-    DOCKER: Run in a Docker container (isolated, reproducible)
-    MODAL: Deploy to Modal.com (serverless, GPU support)
-    BENTOML: Deploy with BentoML (production ML serving)
-    LANGGRAPH: Deploy to LangGraph Platform (stateful agents)
+    Returns:
+        Dict mapping uppercase name to lowercase value (e.g., {"LOCAL": "local"})
     """
-    AUTO = "auto"
-    LOCAL = "local"
-    DOCKER = "docker"
-    MODAL = "modal"
-    BENTOML = "bentoml"
-    LANGGRAPH = "langgraph"
+    strategies_dir = Path(__file__).parent / "strategies"
+    discovered = {}
+    
+    if strategies_dir.exists():
+        for path in sorted(strategies_dir.iterdir()):
+            # Skip non-directories, hidden dirs, and __pycache__
+            if not path.is_dir():
+                continue
+            if path.name.startswith("_") or path.name.startswith("."):
+                continue
+            
+            # Must have config.yaml to be a valid strategy
+            if (path / "config.yaml").exists():
+                discovered[path.name.upper()] = path.name
+    
+    return discovered
+
+
+def _build_deploy_strategy_enum():
+    """
+    Build the DeployStrategy enum dynamically.
+    
+    Includes AUTO + all discovered strategies from strategies/ directory.
+    """
+    # Start with AUTO (always available)
+    members = {"AUTO": "auto"}
+    
+    # Add discovered strategies
+    members.update(_discover_strategies())
+    
+    # Create enum using functional API
+    return Enum("DeployStrategy", members)
+
+
+# Dynamically created enum based on strategies/ directory
+DeployStrategy = _build_deploy_strategy_enum()
+DeployStrategy.__doc__ = """
+Deployment target for a Solution.
+
+AUTO: Let the system analyze and choose the best strategy.
+Other values are discovered from the strategies/ directory.
+"""
 
 
 @dataclass

@@ -36,6 +36,7 @@ class LangGraphRunner(Runner):
         deployment_url: str = None,
         assistant_id: str = "agent",
         code_path: str = None,
+        **kwargs,  # Accept extra params from run_interface
     ):
         """
         Initialize the LangGraph runner.
@@ -44,6 +45,7 @@ class LangGraphRunner(Runner):
             deployment_url: URL of the deployed LangGraph agent
             assistant_id: ID of the assistant/graph to call
             code_path: Path to the code directory
+            **kwargs: Additional parameters (ignored)
         """
         self.deployment_url = deployment_url or os.environ.get("LANGGRAPH_API_URL")
         self.assistant_id = assistant_id

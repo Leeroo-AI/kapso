@@ -33,7 +33,8 @@ class LocalRunner(Runner):
         self, 
         code_path: str, 
         module: str = "main", 
-        callable: str = "predict"
+        callable: str = "predict",
+        **kwargs,  # Accept extra params from run_interface
     ):
         """
         Initialize the local runner.
@@ -42,6 +43,7 @@ class LocalRunner(Runner):
             code_path: Path to the solution directory
             module: Module name to import (without .py)
             callable: Function name to call
+            **kwargs: Additional parameters (ignored)
         """
         self.code_path = code_path
         self.module_name = module

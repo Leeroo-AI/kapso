@@ -27,10 +27,11 @@ class BentoMLRunner(Runner):
     
     def __init__(
         self,
-        deployment_name: str,
+        deployment_name: str = None,
         endpoint: str = None,
         predict_path: str = "/predict",
         code_path: str = None,
+        **kwargs,  # Accept extra params from run_interface
     ):
         """
         Initialize the BentoCloud runner.
@@ -40,6 +41,7 @@ class BentoMLRunner(Runner):
             endpoint: BentoCloud endpoint URL (auto-detected if not provided)
             predict_path: Path for prediction endpoint
             code_path: Path to the code directory (for deploy command)
+            **kwargs: Additional parameters (ignored)
         """
         self.deployment_name = deployment_name
         self.predict_path = predict_path

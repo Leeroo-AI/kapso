@@ -1,0 +1,16 @@
+# LangGraph deployment strategy configuration
+name: langgraph
+provider: langgraph
+interface: langgraph
+
+# Runner class name (in runner.py)
+runner_class: LangGraphRunner
+
+# No default resources needed
+default_resources: {}
+
+# Run interface configuration (passed to runner constructor)
+run_interface:
+  type: langgraph
+  assistant_id: agent
+

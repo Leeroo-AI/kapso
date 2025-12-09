@@ -3,7 +3,7 @@
 # Contains:
 # - Runner: Abstract base class for all strategy runners
 # - StrategyRegistry: Auto-discovers deployment strategies from subdirectories
-# - StrategyInfo: Information about a discovered strategy
+# - DeployStrategyConfig: Configuration for a discovered strategy
 #
 # Usage:
 #     from src.deployment.strategies.base import Runner, StrategyRegistry
@@ -88,11 +88,12 @@ class Runner(ABC):
 # =============================================================================
 
 @dataclass
-class StrategyInfo:
+class DeployStrategyConfig:
     """
-    Info about a deployment strategy.
+    Configuration for a deployment strategy.
     
     Loaded from a strategy subdirectory containing:
+    - config.yaml: Strategy configuration (interface, provider, resources, run_interface)
     - selector_instruction.md: When to choose this strategy
     - adapter_instruction.md: How to adapt and deploy
     - runner.py: Runtime execution class
@@ -101,6 +102,36 @@ class StrategyInfo:
     directory: Path
     selector_instruction_path: Path
     adapter_instruction_path: Path
+    
+    # Cached config from config.yaml
+    _config_cache: Optional[Dict[str, Any]] = None
+    
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Load config.yaml for this strategy.
+        
+        The config contains:
+        - name: Strategy name
+        - provider: Cloud provider (or null)
+        - interface: Interface type (function, http, etc.)
+        - default_resources: Default resource requirements
+        - run_interface: Default run interface for the runner
+        
+        Returns:
+            Dict with strategy configuration
+        """
+        if self._config_cache is not None:
+            return self._config_cache
+        
+        import yaml
+        
+        config_path = self.directory / "config.yaml"
+        if config_path.exists():
+            self._config_cache = yaml.safe_load(config_path.read_text()) or {}
+        else:
+            self._config_cache = {}
+        
+        return self._config_cache
     
     def get_selector_instruction(self) -> str:
         """Load selector_instruction.md content."""
@@ -116,43 +147,73 @@ class StrategyInfo:
     
     def get_default_run_interface(self) -> Dict[str, Any]:
         """
-        Parse default RUN INTERFACE section from adapter_instruction.md.
+        Get default run interface from config.yaml.
         
-        This provides fallback values if the coding agent doesn't output
-        a run_interface JSON. The adapter_instruction.md should have:
-        
-            ## RUN INTERFACE
-            - type: function
-            - module: main
-            - callable: predict
+        Used as fallback when the coding agent doesn't output
+        a run_interface JSON.
         
         Returns:
             Dict with default interface configuration
         """
-        import re
+        config = self.get_config()
+        return config.get("run_interface", {}).copy()
+    
+    def get_default_resources(self) -> Dict[str, Any]:
+        """
+        Get default resources from config.yaml.
         
-        content = self.get_adapter_instruction()
-        interface: Dict[str, Any] = {}
+        Returns:
+            Dict with default resource requirements
+        """
+        config = self.get_config()
+        return config.get("default_resources", {}).copy()
+    
+    def get_interface(self) -> str:
+        """Get interface type (function, http, etc.)."""
+        config = self.get_config()
+        return config.get("interface", "function")
+    
+    def get_provider(self) -> Optional[str]:
+        """Get cloud provider name (or None for local)."""
+        config = self.get_config()
+        return config.get("provider")
+    
+    def get_runner_class(self) -> type:
+        """
+        Dynamically import and return the runner class for this strategy.
         
-        # Find RUN INTERFACE section
-        match = re.search(
-            r'##\s*RUN INTERFACE\s*\n((?:- [^\n]+\n?)+)',
-            content,
-            re.IGNORECASE
-        )
+        The runner class name is specified in config.yaml as 'runner_class'.
+        The class is imported from runner.py in the strategy directory.
         
-        if match:
-            # Parse each "- key: value" line
-            lines = match.group(1).strip().split('\n')
-            for line in lines:
-                # Match "- key: value" format
-                kv_match = re.match(r'-\s*(\w+):\s*(.+)', line.strip())
-                if kv_match:
-                    key = kv_match.group(1).strip()
-                    value = kv_match.group(2).strip()
-                    interface[key] = value
+        Returns:
+            The Runner subclass for this strategy
+            
+        Raises:
+            ImportError: If runner module or class not found
+        """
+        import importlib.util
         
-        return interface
+        config = self.get_config()
+        class_name = config.get("runner_class")
+        
+        if not class_name:
+            raise ValueError(f"No runner_class defined in config.yaml for strategy '{self.name}'")
+        
+        # Load runner.py from strategy directory
+        runner_path = self.directory / "runner.py"
+        if not runner_path.exists():
+            raise ImportError(f"runner.py not found for strategy '{self.name}'")
+        
+        # Dynamic import
+        spec = importlib.util.spec_from_file_location(f"{self.name}_runner", runner_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Get the class
+        if not hasattr(module, class_name):
+            raise ImportError(f"Class '{class_name}' not found in {runner_path}")
+        
+        return getattr(module, class_name)
 
 
 class StrategyRegistry:
@@ -182,7 +243,7 @@ class StrategyRegistry:
     
     def __init__(self):
         """Initialize registry (use .get() for singleton access)."""
-        self._strategies: Dict[str, StrategyInfo] = {}
+        self._strategies: Dict[str, DeployStrategyConfig] = {}
     
     @classmethod
     def get(cls) -> "StrategyRegistry":
@@ -213,7 +274,7 @@ class StrategyRegistry:
             
             # Must have both instruction files
             if selector_path.exists() and adapter_path.exists():
-                self._strategies[path.name] = StrategyInfo(
+                self._strategies[path.name] = DeployStrategyConfig(
                     name=path.name,
                     directory=path,
                     selector_instruction_path=selector_path,
@@ -238,15 +299,15 @@ class StrategyRegistry:
         # Filter to only allowed strategies that exist
         return [s for s in allowed if s in self._strategies]
     
-    def get_strategy(self, name: str) -> StrategyInfo:
+    def get_strategy(self, name: str) -> DeployStrategyConfig:
         """
-        Get strategy info by name.
+        Get strategy config by name.
         
         Args:
             name: Strategy name (e.g., "modal", "docker")
             
         Returns:
-            StrategyInfo for the strategy
+            DeployStrategyConfig for the strategy
             
         Raises:
             ValueError: If strategy not found
@@ -300,11 +361,22 @@ class StrategyRegistry:
         """Check if a strategy exists."""
         return name in self._strategies
     
+    def get_config(self, name: str) -> Dict[str, Any]:
+        """
+        Get full config for a strategy from config.yaml.
+        
+        Args:
+            name: Strategy name
+            
+        Returns:
+            Dict with strategy configuration
+        """
+        return self.get_strategy(name).get_config()
+    
     def get_default_run_interface(self, name: str) -> Dict[str, Any]:
         """
-        Get default run interface for a strategy.
+        Get default run interface for a strategy from config.yaml.
         
-        Parses the RUN INTERFACE section from adapter_instruction.md.
         Used as fallback when coding agent doesn't output run_interface JSON.
         
         Args:
@@ -314,3 +386,53 @@ class StrategyRegistry:
             Dict with default interface configuration
         """
         return self.get_strategy(name).get_default_run_interface()
+    
+    def get_default_resources(self, name: str) -> Dict[str, Any]:
+        """
+        Get default resources for a strategy from config.yaml.
+        
+        Args:
+            name: Strategy name
+            
+        Returns:
+            Dict with default resource requirements
+        """
+        return self.get_strategy(name).get_default_resources()
+    
+    def get_interface(self, name: str) -> str:
+        """
+        Get interface type for a strategy from config.yaml.
+        
+        Args:
+            name: Strategy name
+            
+        Returns:
+            Interface type (function, http, etc.)
+        """
+        return self.get_strategy(name).get_interface()
+    
+    def get_provider(self, name: str) -> Optional[str]:
+        """
+        Get cloud provider for a strategy from config.yaml.
+        
+        Args:
+            name: Strategy name
+            
+        Returns:
+            Provider name or None
+        """
+        return self.get_strategy(name).get_provider()
+    
+    def get_runner_class(self, name: str) -> type:
+        """
+        Get the runner class for a strategy.
+        
+        Dynamically imports from strategies/{name}/runner.py.
+        
+        Args:
+            name: Strategy name
+            
+        Returns:
+            The Runner subclass for this strategy
+        """
+        return self.get_strategy(name).get_runner_class()

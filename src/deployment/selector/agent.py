@@ -7,7 +7,7 @@ Loads strategy information from the strategies/ registry.
 Example:
     selector = SelectorAgent()
     setting = selector.select(code_path, goal)
-    setting = selector.select(code_path, goal, strategies=["local", "modal"])
+    setting = selector.select(code_path, goal, allowed_strategies=["local", "modal"])
 """
 
 import json
@@ -19,9 +19,6 @@ from src.deployment.base import DeploymentSetting
 from src.deployment.strategies import StrategyRegistry
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.execution.solution import SolutionResult
-
-# Path to the selection prompt template
-SELECTION_PROMPT_PATH = Path(__file__).parent / "selection_prompt.md"
 
 
 class SelectorAgent:
@@ -51,11 +48,14 @@ class SelectorAgent:
         self.coding_agent_type = coding_agent_type
         self.model = model
         self.registry = StrategyRegistry.get()
+        
+        # Path to the selection prompt template
+        self.selection_prompt_path = Path(__file__).parent / "selection_prompt.md"
     
     def select(
         self,
         solution: SolutionResult,
-        strategies: Optional[List[str]] = None,
+        allowed_strategies: Optional[List[str]] = None,
         resources: Optional[Dict[str, Any]] = None,
     ) -> DeploymentSetting:
         """
@@ -63,7 +63,7 @@ class SelectorAgent:
         
         Args:
             solution: The SolutionResult from Expert.build()
-            strategies: Optional list of strategies to consider (default: all)
+            allowed_strategies: Optional list of strategies to consider (default: all)
             resources: Optional user-specified resources
             
         Returns:
@@ -74,10 +74,10 @@ class SelectorAgent:
         goal = solution.goal
         
         # Get available strategies (filtered if specified)
-        available = self.registry.list_strategies(allowed=strategies)
+        available = self.registry.list_strategies(allowed=allowed_strategies)
         
         if not available:
-            raise ValueError(f"No valid strategies found. Requested: {strategies}")
+            raise ValueError(f"No valid strategies found. Requested: {allowed_strategies}")
         
         # If only one option, skip agent
         if len(available) == 1:
@@ -111,19 +111,18 @@ class SelectorAgent:
         resources: Optional[Dict[str, Any]],
         reasoning: str,
     ) -> DeploymentSetting:
-        """Create DeploymentSetting from strategy name."""
-        # Parse selector instruction to extract metadata
-        selector_md = self.registry.get_selector_instruction(strategy)
+        """
+        Create DeploymentSetting from strategy name.
         
-        # Extract interface and provider from markdown
-        interface = self._extract_field(selector_md, "Interface", "function")
-        provider = self._extract_field(selector_md, "Provider", None)
-        if provider == "None":
-            provider = None
+        Uses config.yaml for interface, provider, and default resources.
+        """
+        # Get values from config.yaml (no more regex parsing!)
+        interface = self.registry.get_interface(strategy)
+        provider = self.registry.get_provider(strategy)
         
-        # Get default resources if needed and not provided
+        # Use default resources from config if not provided
         if resources is None:
-            default_resources = self._extract_default_resources(selector_md)
+            default_resources = self.registry.get_default_resources(strategy)
             if default_resources:
                 resources = default_resources
         
@@ -134,40 +133,6 @@ class SelectorAgent:
             interface=interface,
             reasoning=reasoning,
         )
-    
-    def _extract_field(self, md_content: str, field_name: str, default: str) -> str:
-        """Extract a field value from markdown content."""
-        # Look for patterns like "## Interface\nfunction" or "- Interface: function"
-        patterns = [
-            rf'##\s*{field_name}\s*\n+([^\n#(]+)',  # Stop at ( for descriptions
-            rf'{field_name}:\s*([^\n(]+)',           # Stop at ( for descriptions
-            rf'\*\*{field_name}\*\*:\s*([^\n(]+)',   # Stop at ( for descriptions
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, md_content, re.IGNORECASE)
-            if match:
-                value = match.group(1).strip()
-                # Clean up common suffixes
-                value = value.split('(')[0].strip()
-                return value
-        
-        return default
-    
-    def _extract_default_resources(self, md_content: str) -> Optional[Dict[str, Any]]:
-        """Extract default resources from selector instruction."""
-        # Look for "Default: gpu=T4, memory=16Gi" pattern
-        match = re.search(r'Default:\s*([^\n]+)', md_content)
-        if match:
-            resources = {}
-            parts = match.group(1).split(',')
-            for part in parts:
-                if '=' in part:
-                    key, value = part.strip().split('=', 1)
-                    resources[key.strip()] = value.strip()
-            if resources:
-                return resources
-        return None
     
     def _query_agent(
         self,
@@ -219,7 +184,7 @@ class SelectorAgent:
             instruction = self.registry.get_selector_instruction(name)
             strategy_descriptions.append(instruction)
         
-        template = SELECTION_PROMPT_PATH.read_text()
+        template = self.selection_prompt_path.read_text()
         
         return template.format(
             goal=goal,

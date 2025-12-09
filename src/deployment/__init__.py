@@ -41,7 +41,7 @@ from src.deployment.factory import DeploymentFactory
 from src.deployment.software import DeployedSoftware
 
 # Strategy registry and Runner base class
-from src.deployment.strategies import Runner, StrategyRegistry, StrategyInfo
+from src.deployment.strategies import Runner, StrategyRegistry, DeployStrategyConfig
 
 # Selector components (LLM-based)
 from src.deployment.selector.agent import SelectorAgent
@@ -70,7 +70,7 @@ __all__ = [
     
     # Strategy registry
     "StrategyRegistry",
-    "StrategyInfo",
+    "DeployStrategyConfig",
     "Runner",
     
     # Implementation (for advanced use)

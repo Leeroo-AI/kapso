@@ -27,9 +27,10 @@ class ModalRunner(Runner):
     
     def __init__(
         self,
-        app_name: str,
+        app_name: str = None,
         function_name: str = "predict",
         code_path: str = None,
+        **kwargs,  # Accept extra params from run_interface
     ):
         """
         Initialize the Modal runner.
@@ -38,6 +39,7 @@ class ModalRunner(Runner):
             app_name: Name of the Modal app
             function_name: Name of the function to call
             code_path: Path to the code directory (for deploy command)
+            **kwargs: Additional parameters (ignored)
         """
         self.app_name = app_name
         self.function_name = function_name

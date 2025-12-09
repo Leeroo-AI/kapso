@@ -31,6 +31,7 @@ class DockerRunner(Runner):
         timeout: int = 30,
         headers: Optional[Dict[str, str]] = None,
         code_path: str = None,
+        **kwargs,  # Accept extra params from run_interface
     ):
         """
         Initialize the Docker runner.
@@ -42,6 +43,7 @@ class DockerRunner(Runner):
             timeout: Request timeout in seconds
             headers: Additional headers to send with requests
             code_path: Path to the code directory (for deploy command)
+            **kwargs: Additional parameters (ignored)
         """
         self.endpoint = endpoint.rstrip("/")
         self.predict_path = predict_path

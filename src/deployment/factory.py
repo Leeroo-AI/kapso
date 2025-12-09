@@ -177,66 +177,44 @@ class DeploymentFactory:
         """
         Create the appropriate runner for the strategy.
         
-        Uses strategy packages from strategies/ directory.
+        Dynamically imports the runner class from strategies/{name}/runner.py
+        and instantiates it with parameters from run_interface.
         """
-        interface = adaptation.run_interface
-        interface_type = interface.get("type", "function")
+        registry = StrategyRegistry.get()
         strategy = setting.strategy
         adapted_path = adaptation.adapted_path
         
-        # Import runners from strategy packages
-        if strategy == "local" or interface_type == "function":
+        # Get run_interface from adaptation (agent output or defaults)
+        run_interface = adaptation.run_interface.copy()
+        
+        # Add common parameters
+        run_interface["code_path"] = adapted_path
+        run_interface["timeout"] = config.timeout
+        
+        # Remove 'type' as it's not a constructor parameter
+        run_interface.pop("type", None)
+        
+        # Get the runner class dynamically from the strategy
+        try:
+            runner_class = registry.get_runner_class(strategy)
+        except (ImportError, ValueError) as e:
+            print(f"[Factory] Warning: Could not load runner for '{strategy}': {e}")
+            print(f"[Factory] Falling back to LocalRunner")
             from src.deployment.strategies.local.runner import LocalRunner
             return LocalRunner(
                 code_path=adapted_path,
-                module=interface.get("module", "main"),
-                callable=interface.get("callable", "predict"),
+                module=run_interface.get("module", "main"),
+                callable=run_interface.get("callable", "predict"),
             )
         
-        elif strategy == "docker" or interface_type == "http":
-            from src.deployment.strategies.docker.runner import DockerRunner
-            return DockerRunner(
-                endpoint=interface.get("endpoint", "http://localhost:8000"),
-                predict_path=interface.get("path", "/predict"),
-                timeout=config.timeout,
-                code_path=adapted_path,
-            )
-        
-        elif strategy == "modal" or interface_type == "modal":
-            from src.deployment.strategies.modal.runner import ModalRunner
-            app_name = interface.get("app_name", adapted_path.replace("/", "-").replace(".", "-"))
-            return ModalRunner(
-                app_name=app_name,
-                function_name=interface.get("callable", "predict"),
-                code_path=adapted_path,
-            )
-        
-        elif strategy == "bentoml" or interface_type == "bentocloud":
-            from src.deployment.strategies.bentoml.runner import BentoMLRunner
-            deployment_name = interface.get("deployment_name", adapted_path.split("/")[-1])
-            return BentoMLRunner(
-                deployment_name=deployment_name,
-                endpoint=interface.get("endpoint"),
-                predict_path=interface.get("path", "/predict"),
-                code_path=adapted_path,
-            )
-        
-        elif strategy == "langgraph" or interface_type == "langgraph":
-            from src.deployment.strategies.langgraph.runner import LangGraphRunner
-            return LangGraphRunner(
-                deployment_url=interface.get("deployment_url"),
-                assistant_id=interface.get("assistant_id", "agent"),
-                code_path=adapted_path,
-            )
-        
-        else:
-            # Default to local runner
-            from src.deployment.strategies.local.runner import LocalRunner
-            return LocalRunner(
-                code_path=adapted_path,
-                module="main",
-                callable="predict",
-            )
+        # Instantiate runner with run_interface parameters
+        # Runner __init__ should accept **kwargs and pick what it needs
+        try:
+            return runner_class(**run_interface)
+        except TypeError as e:
+            # If kwargs don't match, try with just code_path
+            print(f"[Factory] Warning: Runner init failed with full kwargs: {e}")
+            return runner_class(code_path=adapted_path)
     
     @classmethod
     def list_strategies(cls) -> List[str]:
