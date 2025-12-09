@@ -1,8 +1,15 @@
 # Praxium
 
-A framework where AI LeArns, experiments, Builds, and Ships.
+> *A framework where AI Learns, experiments, Builds, and Ships.*
 
-The Expert Agent lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
+[![Python](https://img.shields.io/badge/python-3.12+-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/hqVbPNNEZM)
+[![Y Combinator](https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white)](https://www.ycombinator.com/companies/leeroo)
+[![Website](https://img.shields.io/badge/Website-leeroo.com-green)](https://leeroo.com/)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/leeroo-ai/praxium)](https://github.com/leeroo-ai/praxium)
+[![PyPI version](https://img.shields.io/pypi/v/praxium)](https://pypi.org/project/praxium/)
+
+Praxium lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
 
 ## Quick Start
 
