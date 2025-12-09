@@ -68,17 +68,17 @@ Ask: "Could I write a Wikipedia article about this logic without mentioning this
 
 == Execution Steps ==
 === Step 1: {Step_Name} ===
-[[step::Principle:{repo_name}/{Step_1_Abstract}]]
+[[step::Principle:{Step_1_Abstract}]]
 
 {Detailed description of what happens in this step.}
 
 === Step 2: {Step_Name} ===
-[[step::Principle:{repo_name}/{Step_2_Abstract}]]
+[[step::Principle:{Step_2_Abstract}]]
 
 {Detailed description of this step.}
 
 === Step 3: {Step_Name} ===
-[[step::Principle:{repo_name}/{Step_3_Abstract}]]
+[[step::Principle:{Step_3_Abstract}]]
 
 {Detailed description of this step.}
 
@@ -87,10 +87,6 @@ Ask: "Could I write a Wikipedia article about this logic without mentioning this
     A[{Step_1}] --> B[{Step_2}]
     B --> C[{Step_3}]
 }}
-
-== Data Flow ==
-* **Input:** [[consumes::Artifact:{repo_name}/{Initial_Input}]]
-* **Output:** [[produces::Artifact:{repo_name}/{Final_Outcome}]]
 
 == Code References ==
 '''GitHub Repository:''' [{repoUrl} {repo_name}]
@@ -116,15 +112,13 @@ Ask: "Could I write a Wikipedia article about this logic without mentioning this
 
 ## Critical Rules
 
-1. **Abstract Steps:** Use `[[step::Principle:repo_name/Data_Loading]]`, NOT "call pandas.read_csv"
+1. **Abstract Steps:** Use `[[step::Principle:Data_Loading]]`, NOT "call pandas.read_csv"
 2. **Executability:** Every step Principle MUST have a corresponding Implementation
-3. **No Dangling Links:** Every linked Principle and Artifact must have its own page
+3. **No Dangling Links:** Every linked Principle must have its own page
 
 ## Semantic Links
 
 | Link Type | Target | Description |
 |-----------|--------|-------------|
 | `step::Principle` | Principle | A step in the workflow |
-| `consumes::Artifact` | Artifact | Input data consumed |
-| `produces::Artifact` | Artifact | Output data produced |
 

@@ -85,11 +85,9 @@ result = tool.run()
 * [{repoUrl}/blob/{branch}/path/to/file.py file.py] - Main implementation
 
 == Related Pages ==
-* [[implements::Principle:{repo_name}/{Theoretical_Principle}]] - Theory this implements
-* [[requires_env::Environment:{repo_name}/{Env_Name}]] - Required environment
-* [[consumes::Artifact:{repo_name}/{Input_Config_Schema}]] - Input artifact
-* [[produces::Artifact:{repo_name}/{Output_Model_Weights}]] - Output artifact
-* [[used_in::Workflow:{repo_name}/{Workflow_Name}]] - Workflow using this
+* [[implements::Principle:{Theoretical_Principle}]] - Theory this implements
+* [[requires_env::Environment:{Env_Name}]] - Required environment
+* [[used_in::Workflow:{Workflow_Name}]] - Workflow using this
 ```
 
 ## Coverage Target
@@ -106,7 +104,6 @@ result = tool.run()
 ## Scope Guidelines
 
 - **Focus on Public API:** Document tools users import, not internal helpers
-- **Map I/O Contract:** Always link `[[consumes::Artifact]]` so agents understand data shapes
 - **Include Usage Examples:** Show how to actually use the code
 
 ## Semantic Links
@@ -115,11 +112,9 @@ result = tool.run()
 |-----------|--------|-------------|
 | `implements::Principle` | Principle | Theoretical principle this implements |
 | `requires_env::Environment` | Environment | Required environment setup |
-| `consumes::Artifact` | Artifact | Input data consumed |
-| `produces::Artifact` | Artifact | Output data produced |
 | `used_in::Workflow` | Workflow | Workflows that use this implementation |
 
 ## Critical Rule
 
-**Never describe an input as just "a dictionary."** You must define an Artifact and link to it with proper schema documentation.
+**Never describe an input as just "a dictionary."** You must define the expected structure clearly.
 

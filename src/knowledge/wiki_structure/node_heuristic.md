@@ -78,9 +78,9 @@ config = LoraConfig(
 * [{repoUrl}/blob/{branch}/path/to/file.py file.py] - Related module
 
 == Related Pages ==
-* [[applies_to::Implementation:{repo_name}/{Target_Tool}]] - Implementation this applies to
-* [[applies_to::Workflow:{repo_name}/{Target_Workflow}]] - Workflow this applies to
-* [[related_to::Principle:{repo_name}/{Related_Principle}]] - Related theoretical principle
+* [[applies_to::Implementation:{Target_Tool}]] - Implementation this applies to
+* [[applies_to::Workflow:{Target_Workflow}]] - Workflow this applies to
+* [[related_to::Principle:{Related_Principle}]] - Related theoretical principle
 ```
 
 ## Coverage Target

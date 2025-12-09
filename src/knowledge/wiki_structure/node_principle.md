@@ -38,7 +38,7 @@ Ask: "Could I write a Wikipedia article about this specific logic without mentio
 ## Two Types of Principle Pages
 
 ### A. Workflow Step Principle
-- Used as a step in a Workflow via `[[step::Principle:repo_name/X]]`
+- Used as a step in a Workflow via `[[step::Principle:X]]`
 - **MUST** have a "Related Implementation" section
 - **MUST** link to at least one Implementation page
 - Required because workflows must be executable
@@ -87,12 +87,12 @@ The internal logic operates as follows:
 
 == Related Implementation ==
 {REQUIRED if this Principle is used as a step in a Workflow.}
-* [[realized_by::Implementation:{repo_name}/{Class_A}]] - Primary implementation
-* [[realized_by::Implementation:{repo_name}/{Class_B}]] - Alternative implementation
+* [[realized_by::Implementation:{Class_A}]] - Primary implementation
+* [[realized_by::Implementation:{Class_B}]] - Alternative implementation
 
 == Related Pages ==
-* [[related_to::Principle:{repo_name}/{Parent_Theory}]] - Parent or related theory
-* [[step_of::Workflow:{repo_name}/{Workflow_Name}]] - Workflow using this principle
+* [[related_to::Principle:{Parent_Theory}]] - Parent or related theory
+* [[step_of::Workflow:{Workflow_Name}]] - Workflow using this principle
 ```
 
 ## Coverage Target
@@ -109,7 +109,7 @@ The internal logic operates as follows:
 
 ## Workflow Executability Rule
 
-**Every Principle that serves as a workflow step MUST have at least one corresponding Implementation page linked via `[[realized_by::Implementation:repo_name/Y]]`.**
+**Every Principle that serves as a workflow step MUST have at least one corresponding Implementation page linked via `[[realized_by::Implementation:Y]]`.**
 
 This ensures workflows are executable:
 - The Principle explains the theory (WHY)

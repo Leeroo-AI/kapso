@@ -81,8 +81,8 @@ pip install {package}
 * [{repoUrl}/blob/{branch}/requirements.txt requirements.txt] - Python dependencies
 
 == Related Pages ==
-* [[required_by::Implementation:{repo_name}/{Class_Name}]] - Implementations requiring this
-* [[required_by::Workflow:{repo_name}/{Workflow_Name}]] - Workflows requiring this
+* [[required_by::Implementation:{Class_Name}]] - Implementations requiring this
+* [[required_by::Workflow:{Workflow_Name}]] - Workflows requiring this
 ```
 
 ## Coverage Target
