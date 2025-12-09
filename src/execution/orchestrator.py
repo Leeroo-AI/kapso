@@ -36,7 +36,6 @@ class OrchestratorAgent:
     
     Args:
         problem_handler: Handler for the problem being solved
-        search_strategy: Pre-configured SearchStrategy instance (optional)
         config_path: Path to benchmark-specific config.yaml file
         mode: Configuration mode to use (if None, uses default_mode from config)
         coding_agent: Coding agent to use (overrides config if specified)
@@ -46,11 +45,12 @@ class OrchestratorAgent:
     def __init__(
         self, 
         problem_handler: ProblemHandler,
-        search_strategy: Optional[SearchStrategy] = None,
         config_path: Optional[str] = None,
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
         is_kg_active: bool = False,
+        workspace_dir: Optional[str] = None,
+        start_from_checkpoint: bool = False,
     ):
         self.problem_handler = problem_handler
         self.llm = LLMBackend()
@@ -60,13 +60,12 @@ class OrchestratorAgent:
         # Load config once and store for reuse
         self.mode_config = load_mode_config(config_path, mode)
         
-        # Create search strategy if not provided
-        if search_strategy is None:
-            self.search_strategy = self._create_search_strategy(
-                coding_agent=coding_agent,
-            )
-        else:
-            self.search_strategy = search_strategy
+        # Create search strategy 
+        self.search_strategy = self._create_search_strategy(
+            coding_agent=coding_agent,
+            workspace_dir=workspace_dir,
+            start_from_checkpoint=start_from_checkpoint,
+        )
         
         # Create knowledge search backend
         self.knowledge_search = self._create_knowledge_search(
@@ -79,6 +78,8 @@ class OrchestratorAgent:
     def _create_search_strategy(
         self,
         coding_agent: Optional[str],
+        workspace_dir: Optional[str],
+        start_from_checkpoint: bool,
     ) -> SearchStrategy:
         """
         Create search strategy from config.
@@ -150,6 +151,8 @@ class OrchestratorAgent:
             llm=self.llm,
             coding_agent_config=coding_agent_config,
             params=strategy_params,
+            workspace_dir=workspace_dir,
+            start_from_checkpoint=start_from_checkpoint,
         )
 
     def _create_knowledge_search(
@@ -275,7 +278,7 @@ class OrchestratorAgent:
             
             # Run one iteration of search strategy
             self.search_strategy.run(experiment_context, budget_progress=budget_progress)
-            
+
             print(
                 f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
                 '#' * 100,
@@ -284,5 +287,6 @@ class OrchestratorAgent:
                 '\n', 
                 '#' * 100
             )
-        
+            self.search_strategy.export_checkpoint()
+
         return self.search_strategy.get_best_experiment()

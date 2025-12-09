@@ -30,21 +30,21 @@ class ExperimentWorkspace:
     through the CodingAgentConfig system.
     """
     
-    WORKSPACE_FOLDER_BASE = 'tmp/experiment_workspace'
 
-    def __init__(self, coding_agent_config: CodingAgentConfig):
+    def __init__(self, coding_agent_config: CodingAgentConfig, workspace_dir: str):
         """
         Initialize the Experiment Workspace.
         
         Args:
             coding_agent_config: Configuration for the coding agent (required)
+            workspace_dir: Path to the workspace directory (required)
         """
-        self.uuid = str(uuid.uuid4())
-        self.workspace_folder = os.path.join(self.WORKSPACE_FOLDER_BASE, self.uuid)
-        os.makedirs(self.workspace_folder, exist_ok=True)
+        
+        self.workspace_dir = workspace_dir
+        os.makedirs(self.workspace_dir, exist_ok=True)
         
         # Initialize git repository
-        self.repo = git.Repo.init(self.workspace_folder)
+        self.repo = git.Repo.init(self.workspace_dir)
         with self.repo.config_writer() as git_config:
             git_config.set_value("user", "name", "Experiment Workspace")
             git_config.set_value("user", "email", "workspace@experiment.com")
@@ -58,11 +58,14 @@ class ExperimentWorkspace:
         self.repo_lock = threading.Lock()
         
         # Initialize main branch
-        self.create_branch('main')
-        with open(os.path.join(self.workspace_folder, '.gitignore'), 'w') as f:
-            f.write('sessions/*\n*.log')
-        self.repo.git.add(['.gitignore'])
-        self.repo.git.commit('-m', 'chore: initialize repository')
+        if 'main' not in [ref.name for ref in self.repo.heads]:
+            self.create_branch('main')
+            with open(os.path.join(self.workspace_dir, '.gitignore'), 'w') as f:
+                f.write('sessions/*\n*.log')
+            self.repo.git.add(['.gitignore'])
+            self.repo.git.commit('-m', 'chore: initialize repository')
+        else:
+            self.repo.git.checkout('main')
 
     @classmethod
     def with_default_config(cls) -> 'ExperimentWorkspace':
@@ -120,7 +123,7 @@ class ExperimentWorkspace:
         """
         print(f"Creating experiment session for branch {branch_name} with parent {parent_branch_name}")
         
-        session_folder = os.path.join(self.workspace_folder, 'sessions', branch_name)
+        session_folder = os.path.join(self.workspace_dir, 'sessions', branch_name)
         
         # Create session with coding agent config
         session = ExperimentSession(
@@ -153,7 +156,7 @@ class ExperimentWorkspace:
         
         Removes the workspace folder and all its contents.
         """
-        shutil.rmtree(self.workspace_folder, ignore_errors=True)
+        shutil.rmtree(self.workspace_dir, ignore_errors=True)
 
     def get_cumulative_cost(self) -> float:
         """
@@ -170,7 +173,7 @@ if __name__ == "__main__":
     print("Testing ExperimentWorkspace with default config...")
     
     workspace = ExperimentWorkspace.with_default_config()
-    print(f"Workspace: {workspace.workspace_folder}")
+    print(f"Workspace: {workspace.workspace_dir}")
     print(f"Agent type: {workspace.coding_agent_config.agent_type}")
     
     session = workspace.create_experiment_session("test_branch")

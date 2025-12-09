@@ -120,20 +120,20 @@ modes:
         reasoning_effort: "medium"
         code_debug_tries: 2
         node_expansion_limit: 2
-        node_expansion_new_childs_count: 5
+        node_expansion_new_childs_count: 3
         idea_generation_steps: 1
         first_experiment_factor: 1
         experimentation_per_run: 1
-        per_step_maximum_solution_count: 10
+        per_step_maximum_solution_count: 3
         exploration_budget_percent: 50
-        idea_generation_model: "gpt-4.1-mini"
+        idea_generation_model: "gpt-5-mini"
         idea_generation_ensemble_models:
-          - "gpt-4.1-mini"
+          - "gpt-5-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-4.1-mini"
-      debug_model: "gpt-4.1-mini"
+      model: "gpt-5-mini"
+      debug_model: "gpt-5-mini"
     
     context_manager:
       type: "kg_enriched"
