@@ -55,7 +55,7 @@ class AdapterAgent:
         self.registry = StrategyRegistry.get()
         
         # Path to the adaptation prompt template
-        self.adaptation_prompt_path = Path(__file__).parent / "adaptation_prompt.md"
+        self.adaptation_prompt_path = Path(__file__).parent / "adaptation_prompt.txt"
     
     def _create_adapted_workspace(self, original_path: str, strategy: str) -> str:
         """

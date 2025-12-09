@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "maple",
-  "name": "Expert Agent",
+  "name": "Praxium",
 
   "colors": {
     "primary": "#2563EB",
@@ -12,8 +12,8 @@
   "favicon": "docs/favicon.svg",
 
   "logo": {
-    "light": "docs/logo/leeroo-logo.png",
-    "dark": "docs/logo/leeroo-logo.png"
+    "light": "https://avatars.githubusercontent.com/u/157533604?s=400&u=79405674fcaf5cc16c55f2b9548a6ebb17fdcfa9&v=4",
+    "dark": "https://avatars.githubusercontent.com/u/157533604?s=400&u=79405674fcaf5cc16c55f2b9548a6ebb17fdcfa9&v=4"
   },
 
   "navigation": {
