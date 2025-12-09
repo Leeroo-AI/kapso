@@ -1,0 +1,19 @@
+# Docker deployment strategy configuration
+name: docker
+provider: null
+interface: http
+
+# Runner class name (in runner.py)
+runner_class: DockerRunner
+
+# No default resources needed (managed by Docker)
+default_resources: {}
+
+# Run interface configuration (passed to runner constructor)
+run_interface:
+  type: http
+  endpoint: http://localhost:8000
+  predict_path: /predict
+  container_name: solution-container
+  image_name: solution
+

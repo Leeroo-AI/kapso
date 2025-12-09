@@ -80,8 +80,8 @@ agents:
     agent_specific:
       # Enable planning mode for multi-step tasks
       planning_mode: false
-      # Timeout in seconds
-      timeout: 300
+      # Timeout in seconds (1 hour for complex deployments)
+      timeout: 3600
       # Allowed tools for Claude Code
       allowed_tools:
         - "Edit"

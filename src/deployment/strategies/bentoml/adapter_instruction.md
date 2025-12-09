@@ -17,6 +17,12 @@ If deployment fails, debug and fix the error.
 - deployment_name: derived from path
 - path: /predict
 
+After successful deployment, output this JSON (update deployment_name and endpoint):
+```
+<run_interface>{"type": "bentocloud", "deployment_name": "your-deployment-name", "path": "/predict"}</run_interface>
+<endpoint_url>https://your-deployment.bentoml.cloud</endpoint_url>
+```
+
 ## CRITICAL: YOU MUST ACTUALLY DEPLOY
 
 **Do NOT just create files. You MUST run `python deploy.py` and verify it succeeds.**

@@ -1,0 +1,18 @@
+# Modal deployment strategy configuration
+name: modal
+provider: modal
+interface: function
+
+# Runner class name (in runner.py)
+runner_class: ModalRunner
+
+# Default resources for Modal
+default_resources:
+  gpu: T4
+  memory: 16Gi
+
+# Run interface configuration (passed to runner constructor)
+run_interface:
+  type: modal
+  function_name: predict
+

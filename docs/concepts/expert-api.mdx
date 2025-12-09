@@ -92,12 +92,13 @@ print(solution.explain())  # Show experiment history
 
 ### Software
 
-The running instance of a deployed Solution.
+The running instance of a deployed Solution. Supports full lifecycle management.
 
 | Method | Description |
 |--------|-------------|
 | `.run(input)` | Execute with input data |
-| `.stop()` | Shutdown and cleanup |
+| `.stop()` | Shutdown and cleanup resources |
+| `.start()` | Restart a stopped deployment |
 | `.logs()` | Get execution logs |
 | `.is_healthy()` | Health check |
 
@@ -145,6 +146,11 @@ quant.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 # Deploy and run
 software = solution.deploy(strategy=DeployStrategy.LOCAL)
 result = software.run({"ticker": "AAPL", "price": 150.0})
+
+# Lifecycle: stop, restart, run again
+software.stop()
+software.start()
+result = software.run({"ticker": "MSFT", "price": 400.0})
 software.stop()
 ```
 

@@ -35,7 +35,12 @@ solution = expert.build(
 # Deploy and run
 software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"ticker": "AAPL", "price": 150.0})
-software.stop()
+
+# Lifecycle management
+software.stop()   # Stop the deployment
+software.start()  # Restart the deployment
+result = software.run({"ticker": "MSFT", "price": 400.0})  # Run again
+software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
 expert.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
@@ -207,7 +212,9 @@ Pluggable agents for code generation:
 | `aider` | Git-centric pair programming with diff-based editing (default) |
 | `gemini` | Google Gemini SDK for code generation |
 | `claude_code` | Anthropic Claude Code CLI for complex refactoring |
-| `openhands` | OpenHands agent with sandboxed execution |
+| `openhands` | OpenHands agent with sandboxed execution ⚠️ |
+
+> **⚠️ Note:** `openhands` requires a separate conda environment due to conflicting dependencies with `aider-chat`. See [Installation](#installation) for details.
 
 ```python
 solution = expert.build(
@@ -259,9 +266,24 @@ praxium/
 
 ```bash
 git clone <repository-url>
-cd mle_expert_coding
-pip install -r requirements.txt
+cd praxium
+
+# Create a dedicated conda environment (recommended)
+conda create -n praxium_conda python=3.12
+conda activate praxium_conda
+
+# Install the package
+pip install -e .
 ```
+
+> **⚠️ Dependency Compatibility Note**
+>
+> `aider-chat` has strict pinned dependencies that conflict with some packages:
+> - `openhands` requires `litellm>=1.80.7`, but aider pins `litellm==1.75.0`
+> - `browser-use` requires `openai>=2.7.2`, but aider pins `openai==1.99.1`
+>
+> **Do not install openhands or browser-use in the same environment.**
+> Use a separate conda environment if you need those packages.
 
 ### 2. Set Up API Keys
 
@@ -276,14 +298,16 @@ ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude models
 ### 3. Install Coding Agent (optional)
 
 ```bash
-# Aider (default)
-pip install aider-chat
+# Aider (default) - included in pip install -e .
+# Already installed as a core dependency
 
 # Claude Code
 npm install -g @anthropic-ai/claude-code
 
-# OpenHands
-pip install openhands-ai litellm
+# OpenHands - INCOMPATIBLE with aider-chat (use separate environment)
+# conda create -n openhands_env python=3.12
+# conda activate openhands_env
+# pip install openhands-ai litellm
 ```
 
 ## Running Benchmarks
@@ -322,6 +346,41 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 | `Evaluator` | Score solutions |
 | `StopCondition` | Control when to stop |
 | `ProblemHandler` | Problem-specific logic |
+
+## Software Lifecycle
+
+After deploying, the returned `Software` instance supports full lifecycle management:
+
+```python
+software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+
+# Run
+result = software.run({"input": "data"})
+
+# Check health
+if software.is_healthy():
+    print("Service is running")
+
+# Stop (cleanup resources)
+software.stop()
+
+# Restart (re-initialize)
+software.start()
+
+# Run again after restart
+result = software.run({"input": "more data"})
+
+# Final cleanup
+software.stop()
+```
+
+| Method | Description |
+|--------|-------------|
+| `run(inputs)` | Execute with input data, returns `{"status": "success/error", "output": ...}` |
+| `stop()` | Stop and cleanup resources (containers, modules, cloud deployments) |
+| `start()` | Restart a stopped deployment (re-deploy for cloud, reload for local) |
+| `is_healthy()` | Check if the service is running and ready |
+| `logs()` | Get execution logs for debugging |
 
 ## Running Documentation Locally
 

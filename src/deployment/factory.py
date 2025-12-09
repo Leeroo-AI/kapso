@@ -3,15 +3,17 @@
 # Factory for creating deployed Software instances.
 # Handles the full deployment pipeline:
 # 1. Select strategy (if AUTO)
-# 2. Adapt the repo for the strategy
+# 2. Adapt and deploy (coding agent does both)
 # 3. Create appropriate runner
 # 4. Return unified Software instance
 #
+# The coding agent is responsible for:
+# - Creating deployment files
+# - Running the deploy command
+# - Reporting the endpoint URL
+#
 # Usage:
-#     from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
-#     
-#     config = DeployConfig(code_path="./solution", goal="My Goal")
-#     software = DeploymentFactory.create(DeployStrategy.AUTO, config)
+#     software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
 from typing import Optional, List
@@ -34,15 +36,12 @@ class DeploymentFactory:
     
     Handles the full deployment pipeline:
     1. Select strategy (if AUTO)
-    2. Adapt the repo for the strategy
+    2. Adapt and deploy (coding agent handles both)
     3. Create appropriate runner
     4. Return unified Software instance
     
-    Usage:
-        software = DeploymentFactory.create(
-            strategy=DeployStrategy.AUTO,
-            config=DeployConfig(code_path="./solution", goal="My Goal"),
-        )
+    The coding agent creates deployment files, runs the deploy command,
+    and reports the endpoint. No separate deployment step is needed.
     """
     
     @classmethod
@@ -74,49 +73,38 @@ class DeploymentFactory:
             if strategies and strategy.value not in strategies:
                 raise ValueError(f"Strategy '{strategy.value}' not in allowed: {strategies}")
             print(f"[Deployment] Phase 1: Using specified strategy: {strategy.value}")
-            setting = cls._create_setting(strategy, config.code_path)
+            setting = cls._create_setting(strategy)
         
         print(f"[Deployment] Selected: {setting.strategy} ({setting.reasoning})")
         
-        # Phase 2: Adaptation
-        print(f"[Deployment] Phase 2: Adapting repository...")
+        # Phase 2: Adaptation (coding agent adapts AND deploys)
+        print(f"[Deployment] Phase 2: Adapting and deploying...")
         adaptation = cls._adapt_repo(config, setting, strategies)
         
         if not adaptation.success:
             raise RuntimeError(f"Adaptation failed: {adaptation.error}")
         
+        # Endpoint comes from the coding agent's output (it runs deployment)
+        endpoint = adaptation.run_interface.get("endpoint")
         print(f"[Deployment] Adaptation complete. Files changed: {len(adaptation.files_changed)}")
-        
-        # Phase 3: Deploy to cloud (if applicable)
-        endpoint = None
-        if setting.strategy in ["modal", "bentoml", "langgraph"]:
-            print(f"[Deployment] Phase 3: Deploying to {setting.strategy}...")
-            deploy_result = cls._deploy(config.code_path, setting.strategy, adaptation.deploy_script)
-            if deploy_result.get("success"):
-                endpoint = deploy_result.get("endpoint")
-                print(f"[Deployment] Deployed! Endpoint: {endpoint or 'N/A'}")
-            else:
-                print(f"[Deployment] Deploy warning: {deploy_result.get('error', 'Unknown')}")
-        
-        # Phase 4: Create Runner
-        print(f"[Deployment] Phase 4: Creating runner...")
-        # Update interface with endpoint if we got one from deployment
         if endpoint:
-            adaptation.run_interface["endpoint"] = endpoint
-            adaptation.run_interface["deployment_url"] = endpoint
+            print(f"[Deployment] Endpoint: {endpoint}")
+        
+        # Phase 3: Create Runner
+        print(f"[Deployment] Phase 3: Creating runner...")
         runner = cls._create_runner(config, setting, adaptation)
         
-        # Phase 5: Create unified Software
+        # Phase 4: Create unified Software
         info = DeploymentInfo(
             strategy=setting.strategy,
             provider=setting.provider,
-            deploy_command=adaptation.deploy_script,
-            endpoint=endpoint or adaptation.run_interface.get("endpoint"),
+            endpoint=endpoint,
+            adapted_path=adaptation.adapted_path,
             adapted_files=adaptation.files_changed,
             resources=setting.resources,
         )
         
-        print(f"[Deployment] Ready. Deploy command: {adaptation.deploy_script}")
+        print(f"[Deployment] Ready.")
         
         return DeployedSoftware(config=config, runner=runner, info=info)
     
@@ -136,19 +124,18 @@ class DeploymentFactory:
         from src.deployment.selector.agent import SelectorAgent
         
         selector = SelectorAgent()
-        return selector.select(config.code_path, config.goal, strategies=strategies)
+        return selector.select(config.solution, allowed_strategies=strategies)
     
     @classmethod
     def _create_setting(
         cls, 
         strategy: DeployStrategy,
-        code_path: str,
     ) -> DeploymentSetting:
         """Create setting from explicit strategy (user-specified)."""
         from src.deployment.selector.agent import SelectorAgent
         
         selector = SelectorAgent()
-        return selector._create_setting_for_strategy(strategy.value, code_path)
+        return selector._create_setting_for_strategy(strategy.value)
     
     @classmethod
     def _adapt_repo(
@@ -175,69 +162,10 @@ class DeploymentFactory:
         )
         
         return adapter.adapt(
-            solution_path=config.code_path,
-            goal=config.goal,
+            solution=config.solution,
             setting=setting,
-            strategies=strategies,
-            validate=config.validate,
+            allowed_strategies=strategies,
         )
-    
-    @classmethod
-    def _deploy(
-        cls,
-        code_path: str,
-        strategy: str,
-        deploy_script: str,
-    ) -> dict:
-        """
-        Execute deployment to cloud provider.
-        
-        Args:
-            code_path: Path to the adapted code
-            strategy: Deployment strategy (modal, bentoml, langgraph)
-            deploy_script: Command to run for deployment
-            
-        Returns:
-            Dict with success, endpoint, and error keys
-        """
-        import subprocess
-        import os
-        
-        result = {"success": False, "endpoint": None, "error": None}
-        
-        try:
-            # Run the deploy command
-            proc = subprocess.run(
-                deploy_script,
-                shell=True,
-                cwd=code_path,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env={**os.environ},
-            )
-            
-            if proc.returncode == 0:
-                result["success"] = True
-                # Try to extract endpoint from output
-                output = proc.stdout + proc.stderr
-                for line in output.split("\n"):
-                    if "https://" in line:
-                        # Extract URL from line
-                        import re
-                        urls = re.findall(r'https://[^\s<>"]+', line)
-                        if urls:
-                            result["endpoint"] = urls[0]
-                            break
-            else:
-                result["error"] = proc.stderr[:200] if proc.stderr else "Deploy failed"
-                
-        except subprocess.TimeoutExpired:
-            result["error"] = "Deploy timeout (300s)"
-        except Exception as e:
-            result["error"] = str(e)
-        
-        return result
     
     @classmethod
     def _create_runner(
@@ -249,65 +177,44 @@ class DeploymentFactory:
         """
         Create the appropriate runner for the strategy.
         
-        Uses strategy packages from strategies/ directory.
+        Dynamically imports the runner class from strategies/{name}/runner.py
+        and instantiates it with parameters from run_interface.
         """
-        interface = adaptation.run_interface
-        interface_type = interface.get("type", "function")
+        registry = StrategyRegistry.get()
         strategy = setting.strategy
+        adapted_path = adaptation.adapted_path
         
-        # Import runners from strategy packages
-        if strategy == "local" or interface_type == "function":
+        # Get run_interface from adaptation (agent output or defaults)
+        run_interface = adaptation.run_interface.copy()
+        
+        # Add common parameters
+        run_interface["code_path"] = adapted_path
+        run_interface["timeout"] = config.timeout
+        
+        # Remove 'type' as it's not a constructor parameter
+        run_interface.pop("type", None)
+        
+        # Get the runner class dynamically from the strategy
+        try:
+            runner_class = registry.get_runner_class(strategy)
+        except (ImportError, ValueError) as e:
+            print(f"[Factory] Warning: Could not load runner for '{strategy}': {e}")
+            print(f"[Factory] Falling back to LocalRunner")
             from src.deployment.strategies.local.runner import LocalRunner
             return LocalRunner(
-                code_path=config.code_path,
-                module=interface.get("module", "main"),
-                callable=interface.get("callable", "predict"),
+                code_path=adapted_path,
+                module=run_interface.get("module", "main"),
+                callable=run_interface.get("callable", "predict"),
             )
         
-        elif strategy == "docker" or interface_type == "http":
-            from src.deployment.strategies.docker.runner import DockerRunner
-            return DockerRunner(
-                endpoint=interface.get("endpoint", f"http://localhost:{config.port}"),
-                predict_path=interface.get("path", "/predict"),
-                timeout=config.timeout,
-                code_path=config.code_path,
-            )
-        
-        elif strategy == "modal" or interface_type == "modal":
-            from src.deployment.strategies.modal.runner import ModalRunner
-            app_name = interface.get("app_name", config.code_path.replace("/", "-").replace(".", "-"))
-            return ModalRunner(
-                app_name=app_name,
-                function_name=interface.get("callable", "predict"),
-                code_path=config.code_path,
-            )
-        
-        elif strategy == "bentoml" or interface_type == "bentocloud":
-            from src.deployment.strategies.bentoml.runner import BentoMLRunner
-            deployment_name = interface.get("deployment_name", config.code_path.split("/")[-1])
-            return BentoMLRunner(
-                deployment_name=deployment_name,
-                endpoint=interface.get("endpoint"),
-                predict_path=interface.get("path", "/predict"),
-                code_path=config.code_path,
-            )
-        
-        elif strategy == "langgraph" or interface_type == "langgraph":
-            from src.deployment.strategies.langgraph.runner import LangGraphRunner
-            return LangGraphRunner(
-                deployment_url=interface.get("deployment_url"),
-                assistant_id=interface.get("assistant_id", "agent"),
-                code_path=config.code_path,
-            )
-        
-        else:
-            # Default to local runner
-            from src.deployment.strategies.local.runner import LocalRunner
-            return LocalRunner(
-                code_path=config.code_path,
-                module="main",
-                callable="predict",
-            )
+        # Instantiate runner with run_interface parameters
+        # Runner __init__ should accept **kwargs and pick what it needs
+        try:
+            return runner_class(**run_interface)
+        except TypeError as e:
+            # If kwargs don't match, try with just code_path
+            print(f"[Factory] Warning: Runner init failed with full kwargs: {e}")
+            return runner_class(code_path=adapted_path)
     
     @classmethod
     def list_strategies(cls) -> List[str]:

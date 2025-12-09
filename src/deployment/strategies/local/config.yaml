@@ -1,0 +1,17 @@
+# Local deployment strategy configuration
+name: local
+provider: null
+interface: function
+
+# Runner class name (in runner.py)
+runner_class: LocalRunner
+
+# No default resources needed for local
+default_resources: {}
+
+# Run interface configuration (passed to runner constructor)
+run_interface:
+  type: function
+  module: main
+  callable: predict
+

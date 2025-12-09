@@ -17,6 +17,12 @@ If deployment fails, debug and fix the error.
 - assistant_id: agent
 - deployment_url: from deployment output
 
+After successful deployment, output this JSON (update deployment_url):
+```
+<run_interface>{"type": "langgraph", "assistant_id": "agent", "deployment_url": "https://your-deployment-url"}</run_interface>
+<endpoint_url>https://your-deployment-url</endpoint_url>
+```
+
 ## CRITICAL: YOU MUST ACTUALLY DEPLOY
 
 **Do NOT just create files. You MUST run `langgraph deploy` and verify it succeeds.**

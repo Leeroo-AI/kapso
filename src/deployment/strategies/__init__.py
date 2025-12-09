@@ -13,6 +13,6 @@
 # 3. Add adapter_instruction.md with DEPLOY COMMAND and RUN INTERFACE
 # 4. Add runner.py with a class inheriting from Runner
 
-from src.deployment.strategies.base import Runner, StrategyRegistry, StrategyInfo
+from src.deployment.strategies.base import Runner, StrategyRegistry, DeployStrategyConfig
 
-__all__ = ["Runner", "StrategyRegistry", "StrategyInfo"]
+__all__ = ["Runner", "StrategyRegistry", "DeployStrategyConfig"]

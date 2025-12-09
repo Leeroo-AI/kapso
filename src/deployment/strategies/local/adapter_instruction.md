@@ -16,6 +16,11 @@ Run this command to verify the local deployment works. If it fails, debug and fi
 - module: main
 - callable: predict
 
+After successful deployment, output this JSON:
+```
+<run_interface>{"type": "function", "module": "main", "callable": "predict"}</run_interface>
+```
+
 ## CRITICAL: YOU MUST VERIFY THE CODE WORKS
 
 **Do NOT just create files. You MUST test that the predict function works.**

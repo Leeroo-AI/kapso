@@ -14,13 +14,17 @@ authors = [
 license = {text = "MIT"}
 
 # Core dependencies
+# NOTE: aider-chat has strict pinned dependencies (litellm, openai, cffi, etc.)
+# that conflict with openhands and browser-use. Do not install those packages
+# in the same environment. See requirements.txt for details.
 dependencies = [
-    "litellm>=1.0.0",
     "GitPython",
     "aider-chat>=0.35.0",
     "PyYAML",
     "python-dotenv",
     "neo4j",
+    # Pin cryptography to avoid cffi>=2.0.0 requirement (conflicts with aider-chat)
+    "cryptography<46.0.0",
 ]
 
 [project.optional-dependencies]

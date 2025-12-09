@@ -1,13 +1,16 @@
 # Modal Runner
 #
 # Executes software by calling Modal functions remotely.
-# For MODAL deployment strategy.
+# Manages Modal app lifecycle including deployment termination.
 #
 # Usage:
 #     runner = ModalRunner(app_name="my-app", function_name="predict")
 #     result = runner.run({"input": "data"})
+#     runner.stop()  # Terminates the Modal app
+#     runner.start()  # Re-connects to the function
 
 import os
+import subprocess
 from typing import Any, Dict, List, Union
 
 from src.deployment.strategies.base import Runner
@@ -17,19 +20,25 @@ class ModalRunner(Runner):
     """
     Runs by calling a Modal function remotely.
     
-    This runner provides the interface to deployed Modal functions.
-    It requires Modal to be installed and configured for remote calls.
+    Manages Modal app lifecycle:
+    - start(): Re-lookup and connect to the Modal function
+    - stop(): Terminate the Modal app deployment
+    - run(): Call the function remotely
+    
+    Requires Modal to be installed and authenticated.
     
     Usage:
         runner = ModalRunner(app_name="text-embeddings", function_name="predict")
         result = runner.run({"text": "hello"})
+        runner.stop()  # Terminates deployment
     """
     
     def __init__(
         self,
-        app_name: str,
+        app_name: str = None,
         function_name: str = "predict",
         code_path: str = None,
+        **kwargs,  # Accept extra params from run_interface
     ):
         """
         Initialize the Modal runner.
@@ -38,6 +47,7 @@ class ModalRunner(Runner):
             app_name: Name of the Modal app
             function_name: Name of the function to call
             code_path: Path to the code directory (for deploy command)
+            **kwargs: Additional parameters (ignored)
         """
         self.app_name = app_name
         self.function_name = function_name
@@ -73,6 +83,67 @@ class ModalRunner(Runner):
             self._logs.append("Modal not installed. Run: pip install modal")
             self._logs.append("Then authenticate: modal token new")
     
+    def start(self) -> None:
+        """
+        Start or restart the Modal runner.
+        
+        Re-lookups the Modal function. If the app was stopped,
+        it needs to be redeployed first with `modal deploy`.
+        """
+        self._logs.append("Starting Modal runner...")
+        self._fn = None
+        self._deployed = False
+        self._load()
+        
+        if self._deployed:
+            self._logs.append("Modal runner started - connected to function")
+        else:
+            self._logs.append("Modal runner started - function not yet deployed")
+    
+    def stop(self) -> None:
+        """
+        Stop the Modal app deployment.
+        
+        Terminates the Modal app using `modal app stop`.
+        This will stop all running containers and release resources.
+        Can be restarted with `modal deploy` followed by start().
+        """
+        self._logs.append(f"Stopping Modal app: {self.app_name}...")
+        
+        # Clear local references first
+        self._fn = None
+        self._deployed = False
+        
+        if not self.app_name:
+            self._logs.append("No app name specified, skipping Modal app stop")
+            return
+        
+        try:
+            # Run modal app stop command
+            result = subprocess.run(
+                ["modal", "app", "stop", self.app_name],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            
+            if result.returncode == 0:
+                self._logs.append(f"Modal app {self.app_name} stopped successfully")
+                if result.stdout:
+                    self._logs.append(f"Output: {result.stdout.strip()}")
+            else:
+                # Modal app stop might fail if app doesn't exist or is already stopped
+                self._logs.append(f"Modal app stop returned: {result.returncode}")
+                if result.stderr:
+                    self._logs.append(f"Error: {result.stderr.strip()}")
+                    
+        except FileNotFoundError:
+            self._logs.append("Modal CLI not found. Install with: pip install modal")
+        except subprocess.TimeoutExpired:
+            self._logs.append("Timeout waiting for modal app stop")
+        except Exception as e:
+            self._logs.append(f"Error stopping Modal app: {e}")
+    
     def run(self, inputs: Union[Dict, str, bytes]) -> Any:
         """
         Call the Modal function remotely.
@@ -104,13 +175,9 @@ class ModalRunner(Runner):
             self._logs.append(f"Modal call error: {e}")
             return {"error": str(e)}
     
-    def stop(self) -> None:
-        """No-op for Modal - functions are serverless."""
-        self._fn = None
-    
     def is_healthy(self) -> bool:
         """Check if the Modal function is available."""
-        return self._deployed
+        return self._deployed and self._fn is not None
     
     def get_logs(self) -> str:
         """Get runner logs."""
@@ -121,4 +188,3 @@ class ModalRunner(Runner):
         if self.code_path:
             return f"cd {self.code_path} && modal deploy modal_app.py"
         return "modal deploy modal_app.py"
-

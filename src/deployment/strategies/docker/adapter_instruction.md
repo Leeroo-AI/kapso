@@ -6,15 +6,23 @@ Best for reproducibility, isolation, and HTTP-based APIs.
 ## DEPLOY COMMAND
 
 ```bash
-docker build -t solution . && docker run -p 8000:8000 solution
+docker build -t solution . && docker run -d --name solution-container -p 8000:8000 solution
 ```
 
-Run this command to build and start the Docker container. If it fails, debug and fix the error.
+Run this command to build and start the Docker container. The `-d` runs in detached mode, `--name` gives a consistent container name.
+If it fails, debug and fix the error.
 
 ## RUN INTERFACE
 - type: http
 - endpoint: http://localhost:8000
 - path: /predict
+- container_name: solution-container
+- image_name: solution
+
+After successful deployment, output this JSON (update endpoint if different):
+```
+<run_interface>{"type": "http", "endpoint": "http://localhost:8000", "path": "/predict", "container_name": "solution-container", "image_name": "solution"}</run_interface>
+```
 
 ## CRITICAL: YOU MUST BUILD AND TEST THE CONTAINER
 
@@ -76,17 +84,11 @@ If using HTTP interface, create `app.py`:
 FastAPI application for Docker deployment.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Any, Dict
 
 app = FastAPI(title="Solution API", version="1.0.0")
-
-
-class PredictRequest(BaseModel):
-    """Input schema for predictions."""
-    # Define your input fields here
-    data: Dict[str, Any] = {}
 
 
 class PredictResponse(BaseModel):
@@ -103,13 +105,16 @@ def health():
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(request: PredictRequest):
+def predict(request: Dict[str, Any]):
     """
     Main prediction endpoint.
+    
+    IMPORTANT: Accepts raw JSON input directly (not wrapped in "data").
+    Example: {"text": "hello"} NOT {"data": {"text": "hello"}}
     """
     try:
         from main import predict as _predict
-        result = _predict(request.data)
+        result = _predict(request)
         return PredictResponse(status="success", output=result)
     except Exception as e:
         return PredictResponse(status="error", error=str(e))
@@ -154,10 +159,10 @@ docker run -p 8000:8000 solution
 # Test health endpoint
 curl http://localhost:8000/health
 
-# Test prediction endpoint
+# Test prediction endpoint (send input directly, not wrapped in "data")
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"data": {"text": "hello"}}'
+  -d '{"text": "hello"}'
 ```
 
 ## Notes

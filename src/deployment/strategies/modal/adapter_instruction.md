@@ -17,6 +17,12 @@ If deployment fails, debug and fix the error.
 - app_name: derived from path
 - callable: predict
 
+After successful deployment, output this JSON (update app_name and endpoint):
+```
+<run_interface>{"type": "modal", "app_name": "your-app-name", "callable": "predict"}</run_interface>
+<endpoint_url>https://your-username--app-name-web-predict.modal.run</endpoint_url>
+```
+
 ## CRITICAL: YOU MUST ACTUALLY DEPLOY
 
 **Do NOT just create files. You MUST run `modal deploy modal_app.py` and verify it succeeds.**

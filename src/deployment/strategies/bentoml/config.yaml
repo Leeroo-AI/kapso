@@ -1,0 +1,18 @@
+# BentoML deployment strategy configuration
+name: bentoml
+provider: bentocloud
+interface: http
+
+# Runner class name (in runner.py)
+runner_class: BentoMLRunner
+
+# Default resources for BentoCloud
+default_resources:
+  cpu: 2
+  memory: 4Gi
+
+# Run interface configuration (passed to runner constructor)
+run_interface:
+  type: bentocloud
+  predict_path: /predict
+

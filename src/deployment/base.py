@@ -5,7 +5,7 @@
 # regardless of the underlying infrastructure (Local, Docker, Modal, etc.).
 #
 # The deployment flow:
-# 1. SolutionResult.deploy() -> DeploymentFactory.create()
+# 1. Expert.deploy(solution) -> DeploymentFactory.create()
 # 2. Selector chooses best strategy (if AUTO)
 # 3. Adapter transforms repo for the strategy
 # 4. Runner handles actual execution
@@ -14,26 +14,61 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from src.execution.solution import SolutionResult
 
-class DeployStrategy(Enum):
+
+def _discover_strategies() -> Dict[str, str]:
     """
-    Deployment target for a Solution.
+    Discover available deployment strategies from the strategies/ directory.
     
-    AUTO: Let the system analyze and choose the best strategy
-    LOCAL: Run as a local process (fast, for development)
-    DOCKER: Run in a Docker container (isolated, reproducible)
-    MODAL: Deploy to Modal.com (serverless, GPU support)
-    BENTOML: Deploy with BentoML (production ML serving)
-    LANGGRAPH: Deploy to LangGraph Platform (stateful agents)
+    Returns:
+        Dict mapping uppercase name to lowercase value (e.g., {"LOCAL": "local"})
     """
-    AUTO = "auto"
-    LOCAL = "local"
-    DOCKER = "docker"
-    MODAL = "modal"
-    BENTOML = "bentoml"
-    LANGGRAPH = "langgraph"
+    strategies_dir = Path(__file__).parent / "strategies"
+    discovered = {}
+    
+    if strategies_dir.exists():
+        for path in sorted(strategies_dir.iterdir()):
+            # Skip non-directories, hidden dirs, and __pycache__
+            if not path.is_dir():
+                continue
+            if path.name.startswith("_") or path.name.startswith("."):
+                continue
+            
+            # Must have config.yaml to be a valid strategy
+            if (path / "config.yaml").exists():
+                discovered[path.name.upper()] = path.name
+    
+    return discovered
+
+
+def _build_deploy_strategy_enum():
+    """
+    Build the DeployStrategy enum dynamically.
+    
+    Includes AUTO + all discovered strategies from strategies/ directory.
+    """
+    # Start with AUTO (always available)
+    members = {"AUTO": "auto"}
+    
+    # Add discovered strategies
+    members.update(_discover_strategies())
+    
+    # Create enum using functional API
+    return Enum("DeployStrategy", members)
+
+
+# Dynamically created enum based on strategies/ directory
+DeployStrategy = _build_deploy_strategy_enum()
+DeployStrategy.__doc__ = """
+Deployment target for a Solution.
+
+AUTO: Let the system analyze and choose the best strategy.
+Other values are discovered from the strategies/ directory.
+"""
 
 
 @dataclass
@@ -42,25 +77,30 @@ class DeployConfig:
     Configuration for deploying software.
     
     Attributes:
-        code_path: Path to the generated code/repository
-        goal: The original goal/objective
+        solution: The SolutionResult from Expert.build()
         env_vars: Environment variables to pass to the software
-        port: Port to expose (for HTTP-based deployments)
         timeout: Execution timeout in seconds
         coding_agent: Which coding agent to use for adaptation
-        validate: Whether to validate the adaptation
     """
-    code_path: str
-    goal: str
+    solution: SolutionResult
     env_vars: Dict[str, str] = None
-    port: int = 8000
     timeout: int = 300
-    coding_agent: str = "claude_code"  # Use Claude Code for adaptation
-    validate: bool = True
+    coding_agent: str = "claude_code"
     
     def __post_init__(self):
         if self.env_vars is None:
             self.env_vars = {}
+    
+    # Convenience accessors
+    @property
+    def code_path(self) -> str:
+        """Path to the generated code/repository."""
+        return self.solution.code_path
+    
+    @property
+    def goal(self) -> str:
+        """The original goal/objective."""
+        return self.solution.goal
 
 
 @dataclass
@@ -89,12 +129,10 @@ class AdaptationResult:
     Produced by the Adapter, consumed by the Factory.
     """
     success: bool
-    adapted_path: str           # Path to adapted repo
-    deploy_script: str          # Command/script to deploy
+    adapted_path: str           # Path to adapted repo (copy of original)
     run_interface: Dict[str, Any]  # How to call .run() after deployment
     files_changed: List[str] = field(default_factory=list)
     error: Optional[str] = None
-    logs: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -106,8 +144,8 @@ class DeploymentInfo:
     """
     strategy: str                    # "local", "docker", "modal", etc.
     provider: Optional[str] = None   # "modal", "bentoml", etc.
-    deploy_command: str = ""         # Command to deploy
     endpoint: Optional[str] = None   # HTTP endpoint if applicable
+    adapted_path: str = ""           # Path to adapted code
     adapted_files: List[str] = field(default_factory=list)
     resources: Dict[str, Any] = field(default_factory=dict)
 
@@ -120,7 +158,7 @@ class Software(ABC):
     All infrastructure details are hidden behind this interface.
     
     Usage:
-        software = solution.deploy()  # Returns Software
+        software = expert.deploy(solution)  # Returns Software
         result = software.run({"text": "hello"})  # Always works the same
         software.stop()
         
@@ -162,6 +200,21 @@ class Software(ABC):
     @abstractmethod
     def stop(self) -> None:
         """Stop the software and cleanup resources."""
+        pass
+    
+    @abstractmethod
+    def start(self) -> None:
+        """
+        Start or restart a stopped deployment.
+        
+        This method re-initializes the deployment after stop() was called.
+        Behavior varies by strategy:
+        - LOCAL: Reloads the Python module
+        - DOCKER: Creates and starts a new container
+        - MODAL: Re-lookups the Modal function
+        - BENTOML: Re-deploys using deploy.py
+        - LANGGRAPH: Reconnects to the platform
+        """
         pass
     
     @abstractmethod

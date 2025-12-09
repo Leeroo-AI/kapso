@@ -97,8 +97,28 @@ Ensure the main prediction/processing logic is accessible via a `predict()` func
 
 ## Deployment Output Format
 
-After successful deployment, you MUST output the endpoint URL in this exact format:
+After successful deployment, you MUST output the following in your final response:
 
+### 1. Run Interface (REQUIRED)
+
+Output the run interface configuration as JSON in XML tags:
+
+```
+<run_interface>{"type": "function", "module": "main", "callable": "predict"}</run_interface>
+```
+
+The JSON should include:
+- `type`: Interface type (e.g., "function", "http", "modal", "bentocloud", "langgraph")
+- `module`: Python module name (usually "main")
+- `callable`: Function/method name (usually "predict")
+- Any strategy-specific fields (e.g., `path`, `endpoint`, `app_name`)
+
+### 2. Endpoint URL (if applicable)
+
+If your deployment creates an HTTP endpoint, also output:
+
+```
 <endpoint_url>https://your-deployed-endpoint.com</endpoint_url>
+```
 
-This allows the system to automatically extract and use the endpoint.
+This allows the system to automatically extract and configure the runner.
