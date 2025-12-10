@@ -48,12 +48,12 @@ A **Principle** is a single, atomic theoretical principle or algorithm. It answe
 The internal logic operates as follows:
 <math>{Formula}</math>
 
-== Related Implementation ==
-* [[implemented_by::Implementation:{Class_A}]] - Primary implementation
-* [[implemented_by::Implementation:{Class_B}]] - Alternative implementation
-
 == Related Pages ==
-* [[uses_heuristic::Heuristic:{Relevant_Wisdom}]] - Heuristics optimizing this theory
+=== Implemented By ===
+* [[implemented_by::Implementation:{Class_Name}]] - Concrete code
+
+=== Tips and Tricks ===
+* [[uses_heuristic::Heuristic:{Heuristic_Name}]] - Optimization wisdom
 ```
 
 ## Semantic Links

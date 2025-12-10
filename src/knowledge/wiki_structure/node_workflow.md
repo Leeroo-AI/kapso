@@ -55,7 +55,11 @@ A **Workflow** is an ordered sequence of Principles that delivers a high-value b
 [[step::Principle:{Step_2_Abstract}]]
 
 == Related Pages ==
-* [[uses_heuristic::Heuristic:{Relevant_Wisdom}]] - Heuristics guiding this process
+=== Execution Steps ===
+* [[step::Principle:{Step_Name}]] - Step definition
+
+=== Tips and Tricks ===
+* [[uses_heuristic::Heuristic:{Heuristic_Name}]] - Process guidance
 ```
 
 ## Semantic Links

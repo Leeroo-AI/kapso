@@ -54,8 +54,11 @@ class ClassName:
 * **Produces:** {Output_Model_Weights}
 
 == Related Pages ==
-* [[requires_env::Environment:{Env_Name}]] - Required environment
-* [[uses_heuristic::Heuristic:{Relevant_Wisdom}]] - Optimization hacks
+=== Context & Requirements ===
+* [[requires_env::Environment:{Env_Name}]] - Environment setup
+
+=== Tips and Tricks ===
+* [[uses_heuristic::Heuristic:{Heuristic_Name}]] - Hacks/Optimizations
 ```
 
 ## Semantic Links

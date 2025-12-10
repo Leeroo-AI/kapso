@@ -47,9 +47,11 @@ A **Heuristic** captures tribal knowledge, decision frameworks, and optimization
 == Reasoning ==
 {Why this works.}
 
-== Usage ==
-This heuristic is used by:
-* {List of Workflows/Principles/Implementations that link here}
+== Related Pages ==
+=== Used By ===
+* [[uses_heuristic::Workflow:{Workflow_Name}]]
+* [[uses_heuristic::Principle:{Principle_Name}]]
+* [[uses_heuristic::Implementation:{Implementation_Name}]]
 ```
 
 ## Semantic Links
