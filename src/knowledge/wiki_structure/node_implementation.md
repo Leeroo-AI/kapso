@@ -10,25 +10,15 @@ An **Implementation** represents concrete code - a class, function, or module. I
 
 - Provides the "Source of Truth" for syntax
 - Documents public APIs users actually import
-- Maps I/O contracts (what data goes in/out)
-- Links code to theoretical Principles
+- Maps I/O contracts
 
 ## Key Characteristics
 
 | Aspect | Description |
-|--------|-------------|
+|:---|:---|
 | Type | Tool |
 | Function | Source of Truth for Syntax |
 | Scope | Concrete code (class, function, module) |
-| Focus | Public API, not internal helpers |
-
-## Required Metadata
-
-| Field | Description |
-|-------|-------------|
-| Repo URL | GitHub repository URL from `metadata.json` |
-| Domain(s) | Up to 3 domain tags, comma-separated |
-| Last Updated | Datetime in `YYYY-MM-DD HH:MM GMT` format |
 
 ## Template Structure
 
@@ -54,67 +44,21 @@ An **Implementation** represents concrete code - a class, function, or module. I
 == Code Signature ==
 <syntaxhighlight lang="python">
 class ClassName:
-    def __init__(self, param1: int, config: dict):
-        """
-        Args:
-            param1: ...
-            config: ...
-        """
-        ...
+    ...
 </syntaxhighlight>
 
 == I/O Contract ==
-* **Consumes:** {Input_Config_Schema} - Description of input
-* **Produces:** {Output_Model_Weights} - Description of output
-
-== Usage Example ==
-<syntaxhighlight lang="python">
-from library import ClassName
-
-# Initialize
-tool = ClassName(param1=10, config={...})
-
-# Execute
-result = tool.run()
-</syntaxhighlight>
-
-== Code References ==
-'''GitHub Repository:''' [{repoUrl} {repo_name}]
-
-'''Source File:'''
-* [{repoUrl}/blob/{branch}/path/to/file.py file.py] - Main implementation
+* **Consumes:** {Input_Config_Schema}
+* **Produces:** {Output_Model_Weights}
 
 == Related Pages ==
-* [[implements::Principle:{Theoretical_Principle}]] - Theory this implements
 * [[requires_env::Environment:{Env_Name}]] - Required environment
-* [[used_in::Workflow:{Workflow_Name}]] - Workflow using this
+* [[uses_heuristic::Heuristic:{Relevant_Wisdom}]] - Optimization hacks
 ```
-
-## Coverage Target
-
-**Minimum:** 6-10 pages per repository
-
-## Sources to Scan
-
-- `src/` directory
-- `lib/` directory
-- Main classes and public APIs
-- Functions users actually import
-
-## Scope Guidelines
-
-- **Focus on Public API:** Document tools users import, not internal helpers
-- **Include Usage Examples:** Show how to actually use the code
 
 ## Semantic Links
 
 | Link Type | Target | Description |
-|-----------|--------|-------------|
-| `implements::Principle` | Principle | Theoretical principle this implements |
+|:---|:---|:---|
 | `requires_env::Environment` | Environment | Required environment setup |
-| `used_in::Workflow` | Workflow | Workflows that use this implementation |
-
-## Critical Rule
-
-**Never describe an input as just "a dictionary."** You must define the expected structure clearly.
-
+| `uses_heuristic::Heuristic` | Heuristic | Specific hacks/optimizations for this tool |
