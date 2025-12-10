@@ -29,14 +29,16 @@ A **Principle** is a single, atomic theoretical principle or algorithm. It answe
 
 {| class="wikitable" style="float:right; margin-left:1em; width:300px;"
 |-
-! Repo URL
-|| [{repoUrl} {repo_name}]
+! Knowledge Sources
+|
+* [[source::Paper|{Paper_Title}|{URL}]]
+* [[source::Blog|{Blog_Title}|{URL}]]
 |-
-! Domain(s)
-|| {Domain_Tag_1}, {Domain_Tag_2}
+! Domains
+| [[domain::Domain_Tag_1]], [[domain::Domain_Tag_2]]
 |-
 ! Last Updated
-|| {YYYY-MM-DD HH:MM GMT}
+| [[last_updated::YYYY-MM-DD HH:MM GMT]]
 |}
 
 == Definition ==

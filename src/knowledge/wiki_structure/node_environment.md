@@ -28,14 +28,16 @@ An **Environment** defines the hardware, OS, and dependencies required to run th
 
 {| class="wikitable" style="float:right; margin-left:1em; width:300px;"
 |-
-! Repo URL
-|| [{repoUrl} {repo_name}]
+! Knowledge Sources
+|
+* [[source::Repo|{Repo_Name}|{URL}]]
+* [[source::Doc|{Doc_Title}|{URL}]]
 |-
-! Domain(s)
-|| {Domain_Tag_1}, {Domain_Tag_2}
+! Domains
+| [[domain::Domain_Tag_1]], [[domain::Domain_Tag_2]]
 |-
 ! Last Updated
-|| {YYYY-MM-DD HH:MM GMT}
+| [[last_updated::YYYY-MM-DD HH:MM GMT]]
 |}
 
 == System Requirements ==
