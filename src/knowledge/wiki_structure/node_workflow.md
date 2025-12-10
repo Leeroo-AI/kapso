@@ -43,7 +43,13 @@ A **Workflow** is an ordered sequence of Principles that delivers a high-value b
 |}
 
 == Overview ==
-{Description of the end-to-end process derived from Intent.}
+{Definition: End-to-end process for Goal.}
+
+=== Description ===
+{Detailed explanation: What is this workflow, why does it exist, and what problem does it solve?}
+
+=== Usage ===
+{Trigger: When should you use this recipe? What are the prerequisites?}
 
 == Execution Steps ==
 === Step 1: {Step_Name} ===

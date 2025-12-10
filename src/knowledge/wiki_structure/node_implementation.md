@@ -41,7 +41,13 @@ An **Implementation** represents concrete code - a class, function, or module. I
 |}
 
 == Overview ==
-{Brief description: What this specific class/function does.}
+{Definition: Concrete tool for Functionality.}
+
+=== Description ===
+{Detailed explanation: What does this code do, what library is it from, and what is its role?}
+
+=== Usage ===
+{Trigger: When should you import and use this specific class/function?}
 
 == Code Signature ==
 <syntaxhighlight lang="python">

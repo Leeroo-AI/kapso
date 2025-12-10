@@ -41,8 +41,14 @@ A **Principle** is a single, atomic theoretical principle or algorithm. It answe
 | [[last_updated::YYYY-MM-DD HH:MM GMT]]
 |}
 
-== Definition ==
-{Name} is a {technique/algorithm/pattern} used to {function}.
+== Overview ==
+{Definition: Theoretical mechanism for Function.}
+
+=== Description ===
+{Detailed explanation: What is this theory, what problem does it solve, and how does it fit into the broader field?}
+
+=== Usage ===
+{Trigger: When should you reference this principle? Is it a building block for specific systems?}
 
 == Theoretical Basis ==
 The internal logic operates as follows:

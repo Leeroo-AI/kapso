@@ -41,6 +41,15 @@ A **Heuristic** captures tribal knowledge, decision frameworks, and optimization
 | [[last_updated::YYYY-MM-DD HH:MM GMT]]
 |}
 
+== Overview ==
+{Definition: Optimization tactic or rule-of-thumb for Topic.}
+
+=== Description ===
+{Detailed explanation: What is the insight, why is it needed, and what problem does it solve (e.g., OOM, divergence)?}
+
+=== Usage ===
+{Trigger: When should you apply this advice? Under what conditions?}
+
 == The Insight (Rule of Thumb) ==
 {The core advice.}
 
