@@ -11,6 +11,7 @@ aider-chat>=0.35.0
 
 # Knowledge graph database client
 neo4j
+docling
 
 # Configuration file parsing
 PyYAML

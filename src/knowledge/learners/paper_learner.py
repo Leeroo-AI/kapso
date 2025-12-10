@@ -5,6 +5,11 @@
 
 from typing import Any, Dict, List
 
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions, PictureDescriptionVlmOptions
+from docling_core.types.doc.document import PictureDescriptionData
+
 from src.knowledge.learners.base import Learner, KnowledgeChunk
 from src.knowledge.learners.factory import register_learner
 
@@ -34,22 +39,32 @@ class PaperLearner(Learner):
         
         Args:
             source_data: Dict with "path" (local file) or "url" (remote PDF)
-            
         Returns:
             List of KnowledgeChunk from the paper
         """
         path = source_data.get("path", source_data.get("url", ""))
         
-        chunks = []
-        
-        # TODO: Implement actual PDF parsing
-        # 1. Load PDF (local or download from URL)
-        # 2. Extract text using PyPDF2 or pdfplumber
-        # 3. Identify sections (Abstract, Methods, Results, etc.)
-        # 4. Extract formulas using OCR if needed
-        # 5. Create structured chunks per section
-        
-        # Placeholder: Create a single chunk indicating the source
+        smolvlm_picture_description = PictureDescriptionVlmOptions(
+            repo_id='HuggingFaceTB/SmolVLM-256M-Instruct',
+            prompt="Describe the picture in detail. Make sure to include all the details of the picture."
+        )
+        pipeline_options = PdfPipelineOptions(
+            do_formula_enrichment = True,
+            do_picture_description = True,
+        )
+
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options
+                )
+            }
+        )
+        result = converter.convert(path)        
+        markdown_content = doc.document.export_to_markdown()
+        print(markdown_content)
+
+        chunks = []        
         chunks.append(KnowledgeChunk(
             content=f"Paper knowledge from {path}",
             chunk_type="text",
@@ -59,4 +74,3 @@ class PaperLearner(Learner):
         
         print(f"[PaperLearner] Learned from paper: {path}")
         return chunks
-
