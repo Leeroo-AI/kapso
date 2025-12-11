@@ -105,8 +105,8 @@ Examples:
     parser.add_argument(
         "-i", "--iterations",
         type=int,
-        default=1,
-        help="Maximum experiment iterations (default: 1)"
+        default=10,
+        help="Maximum experiment iterations (default: 10)"
     )
     parser.add_argument(
         "-o", "--output",
