@@ -3,16 +3,16 @@
 # Extracts knowledge from research papers (PDFs).
 # Parses sections, abstracts, formulas, and key findings.
 
+import os
 from typing import Any, Dict, List
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions, PictureDescriptionVlmOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions, PictureDescriptionVlmOptions, PictureDescriptionApiOptions
 from docling_core.types.doc.document import PictureDescriptionData
 
 from src.knowledge.learners.base import Learner, KnowledgeChunk
 from src.knowledge.learners.factory import register_learner
-
 
 @register_learner("paper")
 class PaperLearner(Learner):
@@ -43,14 +43,12 @@ class PaperLearner(Learner):
             List of KnowledgeChunk from the paper
         """
         path = source_data.get("path", source_data.get("url", ""))
-        
-        smolvlm_picture_description = PictureDescriptionVlmOptions(
-            repo_id='HuggingFaceTB/SmolVLM-256M-Instruct',
-            prompt="Describe the picture in detail. Make sure to include all the details of the picture."
-        )
+
         pipeline_options = PdfPipelineOptions(
             do_formula_enrichment = True,
             do_picture_description = True,
+            picture_description_options=self._create_picture_description_options(),
+            enable_remote_services=True,
         )
 
         converter = DocumentConverter(
@@ -61,9 +59,9 @@ class PaperLearner(Learner):
             }
         )
         result = converter.convert(path)        
-        markdown_content = doc.document.export_to_markdown()
-        print(markdown_content)
-
+        markdown_content = result.document.export_to_markdown()
+        
+        # TODO: Convert markdown to KG.
         chunks = []        
         chunks.append(KnowledgeChunk(
             content=f"Paper knowledge from {path}",
@@ -74,3 +72,31 @@ class PaperLearner(Learner):
         
         print(f"[PaperLearner] Learned from paper: {path}")
         return chunks
+
+    def _create_picture_description_options(self) -> PictureDescriptionApiOptions:
+        """
+        Create the picture description options.
+        """
+        
+        image_description_prompt = """
+            Describe the picture in details. Make sure to include all the details, for exampel, convert flows and diagrams to text.
+            Ignore examples, and details of messy diagrams. Only extract and summarize the main content and idea of the picture. 
+            put your description in the following format:
+            <image_description>
+                Textual description of the picture.
+            </image_description>
+        """
+        # TODO: Add compatibility for other LLM provider APIs.
+        return PictureDescriptionApiOptions(
+            url="https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"
+            },
+            params=dict(
+                model="gpt-4o",
+                max_completion_tokens=500,
+            ),
+            prompt=image_description_prompt,
+            timeout=90,
+        )
+
