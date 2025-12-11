@@ -254,7 +254,7 @@ class Expert:
         
         # Collect results
         experiment_logs = self._extract_experiment_logs(orchestrator)
-        workspace_path = orchestrator.search_strategy.workspace.workspace_folder
+        workspace_path = orchestrator.search_strategy.workspace.workspace_dir
         
         # Checkout to best solution
         orchestrator.search_strategy.checkout_to_best_experiment_branch()

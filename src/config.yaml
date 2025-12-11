@@ -56,13 +56,13 @@ modes:
       type: "linear_search"
       params:
         code_debug_tries: 5
-        idea_generation_model: "gpt-4.1-mini"
+        idea_generation_model: "gpt-5-mini"
     
     # Coding agent configuration
     coding_agent:
       type: "aider"
-      model: "gpt-4.1"
-      debug_model: "gpt-4.1-mini"
+      model: "gpt-5-mini"
+      debug_model: "gpt-5-mini"
     
     # Context manager configuration
     context_manager:
@@ -96,12 +96,12 @@ modes:
       type: "linear_search"
       params:
         code_debug_tries: 2
-        idea_generation_model: "gpt-4.1-mini"
+        idea_generation_model: "gpt-5-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-4.1-mini"
-      debug_model: "gpt-4.1-mini"
+      model: "gpt-5-mini"
+      debug_model: "gpt-5-mini"
     
     context_manager:
       type: "kg_enriched"
@@ -135,14 +135,14 @@ modes:
         experimentation_per_run: 1
         per_step_maximum_solution_count: 5
         exploration_budget_percent: 40
-        idea_generation_model: "gpt-4.1-mini"
+        idea_generation_model: "gpt-5-mini"
         idea_generation_ensemble_models:
-          - "gpt-4.1-mini"
+          - "gpt-5-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-4.1"
-      debug_model: "gpt-4.1-mini"
+      model: "gpt-5-mini"
+      debug_model: "gpt-5-mini"
     
     context_manager:
       type: "kg_enriched"
@@ -170,12 +170,12 @@ modes:
       type: "linear_search"
       params:
         code_debug_tries: 5
-        idea_generation_model: "gpt-4.1-mini"
+        idea_generation_model: "gpt-5-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-4.1"
-      debug_model: "gpt-4.1-mini"
+      model: "gpt-5-mini"
+      debug_model: "gpt-5-mini"
     
     context_manager:
       type: "kg_enriched"
