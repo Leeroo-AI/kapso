@@ -145,7 +145,7 @@ modes:
     
     coding_agent:
       type: "aider"
-      model: "gpt-5-mini"
+      model: "gpt-5"
       debug_model: "gpt-5-mini"
     
     context_manager:
