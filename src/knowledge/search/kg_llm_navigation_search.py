@@ -145,6 +145,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         query: str, 
         filters: Optional[KGSearchFilters] = None,
         context: Optional[str] = None,
+        **kwargs,
     ) -> KGOutput:
         """
         Search the knowledge graph using LLM-guided navigation.

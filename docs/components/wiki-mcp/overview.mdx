@@ -1,0 +1,375 @@
+---
+title: "Wiki MCP Server"
+description: "Expose knowledge search to AI coding agents via Model Context Protocol"
+---
+
+The Wiki MCP Server wraps the knowledge search functionality as an MCP (Model Context Protocol) server, enabling integration with AI coding agents like Claude Code, Cursor, and other MCP-compatible tools.
+
+## What is MCP?
+
+[Model Context Protocol](https://modelcontextprotocol.io) is an open standard by Anthropic that enables AI models to interact with external tools and data sources. It uses JSON-RPC 2.0 over stdio or HTTP for communication.
+
+```mermaid
+flowchart TB
+    subgraph HOST["AI Coding Agent (Cursor / Claude Code)"]
+        CLIENT["MCP Client"]
+    end
+    
+    subgraph SERVER["Wiki MCP Server"]
+        TOOLS["Tools"]
+        RES["Resources"]
+        BACKEND["KGGraphSearch Backend"]
+    end
+    
+    subgraph INFRA["Infrastructure"]
+        WV["Weaviate (Embeddings)"]
+        NEO["Neo4j (Graph)"]
+    end
+    
+    CLIENT <-->|"JSON-RPC / stdio"| TOOLS
+    CLIENT <-->|"JSON-RPC / stdio"| RES
+    TOOLS --> BACKEND
+    RES --> BACKEND
+    BACKEND --> WV
+    BACKEND --> NEO
+```
+
+---
+
+## Quick Start
+
+### 1. Install Dependencies
+
+```bash
+pip install mcp
+```
+
+### 2. Configure Your AI Agent
+
+**For Cursor** - Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "knowledge-search": {
+      "command": "python",
+      "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+      "cwd": "/path/to/praxium",
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "${NEO4J_PASSWORD}",
+        "WEAVIATE_URL": "http://localhost:8081"
+      }
+    }
+  }
+}
+```
+
+**For Claude Desktop** - Add to config file:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "knowledge-search": {
+      "command": "python",
+      "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+      "cwd": "/path/to/praxium"
+    }
+  }
+}
+```
+
+### 3. Restart Your AI Agent
+
+After configuration, restart Cursor or Claude Desktop to load the MCP server.
+
+---
+
+## Available Tools
+
+The MCP server exposes four tools that AI agents can call:
+
+### search_knowledge
+
+Primary tool for semantic search across the knowledge base.
+
+```typescript
+// Tool signature
+search_knowledge({
+  query: string,          // Required: Natural language query
+  top_k?: number,         // Max results (default: 5, max: 20)
+  page_types?: string[],  // Filter: Workflow, Principle, Implementation, Environment, Heuristic
+  domains?: string[],     // Filter: LLMs, Deep_Learning, NLP, PEFT, etc.
+  min_score?: number      // Minimum relevance (0.0-1.0)
+})
+```
+
+**Example queries the AI might make:**
+- "How to fine-tune LLM with limited GPU memory"
+- "Best practices for LoRA rank selection"
+- "What is gradient checkpointing"
+
+### get_wiki_page
+
+Retrieve a specific wiki page by exact title.
+
+```typescript
+get_wiki_page({
+  page_title: string  // Exact page title (e.g., "QLoRA_Finetuning")
+})
+```
+
+### list_page_types
+
+Get reference information about available page types.
+
+```typescript
+list_page_types({})  // No parameters
+```
+
+### search_with_context
+
+Search with additional context for improved relevance.
+
+```typescript
+search_with_context({
+  query: string,          // Search query
+  context?: string,       // Current experiment context, error messages, etc.
+  top_k?: number,
+  page_types?: string[]
+})
+```
+
+---
+
+## Available Resources
+
+Resources provide static reference information:
+
+| URI | Description |
+|-----|-------------|
+| `knowledge://overview` | Knowledge base structure and usage guide |
+| `knowledge://page-types` | Detailed reference of all page types |
+
+---
+
+## Page Types
+
+The knowledge base organizes content by type:
+
+| Type | Description | Best For |
+|------|-------------|----------|
+| **Workflow** | Step-by-step guides | "How do I..." questions |
+| **Principle** | Theoretical concepts | "What is..." questions |
+| **Implementation** | Code patterns & APIs | Technical details |
+| **Environment** | Setup & dependencies | Installation help |
+| **Heuristic** | Best practices & tips | Optimization advice |
+
+---
+
+## How It Works
+
+### Search Pipeline
+
+When an AI agent calls `search_knowledge`:
+
+```mermaid
+sequenceDiagram
+    participant Agent as AI Agent
+    participant MCP as MCP Server
+    participant Search as KGGraphSearch
+    participant WV as Weaviate
+    participant Neo as Neo4j
+    participant LLM as OpenAI LLM
+
+    Agent->>MCP: search_knowledge(query)
+    MCP->>Search: search(query, filters)
+    Search->>WV: Generate embedding
+    WV-->>Search: Query embedding
+    Search->>WV: Vector similarity search
+    WV-->>Search: Top 2K candidates
+    Search->>LLM: Rerank candidates
+    LLM-->>Search: Reranked results
+    Search->>Neo: Get connected pages
+    Neo-->>Search: Graph connections
+    Search-->>MCP: KGOutput
+    MCP-->>Agent: Formatted results
+```
+
+### Communication Protocol
+
+MCP uses JSON-RPC 2.0 over stdio:
+
+```json
+// Request (from AI agent)
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "search_knowledge",
+    "arguments": {
+      "query": "fine-tune LLM",
+      "top_k": 5
+    }
+  }
+}
+
+// Response (from MCP server)
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "# Search Results for: \"fine-tune LLM\"\n..."
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Running Standalone
+
+### Direct Execution
+
+```bash
+# From project root
+python -m src.knowledge.wiki_mcps.mcp_server
+
+# With uv
+uv run src/knowledge/wiki_mcps/mcp_server.py
+```
+
+### Testing with MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector python -m src.knowledge.wiki_mcps.mcp_server
+```
+
+### Programmatic Usage
+
+```python
+from src.knowledge.wiki_mcps import create_mcp_server, run_mcp_server
+import asyncio
+
+# Create server instance
+server = create_mcp_server()
+
+# Run the server (blocks)
+asyncio.run(run_mcp_server())
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key for embeddings |
+| `NEO4J_URI` | No | `bolt://localhost:7687` | Neo4j connection URI |
+| `NEO4J_USER` | No | `neo4j` | Neo4j username |
+| `NEO4J_PASSWORD` | Yes | - | Neo4j password |
+| `WEAVIATE_URL` | No | `http://localhost:8081` | Weaviate server URL |
+
+---
+
+## Architecture
+
+### File Structure
+
+```
+src/knowledge/wiki_mcps/
+├── __init__.py        # Module exports
+├── mcp_server.py      # MCP server implementation
+└── README.md          # Module documentation
+```
+
+### Components
+
+```mermaid
+classDiagram
+    class MCPServer {
+        +list_tools()
+        +call_tool(name, arguments)
+        +list_resources()
+        +read_resource(uri)
+    }
+    
+    class ToolHandlers {
+        +_handle_search()
+        +_handle_get_page()
+        +_handle_list_types()
+        +_handle_search_with_context()
+    }
+    
+    class KGGraphSearch {
+        +search(query, filters)
+        +get_page(title)
+        +index(data)
+    }
+    
+    MCPServer --> ToolHandlers
+    ToolHandlers --> KGGraphSearch
+```
+
+---
+
+## Troubleshooting
+
+### Server not appearing in AI agent
+
+1. Check config file path and JSON syntax
+2. Verify `cwd` points to project root
+3. Restart the AI application
+4. Check agent logs for errors
+
+### Connection refused errors
+
+Ensure backend services are running:
+
+```bash
+# Check Docker containers
+docker ps | grep -E "weaviate|neo4j"
+
+# Start if needed
+docker start weaviate neo4j
+```
+
+### Empty search results
+
+1. Verify knowledge base is indexed:
+   ```python
+   from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
+   search = KnowledgeSearchFactory.create("kg_graph_search")
+   search.index(KGIndexInput(wiki_dir="data/wikis"))
+   ```
+
+2. Check Weaviate has data:
+   ```bash
+   curl http://localhost:8081/v1/objects?limit=5
+   ```
+
+### Import errors
+
+Install required packages:
+
+```bash
+pip install mcp weaviate-client neo4j openai
+```
+
+---
+
+## Related Documentation
+
+- [Knowledge Search](/components/knowledge-search/overview) - Backend search implementation
+- [Architecture](/concepts/architecture) - System architecture overview
+- [Neo4j Setup](/guides/setup-neo4j) - Graph database configuration
+

@@ -915,6 +915,7 @@ class KGGraphSearch(KnowledgeSearch):
         query: str,
         filters: Optional[KGSearchFilters] = None,
         context: Optional[str] = None,
+        use_llm_reranker: Optional[bool] = None,
     ) -> KGOutput:
         """
         Search for relevant wiki pages.
@@ -928,6 +929,8 @@ class KGGraphSearch(KnowledgeSearch):
             query: Search query text
             filters: Optional filters (top_k, min_score, page_types, domains)
             context: Optional additional context (unused currently)
+            use_llm_reranker: Override config-level use_llm_reranker setting.
+                              If None, uses the instance setting from params.
             
         Returns:
             KGOutput with ranked results and graph connections
@@ -936,8 +939,11 @@ class KGGraphSearch(KnowledgeSearch):
         if filters is None:
             filters = KGSearchFilters()
         
+        # Resolve use_llm_reranker: parameter override > instance setting
+        should_rerank = use_llm_reranker if use_llm_reranker is not None else self.use_llm_reranker
+        
         # Semantic search in Weaviate (get more results for reranking)
-        search_top_k = filters.top_k * 2 if self.use_llm_reranker else filters.top_k
+        search_top_k = filters.top_k * 2 if should_rerank else filters.top_k
         search_filters = KGSearchFilters(
             top_k=search_top_k,
             min_score=filters.min_score,
@@ -947,8 +953,8 @@ class KGGraphSearch(KnowledgeSearch):
         )
         results = self._semantic_search(query, search_filters)
         
-        # LLM reranking if enabled
-        if self.use_llm_reranker and self._llm_backend and len(results) > 0:
+        # LLM reranking if enabled (check resolved should_rerank value)
+        if should_rerank and self._llm_backend and len(results) > 0:
             results = self._rerank_results(query, results, filters.top_k)
         
         # Enrich with Neo4j connections if enabled
@@ -965,7 +971,7 @@ class KGGraphSearch(KnowledgeSearch):
             search_metadata={
                 "backend": "kg_graph_search",
                 "collection": self.weaviate_collection,
-                "reranked": self.use_llm_reranker,
+                "reranked": should_rerank,
             },
         )
     

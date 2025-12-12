@@ -389,6 +389,7 @@ class KnowledgeSearch(ABC):
         query: str, 
         filters: Optional[KGSearchFilters] = None,
         context: Optional[str] = None,
+        **kwargs,
     ) -> KGOutput:
         """
         Search for relevant knowledge.
@@ -397,6 +398,7 @@ class KnowledgeSearch(ABC):
             query: The search query (typically problem description)
             filters: Optional filters for results (top_k, min_score, page_types, domains)
             context: Optional additional context (e.g., last experiment)
+            **kwargs: Implementation-specific options (e.g., use_llm_reranker)
             
         Returns:
             KGOutput with ranked and filtered results
@@ -473,6 +475,7 @@ class NullKnowledgeSearch(KnowledgeSearch):
         query: str, 
         filters: Optional[KGSearchFilters] = None,
         context: Optional[str] = None,
+        **kwargs,
     ) -> KGOutput:
         """Return empty results."""
         return KGOutput(query=query, filters=filters)
