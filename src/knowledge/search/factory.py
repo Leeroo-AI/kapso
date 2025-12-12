@@ -97,7 +97,6 @@ class KnowledgeSearchFactory:
     def create(
         cls,
         search_type: str,
-        enabled: bool = True,
         params: Optional[Dict[str, Any]] = None,
         preset: Optional[str] = None,
     ) -> KnowledgeSearch:
@@ -106,16 +105,12 @@ class KnowledgeSearchFactory:
         
         Args:
             search_type: Name of registered search backend
-            enabled: Whether the search is active
             params: Search parameters (overrides preset)
             preset: Preset name to use
         
         Returns:
             Configured KnowledgeSearch instance
         """
-        if not enabled:
-            return NullKnowledgeSearch()
-        
         cls._ensure_initialized()
         
         s_type = search_type.lower()
@@ -130,7 +125,7 @@ class KnowledgeSearchFactory:
         # Resolve params from preset
         resolved_params = cls._resolve_params(s_type, params, preset)
         
-        return cls._registry[s_type](enabled=enabled, params=resolved_params)
+        return cls._registry[s_type](params=resolved_params)
     
     @classmethod
     def create_null(cls) -> KnowledgeSearch:
@@ -145,7 +140,6 @@ class KnowledgeSearchFactory:
         
         return cls.create(
             search_type=config.get("type", cls._default_type),
-            enabled=config.get("enabled", True),
             params=config.get("params"),
             preset=config.get("preset"),
         )

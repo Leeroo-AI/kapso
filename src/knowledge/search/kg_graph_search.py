@@ -34,6 +34,7 @@ from src.knowledge.search.base import (
     WikiPage,
 )
 from src.knowledge.search.factory import register_knowledge_search
+from src.core.llm import LLMBackend
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +54,9 @@ DEFAULT_WEAVIATE_COLLECTION = "KGWikiPages"
 
 # Edge types from wiki structure
 EDGE_TYPES = ["STEP", "IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
+
+# LLM reranker model
+RERANKER_MODEL = "gpt-4.1-mini"
 
 # Type subdirectory names mapped to PageType
 TYPE_SUBDIRS = {
@@ -499,20 +503,20 @@ class KGGraphSearch(KnowledgeSearch):
     
     def __init__(
         self,
-        enabled: bool = True,
         params: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize KG Graph Search.
         
         Args:
-            enabled: Whether the search backend is active
             params: Configuration parameters:
                 - weaviate_collection: Weaviate collection name
                 - embedding_model: OpenAI embedding model
                 - include_connected_pages: Whether to include graph connections
+                - use_llm_reranker: Whether to use LLM reranker (default: True)
+                - reranker_model: LLM model for reranking (default: gpt-4.1-mini)
         """
-        super().__init__(enabled=enabled, params=params)
+        super().__init__(params=params)
         
         # Extract params
         self.weaviate_collection = self.params.get(
@@ -520,27 +524,30 @@ class KGGraphSearch(KnowledgeSearch):
         )
         self.embedding_model = self.params.get("embedding_model", EMBEDDING_MODEL)
         self.include_connected_pages = self.params.get("include_connected_pages", True)
+        self.use_llm_reranker = self.params.get("use_llm_reranker", True)
+        self.reranker_model = self.params.get("reranker_model", RERANKER_MODEL)
         
         # Clients (initialized lazily)
         self._neo4j_driver = None
         self._weaviate_client = None
         self._openai_client = None
+        self._llm_backend = None
         
         # Cached pages (for save/load)
         self._pages: List[WikiPage] = []
         
-        if enabled:
-            self._initialize_clients()
+        self._initialize_clients()
     
     # =========================================================================
     # Client Initialization
     # =========================================================================
     
     def _initialize_clients(self) -> None:
-        """Initialize Neo4j, Weaviate, and OpenAI clients."""
+        """Initialize Neo4j, Weaviate, OpenAI, and LLM clients."""
         self._initialize_neo4j()
         self._initialize_weaviate()
         self._initialize_openai()
+        self._initialize_llm()
     
     def _initialize_neo4j(self) -> None:
         """Initialize Neo4j driver."""
@@ -596,6 +603,12 @@ class KGGraphSearch(KnowledgeSearch):
             logger.warning("openai package not installed.")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI: {e}")
+    
+    def _initialize_llm(self) -> None:
+        """Initialize LLM backend for reranking."""
+        if self.use_llm_reranker:
+            self._llm_backend = LLMBackend()
+            logger.info(f"LLM reranker initialized (model: {self.reranker_model})")
     
     # =========================================================================
     # Index Methods
@@ -892,8 +905,9 @@ class KGGraphSearch(KnowledgeSearch):
         Search for relevant wiki pages.
         
         1. Semantic search in Weaviate using query embedding
-        2. Apply filters (page_type, domains, min_score)
-        3. Enrich with connected pages from Neo4j
+        2. LLM reranking based on query relevance (if enabled)
+        3. Apply filters (page_type, domains, min_score)
+        4. Enrich with connected pages from Neo4j
         
         Args:
             query: Search query text
@@ -903,15 +917,24 @@ class KGGraphSearch(KnowledgeSearch):
         Returns:
             KGOutput with ranked results and graph connections
         """
-        if not self.enabled:
-            return KGOutput(query=query, filters=filters)
-        
         # Default filters
         if filters is None:
             filters = KGSearchFilters()
         
-        # Semantic search in Weaviate
-        results = self._semantic_search(query, filters)
+        # Semantic search in Weaviate (get more results for reranking)
+        search_top_k = filters.top_k * 2 if self.use_llm_reranker else filters.top_k
+        search_filters = KGSearchFilters(
+            top_k=search_top_k,
+            min_score=filters.min_score,
+            page_types=filters.page_types,
+            domains=filters.domains,
+            include_content=filters.include_content,
+        )
+        results = self._semantic_search(query, search_filters)
+        
+        # LLM reranking if enabled
+        if self.use_llm_reranker and self._llm_backend and len(results) > 0:
+            results = self._rerank_results(query, results, filters.top_k)
         
         # Enrich with Neo4j connections if enabled
         if self.include_connected_pages and self._neo4j_driver:
@@ -927,8 +950,130 @@ class KGGraphSearch(KnowledgeSearch):
             search_metadata={
                 "backend": "kg_graph_search",
                 "collection": self.weaviate_collection,
+                "reranked": self.use_llm_reranker,
             },
         )
+    
+    def _rerank_results(
+        self,
+        query: str,
+        results: List[KGResultItem],
+        top_k: int,
+    ) -> List[KGResultItem]:
+        """
+        Rerank search results using LLM.
+        
+        Uses the LLM to evaluate relevance of each result to the query
+        and reorder them based on the LLM's assessment.
+        
+        Args:
+            query: Original search query
+            results: List of KGResultItem from semantic search
+            top_k: Number of results to return after reranking
+            
+        Returns:
+            Reranked list of KGResultItem (top_k items)
+        """
+        if not results:
+            return results
+        
+        # Build context for LLM
+        pages_info = []
+        for i, result in enumerate(results):
+            pages_info.append(
+                f"[{i}] {result.page_title} ({result.page_type})\n"
+                f"    Overview: {result.overview[:300]}..."
+            )
+        
+        pages_text = "\n\n".join(pages_info)
+        
+        # Reranking prompt
+        system_prompt = """You are an expert search result reranker for a machine learning knowledge base.
+
+Your task is to rerank wiki pages based on their relevance to a user's query. Consider:
+
+1. **Direct Relevance**: Does the page directly answer or address the query?
+2. **Page Type Appropriateness**: 
+   - Workflow pages are best for "how to" questions
+   - Principle pages are best for "what is" or theoretical questions
+   - Implementation pages are best for code/API questions
+   - Heuristic pages are best for best practices and optimization tips
+   - Environment pages are best for setup/installation questions
+3. **Specificity**: Prefer pages that specifically match the query over general pages
+4. **Completeness**: Prefer pages whose overview indicates comprehensive coverage
+
+Output your ranking as a comma-separated list of page indices inside <output_order> tags.
+Only include pages that are genuinely relevant. Exclude irrelevant pages entirely.
+
+Example:
+<output_order>2,0,4,1</output_order>"""
+
+        user_message = f"""Rerank the following pages for this query:
+
+**Query:** {query}
+
+**Candidate Pages:**
+{pages_text}
+
+Analyze each page's relevance to the query, then provide your ranking.
+Return at most {top_k} page indices, ordered from most to least relevant.
+Only include pages that would actually help answer the query.
+
+<output_order>YOUR_COMMA_SEPARATED_INDICES_HERE</output_order>"""
+
+        try:
+            response = self._llm_backend.llm_completion_with_system_prompt(
+                model=self.reranker_model,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                temperature=0,
+            )
+            
+            # Parse response - extract indices
+            indices = self._parse_rerank_response(response, len(results))
+            
+            # Reorder results based on LLM ranking
+            reranked = []
+            for idx in indices[:top_k]:
+                if 0 <= idx < len(results):
+                    # Update score based on rerank position
+                    result = results[idx]
+                    # New score: weighted combination of semantic score and rank position
+                    rank_score = 1.0 - (len(reranked) * 0.1)  # Decay by position
+                    result.score = max(0.1, min(1.0, (result.score + rank_score) / 2))
+                    reranked.append(result)
+            
+            logger.info(f"Reranked {len(results)} results -> {len(reranked)} (model: {self.reranker_model})")
+            return reranked
+            
+        except Exception as e:
+            logger.warning(f"Reranking failed, using original order: {e}")
+            return results[:top_k]
+    
+    def _parse_rerank_response(self, response: str, max_idx: int) -> List[int]:
+        """Parse LLM reranking response to extract indices from <output_order> tags."""
+        indices = []
+        
+        # Try to extract from <output_order> tags first
+        tag_match = re.search(r'<output_order>(.*?)</output_order>', response, re.DOTALL)
+        if tag_match:
+            content = tag_match.group(1).strip()
+        else:
+            # Fallback to entire response
+            content = response
+        
+        # Extract numbers from content
+        numbers = re.findall(r'\d+', content)
+        
+        for num_str in numbers:
+            try:
+                idx = int(num_str)
+                if 0 <= idx < max_idx and idx not in indices:
+                    indices.append(idx)
+            except ValueError:
+                continue
+        
+        return indices
     
     def _semantic_search(
         self,

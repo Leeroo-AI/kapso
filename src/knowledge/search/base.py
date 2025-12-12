@@ -352,17 +352,14 @@ class KnowledgeSearch(ABC):
     
     def __init__(
         self,
-        enabled: bool = True,
         params: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize knowledge search.
         
         Args:
-            enabled: Whether the search backend is active
             params: Implementation-specific parameters
         """
-        self.enabled = enabled
         self.params = params or {}
     
     @abstractmethod
@@ -426,10 +423,6 @@ class KnowledgeSearch(ABC):
         """
         pass
     
-    def is_enabled(self) -> bool:
-        """Check if search backend is enabled."""
-        return self.enabled
-    
     def close(self) -> None:
         """
         Clean up resources.
@@ -443,12 +436,12 @@ class NullKnowledgeSearch(KnowledgeSearch):
     """
     Null implementation that returns empty results.
     
-    Used when knowledge search is disabled.
+    Used when you explicitly want a no-op search backend.
     """
     
     def __init__(self):
-        """Initialize null search (always disabled)."""
-        super().__init__(enabled=False)
+        """Initialize null search."""
+        super().__init__()
     
     def index(self, data: KGIndexInput) -> None:
         """No-op index."""
@@ -462,7 +455,3 @@ class NullKnowledgeSearch(KnowledgeSearch):
     ) -> KGOutput:
         """Return empty results."""
         return KGOutput(query=query, filters=filters)
-    
-    def is_enabled(self) -> bool:
-        """Always disabled."""
-        return False
