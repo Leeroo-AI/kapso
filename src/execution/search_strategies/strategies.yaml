@@ -106,19 +106,19 @@ strategies:
       DEFAULT:
         params:
           code_debug_tries: 3
-          idea_generation_model: "gpt-4.1-mini"
+          idea_generation_model: "gpt-5-mini"
       
       # Minimal for quick testing
       MINIMAL:
         params:
           code_debug_tries: 2
-          idea_generation_model: "gpt-4.1-mini"
+          idea_generation_model: "gpt-5-mini"
       
       # Production with better model
       PRODUCTION:
         params:
           code_debug_tries: 5
-          idea_generation_model: "gpt-4.1"
+          idea_generation_model: "gpt-5"
     
     default_preset: "DEFAULT"
 

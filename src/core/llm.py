@@ -350,3 +350,43 @@ class LLMBackend:
                     raise Exception(f"Error calling models {models} with web search: {str(retry_e)}")
         
         return asyncio.run(_run())
+
+    def create_embedding(self, text: str, model: str = "text-embedding-3-large") -> List[float]:
+        """
+        Create embedding for text using OpenAI embeddings API.
+        
+        Args:
+            text: Text to embed (truncated to 8000 chars)
+            model: Embedding model name (default: "text-embedding-3-large")
+            
+        Returns:
+            List of embedding floats, or empty list on error
+        """
+        try:
+            import openai
+            response = openai.embeddings.create(
+                model=model,
+                input=text[:8000]
+            )
+            return response.data[0].embedding
+        except Exception:
+            return []
+
+
+def main():
+    llm = LLMBackend()
+    try:
+        response = llm.llm_completion(
+            model="gpt-5-mini",
+            messages=[{"role": "user", "content": "Say hello in one sentence."}],
+        )
+        if response is None or response == "":
+            print("Error: Received empty or None response")
+        else:
+            print(response)
+        print(f"Cost: ${llm.get_cumulative_cost():.6f}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    main()

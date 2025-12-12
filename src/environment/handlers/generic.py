@@ -154,6 +154,7 @@ class GenericProblemHandler(ProblemHandler):
             f"- Main file: {self.main_file}",
             f"- Language: {self.language}",
             f"- Timeout: {self.timeout} seconds",
+            f"- Final evaluation score logic: {self.evaluator.description}",
         ]
         
         if self.output_file:

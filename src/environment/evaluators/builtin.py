@@ -33,7 +33,7 @@ class NoScoreEvaluator(Evaluator):
     Use when you only care about successful execution, not scoring.
     """
     
-    description = "No scoring, always returns 0"
+    description = "No scoring available and evaluation must be done based on solution and output. Provided experiment final score is fixed and invalid."
     requires_llm = False
     
     def evaluate(self, output: str, file_path: str, **context) -> EvaluationResult:

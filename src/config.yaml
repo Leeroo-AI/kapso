@@ -66,10 +66,14 @@ modes:
     
     # Context manager configuration
     context_manager:
-      type: "kg_enriched"
+      type: "token_efficient"
       params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
+        state_experiments_count: 5
+        relevant_retrieval_experiments_count: 3
+        top_experiments_in_context_count: 2
+        recent_experiments_in_context_count: 2
+        summary_token_limit: 1000
+        summary_model: "gpt-5-mini"
     
     # No knowledge search for generic problems
     knowledge_search:
@@ -104,7 +108,7 @@ modes:
       debug_model: "gpt-5-mini"
     
     context_manager:
-      type: "kg_enriched"
+      type: "token_efficient"
       params:
         max_experiment_history_count: 3
         max_recent_experiment_count: 3
@@ -141,7 +145,7 @@ modes:
     
     coding_agent:
       type: "aider"
-      model: "gpt-5-mini"
+      model: "gpt-5"
       debug_model: "gpt-5-mini"
     
     context_manager:
