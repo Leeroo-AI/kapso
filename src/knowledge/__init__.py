@@ -8,7 +8,10 @@
 
 from src.knowledge.search import (
     KnowledgeSearch,
-    KnowledgeResult,
+    KGOutput,
+    KGResultItem,
+    KGSearchFilters,
+    PageType,
     KnowledgeSearchFactory,
     register_knowledge_search,
 )
@@ -23,7 +26,10 @@ from src.knowledge.learners import (
 __all__ = [
     # Search
     "KnowledgeSearch",
-    "KnowledgeResult",
+    "KGOutput",
+    "KGResultItem",
+    "KGSearchFilters",
+    "PageType",
     "KnowledgeSearchFactory",
     "register_knowledge_search",
     # Learners

@@ -14,7 +14,7 @@ flowchart LR
     N1 --> LLM["LLM Navigation"]
     LLM --> N2["Expanded Nodes"]
     N2 --> AGG["Aggregate Results"]
-    AGG --> R["KnowledgeResult"]
+    AGG --> R["KGOutput"]
 ```
 
 1. **Keyword search** finds initial nodes matching the problem
@@ -70,7 +70,7 @@ presets:
 ## Factory Usage
 
 ```python
-from src.knowledge.search import KnowledgeSearchFactory
+from src.knowledge.search import KnowledgeSearchFactory, KGSearchFilters, PageType
 
 # Create from config
 search = KnowledgeSearchFactory.create(
@@ -88,6 +88,22 @@ search = KnowledgeSearchFactory.create_from_config({
 
 # Null search (disabled)
 search = KnowledgeSearchFactory.create_null()
+
+# Search with filters
+result = search.search(
+    query="How to fine-tune transformers for NLP?",
+    filters=KGSearchFilters(
+        top_k=5,
+        min_score=0.6,
+        page_types=[PageType.WORKFLOW, PageType.PRINCIPLE],
+        domains=["NLP", "Deep_Learning"],
+    ),
+    context="Previous experiment used BERT",
+)
+
+# Access results
+for item in result:
+    print(f"{item.page_title} ({item.page_type}): {item.score:.2f}")
 ```
 
 ## Search Interface
@@ -100,37 +116,76 @@ class KnowledgeSearch(ABC):
         pass
     
     @abstractmethod
-    def search(self, query: str, context: str = None) -> KnowledgeResult:
-        """Search for relevant knowledge."""
+    def search(
+        self, 
+        query: str, 
+        filters: KGSearchFilters = None,
+        context: str = None,
+    ) -> KGOutput:
+        """Search for relevant knowledge with optional filters."""
         pass
 ```
 
-## KnowledgeResult
+## KGSearchFilters
 
 ```python
 @dataclass
-class KnowledgeResult:
-    text_results: str    # General knowledge text
-    code_results: str    # Code snippets only
-    metadata: Dict       # Search metadata
+class KGSearchFilters:
+    top_k: int = 10                      # Max results to return
+    min_score: float = None              # Minimum relevance score (0.0 to 1.0)
+    page_types: List[str] = None         # Filter by types: Workflow, Principle, etc.
+    domains: List[str] = None            # Filter by domain tags: NLP, Deep_Learning, etc.
+    include_content: bool = True         # Include full page content
+
+class PageType(str, Enum):
+    WORKFLOW = "Workflow"
+    PRINCIPLE = "Principle"
+    IMPLEMENTATION = "Implementation"
+    ENVIRONMENT = "Environment"
+    HEURISTIC = "Heuristic"
+```
+
+## KGOutput & KGResultItem
+
+```python
+@dataclass
+class KGResultItem:
+    id: str              # Unique node identifier
+    score: float         # Relevance score (0.0 to 1.0)
+    page_title: str      # Title of the wiki page
+    page_type: str       # Node type (Workflow, Principle, Implementation, etc.)
+    overview: str        # Brief summary/description
+    content: str         # Full page content (empty if include_content=False)
+    metadata: Dict       # Additional data (domains, sources, last_updated)
+
+@dataclass
+class KGOutput:
+    query: str                    # Original search query
+    filters: KGSearchFilters      # Filters applied
+    results: List[KGResultItem]   # Ranked results (by score descending)
+    total_found: int              # Total matching results
+    search_metadata: Dict         # Search params and timing info
 ```
 
 ## Navigation Algorithm
 
 ```python
-def _retrieve_navigate(self, query, search_top_k, navigation_steps, expansion_limit):
+def _retrieve_navigate(self, query, search_top_k, navigation_steps, expansion_limit) -> List[KGResultItem]:
     # 1. Find starting nodes
     nodes = self._keyword_search(query, top_k=search_top_k)
     visited_ids = [n['id'] for n in nodes]
+    node_scores = {n['id']: 1.0 for n in nodes}  # Initial nodes get highest score
     
     # 2. Navigate graph
     for step in range(navigation_steps):
+        step_score = 1.0 - (step + 1) * 0.2  # Score decay per step
         neighbors = []
         for node in nodes:
             for neighbor in self._get_neighbors(node['id']):
                 if neighbor['id'] not in visited_ids:
                     neighbors.append(neighbor)
                     visited_ids.append(neighbor['id'])
+                    node_scores[neighbor['id']] = step_score
         
         if not neighbors:
             break
@@ -139,10 +194,9 @@ def _retrieve_navigate(self, query, search_top_k, navigation_steps, expansion_li
         selected = self._llm_select(query, nodes, neighbors, expansion_limit)
         nodes.extend(selected)
     
-    # 4. Aggregate
-    text = "\n".join(n['content'] for n in nodes)
-    code = "\n".join(n['content'] for n in nodes if n['type'] == 'code')
-    return text, code
+    # 4. Convert to KGResultItem list, sorted by score
+    results = [KGResultItem(id=n['id'], score=node_scores[n['id']], ...) for n in nodes]
+    return sorted(results, key=lambda x: x.score, reverse=True)
 ```
 
 ## Neo4j Setup

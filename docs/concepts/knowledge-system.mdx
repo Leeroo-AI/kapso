@@ -86,10 +86,11 @@ def search(self, query, context):
         
         nodes.extend(selected)
     
-    # 3. Return aggregated knowledge
-    return KnowledgeResult(
-        text_results="\n".join(n.content for n in nodes),
-        code_results="\n".join(n.content for n in nodes if n.type == "code")
+    # 3. Return KGOutput with ranked results
+    return KGOutput(
+        query=query,
+        results=[KGResultItem(id=n.id, score=..., page_title=n.name, ...) for n in nodes],
+        total_found=len(nodes)
     )
 ```
 
@@ -112,13 +113,14 @@ class KGEnrichedContextManager(ContextManager):
                 query=problem,
                 context=str(history[-1]) if history else None
             )
-            kg_results = result.text_results
-            kg_code_results = result.code_results
+            # Use KGOutput methods to format results
+            kg_context = result.to_context_string(max_results=5)
+            code_results = result.get_by_type("code")
         
         return ContextData(
             problem=problem,
-            kg_results=kg_results,           # Tips and workflows
-            kg_code_results=kg_code_results, # Code examples
+            kg_results=kg_context,                    # Formatted knowledge
+            kg_code_results=code_results,             # Code examples
             additional_info=format(history)
         )
 ```

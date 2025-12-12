@@ -27,7 +27,10 @@
 
 from src.knowledge.search.base import (
     KnowledgeSearch,
-    KnowledgeResult,
+    KGOutput,
+    KGResultItem,
+    KGSearchFilters,
+    PageType,
 )
 from src.knowledge.search.factory import (
     KnowledgeSearchFactory,
@@ -37,7 +40,10 @@ from src.knowledge.search.factory import (
 __all__ = [
     # Base classes
     "KnowledgeSearch",
-    "KnowledgeResult",
+    "KGOutput",
+    "KGResultItem",
+    "KGSearchFilters",
+    "PageType",
     # Factory
     "KnowledgeSearchFactory",
     "register_knowledge_search",
