@@ -350,3 +350,24 @@ class LLMBackend:
                     raise Exception(f"Error calling models {models} with web search: {str(retry_e)}")
         
         return asyncio.run(_run())
+
+    def create_embedding(self, text: str, model: str = "text-embedding-3-large") -> List[float]:
+        """
+        Create embedding for text using OpenAI embeddings API.
+        
+        Args:
+            text: Text to embed (truncated to 8000 chars)
+            model: Embedding model name (default: "text-embedding-3-large")
+            
+        Returns:
+            List of embedding floats, or empty list on error
+        """
+        try:
+            import openai
+            response = openai.embeddings.create(
+                model=model,
+                input=text[:8000]
+            )
+            return response.data[0].embedding
+        except Exception:
+            return []

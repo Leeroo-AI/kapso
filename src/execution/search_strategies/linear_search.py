@@ -50,7 +50,7 @@ class LinearSearch(SearchStrategy):
         print(f"  - idea_generation_model: {self.idea_generation_model}")
         
         # Initialize workspace with empty main file
-        if workspace_folder is None:
+        if workspace_dir is None:
             self._initialize_workspace()
     
     def _initialize_workspace(self) -> None:

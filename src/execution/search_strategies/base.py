@@ -33,6 +33,7 @@ class ExperimentResult:
     output: str = ""
     detailed_output: str = ""
     feedbacks: str = ""
+    embedding: List[float] = None
     
     def __str__(self) -> str:
         if self.had_error:
@@ -43,6 +44,10 @@ class ExperimentResult:
                 + (f"\n\n  # Runtime output: {self.output}" if self.output else "")
                 + (f"\n\n  # Feedbacks: {self.feedbacks} \n" if self.feedbacks else "")
             )
+    def get_embedding(self, llm: LLMBackend) -> List[float]:
+        if self.embedding is None:
+            self.embedding = llm.create_embedding(self.__str__())
+        return self.embedding
 
 
 @dataclass 

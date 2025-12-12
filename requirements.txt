@@ -1,5 +1,7 @@
 # Core dependencies for Expert Agent
 
+scipy
+
 # LLM API wrapper - supports OpenAI, Anthropic, Google, etc.
 litellm>=1.0.0
 
