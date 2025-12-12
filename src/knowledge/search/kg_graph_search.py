@@ -21,8 +21,33 @@ import json
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
+# Optional dependencies (may not be installed)
+try:
+    from neo4j import GraphDatabase
+    HAS_NEO4J = True
+except ImportError:
+    GraphDatabase = None
+    HAS_NEO4J = False
+
+try:
+    import weaviate
+    import weaviate.classes as wvc
+    HAS_WEAVIATE = True
+except ImportError:
+    weaviate = None
+    wvc = None
+    HAS_WEAVIATE = False
+
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    OpenAI = None
+    HAS_OPENAI = False
 
 from src.knowledge.search.base import (
     KGIndexInput,
@@ -42,24 +67,12 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Constants
+# Wiki Parser Functions
 # =============================================================================
 
-# OpenAI embedding model and dimensions
-EMBEDDING_MODEL = "text-embedding-3-large"
-EMBEDDING_DIMENSIONS = 3072
-
-# Default Weaviate collection name
-DEFAULT_WEAVIATE_COLLECTION = "KGWikiPages"
-
-# Edge types from wiki structure
-EDGE_TYPES = ["STEP", "IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
-
-# LLM reranker model
-RERANKER_MODEL = "gpt-4.1-mini"
-
-# Type subdirectory names mapped to PageType
-TYPE_SUBDIRS = {
+# Type subdirectory names mapped to PageType values.
+# Used by the wiki parser to determine page types from directory structure.
+_TYPE_SUBDIRS = {
     "workflows": PageType.WORKFLOW.value,
     "principles": PageType.PRINCIPLE.value,
     "implementations": PageType.IMPLEMENTATION.value,
@@ -67,10 +80,6 @@ TYPE_SUBDIRS = {
     "heuristics": PageType.HEURISTIC.value,
 }
 
-
-# =============================================================================
-# Wiki Parser Functions
-# =============================================================================
 
 def parse_wiki_directory(
     wiki_dir: Path,
@@ -100,7 +109,7 @@ def parse_wiki_directory(
     wiki_dir = Path(wiki_dir)
     
     # Check if directory uses type subdirectories
-    has_type_subdirs = any((wiki_dir / subdir).exists() for subdir in TYPE_SUBDIRS)
+    has_type_subdirs = any((wiki_dir / subdir).exists() for subdir in _TYPE_SUBDIRS)
     
     if has_type_subdirs:
         return _parse_type_subdirectories(wiki_dir)
@@ -117,7 +126,7 @@ def _parse_type_subdirectories(wiki_dir: Path) -> List[WikiPage]:
     """
     pages = []
     
-    for subdir_name, page_type in TYPE_SUBDIRS.items():
+    for subdir_name, page_type in _TYPE_SUBDIRS.items():
         subdir_path = wiki_dir / subdir_name
         if not subdir_path.exists():
             continue
@@ -501,6 +510,13 @@ class KGGraphSearch(KnowledgeSearch):
         WEAVIATE_URL: Weaviate server URL (default: http://localhost:8080)
     """
     
+    # =========================================================================
+    # Class Constants
+    # =========================================================================
+    
+    # Graph edge types from wiki structure (non-configurable)
+    EDGE_TYPES = ["STEP", "IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
+    
     def __init__(
         self,
         params: Optional[Dict[str, Any]] = None,
@@ -509,23 +525,21 @@ class KGGraphSearch(KnowledgeSearch):
         Initialize KG Graph Search.
         
         Args:
-            params: Configuration parameters:
-                - weaviate_collection: Weaviate collection name
+            params: Configuration parameters (defaults from knowledge_search.yaml):
                 - embedding_model: OpenAI embedding model
+                - weaviate_collection: Weaviate collection name
                 - include_connected_pages: Whether to include graph connections
-                - use_llm_reranker: Whether to use LLM reranker (default: True)
-                - reranker_model: LLM model for reranking (default: gpt-4.1-mini)
+                - use_llm_reranker: Whether to use LLM reranker
+                - reranker_model: LLM model for reranking
         """
         super().__init__(params=params)
         
-        # Extract params
-        self.weaviate_collection = self.params.get(
-            "weaviate_collection", DEFAULT_WEAVIATE_COLLECTION
-        )
-        self.embedding_model = self.params.get("embedding_model", EMBEDDING_MODEL)
+        # Extract params (defaults come from knowledge_search.yaml via factory)
+        self.embedding_model = self.params.get("embedding_model")
+        self.weaviate_collection = self.params.get("weaviate_collection")
+        self.reranker_model = self.params.get("reranker_model")
         self.include_connected_pages = self.params.get("include_connected_pages", True)
         self.use_llm_reranker = self.params.get("use_llm_reranker", True)
-        self.reranker_model = self.params.get("reranker_model", RERANKER_MODEL)
         
         # Clients (initialized lazily)
         self._neo4j_driver = None
@@ -551,9 +565,11 @@ class KGGraphSearch(KnowledgeSearch):
     
     def _initialize_neo4j(self) -> None:
         """Initialize Neo4j driver."""
-        try:
-            from neo4j import GraphDatabase
+        if not HAS_NEO4J:
+            logger.warning("neo4j package not installed. Graph features disabled.")
+            return
             
+        try:
             uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
             user = os.getenv("NEO4J_USER", "neo4j")
             password = os.getenv("NEO4J_PASSWORD", "password")
@@ -561,16 +577,16 @@ class KGGraphSearch(KnowledgeSearch):
             self._neo4j_driver = GraphDatabase.driver(uri, auth=(user, password))
             logger.info(f"Connected to Neo4j at {uri}")
             
-        except ImportError:
-            logger.warning("neo4j package not installed. Graph features disabled.")
         except Exception as e:
             logger.error(f"Failed to connect to Neo4j: {e}")
     
     def _initialize_weaviate(self) -> None:
         """Initialize Weaviate client."""
-        try:
-            import weaviate
+        if not HAS_WEAVIATE:
+            logger.warning("weaviate-client package not installed.")
+            return
             
+        try:
             url = os.getenv("WEAVIATE_URL", "http://localhost:8081")
             # Parse host and port from URL
             host = url.replace("http://", "").replace("https://", "").split(":")[0]
@@ -581,16 +597,16 @@ class KGGraphSearch(KnowledgeSearch):
             self._weaviate_client = weaviate.connect_to_local(host=host, port=port)
             logger.info(f"Connected to Weaviate at {url}")
             
-        except ImportError:
-            logger.warning("weaviate-client package not installed.")
         except Exception as e:
             logger.error(f"Failed to connect to Weaviate: {e}")
     
     def _initialize_openai(self) -> None:
         """Initialize OpenAI client."""
-        try:
-            from openai import OpenAI
+        if not HAS_OPENAI:
+            logger.warning("openai package not installed.")
+            return
             
+        try:
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 logger.warning("OPENAI_API_KEY not set. Embeddings disabled.")
@@ -599,8 +615,6 @@ class KGGraphSearch(KnowledgeSearch):
             self._openai_client = OpenAI(api_key=api_key)
             logger.info("OpenAI client initialized")
             
-        except ImportError:
-            logger.warning("openai package not installed.")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI: {e}")
     
@@ -801,9 +815,10 @@ class KGGraphSearch(KnowledgeSearch):
     
     def _ensure_weaviate_collection(self) -> None:
         """Create Weaviate collection if it doesn't exist."""
-        try:
-            import weaviate.classes as wvc
+        if not HAS_WEAVIATE or not self._weaviate_client:
+            return
             
+        try:
             # Check if collection exists
             collections = self._weaviate_client.collections.list_all()
             if self.weaviate_collection in [c.name for c in collections.values()]:
@@ -1147,8 +1162,6 @@ Only include pages that would actually help answer the query.
     
     def _build_weaviate_filters(self, filters: KGSearchFilters):
         """Build Weaviate filter object from KGSearchFilters."""
-        import weaviate.classes as wvc
-        
         filter_conditions = []
         
         # Filter by page_type
@@ -1241,6 +1254,54 @@ Only include pages that would actually help answer the query.
         return connected
     
     # =========================================================================
+    # Page Retrieval
+    # =========================================================================
+    
+    def get_page(self, page_title: str) -> Optional[WikiPage]:
+        """
+        Retrieve a wiki page by its title.
+        
+        Looks up the page in Weaviate by exact title match.
+        
+        Args:
+            page_title: Exact title of the page to retrieve
+            
+        Returns:
+            WikiPage if found, None otherwise
+        """
+        if not HAS_WEAVIATE or not self._weaviate_client:
+            logger.warning("Weaviate not available for page retrieval")
+            return None
+        
+        try:
+            collection = self._weaviate_client.collections.get(self.weaviate_collection)
+            
+            # Query by exact page_title match
+            response = collection.query.fetch_objects(
+                filters=wvc.query.Filter.by_property("page_title").equal(page_title),
+                limit=1,
+                include_vector=False,
+            )
+            
+            if response.objects:
+                obj = response.objects[0]
+                props = obj.properties
+                return WikiPage(
+                    id=props.get("page_id", ""),
+                    page_title=props.get("page_title", ""),
+                    page_type=props.get("page_type", ""),
+                    overview=props.get("overview", ""),
+                    content=props.get("content", ""),
+                    domains=props.get("domains", []),
+                )
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Failed to get page '{page_title}': {e}")
+            return None
+    
+    # =========================================================================
     # Cleanup
     # =========================================================================
     
@@ -1297,14 +1358,12 @@ Only include pages that would actually help answer the query.
 
 if __name__ == "__main__":
     """Test the KG Graph Search with data/wikis."""
-    import sys
-    
     print("=" * 60)
     print("KG Graph Search Test")
     print("=" * 60)
     
     # Initialize search
-    search = KGGraphSearch(enabled=True, params={})
+    search = KGGraphSearch(params={})
     
     # Check for command line argument
     if len(sys.argv) > 1 and sys.argv[1] == "--skip-index":

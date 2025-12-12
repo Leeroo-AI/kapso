@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from neo4j import GraphDatabase
 
 from src.core.llm import LLMBackend
-from src.knowledge.search.base import KnowledgeSearch, KGOutput, KGResultItem, KGSearchFilters
+from src.knowledge.search.base import KnowledgeSearch, KGOutput, KGResultItem, KGSearchFilters, WikiPage
 from src.knowledge.search.factory import register_knowledge_search
 
 
@@ -394,6 +394,45 @@ class KGLLMNavigationSearch(KnowledgeSearch):
             messages=messages,
         )
         return json.loads(response)
+    
+    def get_page(self, page_title: str) -> Optional[WikiPage]:
+        """
+        Retrieve a wiki page by its title.
+        
+        Looks up the page in Neo4j by exact name match.
+        
+        Args:
+            page_title: Exact title of the page to retrieve
+            
+        Returns:
+            WikiPage if found, None otherwise
+        """
+        if not self._driver:
+            return None
+        
+        try:
+            with self._driver.session() as session:
+                result = session.run(
+                    "MATCH (n:Node {name: $name}) RETURN n",
+                    name=page_title
+                )
+                record = result.single()
+                
+                if record:
+                    node = dict(record["n"])
+                    return WikiPage(
+                        id=node.get("id", ""),
+                        page_title=node.get("name", ""),
+                        page_type=node.get("type", ""),
+                        overview=node.get("overview", ""),
+                        content=node.get("content", ""),
+                        domains=node.get("domains", []) if isinstance(node.get("domains"), list) else [],
+                    )
+                
+                return None
+                
+        except Exception:
+            return None
     
     def close(self) -> None:
         """Close the Neo4j driver connection."""

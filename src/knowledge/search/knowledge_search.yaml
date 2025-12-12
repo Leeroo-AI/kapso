@@ -56,6 +56,14 @@ searches:
   kg_graph_search:
     description: "Weaviate embeddings + Neo4j graph structure hybrid search with LLM reranking"
     
+    # Default values used when params are not specified
+    defaults:
+      embedding_model: "text-embedding-3-large"
+      reranker_model: "gpt-4.1-mini"
+      weaviate_collection: "KGWikiPages"
+      include_connected_pages: true
+      use_llm_reranker: true
+    
     presets:
       # Default preset - semantic search + LLM reranking + graph enrichment
       DEFAULT:

@@ -415,6 +415,27 @@ class KnowledgeSearch(ABC):
         """
         pass
     
+    @abstractmethod
+    def get_page(self, page_title: str) -> Optional[WikiPage]:
+        """
+        Retrieve a wiki page by its title.
+        
+        This is a direct lookup, not a search. Given an exact page title,
+        returns the complete WikiPage with all content.
+        
+        Args:
+            page_title: Exact title of the page to retrieve
+            
+        Returns:
+            WikiPage if found, None otherwise
+            
+        Example:
+            page = search.get_page("Model_Training")
+            if page:
+                print(page.content)
+        """
+        pass
+    
     def clear(self) -> None:
         """
         Clear all indexed data.
@@ -455,3 +476,7 @@ class NullKnowledgeSearch(KnowledgeSearch):
     ) -> KGOutput:
         """Return empty results."""
         return KGOutput(query=query, filters=filters)
+    
+    def get_page(self, page_title: str) -> Optional[WikiPage]:
+        """Return None (no pages in null search)."""
+        return None
