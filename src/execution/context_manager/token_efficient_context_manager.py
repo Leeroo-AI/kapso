@@ -74,11 +74,12 @@ class TokenEfficientContextManager(ContextManager):
         experiments_context = ""
 
         all_experiments = self.search_strategy.get_experiment_history()
+        print("Preparing token efficient context for problem ...")
 
-        if len(all_experiments) > self.top_experiments_in_context_count + self.recent_experiments_in_context_count:
+        if len(all_experiments) >= self.top_experiments_in_context_count + self.recent_experiments_in_context_count:
             top_experiments = self.search_strategy.get_experiment_history(best_last=True)[-self.top_experiments_in_context_count:]
             recent_experiments = all_experiments[-self.recent_experiments_in_context_count:]
-            self.accumulated_summary = self._update_accumulated_summary(problem, all_experiments)
+            self._update_accumulated_summary(problem, all_experiments)
 
             state_embedding = self._get_state_embedding(all_experiments[-self.state_experiments_count:])
             relevant_experiments = self._retrieve_relevant_experiments(state_embedding, all_experiments)
@@ -86,7 +87,11 @@ class TokenEfficientContextManager(ContextManager):
             experiments_context = self._get_summarized_experiments_context(
                 self.accumulated_summary, top_experiments, relevant_experiments, recent_experiments
             )
-        else:
+            print("="*100)
+            print("Accumulated summary:")
+            print(str(self.accumulated_summary))
+            print("="*100)
+        elif len(all_experiments) != 0:
             experiments_context = (
                 "## Recent Experiments:\n" 
                 + "\n".join(str(exp) for exp in all_experiments) 
@@ -127,22 +132,35 @@ class TokenEfficientContextManager(ContextManager):
         new_experiments_list = experiments[self.accumulated_experiments_count:]
         if len(new_experiments_list) == 0:
             return self.accumulated_summary
-
         system_prompt = f"""
             You are a world class problem solver.
             You are given a problem, an accumulated summary of previous experiments and a list of new experiments.
-            You need to create an updated accumulated summary that incorporates and accumulates the new experiments and preserves the compressed version of most important information, solution, feedback, output and scores from previous experiments.
-            - The updated summary should focus on key insights and patterns, and the most important information, solution, feedback, output and scores from previous experiments.
-            - The updated summary should be concise and to the point.
-            - Do not provide repeating information but make sure to cover every key information that helps solving the problem.
+            You need to create an updated accumulated summary that incorporates and accumulates the new experiments and preserves the compressed version of most important information, solution, feedback, output and scores from previous experiments. 
+            It is critical that your summarization must be so neat and minimal and high quality that it can handle up to 100 experiments. Note that you are not allowed to increase the size of summary it must remain at most 4 or 5 paragraphs.
+            - The updated summary should focus on the categories of experiments, patterns, and the most important information, solution, feedback, output and scores from previous experiments.
+            - Do not provide repeating information but make sure to cover every key information that helps solving the problem or progressing toward the goal.
             - Your role is not to generate new ideas or solutions, but to compress, find patterns and the most important information from previous experiments.
+            - Avoid highly detailed information unless they had meaningful impact on the problem progress, score, output or solution quality.
+            - You are not allowed to generate any new information, just extracting and combining and concluding from the previous information.
+            - Do not mention any redundant and extra information like repeating problem description or goal. only and only the summary. 
             - You have a {self.summary_token_limit} token limit to generate the accumulated summary so make sure to use it wisely.
+            - CRITICAL: It is highly important to keep the summary as minimal as possible. The final goal of this summarization to capture the core and impactful information, not just appending experiments. 
+                -- You are not allowed to just appending experiments. make sure to drop redundant and unimportant parts.
+                -- You are not allowed to show detailed outputs just distil the knowledge that can be extracted from the outputs and feedbacks.
+                -- You are not allowed to suggest solutions and generate new ideas. just witnessed patterns, information and conclusions.
+            - Keep the information about summary highly oraganized. markdown format with the following sections:
+                --  High level workflows of experiments and core ideas: categorize experiments into categories based on the idea, solution and steps.
+                    --- find patterns and compress and summarize the output, and performance, score and quality of each category. (preferred one sentence but at most 3 sentences for each category)
+                    --- menttion specific concepts and parts of the experiments that are important for the category. (preferred one sentence butat most 3 sentences for each part)
+                    --- mention any feedbacks and issues that are mentioned in the experiment, note that you should not create feedbacks and you should just aggregate existing ones. preferred one sentence but No more than 3 sentences for eachcategory.
+                    --- Details, hyperparameters and specific parts must be mentioned only when have very high on progress toward goal and solving problem. only one sentence.
+                -- All in all make sure to combine information and extract high level patterns and low level patterns if impactful. Cover everything while respecting the token limit.
         """
         user_prompt = f"""
-            # problem: 
+            # problem / Goal: 
             {problem}
             # Previous accumulated summary of experiments:
-            {self.accumulated_summary}
+            {self.accumulated_summary if self.accumulated_summary else "No previous accumulated summary"}
             # New experiments:
             {"\n".join(str(exp) for exp in new_experiments_list)}
         """
@@ -151,26 +169,9 @@ class TokenEfficientContextManager(ContextManager):
             model=self.summary_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
-            max_tokens=self.summary_token_limit,
         )
         self.accumulated_experiments_count = len(experiments)
-        return self.accumulated_summary
-        
-        experiments_text = "\n\n".join(str(exp) for exp in experiments)
-        prompt = f"""
-            Summarize the following experiments, focusing on key patterns, insights, and outcomes:
 
-            {experiments_text}
-
-            Concise summary:
-        """
-        
-        return self.llm.llm_completion(
-            model=self.summary_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
-    
     def _get_state_embedding(self, experiments: List[Any]) -> List[float]:
         """Get the embedding of the state by averaging the embeddings of the recent experiments."""
         embeddings = np.array([exp.get_embedding(self.llm) for exp in experiments])

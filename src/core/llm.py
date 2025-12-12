@@ -371,3 +371,22 @@ class LLMBackend:
             return response.data[0].embedding
         except Exception:
             return []
+
+
+def main():
+    llm = LLMBackend()
+    try:
+        response = llm.llm_completion(
+            model="gpt-5-mini",
+            messages=[{"role": "user", "content": "Say hello in one sentence."}],
+        )
+        if response is None or response == "":
+            print("Error: Received empty or None response")
+        else:
+            print(response)
+        print(f"Cost: ${llm.get_cumulative_cost():.6f}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    main()
