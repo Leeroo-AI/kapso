@@ -231,8 +231,8 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 navigation_childs = []
                 neighbor_info = []
                 
-                # Score decay for each navigation step
-                step_score = 1.0 - (step + 1) * 0.2
+                # Score decay for each navigation step (clamped to min 0.1)
+                step_score = max(0.1, 1.0 - (step + 1) * 0.15)
 
                 # Collect neighbors of current nodes
                 for node in navigation_parents:
@@ -456,10 +456,10 @@ def main():
             Dataset: Contains training CSV with features and labels, test CSV for predictions, and image files.
         """
         result = search.search(query)
-        print("Text Results:")
-        print(result.text_results)
-        print("\nCode Results:")
-        print(result.code_results)
+        print("Search Results:")
+        print(result.to_context_string())
+        print(f"\nTotal found: {result.total_found}")
+        print(f"\nTop result: {result.top_result}")
         
     except Exception as e:
         print(f"Test failed with error: {e}")

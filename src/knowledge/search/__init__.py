@@ -23,7 +23,7 @@
 #   
 #   # Search for knowledge
 #   result = search.search("How to solve classification problems?")
-#   print(result.text_results)
+#   print(result.to_context_string())
 
 from src.knowledge.search.base import (
     KnowledgeSearch,
