@@ -5,14 +5,19 @@ Comprehensive test for Wiki MCP Server
 Tests:
 1. Knowledge search backend (index, search, get_page)
 2. MCP server tools and resources
+3. End-to-end search scenarios
+
+Run from project root:
+    python tests/test_wiki_mcp.py
 """
 
 import asyncio
 import sys
 from pathlib import Path
 
-# Add project root to path (go up 4 levels: wiki_mcps -> knowledge -> src -> praxium)
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def print_header(title: str):
@@ -117,6 +122,37 @@ def test_search_backend():
         except Exception as e:
             print(f"  ✗ Search failed: {e}")
             all_passed = False
+    
+    # Test search with/without reranker
+    print_subheader("Testing use_llm_reranker override")
+    
+    query = "How to fine-tune LLM?"
+    
+    # Without reranker
+    print(f"\nQuery: \"{query}\" (use_llm_reranker=False)")
+    try:
+        result = search.search(query, KGSearchFilters(top_k=3), use_llm_reranker=False)
+        print(f"  Reranked: {result.search_metadata.get('reranked')}")
+        print(f"  Found: {result.total_found} results")
+        if result.top_result:
+            print(f"  Top: {result.top_result.page_title} (score={result.top_result.score:.3f})")
+        print("  ✓ Search without reranker completed")
+    except Exception as e:
+        print(f"  ✗ Search failed: {e}")
+        all_passed = False
+    
+    # With reranker
+    print(f"\nQuery: \"{query}\" (use_llm_reranker=True)")
+    try:
+        result = search.search(query, KGSearchFilters(top_k=3), use_llm_reranker=True)
+        print(f"  Reranked: {result.search_metadata.get('reranked')}")
+        print(f"  Found: {result.total_found} results")
+        if result.top_result:
+            print(f"  Top: {result.top_result.page_title} (score={result.top_result.score:.3f})")
+        print("  ✓ Search with reranker completed")
+    except Exception as e:
+        print(f"  ✗ Search failed: {e}")
+        all_passed = False
     
     # Test get_page
     print_subheader("Testing get_page")
