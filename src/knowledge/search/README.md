@@ -1,6 +1,6 @@
 # Knowledge Search
 
-Semantic search over wiki pages using embeddings (Weaviate) and graph structure (Neo4j).
+Semantic search over wiki pages using embeddings (Weaviate), LLM reranking, and graph structure (Neo4j).
 
 ## Installation
 
@@ -40,7 +40,7 @@ docker run -d --name neo4j \
 ### 3. Set Environment Variables
 
 ```bash
-# Required: OpenAI API key for embeddings
+# Required: OpenAI API key for embeddings and reranking
 export OPENAI_API_KEY="sk-..."
 
 # Neo4j connection
@@ -54,13 +54,13 @@ export WEAVIATE_URL="http://localhost:8081"
 
 ## Usage
 
-### Index Wiki Pages
+### Index Wiki Pages (First Time)
 
 ```python
 from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
 
 # Create search backend
-search = KnowledgeSearchFactory.create("kg_graph_search", enabled=True)
+search = KnowledgeSearchFactory.create("kg_graph_search")
 
 # Index from wiki directory
 search.index(KGIndexInput(
@@ -71,13 +71,13 @@ search.index(KGIndexInput(
 
 ### Search (Using Already Indexed Data)
 
-If you've already indexed, data persists in Weaviate and Neo4j. Just create the search instance and query directly:
+Data persists in Weaviate and Neo4j. Just create and query:
 
 ```python
 from src.knowledge.search import KnowledgeSearchFactory, KGSearchFilters, PageType
 
-# Connect to existing indexed data (no index() call needed)
-search = KnowledgeSearchFactory.create("kg_graph_search", enabled=True)
+# Create search (connects to existing indexed data)
+search = KnowledgeSearchFactory.create("kg_graph_search")
 
 # Basic search
 result = search.search("How to fine-tune LLM?")
@@ -102,12 +102,42 @@ for item in result:
     print(f"  Connected to {len(connected)} pages")
 ```
 
-### Available Backends
+## Search Pipeline
 
-| Backend | Description |
-|---------|-------------|
-| `kg_graph_search` | Weaviate embeddings + Neo4j graph (recommended) |
-| `kg_llm_navigation` | Neo4j + LLM-guided navigation |
+```
+Query → Embedding → Weaviate Search → LLM Reranker → Graph Enrichment → Results
+```
+
+1. **Embedding**: Generate query embedding with OpenAI
+2. **Weaviate Search**: Find top-2K similar pages by vector similarity
+3. **LLM Reranker**: Use gpt-4.1-mini to rerank by relevance (optional)
+4. **Graph Enrichment**: Add connected pages from Neo4j (optional)
+
+## Configuration Options
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `use_llm_reranker` | `True` | Enable LLM-based result reranking |
+| `reranker_model` | `gpt-4.1-mini` | Model for reranking |
+| `include_connected_pages` | `True` | Include graph connections |
+| `embedding_model` | `text-embedding-3-large` | OpenAI embedding model |
+| `weaviate_collection` | `KGWikiPages` | Weaviate collection name |
+
+### Examples
+
+```python
+# Default: reranking + graph enrichment
+search = KnowledgeSearchFactory.create("kg_graph_search")
+
+# Fast: no reranking, no graph (semantic search only)
+search = KnowledgeSearchFactory.create(
+    "kg_graph_search",
+    params={"use_llm_reranker": False, "include_connected_pages": False}
+)
+
+# Using preset
+search = KnowledgeSearchFactory.create("kg_graph_search", preset="FAST")
+```
 
 ## Directory Structure
 
@@ -115,40 +145,39 @@ for item in result:
 src/knowledge/search/
 ├── base.py              # Abstract classes and data structures
 ├── factory.py           # Factory for creating search backends
-├── kg_graph_search.py   # Weaviate + Neo4j implementation (includes wiki parser)
-├── kg_llm_navigation_search.py  # LLM navigation implementation
+├── kg_graph_search.py   # Weaviate + Neo4j + LLM reranker (includes wiki parser)
+├── kg_llm_navigation_search.py  # LLM navigation implementation (legacy)
 └── knowledge_search.yaml        # Configuration presets
 ```
 
-## Configuration
-
-Edit `knowledge_search.yaml` for presets:
+## Presets (knowledge_search.yaml)
 
 ```yaml
 kg_graph_search:
   presets:
-    DEFAULT:
+    DEFAULT:        # Full pipeline
       params:
-        embedding_model: "text-embedding-3-large"
+        use_llm_reranker: true
         include_connected_pages: true
-    FAST:
+    
+    FAST:           # Semantic search only
       params:
+        use_llm_reranker: false
+        include_connected_pages: false
+    
+    RERANK_ONLY:    # Reranking without graph
+      params:
+        use_llm_reranker: true
         include_connected_pages: false
 ```
 
 ## Test
 
 ```bash
-# Activate environment
-conda activate praxium_conda
-
 # Set environment variables (or source .env)
-export OPENAI_API_KEY="sk-..."
-export NEO4J_URI="bolt://localhost:7687"
-export NEO4J_USER="neo4j"
+source .env
 export NEO4J_PASSWORD="password123"
 
 # Run test
-python -m src.knowledge.search.kg_graph_search
+python test_search.py
 ```
-
