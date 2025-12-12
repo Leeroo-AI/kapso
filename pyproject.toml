@@ -23,6 +23,10 @@ dependencies = [
     "PyYAML",
     "python-dotenv",
     "neo4j",
+    # Vector database for semantic search
+    "weaviate-client>=4.0.0",
+    # OpenAI embeddings API
+    "openai>=1.0.0",
     # Pin cryptography to avoid cffi>=2.0.0 requirement (conflicts with aider-chat)
     "cryptography<46.0.0",
 ]

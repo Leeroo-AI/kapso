@@ -125,11 +125,11 @@ class MyCustomContextManager(ContextManager):
         # Your custom logic here...
         additional_info = f"Custom info: {self.my_param}"
         
-        # Optional: Use knowledge retriever
+        # Optional: Use knowledge search
         kg_results = ""
-        if self.knowledge_retriever.is_enabled():
-            result = self.knowledge_retriever.retrieve(query=problem)
-            kg_results = result.text_results
+        if self.knowledge_search.is_enabled():
+            result = self.knowledge_search.search(query=problem)
+            kg_results = result.to_context_string()
         
         return ContextData(
             problem=problem,

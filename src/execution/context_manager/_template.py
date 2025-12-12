@@ -118,8 +118,14 @@ class TemplateContextManager(ContextManager):
             )
             
             if not result.is_empty:
-                kg_results += result.text_results
-                kg_code_results = result.code_results
+                # Format results as context strings
+                kg_results += result.to_context_string()
+                # Extract code-type results
+                code_items = result.get_by_type("Implementation")
+                if code_items:
+                    kg_code_results = "\n\n".join(
+                        f"## {item.page_title}\n{item.content}" for item in code_items
+                    )
         
         # =====================================================================
         # 4. Return ContextData

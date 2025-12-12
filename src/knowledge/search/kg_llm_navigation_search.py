@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from neo4j import GraphDatabase
 
 from src.core.llm import LLMBackend
-from src.knowledge.search.base import KnowledgeSearch, KnowledgeResult
+from src.knowledge.search.base import KnowledgeSearch, KGOutput, KGResultItem, KGSearchFilters, WikiPage
 from src.knowledge.search.factory import register_knowledge_search
 
 
@@ -140,19 +140,29 @@ class KGLLMNavigationSearch(KnowledgeSearch):
     # Search Methods
     # =========================================================================
     
-    def search(self, query: str, context: Optional[str] = None) -> KnowledgeResult:
+    def search(
+        self, 
+        query: str, 
+        filters: Optional[KGSearchFilters] = None,
+        context: Optional[str] = None,
+        **kwargs,
+    ) -> KGOutput:
         """
         Search the knowledge graph using LLM-guided navigation.
         
         Args:
             query: The search query (typically problem description)
+            filters: Optional filters (top_k, min_score, page_types, domains)
             context: Optional additional context (e.g., last experiment info)
             
         Returns:
-            KnowledgeResult with text and code results
+            KGOutput with ranked and filtered results
         """
+        # Use default filters if not provided
+        filters = filters or KGSearchFilters()
+        
         if not self.enabled or not self._driver:
-            return KnowledgeResult()
+            return KGOutput(query=query, filters=filters)
         
         # Build query prompt
         query_prompt = f"Problem: \n{query}"
@@ -160,51 +170,70 @@ class KGLLMNavigationSearch(KnowledgeSearch):
             query_prompt += f"\n\nLast Experiment: \n{context}"
         
         try:
-            text_results, code_results = self._retrieve_navigate(
+            result_items = self._retrieve_navigate(
                 query_prompt,
+                filters=filters,
                 search_top_k=self.search_top_k,
                 navigation_steps=self.navigation_steps,
                 expansion_limit=self.expansion_limit,
                 search_node_type=self.search_node_type,
             )
             
-            return KnowledgeResult(
-                text_results=text_results or "",
-                code_results=code_results or "",
-                metadata={
+            return KGOutput(
+                query=query,
+                filters=filters,
+                results=result_items,
+                total_found=len(result_items),
+                search_metadata={
                     "search_type": "kg_llm_navigation",
                     "search_top_k": self.search_top_k,
                     "navigation_steps": self.navigation_steps,
+                    "expansion_limit": self.expansion_limit,
                 }
             )
         except Exception:
-            return KnowledgeResult()
+            return KGOutput(query=query, filters=filters)
     
     def _retrieve_navigate(
         self, 
         query: str,
+        filters: KGSearchFilters,
         search_top_k: int = 1,
         navigation_steps: int = 2,
         expansion_limit: int = 3,
         search_node_type: Optional[str] = None,         
-    ) -> tuple:
+    ) -> List[KGResultItem]:
         """
         Retrieve knowledge using LLM-guided graph navigation.
         
         1. Search for initial nodes matching the query
         2. Use LLM to select which neighbors to explore
         3. Repeat for N navigation steps
-        4. Return aggregated knowledge from visited nodes
+        4. Apply filters and return list of KGResultItem
+        
+        Args:
+            query: Search query
+            filters: KGSearchFilters with top_k, min_score, page_types, domains
+            search_top_k: Initial nodes to find (navigation param)
+            navigation_steps: Graph navigation depth
+            expansion_limit: Max nodes per navigation step
+            search_node_type: Starting node type filter
         """
         # Find starting nodes
         selected_nodes = self._keyword_search(query, top_k=search_top_k, node_type=search_node_type)
         navigation_parents = selected_nodes
         navigated_node_ids = [node['id'] for node in selected_nodes]
+        
+        # Track scores: initial nodes get higher scores, later nodes get lower
+        node_scores = {node['id']: 1.0 for node in selected_nodes}
 
         try: 
             for step in range(navigation_steps):
                 navigation_childs = []
                 neighbor_info = []
+                
+                # Score decay for each navigation step (clamped to min 0.1)
+                step_score = max(0.1, 1.0 - (step + 1) * 0.15)
 
                 # Collect neighbors of current nodes
                 for node in navigation_parents:
@@ -214,6 +243,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                             navigated_node_ids.append(neighbor['id'])
                             navigation_childs.append(neighbor)
                             neighbor_info.append(f"{neighbor.get('name')}")
+                            node_scores[neighbor['id']] = step_score
                 
                 if len(navigation_childs) == 0:
                     break
@@ -242,20 +272,49 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 selected_nodes.extend(new_nodes)
                 navigation_parents = new_nodes
             
-            # Format results
-            kg_code_results = "\n\n".join([
-                f"{node.get('name')} : {node.get('content')}" 
-                for node in selected_nodes if node.get('type') == 'code'
-            ])
-            kg_all_results = "\n\n".join([
-                f"{node.get('name')} : {node.get('content')}" 
-                for node in selected_nodes
-            ])
-            return kg_all_results, kg_code_results
+            # Convert to KGResultItem list
+            result_items = []
+            for node in selected_nodes:
+                node_id = node.get('id', '')
+                node_type = node.get('type', 'unknown')
+                node_domains = node.get('domains', [])
+                score = node_scores.get(node_id, 0.5)
+                
+                # Apply page_types filter
+                if filters.page_types and node_type not in filters.page_types:
+                    continue
+                
+                # Apply domains filter (match any)
+                if filters.domains:
+                    if not any(d in node_domains for d in filters.domains):
+                        continue
+                
+                # Apply min_score filter
+                if filters.min_score is not None and score < filters.min_score:
+                    continue
+                
+                result_items.append(KGResultItem(
+                    id=node_id,
+                    score=score,
+                    page_title=node.get('name', ''),
+                    page_type=node_type,
+                    overview=node.get('overview', ''),
+                    content=node.get('content', '') if filters.include_content else '',
+                    metadata={
+                        k: v for k, v in node.items() 
+                        if k not in ('id', 'name', 'type', 'overview', 'content')
+                    }
+                ))
+            
+            # Sort by score descending
+            result_items.sort(key=lambda x: x.score, reverse=True)
+            
+            # Apply top_k limit
+            return result_items[:filters.top_k]
             
         except Exception as e:
             print(f"Error in retrieve_navigate: {e}")
-            return "No graph results.", ""
+            return []
     
     def _keyword_search(
         self, 
@@ -337,6 +396,45 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         )
         return json.loads(response)
     
+    def get_page(self, page_title: str) -> Optional[WikiPage]:
+        """
+        Retrieve a wiki page by its title.
+        
+        Looks up the page in Neo4j by exact name match.
+        
+        Args:
+            page_title: Exact title of the page to retrieve
+            
+        Returns:
+            WikiPage if found, None otherwise
+        """
+        if not self._driver:
+            return None
+        
+        try:
+            with self._driver.session() as session:
+                result = session.run(
+                    "MATCH (n:Node {name: $name}) RETURN n",
+                    name=page_title
+                )
+                record = result.single()
+                
+                if record:
+                    node = dict(record["n"])
+                    return WikiPage(
+                        id=node.get("id", ""),
+                        page_title=node.get("name", ""),
+                        page_type=node.get("type", ""),
+                        overview=node.get("overview", ""),
+                        content=node.get("content", ""),
+                        domains=node.get("domains", []) if isinstance(node.get("domains"), list) else [],
+                    )
+                
+                return None
+                
+        except Exception:
+            return None
+    
     def close(self) -> None:
         """Close the Neo4j driver connection."""
         if self._driver:
@@ -398,10 +496,10 @@ def main():
             Dataset: Contains training CSV with features and labels, test CSV for predictions, and image files.
         """
         result = search.search(query)
-        print("Text Results:")
-        print(result.text_results)
-        print("\nCode Results:")
-        print(result.code_results)
+        print("Search Results:")
+        print(result.to_context_string())
+        print(f"\nTotal found: {result.total_found}")
+        print(f"\nTop result: {result.top_result}")
         
     except Exception as e:
         print(f"Test failed with error: {e}")

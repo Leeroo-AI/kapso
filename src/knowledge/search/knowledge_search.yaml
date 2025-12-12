@@ -51,6 +51,49 @@ searches:
     default_preset: "DEFAULT"
 
   # =========================================================================
+  # KG Graph Search (Weaviate embeddings + Neo4j graph structure)
+  # =========================================================================
+  kg_graph_search:
+    description: "Weaviate embeddings + Neo4j graph structure hybrid search with LLM reranking"
+    
+    # Default values used when params are not specified
+    defaults:
+      embedding_model: "text-embedding-3-large"
+      reranker_model: "gpt-4.1-mini"
+      weaviate_collection: "KGWikiPages"
+      include_connected_pages: true
+      use_llm_reranker: true
+    
+    presets:
+      # Default preset - semantic search + LLM reranking + graph enrichment
+      DEFAULT:
+        params:
+          embedding_model: "text-embedding-3-large"
+          weaviate_collection: "KGWikiPages"
+          include_connected_pages: true
+          use_llm_reranker: true
+          reranker_model: "gpt-4.1-mini"
+      
+      # Fast preset - no reranking, no graph enrichment
+      FAST:
+        params:
+          embedding_model: "text-embedding-3-large"
+          weaviate_collection: "KGWikiPages"
+          include_connected_pages: false
+          use_llm_reranker: false
+      
+      # Rerank only - no graph enrichment
+      RERANK_ONLY:
+        params:
+          embedding_model: "text-embedding-3-large"
+          weaviate_collection: "KGWikiPages"
+          include_connected_pages: false
+          use_llm_reranker: true
+          reranker_model: "gpt-4.1-mini"
+    
+    default_preset: "DEFAULT"
+
+  # =========================================================================
   # RAG Search (Future - Template)
   # =========================================================================
   # rag:

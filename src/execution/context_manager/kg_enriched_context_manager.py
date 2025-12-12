@@ -102,8 +102,14 @@ class KGEnrichedContextManager(ContextManager):
             )
             
             if not knowledge_result.is_empty:
-                kg_results += knowledge_result.text_results
-                kg_code_results = knowledge_result.code_results
+                # Format results as context strings
+                kg_results += knowledge_result.to_context_string()
+                # Extract Implementation-type results for code
+                code_items = knowledge_result.get_by_type("Implementation")
+                if code_items:
+                    kg_code_results = "\n\n".join(
+                        f"## {item.page_title}\n{item.content}" for item in code_items
+                    )
 
         return ContextData(
             problem=problem,
