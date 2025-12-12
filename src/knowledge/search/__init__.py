@@ -12,40 +12,65 @@
 # Example usage:
 #   from src.knowledge.search import (
 #       KnowledgeSearchFactory,
-#       register_knowledge_search,
+#       KGIndexInput,
+#       KGSearchFilters,
+#       PageType,
 #   )
 #   
 #   # Create search instance
-#   search = KnowledgeSearchFactory.create("kg_llm_navigation", enabled=True, params={...})
+#   search = KnowledgeSearchFactory.create("wiki_search", enabled=True)
 #   
-#   # Index data
-#   search.index(kg_data)
+#   # Index wiki pages from directory
+#   search.index(KGIndexInput(
+#       wiki_dir="data/wikis/allenai_allennlp",
+#       persist_path="data/indexes/allenai_allennlp.json",
+#   ))
 #   
 #   # Search for knowledge
-#   result = search.search("How to solve classification problems?")
+#   result = search.search(
+#       query="How to train a model?",
+#       filters=KGSearchFilters(top_k=5, page_types=[PageType.WORKFLOW]),
+#   )
 #   print(result.to_context_string())
 
 from src.knowledge.search.base import (
+    # Core classes
     KnowledgeSearch,
-    KGOutput,
-    KGResultItem,
+    # Index input
+    WikiPage,
+    KGIndexInput,
+    # Search filters
     KGSearchFilters,
     PageType,
+    # Search output
+    KGOutput,
+    KGResultItem,
 )
 from src.knowledge.search.factory import (
     KnowledgeSearchFactory,
     register_knowledge_search,
 )
+from src.knowledge.search.wiki_parser import (
+    parse_wiki_directory,
+    parse_wiki_file,
+)
 
 __all__ = [
-    # Base classes
+    # Core classes
     "KnowledgeSearch",
-    "KGOutput",
-    "KGResultItem",
+    # Index input
+    "WikiPage",
+    "KGIndexInput",
+    # Search filters
     "KGSearchFilters",
     "PageType",
+    # Search output
+    "KGOutput",
+    "KGResultItem",
     # Factory
     "KnowledgeSearchFactory",
     "register_knowledge_search",
+    # Wiki parser
+    "parse_wiki_directory",
+    "parse_wiki_file",
 ]
-

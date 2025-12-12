@@ -8,12 +8,15 @@
 
 from src.knowledge.search import (
     KnowledgeSearch,
+    WikiPage,
+    KGIndexInput,
     KGOutput,
     KGResultItem,
     KGSearchFilters,
     PageType,
     KnowledgeSearchFactory,
     register_knowledge_search,
+    parse_wiki_directory,
 )
 
 from src.knowledge.learners import (
@@ -26,12 +29,15 @@ from src.knowledge.learners import (
 __all__ = [
     # Search
     "KnowledgeSearch",
+    "WikiPage",
+    "KGIndexInput",
     "KGOutput",
     "KGResultItem",
     "KGSearchFilters",
     "PageType",
     "KnowledgeSearchFactory",
     "register_knowledge_search",
+    "parse_wiki_directory",
     # Learners
     "Learner",
     "KnowledgeChunk",

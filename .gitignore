@@ -189,5 +189,3 @@ static/
 expert_agent.egg-info/
 mle-bench/
 ALE-Bench/
-
-data/wikis/*

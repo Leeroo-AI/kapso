@@ -9,7 +9,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 
 # =============================================================================
@@ -33,6 +34,119 @@ class PageType(str, Enum):
     def values(cls) -> List[str]:
         """Return all page type values."""
         return [e.value for e in cls]
+
+
+# =============================================================================
+# Index Input Data Structures
+# =============================================================================
+
+@dataclass
+class WikiPage:
+    """
+    Parsed wiki page ready for indexing.
+    
+    Represents a single wiki page with all metadata extracted.
+    Maps to the wiki structure defined in src/knowledge/wiki_structure/.
+    
+    Attributes:
+        id: Unique identifier (e.g., "allenai_allennlp/Model_Training")
+        page_title: Human-readable title
+        page_type: PageType value (Workflow, Principle, Implementation, etc.)
+        overview: Brief summary/description (the "card" content)
+        content: Full page content
+        domains: Domain tags (e.g., ["Deep_Learning", "NLP"])
+        sources: Knowledge sources (repo URLs, papers, etc.)
+        last_updated: Last update timestamp
+        outgoing_links: Graph connections parsed from [[edge::Type:Target]] syntax
+    """
+    id: str
+    page_title: str
+    page_type: str
+    overview: str
+    content: str
+    domains: List[str] = field(default_factory=list)
+    sources: List[Dict[str, str]] = field(default_factory=list)
+    last_updated: Optional[str] = None
+    outgoing_links: List[Dict[str, str]] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "page_title": self.page_title,
+            "page_type": self.page_type,
+            "overview": self.overview,
+            "content": self.content,
+            "domains": self.domains,
+            "sources": self.sources,
+            "last_updated": self.last_updated,
+            "outgoing_links": self.outgoing_links,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WikiPage":
+        """Create WikiPage from dictionary."""
+        return cls(
+            id=data["id"],
+            page_title=data["page_title"],
+            page_type=data["page_type"],
+            overview=data["overview"],
+            content=data["content"],
+            domains=data.get("domains", []),
+            sources=data.get("sources", []),
+            last_updated=data.get("last_updated"),
+            outgoing_links=data.get("outgoing_links", []),
+        )
+    
+    def __repr__(self) -> str:
+        return f"WikiPage(id={self.id!r}, type={self.page_type!r}, title={self.page_title!r})"
+
+
+@dataclass
+class KGIndexInput:
+    """
+    Input for Knowledge Graph indexing.
+    
+    Supports two input modes:
+    - wiki_dir: Path to directory of .mediawiki files (will be parsed)
+    - pages: Pre-parsed WikiPage objects
+    
+    Attributes:
+        wiki_dir: Path to directory containing .mediawiki files
+        pages: Pre-parsed WikiPage objects
+        persist_path: Where to save indexed data for later loading
+    
+    Example:
+        # Index from directory
+        input_data = KGIndexInput(
+            wiki_dir="data/wikis/allenai_allennlp",
+            persist_path="data/indexes/allenai_allennlp.json",
+        )
+        search.index(input_data)
+        
+        # Index pre-parsed pages
+        input_data = KGIndexInput(pages=[page1, page2, ...])
+        search.index(input_data)
+    """
+    # Input mode 1: Directory of wiki files
+    wiki_dir: Optional[Union[str, Path]] = None
+    
+    # Input mode 2: Pre-parsed pages
+    pages: Optional[List[WikiPage]] = None
+    
+    # Persistence option
+    persist_path: Optional[Union[str, Path]] = None
+    
+    def __post_init__(self):
+        """Validate input."""
+        if not self.wiki_dir and not self.pages:
+            raise ValueError("Must provide either wiki_dir or pages")
+        
+        # Convert paths to Path objects
+        if self.wiki_dir:
+            self.wiki_dir = Path(self.wiki_dir)
+        if self.persist_path:
+            self.persist_path = Path(self.persist_path)
 
 
 # =============================================================================
@@ -226,12 +340,14 @@ class KnowledgeSearch(ABC):
     keeping related functionality together.
     
     Subclasses must implement:
-    - index(): Load knowledge into the backend
+    - index(): Load wiki pages into the backend
     - search(): Query for relevant knowledge
+    - load_index(): Load previously saved index
+    - save_index(): Save current index to disk
     
     To create a new search backend:
     1. Subclass KnowledgeSearch
-    2. Implement index() and search()
+    2. Implement index(), search(), load_index(), save_index()
     3. Register with @register_knowledge_search("your_name") decorator
     4. Add configuration presets in knowledge_search.yaml
     """
@@ -252,12 +368,43 @@ class KnowledgeSearch(ABC):
         self.params = params or {}
     
     @abstractmethod
-    def index(self, data: Dict[str, Any]) -> None:
+    def index(self, data: KGIndexInput) -> None:
         """
-        Index knowledge into the backend.
+        Index wiki pages into the backend.
         
         Args:
-            data: Knowledge data to index (format depends on implementation)
+            data: KGIndexInput with wiki_dir or pages
+            
+        If data.wiki_dir is provided, parses .mediawiki files from the directory.
+        If data.pages is provided, indexes the pre-parsed WikiPage objects.
+        If data.persist_path is set, saves the index for later loading.
+        
+        Example:
+            # Index from directory
+            search.index(KGIndexInput(
+                wiki_dir="data/wikis/allenai_allennlp",
+                persist_path="data/indexes/allenai_allennlp.json",
+            ))
+        """
+        pass
+    
+    @abstractmethod
+    def load_index(self, path: Union[str, Path]) -> None:
+        """
+        Load previously indexed data from disk.
+        
+        Args:
+            path: Path to the saved index file/directory
+        """
+        pass
+    
+    @abstractmethod
+    def save_index(self, path: Union[str, Path]) -> None:
+        """
+        Save current index to disk for later loading.
+        
+        Args:
+            path: Path to save the index
         """
         pass
     
@@ -280,7 +427,6 @@ class KnowledgeSearch(ABC):
             KGOutput with ranked and filtered results
         
         Example:
-            # Search with filters
             result = search.search(
                 query="How to fine-tune transformers?",
                 filters=KGSearchFilters(
@@ -326,8 +472,16 @@ class NullKnowledgeSearch(KnowledgeSearch):
         """Initialize null search (always disabled)."""
         super().__init__(enabled=False)
     
-    def index(self, data: Dict[str, Any]) -> None:
+    def index(self, data: KGIndexInput) -> None:
         """No-op index."""
+        pass
+    
+    def load_index(self, path: Union[str, Path]) -> None:
+        """No-op load."""
+        pass
+    
+    def save_index(self, path: Union[str, Path]) -> None:
+        """No-op save."""
         pass
     
     def search(
