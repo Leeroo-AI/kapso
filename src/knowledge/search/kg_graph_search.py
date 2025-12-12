@@ -1131,6 +1131,19 @@ class KGGraphSearch(KnowledgeSearch):
             self._weaviate_client = None
         
         self._openai_client = None
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - auto-close connections."""
+        self.close()
+        return False
+    
+    def __del__(self):
+        """Destructor - auto-close connections when garbage collected."""
+        self.close()
 
 
 # =============================================================================
