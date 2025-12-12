@@ -12,6 +12,12 @@ aider-chat>=0.35.0
 # Knowledge graph database client
 neo4j
 
+# Vector database for semantic search
+weaviate-client>=4.0.0
+
+# OpenAI embeddings API
+openai>=1.0.0
+
 # Configuration file parsing
 PyYAML
 

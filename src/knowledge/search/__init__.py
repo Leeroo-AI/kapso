@@ -50,7 +50,8 @@ from src.knowledge.search.factory import (
     KnowledgeSearchFactory,
     register_knowledge_search,
 )
-from src.knowledge.search.wiki_parser import (
+from src.knowledge.search.kg_graph_search import (
+    KGGraphSearch,
     parse_wiki_directory,
     parse_wiki_file,
 )
@@ -73,4 +74,6 @@ __all__ = [
     # Wiki parser
     "parse_wiki_directory",
     "parse_wiki_file",
+    # Search implementations
+    "KGGraphSearch",
 ]

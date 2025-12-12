@@ -342,12 +342,10 @@ class KnowledgeSearch(ABC):
     Subclasses must implement:
     - index(): Load wiki pages into the backend
     - search(): Query for relevant knowledge
-    - load_index(): Load previously saved index
-    - save_index(): Save current index to disk
     
     To create a new search backend:
     1. Subclass KnowledgeSearch
-    2. Implement index(), search(), load_index(), save_index()
+    2. Implement index() and search()
     3. Register with @register_knowledge_search("your_name") decorator
     4. Add configuration presets in knowledge_search.yaml
     """
@@ -385,26 +383,6 @@ class KnowledgeSearch(ABC):
                 wiki_dir="data/wikis/allenai_allennlp",
                 persist_path="data/indexes/allenai_allennlp.json",
             ))
-        """
-        pass
-    
-    @abstractmethod
-    def load_index(self, path: Union[str, Path]) -> None:
-        """
-        Load previously indexed data from disk.
-        
-        Args:
-            path: Path to the saved index file/directory
-        """
-        pass
-    
-    @abstractmethod
-    def save_index(self, path: Union[str, Path]) -> None:
-        """
-        Save current index to disk for later loading.
-        
-        Args:
-            path: Path to save the index
         """
         pass
     
@@ -474,14 +452,6 @@ class NullKnowledgeSearch(KnowledgeSearch):
     
     def index(self, data: KGIndexInput) -> None:
         """No-op index."""
-        pass
-    
-    def load_index(self, path: Union[str, Path]) -> None:
-        """No-op load."""
-        pass
-    
-    def save_index(self, path: Union[str, Path]) -> None:
-        """No-op save."""
         pass
     
     def search(

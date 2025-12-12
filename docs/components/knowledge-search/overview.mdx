@@ -1,9 +1,88 @@
 ---
 title: "Knowledge Search"
-description: "Domain knowledge retrieval from Neo4j"
+description: "Domain knowledge retrieval using embeddings and graph structure"
 ---
 
-Knowledge search retrieves domain-specific guidance from a Neo4j knowledge graph using LLM-guided navigation.
+Knowledge search retrieves domain-specific guidance from wiki pages using semantic embeddings (Weaviate) and graph structure (Neo4j).
+
+## Available Backends
+
+| Backend | Description | Best For |
+|---------|-------------|----------|
+| `kg_graph_search` | Weaviate embeddings + Neo4j graph | **Recommended** - Semantic search with graph connections |
+| `kg_llm_navigation` | Neo4j + LLM-guided navigation | Complex multi-hop exploration |
+
+## KG Graph Search (Recommended)
+
+Uses OpenAI embeddings for semantic search in Weaviate, with Neo4j storing graph relationships for result enrichment.
+
+```mermaid
+flowchart LR
+    Q["Query"] --> E["Generate Embedding"]
+    E --> W["Weaviate Vector Search"]
+    W --> R["Top-K Results"]
+    R --> N["Neo4j Graph Enrichment"]
+    N --> OUT["KGOutput + Connections"]
+```
+
+### Quick Start
+
+```python
+from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput, KGSearchFilters
+
+# Create search backend
+search = KnowledgeSearchFactory.create("kg_graph_search", enabled=True)
+
+# Index wiki pages
+search.index(KGIndexInput(
+    wiki_dir="data/wikis",
+    persist_path="data/indexes/wikis.json",
+))
+
+# Search
+result = search.search(
+    query="How to fine-tune LLM with limited GPU?",
+    filters=KGSearchFilters(top_k=5, page_types=["Workflow"]),
+)
+
+# Results include connected pages from Neo4j
+for item in result:
+    print(f"{item.page_title}: {item.score:.2f}")
+    print(f"  Connected: {len(item.metadata.get('connected_pages', []))} pages")
+```
+
+### Configuration
+
+```yaml
+knowledge_search:
+  type: "kg_graph_search"
+  enabled: true
+  params:
+    embedding_model: "text-embedding-3-large"
+    weaviate_collection: "KGWikiPages"
+    include_connected_pages: true
+```
+
+### Environment Variables
+
+```bash
+# Required
+export OPENAI_API_KEY="sk-..."
+
+# Neo4j (graph structure)
+export NEO4J_URI="bolt://localhost:7687"
+export NEO4J_USER="neo4j"
+export NEO4J_PASSWORD="password123"
+
+# Weaviate (embeddings)
+export WEAVIATE_URL="http://localhost:8081"
+```
+
+---
+
+## KG LLM Navigation Search (Legacy)
+
+Uses LLM-guided graph traversal starting from keyword matches.
 
 ## How It Works
 
