@@ -39,6 +39,8 @@ from src.knowledge.search.base import (
     # Index input
     WikiPage,
     KGIndexInput,
+    # Edit input
+    KGEditInput,
     # Search filters
     KGSearchFilters,
     PageType,
@@ -62,6 +64,8 @@ __all__ = [
     # Index input
     "WikiPage",
     "KGIndexInput",
+    # Edit input
+    "KGEditInput",
     # Search filters
     "KGSearchFilters",
     "PageType",

@@ -14,6 +14,15 @@ from typing import Any, Dict, List, Optional, Union
 
 
 # =============================================================================
+# Default Paths
+# =============================================================================
+
+# Default wiki directory and persist path for indexing/editing
+DEFAULT_WIKI_DIR = Path("data/wikis")
+DEFAULT_PERSIST_PATH = Path("data/indexes/wikis.json")
+
+
+# =============================================================================
 # Enums and Constants
 # =============================================================================
 
@@ -112,33 +121,48 @@ class KGIndexInput:
     - pages: Pre-parsed WikiPage objects
     
     Attributes:
-        wiki_dir: Path to directory containing .mediawiki files
+        wiki_dir: Path to directory containing wiki files (default: data/wikis)
         pages: Pre-parsed WikiPage objects
-        persist_path: Where to save indexed data for later loading
+        persist_path: Where to save indexed data (default: data/indexes/wikis.json)
     
     Example:
-        # Index from directory
+        # Index with defaults (data/wikis -> data/indexes/wikis.json)
+        search.index(KGIndexInput())
+        
+        # Index from custom directory
         input_data = KGIndexInput(
-            wiki_dir="data/wikis/allenai_allennlp",
-            persist_path="data/indexes/allenai_allennlp.json",
+            wiki_dir="data/wikis/custom",
+            persist_path="data/indexes/custom.json",
         )
         search.index(input_data)
         
-        # Index pre-parsed pages
+        # Index pre-parsed pages (no wiki_dir needed)
         input_data = KGIndexInput(pages=[page1, page2, ...])
         search.index(input_data)
     """
-    # Input mode 1: Directory of wiki files
-    wiki_dir: Optional[Union[str, Path]] = None
+    # Input mode 1: Directory of wiki files (default: data/wikis)
+    wiki_dir: Optional[Union[str, Path]] = field(default=None)
     
     # Input mode 2: Pre-parsed pages
     pages: Optional[List[WikiPage]] = None
     
-    # Persistence option
-    persist_path: Optional[Union[str, Path]] = None
+    # Persistence option (default: data/indexes/wikis.json)
+    persist_path: Optional[Union[str, Path]] = field(default=None)
+    
+    # Internal flag to track if defaults should be used
+    _use_defaults: bool = field(default=True, repr=False)
     
     def __post_init__(self):
-        """Validate input."""
+        """Validate input and apply defaults."""
+        # Apply defaults if neither wiki_dir nor pages provided
+        if self.wiki_dir is None and self.pages is None and self._use_defaults:
+            self.wiki_dir = DEFAULT_WIKI_DIR
+        
+        # Apply default persist_path if wiki_dir is used
+        if self.persist_path is None and self.wiki_dir is not None:
+            self.persist_path = DEFAULT_PERSIST_PATH
+        
+        # Validate: must have at least one input source
         if not self.wiki_dir and not self.pages:
             raise ValueError("Must provide either wiki_dir or pages")
         
@@ -147,6 +171,129 @@ class KGIndexInput:
             self.wiki_dir = Path(self.wiki_dir)
         if self.persist_path:
             self.persist_path = Path(self.persist_path)
+
+
+@dataclass
+class KGEditInput:
+    """
+    Input for editing an existing wiki page.
+    
+    Updates all layers in sync: raw source files, JSON cache, Weaviate, and Neo4j.
+    Only the fields provided (not None) will be updated.
+    
+    Attributes:
+        page_id: Unique identifier of the page to edit (required)
+        page_title: New title (optional)
+        page_type: New page type (optional - may move file to different subdir)
+        overview: New overview text (optional - triggers re-embedding)
+        content: New full page content (optional - replaces entire file content)
+        domains: New domain tags (optional, replaces existing)
+        sources: New sources (optional, replaces existing)
+        outgoing_links: New graph links (optional - triggers edge rebuild)
+        auto_timestamp: Whether to auto-update last_updated (default: True)
+        wiki_dir: Root wiki directory for source file updates (default: data/wikis)
+        persist_path: Path to JSON cache file (default: data/indexes/wikis.json)
+        update_source_files: Whether to update raw .md/.mediawiki files (default: True)
+        update_persist_cache: Whether to update JSON cache (default: True)
+    
+    Example:
+        # Edit with defaults (uses data/wikis and data/indexes/wikis.json)
+        edit_input = KGEditInput(
+            page_id="Workflow/QLoRA_Finetuning",
+            overview="Updated overview text",
+            domains=["LLMs", "Fine_Tuning", "PEFT"],
+        )
+        search.edit(edit_input)
+        
+        # Edit full content (replaces entire file)
+        edit_input = KGEditInput(
+            page_id="Workflow/QLoRA_Finetuning",
+            content="... entire new file content ...",
+        )
+        search.edit(edit_input)
+    """
+    # Required: identifies the page
+    page_id: str
+    
+    # Optional fields to update (None = no change)
+    page_title: Optional[str] = None
+    page_type: Optional[str] = None
+    overview: Optional[str] = None
+    content: Optional[str] = None  # Full file content replacement
+    domains: Optional[List[str]] = None
+    sources: Optional[List[Dict[str, str]]] = None
+    outgoing_links: Optional[List[Dict[str, str]]] = None
+    
+    # Auto-update timestamp on edit
+    auto_timestamp: bool = True
+    
+    # Source file tracking (with defaults)
+    wiki_dir: Optional[Union[str, Path]] = field(default=None)
+    persist_path: Optional[Union[str, Path]] = field(default=None)
+    
+    # Control which layers to update
+    update_source_files: bool = True
+    update_persist_cache: bool = True
+    
+    def __post_init__(self):
+        """Validate input and apply defaults."""
+        if not self.page_id:
+            raise ValueError("page_id is required for editing")
+        
+        # Validate page_type if provided
+        if self.page_type is not None:
+            valid_types = PageType.values()
+            if self.page_type not in valid_types:
+                raise ValueError(
+                    f"Invalid page_type '{self.page_type}'. "
+                    f"Valid types: {valid_types}"
+                )
+        
+        # Apply default paths
+        if self.wiki_dir is None:
+            self.wiki_dir = DEFAULT_WIKI_DIR
+        if self.persist_path is None:
+            self.persist_path = DEFAULT_PERSIST_PATH
+        
+        # Convert paths to Path objects
+        self.wiki_dir = Path(self.wiki_dir)
+        self.persist_path = Path(self.persist_path)
+    
+    @property
+    def requires_reembedding(self) -> bool:
+        """Check if edit requires regenerating embeddings."""
+        # Overview is what gets embedded in Weaviate
+        return self.overview is not None
+    
+    @property
+    def requires_edge_rebuild(self) -> bool:
+        """Check if edit requires rebuilding Neo4j edges."""
+        return self.outgoing_links is not None
+    
+    @property
+    def requires_file_rewrite(self) -> bool:
+        """Check if edit requires rewriting the source file."""
+        # Full content replacement always requires file rewrite
+        if self.content is not None:
+            return True
+        # Metadata changes also require file update (they're embedded in file)
+        return any([
+            self.overview is not None,
+            self.domains is not None,
+            self.sources is not None,
+            self.outgoing_links is not None,
+            self.auto_timestamp,  # Timestamp is in file metadata
+        ])
+    
+    def get_updates(self) -> Dict[str, Any]:
+        """Get dict of non-None fields to update."""
+        updates = {}
+        for field_name in ['page_title', 'page_type', 'overview', 'content', 
+                           'domains', 'sources', 'outgoing_links']:
+            value = getattr(self, field_name)
+            if value is not None:
+                updates[field_name] = value
+        return updates
 
 
 # =============================================================================
@@ -438,6 +585,39 @@ class KnowledgeSearch(ABC):
         """
         pass
     
+    @abstractmethod
+    def edit(self, data: "KGEditInput") -> bool:
+        """
+        Edit an existing wiki page and update all storage layers.
+        
+        Updates in order:
+        1. Raw source file (.md or .mediawiki) - if update_source_files=True
+        2. Persist JSON cache - if update_persist_cache=True
+        3. Weaviate (embeddings + properties)
+        4. Neo4j (node properties + edges)
+        5. Internal memory cache
+        
+        Args:
+            data: KGEditInput with page_id and fields to update
+            
+        Returns:
+            True if edit was successful, False if page not found
+            
+        Notes:
+            - Only non-None fields in data are updated
+            - If overview is changed, embeddings are regenerated in Weaviate
+            - If outgoing_links is changed, edges are rebuilt in Neo4j
+            - If auto_timestamp=True, last_updated is set to current time
+        
+        Example:
+            success = search.edit(KGEditInput(
+                page_id="Workflow/QLoRA_Finetuning",
+                content="Updated tutorial content...",
+                domains=["LLMs", "Fine_Tuning", "Memory_Efficient"],
+            ))
+        """
+        pass
+    
     def clear(self) -> None:
         """
         Clear all indexed data.
@@ -483,3 +663,7 @@ class NullKnowledgeSearch(KnowledgeSearch):
     def get_page(self, page_title: str) -> Optional[WikiPage]:
         """Return None (no pages in null search)."""
         return None
+    
+    def edit(self, data: KGEditInput) -> bool:
+        """No-op edit - always returns False."""
+        return False
