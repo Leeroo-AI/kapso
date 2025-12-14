@@ -1,6 +1,6 @@
 ---
 title: "Knowledge System"
-description: "How domain knowledge enhances solution generation"
+description: "How domain knowledge is acquired, stored, and used to enhance solution generation"
 ---
 
 ## Overview
@@ -9,90 +9,170 @@ The knowledge system provides domain-specific guidance during problem-solving, h
 
 ```mermaid
 flowchart TB
-    subgraph Acquisition["Knowledge Acquisition (Offline)"]
-        EXT["Knowledge Extractor"]
-        RES["Researcher"]
-        EXT --> KG
-        RES --> KG
+    subgraph Acquisition["Knowledge Learning Pipeline"]
+        Sources["Sources\n(Repos, Papers, Experiments)"]
+        Ingestors["Ingestors\n(Stage 1)"]
+        Merger["Knowledge Merger\n(Stage 2)"]
+        Sources --> Ingestors
+        Ingestors --> Merger
     end
     
-    subgraph KG["Neo4j Knowledge Graph"]
-        SPEC["Specializations"]
+    subgraph KG["Knowledge Graph (Weaviate + Neo4j)"]
         WORK["Workflows"]
-        CONC["Concepts"]
-        CODE["Code Examples"]
-        SPEC --> WORK --> CONC --> CODE
+        PRINC["Principles"]
+        IMPL["Implementations"]
+        ENV["Environments"]
+        HEUR["Heuristics"]
+        WORK --> PRINC --> IMPL
+        IMPL --> ENV
+        WORK --> HEUR
+        PRINC --> HEUR
+        IMPL --> HEUR
     end
+    
+    Merger --> KG
     
     subgraph Search["Knowledge Search (Runtime)"]
-        NAV["LLM Navigation"]
+        NAV["Hybrid Search\n(Semantic + Graph)"]
         KG --> NAV
         NAV --> CTX["Context Enrichment"]
     end
 ```
 
-## Knowledge Graph Structure
+## Knowledge Learning Pipeline
 
-The graph contains four node types organized hierarchically:
+The knowledge learning system uses a two-stage pipeline to acquire and integrate knowledge:
 
-| Type | Purpose | Example |
-|------|---------|---------|
-| `specialization` | Root category | "Kaggle competitions" |
-| `workflow` | Step-by-step approach | "Text Classification Best Approaches" |
-| `concept` | Detailed tips | "Fine-tuning Transformers" |
-| `code` | Working examples | "DeBERTa-v3 training code" |
-
-### Example Graph
-
-```mermaid
-flowchart TB
-    ROOT["Kaggle competitions"]
-    TEXT["Text Classification"]
-    TAB["Tabular Data"]
-    IMG["Image Data"]
-    
-    FT["Fine-tuning Transformers"]
-    TFIDF["TF-IDF + Classifier"]
-    CODE1["DeBERTa code example"]
-    
-    ROOT --> TEXT
-    ROOT --> TAB
-    ROOT --> IMG
-    TEXT --> FT
-    TEXT --> TFIDF
-    FT --> CODE1
-```
-
-## LLM-Guided Navigation
-
-The search algorithm navigates the graph using LLM guidance:
+### Architecture
 
 ```python
-def search(self, query, context):
-    # 1. Find starting nodes by keyword
-    nodes = self.keyword_search(query, node_type="specialization")
-    
-    # 2. Navigate graph with LLM guidance
-    for step in range(navigation_steps):
-        neighbors = self.get_neighbors(nodes)
-        
-        # LLM selects relevant neighbors
-        selected = llm.call(f"""
-            Problem: {query}
-            Already explored: {nodes}
-            Available neighbors: {neighbors}
-            Which neighbors are relevant?
-        """)
-        
-        nodes.extend(selected)
-    
-    # 3. Return KGOutput with ranked results
-    return KGOutput(
-        query=query,
-        results=[KGResultItem(id=n.id, score=..., page_title=n.name, ...) for n in nodes],
-        total_found=len(nodes)
-    )
+from src.knowledge.learners import KnowledgePipeline, Source
+
+pipeline = KnowledgePipeline()
+
+# Full pipeline: ingest + merge
+result = pipeline.run(Source.Repo("https://github.com/user/repo"))
+
+# Multiple sources
+result = pipeline.run(
+    Source.Repo("https://github.com/user/repo"),
+    Source.Paper("./research.pdf"),
+)
 ```
+
+### Stage 1: Ingestors
+
+Ingestors extract WikiPages from knowledge sources. Each source type has a dedicated ingestor:
+
+| Ingestor | Source Type | Description |
+|----------|-------------|-------------|
+| `RepoIngestor` | `Source.Repo` | Clones GitHub repos, uses Claude Code to explore and extract |
+| `PaperIngestor` | `Source.Paper` | Extracts knowledge from PDFs (WIP) |
+| `ExperimentIngestor` | `Source.Solution` | Learns from completed experiments |
+
+```python
+from src.knowledge.learners.ingestors import IngestorFactory
+
+# Create ingestor by type
+ingestor = IngestorFactory.create("repo")
+pages = ingestor.ingest(Source.Repo("https://github.com/user/repo"))
+
+# Or auto-detect from source
+ingestor = IngestorFactory.for_source(Source.Repo("..."))
+```
+
+### Stage 2: Knowledge Merger
+
+The merger analyzes proposed pages against the existing KG and decides how to integrate them:
+
+| Action | Description |
+|--------|-------------|
+| `create_new` | New page for novel knowledge |
+| `update_existing` | Improve existing page with better content |
+| `add_links` | Add new connections between pages |
+| `skip` | Duplicate or low-quality content |
+
+```python
+from src.knowledge.learners import KnowledgeMerger
+
+merger = KnowledgeMerger()
+result = merger.merge(
+    proposed_pages=pages,
+    repo_url="https://github.com/user/repo",
+)
+print(f"Created: {result.created}, Updated: {result.updated}")
+```
+
+## Wiki Page Types (Knowledge Graph Schema)
+
+The knowledge graph uses 5 page types organized as a **Top-Down Directed Acyclic Graph (DAG)**:
+
+| Type | Role | Example |
+|------|------|---------|
+| **Workflow** | The Recipe - ordered sequence of steps | "QLoRA Fine-tuning" |
+| **Principle** | The Theory - library-agnostic concepts | "Low Rank Adaptation" |
+| **Implementation** | The Code - concrete API reference | "TRL_SFTTrainer" |
+| **Environment** | The Context - hardware/dependencies | "CUDA_11_Environment" |
+| **Heuristic** | The Wisdom - tips and optimizations | "Learning_Rate_Tuning" |
+
+### Connection Schema
+
+```mermaid
+flowchart TD
+    W["Workflow"] -->|step| P["Principle"]
+    W -->|uses_heuristic| H["Heuristic"]
+    P -->|implemented_by| I["Implementation"]
+    P -->|uses_heuristic| H
+    I -->|requires_env| E["Environment"]
+    I -->|uses_heuristic| H
+```
+
+| Edge Type | From | To | Meaning |
+|-----------|------|-----|---------|
+| `step` | Workflow | Principle | "This step is defined by this theory" |
+| `implemented_by` | Principle | Implementation | "This theory is realized by this code" |
+| `requires_env` | Implementation | Environment | "This code needs this context" |
+| `uses_heuristic` | Any | Heuristic | "This is optimized by this wisdom" |
+
+## Hybrid Knowledge Search
+
+The search system combines:
+- **Weaviate**: Vector embeddings for semantic search
+- **Neo4j**: Graph structure for connection traversal
+
+### Search Flow
+
+```python
+from src.knowledge.search import KnowledgeSearchFactory, KGSearchFilters
+
+# Create search instance
+search = KnowledgeSearchFactory.create("kg_graph_search")
+
+# Search with filters
+result = search.search(
+    query="How to fine-tune LLM with limited GPU memory?",
+    filters=KGSearchFilters(
+        top_k=5,
+        page_types=["Workflow", "Heuristic"],
+        domains=["LLMs", "PEFT"],
+    )
+)
+
+# Use results
+for item in result:
+    print(f"{item.page_title} ({item.page_type}): {item.score:.2f}")
+    
+# Get formatted context for LLM
+context = result.to_context_string(max_results=3)
+```
+
+### Search Algorithm
+
+1. **Query → Embedding** - Generate embedding with OpenAI
+2. **Vector Search** - Find top-k similar pages in Weaviate
+3. **LLM Reranking** - Reorder results based on query relevance
+4. **Graph Enrichment** - Add connected pages from Neo4j
+5. **Return KGOutput** - Ranked results with scores and connections
 
 ## Context Enrichment
 
@@ -104,25 +184,37 @@ class KGEnrichedContextManager(ContextManager):
         # Get problem description
         problem = self.problem_handler.get_problem_context(budget_progress)
         
-        # Get experiment history
-        history = self.search_strategy.get_experiment_history()
-        
         # Query knowledge search
         if self.knowledge_search.is_enabled():
             result = self.knowledge_search.search(
                 query=problem,
-                context=str(history[-1]) if history else None
+                filters=KGSearchFilters(top_k=5)
             )
-            # Use KGOutput methods to format results
+            # Format results for LLM context
             kg_context = result.to_context_string(max_results=5)
-            code_results = result.get_by_type("code")
+            code_results = result.get_by_type("Implementation")
         
         return ContextData(
             problem=problem,
-            kg_results=kg_context,                    # Formatted knowledge
-            kg_code_results=code_results,             # Code examples
-            additional_info=format(history)
+            kg_results=kg_context,
+            kg_code_results=code_results,
         )
+```
+
+## CLI Usage
+
+```bash
+# Learn from a GitHub repository
+python -m src.knowledge.learners https://github.com/user/repo
+
+# Dry run (analyze without modifying KG)
+python -m src.knowledge.learners https://github.com/user/repo --dry-run
+
+# Extract only (preview pages without merging)
+python -m src.knowledge.learners https://github.com/user/repo --extract-only
+
+# Learn from a paper (when implemented)
+python -m src.knowledge.learners ./paper.pdf --type paper
 ```
 
 ## Configuration
@@ -131,43 +223,24 @@ Enable knowledge search in your mode configuration:
 
 ```yaml
 knowledge_search:
-  type: "kg_llm_navigation"
+  type: "kg_graph_search"
   enabled: true
   params:
-    search_top_k: 1           # Initial nodes to find
-    navigation_steps: 3       # Graph navigation depth
-    expansion_limit: 3        # Nodes per step
-    search_node_type: "specialization"
+    embedding_model: "text-embedding-3-large"
+    weaviate_collection: "WikiPages"
+    include_connected_pages: true
+    use_llm_reranker: true
+    reranker_model: "gpt-4.1-mini"
 ```
 
-## Available Presets
+## Available Search Presets
 
-| Preset | search_top_k | navigation_steps | expansion_limit |
-|--------|--------------|------------------|-----------------|
-| `DEFAULT` | 1 | 3 | 3 |
-| `DEEP_SEARCH` | 3 | 5 | 5 |
-| `SHALLOW` | 1 | 2 | 2 |
-| `MINIMAL` | 1 | 1 | 1 |
-
-## Knowledge Acquisition
-
-Two tools build knowledge offline:
-
-### Knowledge Extractor
-Extracts patterns from successful experiments:
-```python
-# From src/knowledge/acquisition/knowledge_extractor.py
-create_knowledge_tree_from_experiments(experiments_dict)
-```
-
-### Researcher
-Performs web research for domain knowledge:
-```python
-# From src/knowledge/acquisition/researcher.py
-deep_research_for_knowledge(domain, specialization, workflow, notes)
-```
+| Preset | top_k | LLM Reranker | Connected Pages |
+|--------|-------|--------------|-----------------|
+| `DEFAULT` | 10 | Yes | Yes |
+| `FAST` | 5 | No | No |
+| `THOROUGH` | 20 | Yes | Yes |
 
 <Tip>
-The knowledge graph is optional but recommended for MLE-Bench. It significantly improves results on ML problems by providing proven approaches.
+The knowledge graph is optional but highly recommended for complex domains. It significantly improves results by providing proven approaches and avoiding common pitfalls.
 </Tip>
-

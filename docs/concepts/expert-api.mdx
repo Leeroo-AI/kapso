@@ -115,7 +115,10 @@ The running instance of a deployed Solution. Supports full lifecycle management.
 The Expert API is implemented in:
 
 - `src/expert.py`: Main entry point with `Expert`, `Source`, `SolutionResult`
-- `src/knowledge/learners/`: Modular learning system with `LearnerFactory`
+- `src/knowledge/learners/`: Knowledge learning pipeline
+  - `knowledge_learner_pipeline.py`: Main `KnowledgePipeline` orchestrator
+  - `knowledge_merger.py`: Stage 2 merger for integrating pages into KG
+  - `ingestors/`: Stage 1 ingestors (`RepoIngestor`, `PaperIngestor`, etc.)
 - `src/deployment/`: Modular deployment system with `DeploymentFactory`
 
 ## Example: Full Flow
