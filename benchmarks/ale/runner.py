@@ -156,8 +156,8 @@ def main():
     parser.add_argument(
         "-i", "--iterations",
         type=int,
-        default=14,
-        help="Maximum experiment iterations (default: 14)"
+        default=20,
+        help="Maximum experiment iterations (default: 20)"
     )
     parser.add_argument(
         "-m", "--mode",
@@ -218,7 +218,7 @@ def main():
             config_data = yaml.safe_load(f)
         mode_name = args.mode or config_data.get('default_mode', 'ALE_CONFIGS')
         mode_config = config_data.get('modes', {}).get(mode_name, {})
-        use_knowledge_graph = mode_config.get('use_knowledge_graph', True)
+        use_knowledge_graph = mode_config.get('use_knowledge_graph', False)
     except Exception as e:
         print(f"Warning: Could not load config for KG setting: {e}")
         use_knowledge_graph = False

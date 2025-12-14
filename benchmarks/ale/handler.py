@@ -34,7 +34,7 @@ class AleBench(ProblemHandler):
         self.session = ale_bench.start(
             problem_id=problem_id,
             lite_version=False,
-            num_workers=20,
+            num_workers=30,
             run_visualization_server=False,
         )
         self.llm = llm_utils.LLMBackend()
@@ -60,6 +60,10 @@ class AleBench(ProblemHandler):
             buggy_cases = list(filter(lambda x: x.absolute_score == 0 or x.judge_result != "ACCEPTED", run_result.case_results))
             buggy_case = str(buggy_cases[-1])
             error_message = str(buggy_cases[-1].message)
+            if len(buggy_case) > 2000:
+                buggy_case = buggy_case[:1000] + "..." + buggy_case[-1000:]
+            if len(error_message) > 2000:
+                error_message = error_message[:1000] + "..." + error_message[-1000:]
         if len(run_result.case_results) and not run_had_error:        
             detailed_output = str(random.sample(run_result.case_results, 5))
             max_run_time = max(run_result.case_results, key=lambda x: float(x.execution_time)).execution_time
@@ -120,7 +124,7 @@ class AleBench(ProblemHandler):
             # Tips:
                 - Always consider a proportion of time for input and output operations to avoid TIME LIMIT. So always consider io time plus 100 ms plus code runtime time to avoid time limit.
                     -- For example if the time limit is 2 seconds, you must only use 1.9 seconds if it.
-                - Always calculate the time complexity of each step in your solution and idea generation, and the total runtime must be exact and in seconds based on the number of operations.
+                - Always calculate the time complexity of each step in your solution and idea generation, and the total runtime must be exact and in seconds based on the number of operations. For example do not round down 400 operations to O(100) in your calculations.
                 - Althought you must avoid time limit but make sure to use the limited time as much as possible to get the highest score.
                 - If the solution has more than one step, make sure to distribute the time limit among them efficiently.
                 - consider adding compiler optimization pragmas or directives if it helps your code to run faster.
@@ -128,10 +132,12 @@ class AleBench(ProblemHandler):
                 - Beside the main pipeline it is always good to use utilize algorithms that can constantly be improved like SA, Beam and Random Search. 
                     -- Sometimes they might not perform well in a specific type of problem, so they should be combined with another efficient algorithm.
                     -- Sometimes they may face cold start but with constant improving, they mostly perform better in long run.
-                    -- Though 100% determinestic algorithms sometimes perform very well, but if you are using them always make sure to combine them with a randomized algorithm and choose best.
+                - It is ok to put small pieces of codes in the solution generation for the better understanding of coder when helpful or necessary.
+                - Always consider multi strategy solutions.
                 
             # Solution requirements:
             - you can use from simple heuristics to top performing optimization algorithms like Simulated annealing, DP, graph algorithms and etc. Sometimes a simple creative algorithm can be the best solution, so think outside the box.
+                -- if run time allows always add more algorithms and take the one with maximum score. Specially algorithms that can be constantly improved like SA and random searches. Therefore, in solution generation you can try different and novel types of these algorithms.
             - Avoid inefficient algorithms like machine learning based ones as they time consuming and not efficient.
             - Make sure your solutions handle requirements and conditions of the problem inherently and directly.
             - Avoid using fallbacks as much as you can but in special caases use a decent one and not just a naive version for bypassing errors.
@@ -143,6 +149,7 @@ class AleBench(ProblemHandler):
                 -- The first solution must always be using more efficient algorithms and data structures.  
                 -- Find bottlenecks and use caching, memoization, precomputing to reduce runtime .
                 -- Finally if nothing works you may relax the parameters (but not aggressively) of the algorithm to make it fit within the time limit. however, in this case use the highest parameter that fits within time limit to avoid sacrificing performance.
+                -- Sometimes good solutions are implemented in a bad way that results in time limit. make sure to not assume they are bad and prune them just because of one or 2 failed implementations and time limits.
             # Output:
             - Your final output must always be a single file named \"main.cpp\" that implements the solution in cpp23 language.
             - If neccessary, you can implement only one other cpp file named \"pre_run.cpp\" that is used for any precompuations to add to main.cpp.
@@ -150,7 +157,7 @@ class AleBench(ProblemHandler):
                 -- It is critical that the runtime of pre_run.cpp be no more than 1 minute. Note that main.cpp runtime is provided by the problem and this 1 minute has nothing to do with it.
             \n\n
         """
-        
+
     def _prepare_code_from_file(self, file_path):
         with open(file_path, 'r') as file:
             return file.read()
@@ -229,8 +236,7 @@ class AleBench(ProblemHandler):
         return feedbacks
 
     def _get_domain_knowledge(self):
-        """Domain-specific tips for algorithm optimization."""
-        return """
+          return """
             Helpful knowledge if using different approaches:
             - Simulated Annealing:
                 -- Simulated annealing is the best approach for optimization problems with possibility of creating a very good first solution and then increamental or local changes. It almost always outperforms simple beam or greedy search.
@@ -239,13 +245,17 @@ class AleBench(ProblemHandler):
                     1. How to balance between small and large moves in the search space
                     2. How to ensure the neighborhood structure allows reaching any valid solution
                     3. How to design moves that maintain solution feasibility while exploring new regions
+                -- Always think how to push the limit of SA and how to investigate 5x or 10x more valuable states.
                 -- Make sure to avoid recomputations for legality check at each step as much as you can, so you can more investigate more neighbors.
                 -- In highly constrained problems, keeping the last few steps and having a regret mechanism always helps.
+                -- Always consider Adaptive, multi phase, or combining simulating annealings if helpful. 
                 -- As long as time budget allows, you can run multiple simulated annealings with different initial seed or different state and neighborhood design to take out the maximum efficiency from it.
             - Beam / Random Search / MCTS:
                 -- Think about the beam width and evaluation function that could lead to better solutions.
                 -- Always consider how to effectively balance between diversity and quality in beams.
                 -- Fast stop bad solutions and time control so you can try more solutions as long as time budget allows.
+                -- If possible to avoid duplicate states, you can use hashing.
+                -- Always think how to push the limits of search and how to investigate 5x or 10x more valuable states.
             - Random simulation:
                 -- In non deterministic problems, random simulations are one of the best approaches, specially if problem constraints allow for running highly deep simulations.
                 -- Combining creative strategies with random simulation sometimes help for longer horizon and deeper simulations instead of considering a few steps forward.
@@ -262,4 +272,5 @@ class AleBench(ProblemHandler):
                 -- If possible consider hardcoding the answer of some conditions of the proble inputs inside the code.
             - Implementation: 
                 -- For operations that are used mostly always make sure to implement the light version. For example simple fast random function instead of rng for time effiecieny.
+                -- Make sure to avoid memory allocation in loops.
         """

@@ -10,7 +10,7 @@
 
 import os
 import shutil
-from dataclasses import replace
+import copy
 from typing import Dict, Optional
 
 import git
@@ -84,8 +84,9 @@ class ExperimentSession:
         os.makedirs(self.run_dir, exist_ok=True)
         
         # === CREATE CODING AGENT ===
-        # Create a copy of config with workspace set (don't mutate original)
-        session_config = replace(coding_agent_config, workspace=self.session_folder)
+        # Create a deep copy of config with workspace set (don't mutate original)
+        session_config = copy.deepcopy(coding_agent_config)
+        session_config.workspace = self.session_folder
         
         # Create agent via factory
         self.coding_agent = CodingAgentFactory.create(session_config)

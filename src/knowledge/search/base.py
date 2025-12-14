@@ -499,6 +499,7 @@ class KnowledgeSearch(ABC):
     
     def __init__(
         self,
+        enabled: bool = True,
         params: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -507,6 +508,7 @@ class KnowledgeSearch(ABC):
         Args:
             params: Implementation-specific parameters
         """
+        self.enabled = enabled
         self.params = params or {}
     
     @abstractmethod

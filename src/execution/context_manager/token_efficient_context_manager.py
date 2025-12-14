@@ -100,8 +100,9 @@ class TokenEfficientContextManager(ContextManager):
         if len(self.problem_handler.additional_context) > 0:
             kg_results += self.problem_handler.additional_context + "\n\n"
 
-        if self.knowledge_search.is_enabled():
-            last_exp_context = str(recent_experiments[-1]) if recent_experiments else None
+        if self.knowledge_search.enabled and 0:
+            print('Searching knowledge graph for context...')
+            last_exp_context = str(all_experiments[-1]) if all_experiments else None
             knowledge_result = self.knowledge_search.search(
                 query=problem,
                 context=last_exp_context,
@@ -148,6 +149,7 @@ class TokenEfficientContextManager(ContextManager):
                 -- You are not allowed to just appending experiments. make sure to drop redundant and unimportant parts.
                 -- You are not allowed to show detailed outputs just distil the knowledge that can be extracted from the outputs and feedbacks.
                 -- You are not allowed to suggest solutions and generate new ideas. just witnessed patterns, information and conclusions.
+                -- Make sure to mention the categories of working and best performing experiments and a summary of their scores and output info, and whether they have potential to progress toward goal and solving problem.
             - Keep the information about summary highly oraganized. markdown format with the following sections:
                 --  High level workflows of experiments and core ideas: categorize experiments into categories based on the idea, solution and steps.
                     --- find patterns and compress and summarize the output, and performance, score and quality of each category. (preferred one sentence but at most 3 sentences for each category)
