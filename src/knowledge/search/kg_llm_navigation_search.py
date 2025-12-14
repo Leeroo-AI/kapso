@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from neo4j import GraphDatabase
 
 from src.core.llm import LLMBackend
-from src.knowledge.search.base import KnowledgeSearch, KGOutput, KGResultItem, KGSearchFilters, WikiPage
+from src.knowledge.search.base import KGEditInput, KnowledgeSearch, KGOutput, KGResultItem, KGSearchFilters, WikiPage
 from src.knowledge.search.factory import register_knowledge_search
 
 
@@ -434,6 +434,59 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 
         except Exception:
             return None
+    
+    def edit(self, data: KGEditInput) -> bool:
+        """
+        Edit an existing wiki page.
+        
+        Note: KGLLMNavigationSearch uses a different data model (nodes/edges dict)
+        than the wiki-based KGGraphSearch. This implementation only updates
+        the Neo4j node properties.
+        
+        Args:
+            data: KGEditInput with page_id and fields to update
+            
+        Returns:
+            True if successful, False if page not found
+        """
+        if not self._driver:
+            return False
+        
+        updates = data.get_updates()
+        if not updates:
+            return True
+        
+        try:
+            with self._driver.session() as session:
+                # Map field names to Neo4j node properties
+                neo4j_updates = {}
+                field_mapping = {
+                    "page_title": "name",
+                    "page_type": "type",
+                    "overview": "overview",
+                    "content": "content",
+                    "domains": "domains",
+                }
+                
+                for our_field, neo4j_field in field_mapping.items():
+                    if our_field in updates:
+                        neo4j_updates[neo4j_field] = updates[our_field]
+                
+                if neo4j_updates:
+                    # Update by page_id (which maps to node id or name)
+                    result = session.run(
+                        "MATCH (n:Node) WHERE n.id = $id OR n.name = $id "
+                        "SET n += $updates RETURN n",
+                        id=data.page_id,
+                        updates=neo4j_updates,
+                    )
+                    return result.single() is not None
+                
+                return True
+                
+        except Exception as e:
+            print(f"Error in edit: {e}")
+            return False
     
     def close(self) -> None:
         """Close the Neo4j driver connection."""

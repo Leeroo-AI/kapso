@@ -50,6 +50,7 @@ except ImportError:
     HAS_OPENAI = False
 
 from src.knowledge.search.base import (
+    KGEditInput,
     KGIndexInput,
     KGOutput,
     KGResultItem,
@@ -78,6 +79,16 @@ _TYPE_SUBDIRS = {
     "implementations": PageType.IMPLEMENTATION.value,
     "environments": PageType.ENVIRONMENT.value,
     "heuristics": PageType.HEURISTIC.value,
+}
+
+# Reverse mapping: PageType value -> subdirectory name
+# Used when writing back to source files
+_TYPE_TO_SUBDIR = {
+    PageType.WORKFLOW.value: "workflows",
+    PageType.PRINCIPLE.value: "principles",
+    PageType.IMPLEMENTATION.value: "implementations",
+    PageType.ENVIRONMENT.value: "environments",
+    PageType.HEURISTIC.value: "heuristics",
 }
 
 
@@ -1306,6 +1317,473 @@ Only include pages that would actually help answer the query.
         except Exception as e:
             logger.warning(f"Failed to get page '{page_title}': {e}")
             return None
+    
+    # =========================================================================
+    # Edit Methods
+    # =========================================================================
+    
+    def edit(self, data: KGEditInput) -> bool:
+        """
+        Edit an existing wiki page and update ALL storage layers.
+        
+        Updates (in order):
+        1. Raw source file (.md or .mediawiki)
+        2. Persist JSON cache
+        3. Weaviate (embeddings + properties)
+        4. Neo4j (node properties + edges)
+        5. Internal memory cache
+        
+        Args:
+            data: KGEditInput with page_id and fields to update
+            
+        Returns:
+            True if successful, False if page not found
+        """
+        from datetime import datetime, timezone
+        
+        updates = data.get_updates()
+        
+        # Add timestamp if auto_timestamp enabled
+        if data.auto_timestamp:
+            updates["last_updated"] = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%d %H:%M GMT"
+            )
+        
+        # Track results for each layer
+        results = {
+            "source_file": None,
+            "persist_cache": None,
+            "weaviate": None,
+            "neo4j": None,
+        }
+        
+        # =====================================================================
+        # 1. Update Raw Source File
+        # =====================================================================
+        if data.update_source_files and data.wiki_dir:
+            try:
+                results["source_file"] = self._update_source_file(
+                    data.page_id, 
+                    updates, 
+                    data.wiki_dir,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update source file for {data.page_id}: {e}")
+                results["source_file"] = False
+        
+        # =====================================================================
+        # 2. Update Persist JSON Cache
+        # =====================================================================
+        if data.update_persist_cache and data.persist_path:
+            try:
+                results["persist_cache"] = self._update_persist_cache(
+                    data.page_id,
+                    updates,
+                    data.persist_path,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update persist cache for {data.page_id}: {e}")
+                results["persist_cache"] = False
+        
+        # =====================================================================
+        # 3. Update Weaviate
+        # =====================================================================
+        if self._weaviate_client:
+            try:
+                results["weaviate"] = self._update_weaviate_page(
+                    data.page_id, 
+                    updates,
+                    reembed=data.requires_reembedding,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update Weaviate for {data.page_id}: {e}")
+                results["weaviate"] = False
+        
+        # =====================================================================
+        # 4. Update Neo4j
+        # =====================================================================
+        if self._neo4j_driver:
+            try:
+                results["neo4j"] = self._update_neo4j_page(
+                    data.page_id,
+                    updates,
+                    rebuild_edges=data.requires_edge_rebuild,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update Neo4j for {data.page_id}: {e}")
+                results["neo4j"] = False
+        
+        # =====================================================================
+        # 5. Update Internal Cache
+        # =====================================================================
+        self._update_cached_page(data.page_id, updates)
+        
+        # Determine overall success (at least one layer updated)
+        success = any(v is True for v in results.values())
+        
+        if success:
+            updated_layers = [k for k, v in results.items() if v is True]
+            logger.info(f"Edited page {data.page_id}: {list(updates.keys())} -> {updated_layers}")
+        else:
+            logger.warning(f"Edit failed for {data.page_id}: {results}")
+        
+        return success
+    
+    # =========================================================================
+    # Source File Update Methods
+    # =========================================================================
+    
+    def _update_source_file(
+        self,
+        page_id: str,
+        updates: Dict[str, Any],
+        wiki_dir: Path,
+    ) -> bool:
+        """
+        Update the raw source file (.md or .mediawiki).
+        
+        Handles two structures:
+        1. Type subdirectories: wiki_dir/{type_subdir}/{filename}.md
+        2. Flat structure: wiki_dir/{Type_Filename}.mediawiki
+        """
+        # Determine file path from page_id
+        file_path = self._resolve_source_file_path(page_id, wiki_dir)
+        
+        if not file_path or not file_path.exists():
+            logger.warning(f"Source file not found for {page_id}")
+            return False
+        
+        # If full content is provided, just replace the file
+        if "content" in updates:
+            new_content = self._inject_metadata_into_content(
+                updates["content"],
+                updates,
+            )
+            file_path.write_text(new_content, encoding="utf-8")
+            logger.info(f"Replaced source file: {file_path}")
+            return True
+        
+        # Otherwise, patch specific parts of the existing file
+        current_content = file_path.read_text(encoding="utf-8")
+        new_content = self._patch_file_content(current_content, updates)
+        file_path.write_text(new_content, encoding="utf-8")
+        logger.info(f"Patched source file: {file_path}")
+        return True
+    
+    def _resolve_source_file_path(
+        self,
+        page_id: str,
+        wiki_dir: Path,
+    ) -> Optional[Path]:
+        """
+        Resolve the source file path from page_id.
+        
+        Page ID format: "{PageType}/{filename}" or "{repo_id}/{name}"
+        
+        Returns:
+            Path to source file, or None if not found
+        """
+        # Check if wiki_dir uses type subdirectories
+        has_type_subdirs = any((wiki_dir / subdir).exists() for subdir in _TYPE_SUBDIRS)
+        
+        if has_type_subdirs:
+            # Type subdirectory structure: page_id = "Workflow/QLoRA_Finetuning"
+            parts = page_id.split("/", 1)
+            if len(parts) != 2:
+                return None
+            
+            page_type, filename = parts
+            subdir = _TYPE_TO_SUBDIR.get(page_type)
+            if not subdir:
+                return None
+            
+            file_path = wiki_dir / subdir / f"{filename}.md"
+            return file_path if file_path.exists() else None
+        
+        else:
+            # Flat structure: page_id = "repo_id/Name" -> "Type_Name.mediawiki"
+            # Need to find by matching parsed id
+            parts = page_id.split("/", 1)
+            if len(parts) != 2:
+                return None
+            
+            repo_id, name = parts
+            
+            # Search for file that would produce this id
+            for wiki_file in wiki_dir.glob("*.mediawiki"):
+                file_parts = wiki_file.stem.split("_", 1)
+                if len(file_parts) > 1 and file_parts[1] == name:
+                    return wiki_file
+            
+            return None
+    
+    def _patch_file_content(
+        self,
+        current_content: str,
+        updates: Dict[str, Any],
+    ) -> str:
+        """
+        Patch specific parts of wiki file content.
+        
+        Handles metadata table updates (domains, sources, last_updated)
+        and overview section updates.
+        """
+        new_content = current_content
+        
+        # Update domains: [[domain::X]], [[domain::Y]] format
+        if "domains" in updates:
+            new_domains = updates["domains"]
+            domain_line = ", ".join(f"[[domain::{d.replace(' ', '_')}]]" for d in new_domains)
+            
+            # Pattern to find the domains row in wikitable
+            pattern = r'(\|\| \[\[domain::.*?\]\](?:, \[\[domain::.*?\]\])*)'
+            replacement = f'|| {domain_line}'
+            new_content = re.sub(pattern, replacement, new_content)
+        
+        # Update last_updated: [[last_updated::YYYY-MM-DD HH:MM GMT]]
+        if "last_updated" in updates:
+            new_timestamp = updates["last_updated"]
+            pattern = r'\[\[last_updated::[^\]]+\]\]'
+            replacement = f'[[last_updated::{new_timestamp}]]'
+            new_content = re.sub(pattern, replacement, new_content)
+        
+        # Update sources: [[source::Type|Title|URL]]
+        if "sources" in updates:
+            new_sources = updates["sources"]
+            source_lines = []
+            for src in new_sources:
+                src_type = src.get("type", "Doc")
+                src_title = src.get("title", "")
+                src_url = src.get("url", "")
+                source_lines.append(f"* [[source::{src_type}|{src_title}|{src_url}]]")
+            
+            # Replace entire Knowledge Sources section content
+            sources_text = "\n".join(source_lines)
+            pattern = r'(\! Knowledge Sources\n\|\|\n)(\* \[\[source::.*?\]\]\n?)+'
+            replacement = f'\\1{sources_text}\n'
+            new_content = re.sub(pattern, replacement, new_content, flags=re.DOTALL)
+        
+        # Update overview section
+        if "overview" in updates:
+            new_overview = updates["overview"]
+            # Replace content between "== Overview ==" and next "==" or "==="
+            pattern = r'(== Overview ==\n)(.+?)(\n===|\n==|\n\{\{|\Z)'
+            replacement = f'\\1{new_overview}\n\\3'
+            new_content = re.sub(pattern, replacement, new_content, flags=re.DOTALL)
+        
+        return new_content
+    
+    def _inject_metadata_into_content(
+        self,
+        content: str,
+        updates: Dict[str, Any],
+    ) -> str:
+        """
+        Ensure metadata tags in content match updates.
+        
+        When full content is replaced, this ensures the metadata tags
+        (domains, last_updated, etc.) reflect the update values.
+        """
+        new_content = content
+        
+        # If updates include these fields, patch them into the new content
+        if "domains" in updates:
+            new_content = self._patch_file_content(new_content, {"domains": updates["domains"]})
+        
+        if "last_updated" in updates:
+            new_content = self._patch_file_content(new_content, {"last_updated": updates["last_updated"]})
+        
+        if "sources" in updates:
+            new_content = self._patch_file_content(new_content, {"sources": updates["sources"]})
+        
+        return new_content
+    
+    # =========================================================================
+    # Persist Cache Update Methods
+    # =========================================================================
+    
+    def _update_persist_cache(
+        self,
+        page_id: str,
+        updates: Dict[str, Any],
+        persist_path: Path,
+    ) -> bool:
+        """
+        Update the persisted JSON cache file.
+        """
+        if not persist_path.exists():
+            logger.warning(f"Persist cache not found: {persist_path}")
+            return False
+        
+        # Load existing cache
+        with open(persist_path, 'r') as f:
+            data = json.load(f)
+        
+        # Find and update the page
+        pages = data.get("pages", [])
+        found = False
+        for page_dict in pages:
+            if page_dict.get("id") == page_id:
+                for field, value in updates.items():
+                    if field in page_dict:
+                        page_dict[field] = value
+                found = True
+                break
+        
+        if not found:
+            logger.warning(f"Page {page_id} not found in persist cache")
+            return False
+        
+        # Write back
+        with open(persist_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        logger.info(f"Updated persist cache: {persist_path}")
+        return True
+    
+    # =========================================================================
+    # Weaviate Update Methods
+    # =========================================================================
+    
+    def _update_weaviate_page(
+        self, 
+        page_id: str, 
+        updates: Dict[str, Any],
+        reembed: bool = False,
+    ) -> bool:
+        """Update a page in Weaviate."""
+        if not HAS_WEAVIATE or not self._weaviate_client:
+            return False
+        
+        collection = self._weaviate_client.collections.get(self.weaviate_collection)
+        
+        # Find the object by page_id
+        response = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("page_id").equal(page_id),
+            limit=1,
+        )
+        
+        if not response.objects:
+            return False
+        
+        obj = response.objects[0]
+        obj_uuid = obj.uuid
+        
+        # Prepare property updates (map our field names to Weaviate properties)
+        weaviate_updates = {}
+        field_mapping = {
+            "page_title": "page_title",
+            "page_type": "page_type", 
+            "overview": "overview",
+            "content": "content",
+            "domains": "domains",
+        }
+        
+        for our_field, weaviate_field in field_mapping.items():
+            if our_field in updates:
+                weaviate_updates[weaviate_field] = updates[our_field]
+        
+        # Generate new embedding if overview changed
+        new_vector = None
+        if reembed and "overview" in updates:
+            new_vector = self._generate_embedding(updates["overview"])
+        
+        # Update the object
+        if new_vector:
+            collection.data.update(
+                uuid=obj_uuid,
+                properties=weaviate_updates,
+                vector=new_vector,
+            )
+        elif weaviate_updates:
+            collection.data.update(
+                uuid=obj_uuid,
+                properties=weaviate_updates,
+            )
+        
+        return True
+    
+    # =========================================================================
+    # Neo4j Update Methods
+    # =========================================================================
+    
+    def _update_neo4j_page(
+        self,
+        page_id: str,
+        updates: Dict[str, Any],
+        rebuild_edges: bool = False,
+    ) -> bool:
+        """Update a page in Neo4j."""
+        if not HAS_NEO4J or not self._neo4j_driver:
+            return False
+        
+        with self._neo4j_driver.session() as session:
+            # Check if page exists
+            check_result = session.run(
+                "MATCH (p:WikiPage {id: $id}) RETURN p",
+                id=page_id,
+            )
+            if not check_result.single():
+                return False
+            
+            # Update node properties
+            neo4j_updates = {}
+            for field in ["page_title", "page_type", "domains"]:
+                if field in updates:
+                    neo4j_updates[field] = updates[field]
+            
+            if neo4j_updates:
+                session.run(
+                    "MATCH (p:WikiPage {id: $id}) SET p += $updates",
+                    id=page_id,
+                    updates=neo4j_updates,
+                )
+            
+            # Rebuild edges if outgoing_links changed
+            if rebuild_edges and "outgoing_links" in updates:
+                # Delete existing outgoing edges
+                session.run(
+                    "MATCH (p:WikiPage {id: $id})-[r]->() DELETE r",
+                    id=page_id,
+                )
+                
+                # Create new edges
+                for link in updates["outgoing_links"]:
+                    edge_type = link.get("edge_type", "RELATED").upper()
+                    target_type = link.get("target_type", "")
+                    target_id = link.get("target_id", "")
+                    target_page_id = f"{target_type}/{target_id}"
+                    
+                    neo4j_rel_type = self._map_edge_type(edge_type)
+                    
+                    query = f"""
+                        MERGE (target:WikiPage {{id: $target_id}})
+                        ON CREATE SET target.page_type = $target_type
+                        WITH target
+                        MATCH (source:WikiPage {{id: $source_id}})
+                        MERGE (source)-[r:{neo4j_rel_type}]->(target)
+                    """
+                    session.run(
+                        query,
+                        source_id=page_id,
+                        target_id=target_page_id,
+                        target_type=target_type,
+                    )
+            
+            return True
+    
+    # =========================================================================
+    # Internal Cache Update Methods
+    # =========================================================================
+    
+    def _update_cached_page(self, page_id: str, updates: Dict[str, Any]) -> None:
+        """Update page in internal memory cache."""
+        for page in self._pages:
+            if page.id == page_id:
+                for field, value in updates.items():
+                    if hasattr(page, field):
+                        setattr(page, field, value)
+                break
     
     # =========================================================================
     # Cleanup
