@@ -108,18 +108,12 @@ def solve_problem(
     
     # Run the solve loop
     orchestrator.solve(experiment_max_iter=max_iterations)
-    
-    # Get results
-    print("\n" + "="*60)
-    print("Experiment History:")
-    print("="*60)
-    print(orchestrator.search_strategy.get_experiment_history())
-    
+
     # Checkout best solution and evaluate
     orchestrator.search_strategy.checkout_to_best_experiment_branch()
     cost = orchestrator.get_cumulative_cost()
     
-    workspace = orchestrator.search_strategy.workspace.workspace_folder
+    workspace = orchestrator.search_strategy.workspace.workspace_dir
     
     print(f"\nBest solution at: {workspace}")
     print(f"Total cost: ${cost:.3f}")
@@ -156,8 +150,8 @@ def main():
     parser.add_argument(
         "-i", "--iterations",
         type=int,
-        default=20,
-        help="Maximum experiment iterations (default: 20)"
+        default=25,
+        help="Maximum experiment iterations (default: 25)"
     )
     parser.add_argument(
         "-m", "--mode",
@@ -241,4 +235,8 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
+    # problem_handler = AleBench("ahc016")
+    # result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/4d1e7472-d8e0-4c4a-a98f-50647caf834f")
+    # print(result)

@@ -97,8 +97,8 @@ class LlmSteeredTreeSearch(SearchStrategy):
             self.experiment_history: List[ExperimentResult] = []
             self.nodes: List[Node] = []
             # Initialize root nodes
-            for i in range(self.node_expansion_limit):
-                self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch()))
+            for i in range(self.node_expansion_limit * self.first_experiment_factor):
+                self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch(), solution="Root node to be expanded for new and diverse ideas."))
         
         # Thread locks
         self.experiment_history_lock = threading.Lock()

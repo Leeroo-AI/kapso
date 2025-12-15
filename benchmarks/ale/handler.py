@@ -34,7 +34,7 @@ class AleBench(ProblemHandler):
         self.session = ale_bench.start(
             problem_id=problem_id,
             lite_version=False,
-            num_workers=30,
+            num_workers=20,
             run_visualization_server=False,
         )
         self.llm = llm_utils.LLMBackend()
