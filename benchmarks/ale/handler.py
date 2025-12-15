@@ -1,7 +1,8 @@
 import os
-from pdb import run
 import random
 import re
+import time
+from pdb import run
 
 import ale_bench
 
@@ -26,6 +27,7 @@ LITE_PROBLEMS_INFO = {
 }
 
 RUN_COUNTS = 4
+MAXIMUM_CONCURENT_RUNS = 7
 
 class AleBench(ProblemHandler):
     def __init__(self, problem_id = "ahc008"):
@@ -34,9 +36,10 @@ class AleBench(ProblemHandler):
         self.session = ale_bench.start(
             problem_id=problem_id,
             lite_version=False,
-            num_workers=20,
+            num_workers=25,
             run_visualization_server=False,
         )
+        self.currently_running = 0
         self.llm = llm_utils.LLMBackend()
         self.problem_id = problem_id
         self.maximize_scoring = LITE_PROBLEMS_INFO[problem_id]['maximize_scoring']
@@ -44,6 +47,9 @@ class AleBench(ProblemHandler):
         
 
     def run(self, file_path, run_data_dir, solution="", code_language="cpp23", debug=False, feedback=False):
+        while self.currently_running >= MAXIMUM_CONCURENT_RUNS:
+            time.sleep(1)
+        self.currently_running += 1
         code = self._prepare_code_from_file(file_path + "/main.cpp")
         run_result = self.session.public_eval(code, code_language=code_language)
         run_had_error = (
@@ -73,6 +79,7 @@ class AleBench(ProblemHandler):
                 score += self.session.public_eval(code, code_language=code_language).overall_absolute_score / RUN_COUNTS
             if feedback:
                 feedbacks = self.get_feedback_on_tests(solution, code, random.sample(run_result.case_results, 5))
+        self.currently_running -= 1
         return ProblemRunResult(
             detailed_output=detailed_output,
             score=score,

@@ -146,7 +146,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         
         # Select and run experiments
         experiments_count = self.experimentation_per_run
-        if budget_progress == 0:
+        if len(self.experiment_history) == 0:
             experiments_count *= self.first_experiment_factor
         
         best_nodes = self.select(
@@ -233,7 +233,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
     def _expand_node(self, context: ContextData, node: Node, budget_progress: float) -> None:
         """Generate new child solutions for a node."""
         expansion_count = self.node_expansion_new_childs_count
-        if budget_progress == 0:
+        if len(self.experiment_history) == 0:
             expansion_count *= self.first_experiment_factor
         
         new_solutions = self.solution_generation(
