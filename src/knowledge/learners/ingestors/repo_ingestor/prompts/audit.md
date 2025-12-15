@@ -27,11 +27,23 @@ Read the Repository Map at `{repo_map_path}` to:
 - Identify gaps in coverage
 
 **Also read the Page Indexes** for cross-reference validation:
-- `{wiki_dir}/_WorkflowIndex.md` - Workflow pages with step connections
-- `{wiki_dir}/_PrincipleIndex.md` - Principle pages with implementations
-- `{wiki_dir}/_ImplementationIndex.md` - Implementation pages with source locations
-- `{wiki_dir}/_EnvironmentIndex.md` - Environment requirement pages
-- `{wiki_dir}/_HeuristicIndex.md` - Heuristic/tips pages
+- `{wiki_dir}/_WorkflowIndex.md` - Workflow pages
+- `{wiki_dir}/_PrincipleIndex.md` - Principle pages
+- `{wiki_dir}/_ImplementationIndex.md` - Implementation pages
+- `{wiki_dir}/_EnvironmentIndex.md` - Environment pages
+- `{wiki_dir}/_HeuristicIndex.md` - Heuristic pages
+
+**Index Structure (all use same format):**
+```
+| Page | File | Connections | Notes |
+|------|------|-------------|-------|
+| {repo_name}_PageName | [→](./type/{repo_name}_PageName.md) | ✅Impl:{repo_name}_X, ⬜Principle:{repo_name}_Y | description |
+```
+
+**Key checks:**
+- Every page file should have a row in its index
+- Connections use **FULL names**: `✅Type:{repo_name}_Name` (exists) or `⬜Type:{repo_name}_Name` (missing)
+- `⬜` references indicate pages that need creation
 
 ## Wiki Pages to Validate
 
@@ -88,21 +100,36 @@ Every Workflow should have at least 2-3 `[[step::Principle:X]]` links.
 
 ### Rule 5: Index Cross-References Are Valid
 
-For each index file, verify that cross-references point to real pages:
+For each index file, verify that **Connections column** entries point to real pages:
 
-- **WorkflowIndex**: Steps (Principles) column → Principles must exist
-- **PrincipleIndex**: Implemented By column → Implementations must exist
-- **PrincipleIndex**: In Workflows column → Workflows must exist
-- **ImplementationIndex**: Implements (Principle) column → Principles must exist
-- **EnvironmentIndex**: Required By column → Implementations must exist
-- **HeuristicIndex**: Applies To column → Referenced pages must exist
+- `✅Impl:{repo_name}_X` → `implementations/{repo_name}_X.md` must exist
+- `✅Principle:{repo_name}_X` → `principles/{repo_name}_X.md` must exist
+- `✅Env:{repo_name}_X` → `environments/{repo_name}_X.md` must exist
+- `✅Heuristic:{repo_name}_X` → `heuristics/{repo_name}_X.md` must exist
+- `✅Workflow:{repo_name}_X` → `workflows/{repo_name}_X.md` must exist
+
+If a `✅` reference points to a non-existent page, either:
+- Create the page, OR
+- Change to `⬜` (if page genuinely doesn't exist)
 
 ### Rule 6: Indexes Match Directory Contents
 
-- Every `.md` file in `workflows/` should have a row in `_WorkflowIndex.md`
-- Every `.md` file in `principles/` should have a row in `_PrincipleIndex.md`
-- Every `.md` file in `implementations/` should have a row in `_ImplementationIndex.md`
-- Every `.md` file in `environments/` should have a row in `_EnvironmentIndex.md`
+**Every page file MUST have a row in its index:**
+- Every `.md` in `workflows/` → row with `[→]` link in `_WorkflowIndex.md`
+- Every `.md` in `principles/` → row with `[→]` link in `_PrincipleIndex.md`
+- Every `.md` in `implementations/` → row with `[→]` link in `_ImplementationIndex.md`
+- Every `.md` in `environments/` → row with `[→]` link in `_EnvironmentIndex.md`
+- Every `.md` in `heuristics/` → row with `[→]` link in `_HeuristicIndex.md`
+
+**Missing index entries are a CRITICAL error.** Add them.
+
+### Rule 7: ⬜ References Need Resolution
+
+Connections with `⬜` prefix indicate referenced-but-not-created pages.
+- Either create the missing page and change `⬜Type:{repo_name}_Name` to `✅Type:{repo_name}_Name`
+- Or remove the reference if it's no longer needed
+
+Scan all index files for `⬜` and resolve them.
 - Every `.md` file in `heuristics/` should have a row in `_HeuristicIndex.md`
 
 ## Your Task

@@ -140,7 +140,6 @@ Check your progress:
    - Mark ALL explored files with ✅
    - Fill Purpose column with brief descriptions
    - Update `| Explored | X/Y |` to reflect actual progress
-   - Add Agent Notes (ONLY after 100% complete)
 
 ## ⚠️ File Editing Tip
 

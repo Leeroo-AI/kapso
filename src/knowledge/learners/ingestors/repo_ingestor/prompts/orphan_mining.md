@@ -35,6 +35,21 @@ The **Coverage column** tells you EXACTLY which files are already documented:
 
 **Focus on files where Coverage is `—` or incomplete.**
 
+## CRITICAL: Check Page Indexes for Missing Pages
+
+**Also scan ALL index files for `⬜` references:**
+- `{wiki_dir}/_WorkflowIndex.md`
+- `{wiki_dir}/_ImplementationIndex.md`
+- `{wiki_dir}/_PrincipleIndex.md`
+- `{wiki_dir}/_EnvironmentIndex.md`
+- `{wiki_dir}/_HeuristicIndex.md`
+
+**How to read the Connections column:**
+- `✅Type:{repo_name}_Name` = Page EXISTS (already created)
+- `⬜Type:{repo_name}_Name` = Page MISSING (orphan candidate!)
+
+**Your job:** Create pages for `⬜` references that map to real code.
+
 ## Repo Scoping Rule (CRITICAL)
 
 Only consider pages whose filenames start with `{repo_name}_` as "Already Mapped".
@@ -139,22 +154,51 @@ For orphan code, capture constraints:
 5. **Create** Environment pages if new requirements found
 6. **Link** `[[requires_env::Environment:X]]`
 
-### Step 7: Update Page Indexes
+### Step 7: Update Page Indexes (IMMEDIATELY)
 
-After creating orphan pages, update the relevant index files:
+**⚠️ CRITICAL:** Update indexes **IMMEDIATELY after creating each orphan page**.
+
+Use **FULL page names** in Connections column: `✅Type:{repo_name}_Name` (exists) or `⬜Type:{repo_name}_Name` (not created).
 
 **For new Implementations** → Add to `{wiki_dir}/_ImplementationIndex.md`:
 ```
-| {repo_name}_OrphanClass | [→](./implementations/...) | `file.py:L10-50` | — | Brief description |
+| {repo_name}_OrphanClass | [→](./implementations/...) | ⬜Principle:{repo_name}_X, ⬜Env:{repo_name}_Y | file.py:L10-50 - Description |
 ```
 
 **For new Principles** → Add to `{wiki_dir}/_PrincipleIndex.md`:
 ```
-| {repo_name}_OrphanPrinciple | [→](./principles/...) | OrphanClass | — | Brief description |
+| {repo_name}_OrphanPrinciple | [→](./principles/...) | ✅Impl:{repo_name}_OrphanClass | Theoretical concept |
 ```
 
-**For new Environments** → Add to `{wiki_dir}/_EnvironmentIndex.md`
-**For new Heuristics** → Add to `{wiki_dir}/_HeuristicIndex.md`
+**For new Environments** → Add to `{wiki_dir}/_EnvironmentIndex.md`:
+```
+| {repo_name}_NewEnv | [→](./environments/...) | ✅Impl:{repo_name}_OrphanClass | Requirements |
+```
+
+**For new Heuristics** → Add to `{wiki_dir}/_HeuristicIndex.md`:
+```
+| {repo_name}_NewHeuristic | [→](./heuristics/...) | ✅Impl:{repo_name}_OrphanClass | Tips |
+```
+
+Each connection shows whether that referenced page exists (✅) or needs creation (⬜).
+
+### Step 8: Update Other Indexes (Bi-directional)
+
+When you create orphan pages, also update references in OTHER indexes:
+
+1. **Search ALL index files** for `⬜Type:{repo_name}_YourPageName`
+2. **Change to `✅Type:{repo_name}_YourPageName`** wherever you find it
+
+**Example:** If you create `{repo_name}_OrphanKernel` Implementation:
+```markdown
+# Search _WorkflowIndex.md, _PrincipleIndex.md for:
+⬜Impl:{repo_name}_OrphanKernel
+
+# Change to:
+✅Impl:{repo_name}_OrphanKernel
+```
+
+This ensures cross-references stay accurate across all indexes.
 
 ## Wiki Structure Definitions
 

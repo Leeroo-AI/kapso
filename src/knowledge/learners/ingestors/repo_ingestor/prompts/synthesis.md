@@ -25,9 +25,20 @@ This report tells you which implementations exist and what patterns were observe
 The index contains:
 - **Purpose column:** Brief descriptions that hint at underlying concepts
 - **Coverage column:** Which files already have Implementation pages
-- **Agent Notes:** Architecture notes that reveal design patterns
 
 For detailed understanding, read file detail pages in `_files/`.
+
+## IMPORTANT: Check the Page Indexes
+
+**Also read:**
+- `{wiki_dir}/_WorkflowIndex.md` — See `⬜Principle:X` references (Principles needed)
+- `{wiki_dir}/_ImplementationIndex.md` — See what Implementations exist
+
+**How to read the Connections column:**
+- `✅Principle:{repo_name}_LoRA` = Principle page EXISTS (don't create duplicate)
+- `⬜Principle:{repo_name}_Quantization` = Principle page MISSING (you should create it)
+
+**Your job:** Create pages for all `⬜Principle:{repo_name}_X` references you see.
 
 ## Wiki Structure Definition
 
@@ -91,26 +102,53 @@ For files whose concepts are now documented as Principles, update Coverage:
 | ✅ | `unsloth/kernels/rope.py` | 200 | RoPE embeddings | Impl: rope_embedding; Principle: Rotary_Position | [→](...) |
 ```
 
-### Step 6: Update the Principle Index
+### Step 6: Update the Principle Index (IMMEDIATELY)
 
-**IMPORTANT:** After creating Principle pages, add entries to `{wiki_dir}/_PrincipleIndex.md`:
+**⚠️ CRITICAL:** Update `{wiki_dir}/_PrincipleIndex.md` **IMMEDIATELY after creating each Principle page**.
 
 | Column | Content |
 |--------|---------|
 | Page | Principle page name (without .md) |
-| File | Link to the principle file: `[→](./principles/{repo_name}_X.md)` |
-| Implemented By | Implementation page(s) that implement this: `FastLanguageModel, get_peft_model` |
-| In Workflows | Workflow(s) using this as a step: `QLoRA_Finetuning → step 2` |
+| File | Link: `[→](./principles/{repo_name}_X.md)` |
+| Connections | All links with **per-reference status** (see format below) |
 | Notes | Brief description of the theoretical concept |
+
+**Connections Format (use FULL page names with `{repo_name}_` prefix):**
+- `✅Impl:{repo_name}_FastLanguageModel` = Implementation exists
+- `⬜Impl:{repo_name}_get_peft_model` = Implementation not created yet
+- `✅Workflow:{repo_name}_QLoRA_Finetuning` = Workflow exists
 
 **Example row:**
 ```
-| {repo_name}_LoRA_Injection | [→](./principles/...) | get_peft_model | QLoRA_Finetuning | Low-rank adapter injection |
+| {repo_name}_LoRA | [→](./principles/...) | ✅Impl:{repo_name}_FastLanguageModel, ⬜Impl:{repo_name}_get_peft_model, ✅Workflow:{repo_name}_QLoRA_Finetuning | Low-rank adaptation |
 ```
 
-### Step 7: Update the Implementation Index
+This shows which referenced pages exist (✅) and which need creation (⬜).
 
-Also update `{wiki_dir}/_ImplementationIndex.md` to fill in the **Implements (Principle)** column for each Implementation that now has a linked Principle.
+### Step 7: Update Other Indexes (Bi-directional)
+
+When you create a Principle (e.g., `{repo_name}_LoRA`):
+
+1. **Search for references:** Look in ALL index files for `⬜Principle:{repo_name}_LoRA`
+2. **Update to ✅:** Change `⬜Principle:{repo_name}_LoRA` to `✅Principle:{repo_name}_LoRA`
+
+**Where to search:**
+- `_WorkflowIndex.md` — Workflows may reference Principles as steps
+- `_ImplementationIndex.md` — Implementations may reference Principles they implement
+
+**Example:**
+```markdown
+# BEFORE (in _ImplementationIndex.md):
+| {repo_name}_FastLanguageModel | [→](...) | ⬜Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA | ... |
+
+# AFTER (you created LoRA Principle):
+| {repo_name}_FastLanguageModel | [→](...) | ✅Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA | ... |
+```
+
+**How to find references:**
+- Read each index file
+- Search for `⬜Principle:{repo_name}_YourPageName`
+- Update all occurrences to `✅Principle:{repo_name}_YourPageName`
 
 ## Output Instructions
 

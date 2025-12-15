@@ -31,6 +31,18 @@ Read the Repository Map at `{repo_map_path}` to:
 - `{wiki_dir}/_PrincipleIndex.md` - Verify orphan Principles are listed
 - `{wiki_dir}/_ImplementationIndex.md` - Verify orphan Implementations are listed
 
+**Index Structure (all use same format):**
+```
+| Page | File | Connections | Notes |
+|------|------|-------------|-------|
+| {repo_name}_PageName | [→](./type/...) | ✅Impl:{repo_name}_X, ⬜Principle:{repo_name}_Y | description |
+```
+
+**Key checks:**
+- All orphan pages from Phase 6 should have rows with `[→]` links
+- Connections use **FULL names**: `✅Type:{repo_name}_Name` (exists) or `⬜Type:{repo_name}_Name` (missing)
+- `⬜` references indicate pages still needing creation
+
 ## Your Task: Validate Orphan Nodes
 
 Perform these three checks on ALL Implementation and Principle pages, especially those created in the Orphan Mining phase.
@@ -118,13 +130,19 @@ Review all Principle names, especially newly created ones.
 
 ### Check 5: Verify Page Index Completeness
 
-**Goal:** Ensure all orphan pages are listed in their respective indexes.
+**Goal:** Ensure all pages are listed in their indexes with correct connection statuses.
 
 **Action:**
-1. Check `_ImplementationIndex.md` includes all orphan Implementation pages
-2. Check `_PrincipleIndex.md` includes all orphan Principle pages
-3. Check cross-references are valid (Implements column points to real Implementations)
-4. Add any missing index entries
+1. For each `.md` file in `implementations/`:
+   - Must have a row in `_ImplementationIndex.md` with `[→]` link
+   - Connections should match page's Related Pages section
+   - Each connection should have correct status: `✅` if page exists, `⬜` if not
+2. For each `.md` file in `principles/`:
+   - Must have a row in `_PrincipleIndex.md` with `[→]` link
+3. For each `⬜Type:{repo_name}_Name` reference in any index:
+   - Either create the missing page and change to `✅Type:{repo_name}_Name`
+   - Or remove the reference if no longer needed
+4. Verify all `✅Type:{repo_name}_Name` references point to real pages
 
 ---
 

@@ -30,6 +30,16 @@ The index contains:
 
 For detailed info on any file, read its detail page in `_files/`.
 
+## IMPORTANT: Check the Page Indexes
+
+**Also read** `{wiki_dir}/_WorkflowIndex.md` to see what Workflows exist.
+
+**How to read the Connections column:**
+- `✅Impl:{repo_name}_FastLanguageModel` = Implementation page EXISTS (don't create duplicate)
+- `⬜Impl:{repo_name}_SFTTrainer` = Implementation page MISSING (you should create it)
+
+**Your job:** Create pages for all `⬜Impl:{repo_name}_X` references you see.
+
 ## Wiki Structure Definition
 
 {implementation_structure}
@@ -146,22 +156,49 @@ If a file already has Workflow coverage, append to it:
 | ✅ | `examples/qlora.py` | 150 | QLoRA example | Workflow: QLoRA_Finetuning; Impl: — | [→](...) |
 ```
 
-### Step 5: Update the Implementation Index
+### Step 5: Update the Implementation Index (IMMEDIATELY)
 
-**IMPORTANT:** After creating Implementation pages, add entries to `{wiki_dir}/_ImplementationIndex.md`:
+**⚠️ CRITICAL:** Update `{wiki_dir}/_ImplementationIndex.md` **IMMEDIATELY after creating each Implementation page**.
 
 | Column | Content |
 |--------|---------|
 | Page | Implementation page name (without .md) |
-| File | Link to the implementation file: `[→](./implementations/{repo_name}_X.md)` |
-| Source | Source file(s) with line ranges: `loader.py:L50-200` |
-| Implements (Principle) | Which Principle this implements (filled in Synthesis phase) |
-| Notes | Brief description of what this implementation does |
+| File | Link: `[→](./implementations/{repo_name}_X.md)` |
+| Connections | All links with **per-reference status** (see format below) |
+| Notes | Brief description + source location |
+
+**Connections Format (use FULL page names with `{repo_name}_` prefix):**
+- `⬜Principle:{repo_name}_LoRA` = Principle not created yet (filled in Synthesis phase)
+- `⬜Env:{repo_name}_CUDA_11` = Environment not created yet
+- `✅Workflow:{repo_name}_QLoRA_Finetuning` = Workflow exists
 
 **Example row:**
 ```
-| {repo_name}_FastLanguageModel | [→](./implementations/...) | `loader.py:L50-200` | — | Main model loader API |
+| {repo_name}_FastLanguageModel | [→](./implementations/...) | ⬜Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA, ✅Workflow:{repo_name}_QLoRA_Finetuning | loader.py:L50-200 |
 ```
+
+This shows which referenced pages exist (✅) and which need creation (⬜).
+
+### Step 6: Update Other Indexes (Bi-directional)
+
+When you create an Implementation (e.g., `{repo_name}_FastLanguageModel`):
+
+1. **Search for references:** Look in `_WorkflowIndex.md` for `⬜Impl:{repo_name}_FastLanguageModel`
+2. **Update to ✅:** Change `⬜Impl:{repo_name}_FastLanguageModel` to `✅Impl:{repo_name}_FastLanguageModel`
+
+**Example:**
+```markdown
+# BEFORE (in _WorkflowIndex.md):
+| {repo_name}_QLoRA_Finetuning | [→](...) | ⬜Impl:{repo_name}_FastLanguageModel, ⬜Impl:{repo_name}_SFTTrainer | ... |
+
+# AFTER (you created FastLanguageModel):
+| {repo_name}_QLoRA_Finetuning | [→](...) | ✅Impl:{repo_name}_FastLanguageModel, ⬜Impl:{repo_name}_SFTTrainer | ... |
+```
+
+**How to find references:**
+- Read each index file (`_WorkflowIndex.md`, `_PrincipleIndex.md`, etc.)
+- Search for `⬜Impl:{repo_name}_YourPageName`
+- Update all occurrences to `✅Impl:{repo_name}_YourPageName`
 
 ## Output Instructions
 

@@ -26,12 +26,19 @@ This report contains:
 The index contains:
 - **Purpose column:** Brief description of each file (filled by Phase 0)
 - **Coverage column:** Which wiki pages cover each file (you will update this)
-- **Agent Notes:** Key insights, workflow entry points, architecture
 
 Look for:
 - Files with Purpose like "QLoRA training example", "Fine-tuning script"
-- The "Workflow Entry Points" in Agent Notes
 - Example files (📝 section)
+
+## About Status Tags in Connections
+
+When you reference pages in the Connections column:
+- Use `⬜Impl:Name` for Implementations that DON'T exist yet (later phases will create them)
+- Use `⬜Principle:Name` for Principles that DON'T exist yet
+- Use `✅Type:Name` only if that page already exists
+
+Since you're the first phase creating wiki pages, most references will be `⬜` (pending creation by later phases).
 
 ## Wiki Structure Definition
 
@@ -43,8 +50,7 @@ Look for:
 
 Read `{repo_map_path}` to find:
 - Example files and their Purpose
-- Workflow Entry Points in Agent Notes
-- Key insights about the codebase
+- Key entry points (look for files with Purpose like "Main loader", "Training example")
 
 If you need more detail on a specific file, read its detail page in `_files/`.
 
@@ -94,22 +100,30 @@ For each source file your Workflow covers, update its **Coverage column**:
 
 Coverage format: `Workflow: PageName` or `Workflow: Page1, Page2` if multiple.
 
-### Step 6: Update the Workflow Index
+### Step 6: Update the Workflow Index (IMMEDIATELY)
 
-**IMPORTANT:** After creating Workflow pages, add entries to `{wiki_dir}/_WorkflowIndex.md`:
+**⚠️ CRITICAL:** Update `{wiki_dir}/_WorkflowIndex.md` **IMMEDIATELY after creating each Workflow page**.
 
 | Column | Content |
 |--------|---------|
 | Page | Workflow page name (without .md) |
-| File | Link to the workflow file: `[→](./workflows/{repo_name}_X.md)` |
-| Steps (Principles) | Brief list of step Principles (use → between steps) |
-| Source Files | Example/script files this workflow documents |
-| Notes | Brief description of what this workflow does |
+| File | Link: `[→](./workflows/{repo_name}_X.md)` |
+| Connections | All links with **per-reference status** (see format below) |
+| Notes | Brief description |
+
+**Connections Format (use FULL page names with `{repo_name}_` prefix):**
+- `⬜Impl:{repo_name}_FastLanguageModel` = Implementation not created yet
+- `⬜Impl:{repo_name}_SFTTrainer` = Implementation not created yet
+- `⬜Principle:{repo_name}_LoRA` = Principle not created yet
 
 **Example row:**
 ```
-| {repo_name}_QLoRA_Finetuning | [→](./workflows/...) | Load_Model → Train → Save | `examples/qlora.py` | Main fine-tuning workflow |
+| {repo_name}_QLoRA_Finetuning | [→](./workflows/...) | ⬜Impl:{repo_name}_FastLanguageModel, ⬜Impl:{repo_name}_SFTTrainer, ⬜Principle:{repo_name}_LoRA | Main fine-tuning workflow |
 ```
+
+Since you're the first phase, all connections will be `⬜` (later phases create these pages and update to `✅`).
+
+**Note:** Use the SAME names you use in Related Pages section (e.g., `[[step::Principle:{repo_name}_LoRA]]`).
 
 ## Output Instructions
 

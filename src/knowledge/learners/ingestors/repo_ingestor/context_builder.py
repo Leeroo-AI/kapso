@@ -549,37 +549,45 @@ def generate_page_indexes(wiki_dir: Path, repo_name: str) -> None:
     - _HeuristicIndex.md
     
     Each index tracks pages of that type with cross-references.
+    All indexes use a consistent structure with Status and Connections columns.
     """
+    # All indexes share a common structure:
+    # - Status: ✅ (created) or ⬜ (pending/referenced but not created)
+    # - Page: Name of the wiki page
+    # - File: Link to the .md file (or — if not created)
+    # - Connections: All links TO other pages (from Related Pages section)
+    # - Notes: Natural language comments
+    
     indexes = {
         "Workflow": {
             "file": "_WorkflowIndex.md",
-            "columns": "| Page | File | Steps (Principles) | Source Files | Notes |",
-            "separator": "|------|------|-------------------|--------------|-------|",
-            "desc": "Tracks all Workflow pages and their step connections to Principles.",
+            "folder": "workflows",
+            "desc": "Tracks Workflow pages and their connections to Implementations, Principles, etc.",
+            "connection_hint": f"e.g., `⬜Impl:{repo_name}_FastLanguageModel, ⬜Principle:{repo_name}_LoRA`",
         },
         "Principle": {
             "file": "_PrincipleIndex.md",
-            "columns": "| Page | File | Implemented By | In Workflows | Notes |",
-            "separator": "|------|------|----------------|--------------|-------|",
-            "desc": "Tracks all Principle pages and their implementation/workflow connections.",
+            "folder": "principles",
+            "desc": "Tracks Principle pages and their connections to Implementations, Workflows, etc.",
+            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel, ✅Workflow:{repo_name}_QLoRA`",
         },
         "Implementation": {
             "file": "_ImplementationIndex.md",
-            "columns": "| Page | File | Source | Implements (Principle) | Notes |",
-            "separator": "|------|------|--------|------------------------|-------|",
-            "desc": "Tracks all Implementation pages and their source code locations.",
+            "folder": "implementations",
+            "desc": "Tracks Implementation pages and their connections to Principles, Environments, etc.",
+            "connection_hint": f"e.g., `⬜Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA_11`",
         },
         "Environment": {
             "file": "_EnvironmentIndex.md",
-            "columns": "| Page | File | Required By | Notes |",
-            "separator": "|------|------|-------------|-------|",
-            "desc": "Tracks all Environment pages and which implementations require them.",
+            "folder": "environments",
+            "desc": "Tracks Environment pages and which pages require them.",
+            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel`",
         },
         "Heuristic": {
             "file": "_HeuristicIndex.md",
-            "columns": "| Page | File | Applies To | Notes |",
-            "separator": "|------|------|------------|-------|",
-            "desc": "Tracks all Heuristic pages and which pages they apply to.",
+            "folder": "heuristics",
+            "desc": "Tracks Heuristic pages and which pages they apply to.",
+            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel, ✅Workflow:{repo_name}_QLoRA`",
         },
     }
     
@@ -587,17 +595,17 @@ def generate_page_indexes(wiki_dir: Path, repo_name: str) -> None:
         content = f"""# {page_type} Index: {repo_name}
 
 > {config['desc']}
-> Update this file after creating {page_type} pages.
+> **Update IMMEDIATELY** after creating or modifying a {page_type} page.
 
-{config['columns']}
-{config['separator']}
-<!-- Add rows as you create pages -->
+## Pages
+
+| Page | File | Connections | Notes |
+|------|------|-------------|-------|
+<!-- {config['connection_hint']} -->
 
 ---
 
-## Integrity Notes
-
-<!-- Record any cross-reference issues or TODOs here -->
+**Legend:** `✅Type:Name` = page exists | `⬜Type:Name` = page needs creation
 """
         index_path = wiki_dir / config["file"]
         index_path.write_text(content, encoding="utf-8")

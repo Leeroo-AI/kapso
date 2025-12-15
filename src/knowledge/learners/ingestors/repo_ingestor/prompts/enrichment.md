@@ -32,6 +32,19 @@ The index contains:
 
 For files likely to have environment requirements, read their detail pages in `_files/`.
 
+## IMPORTANT: Check the Page Indexes
+
+**Also read:**
+- `{wiki_dir}/_ImplementationIndex.md` — See `⬜Env:{repo_name}_X` references (Environments needed)
+- `{wiki_dir}/_WorkflowIndex.md` — See `⬜Heuristic:{repo_name}_X` references (Heuristics needed)
+
+**How to read the Connections column:**
+- `✅Env:{repo_name}_CUDA_11` = Environment page EXISTS (don't create duplicate)
+- `⬜Env:{repo_name}_Triton` = Environment page MISSING (you should create it)
+- `⬜Heuristic:{repo_name}_BatchSize` = Heuristic page MISSING (you should create it)
+
+**Your job:** Create pages for all `⬜Env:{repo_name}_X` and `⬜Heuristic:{repo_name}_X` references you see.
+
 ## Wiki Structure Definitions
 
 ### Environment Structure
@@ -152,7 +165,9 @@ For files where you found heuristics:
 | ✅ | `unsloth/trainer.py` | 300 | Training wrapper | Impl: UnslothTrainer; Heur: Batch_Size_Tips | [→](...) |
 ```
 
-## Part E: Update the Environment and Heuristic Indexes
+## Part E: Update the Environment and Heuristic Indexes (IMMEDIATELY)
+
+**⚠️ CRITICAL:** Update indexes **IMMEDIATELY after creating each page**.
 
 ### Update Environment Index
 
@@ -161,13 +176,17 @@ After creating Environment pages, add entries to `{wiki_dir}/_EnvironmentIndex.m
 | Column | Content |
 |--------|---------|
 | Page | Environment page name (without .md) |
-| File | Link to the environment file |
-| Required By | Implementation(s) that require this: `FastLanguageModel, rope_kernel` |
+| File | Link: `[→](./environments/{repo_name}_X.md)` |
+| Connections | All links with **per-reference status** |
 | Notes | Brief description of the requirement |
+
+**Connections Format (use FULL page names with `{repo_name}_` prefix):**
+- `✅Impl:{repo_name}_FastLanguageModel` = Implementation exists
+- `⬜Impl:{repo_name}_triton_kernels` = Implementation not created yet
 
 **Example row:**
 ```
-| {repo_name}_CUDA_Environment | [→](./environments/...) | FastLanguageModel, triton_kernels | GPU with CUDA 11.8+ |
+| {repo_name}_CUDA_11 | [→](./environments/...) | ✅Impl:{repo_name}_FastLanguageModel, ⬜Impl:{repo_name}_rope_kernel | GPU with CUDA 11.8+ |
 ```
 
 ### Update Heuristic Index
@@ -177,13 +196,40 @@ After creating Heuristic pages, add entries to `{wiki_dir}/_HeuristicIndex.md`:
 | Column | Content |
 |--------|---------|
 | Page | Heuristic page name (without .md) |
-| File | Link to the heuristic file |
-| Applies To | Pages this heuristic applies to: `UnslothTrainer, QLoRA_Finetuning` |
+| File | Link: `[→](./heuristics/{repo_name}_X.md)` |
+| Connections | All links with **per-reference status** |
 | Notes | Brief summary of the tip/advice |
+
+**Connections Format (use FULL page names with `{repo_name}_` prefix):**
+- `✅Impl:{repo_name}_UnslothTrainer` = Implementation exists
+- `⬜Workflow:{repo_name}_QLoRA_Finetuning` = Workflow not created yet
 
 **Example row:**
 ```
-| {repo_name}_Batch_Size_Tips | [→](./heuristics/...) | UnslothTrainer | Use batch_size=1 with gradient_accumulation |
+| {repo_name}_Batch_Size_Tips | [→](./heuristics/...) | ✅Impl:{repo_name}_UnslothTrainer, ⬜Workflow:{repo_name}_QLoRA_Finetuning | Use batch_size=1 with grad accum |
+```
+
+This shows which referenced pages exist (✅) and which need creation (⬜).
+
+### Update Other Indexes (Bi-directional)
+
+When you create an Environment or Heuristic, update references in OTHER indexes:
+
+**For Environments (e.g., `{repo_name}_CUDA_11`):**
+1. Search `_ImplementationIndex.md` for `⬜Env:{repo_name}_CUDA_11`
+2. Change to `✅Env:{repo_name}_CUDA_11`
+
+**For Heuristics (e.g., `{repo_name}_Batch_Size_Tips`):**
+1. Search `_WorkflowIndex.md` and `_ImplementationIndex.md` for `⬜Heuristic:{repo_name}_Batch_Size_Tips`
+2. Change to `✅Heuristic:{repo_name}_Batch_Size_Tips`
+
+**Example:**
+```markdown
+# BEFORE (in _ImplementationIndex.md):
+| {repo_name}_FastLanguageModel | [→](...) | ✅Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA_11 | ... |
+
+# AFTER (you created CUDA_11 Environment):
+| {repo_name}_FastLanguageModel | [→](...) | ✅Principle:{repo_name}_LoRA, ✅Env:{repo_name}_CUDA_11 | ... |
 ```
 
 ## Repo Scoping Rule (CRITICAL)
