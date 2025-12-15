@@ -7,18 +7,35 @@
 # - Planning modes with step-by-step approach
 # - CLAUDE.md for project constitution
 # - Superior for complex, multi-step tasks
+# - Streaming mode for live output visibility
 #
 # Requires: 
 # - ANTHROPIC_API_KEY in environment
 # - Claude Code CLI installed: npm install -g @anthropic-ai/claude-code
 
 import json
+import logging
 import os
-import re
-import subprocess
+import select
 import shutil
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# ANSI color codes for terminal output
+_COLORS = {
+    "reset": "\033[0m",
+    "dim": "\033[2m",
+    "cyan": "\033[36m",
+    "yellow": "\033[33m",
+    "green": "\033[32m",
+    "blue": "\033[34m",
+    "magenta": "\033[35m",
+}
 
 from src.execution.coding_agents.base import (
     CodingAgentInterface, 
@@ -44,6 +61,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - planning_mode: True (default) - use planning
     - timeout: 3600 (default) - CLI timeout in seconds (1 hour)
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
+    - streaming: True (default) - stream output live to terminal for visibility
     
     Environment:
     - ANTHROPIC_API_KEY: Required for authentication
@@ -62,6 +80,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "allowed_tools", 
             ["Edit", "Read", "Write", "Bash"]
         )
+        # Streaming: print Claude Code output live to terminal (default True for visibility)
+        self._streaming = config.agent_specific.get("streaming", True)
         
         # Verify Claude Code CLI is installed
         self._verify_cli()
@@ -114,50 +134,15 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         model = self.config.debug_model if debug_mode else self.config.model
         
         try:
-            # Build the CLI command
-            cmd = self._build_command(prompt, model)
+            # Use streaming or buffered mode
+            if self._streaming:
+                # Build command inside _run_streaming with stream-json
+                cmd = self._build_command(prompt, model, use_stream_json=False)  # placeholder
+                return self._run_streaming(cmd, model)
+            else:
+                cmd = self._build_command(prompt, model, use_stream_json=False)
+                return self._run_buffered(cmd, model)
             
-            # Run Claude Code CLI
-            result = subprocess.run(
-                cmd,
-                cwd=self.workspace,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
-                env=self._get_env()
-            )
-            
-            output = result.stdout
-            stderr = result.stderr
-            
-            if result.returncode != 0:
-                # Check if it's a non-fatal warning
-                if "warning" in stderr.lower() and output:
-                    pass  # Continue with output
-                else:
-                    return CodingResult(
-                        success=False,
-                        output=output,
-                        error=stderr or f"CLI exited with code {result.returncode}"
-                    )
-            
-            # Parse the response
-            files_changed = self._get_changed_files()
-            
-            # Estimate cost (Claude Code doesn't report directly)
-            cost = self._estimate_cost(len(prompt), len(output))
-            self._cumulative_cost += cost
-            
-            return CodingResult(
-                success=True,
-                output=output,
-                files_changed=files_changed,
-                cost=cost,
-                metadata={
-                    "model": model,
-                    "planning_mode": self._planning_mode,
-                }
-            )
         except subprocess.TimeoutExpired:
             return CodingResult(
                 success=False,
@@ -171,16 +156,277 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 error=str(e)
             )
     
-    def _build_command(self, prompt: str, model: str) -> List[str]:
+    def _run_buffered(self, cmd: List[str], model: str) -> CodingResult:
+        """Run Claude Code CLI in buffered mode (no live output)."""
+        result = subprocess.run(
+            cmd,
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            timeout=self._timeout,
+            env=self._get_env()
+        )
+        
+        output = result.stdout
+        stderr = result.stderr
+        
+        if result.returncode != 0:
+            # Check if it's a non-fatal warning
+            if "warning" in stderr.lower() and output:
+                pass  # Continue with output
+            else:
+                return CodingResult(
+                    success=False,
+                    output=output,
+                    error=stderr or f"CLI exited with code {result.returncode}"
+                )
+        
+        # Parse the response
+        files_changed = self._get_changed_files()
+        
+        # Estimate cost (Claude Code doesn't report directly)
+        cost = self._estimate_cost(len(cmd[2]) if len(cmd) > 2 else 0, len(output))
+        self._cumulative_cost += cost
+        
+        return CodingResult(
+            success=True,
+            output=output,
+            files_changed=files_changed,
+            cost=cost,
+            metadata={
+                "model": model,
+                "planning_mode": self._planning_mode,
+            }
+        )
+    
+    def _run_streaming(self, cmd: List[str], model: str) -> CodingResult:
+        """
+        Run Claude Code CLI with live streaming output using stream-json format.
+        
+        Parses JSON events and displays Claude's thinking, tool calls, and results
+        in real-time for maximum visibility.
+        """
+        # Rebuild command with stream-json format for structured output
+        prompt = cmd[2] if len(cmd) > 2 else ""
+        stream_cmd = self._build_command(prompt, model, use_stream_json=True)
+        
+        start_time = time.time()
+        raw_lines: List[str] = []
+        assistant_texts: List[str] = []
+        result_text: str = ""
+        total_cost: float = 0.0
+        is_error: bool = False
+        error_msg: str = ""
+        
+        c = _COLORS  # shorthand
+        
+        print(f"\n{c['cyan']}━━━ Claude Code Starting ━━━{c['reset']}", flush=True)
+        
+        process = subprocess.Popen(
+            stream_cmd,
+            cwd=self.workspace,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=self._get_env(),
+            bufsize=1,
+        )
+        
+        try:
+            # Use select for non-blocking I/O on both stdout and stderr
+            stdout_fd = process.stdout.fileno() if process.stdout else -1
+            stderr_fd = process.stderr.fileno() if process.stderr else -1
+            last_heartbeat = time.time()
+            heartbeat_interval = 10.0  # Show heartbeat every 10 seconds of silence
+            
+            while True:
+                retcode = process.poll()
+                
+                # Use select to check which streams have data (with 0.5s timeout)
+                readable = []
+                if stdout_fd >= 0 or stderr_fd >= 0:
+                    fds_to_check = []
+                    if stdout_fd >= 0:
+                        fds_to_check.append(process.stdout)
+                    if stderr_fd >= 0:
+                        fds_to_check.append(process.stderr)
+                    try:
+                        readable, _, _ = select.select(fds_to_check, [], [], 0.5)
+                    except (ValueError, OSError):
+                        # File descriptor closed
+                        pass
+                
+                got_output = False
+                
+                # Read from stdout if data available
+                if process.stdout in readable:
+                    line = process.stdout.readline()
+                    if line:
+                        line = line.rstrip('\n')
+                        raw_lines.append(line)
+                        self._display_stream_event(line, assistant_texts)
+                        got_output = True
+                        last_heartbeat = time.time()
+                
+                # Read from stderr if data available
+                if process.stderr in readable:
+                    err_line = process.stderr.readline()
+                    if err_line:
+                        err_line = err_line.rstrip('\n')
+                        print(f"{c['yellow']}  [stderr] {err_line}{c['reset']}", file=sys.stderr, flush=True)
+                        got_output = True
+                        last_heartbeat = time.time()
+                
+                # Show heartbeat if no output for a while (Claude might be thinking)
+                if not got_output and retcode is None:
+                    now = time.time()
+                    if now - last_heartbeat > heartbeat_interval:
+                        elapsed = now - start_time
+                        print(f"{c['dim']}  ... still working ({elapsed:.0f}s){c['reset']}", flush=True)
+                        last_heartbeat = now
+                
+                if retcode is not None:
+                    # Drain remaining output
+                    if process.stdout:
+                        for line in process.stdout:
+                            line = line.rstrip('\n')
+                            raw_lines.append(line)
+                            self._display_stream_event(line, assistant_texts)
+                    if process.stderr:
+                        for err_line in process.stderr:
+                            print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
+                    break
+            
+            elapsed = time.time() - start_time
+            
+            # Parse final result from last JSON line
+            for line in reversed(raw_lines):
+                try:
+                    event = json.loads(line)
+                    if event.get("type") == "result":
+                        result_text = event.get("result", "")
+                        total_cost = event.get("total_cost_usd", 0.0)
+                        is_error = event.get("is_error", False)
+                        break
+                except json.JSONDecodeError:
+                    continue
+            
+            print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}) ━━━{c['reset']}\n", flush=True)
+            
+            if retcode != 0 or is_error:
+                error_msg = result_text if is_error else f"CLI exited with code {retcode}"
+                return CodingResult(
+                    success=False,
+                    output="\n".join(assistant_texts),
+                    error=error_msg,
+                    metadata={"elapsed_seconds": elapsed}
+                )
+            
+            files_changed = self._get_changed_files()
+            self._cumulative_cost += total_cost
+            
+            return CodingResult(
+                success=True,
+                output=result_text or "\n".join(assistant_texts),
+                files_changed=files_changed,
+                cost=total_cost,
+                metadata={
+                    "model": model,
+                    "planning_mode": self._planning_mode,
+                    "elapsed_seconds": elapsed,
+                    "streaming": True,
+                }
+            )
+            
+        except Exception as e:
+            process.kill()
+            raise
+    
+    def _display_stream_event(self, line: str, assistant_texts: List[str]) -> None:
+        """Parse and display a single stream-json event."""
+        c = _COLORS
+        
+        if not line.strip():
+            return  # Skip empty lines
+        
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            # Not JSON, just print raw (might be progress indicator or other text)
+            print(f"  {line}", flush=True)
+            return
+        
+        event_type = event.get("type", "")
+        subtype = event.get("subtype", "")
+        
+        if event_type == "system" and subtype == "init":
+            # Initialization event
+            model = event.get("model", "unknown")
+            tools = event.get("tools", [])
+            print(f"{c['dim']}  [init] model={model}, tools={len(tools)}{c['reset']}", flush=True)
+        
+        elif event_type == "assistant":
+            # Assistant message (thinking + tool calls)
+            message = event.get("message", {})
+            content = message.get("content", [])
+            for block in content:
+                if block.get("type") == "text":
+                    text = block.get("text", "")
+                    if text:
+                        assistant_texts.append(text)
+                        # Truncate long thinking for display
+                        display_text = text[:500] + "..." if len(text) > 500 else text
+                        print(f"{c['green']}  [thinking] {display_text}{c['reset']}", flush=True)
+                elif block.get("type") == "tool_use":
+                    tool_name = block.get("name", "unknown")
+                    tool_input = block.get("input", {})
+                    # Show tool call summary
+                    if tool_name in ("Read", "Edit", "Write"):
+                        path = tool_input.get("file_path", tool_input.get("path", "?"))
+                        print(f"{c['blue']}  [tool:{tool_name}] {path}{c['reset']}", flush=True)
+                    elif tool_name == "Bash":
+                        cmd = tool_input.get("command", "")[:80]
+                        print(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
+                    else:
+                        print(f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True)
+        
+        elif event_type == "user":
+            # Tool result returned to Claude
+            content = event.get("message", {}).get("content", [])
+            for block in content:
+                if block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id", "")[:8]
+                    is_error = block.get("is_error", False)
+                    status = "error" if is_error else "ok"
+                    print(f"{c['dim']}  [result:{status}] ...{c['reset']}", flush=True)
+        
+        elif event_type == "result":
+            # Final result - show summary
+            duration = event.get("duration_ms", 0) / 1000
+            cost = event.get("total_cost_usd", 0)
+            print(f"{c['dim']}  [result] duration={duration:.1f}s, cost=${cost:.4f}{c['reset']}", flush=True)
+        
+        else:
+            # Unknown event type - show it for debugging
+            if event_type:
+                print(f"{c['dim']}  [{event_type}:{subtype}]{c['reset']}", flush=True)
+    
+    def _build_command(self, prompt: str, model: str, use_stream_json: bool = False) -> List[str]:
         """Build the Claude Code CLI command."""
         cmd = [
             "claude",
             "-p", prompt,  # Non-interactive mode with prompt
-            "--output-format", "text",  # Text output
         ]
         
-        # Add model if specified (claude uses its own model selection)
-        # Note: Claude Code CLI may use --model flag differently
+        # Output format: stream-json for live visibility, text for buffered
+        if use_stream_json:
+            cmd.extend(["--output-format", "stream-json", "--verbose"])
+        else:
+            cmd.extend(["--output-format", "text"])
+        
+        # Add model if specified
+        if model:
+            cmd.extend(["--model", model])
         
         # Add allowed tools
         if self._allowed_tools:
@@ -251,6 +497,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "sandbox": False,
             "planning_mode": True,  # Claude Code excels at planning
             "cost_tracking": True,
-            "streaming": False,
+            "streaming": self._streaming,  # Now supports live output streaming
         }
 

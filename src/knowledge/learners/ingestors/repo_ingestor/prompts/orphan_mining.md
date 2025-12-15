@@ -7,102 +7,154 @@ You are a Code Archivist. Your task is to systematically map all valid code unit
 - Repository: {repo_name}
 - Repository Path: {repo_path}
 - Wiki Output Directory: {wiki_dir}
+- **Repository Map (Index):** {repo_map_path}
+- **File Details:** {wiki_dir}/_files/
 
 **Already Mapped Pages:**
 - Workflows: {wiki_dir}/workflows/
 - Principles: {wiki_dir}/principles/
 - Implementations: {wiki_dir}/implementations/
 
+## IMPORTANT: Read Previous Phase Reports
+
+**FIRST**, read the Audit report at `{wiki_dir}/_reports/phase5_audit.md`.
+
+This report tells you:
+- Current graph statistics
+- Files flagged as uncovered
+- Areas needing orphan mining
+
+## CRITICAL: Use the Repository Map for Coverage
+
+**THEN**, read the Repository Map index at `{repo_map_path}`.
+
+The **Coverage column** tells you EXACTLY which files are already documented:
+- `—` means NOT covered (orphan candidate)
+- `Impl: X` means covered by Implementation page X
+- `Workflow: Y` means covered by Workflow page Y
+
+**Focus on files where Coverage is `—` or incomplete.**
+
+## Repo Scoping Rule (CRITICAL)
+
+Only consider pages whose filenames start with `{repo_name}_` as "Already Mapped".
+Only create/update pages whose filenames start with `{repo_name}_`.
+
 ## Your Task: Find the "Dark Matter"
 
-### Step 1: The Exclusion Scan (Isolate Targets)
+### Step 1: Identify Orphan Files from Index
 
-**Goal:** Identify files that haven't been touched by the Workflow analysis.
+Read `{repo_map_path}` and find all files where:
+- **Coverage column is `—`** (not covered at all)
+- **Coverage is partial** (e.g., only has Workflow but no Impl)
 
-1. **List** every Python file in the source directories (e.g., `src/`, `unsloth/`, main package folder)
-2. **Read** the existing Implementation pages in `{wiki_dir}/implementations/`
-3. **Subtract** any file that is already linked to an Implementation page
-4. **Result:** You have a list of **Candidate Files** (orphan files)
+These are your **Candidate Files**.
 
 ### Step 2: The Significance Filter (Discard Noise)
 
-**Goal:** Determine if a Candidate File contains a Principle worth learning.
-
-For each Candidate File, apply this binary test:
+For each Candidate File with `Coverage: —`:
 
 **Criterion A: Structure**
-- Does the file contain a **Public Class** (e.g., `class MistralModel`) or **Major Public Function** (e.g., `def fast_rms_norm`)?
-- If YES → Proceed to Criterion B
+- Does the file contain a Public Class or Major Public Function?
+- Check the file's detail page in `_files/` for Classes/Functions
 - If NO (only `_private_funcs`, configs, string utils) → **DISCARD**
 
 **Criterion B: Test Coverage (Proxy Check)**
-- Look in `tests/` folder. Is there a test file specifically for this component?
-  - Example: `test_mistral.py` for `mistral.py`
+- Is there a test file for this component?
 - If YES → High confidence, **KEEP**
 - If NO → Read the code. Does it perform a distinct algorithmic task?
-  - If YES → **KEEP**
-  - If NO (just moves data) → **DISCARD**
 
-### Step 3: Implementation Extraction (The Code Node)
-
-**Goal:** Create "Source of Truth" nodes for orphan code.
+### Step 3: Implementation Extraction
 
 For every file that passed the filter:
 
-1. **Select** the primary Class or Function block
-2. **Create** an Implementation page following the wiki structure
-3. **Include:**
-   - Code signature
-   - I/O Contract
-   - File path and line numbers
-   - Note any hard dependencies (e.g., "Requires Triton", "Requires Linux")
+1. **Read** the source file from `{repo_path}`
+2. **Read** the file's detail page from `_files/` for context
+3. **Create** an Implementation page with:
+   - **Metadata block** (wikitable with sources, domains, last_updated)
+     - ⚠️ Sources must be HIGH-LEVEL: repo URLs, docs, papers (NOT file paths!)
+     - ❌ WRONG: `[[source::Repo|Loader|unsloth/models/loader.py]]`
+     - ✅ RIGHT: `[[source::Repo|Unsloth|https://github.com/unslothai/unsloth]]`
+   - `== Code Reference ==` with (file paths go HERE):
+     - Source Location (GitHub URL with line numbers)
+     - Full Signature
+     - Import statement
+   - `== I/O Contract ==` as structured tables
+   - `== Usage Examples ==` with runnable code
+
+**Code Reference Example:**
+```mediawiki
+=== Source Location ===
+* '''File:''' [{repo_url}/blob/main/path/file.py#L10-L50 path/file.py]
+* '''Lines:''' 10-50
+
+=== Signature ===
+<syntaxhighlight lang="python">
+def orphan_function(input: Tensor) -> Tensor:
+    """Process input tensor."""
+</syntaxhighlight>
+
+=== Import ===
+<syntaxhighlight lang="python">
+from package.module import orphan_function
+</syntaxhighlight>
+```
 
 **Output:** Write to `{wiki_dir}/implementations/`
 **Filename format:** `{repo_name}_OrphanClassName.md`
 
 ### Step 4: Principle Synthesis & Polymorphism Check
 
-**Goal:** Abstract the code into a concept, checking for duplicates.
+**CRITICAL:** Before creating a new Principle, check existing Principles!
 
-**CRITICAL:** Before creating a new Principle, search existing Principles!
-
-**Question:** "Do I already have a Principle that describes WHAT this code does, even if the HOW is different?"
-
-**Decision Tree:**
+**Question:** "Do I already have a Principle that describes WHAT this code does?"
 
 **Path A: It is a Variant (Polymorphism)**
-- Example: You found `BitLinear.py`. You already have `Principle: Linear_Layer`.
-- Analysis: `BitLinear` achieves same goal but with 1-bit weights.
-- **Action:** Do NOT create new Principle. Instead:
-  - Link new Implementation to the EXISTING Principle
-  - Update the existing Principle's `== Related Pages ==` section
-  - Add a note about the variant in the Implementation page
+- Link new Implementation to the EXISTING Principle
+- Update the Principle's Related Pages
 
 **Path B: It is Unique**
-- The concept is genuinely new and not covered by existing Principles.
-- **Action:** Create a NEW Principle page
-- **Name:** Use specific, descriptive name (e.g., `BitNet_Architecture` not just `Optimization`)
-- **Link:** Add `[[implemented_by::Implementation:X]]` to the Principle
+- Create a NEW Principle page with specific name
+- Link it to the Implementation
 
-**Output:** 
-- Update existing Principles in `{wiki_dir}/principles/` OR
-- Create new Principles in `{wiki_dir}/principles/`
+### Step 5: Update Coverage in Repository Map
 
-### Step 5: Context Mining (Heuristics & Environment)
+After creating pages for orphan files, **update the index** at `{repo_map_path}`:
 
-**Goal:** Enrich orphan nodes so they are safe to use.
+```markdown
+| ✅ | `unsloth/kernels/geglu.py` | 80 | GEGLU activation | Impl: geglu_kernel; Principle: Gated_Activation | [→](...) |
+```
 
-Even without a Workflow, capture the constraints:
+**This is critical for tracking progress** — change Coverage from `—` to the actual pages.
 
-1. **Scan** Implementation code for `raise Error`, `warnings.warn`, `assert`
-2. **Create** Heuristic pages for any discovered wisdom
-3. **Link:** `[[uses_heuristic::Heuristic:X]]` in the Implementation
+### Step 6: Context Mining (Heuristics & Environment)
 
-4. **Scan** for imports or hardware checks (`if cuda`, `import triton`)
+For orphan code, capture constraints:
+
+1. **Scan** for `raise Error`, `warnings.warn`, `assert`
+2. **Create** Heuristic pages for discovered wisdom
+3. **Link** `[[uses_heuristic::Heuristic:X]]` in the Implementation
+
+4. **Scan** for imports or hardware checks
 5. **Create** Environment pages if new requirements found
-6. **Link:** `[[requires_env::Environment:X]]` in the Implementation
+6. **Link** `[[requires_env::Environment:X]]`
 
-**Output:** Write to `{wiki_dir}/heuristics/` and `{wiki_dir}/environments/`
+### Step 7: Update Page Indexes
+
+After creating orphan pages, update the relevant index files:
+
+**For new Implementations** → Add to `{wiki_dir}/_ImplementationIndex.md`:
+```
+| {repo_name}_OrphanClass | [→](./implementations/...) | `file.py:L10-50` | — | Brief description |
+```
+
+**For new Principles** → Add to `{wiki_dir}/_PrincipleIndex.md`:
+```
+| {repo_name}_OrphanPrinciple | [→](./principles/...) | OrphanClass | — | Brief description |
+```
+
+**For new Environments** → Add to `{wiki_dir}/_EnvironmentIndex.md`
+**For new Heuristics** → Add to `{wiki_dir}/_HeuristicIndex.md`
 
 ## Wiki Structure Definitions
 
@@ -110,3 +162,37 @@ Even without a Workflow, capture the constraints:
 
 {principle_structure}
 
+## ⚠️ File Editing Tip
+
+When updating index files:
+- **Use Write tool** (read entire file → modify → write back)
+- **Avoid Edit tool** — it often fails on markdown tables
+
+## 📝 Execution Report (REQUIRED)
+
+When finished, write a summary report to `{wiki_dir}/_reports/phase6_orphan_mining.md`:
+
+```markdown
+# Phase 6: Orphan Mining Report
+
+## Scan Summary
+- Files scanned: X
+- Files with existing coverage: X
+- Orphan candidates found: X
+
+## Pages Created
+| Type | Page | Source File |
+|------|------|-------------|
+| Implementation | [name] | [file] |
+| Principle | [name] | [linked impl] |
+
+## Decisions Made
+- Discarded as noise: X files
+- Linked to existing Principles: X
+- New Principles created: X
+
+## Notes for Orphan Audit Phase
+- [Pages that need hidden workflow check]
+- [Potential deprecated code]
+- [Names that may be too generic]
+```

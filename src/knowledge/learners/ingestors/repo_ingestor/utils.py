@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -166,4 +167,66 @@ def get_repo_name_from_url(url: str) -> str:
         url = url[:-4]
     
     return url.split("/")[-1]
+
+
+def get_repo_namespace_from_url(url: str) -> str:
+    """
+    Extract a stable, collision-resistant repo namespace from a git URL.
+    
+    This is used to:
+    - Prefix wiki filenames (prevents cross-repo collisions in a shared wiki_dir)
+    - Scope phases to only this repo's pages during Audit / Orphan passes
+    
+    Supported inputs:
+    - https://github.com/owner/repo
+    - https://github.com/owner/repo.git
+    - git@github.com:owner/repo.git
+    
+    Returns:
+        A safe namespace string like: "owner_repo"
+    """
+    raw = (url or "").strip()
+    if not raw:
+        return "unknown_repo"
+    
+    # Normalize .git suffix and trailing slash
+    raw = raw.rstrip("/")
+    if raw.endswith(".git"):
+        raw = raw[:-4]
+    
+    owner = None
+    repo = None
+    
+    # SSH style: git@github.com:owner/repo
+    if raw.startswith("git@"):
+        # Split on ":" then "/"
+        try:
+            path = raw.split(":", 1)[1]
+            parts = [p for p in path.split("/") if p]
+            if len(parts) >= 2:
+                owner, repo = parts[0], parts[1]
+        except Exception:
+            owner, repo = None, None
+    else:
+        # HTTPS or other URL style
+        parsed = urlparse(raw)
+        # If it wasn't a real URL, treat it like a path
+        path = parsed.path if parsed.scheme else raw
+        parts = [p for p in path.split("/") if p]
+        if len(parts) >= 2:
+            owner, repo = parts[-2], parts[-1]
+        elif len(parts) == 1:
+            repo = parts[0]
+    
+    # Fallbacks
+    if not repo:
+        repo = "repo"
+    if not owner:
+        owner = "owner"
+    
+    # Make filesystem-friendly (keep it simple)
+    def _sanitize(s: str) -> str:
+        return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in s).strip("_") or "x"
+    
+    return f"{_sanitize(owner)}_{_sanitize(repo)}"
 

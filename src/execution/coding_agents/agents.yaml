@@ -71,8 +71,8 @@ agents:
     adapter_class: "ClaudeCodeCodingAgent"
     adapter_module: "src.execution.coding_agents.adapters.claude_code_agent"
     supports_native_git: false
-    default_model: "claude-sonnet-4-20250514"
-    default_debug_model: "claude-sonnet-4-20250514"
+    default_model: "claude-opus-4-5"
+    default_debug_model: "claude-opus-4-5"
     env_vars:
       - "ANTHROPIC_API_KEY"
     install_command: "npm install -g @anthropic-ai/claude-code"
@@ -88,6 +88,8 @@ agents:
         - "Read"
         - "Write"
         - "Bash"
+      # Stream output live to terminal (set false to buffer until completion)
+      streaming: true
 
   # ============================================================================
   # OpenHands - Agent with sandboxed execution

@@ -137,8 +137,22 @@ class KnowledgePipeline:
             ingestor_params: Default parameters for all ingestors
             merger_params: Parameters for the knowledge merger
         """
-        self.wiki_dir = Path(wiki_dir) if wiki_dir else DEFAULT_WIKI_DIR
+        # Normalize wiki_dir early and make it absolute to avoid ambiguity.
+        #
+        # This matters because ingestors may run tools in different working
+        # directories (e.g., inside a cloned repo under /tmp). If wiki_dir is
+        # relative, pages can end up written to the wrong place.
+        self.wiki_dir = (Path(wiki_dir) if wiki_dir else DEFAULT_WIKI_DIR).expanduser().resolve()
+
+        # Ensure the wiki root directory exists so the merger can safely
+        # initialize any analysis tools against it.
+        self.wiki_dir.mkdir(parents=True, exist_ok=True)
+
+        # Make sure ingestors and the merger share the same wiki_dir.
+        # If the caller already provided an explicit wiki_dir for ingestors,
+        # we respect it.
         self.ingestor_params = ingestor_params or {}
+        self.ingestor_params.setdefault("wiki_dir", self.wiki_dir)
         self.merger_params = merger_params or {}
         
         # Initialize merger

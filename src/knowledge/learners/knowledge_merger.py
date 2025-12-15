@@ -549,7 +549,10 @@ class KnowledgeMerger:
         Returns:
             MergeResult with statistics and actions taken
         """
-        wiki_dir = Path(wiki_dir)
+        wiki_dir = Path(wiki_dir).expanduser().resolve()
+        # Ensure the directory exists so agent initialization and KG scanning
+        # do not fail on missing paths (e.g., in tests with a fresh wiki_dir).
+        wiki_dir.mkdir(parents=True, exist_ok=True)
         result = MergeResult(total_proposed=len(proposed_pages))
         
         if not proposed_pages:

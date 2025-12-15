@@ -37,6 +37,15 @@ class TestRepoIngestorUtils:
         assert get_repo_name_from_url("https://github.com/unslothai/unsloth/") == "unsloth"
         assert get_repo_name_from_url("https://github.com/unslothai/unsloth.git") == "unsloth"
         assert get_repo_name_from_url("git@github.com:user/repo.git") == "repo"
+
+    def test_get_repo_namespace_from_url(self):
+        """Test extracting a stable, collision-resistant repo namespace."""
+        from src.knowledge.learners.ingestors.repo_ingestor.utils import get_repo_namespace_from_url
+        
+        assert get_repo_namespace_from_url("https://github.com/unslothai/unsloth") == "unslothai_unsloth"
+        assert get_repo_namespace_from_url("https://github.com/unslothai/unsloth/") == "unslothai_unsloth"
+        assert get_repo_namespace_from_url("https://github.com/unslothai/unsloth.git") == "unslothai_unsloth"
+        assert get_repo_namespace_from_url("git@github.com:user/repo.git") == "user_repo"
     
     def test_load_wiki_structure_workflow(self):
         """Test loading workflow wiki structure."""
