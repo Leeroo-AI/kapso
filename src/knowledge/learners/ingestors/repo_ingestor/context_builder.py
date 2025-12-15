@@ -328,14 +328,6 @@ def generate_file_detail(
     lines.append("**Significance:** <!-- Why does this file exist? Core component or utility? -->")
     lines.append("")
     
-    # Relationships
-    lines.append("## Relationships")
-    lines.append("")
-    lines.append("**Depends on:** <!-- What files in this repo does it import? -->")
-    lines.append("")
-    lines.append("**Used by:** <!-- What files import this? -->")
-    lines.append("")
-    
     return "\n".join(lines)
 
 
