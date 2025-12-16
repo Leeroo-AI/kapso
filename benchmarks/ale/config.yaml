@@ -27,11 +27,11 @@ modes:
       params:
         reasoning_effort: "high"
         code_debug_tries: 3
-        node_expansion_limit: 5
+        node_expansion_limit: 3
         node_expansion_new_childs_count: 15
         idea_generation_steps: 1
         first_experiment_factor: 2
-        experimentation_per_run: 10
+        experimentation_per_run: 7
         per_step_maximum_solution_count: 10
         exploration_budget_percent: 75
         idea_generation_model: "gemini/gemini-2.5-pro"
@@ -53,8 +53,8 @@ modes:
         state_experiments_count: 5
         relevant_retrieval_experiments_count: 3
         top_experiments_in_context_count: 2
-        recent_experiments_in_context_count: 2
-        summary_token_limit: 1000
+        recent_experiments_in_context_count: 0
+        summary_token_limit: 2000
         summary_model: "gemini/gemini-2.5-pro"
     
     # Knowledge search configuration
