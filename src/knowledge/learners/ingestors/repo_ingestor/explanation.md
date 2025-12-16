@@ -9,24 +9,25 @@ The **RepoIngestor** is a prompt-driven, multi-phase knowledge extraction pipeli
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Repository Ingestor                            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│   Git Repo ──► Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──►          │
-│                  │           │           │           │                   │
-│               RepoMap    Workflows   Implement.  Principles              │
-│                                                                          │
-│                        ──► Phase 4 ──► Phase 5 ──► Phase 6 ──► Phase 7  │
-│                              │           │           │           │       │
-│                          Env/Heur     Audit      Orphans    Orphan Audit │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Repository Ingestor                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Git Repo ──► Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──►              │
+│                  │           │           │           │                       │
+│               RepoMap    Workflows   Implement.  Principles                  │
+│                                                                              │
+│            ──► Phase 4 ──► Phase 5 ──► Phase 6 (multi-step) ──► Phase 7     │
+│                  │           │           │                         │         │
+│              Env/Heur     Audit    6a→6b→6c→6d              Orphan Audit    │
+│                                    (Triage→Review→Create→Verify)            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## The 8 Phases
+## The Phases
 
 ### Phase 0: Repository Understanding
 
@@ -132,17 +133,85 @@ The **RepoIngestor** is a prompt-driven, multi-phase knowledge extraction pipeli
 
 ---
 
-### Phase 6: Orphan Mining
+### Phase 6: Orphan Mining (Multi-Step Pipeline)
 
 **Purpose:** Find code that wasn't captured through workflow-based analysis.
+
+Phase 6 is a **4-step pipeline** that combines deterministic code-based filtering with agent evaluation:
+
+#### Step 6a: Triage (Code-Based)
+
+**Executor:** Python code (deterministic, no agent)
 
 **How it works:**
 1. Reads the Repository Map's **Coverage column**
 2. Files with `—` coverage are orphan candidates
-3. Filters out test files, configs, trivial code
-4. Creates Implementation/Principle pages for valuable orphans
+3. Applies deterministic filter rules:
 
-**Output:** Additional Implementation and Principle pages
+**AUTO_DISCARD Rules (skip these files):**
+| Rule | Condition |
+|------|-----------|
+| D1 | ≤20 lines |
+| D2 | `__init__.py` with <100 lines |
+| D3 | Test files (`/tests/`, `test_*.py`, `*_test.py`) |
+| D4 | Benchmark files (`/benchmark/`) |
+| D5 | Scripts directory (`scripts/`) |
+
+**AUTO_KEEP Rules (must document):**
+| Rule | Condition |
+|------|-----------|
+| K1 | ≥300 lines |
+| K2 | Kernel files (`/kernels/`) with ≥100 lines |
+| K3 | Model files (`/models/`) with ≥200 lines |
+
+**MANUAL_REVIEW:** Everything else (agent decides)
+
+**Output:** `_orphan_candidates.md` with three sections
+
+---
+
+#### Step 6b: Review (Agent)
+
+**Executor:** Claude Code agent
+
+**How it works:**
+1. Reads `_orphan_candidates.md`
+2. For each file in MANUAL_REVIEW section:
+   - Reads the source file
+   - Evaluates: public API? user-facing? distinct algorithm?
+   - Writes decision: `✅ APPROVED` or `❌ REJECTED` with reasoning
+
+**Output:** Updated `_orphan_candidates.md` with decisions filled in
+
+---
+
+#### Step 6c: Create (Agent)
+
+**Executor:** Claude Code agent
+
+**How it works:**
+1. Reads approved files (AUTO_KEEP + APPROVED from MANUAL_REVIEW)
+2. For each approved file:
+   - Creates Implementation page
+   - Creates Principle page if needed (with polymorphism check)
+   - Updates Status column to `✅ DONE` (checkpoint)
+   - Updates RepoMap Coverage column
+   - Updates page indexes
+
+**Output:** Implementation/Principle pages, updated indexes
+
+---
+
+#### Step 6d: Verify (Code-Based)
+
+**Executor:** Python code (deterministic, no agent)
+
+**How it works:**
+1. Checks all AUTO_KEEP files have `DONE` status
+2. Checks all MANUAL_REVIEW files have decisions (not PENDING)
+3. Checks all approved files have wiki pages
+
+**Output:** Verification report (pass/fail with errors)
 
 ---
 
@@ -184,6 +253,22 @@ A compact index tracking all source files:
 | ⬜ | utils.py | Helper utilities | — | [→](_files/...) |
 ```
 
+### Orphan Candidates (`_orphan_candidates.md`)
+
+Generated by Step 6a, tracks orphan file processing:
+
+```
+## AUTO_KEEP (Must Document)
+| # | File | Lines | Rule | Status |
+|---|------|-------|------|--------|
+| 1 | path/file.py | 500 | K1: ≥300 lines | ⬜ PENDING |
+
+## MANUAL_REVIEW (Agent Evaluates)
+| # | File | Lines | Purpose | Decision | Reasoning |
+|---|------|-------|---------|----------|-----------|
+| 1 | path/util.py | 150 | Utility | ⬜ PENDING | |
+```
+
 ### Page Indexes
 
 Separate indexes for each page type:
@@ -199,7 +284,12 @@ Each phase writes a summary report:
 - `phase0_repo_understanding.md`
 - `phase1_anchoring.md`
 - `phase2_excavation.md`
-- etc.
+- `phase3_synthesis.md`
+- `phase4_enrichment.md`
+- `phase5_audit.md`
+- `phase6b_orphan_review.md`
+- `phase6c_orphan_create.md`
+- `phase6d_orphan_verify.md` (if errors)
 
 Reports contain: summary, statistics, key discoveries, and notes for the next phase.
 
@@ -229,8 +319,19 @@ Phase 4 ────────────────────────
 Phase 5 ──────────────────────────────────────────────────────────────►
          │ Validates all links, fixes broken references
          ▼
-Phase 6 ──────────────────────────────────────────────────────────────►
-         │ Uses Coverage column to find orphans → Creates new pages
+Phase 6a (CODE) ──────────────────────────────────────────────────────►
+         │ Reads Coverage column → Applies D1-D5, K1-K3 rules
+         │ Creates _orphan_candidates.md
+         ▼
+Phase 6b (AGENT) ─────────────────────────────────────────────────────►
+         │ Evaluates MANUAL_REVIEW files → Writes decisions
+         ▼
+Phase 6c (AGENT) ─────────────────────────────────────────────────────►
+         │ Creates pages for approved files → Checkpoints progress
+         │ Updates RepoMap Coverage + page indexes
+         ▼
+Phase 6d (CODE) ──────────────────────────────────────────────────────►
+         │ Verifies all approved files have pages
          ▼
 Phase 7 ──────────────────────────────────────────────────────────────►
          │ Final validation, hidden workflow check
@@ -280,13 +381,14 @@ Implementation pages are the most detailed. Here's their structure:
 from src.knowledge.learners.ingestors.repo_ingestor import RepoIngestor
 
 ingestor = RepoIngestor(
-    repo_url="https://github.com/unslothai/unsloth",
-    wiki_dir="./output_wiki",
-    timeout=3600,  # 1 hour per phase
+    params={
+        "wiki_dir": "./output_wiki",
+        "timeout": 3600,  # 1 hour per phase
+    }
 )
 
 # Run all phases
-await ingestor.ingest()
+pages = ingestor.ingest({"url": "https://github.com/unslothai/unsloth"})
 ```
 
 ---
@@ -305,6 +407,10 @@ await ingestor.ingest()
 
 6. **Usage Examples Required:** Implementation pages must include runnable code to be useful for downstream agents.
 
+7. **Deterministic Orphan Triage:** Phase 6 uses code-based filtering (D1-D5, K1-K3 rules) for reliable, reproducible results. Agent judgment is limited to borderline cases (MANUAL_REVIEW).
+
+8. **Checkpointing in Phase 6c:** Progress is saved after each page creation, allowing resumption if interrupted.
+
 ---
 
 ## Troubleshooting
@@ -315,20 +421,28 @@ await ingestor.ingest()
 | Missing Coverage updates | Agent forgot to update index | Prompts explicitly require index sync |
 | Broken wiki links | Page renamed or missing | Audit phase detects and fixes |
 | File paths in Metadata | Confused high-level vs low-level refs | Prompts now have ❌/✅ examples |
+| Orphan files missed | Subjective filtering | Step 6a now uses deterministic rules |
+| Orphan progress lost | No checkpointing | Step 6c checkpoints each page |
 
 ---
 
 ## Summary
 
-The RepoIngestor transforms raw code into structured knowledge through 8 phases:
+The RepoIngestor transforms raw code into structured knowledge through multiple phases:
 
-1. **Understand** the repository structure
-2. **Anchor** on workflows/use cases
-3. **Excavate** implementation details
-4. **Synthesize** underlying principles
-5. **Enrich** with environment/heuristics
-6. **Audit** for integrity
-7. **Mine** orphaned code
-8. **Audit** orphans
+**Branch 1: Workflow-Based Extraction**
+1. **Understand** the repository structure (Phase 0)
+2. **Anchor** on workflows/use cases (Phase 1)
+3. **Excavate** implementation details (Phase 2)
+4. **Synthesize** underlying principles (Phase 3)
+5. **Enrich** with environment/heuristics (Phase 4)
+6. **Audit** for integrity (Phase 5)
+
+**Branch 2: Orphan Mining (Multi-Step)**
+7. **Triage** orphan candidates deterministically (Step 6a)
+8. **Review** borderline files with agent judgment (Step 6b)
+9. **Create** wiki pages for approved files (Step 6c)
+10. **Verify** all approved files have pages (Step 6d)
+11. **Audit** orphans for hidden workflows (Phase 7)
 
 The output is a complete knowledge graph that other agents can query to understand, use, and modify the codebase.

@@ -15,8 +15,11 @@
 # 4. Enrichment - Mine constraints/tips, write Environment/Heuristic pages
 # 5. Audit - Validate graph integrity, fix broken links
 #
-# Branch 2: Orphan Mining (runs after Branch 1)
-# 6. Orphan Mining - Find uncaptured code, create nodes with polymorphism check
+# Branch 2: Orphan Mining (multi-step pipeline, runs after Branch 1)
+# 6a. Triage (code) - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+# 6b. Review (agent) - Agent evaluates MANUAL_REVIEW files
+# 6c. Create (agent) - Agent creates wiki pages for approved files
+# 6d. Verify (code) - Verify all approved files have pages
 # 7. Orphan Audit - Validate orphan nodes, check for hidden workflows
 #
 # The final graph is the union of both branches.
@@ -48,6 +51,9 @@ from src.knowledge.learners.ingestors.repo_ingestor.context_builder import (
     generate_repo_scaffold,
     get_repo_map_path,
     check_exploration_progress,
+    generate_orphan_candidates,
+    get_orphan_candidates_path,
+    verify_orphan_completion,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,8 +90,11 @@ class RepoIngestor(Ingestor):
     4. Enrichment: Mine constraints → write Environment/Heuristic pages
     5. Audit: Validate pages → fix broken links
     
-    Branch 2: Orphan Mining
-    6. Orphan Mining: Find uncaptured code → create nodes with polymorphism check
+    Branch 2: Orphan Mining (Multi-Step Pipeline)
+    6a. Triage (code): Deterministic filtering → AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+    6b. Review (agent): Evaluate MANUAL_REVIEW files → approve/reject each
+    6c. Create (agent): Create wiki pages for approved files → checkpoint progress
+    6d. Verify (code): Check all approved files have pages → report errors
     7. Orphan Audit: Validate orphans → check for hidden workflows, dead code
     
     The final graph is the union of both branches.
@@ -222,8 +231,9 @@ class RepoIngestor(Ingestor):
             "synthesis": ["principle"],
             "enrichment": ["environment", "heuristic"],
             "audit": ["workflow", "principle", "implementation", "environment", "heuristic"],
-            # Branch 2: Orphan mining
-            "orphan_mining": ["implementation", "principle"],
+            # Branch 2: Orphan mining (multi-step)
+            "orphan_review": [],  # No wiki structures needed for review
+            "orphan_create": ["implementation", "principle"],  # Needs both structures
             "orphan_audit": ["workflow", "implementation", "principle", "heuristic"],
         }
         
@@ -238,6 +248,9 @@ class RepoIngestor(Ingestor):
         # Get path to the _RepoMap file (used by all phases after Phase 0)
         repo_map_path = get_repo_map_path(self._wiki_dir, repo_name)
         
+        # Get path to orphan candidates file (used by orphan phases)
+        candidates_path = get_orphan_candidates_path(self._wiki_dir)
+        
         # Format the prompt with all variables
         format_vars = {
             "repo_name": repo_name,
@@ -246,6 +259,7 @@ class RepoIngestor(Ingestor):
             "branch": branch,
             "wiki_dir": str(self._wiki_dir),
             "repo_map_path": str(repo_map_path),
+            "candidates_path": str(candidates_path),  # For orphan phases
             **structure_content,
         }
         
@@ -548,17 +562,50 @@ class RepoIngestor(Ingestor):
                     logger.warning(f"Phase {phase} failed, continuing to next phase...")
                     # Continue even if a phase fails - try to extract what we can
             
-            # Step 6: Run Branch 2 - Orphan mining
+            # Step 6: Run Branch 2 - Orphan mining (multi-step pipeline)
             logger.info("=" * 60)
             logger.info("BRANCH 2: Orphan Mining")
             logger.info("=" * 60)
             
-            branch2_phases = ["orphan_mining", "orphan_audit"]
+            # Step 6a: Triage (code-based, deterministic)
+            # Generates _orphan_candidates.md with AUTO_KEEP, AUTO_DISCARD, MANUAL_REVIEW
+            logger.info("Step 6a: Orphan Triage (deterministic)...")
+            candidates_path = generate_orphan_candidates(
+                repo_map_path=get_repo_map_path(self._wiki_dir, repo_name),
+                wiki_dir=self._wiki_dir,
+                repo_name=repo_name,
+            )
+            logger.info(f"Orphan candidates written to: {candidates_path}")
             
-            for phase in branch2_phases:
-                success = self._run_phase(phase, repo_name, str(repo_path), url, branch)
-                if not success:
-                    logger.warning(f"Phase {phase} failed, continuing to next phase...")
+            # Step 6b: Review (agent evaluates MANUAL_REVIEW files)
+            logger.info("Step 6b: Orphan Review (agent evaluation)...")
+            success = self._run_phase("orphan_review", repo_name, str(repo_path), url, branch)
+            if not success:
+                logger.warning("Orphan review phase failed, continuing...")
+            
+            # Step 6c: Create (agent creates wiki pages for approved files)
+            logger.info("Step 6c: Orphan Create (page generation)...")
+            success = self._run_phase("orphan_create", repo_name, str(repo_path), url, branch)
+            if not success:
+                logger.warning("Orphan create phase failed, continuing...")
+            
+            # Step 6d: Verify (code-based verification)
+            logger.info("Step 6d: Orphan Verification (deterministic)...")
+            verify_success, verify_report = verify_orphan_completion(self._wiki_dir, repo_name)
+            if not verify_success:
+                logger.warning(f"Orphan verification found issues:\n{verify_report}")
+                # Write verification report to _reports directory
+                reports_dir = self._wiki_dir / "_reports"
+                reports_dir.mkdir(parents=True, exist_ok=True)
+                (reports_dir / "phase6d_orphan_verify.md").write_text(verify_report, encoding="utf-8")
+            else:
+                logger.info("Orphan verification passed")
+            
+            # Phase 7: Orphan Audit (final validation)
+            logger.info("Phase 7: Orphan Audit...")
+            success = self._run_phase("orphan_audit", repo_name, str(repo_path), url, branch)
+            if not success:
+                logger.warning("Orphan audit phase failed, continuing...")
             
             # Step 7: Collect pages written by agent (union of both branches)
             report = validate_wiki_directory(self._wiki_dir)

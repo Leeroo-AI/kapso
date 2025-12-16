@@ -666,3 +666,495 @@ def check_exploration_progress(repo_map_path: Path) -> Tuple[int, int, List[str]
     logger.info(f"Exploration progress: {explored}/{total} files explored")
     return (explored, total, unexplored)
 
+
+# =============================================================================
+# ORPHAN MINING: Deterministic Triage and Verification
+# =============================================================================
+
+
+def _parse_repo_map_for_orphans(repo_map_path: Path) -> List[Dict]:
+    """
+    Parse the RepoMap to find files with Coverage = '—' (orphan candidates).
+    
+    Returns list of dicts with: path, lines, purpose, coverage
+    """
+    if not repo_map_path.exists():
+        logger.warning(f"Repo map not found: {repo_map_path}")
+        return []
+    
+    content = repo_map_path.read_text(encoding="utf-8")
+    lines_list = content.splitlines()
+    
+    orphan_files = []
+    
+    for line in lines_list:
+        # Look for table rows: | Status | `path` | lines | purpose | coverage | details |
+        if not line.startswith("|") or "`" not in line:
+            continue
+        
+        # Skip header rows
+        if "Status" in line or "----" in line or "File" in line:
+            continue
+        
+        parts = [p.strip() for p in line.split("|")]
+        # Expected: ['', 'Status', '`path`', 'lines', 'purpose', 'coverage', 'details', '']
+        if len(parts) < 7:
+            continue
+        
+        file_cell = parts[2]
+        lines_cell = parts[3]
+        purpose_cell = parts[4]
+        coverage_cell = parts[5]
+        
+        # Extract file path from backticks
+        if "`" not in file_cell:
+            continue
+        
+        start = file_cell.find("`") + 1
+        end = file_cell.rfind("`")
+        if start <= 0 or end <= start:
+            continue
+        
+        file_path = file_cell[start:end]
+        
+        # Parse line count
+        try:
+            line_count = int(lines_cell.replace(",", ""))
+        except ValueError:
+            line_count = 0
+        
+        # Check if coverage is empty (orphan candidate)
+        # Coverage column shows "—" for uncovered files
+        is_orphan = coverage_cell.strip() in ("—", "-", "")
+        
+        if is_orphan:
+            orphan_files.append({
+                "path": file_path,
+                "lines": line_count,
+                "purpose": purpose_cell if purpose_cell != "—" else "",
+            })
+    
+    return orphan_files
+
+
+def _apply_orphan_filter_rules(file_info: Dict) -> Tuple[str, str]:
+    """
+    Apply deterministic filter rules to classify an orphan file.
+    
+    Returns:
+        Tuple of (category, rule) where:
+        - category: "AUTO_DISCARD", "AUTO_KEEP", or "MANUAL_REVIEW"
+        - rule: The rule that matched (e.g., "D1", "K1")
+    """
+    path = file_info["path"]
+    lines = file_info["lines"]
+    filename = path.split("/")[-1] if "/" in path else path
+    
+    # =========================================================================
+    # AUTO_DISCARD RULES (no agent judgment needed)
+    # =========================================================================
+    
+    # Rule D1: Empty or near-empty files (≤20 lines)
+    if lines <= 20:
+        return ("AUTO_DISCARD", "D1: ≤20 lines")
+    
+    # Rule D2: Small __init__.py files (<100 lines)
+    if filename == "__init__.py" and lines < 100:
+        return ("AUTO_DISCARD", "D2: Small __init__.py")
+    
+    # Rule D3: Test files (by path pattern)
+    if "/tests/" in path or "/test_" in path or "_test.py" in path or path.startswith("tests/"):
+        return ("AUTO_DISCARD", "D3: Test file")
+    
+    # Rule D4: Benchmark files
+    if "/benchmark/" in path or "/benchmarks/" in path:
+        return ("AUTO_DISCARD", "D4: Benchmark file")
+    
+    # Rule D5: Scripts directory (not core library)
+    if path.startswith("scripts/"):
+        return ("AUTO_DISCARD", "D5: Scripts directory")
+    
+    # =========================================================================
+    # AUTO_KEEP RULES (no agent judgment needed)
+    # =========================================================================
+    
+    # Rule K1: Large files (≥300 lines) - likely substantial code
+    if lines >= 300:
+        return ("AUTO_KEEP", f"K1: {lines} lines (≥300)")
+    
+    # Rule K2: Kernel files (performance-critical code)
+    if "/kernels/" in path and lines >= 100:
+        return ("AUTO_KEEP", f"K2: Kernel file ({lines} lines)")
+    
+    # Rule K3: Model files (user-facing implementations)
+    if "/models/" in path and lines >= 200:
+        return ("AUTO_KEEP", f"K3: Model file ({lines} lines)")
+    
+    # =========================================================================
+    # MANUAL_REVIEW: Everything else (agent judgment needed)
+    # =========================================================================
+    return ("MANUAL_REVIEW", "")
+
+
+def generate_orphan_candidates(
+    repo_map_path: Path,
+    wiki_dir: Path,
+    repo_name: str,
+) -> Path:
+    """
+    Generate _orphan_candidates.md with deterministic classification.
+    
+    This is Step 6a of orphan mining. It reads the RepoMap, applies
+    deterministic filter rules, and writes a candidates file that
+    the agent will use in subsequent steps.
+    
+    Categories:
+    - AUTO_KEEP: Files that MUST be documented (no agent judgment)
+    - AUTO_DISCARD: Files to skip (no agent judgment)
+    - MANUAL_REVIEW: Files requiring agent evaluation
+    
+    Args:
+        repo_map_path: Path to _RepoMap_{repo_name}.md
+        wiki_dir: Directory to write _orphan_candidates.md
+        repo_name: Repository name for display
+        
+    Returns:
+        Path to the generated _orphan_candidates.md file
+    """
+    logger.info(f"Generating orphan candidates from {repo_map_path}")
+    
+    # Parse RepoMap to find orphan files (Coverage = "—")
+    orphan_files = _parse_repo_map_for_orphans(repo_map_path)
+    logger.info(f"Found {len(orphan_files)} orphan candidates")
+    
+    # Classify each file using deterministic rules
+    auto_keep = []
+    auto_discard = []
+    manual_review = []
+    
+    for file_info in orphan_files:
+        category, rule = _apply_orphan_filter_rules(file_info)
+        
+        if category == "AUTO_DISCARD":
+            auto_discard.append((file_info["path"], file_info["lines"], rule))
+        elif category == "AUTO_KEEP":
+            auto_keep.append((file_info["path"], file_info["lines"], rule))
+        else:
+            manual_review.append((
+                file_info["path"],
+                file_info["lines"],
+                file_info["purpose"],
+            ))
+    
+    # Sort each list by path for consistent output
+    auto_keep.sort(key=lambda x: x[0])
+    auto_discard.sort(key=lambda x: x[0])
+    manual_review.sort(key=lambda x: x[0])
+    
+    # Generate markdown content
+    content_lines = []
+    
+    # Header
+    content_lines.append(f"# Orphan Candidates: {repo_name}")
+    content_lines.append("")
+    content_lines.append("> Generated by deterministic triage (Step 6a).")
+    content_lines.append("> Agent reviews MANUAL_REVIEW section only.")
+    content_lines.append("")
+    
+    # Summary table
+    content_lines.append("## Summary")
+    content_lines.append("")
+    content_lines.append("| Category | Count | Action |")
+    content_lines.append("|----------|-------|--------|")
+    content_lines.append(f"| AUTO_KEEP | {len(auto_keep)} | Create pages (no judgment needed) |")
+    content_lines.append(f"| AUTO_DISCARD | {len(auto_discard)} | Skip (no judgment needed) |")
+    content_lines.append(f"| MANUAL_REVIEW | {len(manual_review)} | Agent evaluates each file |")
+    content_lines.append("")
+    content_lines.append("---")
+    content_lines.append("")
+    
+    # AUTO_KEEP section
+    content_lines.append("## AUTO_KEEP (Must Document)")
+    content_lines.append("")
+    content_lines.append("These files MUST have wiki pages. No agent judgment required.")
+    content_lines.append("")
+    content_lines.append("| # | File | Lines | Rule | Status |")
+    content_lines.append("|---|------|-------|------|--------|")
+    for i, (path, lines, rule) in enumerate(auto_keep, 1):
+        content_lines.append(f"| {i} | `{path}` | {lines} | {rule} | ⬜ PENDING |")
+    if not auto_keep:
+        content_lines.append("| — | (none) | — | — | — |")
+    content_lines.append("")
+    content_lines.append("---")
+    content_lines.append("")
+    
+    # AUTO_DISCARD section
+    content_lines.append("## AUTO_DISCARD (Skip)")
+    content_lines.append("")
+    content_lines.append("These files are skipped. No wiki pages needed.")
+    content_lines.append("")
+    content_lines.append("| File | Lines | Rule |")
+    content_lines.append("|------|-------|------|")
+    for path, lines, rule in auto_discard:
+        content_lines.append(f"| `{path}` | {lines} | {rule} |")
+    if not auto_discard:
+        content_lines.append("| (none) | — | — |")
+    content_lines.append("")
+    content_lines.append("---")
+    content_lines.append("")
+    
+    # MANUAL_REVIEW section
+    content_lines.append("## MANUAL_REVIEW (Agent Evaluates)")
+    content_lines.append("")
+    content_lines.append("Agent must evaluate each file and write decision.")
+    content_lines.append("")
+    content_lines.append("| # | File | Lines | Purpose | Decision | Reasoning |")
+    content_lines.append("|---|------|-------|---------|----------|-----------|")
+    for i, (path, lines, purpose) in enumerate(manual_review, 1):
+        purpose_display = purpose if purpose else "—"
+        content_lines.append(f"| {i} | `{path}` | {lines} | {purpose_display} | ⬜ PENDING | |")
+    if not manual_review:
+        content_lines.append("| — | (none) | — | — | — | — |")
+    content_lines.append("")
+    content_lines.append("---")
+    content_lines.append("")
+    
+    # Decision guide for agent
+    content_lines.append("## Decision Guide for Agent")
+    content_lines.append("")
+    content_lines.append("For MANUAL_REVIEW files, evaluate:")
+    content_lines.append("")
+    content_lines.append("1. **Does it have a public API?** (class or function without `_` prefix)")
+    content_lines.append("2. **Is it user-facing?** (would a user import/call this?)")
+    content_lines.append("3. **Does it implement a distinct algorithm?** (not just glue code)")
+    content_lines.append("")
+    content_lines.append("Write decision as:")
+    content_lines.append("- `✅ APPROVED` — Create wiki page")
+    content_lines.append("- `❌ REJECTED` — Skip (with reasoning)")
+    content_lines.append("")
+    
+    # Write to file
+    output_path = wiki_dir / "_orphan_candidates.md"
+    output_path.write_text("\n".join(content_lines), encoding="utf-8")
+    
+    logger.info(
+        f"Wrote orphan candidates: {len(auto_keep)} AUTO_KEEP, "
+        f"{len(auto_discard)} AUTO_DISCARD, {len(manual_review)} MANUAL_REVIEW"
+    )
+    
+    return output_path
+
+
+def get_orphan_candidates_path(wiki_dir: Path) -> Path:
+    """Get the path to the _orphan_candidates.md file."""
+    return wiki_dir / "_orphan_candidates.md"
+
+
+def _parse_orphan_candidates(candidates_path: Path) -> Dict[str, List[Dict]]:
+    """
+    Parse _orphan_candidates.md to get file lists and statuses.
+    
+    Returns dict with:
+    - auto_keep: List of {path, status} dicts
+    - manual_review: List of {path, decision} dicts
+    """
+    if not candidates_path.exists():
+        return {"auto_keep": [], "manual_review": []}
+    
+    content = candidates_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    
+    auto_keep = []
+    manual_review = []
+    current_section = None
+    
+    for line in lines:
+        # Detect section headers
+        if "## AUTO_KEEP" in line:
+            current_section = "auto_keep"
+            continue
+        elif "## AUTO_DISCARD" in line:
+            current_section = "auto_discard"
+            continue
+        elif "## MANUAL_REVIEW" in line:
+            current_section = "manual_review"
+            continue
+        elif line.startswith("## "):
+            current_section = None
+            continue
+        
+        # Skip non-table rows
+        if not line.startswith("|") or "`" not in line:
+            continue
+        if "----" in line or "File" in line or "Status" in line:
+            continue
+        
+        parts = [p.strip() for p in line.split("|")]
+        
+        if current_section == "auto_keep" and len(parts) >= 6:
+            # | # | File | Lines | Rule | Status |
+            file_cell = parts[2]
+            status_cell = parts[5]
+            
+            # Extract path from backticks
+            if "`" in file_cell:
+                start = file_cell.find("`") + 1
+                end = file_cell.rfind("`")
+                if start > 0 and end > start:
+                    path = file_cell[start:end]
+                    is_done = "DONE" in status_cell or "✅" in status_cell
+                    auto_keep.append({"path": path, "done": is_done})
+        
+        elif current_section == "manual_review" and len(parts) >= 7:
+            # | # | File | Lines | Purpose | Decision | Reasoning |
+            file_cell = parts[2]
+            decision_cell = parts[5]
+            
+            # Extract path from backticks
+            if "`" in file_cell:
+                start = file_cell.find("`") + 1
+                end = file_cell.rfind("`")
+                if start > 0 and end > start:
+                    path = file_cell[start:end]
+                    # Check decision status
+                    is_pending = "PENDING" in decision_cell or "⬜" in decision_cell
+                    is_approved = "APPROVED" in decision_cell or "✅" in decision_cell
+                    is_rejected = "REJECTED" in decision_cell or "❌" in decision_cell
+                    
+                    manual_review.append({
+                        "path": path,
+                        "pending": is_pending,
+                        "approved": is_approved,
+                        "rejected": is_rejected,
+                    })
+    
+    return {"auto_keep": auto_keep, "manual_review": manual_review}
+
+
+def verify_orphan_completion(wiki_dir: Path, repo_name: str) -> Tuple[bool, str]:
+    """
+    Verify all orphan candidates were processed correctly.
+    
+    This is Step 6d of orphan mining. It checks:
+    1. All AUTO_KEEP files have DONE status
+    2. All MANUAL_REVIEW files have decisions (not PENDING)
+    3. All approved files have wiki pages in implementations/
+    
+    Args:
+        wiki_dir: Wiki directory containing _orphan_candidates.md
+        repo_name: Repository name for page name formatting
+        
+    Returns:
+        Tuple of (success: bool, report: str)
+        - success: True if all checks pass
+        - report: Human-readable report of findings
+    """
+    candidates_path = get_orphan_candidates_path(wiki_dir)
+    
+    if not candidates_path.exists():
+        return (False, "ERROR: _orphan_candidates.md not found")
+    
+    # Parse the candidates file
+    parsed = _parse_orphan_candidates(candidates_path)
+    auto_keep = parsed["auto_keep"]
+    manual_review = parsed["manual_review"]
+    
+    errors = []
+    warnings = []
+    
+    # Check 1: All AUTO_KEEP files have DONE status
+    auto_keep_not_done = [f["path"] for f in auto_keep if not f["done"]]
+    if auto_keep_not_done:
+        for path in auto_keep_not_done:
+            errors.append(f"AUTO_KEEP not completed: {path}")
+    
+    # Check 2: All MANUAL_REVIEW files have decisions
+    manual_pending = [f["path"] for f in manual_review if f["pending"]]
+    if manual_pending:
+        for path in manual_pending:
+            errors.append(f"MANUAL_REVIEW missing decision: {path}")
+    
+    # Check 3: All approved files have wiki pages
+    # Approved = AUTO_KEEP (all) + MANUAL_REVIEW with APPROVED
+    approved_files = [f["path"] for f in auto_keep]
+    approved_files.extend([f["path"] for f in manual_review if f["approved"]])
+    
+    implementations_dir = wiki_dir / "implementations"
+    principles_dir = wiki_dir / "principles"
+    
+    for file_path in approved_files:
+        # Derive expected page name from file path
+        # e.g., "unsloth/kernels/geglu.py" -> possible page names:
+        # - {repo_name}_geglu_kernel
+        # - {repo_name}_geglu
+        # - etc.
+        # We check if ANY page exists that could correspond to this file
+        
+        filename = file_path.split("/")[-1].replace(".py", "")
+        
+        # Check if any implementation page might cover this file
+        # Look for pages containing the filename (case-insensitive)
+        found_page = False
+        
+        if implementations_dir.exists():
+            for page_file in implementations_dir.glob("*.md"):
+                page_name = page_file.stem.lower()
+                if filename.lower() in page_name:
+                    found_page = True
+                    break
+        
+        if not found_page and principles_dir.exists():
+            for page_file in principles_dir.glob("*.md"):
+                page_name = page_file.stem.lower()
+                if filename.lower() in page_name:
+                    found_page = True
+                    break
+        
+        if not found_page:
+            warnings.append(f"No wiki page found for approved file: {file_path}")
+    
+    # Build report
+    report_lines = []
+    report_lines.append("# Orphan Completion Verification Report")
+    report_lines.append("")
+    report_lines.append("## Summary")
+    report_lines.append(f"- AUTO_KEEP files: {len(auto_keep)}")
+    report_lines.append(f"- MANUAL_REVIEW files: {len(manual_review)}")
+    report_lines.append(f"- Errors: {len(errors)}")
+    report_lines.append(f"- Warnings: {len(warnings)}")
+    report_lines.append("")
+    
+    if errors:
+        report_lines.append("## Errors (Must Fix)")
+        report_lines.append("")
+        for error in errors:
+            report_lines.append(f"- {error}")
+        report_lines.append("")
+    
+    if warnings:
+        report_lines.append("## Warnings")
+        report_lines.append("")
+        for warning in warnings:
+            report_lines.append(f"- {warning}")
+        report_lines.append("")
+    
+    if not errors and not warnings:
+        report_lines.append("## Result: PASS")
+        report_lines.append("")
+        report_lines.append("All orphan candidates processed successfully.")
+    elif not errors:
+        report_lines.append("## Result: PASS (with warnings)")
+        report_lines.append("")
+        report_lines.append("All required steps completed. Review warnings above.")
+    else:
+        report_lines.append("## Result: FAIL")
+        report_lines.append("")
+        report_lines.append("Fix the errors above and re-run verification.")
+    
+    report = "\n".join(report_lines)
+    success = len(errors) == 0
+    
+    logger.info(f"Orphan verification: {'PASS' if success else 'FAIL'} ({len(errors)} errors, {len(warnings)} warnings)")
+    
+    return (success, report)
+

@@ -10,12 +10,18 @@ You are a Quality Auditor. Your task is to validate that orphan nodes (created i
 - **Repository Map (Index):** {repo_map_path}
 - **File Details:** {wiki_dir}/_files/
 
-## IMPORTANT: Read Previous Phase Report
+## IMPORTANT: Read Previous Phase Reports
 
-**FIRST**, read the Orphan Mining report at `{wiki_dir}/_reports/phase6_orphan_mining.md`.
+**FIRST**, read the Orphan Mining reports:
+- `{wiki_dir}/_reports/phase6b_orphan_review.md` — MANUAL_REVIEW decisions
+- `{wiki_dir}/_reports/phase6c_orphan_create.md` — Pages created, coverage updates
 
-This report tells you:
-- Orphan pages created
+Also check `{wiki_dir}/_orphan_candidates.md` to see:
+- AUTO_KEEP files (all should have `✅ DONE` status)
+- MANUAL_REVIEW files (should have `✅ APPROVED` or `❌ REJECTED`)
+
+These reports tell you:
+- Which orphan pages were created
 - Pages needing hidden workflow check
 - Potential naming issues
 
