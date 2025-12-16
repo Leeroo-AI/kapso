@@ -136,7 +136,7 @@ Write .md files to: `{wiki_dir}/workflows/`
 - `{repo_name}_DPO_Alignment.md`
 - `{repo_name}_Model_Export.md`
 
-Write at least 1-3 workflow pages for the most important use cases.
+Write at least 3-5 workflow pages for the most important use cases.
 
 ## Repo Scoping Rule (CRITICAL)
 

@@ -13,13 +13,14 @@ The **RepoIngestor** is a prompt-driven, multi-phase knowledge extraction pipeli
 │                           Repository Ingestor                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│   Git Repo ──► Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──►              │
-│                  │           │           │           │                       │
-│               RepoMap    Workflows   Implement.  Principles                  │
+│   Git Repo ──► Phase 0 ──► Phase 1 ──► Phase 2 ──────────────────►          │
+│                  │           │           │                                   │
+│               RepoMap    Workflows   Impl+Principle PAIRS                   │
+│                                      (merged excavation+synthesis)           │
 │                                                                              │
-│            ──► Phase 4 ──► Phase 5 ──► Phase 6 (multi-step) ──► Phase 7     │
+│            ──► Phase 3 ──► Phase 4 ──► Phase 5 (multi-step) ──► Phase 6     │
 │                  │           │           │                         │         │
-│              Env/Heur     Audit    6a→6b→6c→6d              Orphan Audit    │
+│              Env/Heur     Audit    5a→5b→5c→5d              Orphan Audit    │
 │                                    (Triage→Review→Create→Verify)            │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -68,42 +69,43 @@ The **RepoIngestor** is a prompt-driven, multi-phase knowledge extraction pipeli
 
 ---
 
-### Phase 2: Excavation
+### Phase 2: Excavation + Synthesis (Merged)
 
-**Purpose:** Trace imports from Workflows to find the actual implementation code.
+**Purpose:** Trace imports from Workflows to source code, then create **Implementation-Principle PAIRS together** to keep concepts tightly connected to their implementations.
+
+**Why merged:** Previously separate phases caused disconnect — Principles were written without fresh context of the implementation details. Now both pages are written atomically while the agent has full understanding.
 
 **How it works:**
-1. Reads Workflow pages to identify which APIs are used
-2. Locates source files using the Repository Map
-3. Creates **Implementation pages** with:
+For EACH API/function traced from workflows:
+1. Read the source code
+2. Write **Implementation page** (HOW it works):
    - Code Reference (GitHub URL with line numbers)
    - Full signature with types
    - I/O Contract (inputs/outputs as tables)
    - Usage Examples (runnable code)
+3. Write **Principle page** (WHY/WHAT concept):
+   - Theoretical explanation
+   - Mathematical basis
+   - When to use
+4. Link them bidirectionally
+5. Move to next API
 
-**Output:** `implementations/{repo_name}_ClassName.md`
+**Multi-Implementation Principles:** When a Principle spans multiple implementations (e.g., "LoRA Merging" → save_pretrained_merged + save_pretrained_gguf), an **Implementation Mapping** table is included that explicitly shows which part of the concept each implementation handles:
+
+```
+| Concept Component | Implementation | What It Does |
+|-------------------|----------------|--------------|
+| LoRA weight fusion | save_pretrained_merged | Merges adapters, saves HuggingFace format |
+| LoRA merge + GGUF | save_pretrained_gguf | Merges adapters, converts to GGUF |
+```
+
+**Output:**
+- `implementations/{repo_name}_ClassName.md` — Implementation pages
+- `principles/{repo_name}_ConceptName.md` — Principle pages (linked)
 
 ---
 
-### Phase 3: Synthesis
-
-**Purpose:** Extract theoretical concepts and design patterns from implementations.
-
-**How it works:**
-1. Analyzes Implementation pages for underlying concepts
-2. Creates **Principle pages** explaining the "why" behind the code
-3. Links Principles to their Implementation(s)
-
-**Examples:**
-- "LoRA: Low-Rank Adaptation"
-- "Flash Attention"
-- "Gradient Checkpointing"
-
-**Output:** `principles/{repo_name}_PrincipleName.md`
-
----
-
-### Phase 4: Enrichment
+### Phase 3: Enrichment
 
 **Purpose:** Extract environment requirements and tribal knowledge (heuristics).
 
@@ -119,7 +121,7 @@ The **RepoIngestor** is a prompt-driven, multi-phase knowledge extraction pipeli
 
 ---
 
-### Phase 5: Audit
+### Phase 4: Audit
 
 **Purpose:** Validate the knowledge graph integrity.
 
@@ -133,13 +135,13 @@ The **RepoIngestor** is a prompt-driven, multi-phase knowledge extraction pipeli
 
 ---
 
-### Phase 6: Orphan Mining (Multi-Step Pipeline)
+### Phase 5: Orphan Mining (Multi-Step Pipeline)
 
 **Purpose:** Find code that wasn't captured through workflow-based analysis.
 
-Phase 6 is a **4-step pipeline** that combines deterministic code-based filtering with agent evaluation:
+Phase 5 is a **4-step pipeline** that combines deterministic code-based filtering with agent evaluation:
 
-#### Step 6a: Triage (Code-Based)
+#### Step 5a: Triage (Code-Based)
 
 **Executor:** Python code (deterministic, no agent)
 
@@ -170,7 +172,7 @@ Phase 6 is a **4-step pipeline** that combines deterministic code-based filterin
 
 ---
 
-#### Step 6b: Review (Agent)
+#### Step 5b: Review (Agent)
 
 **Executor:** Claude Code agent
 
@@ -185,15 +187,14 @@ Phase 6 is a **4-step pipeline** that combines deterministic code-based filterin
 
 ---
 
-#### Step 6c: Create (Agent)
+#### Step 5c: Create (Agent)
 
 **Executor:** Claude Code agent
 
 **How it works:**
 1. Reads approved files (AUTO_KEEP + APPROVED from MANUAL_REVIEW)
 2. For each approved file:
-   - Creates Implementation page
-   - Creates Principle page if needed (with polymorphism check)
+   - Creates Implementation-Principle pair (using same merged approach as Phase 2)
    - Updates Status column to `✅ DONE` (checkpoint)
    - Updates RepoMap Coverage column
    - Updates page indexes
@@ -202,7 +203,7 @@ Phase 6 is a **4-step pipeline** that combines deterministic code-based filterin
 
 ---
 
-#### Step 6d: Verify (Code-Based)
+#### Step 5d: Verify (Code-Based)
 
 **Executor:** Python code (deterministic, no agent)
 
@@ -215,7 +216,7 @@ Phase 6 is a **4-step pipeline** that combines deterministic code-based filterin
 
 ---
 
-### Phase 7: Orphan Audit
+### Phase 6: Orphan Audit
 
 **Purpose:** Quality control for orphan nodes.
 
@@ -255,7 +256,7 @@ A compact index tracking all source files:
 
 ### Orphan Candidates (`_orphan_candidates.md`)
 
-Generated by Step 6a, tracks orphan file processing:
+Generated by Step 5a, tracks orphan file processing:
 
 ```
 ## AUTO_KEEP (Must Document)
@@ -283,13 +284,12 @@ Separate indexes for each page type:
 Each phase writes a summary report:
 - `phase0_repo_understanding.md`
 - `phase1_anchoring.md`
-- `phase2_excavation.md`
-- `phase3_synthesis.md`
-- `phase4_enrichment.md`
-- `phase5_audit.md`
-- `phase6b_orphan_review.md`
-- `phase6c_orphan_create.md`
-- `phase6d_orphan_verify.md` (if errors)
+- `phase2_excavation_synthesis.md`
+- `phase3_enrichment.md`
+- `phase4_audit.md`
+- `phase5b_orphan_review.md`
+- `phase5c_orphan_create.md`
+- `phase5d_orphan_verify.md` (if errors)
 
 Reports contain: summary, statistics, key discoveries, and notes for the next phase.
 
@@ -304,36 +304,35 @@ Phase 0 ────────────────────────
 Phase 1 ──────────────────────────────────────────────────────────────►
          │ Uses RepoMap to find examples → Creates Workflows
          ▼
-Phase 2 ──────────────────────────────────────────────────────────────►
-         │ Reads Workflows, traces imports → Creates Implementations
+Phase 2 (MERGED Excavation+Synthesis) ────────────────────────────────►
+         │ Reads Workflows, traces imports
+         │ For EACH API: Creates Implementation + Principle PAIR together
+         │ Multi-impl Principles include Implementation Mapping table
          │ Updates Coverage column in RepoMap
          ▼
 Phase 3 ──────────────────────────────────────────────────────────────►
-         │ Reads Implementations → Creates Principles
-         │ Links Principles ↔ Implementations
-         ▼
-Phase 4 ──────────────────────────────────────────────────────────────►
          │ Scans code for constraints → Creates Environments + Heuristics
          │ Links to Implementations
          ▼
-Phase 5 ──────────────────────────────────────────────────────────────►
+Phase 4 ──────────────────────────────────────────────────────────────►
          │ Validates all links, fixes broken references
          ▼
-Phase 6a (CODE) ──────────────────────────────────────────────────────►
+Phase 5a (CODE) ──────────────────────────────────────────────────────►
          │ Reads Coverage column → Applies D1-D5, K1-K3 rules
          │ Creates _orphan_candidates.md
          ▼
-Phase 6b (AGENT) ─────────────────────────────────────────────────────►
+Phase 5b (AGENT) ─────────────────────────────────────────────────────►
          │ Evaluates MANUAL_REVIEW files → Writes decisions
          ▼
-Phase 6c (AGENT) ─────────────────────────────────────────────────────►
-         │ Creates pages for approved files → Checkpoints progress
+Phase 5c (AGENT) ─────────────────────────────────────────────────────►
+         │ Creates Implementation-Principle pairs for approved files
+         │ Uses same merged approach as Phase 2
          │ Updates RepoMap Coverage + page indexes
          ▼
-Phase 6d (CODE) ──────────────────────────────────────────────────────►
+Phase 5d (CODE) ──────────────────────────────────────────────────────►
          │ Verifies all approved files have pages
          ▼
-Phase 7 ──────────────────────────────────────────────────────────────►
+Phase 6 ──────────────────────────────────────────────────────────────►
          │ Final validation, hidden workflow check
          ▼
        DONE: Complete Knowledge Graph
@@ -407,9 +406,11 @@ pages = ingestor.ingest({"url": "https://github.com/unslothai/unsloth"})
 
 6. **Usage Examples Required:** Implementation pages must include runnable code to be useful for downstream agents.
 
-7. **Deterministic Orphan Triage:** Phase 6 uses code-based filtering (D1-D5, K1-K3 rules) for reliable, reproducible results. Agent judgment is limited to borderline cases (MANUAL_REVIEW).
+7. **Deterministic Orphan Triage:** Phase 5 uses code-based filtering (D1-D5, K1-K3 rules) for reliable, reproducible results. Agent judgment is limited to borderline cases (MANUAL_REVIEW).
 
-8. **Checkpointing in Phase 6c:** Progress is saved after each page creation, allowing resumption if interrupted.
+8. **Checkpointing in Phase 5c:** Progress is saved after each page creation, allowing resumption if interrupted.
+
+9. **Merged Excavation+Synthesis:** Implementation and Principle pages are written together for each API, keeping concepts tightly connected. Multi-implementation Principles include explicit mapping tables showing which implementation handles which part of the concept.
 
 ---
 
@@ -421,8 +422,9 @@ pages = ingestor.ingest({"url": "https://github.com/unslothai/unsloth"})
 | Missing Coverage updates | Agent forgot to update index | Prompts explicitly require index sync |
 | Broken wiki links | Page renamed or missing | Audit phase detects and fixes |
 | File paths in Metadata | Confused high-level vs low-level refs | Prompts now have ❌/✅ examples |
-| Orphan files missed | Subjective filtering | Step 6a now uses deterministic rules |
-| Orphan progress lost | No checkpointing | Step 6c checkpoints each page |
+| Orphan files missed | Subjective filtering | Step 5a now uses deterministic rules |
+| Orphan progress lost | No checkpointing | Step 5c checkpoints each page |
+| Principle disconnected from Impl | Separate phases | Merged Phase 2 writes pairs together |
 
 ---
 
@@ -433,16 +435,15 @@ The RepoIngestor transforms raw code into structured knowledge through multiple 
 **Branch 1: Workflow-Based Extraction**
 1. **Understand** the repository structure (Phase 0)
 2. **Anchor** on workflows/use cases (Phase 1)
-3. **Excavate** implementation details (Phase 2)
-4. **Synthesize** underlying principles (Phase 3)
-5. **Enrich** with environment/heuristics (Phase 4)
-6. **Audit** for integrity (Phase 5)
+3. **Excavate+Synthesize** implementation-principle pairs together (Phase 2)
+4. **Enrich** with environment/heuristics (Phase 3)
+5. **Audit** for integrity (Phase 4)
 
 **Branch 2: Orphan Mining (Multi-Step)**
-7. **Triage** orphan candidates deterministically (Step 6a)
-8. **Review** borderline files with agent judgment (Step 6b)
-9. **Create** wiki pages for approved files (Step 6c)
-10. **Verify** all approved files have pages (Step 6d)
-11. **Audit** orphans for hidden workflows (Phase 7)
+6. **Triage** orphan candidates deterministically (Step 5a)
+7. **Review** borderline files with agent judgment (Step 5b)
+8. **Create** wiki pages for approved files (Step 5c)
+9. **Verify** all approved files have pages (Step 5d)
+10. **Audit** orphans for hidden workflows (Phase 6)
 
 The output is a complete knowledge graph that other agents can query to understand, use, and modify the codebase.

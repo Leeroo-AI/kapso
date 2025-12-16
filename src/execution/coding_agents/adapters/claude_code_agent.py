@@ -8,10 +8,15 @@
 # - CLAUDE.md for project constitution
 # - Superior for complex, multi-step tasks
 # - Streaming mode for live output visibility
+# - Supports both direct Anthropic API and AWS Bedrock
 #
-# Requires: 
-# - ANTHROPIC_API_KEY in environment
+# Requires:
 # - Claude Code CLI installed: npm install -g @anthropic-ai/claude-code
+#
+# Authentication (one of):
+# - Direct Anthropic: ANTHROPIC_API_KEY in environment
+# - AWS Bedrock: AWS_BEARER_TOKEN_BEDROCK or AWS credentials (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)
+#   Plus: AWS_REGION must be set for Bedrock mode
 
 import json
 import logging
@@ -55,6 +60,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - Planning mode (outlines steps before executing)
     - CLAUDE.md project constitution support
     - Permission system for tools (Edit, Read, Write)
+    - Supports both direct Anthropic API and AWS Bedrock
     
     Configuration (agent_specific):
     - claude_md_path: Path to CLAUDE.md file (optional)
@@ -62,9 +68,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - timeout: 3600 (default) - CLI timeout in seconds (1 hour)
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
     - streaming: True (default) - stream output live to terminal for visibility
+    - use_bedrock: False (default) - use AWS Bedrock instead of direct Anthropic API
+    - aws_region: AWS region for Bedrock (required if use_bedrock=True, default: "us-east-1")
     
-    Environment:
+    Environment (Direct Anthropic mode - default):
     - ANTHROPIC_API_KEY: Required for authentication
+    
+    Environment (AWS Bedrock mode - use_bedrock=True):
+    - AWS_REGION: AWS region (can also be set via aws_region config)
+    - One of:
+      - AWS_BEARER_TOKEN_BEDROCK: Bedrock API key (simplest)
+      - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY: IAM access keys
+      - AWS_PROFILE: SSO profile name (after running aws sso login)
     """
     
     def __init__(self, config: CodingAgentConfig):
@@ -83,20 +98,71 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Streaming: print Claude Code output live to terminal (default True for visibility)
         self._streaming = config.agent_specific.get("streaming", True)
         
-        # Verify Claude Code CLI is installed
+        # AWS Bedrock settings
+        # use_bedrock: If True, route requests through AWS Bedrock instead of direct Anthropic API
+        self._use_bedrock = config.agent_specific.get("use_bedrock", False)
+        # aws_region: AWS region for Bedrock (required if use_bedrock=True)
+        self._aws_region = config.agent_specific.get("aws_region", "us-east-1")
+        
+        # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
     
     def _verify_cli(self):
-        """Verify Claude Code CLI is installed."""
+        """
+        Verify Claude Code CLI is installed and credentials are available.
+        
+        Checks for appropriate credentials based on mode:
+        - Direct mode: ANTHROPIC_API_KEY
+        - Bedrock mode: AWS credentials (bearer token, access keys, or profile)
+        """
         if not shutil.which("claude"):
             raise RuntimeError(
                 "Claude Code CLI not found. "
                 "Install with: npm install -g @anthropic-ai/claude-code"
             )
         
-        # Verify API key
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise ValueError("ANTHROPIC_API_KEY not set in environment")
+        if self._use_bedrock:
+            # Bedrock mode: Check for AWS credentials
+            self._verify_bedrock_credentials()
+        else:
+            # Direct mode: Check for Anthropic API key
+            if not os.environ.get("ANTHROPIC_API_KEY"):
+                raise ValueError("ANTHROPIC_API_KEY not set in environment")
+    
+    def _verify_bedrock_credentials(self):
+        """
+        Verify AWS Bedrock credentials are available.
+        
+        Checks for one of:
+        - AWS_BEARER_TOKEN_BEDROCK (Bedrock API key - simplest)
+        - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (IAM access keys)
+        - AWS_PROFILE (SSO profile)
+        
+        Also verifies AWS_REGION is set (required for Bedrock).
+        """
+        # Check for AWS region
+        aws_region = os.environ.get("AWS_REGION") or self._aws_region
+        if not aws_region:
+            raise ValueError(
+                "AWS_REGION not set. Required for Bedrock mode. "
+                "Set AWS_REGION environment variable or aws_region in config."
+            )
+        
+        # Check for at least one authentication method
+        has_bearer_token = bool(os.environ.get("AWS_BEARER_TOKEN_BEDROCK"))
+        has_access_keys = bool(
+            os.environ.get("AWS_ACCESS_KEY_ID") and 
+            os.environ.get("AWS_SECRET_ACCESS_KEY")
+        )
+        has_profile = bool(os.environ.get("AWS_PROFILE"))
+        
+        if not (has_bearer_token or has_access_keys or has_profile):
+            raise ValueError(
+                "No AWS credentials found for Bedrock mode. Set one of:\n"
+                "  - AWS_BEARER_TOKEN_BEDROCK (Bedrock API key)\n"
+                "  - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (IAM access keys)\n"
+                "  - AWS_PROFILE (SSO profile, after running 'aws sso login')"
+            )
     
     def initialize(self, workspace: str) -> None:
         """
@@ -196,6 +262,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             metadata={
                 "model": model,
                 "planning_mode": self._planning_mode,
+                "use_bedrock": self._use_bedrock,
             }
         )
     
@@ -335,6 +402,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "planning_mode": self._planning_mode,
                     "elapsed_seconds": elapsed,
                     "streaming": True,
+                    "use_bedrock": self._use_bedrock,
                 }
             )
             
@@ -435,11 +503,35 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         return cmd
     
     def _get_env(self) -> Dict[str, str]:
-        """Get environment variables for subprocess."""
+        """
+        Get environment variables for subprocess.
+        
+        Sets up the appropriate environment based on mode:
+        - Direct mode: Ensures ANTHROPIC_API_KEY is available
+        - Bedrock mode: Sets CLAUDE_CODE_USE_BEDROCK=1 and AWS_REGION
+        """
         env = os.environ.copy()
-        # Ensure API key is available
-        if "ANTHROPIC_API_KEY" not in env:
-            raise ValueError("ANTHROPIC_API_KEY not set")
+        
+        if self._use_bedrock:
+            # Bedrock mode: Set the flag and region
+            env["CLAUDE_CODE_USE_BEDROCK"] = "1"
+            
+            # Set AWS_REGION if not already in environment
+            if "AWS_REGION" not in env:
+                env["AWS_REGION"] = self._aws_region
+            
+            # Log which auth method is being used (for debugging)
+            if env.get("AWS_BEARER_TOKEN_BEDROCK"):
+                logger.debug("Using Bedrock with bearer token authentication")
+            elif env.get("AWS_ACCESS_KEY_ID"):
+                logger.debug("Using Bedrock with access key authentication")
+            elif env.get("AWS_PROFILE"):
+                logger.debug(f"Using Bedrock with SSO profile: {env.get('AWS_PROFILE')}")
+        else:
+            # Direct Anthropic mode: Ensure API key is available
+            if "ANTHROPIC_API_KEY" not in env:
+                raise ValueError("ANTHROPIC_API_KEY not set")
+        
         return env
     
     def _get_changed_files(self) -> List[str]:
@@ -498,5 +590,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "planning_mode": True,  # Claude Code excels at planning
             "cost_tracking": True,
             "streaming": self._streaming,  # Now supports live output streaming
+            "bedrock": self._use_bedrock,  # Using AWS Bedrock for API calls
         }
 

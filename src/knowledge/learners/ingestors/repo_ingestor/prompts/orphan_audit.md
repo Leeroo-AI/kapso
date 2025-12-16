@@ -13,8 +13,8 @@ You are a Quality Auditor. Your task is to validate that orphan nodes (created i
 ## IMPORTANT: Read Previous Phase Reports
 
 **FIRST**, read the Orphan Mining reports:
-- `{wiki_dir}/_reports/phase6b_orphan_review.md` — MANUAL_REVIEW decisions
-- `{wiki_dir}/_reports/phase6c_orphan_create.md` — Pages created, coverage updates
+- `{wiki_dir}/_reports/phase5b_orphan_review.md` — MANUAL_REVIEW decisions
+- `{wiki_dir}/_reports/phase5c_orphan_create.md` — Pages created, coverage updates
 
 Also check `{wiki_dir}/_orphan_candidates.md` to see:
 - AUTO_KEEP files (all should have `✅ DONE` status)
@@ -192,7 +192,7 @@ Orphan Status:
 
 ## 📝 Final Execution Report (REQUIRED)
 
-When finished, write the final summary to `{wiki_dir}/_reports/phase7_orphan_audit.md`:
+When finished, write the final summary to `{wiki_dir}/_reports/phase6_orphan_audit.md`:
 
 ```markdown
 # Phase 7: Orphan Audit Report (FINAL)

@@ -10,17 +10,17 @@
 #
 # Branch 1: Workflow-Based Extraction
 # 1. Anchoring - Find workflows from README/examples, write Workflow pages
-# 2. Excavation - Trace imports to source code, write Implementation pages
-# 3. Synthesis - Name theoretical concepts, write Principle pages
-# 4. Enrichment - Mine constraints/tips, write Environment/Heuristic pages
-# 5. Audit - Validate graph integrity, fix broken links
+# 2. Excavation+Synthesis - Trace imports, write Implementation-Principle PAIRS together
+#    (merged to keep concepts tightly connected to implementations)
+# 3. Enrichment - Mine constraints/tips, write Environment/Heuristic pages
+# 4. Audit - Validate graph integrity, fix broken links
 #
 # Branch 2: Orphan Mining (multi-step pipeline, runs after Branch 1)
-# 6a. Triage (code) - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
-# 6b. Review (agent) - Agent evaluates MANUAL_REVIEW files
-# 6c. Create (agent) - Agent creates wiki pages for approved files
-# 6d. Verify (code) - Verify all approved files have pages
-# 7. Orphan Audit - Validate orphan nodes, check for hidden workflows
+# 5a. Triage (code) - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+# 5b. Review (agent) - Agent evaluates MANUAL_REVIEW files
+# 5c. Create (agent) - Agent creates wiki pages for approved files
+# 5d. Verify (code) - Verify all approved files have pages
+# 6. Orphan Audit - Validate orphan nodes, check for hidden workflows
 #
 # The final graph is the union of both branches.
 #
@@ -85,17 +85,17 @@ class RepoIngestor(Ingestor):
     
     Branch 1: Workflow-Based Extraction
     1. Anchoring: Find workflows → write Workflow pages
-    2. Excavation: Trace imports → write Implementation pages
-    3. Synthesis: Name principles → write Principle pages
-    4. Enrichment: Mine constraints → write Environment/Heuristic pages
-    5. Audit: Validate pages → fix broken links
+    2. Excavation+Synthesis: Trace imports → write Implementation-Principle PAIRS together
+       (merged phase keeps concepts tightly connected to implementations)
+    3. Enrichment: Mine constraints → write Environment/Heuristic pages
+    4. Audit: Validate pages → fix broken links
     
     Branch 2: Orphan Mining (Multi-Step Pipeline)
-    6a. Triage (code): Deterministic filtering → AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
-    6b. Review (agent): Evaluate MANUAL_REVIEW files → approve/reject each
-    6c. Create (agent): Create wiki pages for approved files → checkpoint progress
-    6d. Verify (code): Check all approved files have pages → report errors
-    7. Orphan Audit: Validate orphans → check for hidden workflows, dead code
+    5a. Triage (code): Deterministic filtering → AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+    5b. Review (agent): Evaluate MANUAL_REVIEW files → approve/reject each
+    5c. Create (agent): Create wiki pages for approved files → checkpoint progress
+    5d. Verify (code): Check all approved files have pages → report errors
+    6. Orphan Audit: Validate orphans → check for hidden workflows, dead code
     
     The final graph is the union of both branches.
     
@@ -227,8 +227,8 @@ class RepoIngestor(Ingestor):
             "repo_understanding": [],
             # Branch 1: Workflow-based extraction
             "anchoring": ["workflow"],
-            "excavation": ["implementation"],
-            "synthesis": ["principle"],
+            # Merged excavation+synthesis writes Implementation-Principle pairs together
+            "excavation_synthesis": ["implementation", "principle"],
             "enrichment": ["environment", "heuristic"],
             "audit": ["workflow", "principle", "implementation", "environment", "heuristic"],
             # Branch 2: Orphan mining (multi-step)
@@ -554,7 +554,9 @@ class RepoIngestor(Ingestor):
             logger.info("BRANCH 1: Workflow-Based Extraction")
             logger.info("=" * 60)
             
-            branch1_phases = ["anchoring", "excavation", "synthesis", "enrichment", "audit"]
+            # Merged excavation+synthesis keeps Implementation-Principle pairs together
+            # This prevents disconnect between concepts and their implementations
+            branch1_phases = ["anchoring", "excavation_synthesis", "enrichment", "audit"]
             
             for phase in branch1_phases:
                 success = self._run_phase(phase, repo_name, str(repo_path), url, branch)
@@ -597,7 +599,7 @@ class RepoIngestor(Ingestor):
                 # Write verification report to _reports directory
                 reports_dir = self._wiki_dir / "_reports"
                 reports_dir.mkdir(parents=True, exist_ok=True)
-                (reports_dir / "phase6d_orphan_verify.md").write_text(verify_report, encoding="utf-8")
+                (reports_dir / "phase5d_orphan_verify.md").write_text(verify_report, encoding="utf-8")
             else:
                 logger.info("Orphan verification passed")
             

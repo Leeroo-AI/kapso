@@ -177,7 +177,7 @@ Task is complete when:
 
 ## 📝 Execution Report (REQUIRED)
 
-When finished, write a summary report to `{wiki_dir}/_reports/phase6c_orphan_create.md`:
+When finished, write a summary report to `{wiki_dir}/_reports/phase5c_orphan_create.md`:
 
 ```markdown
 # Phase 6c: Orphan Page Creation Report

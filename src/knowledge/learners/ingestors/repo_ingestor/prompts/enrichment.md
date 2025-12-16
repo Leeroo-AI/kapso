@@ -17,7 +17,7 @@ You are a knowledge extraction agent. Your task is to scan the implementation co
 ## IMPORTANT: Read Previous Phase Reports
 
 **FIRST**, read the previous phase reports:
-- `{wiki_dir}/_reports/phase3_synthesis.md` - Principles created, hints for environments/heuristics
+- `{wiki_dir}/_reports/phase2_excavation_synthesis.md` - Implementation-Principle pairs created, hints for environments/heuristics
 
 This report tells you which files may have environment requirements or tribal knowledge.
 
@@ -244,7 +244,7 @@ When updating index files:
 
 ## 📝 Execution Report (REQUIRED)
 
-When finished, write a summary report to `{wiki_dir}/_reports/phase4_enrichment.md`:
+When finished, write a summary report to `{wiki_dir}/_reports/phase3_enrichment.md`:
 
 ```markdown
 # Phase 4: Enrichment Report

@@ -100,7 +100,7 @@ Before finishing, verify:
 
 ## 📝 Execution Report (REQUIRED)
 
-When finished, write a summary report to `{wiki_dir}/_reports/phase6b_orphan_review.md`:
+When finished, write a summary report to `{wiki_dir}/_reports/phase5b_orphan_review.md`:
 
 ```markdown
 # Phase 6b: Orphan Review Report

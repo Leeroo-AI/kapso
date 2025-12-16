@@ -13,9 +13,8 @@ You are a knowledge validation agent. Your task is to verify that all wiki pages
 
 **FIRST**, read the phase reports in `{wiki_dir}/_reports/`:
 - `phase1_anchoring.md` - Workflows created
-- `phase2_excavation.md` - Implementations created
-- `phase3_synthesis.md` - Principles created
-- `phase4_enrichment.md` - Environments/Heuristics created, potential issues
+- `phase2_excavation_synthesis.md` - Implementation-Principle pairs created
+- `phase3_enrichment.md` - Environments/Heuristics created, potential issues
 
 These reports tell you what was created and any flagged issues.
 
@@ -225,7 +224,7 @@ Graph Status: VALID / INVALID
 
 ## 📝 Execution Report (REQUIRED)
 
-When finished, write a summary report to `{wiki_dir}/_reports/phase5_audit.md`:
+When finished, write a summary report to `{wiki_dir}/_reports/phase4_audit.md`:
 
 ```markdown
 # Phase 5: Audit Report
