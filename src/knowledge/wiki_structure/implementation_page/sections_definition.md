@@ -100,9 +100,10 @@ Import this class when you need to fine-tune a standard Transformer model on a d
 *   *Format:* Three parts: Source Location, Signature, and Import Statement.
 
 #### Source Location (REQUIRED)
-Link to the exact GitHub file with line numbers.
-*   *Format:* `[{GitHub_URL}#L{start}-L{end} {file_path}]`
-*   *Content:* Direct link to the source file with line range.
+Specify the repository and file path. Line numbers are optional but recommended.
+*   *Format:* Simple bullet list with Repository and File.
+*   *Content:* Repository name/URL and the file path within the repo.
+*   *Lines (Optional):* If included, line numbers should cover the **entire implementation** (class body, function body, all related code), NOT just the signature.
 
 #### Code Signature (REQUIRED)
 The complete function/class signature with all parameters and types.
@@ -120,8 +121,7 @@ Exact import needed to use this code.
 
 === Source Location ===
 * '''Repository:''' [https://github.com/huggingface/transformers transformers]
-* '''File:''' [https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py#L297-L450 src/transformers/trainer.py]
-* '''Lines:''' 297-450
+* '''File:''' src/transformers/trainer.py
 
 === Signature ===
 <syntaxhighlight lang="python">
@@ -291,25 +291,26 @@ trainer = Trainer(
 ## 4. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** Define outgoing and incoming edges.
+**Instruction:** Define outgoing connections from this page using semantic wiki links.
 
-#### `=== Context & Requirements ===`
-*   *Direction:* Outgoing (Dependency).
-*   *Concept:* What environment allows this to run?
-*   *Syntax:* `* [[requires_env::Environment:{Env_Name}]]`
+Implementation pages have outgoing connections to:
 
-#### `=== Tips and Tricks ===`
-*   *Direction:* Outgoing (Attribute).
-*   *Concept:* What heuristics apply to this code?
-*   *Syntax:* `* [[uses_heuristic::Heuristic:{Heuristic_Name}]]`
+*   **Environment:** `[[requires_env::Environment:{Env_Name}]]`
+    *   *Meaning:* "I need this hardware/software context to run."
+*   **Heuristic:** `[[uses_heuristic::Heuristic:{Heuristic_Name}]]`
+    *   *Meaning:* "I have these known optimizations or tips."
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-=== Context & Requirements ===
 * [[requires_env::Environment:PyTorch_CUDA_11_8]]
-
-=== Tips and Tricks ===
-* [[uses_heuristic::Heuristic:Gradient_Checkpointing_Optimization]]
+* [[uses_heuristic::Heuristic:Memory_Management]]
+* [[uses_heuristic::Heuristic:Batch_Size_Tips]]
 ```
+
+**Connection Types for Implementation:**
+| Edge Property | Target Node | Meaning |
+|:--------------|:------------|:--------|
+| `requires_env` | Environment | "Needs this context to run" |
+| `uses_heuristic` | Heuristic | "Uses this optimization/tip" |
 
