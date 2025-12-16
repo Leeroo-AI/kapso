@@ -86,8 +86,12 @@ Use this principle when designing architectures for sequence modeling tasks (NLP
 ### `== Theoretical Basis ==`
 **Instruction:** The "Math" or "Logic".
 *   *Purpose:* Defines the mechanism rigorously.
-*   *Content:* Key equations (using `<math>` tags) or logical steps. **Pseudo-code** is allowed if it clarifies the logic better than math.
+*   *Content:* Key equations (using `<math>` tags) or logical steps.
 *   *Goal:* Distinguish this principle from others (e.g., how Attention differs from Convolution).
+
+**⚠️ Code Policy:**
+*   **Pseudo-code IS allowed** — to describe algorithms at an abstract level.
+*   **Actual implementation code is NOT allowed** — Principle pages are the abstraction layer. Real code belongs in the linked Implementation pages.
 
 **Sample:**
 ```mediawiki
@@ -100,6 +104,7 @@ Where Q (Query), K (Key), and V (Value) are projections of the input sequence.
 
 '''Pseudo-code Logic:'''
 <syntaxhighlight lang="python">
+# Abstract algorithm description (NOT real implementation)
 scores = Q @ K.transpose() / sqrt(d_k)
 weights = softmax(scores)
 output = weights @ V
@@ -111,27 +116,27 @@ output = weights @ V
 ## 4. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** Define outgoing edges.
+**Instruction:** Define outgoing connections using semantic wiki links.
 
-#### `=== Implemented By ===`
-*   **Direction:** Outgoing (Execution).
-*   **Concept:** What code runs this theory?
-*   **Constraint:** **MANDATORY**. Must list at least one implementation.
-*   **Syntax:** `* [[implemented_by::Implementation:{Implementation_Name}]]`
+Principle pages have outgoing connections to:
 
-#### `=== Tips and Tricks ===`
-*   **Direction:** Outgoing (Attribute).
-*   **Concept:** What heuristics optimize this theory?
-*   **Syntax:** `* [[uses_heuristic::Heuristic:{Heuristic_Name}]]`
+*   **Implementation:** `[[implemented_by::Implementation:{Implementation_Name}]]`
+    *   *Meaning:* "This theory is realized by this code."
+    *   *Constraint:* **MANDATORY** — Must list at least one implementation.
+*   **Heuristic:** `[[uses_heuristic::Heuristic:{Heuristic_Name}]]`
+    *   *Meaning:* "This theory is optimized by this wisdom."
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-=== Implemented By ===
 * [[implemented_by::Implementation:PyTorch_MultiheadAttention]]
 * [[implemented_by::Implementation:TensorFlow_Attention_Layer]]
-
-=== Tips and Tricks ===
 * [[uses_heuristic::Heuristic:FlashAttention_Optimization]]
 ```
+
+**Connection Types for Principle:**
+| Edge Property | Target Node | Meaning | Constraint |
+|:--------------|:------------|:--------|:-----------|
+| `implemented_by` | Implementation | "This theory runs via this code" | **MANDATORY (1+)** |
+| `uses_heuristic` | Heuristic | "Optimized by this wisdom" | Optional |
 
