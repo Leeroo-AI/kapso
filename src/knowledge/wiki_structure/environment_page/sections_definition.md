@@ -147,19 +147,24 @@ The following environment variables must be set in `.env`:
 ---
 
 ## 4. Graph Connections
-This defines how this node plugs into the larger knowledge graph.
 
 ### `== Related Pages ==`
-**Instruction:** Define the **Incoming Edges** (Backlinks).
-*   **Concept:** Environments are dependencies (Leaf Nodes); nothing flows *out* of them in the graph structure.
-*   **Header:** `=== Required By ===`
-*   **Syntax:** `* [[required_by::Implementation:{Implementation_Name}]]`
-*   **Parser Note:** The parser looks for the `required_by::Implementation` prefix to build the reverse index.
+**Instruction:** List the incoming connections (backlinks) using semantic wiki links.
+
+Environments are **Leaf Nodes** — they only receive connections. List which Implementations require this environment:
+
+*   *Syntax:* `* [[requires_env::Implementation:{Implementation_Name}]]`
+*   *Source Type:* `Implementation`
+*   *Meaning:* "This Implementation requires this environment to run"
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-=== Required By ===
-* [[required_by::Implementation:LightningTrainer]]
-* [[required_by::Implementation:HF_Accelerator]]
+* [[requires_env::Implementation:LightningTrainer]]
+* [[requires_env::Implementation:HF_Accelerator]]
 ```
+
+**Connection Types for Environment (Incoming Only):**
+| Edge Property | Source Node | Meaning |
+|:--------------|:------------|:--------|
+| `requires_env` | Implementation | "This code needs this environment to run" |
