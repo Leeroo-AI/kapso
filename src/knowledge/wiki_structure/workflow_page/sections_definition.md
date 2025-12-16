@@ -9,9 +9,15 @@ This document defines the schema, purpose, and detailed writing instructions for
 **Format:** Semantic MediaWiki Table (Right-aligned).
 
 ### Fields Explanation
-1.  **Knowledge Sources:** Where does this recipe come from?
+1.  **Knowledge Sources:** HIGH-LEVEL references only (not individual file paths!).
     *   *Syntax:* `[[source::{Type}|{Title}|{URL}]]`
-    *   *Types:* `Repo` (Example scripts), `Blog` (Tutorial), `Paper` (Methodology).
+    *   *Types:*
+        - `Repo` → Link to the **repository root URL**, not individual files
+        - `Doc` → Official documentation websites
+        - `Blog` → Tutorials, blog posts
+        - `Paper` → Academic papers (arXiv, etc.)
+    *   ⚠️ **DO NOT put individual file paths here** (e.g., `unsloth/save.py`)
+    *   Specific file references belong in the linked Implementation pages
 2.  **Domains:** Categorization tags.
     *   *Syntax:* `[[domain::{Tag}]]`
     *   *Examples:* `LLM_Ops`, `Data_Engineering`, `Training`.
@@ -24,8 +30,9 @@ This document defines the schema, purpose, and detailed writing instructions for
 |-
 ! Knowledge Sources
 |
-* [[source::Repo|HuggingFace Examples|https://github.com/huggingface/transformers/tree/main/examples]]
+* [[source::Repo|Unsloth|https://github.com/unslothai/unsloth]]
 * [[source::Blog|Fine-tuning Llama 2|https://www.philschmid.de/sagemaker-llama2-qlora]]
+* [[source::Doc|Unsloth Docs|https://docs.unsloth.ai]]
 |-
 ! Domains
 | [[domain::LLMs]], [[domain::Fine_Tuning]]
@@ -33,6 +40,16 @@ This document defines the schema, purpose, and detailed writing instructions for
 ! Last Updated
 | [[last_updated::2023-11-20 14:00 GMT]]
 |}
+```
+
+**❌ WRONG (individual file paths in Knowledge Sources):**
+```mediawiki
+* [[source::Repo|Unsloth Save Module|https://github.com/unslothai/unsloth/blob/main/unsloth/save.py]]  ← WRONG!
+```
+
+**✅ CORRECT (high-level repo URL):**
+```mediawiki
+* [[source::Repo|Unsloth|https://github.com/unslothai/unsloth]]  ← RIGHT!
 ```
 
 ---
@@ -129,28 +146,28 @@ Inject LoRA adapters into Linear layers and train only these adapters using the 
 ## 5. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** Define outgoing edges.
+**Instruction:** Define outgoing connections using semantic wiki links.
 
-#### `=== Execution Steps ===`
-*   **Direction:** Outgoing (Structural).
-*   **Concept:** Duplicate the step links for easy parsing/navigation.
-*   **Syntax:** `* [[step::Principle:{Principle_Name}]] - Step {N}`
+Workflow pages have outgoing connections to:
 
-#### `=== Tips and Tricks ===`
-*   **Direction:** Outgoing (Attribute).
-*   **Concept:** Heuristics that apply to the *whole process*.
-*   **Syntax:** `* [[uses_heuristic::Heuristic:{Heuristic_Name}]]`
+*   **Principle:** `[[step::Principle:{Principle_Name}]]`
+    *   *Meaning:* "This workflow executes this theory as a step."
+*   **Heuristic:** `[[uses_heuristic::Heuristic:{Heuristic_Name}]]`
+    *   *Meaning:* "This whole process is guided by this wisdom."
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-=== Execution Steps ===
-* [[step::Principle:Data_Formatting]] - Step 1
-* [[step::Principle:Quantization]] - Step 2
-* [[step::Principle:Low_Rank_Adaptation]] - Step 3
-
-=== Tips and Tricks ===
+* [[step::Principle:Data_Formatting]]
+* [[step::Principle:Quantization]]
+* [[step::Principle:Low_Rank_Adaptation]]
 * [[uses_heuristic::Heuristic:Gradient_Checkpointing_Optimization]]
 * [[uses_heuristic::Heuristic:Packing_Short_Sequences]]
 ```
+
+**Connection Types for Workflow:**
+| Edge Property | Target Node | Meaning |
+|:--------------|:------------|:--------|
+| `step` | Principle | "This workflow executes this theory as a step" |
+| `uses_heuristic` | Heuristic | "This process is guided by this wisdom" |
 
