@@ -58,7 +58,25 @@ result = pipeline.run(
     Source.Repo("https://github.com/user/repo"),
     Source.Paper("./research.pdf"),
 )
+
+# Dry run (analyze without modifying KG)
+result = pipeline.run(Source.Repo("..."), dry_run=True)
+
+# Ingest only (get pages without merging)
+pages = pipeline.ingest_only(Source.Repo("..."))
 ```
+
+### Source Types
+
+The `Source` namespace provides typed wrappers for different knowledge inputs:
+
+| Source Type | Description | Status |
+|-------------|-------------|--------|
+| `Source.Repo(url, branch="main")` | Git repository (GitHub, etc.) | ✅ Implemented |
+| `Source.Paper(path)` | Research paper (PDF) | 🚧 Stub |
+| `Source.File(path)` | Generic file (text, markdown, code) | 📋 Planned |
+| `Source.Doc(url)` | Documentation website | 📋 Planned |
+| `Source.Solution(obj)` | Completed experiment logs | ⚠️ Basic |
 
 ### Stage 1: Ingestors
 
@@ -66,9 +84,9 @@ Ingestors extract WikiPages from knowledge sources. Each source type has a dedic
 
 | Ingestor | Source Type | Description |
 |----------|-------------|-------------|
-| `RepoIngestor` | `Source.Repo` | Clones GitHub repos, uses Claude Code to explore and extract |
-| `PaperIngestor` | `Source.Paper` | Extracts knowledge from PDFs (WIP) |
-| `ExperimentIngestor` | `Source.Solution` | Learns from completed experiments |
+| `RepoIngestor` | `Source.Repo` | 7-phase two-branch pipeline with Claude Code agent |
+| `PaperIngestor` | `Source.Paper` | Extracts knowledge from PDFs (stub, returns empty) |
+| `ExperimentIngestor` | `Source.Solution` | Learns from completed experiments (basic) |
 
 ```python
 from src.knowledge.learners.ingestors import IngestorFactory
@@ -79,11 +97,38 @@ pages = ingestor.ingest(Source.Repo("https://github.com/user/repo"))
 
 # Or auto-detect from source
 ingestor = IngestorFactory.for_source(Source.Repo("..."))
+
+# List available ingestors
+IngestorFactory.list_ingestors()  # ["repo", "paper", "solution"]
 ```
+
+#### RepoIngestor: Two-Branch Pipeline
+
+The `RepoIngestor` uses a sophisticated 7-phase extraction process:
+
+**Phase 0: Repository Understanding**
+- Generates AST scaffold (`_RepoMap.md`) with file structure
+- Agent fills in natural language Understanding for each file
+- Verification loop ensures all files are explored
+
+**Branch 1: Workflow-Based Extraction**
+1. **Anchoring** - Find workflows from README/examples → write Workflow pages
+2. **Excavation+Synthesis** - Trace imports → write Implementation-Principle PAIRS together
+3. **Enrichment** - Mine constraints/tips → write Environment/Heuristic pages
+4. **Audit** - Validate graph integrity, fix broken links
+
+**Branch 2: Orphan Mining** (runs after Branch 1)
+- **5a. Triage** (code) - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+- **5b. Review** (agent) - Agent evaluates MANUAL_REVIEW files
+- **5c. Create** (agent) - Agent creates wiki pages for approved files
+- **5d. Verify** (code) - Verify all approved files have pages
+- **6. Orphan Audit** - Validate orphan nodes, check for hidden workflows
+
+The final graph is the union of both branches.
 
 ### Stage 2: Knowledge Merger
 
-The merger analyzes proposed pages against the existing KG and decides how to integrate them:
+The merger uses Claude Code agent to analyze proposed pages against the existing KG:
 
 | Action | Description |
 |--------|-------------|
@@ -207,15 +252,35 @@ class KGEnrichedContextManager(ContextManager):
 # Learn from a GitHub repository
 python -m src.knowledge.learners https://github.com/user/repo
 
-# Dry run (analyze without modifying KG)
+# Specify a branch
+python -m src.knowledge.learners https://github.com/user/repo --branch develop
+
+# Dry run (analyze without modifying KG files)
 python -m src.knowledge.learners https://github.com/user/repo --dry-run
 
-# Extract only (preview pages without merging)
+# Extract only (don't merge into KG)
 python -m src.knowledge.learners https://github.com/user/repo --extract-only
 
-# Learn from a paper (when implemented)
+# Custom wiki directory
+python -m src.knowledge.learners https://github.com/user/repo --wiki-dir ./my_wikis
+
+# Verbose logging
+python -m src.knowledge.learners https://github.com/user/repo --verbose
+
+# Learn from a paper (stub - not yet implemented)
 python -m src.knowledge.learners ./paper.pdf --type paper
 ```
+
+### CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--type` | `-t` | Source type: `repo`, `paper`, `solution` (default: repo) |
+| `--branch` | `-b` | Git branch for repo sources (default: main) |
+| `--dry-run` | `-n` | Analyze but don't modify KG files |
+| `--extract-only` | `-e` | Only extract, don't merge into KG |
+| `--wiki-dir` | `-w` | Wiki directory path (default: data/wikis) |
+| `--verbose` | `-v` | Enable verbose logging |
 
 ## Configuration
 
