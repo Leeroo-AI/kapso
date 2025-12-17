@@ -99,26 +99,73 @@ Execute this workflow when you have a domain-specific dataset (instruction-tunin
 ## 3. The Recipe
 
 ### `== Execution Steps ==`
-**Instruction:** The ordered list of steps.
+**Instruction:** The ordered list of steps in natural language.
+
+**⚠️ NO CODE IN WORKFLOW STEPS!** Actual code belongs in Implementation pages, which are linked through Principles.
+
 *   *Structure:* Use Level 3 Headers (`===`) for each step.
 *   *Content per Step:*
-    1.  **Link:** `[[step::Principle:{Principle_Name}]]` (The Theory).
-    2.  **Context:** Specifics for *this* workflow (e.g., "Use 4-bit quantization here").
+    1.  **Link:** `[[step::Principle:{Principle_Name}]]` — links to the theoretical concept.
+    2.  **Description:** Natural language summary of what this step accomplishes. This should echo/summarize the Overview of the linked Principle.
+    3.  **Pseudocode (optional):** If needed for clarity, use high-level pseudocode (not actual implementation code).
+
+**Graph Flow Reminder:**
+```
+Workflow Step → Principle (theory) → Implementation (actual code)
+```
+The Workflow describes WHAT happens. The Principle explains WHY. The Implementation shows HOW with real code.
 
 **Sample:**
 ```mediawiki
 == Execution Steps ==
+
 === Step 1: Data Preparation ===
 [[step::Principle:Data_Formatting]]
-Convert the raw JSON/CSV data into the specific prompt template structure (e.g., Alpaca format) required by the model.
+
+Transform raw training data into the structured prompt format expected by the model. This involves mapping input fields to a consistent template (e.g., instruction/input/output structure) and applying the model's chat template for proper tokenization boundaries.
+
+'''Key considerations:'''
+* Ensure all examples follow the same schema
+* Apply the correct chat template for your model family
+* Validate that special tokens are properly inserted
 
 === Step 2: Model Quantization ===
 [[step::Principle:Quantization]]
-Load the base model in 4-bit precision (NF4) to fit in memory.
+
+Load the base model in reduced precision to minimize memory footprint. The quantization process maps 16-bit weights to a lower bit representation (e.g., 4-bit NormalFloat) while preserving model quality through careful calibration.
+
+'''Pseudocode:'''
+  1. Load model configuration
+  2. Apply quantization config (4-bit NF4 with double quantization)
+  3. Load weights with on-the-fly dequantization for compute
 
 === Step 3: Adapter Training ===
 [[step::Principle:Low_Rank_Adaptation]]
-Inject LoRA adapters into Linear layers and train only these adapters using the formatted data.
+
+Inject low-rank adapter matrices into the frozen base model's attention and feedforward layers. Only these small adapter weights are trained, dramatically reducing memory requirements and training time while preserving the base model's capabilities.
+
+'''What happens:'''
+* Original weight matrix W remains frozen
+* Two small matrices A and B are added: W' = W + BA
+* Only A and B are updated during training (typically <1% of total parameters)
+```
+
+**❌ WRONG (actual code in workflow step):**
+```mediawiki
+=== Step 1: Load Model ===
+[[step::Principle:Model_Loading]]
+```python
+from unsloth import FastLanguageModel
+model, tokenizer = FastLanguageModel.from_pretrained(...)  # ← WRONG! Code belongs in Implementation
+```
+```
+
+**✅ CORRECT (natural language description):**
+```mediawiki
+=== Step 1: Load Model ===
+[[step::Principle:Model_Loading]]
+
+Initialize the language model with memory-optimized settings. The loader applies 4-bit quantization automatically and patches attention layers for efficient training on consumer GPUs.
 ```
 
 ---

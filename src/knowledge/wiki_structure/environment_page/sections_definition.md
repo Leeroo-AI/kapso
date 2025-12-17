@@ -146,7 +146,102 @@ The following environment variables must be set in `.env`:
 
 ---
 
-## 4. Graph Connections
+## 4. Validation & Troubleshooting (NEW SECTIONS)
+
+### `== Quick Install ==`
+**Instruction:** Provide a **single copy-pasteable command** to install all dependencies.
+*   **Purpose:** Allows engineers to set up the environment in one step.
+*   **Content:** Combined pip install command with all required packages.
+*   **Format:** Use `syntaxhighlight` with `lang="bash"`.
+
+**Sample:**
+```mediawiki
+== Quick Install ==
+<syntaxhighlight lang="bash">
+# Install all required packages
+pip install torch>=2.4.0 transformers>=4.37 bitsandbytes>=0.43.3 peft>=0.10.0 trl accelerate
+
+# For GGUF export (optional)
+pip install sentencepiece psutil
+</syntaxhighlight>
+```
+
+### `== Code Evidence ==`
+**Instruction:** Show **actual code snippets** from the repository that validate requirements.
+*   **Purpose:** Proves these requirements come from the source code, not assumptions.
+*   **Content:** Include:
+    1. **Version checks** - Code that validates minimum versions
+    2. **Detection logic** - Code that auto-detects hardware/configuration
+    3. **Error handling** - Code that raises errors when requirements not met
+*   **Format:** Include file path and line numbers for each snippet.
+
+**Sample:**
+```mediawiki
+== Code Evidence ==
+
+Version validation from `loader.py:55-62`:
+<syntaxhighlight lang="python">
+SUPPORTS_FOURBIT = transformers_version >= Version("4.37")
+if not SUPPORTS_FOURBIT:
+    raise ImportError(
+        "Unsloth requires transformers >= 4.37 for 4-bit loading support."
+    )
+</syntaxhighlight>
+
+Hardware detection from `device_type.py:37-45`:
+<syntaxhighlight lang="python">
+if hasattr(torch, "cuda") and torch.cuda.is_available():
+    return "cuda"
+elif hasattr(torch, "xpu") and torch.xpu.is_available():
+    return "xpu"
+raise NotImplementedError("Unsloth requires NVIDIA, AMD, or Intel GPU.")
+</syntaxhighlight>
+```
+
+### `== Common Errors ==`
+**Instruction:** Document **error messages** and their solutions.
+*   **Purpose:** Helps engineers self-diagnose installation issues.
+*   **Content:** Table with columns: `Error Message`, `Cause`, `Solution`.
+*   **Goal:** Reduce support burden by documenting known failure modes.
+
+**Sample:**
+```mediawiki
+== Common Errors ==
+
+{| class="wikitable"
+|-
+! Error Message !! Cause !! Solution
+|-
+|| `ImportError: vLLM not found` || vLLM not installed || `pip install vllm`
+|-
+|| `CUDA out of memory` || Insufficient VRAM || Reduce `gpu_memory_utilization` to 0.5
+|-
+|| `Model is in float16 but you want bfloat16` || Dtype mismatch || Set `fp16=True, bf16=False` in config
+|}
+```
+
+### `== Compatibility Notes ==`
+**Instruction:** Document **platform-specific limitations or differences**.
+*   **Purpose:** Warns engineers about edge cases before they encounter them.
+*   **Content:** Any limitations for:
+    - Different GPU vendors (NVIDIA vs AMD vs Intel)
+    - Different operating systems (Linux vs Windows vs Mac)
+    - Different model architectures (some models need special handling)
+*   **Format:** Bullet list or table.
+
+**Sample:**
+```mediawiki
+== Compatibility Notes ==
+
+* '''AMD GPUs (ROCm):''' Requires bitsandbytes >= 0.48.3. Pre-quantized models may not work due to blocksize differences (AMD uses 128 vs NVIDIA's 64).
+* '''Intel XPU:''' Requires PyTorch >= 2.6.0.
+* '''Windows:''' Not officially supported; use WSL2.
+* '''Colab/Kaggle:''' Auto-frees cached models to manage limited disk space.
+```
+
+---
+
+## 5. Graph Connections
 
 ### `== Related Pages ==`
 **Instruction:** List the incoming connections (backlinks) using semantic wiki links.
@@ -168,3 +263,50 @@ Environments are **Leaf Nodes** — they only receive connections. List which Im
 | Edge Property | Source Node | Meaning |
 |:--------------|:------------|:--------|
 | `requires_env` | Implementation | "This code needs this environment to run" |
+
+---
+
+## 6. Extraction Guidance for Phase 3 (Enrichment)
+
+When creating Environment pages during the Enrichment phase, **search the source code for these patterns**:
+
+### What to Extract from Source Code
+
+| Pattern to Search | What It Reveals | Section to Fill |
+|:------------------|:----------------|:----------------|
+| `Version(...)` comparisons | Minimum package versions | Dependencies, Code Evidence |
+| `ImportError`, `raise RuntimeError` | Error messages when requirements not met | Common Errors |
+| `is_available()`, `find_spec()` | Auto-detection logic | Code Evidence |
+| `os.environ.get()` | Required environment variables | Credentials |
+| `if DEVICE_TYPE == "hip"` | Platform-specific code paths | Compatibility Notes |
+| `pip install` in docstrings/comments | Install commands | Quick Install |
+| `blocksize`, `dtype` conditionals | Hardware-specific limitations | Compatibility Notes |
+
+### Extraction Checklist
+
+Before marking an Environment page as complete, verify:
+
+- [ ] **Dependencies**: All packages with version constraints extracted from import checks
+- [ ] **Quick Install**: Combined pip command covering all packages
+- [ ] **Code Evidence**: At least 2 code snippets showing version/hardware validation
+- [ ] **Common Errors**: At least 2 error messages with solutions documented
+- [ ] **Compatibility Notes**: Any if-else branches for different platforms documented
+
+### Search Patterns (grep/regex)
+
+```bash
+# Find version checks
+grep -rn "Version\(" --include="*.py"
+
+# Find import errors
+grep -rn "raise ImportError\|raise RuntimeError" --include="*.py"
+
+# Find environment variable usage
+grep -rn "os.environ.get\|os.environ\[" --include="*.py"
+
+# Find platform conditionals
+grep -rn "DEVICE_TYPE\|is_cuda\|is_hip\|is_xpu" --include="*.py"
+
+# Find minimum version comments
+grep -rn "requires\|minimum\|>=" --include="*.py"
+```

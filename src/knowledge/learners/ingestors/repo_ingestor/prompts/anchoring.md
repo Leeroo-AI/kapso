@@ -83,10 +83,17 @@ For EACH workflow you identify, create a wiki page following the exact structure
 7. `== Related Pages ==` - Step links and heuristic links
 
 **Important:**
-- Use REAL code examples from the repository
-- Include actual import statements and function calls from the repo
-- For the `[[step::Principle:{repo_name}_X]]` links, use descriptive placeholder names
-- Do NOT add `[[uses_heuristic::...]]` links yet - those come later
+- **NO CODE in Workflow steps!** Code belongs in Implementation pages (linked through Principles).
+- Write each step as a natural language description summarizing WHAT happens.
+- Use pseudocode only if needed for clarity (not actual implementation code).
+- For the `[[step::Principle:{repo_name}_X]]` links, use descriptive names matching the concept.
+- Do NOT add `[[uses_heuristic::...]]` links yet - those come later.
+
+**Graph Flow:**
+```
+Workflow Step → Principle (theory) → Implementation (actual code)
+```
+Workflows describe WHAT. Principles explain WHY. Implementations show HOW with real code.
 
 ### Step 5: Update Coverage in Repository Map
 
