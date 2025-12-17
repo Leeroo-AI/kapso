@@ -4,7 +4,7 @@
 #
 # Submodules:
 #   - search: Unified search backends (KG LLM Navigation, RAG, etc.)
-#   - learners: Modular knowledge ingestion (Repo, Paper, File, Experiment)
+#   - learners: Modular knowledge ingestion pipeline (Repo, Paper, Experiment)
 
 from src.knowledge.search import (
     KnowledgeSearch,
@@ -20,10 +20,17 @@ from src.knowledge.search import (
 )
 
 from src.knowledge.learners import (
-    Learner,
-    KnowledgeChunk,
-    LearnerFactory,
-    register_learner,
+    # Main pipeline
+    KnowledgePipeline,
+    PipelineResult,
+    Source,
+    # Merger
+    KnowledgeMerger,
+    MergeResult,
+    # Ingestors
+    Ingestor,
+    IngestorFactory,
+    register_ingestor,
 )
 
 __all__ = [
@@ -38,9 +45,15 @@ __all__ = [
     "KnowledgeSearchFactory",
     "register_knowledge_search",
     "parse_wiki_directory",
-    # Learners
-    "Learner",
-    "KnowledgeChunk",
-    "LearnerFactory",
-    "register_learner",
+    # Learners - Pipeline
+    "KnowledgePipeline",
+    "PipelineResult",
+    "Source",
+    # Learners - Merger
+    "KnowledgeMerger",
+    "MergeResult",
+    # Learners - Ingestors
+    "Ingestor",
+    "IngestorFactory",
+    "register_ingestor",
 ]

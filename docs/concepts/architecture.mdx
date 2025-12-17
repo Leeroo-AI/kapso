@@ -126,7 +126,21 @@ src/
 │   ├── experiment_workspace/# Git workspace management
 │   └── coding_agents/       # Agent adapters
 └── knowledge/               # Knowledge system
-    ├── search/              # KG search backends
-    └── acquisition/         # Knowledge building tools
+    ├── search/              # KG search backends (Weaviate + Neo4j)
+    └── learners/            # Knowledge learning pipeline
+        ├── knowledge_learner_pipeline.py  # Main orchestrator
+        ├── knowledge_merger.py            # Stage 2: merge into KG
+        ├── sources.py                     # Source type wrappers
+        └── ingestors/                     # Stage 1: source → WikiPages
+            ├── base.py                    # Ingestor base class
+            ├── factory.py                 # IngestorFactory
+            ├── repo_ingestor/             # GitHub repos (7-phase pipeline)
+            │   ├── __init__.py            # RepoIngestor main class
+            │   ├── context_builder.py     # AST scaffolding, orphan detection
+            │   ├── wiki_validator.py      # Deterministic validation
+            │   ├── utils.py               # Clone/cleanup helpers
+            │   └── prompts/               # Phase prompt templates
+            ├── paper_ingestor.py          # Research papers (stub)
+            └── experiment_ingestor.py     # Experiment logs (basic)
 ```
 

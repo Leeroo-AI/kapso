@@ -1,34 +1,63 @@
 # Knowledge Learners Module
 #
-# Modular learning system for knowledge acquisition.
-# Each learner handles a specific source type (Repo, Paper, File, Experiment).
+# Complete knowledge learning pipeline for acquiring knowledge from various sources.
 #
-# Usage:
-#     from src.knowledge.learners import Source, LearnerFactory
+# Architecture:
+#   Source → Ingestor → WikiPages → Merger → Updated KG
+#
+# Main Usage:
+#     from src.knowledge.learners import KnowledgePipeline, Source
 #     
-#     expert.learn(Source.Repo("https://github.com/user/repo"), target_kg="https://skills.leeroo.com")
+#     pipeline = KnowledgePipeline()
+#     result = pipeline.run(Source.Repo("https://github.com/user/repo"))
+#
+# Components:
+#   - KnowledgePipeline: Main orchestrator
+#   - Source: Typed wrappers for knowledge sources (Repo, Paper, Doc, etc.)
+#   - Ingestors: Stage 1 - extract WikiPages from sources (in ingestors/)
+#   - KnowledgeMerger: Stage 2 - merge pages into existing KG
 
-from src.knowledge.learners.base import Learner, KnowledgeChunk
-from src.knowledge.learners.factory import LearnerFactory, register_learner
+# Source types
 from src.knowledge.learners.sources import Source
 
-# Import all learner implementations to register them
-from src.knowledge.learners.repo_learner import RepoLearner
-from src.knowledge.learners.paper_learner import PaperLearner
-from src.knowledge.learners.experiment_learner import ExperimentLearner
+# Main pipeline orchestrator
+from src.knowledge.learners.knowledge_learner_pipeline import (
+    KnowledgePipeline,
+    PipelineResult,
+)
+
+# Knowledge merger (Stage 2)
+from src.knowledge.learners.knowledge_merger import (
+    KnowledgeMerger,
+    MergeResult,
+    MergeAction,
+)
+
+# Ingestors (Stage 1) - import for registration
+from src.knowledge.learners.ingestors import (
+    Ingestor,
+    IngestorFactory,
+    register_ingestor,
+    RepoIngestor,
+    PaperIngestor,
+    ExperimentIngestor,
+)
 
 __all__ = [
+    # Main pipeline
+    "KnowledgePipeline",
+    "PipelineResult",
     # Source types
     "Source",
-    # Base classes
-    "Learner",
-    "KnowledgeChunk",
-    # Factory
-    "LearnerFactory",
-    "register_learner",
-    # Implementations
-    "RepoLearner",
-    "PaperLearner",
-    "ExperimentLearner",
+    # Merger (Stage 2)
+    "KnowledgeMerger",
+    "MergeResult",
+    "MergeAction",
+    # Ingestors (Stage 1)
+    "Ingestor",
+    "IngestorFactory",
+    "register_ingestor",
+    "RepoIngestor",
+    "PaperIngestor",
+    "ExperimentIngestor",
 ]
-
