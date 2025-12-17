@@ -150,8 +150,8 @@ def main():
     parser.add_argument(
         "-i", "--iterations",
         type=int,
-        default=25,
-        help="Maximum experiment iterations (default: 25)"
+        default=30,
+        help="Maximum experiment iterations (default: 30)"
     )
     parser.add_argument(
         "-m", "--mode",
@@ -237,6 +237,6 @@ def main():
 if __name__ == "__main__":
 
     main()
-    # problem_handler = AleBench("ahc016")
-    # result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/4d1e7472-d8e0-4c4a-a98f-50647caf834f")
+    # problem_handler = AleBench("ahc046")
+    # result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/931f7622-4c24-4650-909c-314b31199235")
     # print(result)

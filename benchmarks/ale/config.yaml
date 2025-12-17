@@ -33,7 +33,7 @@ modes:
         first_experiment_factor: 2
         experimentation_per_run: 7
         per_step_maximum_solution_count: 10
-        exploration_budget_percent: 75
+        exploration_budget_percent: 66
         idea_generation_model: "gemini/gemini-2.5-pro"
         idea_generation_ensemble_models:
           - "gemini/gemini-2.5-pro"
