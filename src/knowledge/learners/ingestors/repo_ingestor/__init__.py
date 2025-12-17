@@ -142,22 +142,48 @@ class RepoIngestor(Ingestor):
         
         Args:
             workspace: Path to the cloned repository
+        
+        Supports passing through agent_specific settings from params:
+            - use_bedrock: True to use AWS Bedrock instead of direct Anthropic API
+            - aws_region: AWS region for Bedrock (default: "us-east-1")
+            - model: Model name (required for Bedrock, e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
         """
+        # Base agent_specific config
+        agent_specific = {
+            # Read for repo exploration, Write for wiki pages, Bash for file ops
+            # Edit included but Write is preferred for index files (Edit can fail on tables)
+            "allowed_tools": ["Read", "Write", "Edit", "Bash"],
+            "timeout": self._timeout,
+            "planning_mode": True,
+        }
+        
+        # Model override - important for Bedrock which requires specific model IDs
+        # Bedrock model IDs look like: us.anthropic.claude-opus-4-5-20251101-v1:0
+        # Direct Anthropic API uses: claude-opus-4-5
+        model = self.params.get("model")
+        
+        # Pass through Bedrock settings from ingestor params if provided
+        # This allows callers to configure AWS Bedrock mode for Claude Code
+        if self.params.get("use_bedrock"):
+            agent_specific["use_bedrock"] = True
+            # Allow aws_region override, default is handled by ClaudeCodeCodingAgent
+            if self.params.get("aws_region"):
+                agent_specific["aws_region"] = self.params["aws_region"]
+            # Default Bedrock model if not specified (Claude Opus 4.5 on Bedrock)
+            if not model:
+                model = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        
         # Build config for Claude Code with read + write tools
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",
-            agent_specific={
-                # Read for repo exploration, Write for wiki pages, Bash for file ops
-                # Edit included but Write is preferred for index files (Edit can fail on tables)
-                "allowed_tools": ["Read", "Write", "Edit", "Bash"],
-                "timeout": self._timeout,
-                "planning_mode": True,
-            }
+            model=model,
+            debug_model=model,  # Use same model for debug
+            agent_specific=agent_specific,
         )
         
         self._agent = CodingAgentFactory.create(config)
         self._agent.initialize(workspace)
-        logger.info(f"Initialized Claude Code agent for {workspace}")
+        logger.info(f"Initialized Claude Code agent for {workspace} (bedrock={agent_specific.get('use_bedrock', False)})")
     
     def _normalize_source(self, source: Any) -> Dict[str, Any]:
         """

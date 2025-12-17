@@ -1,0 +1,24 @@
+# File: `libs/langchain/langchain_classic/chat_models/baidu_qianfan_endpoint.py`
+
+**Category:** Chat Model Integration
+
+| Property | Value |
+|----------|-------|
+| Lines | 27 |
+| Imports | langchain_classic, typing |
+
+## Understanding
+
+**Status:** ✅ Explored
+
+**Purpose:** Import and manage the Baidu Qianfan Chat Endpoint for LangChain integrations
+
+**Mechanism:** 
+- Uses dynamic import mechanism via `create_importer`
+- Supports deprecated imports for `QianfanChatEndpoint`
+- Dynamically resolves imports from `langchain_community` package
+
+**Significance:** 
+- Provides a migration path for Baidu Qianfan chat model integrations
+- Enables smooth transition between different LangChain package structures
+- Supports maintaining backwards compatibility for existing codebases
