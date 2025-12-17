@@ -309,7 +309,6 @@ class LlmSteeredTreeSearch(SearchStrategy):
             user_message=user_prompt,
             reasoning_effort=self.reasoning_effort,
         )
-        print(f"selected node ids: {output}")
         selected_node_ids = eval(re.findall(r'<output>(.*?)</output>', output, re.DOTALL)[0].strip())
         return [node for node in leaf_nodes if node.node_id in selected_node_ids]
 
@@ -441,7 +440,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             You are a world class problem solver. Generate {per_step_solution_count} exact solutions for the given problem that are the best and significantly better than the previous experiments.
             Requirement:
             - Each solution must be exact and high level steps specific enough to be coded.
-            - If parent solution exists, the newly proposed solutions must extend, improve, or tune it.
+            - If parent solution exists, the newly proposed solutions must extend, improve, or tune it (at least one from each).
             - Solutions must be significantly different from each other.
             - Solutions must not reference to each other's and parent's parts. Each solution must be self-contained.
             - CRITICAL: ** Put solutions between <solution> and </solution> tags. ** e.g.:
@@ -451,10 +450,6 @@ class LlmSteeredTreeSearch(SearchStrategy):
                     ...
                    # Body:
                     ...
-                   # Hyper parameters:  
-                    ...
-                   # Runtime expectation:
-                    ... 
                 </solution>
                 
                 Solution 2:
@@ -463,10 +458,6 @@ class LlmSteeredTreeSearch(SearchStrategy):
                     ...
                    # Body:
                     ...
-                   # Hyper parameters: 
-                    ...
-                   # Runtime expectation:
-                    ... 
                 </solution>
                 ...
         """
