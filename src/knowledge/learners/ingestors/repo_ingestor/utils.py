@@ -15,10 +15,6 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-# Path to wiki structure definitions
-WIKI_STRUCTURE_DIR = Path(__file__).parents[3] / "wiki_structure"
-
-
 def clone_repo(url: str, branch: str = "main") -> Path:
     """
     Clone a Git repository to a temporary directory.
@@ -107,7 +103,9 @@ def load_wiki_structure(page_type: str) -> str:
     Raises:
         FileNotFoundError: If wiki structure directory doesn't exist
     """
-    type_dir = WIKI_STRUCTURE_DIR / f"{page_type.lower()}_page"
+    # Path to wiki structure definitions (relative to this file's location)
+    wiki_structure_dir = Path(__file__).parents[3] / "wiki_structure"
+    type_dir = wiki_structure_dir / f"{page_type.lower()}_page"
     
     if not type_dir.exists():
         raise FileNotFoundError(f"Wiki structure not found for type: {page_type}")

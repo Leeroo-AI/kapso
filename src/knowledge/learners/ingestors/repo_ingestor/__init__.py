@@ -32,13 +32,16 @@
 
 import logging
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from src.execution.coding_agents.factory import CodingAgentFactory
 from src.knowledge.learners.ingestors.base import Ingestor
 from src.knowledge.learners.ingestors.factory import register_ingestor
 from src.knowledge.search.base import WikiPage, DEFAULT_WIKI_DIR
+from src.knowledge.search.kg_graph_search import parse_wiki_directory
 
 from src.knowledge.learners.ingestors.repo_ingestor.utils import (
     clone_repo,
@@ -140,34 +143,21 @@ class RepoIngestor(Ingestor):
         Args:
             workspace: Path to the cloned repository
         """
-        try:
-            from src.execution.coding_agents.factory import CodingAgentFactory
-            
-            # Build config for Claude Code with read + write tools
-            config = CodingAgentFactory.build_config(
-                agent_type="claude_code",
-                agent_specific={
-                    # Read for repo exploration, Write for wiki pages, Bash for file ops
-                    # Edit included but Write is preferred for index files (Edit can fail on tables)
-                    "allowed_tools": ["Read", "Write", "Edit", "Bash"],
-                    "timeout": self._timeout,
-                    "planning_mode": True,
-                }
-            )
-            
-            self._agent = CodingAgentFactory.create(config)
-            self._agent.initialize(workspace)
-            logger.info(f"Initialized Claude Code agent for {workspace}")
-            
-        except ImportError as e:
-            logger.error(f"Could not import CodingAgentFactory: {e}")
-            raise RuntimeError(
-                "Claude Code agent not available. "
-                "Ensure coding_agents module is properly installed."
-            )
-        except Exception as e:
-            logger.error(f"Failed to initialize Claude Code agent: {e}")
-            raise
+        # Build config for Claude Code with read + write tools
+        config = CodingAgentFactory.build_config(
+            agent_type="claude_code",
+            agent_specific={
+                # Read for repo exploration, Write for wiki pages, Bash for file ops
+                # Edit included but Write is preferred for index files (Edit can fail on tables)
+                "allowed_tools": ["Read", "Write", "Edit", "Bash"],
+                "timeout": self._timeout,
+                "planning_mode": True,
+            }
+        )
+        
+        self._agent = CodingAgentFactory.create(config)
+        self._agent.initialize(workspace)
+        logger.info(f"Initialized Claude Code agent for {workspace}")
     
     def _normalize_source(self, source: Any) -> Dict[str, Any]:
         """
@@ -284,7 +274,6 @@ class RepoIngestor(Ingestor):
         Returns:
             True if phase succeeded, False otherwise
         """
-        import time
         start = time.time()
         logger.info(f"Running {phase} phase...")
         
@@ -322,7 +311,6 @@ class RepoIngestor(Ingestor):
         Returns:
             True if phase succeeded (ALL files explored), False otherwise
         """
-        import time
         start = time.time()
         logger.info("Running Phase 0: Repository Understanding...")
         
@@ -466,8 +454,6 @@ class RepoIngestor(Ingestor):
             List of WikiPage objects
         """
         try:
-            from src.knowledge.search.kg_graph_search import parse_wiki_directory
-            
             pages = parse_wiki_directory(self._wiki_dir)
             
             # IMPORTANT:
@@ -476,9 +462,6 @@ class RepoIngestor(Ingestor):
             logger.info(f"Collected {len(pages)} pages from {self._wiki_dir}")
             return pages
             
-        except ImportError:
-            logger.warning("Could not import parse_wiki_directory, returning empty list")
-            return []
         except Exception as e:
             logger.error(f"Failed to collect pages: {e}")
             return []
@@ -690,8 +673,4 @@ class RepoIngestor(Ingestor):
         Useful for debugging phase outputs before merge.
         """
         return self._last_staging_dir
-
-
-# Alias for backward compatibility
-PhasedRepoIngestor = RepoIngestor
 
