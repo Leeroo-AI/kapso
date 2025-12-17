@@ -122,7 +122,7 @@ Principle pages have outgoing connections to:
 
 *   **Implementation:** `[[implemented_by::Implementation:{Implementation_Name}]]`
     *   *Meaning:* "This theory is realized by this code."
-    *   *Constraint:* **MANDATORY** — Must list at least one implementation.
+    *   *Constraint:* **MANDATORY** — Must have exactly ONE dedicated implementation.
 *   **Heuristic:** `[[uses_heuristic::Heuristic:{Heuristic_Name}]]`
     *   *Meaning:* "This theory is optimized by this wisdom."
 
@@ -130,13 +130,71 @@ Principle pages have outgoing connections to:
 ```mediawiki
 == Related Pages ==
 * [[implemented_by::Implementation:PyTorch_MultiheadAttention]]
-* [[implemented_by::Implementation:TensorFlow_Attention_Layer]]
 * [[uses_heuristic::Heuristic:FlashAttention_Optimization]]
 ```
 
 **Connection Types for Principle:**
 | Edge Property | Target Node | Meaning | Constraint |
 |:--------------|:------------|:--------|:-----------|
-| `implemented_by` | Implementation | "This theory runs via this code" | **MANDATORY (1+)** |
+| `implemented_by` | Implementation | "This theory runs via this code" | **MANDATORY (1:1)** |
 | `uses_heuristic` | Heuristic | "Optimized by this wisdom" | Optional |
+
+---
+
+## 5. 1:1 Principle-Implementation Mapping (CRITICAL)
+
+### The Rule
+
+**Each Principle has exactly ONE dedicated Implementation page.** Even if multiple Principles use the same underlying API, each gets its own Implementation that documents the API from that Principle's perspective.
+
+### Why 1:1 Mapping?
+
+1. **Clear ownership:** Each Principle knows exactly where its code documentation lives.
+2. **Context-specific docs:** The same API can have different important parameters depending on use case.
+3. **No confusion:** Engineers following a Principle land on documentation tailored to their goal.
+4. **Maintainability:** Updates to one use case don't affect others.
+
+### Example: Same API, Different Implementations
+
+`FastLanguageModel.from_pretrained()` is used by three Principles:
+
+| Principle | Implementation | Angle/Context |
+|-----------|----------------|---------------|
+| `Model_Loading` | `FastLanguageModel_from_pretrained` | QLoRA loading, 4-bit quantization |
+| `RL_Model_Loading` | `FastLanguageModel_from_pretrained_vllm` | vLLM fast inference mode |
+| `Model_Preparation` | `FastLanguageModel_from_pretrained_lora` | Reloading saved LoRA adapters |
+
+Each Implementation page:
+- Documents the same underlying API
+- Emphasizes parameters relevant to that use case
+- Provides examples tailored to that workflow context
+- Links to the appropriate Environment pages
+
+### Implementation Naming Convention
+
+When the same API serves multiple Principles, use suffixes to distinguish:
+
+```
+{repo}_{APIName}              → Primary/default use case
+{repo}_{APIName}_{context}    → Specialized use cases
+```
+
+Examples:
+- `unslothai_unsloth_FastLanguageModel_from_pretrained` (default QLoRA)
+- `unslothai_unsloth_FastLanguageModel_from_pretrained_vllm` (RL with vLLM)
+- `unslothai_unsloth_get_peft_model` (SFT LoRA)
+- `unslothai_unsloth_get_peft_model_rl` (RL high-rank LoRA)
+
+### What Goes in the WorkflowIndex
+
+The `_WorkflowIndex.md` should specify which Implementation each Principle links to:
+
+```markdown
+| Principle | Implementation | API | Angle |
+|-----------|----------------|-----|-------|
+| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` | QLoRA |
+| RL_Model_Loading | `FastLanguageModel_from_pretrained_vllm` | `from_pretrained` | vLLM |
+```
+
+This ensures Phase 2 creates the correct Implementation pages with correct mappings.
 

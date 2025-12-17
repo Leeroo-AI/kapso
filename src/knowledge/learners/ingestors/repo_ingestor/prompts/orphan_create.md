@@ -55,7 +55,7 @@ Each Implementation page MUST include:
 {{{{wikitable
 | Sources = [[source::Repo|{repo_name}|{repo_url}]]
 | Domains = [[domain::X]], [[domain::Y]]
-| Last Updated = {date}
+| Last Updated = {{date}}
 }}}}
 ```
 

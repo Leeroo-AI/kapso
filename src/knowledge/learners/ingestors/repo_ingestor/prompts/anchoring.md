@@ -107,43 +107,122 @@ For each source file your Workflow covers, update its **Coverage column**:
 
 Coverage format: `Workflow: PageName` or `Workflow: Page1, Page2` if multiple.
 
-### Step 6: Update the Workflow Index (IMMEDIATELY)
+### Step 6: Update the Enhanced WorkflowIndex (CRITICAL)
 
 **⚠️ CRITICAL:** Update `{wiki_dir}/_WorkflowIndex.md` **IMMEDIATELY after creating each Workflow page**.
 
-| Column | Content |
-|--------|---------|
-| Page | Workflow page name (without .md) |
-| File | Link: `[→](./workflows/{repo_name}_X.md)` |
-| Connections | All links with **per-reference status** (see format below) |
-| Notes | Brief description |
+The WorkflowIndex is the **bridge document** that preserves implementation context for Phase 2. Without proper implementation hints, Phase 2 cannot create correct Principle→Implementation mappings.
 
-**Connections Format (use FULL page names with `{repo_name}_` prefix):**
-- `⬜Impl:{repo_name}_FastLanguageModel` = Implementation not created yet
-- `⬜Impl:{repo_name}_SFTTrainer` = Implementation not created yet
-- `⬜Principle:{repo_name}_LoRA` = Principle not created yet
+#### WorkflowIndex Structure
 
-**Example row:**
+```markdown
+# Workflow Index: {repo_name}
+
+> Comprehensive index of Workflows and their implementation context.
+> This index bridges Phase 1 (Anchoring) and Phase 2 (Excavation).
+
+---
+
+## Summary
+
+| Workflow | Steps | Principles | Implementation APIs |
+|----------|-------|------------|---------------------|
+| QLoRA_Finetuning | 6 | 6 | FastLanguageModel, get_peft_model, SFTTrainer |
+
+---
+
+## Workflow: {repo_name}_WorkflowName
+
+**File:** [→](./workflows/{repo_name}_WorkflowName.md)
+**Description:** One-line description of the workflow.
+
+### Steps Overview
+
+| # | Step Name | Principle | Implementation | Status |
+|---|-----------|-----------|----------------|--------|
+| 1 | Load Model | Model_Loading | `FastLanguageModel.from_pretrained` | ⬜ |
+| 2 | Apply LoRA | LoRA_Injection | `FastLanguageModel.get_peft_model` | ⬜ |
+
+### Step 1: Model_Loading
+
+| Attribute | Value |
+|-----------|-------|
+| **Principle** | `{repo_name}_Model_Loading` |
+| **Implementation** | `{repo_name}_FastLanguageModel_from_pretrained` |
+| **API Call** | `FastLanguageModel.from_pretrained(model_name, max_seq_length, load_in_4bit, dtype)` |
+| **Source Location** | `unsloth/models/loader.py:L120-620` |
+| **External Dependencies** | `transformers`, `bitsandbytes` |
+| **Environment** | `{repo_name}_CUDA` |
+| **Key Parameters** | `model_name: str`, `max_seq_length: int`, `load_in_4bit: bool`, `dtype: Optional[torch.dtype]` |
+| **Inputs** | Model name/path (HuggingFace ID or local path) |
+| **Outputs** | `Tuple[PeftModel, PreTrainedTokenizer]` |
+
+### Step 2: LoRA_Injection
+
+| Attribute | Value |
+|-----------|-------|
+| **Principle** | `{repo_name}_LoRA_Injection` |
+| **Implementation** | `{repo_name}_get_peft_model` |
+| **API Call** | `FastLanguageModel.get_peft_model(model, r, lora_alpha, target_modules, ...)` |
+| **Source Location** | `unsloth/models/llama.py:L2578-2800` |
+| **External Dependencies** | `peft` |
+| **Environment** | `{repo_name}_CUDA` |
+| **Key Parameters** | `model`, `r: int`, `lora_alpha: int`, `target_modules: List[str]` |
+| **Inputs** | Model from Step 1 |
+| **Outputs** | `PeftModel` with LoRA adapters |
+
+### Implementation Extraction Guide
+
+| Principle | Implementation | API | Source | Type |
+|-----------|----------------|-----|--------|------|
+| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` | `loader.py` | API Doc |
+| LoRA_Injection | `get_peft_model` | `get_peft_model` | `llama.py` | API Doc |
+| SFT_Training | `SFTTrainer_usage` | `SFTTrainer` | TRL (external) | Wrapper Doc |
+| Reward_Definition | `reward_function_interface` | N/A | User code | Pattern Doc |
 ```
-| {repo_name}_QLoRA_Finetuning | [→](./workflows/...) | ⬜Impl:{repo_name}_FastLanguageModel, ⬜Impl:{repo_name}_SFTTrainer, ⬜Principle:{repo_name}_LoRA | Main fine-tuning workflow |
-```
 
-Since you're the first phase, all connections will be `⬜` (later phases create these pages and update to `✅`).
+#### Required Information Per Step
 
-**Note:** Use the SAME names you use in Related Pages section (e.g., `[[step::Principle:{repo_name}_LoRA]]`).
+For EACH workflow step, you MUST capture:
 
-## Output Instructions
+| Field | Description | How to Find |
+|-------|-------------|-------------|
+| **Principle** | Principle page name (must match `[[step::...]]` link) | From workflow step |
+| **Implementation** | Suggested Implementation page name | Derive from API name |
+| **API Call** | Exact function/method with key parameters | From example code/docs |
+| **Source Location** | File path and line numbers in repo | Read source file |
+| **External Dependencies** | Non-repo libraries used | From imports |
+| **Environment** | Environment page name | From system requirements |
+| **Key Parameters** | Important params with types | From function signature |
+| **Inputs** | What this step consumes | From data flow |
+| **Outputs** | What this step produces | From return type |
 
-Write .md files to: `{wiki_dir}/workflows/`
+#### Implementation Types
 
-**Filename format:** `{repo_name}_WorkflowName.md`
+Mark each implementation with its type:
 
-**Examples:**
-- `{repo_name}_QLoRA_Finetuning.md`
-- `{repo_name}_DPO_Alignment.md`
-- `{repo_name}_Model_Export.md`
+| Type | When to Use | Example |
+|------|-------------|---------|
+| **API Doc** | Function/class in this repo | `FastLanguageModel.from_pretrained` |
+| **Wrapper Doc** | External library with repo-specific usage | `SFTTrainer` (TRL wrapper) |
+| **Pattern Doc** | User-defined interface/pattern | `reward_function(completions, prompts)` |
+| **External Tool Doc** | CLI or external tool | `llama-cli` for GGUF validation |
 
-Write at least 3-5 workflow pages for the most important use cases.
+#### 1:1 Principle-Implementation Mapping Rule
+
+**CRITICAL:** Each Principle should map to ONE dedicated Implementation page.
+
+If the same API is used by multiple Principles (from different angles), create **separate Implementation pages** with different names:
+
+| Principle | Implementation Name | Angle |
+|-----------|---------------------|-------|
+| `Model_Loading` | `FastLanguageModel_from_pretrained` | QLoRA loading |
+| `RL_Model_Loading` | `FastLanguageModel_from_pretrained_vllm` | vLLM-enabled loading |
+| `Model_Preparation` | `FastLanguageModel_from_pretrained_lora` | Reload trained LoRA |
+
+This ensures Phase 2 creates Principle-specific documentation for each use case.
+
+---
 
 ## Repo Scoping Rule (CRITICAL)
 
@@ -162,16 +241,39 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase1_anchoring.m
 ```markdown
 # Phase 1: Anchoring Report
 
+## Summary
+- Workflows created: X
+- Total steps documented: X
+- Implementation hints captured: X
+
 ## Workflows Created
-| Workflow | Source Files | Steps |
-|----------|--------------|-------|
-| [Name] | [files] | [step count] |
+
+| Workflow | Source Files | Steps | Implementation APIs |
+|----------|--------------|-------|---------------------|
+| [Name] | [files] | [count] | [APIs used] |
 
 ## Coverage Summary
 - Source files covered: X
 - Example files documented: X
 
+## Implementation Context Captured
+
+| Workflow | Principles | API Docs | Wrapper Docs | Pattern Docs |
+|----------|------------|----------|--------------|--------------|
+| QLoRA_Finetuning | 6 | 4 | 1 | 0 |
+
 ## Notes for Excavation Phase
-- [Key APIs to trace from workflows]
-- [Important classes/functions used]
+
+### APIs to Extract (with Source Locations)
+| API | Source | Used By Principles |
+|-----|--------|-------------------|
+| FastLanguageModel.from_pretrained | loader.py:L120-620 | Model_Loading |
+| get_peft_model | llama.py:L2578-2800 | LoRA_Injection |
+
+### External Dependencies to Document
+- TRL: SFTTrainer, GRPOTrainer
+- HuggingFace: tokenizer.apply_chat_template
+
+### User-Defined Patterns to Document
+- reward_function interface for GRPO
 ```

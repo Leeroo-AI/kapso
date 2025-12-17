@@ -314,3 +314,130 @@ Implementation pages have outgoing connections to:
 | `requires_env` | Environment | "Needs this context to run" |
 | `uses_heuristic` | Heuristic | "Uses this optimization/tip" |
 
+---
+
+## 5. Principle-Conditioned Documentation (CRITICAL)
+
+### The 1:1 Rule
+
+**Each Implementation page is dedicated to exactly ONE Principle.** The same underlying API may have multiple Implementation pages if it serves different Principles.
+
+### Why Principle-Conditioned?
+
+The same API can be used in different contexts with different:
+- **Important parameters:** QLoRA cares about `load_in_4bit`, RL cares about `fast_inference`
+- **Typical values:** SFT uses `r=16`, RL uses `r=64`
+- **Examples:** Different code snippets for different use cases
+- **Environment requirements:** RL needs vLLM, basic loading doesn't
+
+### How to Write Principle-Conditioned Docs
+
+When creating an Implementation page, **always know which Principle it serves** (from the WorkflowIndex). Then:
+
+1. **Title reflects the angle:**
+   - `FastLanguageModel_from_pretrained` (default QLoRA)
+   - `FastLanguageModel_from_pretrained_vllm` (RL with vLLM)
+
+2. **Overview mentions the context:**
+   ```mediawiki
+   == Overview ==
+   Loads language models with vLLM fast inference backend for reinforcement learning workflows.
+   ```
+
+3. **Usage focuses on the specific trigger:**
+   ```mediawiki
+   === Usage ===
+   Use this when setting up GRPO/PPO training with vLLM-accelerated generation.
+   NOT for standard SFT training (use FastLanguageModel_from_pretrained instead).
+   ```
+
+4. **Key Parameters highlight what matters for this use case:**
+   - For QLoRA: `load_in_4bit`, `dtype`, `max_seq_length`
+   - For RL: `fast_inference`, `max_lora_rank`, `gpu_memory_utilization`
+
+5. **Examples are tailored to the workflow:**
+   - QLoRA example shows loading for fine-tuning
+   - RL example shows loading with vLLM settings
+
+### Implementation Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **API Doc** | Documents a function/class in the repo | `FastLanguageModel.from_pretrained` |
+| **Wrapper Doc** | Documents external API with repo-specific usage | `SFTTrainer` (from TRL, with Unsloth context) |
+| **Pattern Doc** | Documents a user-defined pattern/interface | `reward_function_interface` |
+| **External Tool Doc** | Documents CLI or external tool | `llama_cli_validation` |
+
+### Wrapper Docs for External APIs
+
+When documenting external APIs (like TRL's `SFTTrainer`), create a **Wrapper Doc** that:
+
+1. Links to official documentation
+2. Explains repo-specific usage and patches
+3. Shows examples in the context of this repo's workflow
+4. Documents which parameters are affected by the repo's optimizations
+
+**Sample for TRL SFTTrainer wrapper:**
+```mediawiki
+== Overview ==
+HuggingFace TRL's SFTTrainer for supervised fine-tuning, automatically optimized by Unsloth patches.
+
+=== Description ===
+When Unsloth is imported, it patches SFTTrainer to use:
+* Fused cross-entropy loss
+* Optimized gradient checkpointing
+* Padding-free training
+
+=== External Reference ===
+* [https://huggingface.co/docs/trl/sft_trainer TRL SFTTrainer Documentation]
+
+=== Unsloth-Specific Usage ===
+...
+```
+
+### Pattern Docs for User-Defined Code
+
+Some Principles don't have a library API—they're patterns users implement themselves. Document the **interface**, not an implementation:
+
+**Sample for reward_function_interface:**
+```mediawiki
+== Overview ==
+Interface specification for user-defined reward functions in GRPO training.
+
+=== Description ===
+Reward functions score model completions to guide reinforcement learning. This is a user-defined pattern, not a library API.
+
+== Interface Specification ==
+<syntaxhighlight lang="python">
+def reward_function(
+    completions: List[str],  # Generated completions
+    prompts: List[str]       # Original prompts
+) -> List[float]:            # Reward scores
+    """
+    Returns a list of float rewards, one per completion.
+    Higher values indicate better completions.
+    """
+    ...
+</syntaxhighlight>
+
+== Example Implementations ==
+=== Rule-Based Reward ===
+...
+=== Model-Based Reward ===
+...
+```
+
+### Reading from WorkflowIndex
+
+When creating Implementation pages in Phase 2, **always check the WorkflowIndex** for:
+
+| Field | Use For |
+|-------|---------|
+| **Principle** | Know which Principle this Implementation serves |
+| **API Call** | The exact function signature to document |
+| **Source Location** | Where to find the code |
+| **Key Parameters** | Which parameters to emphasize |
+| **Inputs/Outputs** | For the I/O Contract section |
+| **Environment** | Which Environment pages to link |
+| **External Dependencies** | Whether this needs a Wrapper Doc |
+

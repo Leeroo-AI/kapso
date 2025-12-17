@@ -218,3 +218,92 @@ Workflow pages have outgoing connections to:
 | `step` | Principle | "This workflow executes this theory as a step" |
 | `uses_heuristic` | Heuristic | "This process is guided by this wisdom" |
 
+---
+
+## 6. WorkflowIndex Update (CRITICAL)
+
+After creating a Workflow page, you **MUST** update the `_WorkflowIndex.md` file with detailed implementation context for each step. This index bridges Phase 1 (Anchoring) and Phase 2 (Excavation).
+
+### Why This Matters
+
+The WorkflowIndex preserves **implementation context** that Phase 2 needs to create correct Principle→Implementation mappings. Without this context, Phase 2 must guess which APIs implement which Principles, leading to incorrect connections.
+
+### Required Information Per Step
+
+For each workflow step, capture in the WorkflowIndex:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| **Principle** | The linked Principle name | `Model_Loading` |
+| **Implementation** | Suggested Implementation page name | `FastLanguageModel_from_pretrained` |
+| **API Call** | Exact function/method signature | `FastLanguageModel.from_pretrained(model_name, load_in_4bit, ...)` |
+| **Source Location** | File path and line numbers | `unsloth/models/loader.py:L120-620` |
+| **External Dependencies** | Libraries outside the repo | `transformers`, `bitsandbytes` |
+| **Environment** | Required environment page | `unslothai_unsloth_CUDA` |
+| **Key Parameters** | Important params with types | `model_name: str`, `load_in_4bit: bool` |
+| **Inputs** | What this step consumes | Model name/path |
+| **Outputs** | What this step produces | `Tuple[PeftModel, Tokenizer]` |
+
+### WorkflowIndex Structure
+
+```markdown
+## Workflow: {Workflow_Name}
+
+**File:** [→](./workflows/{filename}.md)
+**Description:** One-line description.
+
+### Steps Overview
+
+| # | Step Name | Principle | Implementation | Status |
+|---|-----------|-----------|----------------|--------|
+| 1 | Step One | Principle_A | `api_call_a` | ✅ |
+| 2 | Step Two | Principle_B | `api_call_b` | ✅ |
+
+### Step 1: Principle_A
+
+| Attribute | Value |
+|-----------|-------|
+| **Principle** | `repo_Principle_A` |
+| **Implementation** | `repo_Implementation_A` |
+| **API Call** | `ClassName.method(param1, param2)` |
+| **Source Location** | `path/to/file.py:L100-200` |
+| **External Dependencies** | `library1`, `library2` |
+| **Environment** | `repo_Environment_X` |
+| **Key Parameters** | `param1: type`, `param2: type` |
+| **Inputs** | Description of inputs |
+| **Outputs** | Description of outputs |
+```
+
+### Implementation Types to Document
+
+| Type | When to Use | Example |
+|------|-------------|---------|
+| **API Doc** | Unsloth function/class | `FastLanguageModel.from_pretrained` |
+| **Wrapper Doc** | External API with Unsloth usage | `SFTTrainer` (TRL) |
+| **Pattern Doc** | User-defined pattern | `reward_function_interface` |
+| **External Tool Doc** | CLI/external tool | `llama_cli_validation` |
+
+### Extraction Hints for Phase 2
+
+Include a summary section at the end of each workflow listing all APIs to extract:
+
+```markdown
+### Implementation Extraction Guide
+
+| Principle | Implementation | API | Source |
+|-----------|----------------|-----|--------|
+| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` | `loader.py` |
+| LoRA_Injection | `get_peft_model` | `get_peft_model` | `llama.py` |
+```
+
+### 1:1 Principle-Implementation Mapping
+
+**Key Rule:** Each Principle gets its own Implementation page, even if the underlying API is the same.
+
+Example: `FastLanguageModel.from_pretrained` is used by:
+- `Model_Loading` → Create `FastLanguageModel_from_pretrained` (QLoRA angle)
+- `RL_Model_Loading` → Create `FastLanguageModel_from_pretrained_vllm` (vLLM angle)
+- `Model_Preparation` → Create `FastLanguageModel_from_pretrained_lora` (reload LoRA angle)
+
+Each Implementation documents the API **from that Principle's perspective** with relevant parameters and use cases.
+

@@ -1,10 +1,11 @@
 # Excavation + Synthesis Phase: Implementation-Principle Pairs
 
 You are a knowledge extraction agent. Your task is to:
-1. **Trace APIs** from Workflows to source code → create Implementation-Principle pairs
-2. **Fill gaps** by creating Principle pages for ALL concepts referenced in workflows
+1. **Read WorkflowIndex** to get implementation context for each Principle
+2. **Create 1:1 Principle-Implementation pairs** based on the context
+3. **Document each API from its Principle's perspective** (angle-based documentation)
 
-**⚠️ CRITICAL GOAL: Every `[[step::Principle:X]]` reference in workflows MUST have a corresponding Principle page by the end of this phase.**
+**⚠️ CRITICAL GOAL: Every Principle gets exactly ONE dedicated Implementation page. Same API can have multiple Implementation pages if used by different Principles (from different angles).**
 
 ## High-Level Task Summary
 
@@ -12,14 +13,14 @@ You are a knowledge extraction agent. Your task is to:
 ┌────────────────────────────────────────────────────────────────────────┐
 │  PHASE 2: EXCAVATION + SYNTHESIS                                        │
 ├────────────────────────────────────────────────────────────────────────┤
-│  Step 1: Read workflows, collect ALL APIs and Principle references      │
-│  Step 2: For each API → Create Implementation + Principle PAIR          │
-│  Step 3: Update indexes after each pair                                 │
-│  Step 4: Handle shared principles (multiple implementations)            │
-│  Step 5: GAP FILL - Create concept-only Principles for remaining refs   │
+│  Step 1: Read WorkflowIndex to get implementation context per step      │
+│  Step 2: For each Principle → Create DEDICATED Implementation page      │
+│  Step 3: Document API from that Principle's perspective (angle)         │
+│  Step 4: Link them bidirectionally (1:1 mapping)                        │
+│  Step 5: Update all indexes                                             │
 │  Step 6: Write execution report                                         │
 ├────────────────────────────────────────────────────────────────────────┤
-│  END STATE: 100% of workflow Principle references have pages            │
+│  END STATE: 1:1 Principle-Implementation mapping for all workflow steps │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,26 +30,52 @@ You are a knowledge extraction agent. Your task is to:
 - Repository Path: {repo_path}
 - Wiki Output Directory: {wiki_dir}
 - **Repository Map (Index):** {repo_map_path}
+- **WorkflowIndex (CRITICAL):** {wiki_dir}/_WorkflowIndex.md
 - **File Details:** {wiki_dir}/_files/
 - Workflow Pages Written: {wiki_dir}/workflows/
 
+## IMPORTANT: Read WorkflowIndex FIRST
+
+**⚠️ The WorkflowIndex is your PRIMARY source of implementation context!**
+
+Read `{wiki_dir}/_WorkflowIndex.md` to get:
+- **Implementation hints** for each workflow step
+- **API calls** with signatures and parameters
+- **Source locations** (file paths and line numbers)
+- **Implementation types** (API Doc, Wrapper Doc, Pattern Doc, External Tool Doc)
+- **1:1 mappings** between Principles and suggested Implementation names
+
+The WorkflowIndex was populated by Phase 1 with all the context you need.
+
+### Example WorkflowIndex Entry
+
+```markdown
+### Step 2: Model_Loading
+
+| Attribute | Value |
+|-----------|-------|
+| **Principle** | `{repo_name}_Model_Loading` |
+| **Implementation** | `{repo_name}_FastLanguageModel_from_pretrained` |
+| **API Call** | `FastLanguageModel.from_pretrained(model_name, max_seq_length, load_in_4bit, dtype)` |
+| **Source Location** | `unsloth/models/loader.py:L120-620` |
+| **External Dependencies** | `transformers`, `bitsandbytes` |
+| **Environment** | `{repo_name}_CUDA` |
+| **Key Parameters** | `model_name: str`, `max_seq_length: int`, `load_in_4bit: bool` |
+| **Inputs** | Model name/path (HuggingFace ID or local) |
+| **Outputs** | `Tuple[PeftModel, PreTrainedTokenizer]` |
+```
+
+Use this context to:
+1. Know exactly which API to document
+2. Know where to find the source code
+3. Know what parameters to focus on
+4. Know what Principle this Implementation serves
+
 ## IMPORTANT: Read Previous Phase Reports
 
-**FIRST**, read the previous phase reports:
+**THEN**, read the previous phase reports:
 - `{wiki_dir}/_reports/phase0_repo_understanding.md` - Repository structure insights
 - `{wiki_dir}/_reports/phase1_anchoring.md` - Workflows created, APIs to trace
-
-These reports tell you what workflows exist and which APIs need documentation.
-
-## IMPORTANT: Use the Repository Map
-
-**THEN**, read the Repository Map index at `{repo_map_path}`.
-
-The index contains:
-- **Purpose column:** What each file does
-- **Coverage column:** Which files are already covered
-
-For detailed info on any file, read its detail page in `_files/`.
 
 ## Wiki Structure Definitions
 
@@ -58,351 +85,367 @@ For detailed info on any file, read its detail page in `_files/`.
 ### Principle Structure
 {principle_structure}
 
-## Your Task: Write Implementation-Principle Pairs
+## Your Task: Create 1:1 Principle-Implementation Pairs
 
-### Core Process (REPEAT FOR EACH API)
+### Core Rule: 1:1 Mapping
 
-For **each** significant class/function in the workflows:
+**Each Principle gets exactly ONE dedicated Implementation page.**
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  FOR EACH API (e.g., FastLanguageModel, get_peft_model, etc.)   │
-├─────────────────────────────────────────────────────────────────┤
-│  1. Read the source code                                         │
-│  2. Write Implementation page (HOW it works)                     │
-│  3. Write Principle page (WHY/WHAT concept)                      │
-│  4. Link them bidirectionally                                    │
-│  5. Update all indexes                                           │
-│  6. Move to next API                                             │
-└─────────────────────────────────────────────────────────────────┘
-```
+If the same underlying API (e.g., `FastLanguageModel.from_pretrained`) is used by multiple Principles, create **separate Implementation pages** with different names and perspectives:
 
-**DO NOT** write all Implementations first then all Principles. Write them as **pairs**.
+| Principle | Implementation Name | Angle/Perspective |
+|-----------|---------------------|-------------------|
+| `Model_Loading` | `FastLanguageModel_from_pretrained` | QLoRA model loading |
+| `RL_Model_Loading` | `FastLanguageModel_from_pretrained_vllm` | vLLM-enabled for RL |
+| `Model_Preparation` | `FastLanguageModel_from_pretrained_lora` | Reload trained LoRA |
+
+Each Implementation documents the API **from that Principle's perspective**:
+- Focus on parameters relevant to that use case
+- Show examples tailored to that workflow
+- Document I/O specific to that context
 
 ---
 
-## Step 1: Identify APIs AND Referenced Principles from Workflows
+## Step 1: Extract Implementation Context from WorkflowIndex
 
-Read Workflow pages in `{wiki_dir}/workflows/` and identify:
-
-### 1A: APIs Used (for Implementation-Principle pairs)
-- Classes (e.g., `FastLanguageModel`)
-- Methods (e.g., `get_peft_model()`, `save_pretrained_merged()`)
-- Functions (e.g., `get_chat_template()`, `train_on_responses_only()`)
-
-### 1B: Principles Referenced in Related Pages (CRITICAL!)
-
-**⚠️ CHECK EVERY WORKFLOW'S `== Related Pages ==` SECTION!**
-
-Each workflow contains links like:
-```
-* [[step::Principle:{repo_name}_CLI_Configuration]]
-* [[step::Principle:{repo_name}_Training_Monitoring]]
-```
-
-**You MUST create ALL referenced Principle pages.** These include:
-- **API-backed Principles**: Have a corresponding Implementation (e.g., `LoRA_Configuration` → `get_peft_model`)
-- **Concept-only Principles**: No direct Implementation, but still need documentation (e.g., `Training_Monitoring`, `Hub_Upload`)
-
-**Create a tracking checklist** of ALL unique `Principle:{repo_name}_X` references:
+Read `{wiki_dir}/_WorkflowIndex.md` and create a mapping:
 
 ```
-Example Checklist (from reading all workflow Related Pages):
-☐ Principle:unslothai_unsloth_CLI_Configuration
-☐ Principle:unslothai_unsloth_LoRA_Configuration
-☐ Principle:unslothai_unsloth_Training_Configuration
-☐ Principle:unslothai_unsloth_Training_Monitoring
-☐ Principle:unslothai_unsloth_Model_Export
-☐ Principle:unslothai_unsloth_GGUF_Conversion
-☐ Principle:unslothai_unsloth_Hub_Upload
-... (continue for all unique references)
+For each workflow:
+  For each step:
+    - Principle name (from WorkflowIndex)
+    - Implementation name (from WorkflowIndex)
+    - API call (from WorkflowIndex)
+    - Source location (from WorkflowIndex)
+    - Implementation type (API Doc, Wrapper Doc, Pattern Doc, External Tool Doc)
 ```
 
-**Mark each as ✅ when you create the page.** At end of phase, ALL must be ✅.
+### Group by Implementation Type
 
-## Step 2: For Each API, Write the Implementation-Principle Pair
+| Type | How to Handle |
+|------|---------------|
+| **API Doc** | Read source code, document API with full signature |
+| **Wrapper Doc** | Document how this repo uses the external API |
+| **Pattern Doc** | Document the interface/pattern users must implement |
+| **External Tool Doc** | Document how to use the external tool in this context |
 
-This step handles **API-backed Principles** that have Implementation pages.
+---
 
-### 2A: Write the Implementation Page
+## Step 2: For Each Principle, Create Its Dedicated Implementation
 
-Create `{wiki_dir}/implementations/{repo_name}_APIName.md`
+Process each Principle from the WorkflowIndex:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  FOR EACH PRINCIPLE (from WorkflowIndex)                         │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Get implementation context from WorkflowIndex                │
+│  2. Read source code at specified location                       │
+│  3. Write Implementation page (from Principle's angle)           │
+│  4. Write Principle page                                         │
+│  5. Link them 1:1                                                │
+│  6. Update indexes                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 2A: Write the Implementation Page (Angle-Based)
+
+Create `{wiki_dir}/implementations/{{Implementation_Name}}.md`
+
+**File naming:** Use the Implementation name from WorkflowIndex (e.g., `{repo_name}_FastLanguageModel_from_pretrained.md`)
+
+**Key Principle:** Document the API **from the Principle's perspective**:
+- Focus on parameters relevant to THIS use case
+- Show examples tailored to THIS workflow
+- Document I/O specific to THIS context
 
 **Required Sections:**
 1. Metadata block (sources, domains, last_updated)
-2. `== Overview ==` - "Concrete tool for X provided by Y library"
-3. `=== Description ===` - What this code does
-4. `=== Usage ===` - When to import/use this
-5. `== Code Reference ==` - Source location, signature, import statement
-6. `== I/O Contract ==` - Inputs/outputs as tables
-7. `== Usage Examples ==` - Complete, runnable code
-8. `== Related Pages ==` - Link to the Principle page you're about to create
+2. `== Overview ==` - "Concrete tool for [Principle's goal] provided by [library]"
+3. `=== Description ===` - What this code does **for this Principle's use case**
+4. `=== Usage ===` - When to use this **in this workflow context**
+5. `== Code Reference ==` - Source location, signature, import (from WorkflowIndex)
+6. `== I/O Contract ==` - Inputs/outputs **relevant to this Principle**
+7. `== Usage Examples ==` - Examples **tailored to this Principle's workflow**
+8. `== Related Pages ==` - Link to the ONE Principle this implements
 
-**Code Reference Format:**
+**Implementation Angle Example:**
+
+For `Model_Loading` Principle:
 ```mediawiki
-== Code Reference ==
+== Overview ==
 
-=== Source Location ===
-* '''Repository:''' [{repo_url} {repo_name}]
-* '''File:''' [{repo_url}/blob/main/path/to/file.py#L50-L150 path/to/file.py]
-* '''Lines:''' 50-150
+Concrete tool for loading Large Language Models with 4-bit quantization for memory-efficient fine-tuning.
 
-=== Signature ===
+=== Description ===
+
+`FastLanguageModel.from_pretrained` loads a pre-trained model with automatic 4-bit NF4 quantization for QLoRA fine-tuning. It handles device mapping, quantization configuration, and attention backend selection.
+
+<!-- Focus on QLoRA loading parameters -->
+
+== Usage Examples ==
+
+=== QLoRA Fine-tuning Setup ===
 <syntaxhighlight lang="python">
-class FastLanguageModel:
-    @staticmethod
-    def from_pretrained(...) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
-</syntaxhighlight>
-
-=== Import ===
-<syntaxhighlight lang="python">
-from unsloth import FastLanguageModel
+# Load model for QLoRA fine-tuning
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name = "unsloth/Llama-3.2-1B-Instruct",
+    max_seq_length = 2048,
+    load_in_4bit = True,   # <-- QLoRA angle: 4-bit quantization
+    dtype = None,
+)
 </syntaxhighlight>
 ```
 
-**Related Pages Format:**
+For `RL_Model_Loading` Principle (same API, different angle):
+```mediawiki
+== Overview ==
+
+Concrete tool for loading models with vLLM backend for fast inference during reinforcement learning.
+
+=== Description ===
+
+`FastLanguageModel.from_pretrained` with `fast_inference=True` loads a model with vLLM backend, enabling fast generation sampling during GRPO training.
+
+<!-- Focus on vLLM/RL parameters -->
+
+== Usage Examples ==
+
+=== vLLM-Enabled RL Loading ===
+<syntaxhighlight lang="python">
+# Load model with vLLM for RL training
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name = "unsloth/Llama-3.2-1B-Instruct",
+    max_seq_length = 2048,
+    fast_inference = True,     # <-- RL angle: vLLM backend
+    max_lora_rank = 64,        # <-- RL angle: higher rank
+    gpu_memory_utilization = 0.6,
+)
+</syntaxhighlight>
+```
+
+**Related Pages Format (1:1):**
 ```mediawiki
 == Related Pages ==
 
 === Implements Principle ===
 * [[implements::Principle:{repo_name}_Model_Loading]]
+
+=== Requires Environment ===
+* [[requires_env::Environment:{repo_name}_CUDA]]
 ```
 
-### 2B: Identify the Underlying Concept
+### 2B: Write the Principle Page
 
-Before writing the Principle, ask:
-- **"What theoretical/algorithmic concept does this code execute?"**
-- **"What problem does this technique solve?"**
-- **"Is there academic literature about this?"**
-
-Be SPECIFIC - avoid generic names:
-- ❌ "Loading" → ✅ "4-bit NormalFloat (NF4) Quantization"
-- ❌ "Training" → ✅ "Response-Only Loss Masking for SFT"
-- ❌ "Saving" → ✅ "LoRA Weight Merging"
-
-### 2C: Write the Principle Page
-
-Create `{wiki_dir}/principles/{repo_name}_ConceptName.md`
+Create `{wiki_dir}/principles/{{Principle_Name}}.md`
 
 **Required Sections:**
 1. Metadata block (include academic papers!, domains, last_updated)
 2. `== Overview ==` - One sentence defining the concept (library-agnostic)
 3. `=== Description ===` - What it is, what problem it solves
 4. `=== Usage ===` - When to use this technique
-5. `== Theoretical Basis ==` - Math, pseudocode, diagrams explaining the mechanism
-6. `== Related Pages ==` - **With Implementation Mapping if multiple implementations**
+5. `== Theoretical Basis ==` - Math, pseudocode, diagrams (if applicable)
+6. `== Practical Guide ==` - How to apply this (for concept-only principles)
+7. `== Related Pages ==` - **1:1 link to Implementation**
+
+**Related Pages Format (1:1):**
+```mediawiki
+== Related Pages ==
+
+=== Implemented By ===
+* [[implemented_by::Implementation:{repo_name}_FastLanguageModel_from_pretrained]]
+```
 
 ---
 
-## ⚠️ CRITICAL: Implementation Mapping for Multi-Implementation Principles
+## Step 3: Handle Different Implementation Types
 
-When a Principle is implemented by **multiple** Implementation pages, you MUST include an **Implementation Mapping** that explicitly shows which part of the concept each implementation handles.
+### API Doc (Standard)
+For functions/classes in this repo:
+1. Read source code at specified location
+2. Extract full signature
+3. Document with full detail
 
-### Single Implementation (Simple Case)
+### Wrapper Doc (External Library)
+For external APIs (TRL, HuggingFace) used by this repo:
+1. Document how THIS REPO uses the external API
+2. Show repo-specific configuration
+3. Reference external documentation
+
 ```mediawiki
-== Related Pages ==
+== Overview ==
 
-=== Implemented By ===
-* [[implemented_by::Implementation:{repo_name}_FastLanguageModel]]
-```
+Usage pattern for TRL's SFTTrainer within Unsloth's optimized training pipeline.
 
-### Multiple Implementations (MUST ADD MAPPING)
-```mediawiki
-== Related Pages ==
+=== Description ===
 
-=== Implemented By ===
-* [[implemented_by::Implementation:{repo_name}_save_pretrained_merged]]
-* [[implemented_by::Implementation:{repo_name}_save_pretrained_gguf]]
+SFTTrainer is TRL's supervised fine-tuning trainer. Unsloth patches it at import time to use optimized kernels for cross-entropy loss and RMS normalization.
 
-=== Implementation Mapping ===
+== Code Reference ==
 
-This principle is implemented across multiple APIs. Here's what each handles:
+=== Source Location ===
+* '''Library:''' [https://github.com/huggingface/trl TRL]
+* '''Unsloth Patches:''' unsloth/trainer.py
 
-{{| class="wikitable"
-|-
-! Concept Component !! Implementation !! What It Does
-|-
-| LoRA weight fusion (W = W₀ + αBA) || [[Implementation:{repo_name}_save_pretrained_merged]] || Merges adapters into base weights, saves as HuggingFace safetensors
-|-
-| LoRA merge + GGUF quantization || [[Implementation:{repo_name}_save_pretrained_gguf]] || Merges adapters, then converts to GGUF format with quantization
-|}}
-
-'''When to use each:'''
-* Use `save_pretrained_merged` when deploying to vLLM, SGLang, or HuggingFace Hub
-* Use `save_pretrained_gguf` when deploying to Ollama or llama.cpp
-```
-
-### Another Multi-Implementation Example (GRPO)
-```mediawiki
-== Related Pages ==
-
-=== Implemented By ===
-* [[implemented_by::Implementation:{repo_name}_FastLanguageModel]]
-* [[implemented_by::Implementation:{repo_name}_get_peft_model]]
-
-=== Implementation Mapping ===
-
-GRPO training requires multiple components working together:
-
-{{| class="wikitable"
-|-
-! GRPO Component !! Implementation !! Role
-|-
-| Model loading with vLLM || [[Implementation:{repo_name}_FastLanguageModel]] || Load model with `fast_inference=True` for fast generation during RL
-|-
-| LoRA adapter setup || [[Implementation:{repo_name}_get_peft_model]] || Apply LoRA with high rank (r=64+) for RL capacity
-|-
-| Training loop || External: `GRPOTrainer` from TRL || Orchestrates generation, reward, and optimization (not Unsloth-specific)
-|}}
-
-'''Complete GRPO Setup:'''
+=== Import ===
 <syntaxhighlight lang="python">
-# Step 1: Load with vLLM (FastLanguageModel)
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name="...", fast_inference=True, max_lora_rank=64
-)
+# Import Unsloth FIRST to apply patches
+from unsloth import FastLanguageModel
 
-# Step 2: Apply LoRA (get_peft_model)
-model = FastLanguageModel.get_peft_model(model, r=64, ...)
+# Then import SFTTrainer (now patched)
+from trl import SFTTrainer, SFTConfig
+</syntaxhighlight>
+```
 
-# Step 3: Train with GRPOTrainer (external)
-from trl import GRPOTrainer, GRPOConfig
-trainer = GRPOTrainer(model=model, reward_funcs=[...], ...)
-trainer.train()
+### Pattern Doc (User-Defined Interface)
+For patterns users must implement (e.g., reward functions):
+1. Document the expected interface/signature
+2. Show examples of valid implementations
+3. Explain constraints and requirements
+
+```mediawiki
+== Overview ==
+
+Interface specification for reward functions used in GRPO reinforcement learning.
+
+=== Description ===
+
+Reward functions are user-defined callables that score model completions. They must follow a specific signature to work with GRPOTrainer.
+
+== Interface Specification ==
+
+=== Required Signature ===
+<syntaxhighlight lang="python">
+def reward_function(
+    completions: List[str],  # Model-generated completions
+    prompts: List[str],      # Original prompts
+    **kwargs                 # Optional additional context
+) -> List[float]:            # Reward scores (one per completion)
+    ...
+</syntaxhighlight>
+
+=== Constraints ===
+* Return list must have same length as completions
+* Scores should be normalized (e.g., -1 to 1, or 0 to 1)
+* Higher scores = better completions
+
+== Usage Examples ==
+
+=== Format Checking Reward ===
+<syntaxhighlight lang="python">
+def format_reward(completions, prompts):
+    rewards = []
+    for completion in completions:
+        score = 0.0
+        if "<think>" in completion:
+            score += 0.5
+        if "\\boxed{{" in completion:
+            score += 0.5
+        rewards.append(score)
+    return rewards
+</syntaxhighlight>
+```
+
+### External Tool Doc (CLI Tools)
+For external tools like llama.cpp:
+1. Document how to use in this workflow context
+2. Show relevant commands
+3. Reference installation/environment requirements
+
+```mediawiki
+== Overview ==
+
+Validation of GGUF model files using llama.cpp's CLI tools.
+
+=== Description ===
+
+After exporting a model to GGUF format, validate it loads correctly using llama.cpp's `llama-cli` tool.
+
+== Code Reference ==
+
+=== Tool Location ===
+* '''External Tool:''' llama.cpp
+* '''Build From:''' [https://github.com/ggerganov/llama.cpp llama.cpp GitHub]
+
+=== Environment ===
+* [[requires_env::Environment:{repo_name}_llama_cpp]]
+
+== Usage Examples ==
+
+=== Basic Validation ===
+<syntaxhighlight lang="bash">
+# Test model loads and generates
+./llama-cli -m ./model-q4_k_m.gguf -p "Hello" -n 50
 </syntaxhighlight>
 ```
 
 ---
 
-## Step 3: Update All Indexes (After Each Pair)
+## Step 4: Update All Indexes (After Each Pair)
 
 After writing each Implementation-Principle pair:
 
-### 3A: Update Implementation Index
+### 4A: Update Implementation Index
 Add row to `{wiki_dir}/_ImplementationIndex.md`:
 ```
-| {repo_name}_FastLanguageModel | [→](./implementations/...) | ✅Principle:{repo_name}_Model_Loading, ⬜Env:{repo_name}_CUDA | loader.py:L120-620 |
+| {repo_name}_FastLanguageModel_from_pretrained | [→](./implementations/...) | ✅Principle:{repo_name}_Model_Loading, ⬜Env:{repo_name}_CUDA | loader.py:L120-620 | QLoRA model loading |
 ```
 
-### 3B: Update Principle Index
+### 4B: Update Principle Index
 Add row to `{wiki_dir}/_PrincipleIndex.md`:
 ```
-| {repo_name}_Model_Loading | [→](./principles/...) | ✅Impl:{repo_name}_FastLanguageModel | 4-bit NF4 quantization for model loading |
+| {repo_name}_Model_Loading | [→](./principles/...) | ✅Impl:{repo_name}_FastLanguageModel_from_pretrained | 4-bit quantized loading for QLoRA |
 ```
 
-### 3C: Update Workflow Index
+### 4C: Update Workflow Index
 Change `⬜Impl:X` to `✅Impl:X` and `⬜Principle:X` to `✅Principle:X`
 
-### 3D: Update Repository Map Coverage
+### 4D: Update Repository Map Coverage
 ```
-| ✅ | `unsloth/models/loader.py` | 620 | Model loader | Impl: FastLanguageModel; Principle: Model_Loading | [→](...) |
+| ✅ | `unsloth/models/loader.py` | 620 | Model loader | Impl: FastLanguageModel_from_pretrained; Principle: Model_Loading | [→](...) |
 ```
 
 ---
 
-## Step 4: Handle Shared Principles
-
-Sometimes multiple implementations share the same principle. In this case:
-1. Write the first Implementation
-2. Write the Principle with Implementation Mapping
-3. Write additional Implementations
-4. Update the Principle to add more rows to the mapping table
-
----
-
-## Step 5: Create Concept-Only Principles (GAP FILLING)
-
-**⚠️ CRITICAL: Don't skip this step!**
-
-After creating all Implementation-Principle pairs, check your checklist from Step 1B.
-
-For any Principle referenced in workflows that you **haven't created yet**, create a **concept-only Principle page**.
-
-### When to Create Concept-Only Principles
-
-These are principles that:
-- Are referenced in workflow steps (e.g., `[[step::Principle:X]]`)
-- Don't have a single API implementation (they're process/concept descriptions)
-- Examples: `Training_Monitoring`, `Hub_Upload`, `CLI_Configuration`, `Data_Preparation`
-
-### Concept-Only Principle Format
-
-Create `{wiki_dir}/principles/{repo_name}_ConceptName.md`
-
-**Required Sections:**
-1. Metadata block (sources, domains, last_updated)
-2. `== Overview ==` - One sentence defining the concept
-3. `=== Description ===` - What it is, what problem it solves
-4. `=== Usage ===` - When to apply this concept
-5. `== Practical Guide ==` - How to do this (since there's no single API)
-6. `== Related Pages ==` - Link to relevant workflows and any related implementations
-
-**Example: Training_Monitoring (concept-only)**
-```mediawiki
-== Overview ==
-
-Training monitoring involves tracking metrics, detecting issues, and ensuring model convergence during fine-tuning.
-
-=== Description ===
-
-Effective training monitoring helps identify problems early...
-
-=== Usage ===
-
-Monitor training when: running long training jobs, fine-tuning for production...
-
-== Practical Guide ==
-
-=== Key Metrics to Track ===
-* '''Loss curves''': Training and validation loss should decrease
-* '''Learning rate''': Track LR schedule progression
-* '''GPU memory''': Monitor for OOM risks
-
-=== Tools ===
-* '''Weights & Biases''': `pip install wandb`, pass `report_to="wandb"` to trainer
-* '''TensorBoard''': Built-in with HuggingFace Trainer
-* '''Console output''': `logging_steps=1` for real-time loss
-
-== Related Pages ==
-
-=== Used In Workflows ===
-* [[used_by::Workflow:{repo_name}_QLoRA_Finetuning]]
-* [[used_by::Workflow:{repo_name}_CLI_Finetuning]]
-```
-
-### Gap-Filling Checklist
+## Step 5: Verify 1:1 Mapping
 
 Before finishing, verify:
+
 ```
-☑ All [[step::Principle:X]] references in workflows have pages
-☑ All concept-only Principles have Practical Guide sections
-☑ Principle Index includes ALL principles (with and without implementations)
+For each Principle page:
+  ☑ Has exactly ONE [[implemented_by::Implementation:X]] link
+  ☑ Implementation page exists
+  ☑ Implementation links back to this ONE Principle
+
+For each Implementation page:
+  ☑ Has exactly ONE [[implements::Principle:X]] link
+  ☑ Principle page exists
+  ☑ Principle links back to this ONE Implementation
 ```
+
+If a Principle has no API (concept-only), it still needs a Practical Guide section instead of an Implementation link.
 
 ---
 
-## Step 6: Final Verification (BEFORE WRITING REPORT)
+## Step 6: Final Verification
 
 **⚠️ DO NOT SKIP THIS STEP!**
 
 Before writing the execution report:
 
-### 6A: Re-read All Workflow Related Pages
-Go through each workflow file in `{wiki_dir}/workflows/` and check its `== Related Pages ==` section.
-
-### 6B: Verify Every Reference Has a Page
-For each `[[step::Principle:{repo_name}_X]]` link:
-1. Check if `{wiki_dir}/principles/{repo_name}_X.md` exists
-2. If NOT → **Create it now** (use concept-only format if no API)
-
-### 6C: Count and Report
+### 6A: Count Mappings
 ```
-Total Principle references in workflows: ___
-Principle pages created: ___
+Total Principles from WorkflowIndex: ___
+Principles with 1:1 Implementation: ___
+Concept-only Principles (no API): ___
 Coverage: ___% (MUST be 100%)
 ```
 
-**If coverage is not 100%, go back and create the missing pages before proceeding.**
+### 6B: Verify Angles
+For Principles sharing the same underlying API:
+- Each has a dedicated Implementation page
+- Each Implementation focuses on that Principle's angle
+- Names differentiate the angles (e.g., `_vllm`, `_lora`, etc.)
 
 ---
 
@@ -413,22 +456,8 @@ Write files to:
 - `{wiki_dir}/principles/` - Principle pages
 
 **Filename formats:**
-- Implementation: `{repo_name}_ClassName.md` or `{repo_name}_function_name.md`
-- Principle: `{repo_name}_Concept_Name.md`
-
-**⚠️ IMPORTANT: Principle filenames MUST match workflow references!**
-
-If a workflow has:
-```
-* [[step::Principle:{repo_name}_CLI_Configuration]]
-```
-
-Then the file MUST be named:
-```
-{wiki_dir}/principles/{repo_name}_CLI_Configuration.md
-```
-
-**NOT** `{repo_name}_CLI_Config.md` or `{repo_name}_CLIConfiguration.md` — must match EXACTLY.
+- Implementation: Use name from WorkflowIndex (e.g., `{repo_name}_FastLanguageModel_from_pretrained.md`)
+- Principle: Match workflow references exactly (e.g., `{repo_name}_Model_Loading.md`)
 
 ## Repo Scoping Rule (CRITICAL)
 
@@ -436,7 +465,7 @@ Only create/update pages whose filenames start with `{repo_name}_`.
 
 ## ⚠️ File Editing Tip
 
-When updating index files (`_RepoMap.md`, `_ImplementationIndex.md`, `_PrincipleIndex.md`):
+When updating index files:
 - **Use Write tool** (read entire file → modify → write back)
 - **Avoid Edit tool** — it often fails on markdown tables
 
@@ -447,45 +476,44 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase2_excavation_
 ```markdown
 # Phase 2: Excavation + Synthesis Report
 
-## Implementation-Principle Pairs Created
+## Summary
 
-| Implementation | Principle | Source File | Concept |
-|----------------|-----------|-------------|---------|
-| FastLanguageModel | Model_Loading | loader.py:L120-620 | 4-bit NF4 quantization |
-| get_peft_model | LoRA_Configuration | llama.py:L2578-2800 | Low-rank adaptation |
-| save_pretrained_merged | LoRA_Merging | save.py:L228-506 | Adapter weight fusion |
-| save_pretrained_gguf | GGUF_Conversion | save.py:L1776-2000 | GGUF quantization |
+- Implementation pages created: X
+- Principle pages created: X
+- 1:1 mappings verified: X
+- Concept-only principles: X
 
-## Multi-Implementation Principles
+## 1:1 Principle-Implementation Pairs
 
-| Principle | Implementations | Mapping Documented |
-|-----------|-----------------|-------------------|
-| LoRA_Merging | save_pretrained_merged, save_pretrained_gguf | ✅ Yes |
-| GRPO_Training | FastLanguageModel, get_peft_model | ✅ Yes |
+| Principle | Implementation | Source | Angle |
+|-----------|----------------|--------|-------|
+| Model_Loading | FastLanguageModel_from_pretrained | loader.py | QLoRA loading |
+| RL_Model_Loading | FastLanguageModel_from_pretrained_vllm | loader.py | vLLM for RL |
+| LoRA_Injection | get_peft_model | llama.py | Standard LoRA |
 
-## Concept-Only Principles (Gap Filling)
+## Implementation Types
 
-| Principle | Referenced By Workflows | Description |
-|-----------|------------------------|-------------|
-| Training_Monitoring | QLoRA_Finetuning, CLI_Finetuning | Tracking metrics and convergence |
-| Hub_Upload | Model_Export, CLI_Finetuning | HuggingFace Hub deployment |
-| CLI_Configuration | CLI_Finetuning | Command-line argument handling |
+| Type | Count | Examples |
+|------|-------|----------|
+| API Doc | X | FastLanguageModel, get_peft_model |
+| Wrapper Doc | X | SFTTrainer_usage |
+| Pattern Doc | X | reward_function_interface |
+| External Tool Doc | X | llama_cli_validation |
+
+## Concept-Only Principles (No Implementation)
+
+| Principle | Reason | Has Practical Guide |
+|-----------|--------|---------------------|
+| Training_Monitoring | Process, not API | ✅ |
 
 ## Coverage Summary
-- Implementation pages: X
-- Principle pages (with impl): X
-- Principle pages (concept-only): X
-- Total Principle pages: X
-- Source files covered: X
-- Multi-impl principles with mapping: X
 
-## Gap Check
-- Workflow principle references: X
-- Principles created: X
-- **Coverage: X%** (should be 100%)
+- WorkflowIndex entries: X
+- 1:1 Implementation-Principle pairs: X
+- Coverage: X% (should be 100%)
 
 ## Notes for Enrichment Phase
-- [Files with environment requirements to document]
-- [Code with heuristics/tribal knowledge]
-```
 
+- [Heuristics to document]
+- [Environment pages to create]
+```
