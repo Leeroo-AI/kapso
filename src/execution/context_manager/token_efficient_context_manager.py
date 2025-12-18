@@ -159,8 +159,8 @@ class TokenEfficientContextManager(ContextManager):
                 -- All in all make sure to combine information and extract high level patterns and low level patterns if impactful. Cover everything while respecting the token limit.
             - At the end of summary, keep a list of high level tried core ideas and previous experiments with their scores so far. each idea should be no more than 3 words and do not repeat ideas. Make sure to update the list with new experiments and when an idea repeats add one to try count and keep the highest score. e.g.
                 [
-                    "idea1": {"score": "s1", "try count": "k1"},
-                    "idea2": {"score": "s2", "try count": "k2"},
+                    "idea1": ["score": "s1", "try count": "k1"],
+                    "idea2": ["score": "s2", "try count": "k2"],
                     ...
                 ]
         """

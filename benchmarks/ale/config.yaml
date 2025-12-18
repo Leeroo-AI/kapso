@@ -27,7 +27,7 @@ modes:
       params:
         reasoning_effort: "high"
         code_debug_tries: 3
-        node_expansion_limit: 4
+        node_expansion_limit: 3
         node_expansion_new_childs_count: 15
         idea_generation_steps: 1
         first_experiment_factor: 2
