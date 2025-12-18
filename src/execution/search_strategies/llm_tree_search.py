@@ -154,7 +154,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             top_k=experiments_count, 
             exclude_experimented_nodes=True
         )
-        print(f"Best nodes: {len(best_nodes)}")
+        
         with self.experiment_history_lock:
             base_experiment_count = len(self.experiment_history)
         
@@ -215,7 +215,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             print("Expanding top Nodes for exploitation.")
             selected_nodes = [self.nodes[exp.node_id] for exp in top_experiments]
         elif len(self.experiment_history) == 0:
-            print("Expanding  roots in first iteration.")
+            print("Expanding first iteration")
             selected_nodes = self.nodes[:self.node_expansion_limit]
         else:
             print("Expanding by LLM selection for exploration.")
@@ -246,7 +246,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             step_count=self.idea_generation_steps,
             per_step_solution_count=min(expansion_count, self.per_step_maximum_solution_count),
         )
-        print(f"New solutions: {len(new_solutions)}")
+        
         for new_solution in new_solutions:
             with self.nodes_lock:
                 new_node = Node(
@@ -279,7 +279,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
 
         if top_k >= len(leaf_nodes):
             return leaf_nodes
-
+        
         system_prompt = f"""
             you are a world class problem solver. You are given a list of solutions and you must select the top {top_k} solutions that are the best.
             requirements:
@@ -309,6 +309,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             user_message=user_prompt,
             reasoning_effort=self.reasoning_effort,
         )
+        
         selected_node_ids = eval(re.findall(r'<output>(.*?)</output>', output, re.DOTALL)[0].strip())
         return [node for node in leaf_nodes if node.node_id in selected_node_ids]
 
@@ -442,7 +443,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             - Each solution must be exact and high level steps specific enough to be coded.
             - If parent solution exists, the newly proposed solutions must extend, improve, or tune it (at least one from each).
             - Solutions must be significantly different from each other.
-            - Solutions must not reference to each other's and parent's parts. Each solution must be self-contained.
+            - Solutions must not reference to each other parts and parent parts. Each solution must be self-contained.
             - CRITICAL: ** Put solutions between <solution> and </solution> tags. ** e.g.:
                 Solution 1:
                 <solution>
@@ -450,14 +451,18 @@ class LlmSteeredTreeSearch(SearchStrategy):
                     ...
                    # Body:
                     ...
+                   # Runtime expectation:
+                    t1 seconds
                 </solution>
                 
                 Solution 2:
                 <solution>
                    # Core Idea: 
                     ...
-                   # Body:
+                   #Body:
                     ...
+                   # Runtime expectation:
+                    t2 seconds.
                 </solution>
                 ...
         """

@@ -126,7 +126,6 @@ class AleBench(ProblemHandler):
             - Score 0 means invalid solution.
             - In this problem the {"higher" if self.maximize_scoring else "lower"} score is better.
             - It is of utmost importance for your solution to be aware of requirements and constraints of the problem in the solution to avoid getting WA (wrong answer). 
-            - During runtime you have access to only one cpu core.
 
             # Tips:
                 - Always consider a proportion of time for input and output operations to avoid TIME LIMIT. So always consider io time plus 100 ms plus code runtime time to avoid time limit.
@@ -136,15 +135,10 @@ class AleBench(ProblemHandler):
                 - If the solution has more than one step, make sure to distribute the time limit among them efficiently.
                 - consider adding compiler optimization pragmas or directives if it helps your code to run faster.
                 - Make sure to use the fastest operations and data structures for every part of the code.
-                - Beside the main pipeline it is always good to use utilize algorithms that can constantly be improved like SA, Beam and Random Search. 
-                    -- Sometimes they might not perform well in a specific type of problem, so they should be combined with another efficient algorithm.
-                    -- Sometimes they may face cold start but with constant improving, they mostly perform better in long run.
                 - It is ok to put small pieces of codes in the solution generation for the better understanding of coder when helpful or necessary.
-                - Always consider multi strategy solutions.
                 
             # Solution requirements:
-            - you can use from simple heuristics to top performing optimization algorithms like Simulated annealing, DP, graph algorithms and etc. Sometimes a simple creative algorithm can be the best solution, so think outside the box.
-                -- if run time allows always add more algorithms and take the one with maximum score. Specially algorithms that can be constantly improved like SA and random searches. Therefore, in solution generation you can try different and novel types of these algorithms.
+            - If run time allows always add more algorithms to the current best performing solutions.
             - Avoid inefficient algorithms like machine learning based ones as they time consuming and not efficient.
             - Make sure your solutions handle requirements and conditions of the problem inherently and directly.
             - Avoid using fallbacks as much as you can but in special caases use a decent one and not just a naive version for bypassing errors.
@@ -153,10 +147,10 @@ class AleBench(ProblemHandler):
             - When handling time limit errors follow below steps are critical and must be followed:
                 -- Normally the best way is to make your code time aware and run as long as possible without getting TLE.
                 -- First completely understand the time complexity of code. 
-                -- The first solution must always be using more efficient algorithms and data structures.  
+                -- The first step of error handling must always be using more efficient algorithms and data structures.  
                 -- Find bottlenecks and use caching, memoization, precomputing to reduce runtime .
                 -- Finally if nothing works you may relax the parameters (but not aggressively) of the algorithm to make it fit within the time limit. however, in this case use the highest parameter that fits within time limit to avoid sacrificing performance.
-                -- Sometimes good solutions are implemented in a bad way that results in time limit. make sure to not assume they are bad and prune them just because of one or 2 failed implementations and time limits.
+                -- Sometimes good solutions are implemented in a bad way that results in time limit. make sure to not assume they are bad and prune them just because of a few failed implementations.
             # Output:
             - Your final output must always be a single file named \"main.cpp\" that implements the solution in cpp23 language.
             - If neccessary, you can implement only one other cpp file named \"pre_run.cpp\" that is used for any precompuations to add to main.cpp.
@@ -277,7 +271,14 @@ class AleBench(ProblemHandler):
                 -- Sometimes for different conditions of the problem inputs, it is better to generate different solutions. For example for some problems you can generate different solutions for different input sizes, for example running an efficient brute force in small test cases.
                 -- Sometimes for some conditions of the problem you can precompute answers, for example, this can be helpful in problems with fixed and low variant inputs. Make sure to consider this option if it is applicable.
                 -- If possible consider hardcoding the answer of some conditions of the proble inputs inside the code.
+                -- Always consider multi strategy solutions.
+                --  Some algorithms can constantly be improved and have lots of diversity in their usage like SA and Random Search. 
+                    -- Sometimes they might not perform well in a specific type of problem, so they should be combined with another efficient algorithm.
+                    -- Sometimes they may face cold start but with constant improving, they mostly perform better in long run.
             - Implementation: 
                 -- For operations that are used mostly always make sure to implement the light version. For example simple fast random function instead of rng for time effiecieny.
                 -- Make sure to avoid memory allocation in loops.
+            - Diversity:
+                -- You have access to a list of previous ideas, make sure consider other than them and try crazy and out of the box ideas and solutions as well or diverse combination and modifications of them.
+                -- Try diverse variations of algorithms and structures. Do not drop any idea or solution just because of a few failed implementations.
         """
