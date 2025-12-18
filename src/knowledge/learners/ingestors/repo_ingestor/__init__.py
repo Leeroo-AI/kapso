@@ -9,7 +9,8 @@
 # - Subsequent phases read this file instead of re-exploring
 #
 # Branch 1: Workflow-Based Extraction
-# 1. Anchoring - Find workflows from README/examples, write Workflow pages
+# 1a. Anchoring - Find workflows from README/examples, write Workflow pages + rough WorkflowIndex
+# 1b. Anchoring Context - Enrich WorkflowIndex with detailed implementation context
 # 2. Excavation+Synthesis - Trace imports, write Implementation-Principle PAIRS together
 #    (merged to keep concepts tightly connected to implementations)
 # 3. Enrichment - Mine constraints/tips, write Environment/Heuristic pages
@@ -87,7 +88,8 @@ class RepoIngestor(Ingestor):
     - Write access to wiki output directory
     
     Branch 1: Workflow-Based Extraction
-    1. Anchoring: Find workflows → write Workflow pages
+    1a. Anchoring: Find workflows → write Workflow pages + rough WorkflowIndex
+    1b. Anchoring Context: Enrich WorkflowIndex with detailed implementation context
     2. Excavation+Synthesis: Trace imports → write Implementation-Principle PAIRS together
        (merged phase keeps concepts tightly connected to implementations)
     3. Enrichment: Mine constraints → write Environment/Heuristic pages
@@ -242,7 +244,10 @@ class RepoIngestor(Ingestor):
             # Phase 0: Repository understanding (no wiki structures needed)
             "repo_understanding": [],
             # Branch 1: Workflow-based extraction
+            # Phase 1a: anchoring creates workflows and rough WorkflowIndex
             "anchoring": ["workflow"],
+            # Phase 1b: anchoring_context enriches WorkflowIndex with implementation details
+            "anchoring_context": [],  # No wiki structures needed, just reads existing files
             # Merged excavation+synthesis writes Implementation-Principle pairs together
             "excavation_synthesis": ["implementation", "principle"],
             "enrichment": ["environment", "heuristic"],
@@ -563,9 +568,12 @@ class RepoIngestor(Ingestor):
             logger.info("BRANCH 1: Workflow-Based Extraction")
             logger.info("=" * 60)
             
+            # Two-phase anchoring:
+            # - anchoring: Creates Workflow pages + rough WorkflowIndex
+            # - anchoring_context: Enriches WorkflowIndex with detailed implementation context
             # Merged excavation+synthesis keeps Implementation-Principle pairs together
             # This prevents disconnect between concepts and their implementations
-            branch1_phases = ["anchoring", "excavation_synthesis", "enrichment", "audit"]
+            branch1_phases = ["anchoring", "anchoring_context", "excavation_synthesis", "enrichment", "audit"]
             
             for phase in branch1_phases:
                 success = self._run_phase(phase, repo_name, str(repo_path), url, branch)

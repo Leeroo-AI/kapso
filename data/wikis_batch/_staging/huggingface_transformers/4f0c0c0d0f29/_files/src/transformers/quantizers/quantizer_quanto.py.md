@@ -1,7 +1,0 @@
-**Status:** ✅ Explored
-
-**Purpose:** Implements quanto quantization library integration for model compression with support for multiple bit-widths (int8, int4, int2, float8). Enables on-the-fly quantization without requiring pre-quantization.
-
-**Mechanism:** The QuantoHfQuantizer class validates optimum-quanto and accelerate library availability, then replaces Linear (and optionally Embedding) layers with QModuleMixin quantized modules through replace_with_quanto_layers(). It maps quantization types to custom dtypes (int8, int4, int2, FP8) for accelerate's memory management and adjusts max_memory to 90% to accommodate quantization parameters. The quantizer checks module.frozen flag to determine if parameters need quantization and applies QuantoQuantize operations. It explicitly rejects activation quantization in transformers, directing users to quanto library for advanced use cases.
-
-**Significance:** Quanto provides flexible multi-precision quantization with a simple API, supporting various bit-widths including sub-int8 quantization (int4, int2) and emerging float8 formats. The trainability support enables quantization-aware training and fine-tuning workflows. The integration with accelerate's memory management ensures efficient device placement, making it valuable for deploying models across different hardware constraints while maintaining the option for continued training.

@@ -7,6 +7,19 @@ You are a knowledge extraction agent. Your task is to:
 
 **⚠️ CRITICAL GOAL: Every Principle gets exactly ONE dedicated Implementation page. Same API can have multiple Implementation pages if used by different Principles (from different angles).**
 
+## ⚠️ FILE PLACEMENT RULES (CRITICAL)
+
+**Only create files in these directories:**
+- `{wiki_dir}/implementations/` - Implementation pages
+- `{wiki_dir}/principles/` - Principle pages
+- `{wiki_dir}/_reports/` - Execution reports
+
+**DO NOT create:**
+- Summary files at the root of `{wiki_dir}`
+- Documentation files outside the designated directories
+- Any file that doesn't follow the `{repo_name}_PageName.md` naming convention
+- "Notes", "summaries", or "completion reports" outside `_reports/`
+
 ## High-Level Task Summary
 
 ```
@@ -75,7 +88,8 @@ Use this context to:
 
 **THEN**, read the previous phase reports:
 - `{wiki_dir}/_reports/phase0_repo_understanding.md` - Repository structure insights
-- `{wiki_dir}/_reports/phase1_anchoring.md` - Workflows created, APIs to trace
+- `{wiki_dir}/_reports/phase1a_anchoring.md` - Workflows created
+- `{wiki_dir}/_reports/phase1b_anchoring_context.md` - WorkflowIndex enriched with implementation details
 
 ## Wiki Structure Definitions
 

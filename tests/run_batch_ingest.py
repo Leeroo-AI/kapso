@@ -39,8 +39,8 @@ INGESTOR_PARAMS = {
 }
 
 # Output directories
-WIKI_DIR = "data/wikis_batch"
-LOG_DIR = "logs/batch_ingest"
+WIKI_DIR = "data/wikis_batch2"
+LOG_DIR = "logs/batch_ingest2"
 
 # Default number of parallel workers
 DEFAULT_WORKERS = 5  # Run all 5 repos in parallel by default

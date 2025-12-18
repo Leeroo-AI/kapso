@@ -2,6 +2,18 @@
 
 You are a Code Analyst. Your task is to understand this repository and fill in the Understanding sections for **EVERY file**.
 
+## ⚠️ FILE PLACEMENT RULES (CRITICAL)
+
+**Only modify/create files in these locations:**
+- `{wiki_dir}/_files/` - Per-file detail pages
+- `{wiki_dir}/_RepoMap_{repo_name}.md` - Repository index
+- `{wiki_dir}/_reports/` - Execution reports
+
+**DO NOT create:**
+- Summary files at the root of `{wiki_dir}`
+- Documentation files outside the designated directories
+- "Notes", "summaries", or "completion reports" outside `_reports/`
+
 ## ⛔ CRITICAL: COMPLETION CRITERIA
 
 **This task is NOT complete until ALL files are explored.**

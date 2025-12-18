@@ -539,32 +539,94 @@ def ensure_reports_directory(wiki_dir: Path) -> Path:
 
 def generate_page_indexes(wiki_dir: Path, repo_name: str) -> None:
     """
-    Generate empty index files for each page type.
+    Generate index files for each page type.
     
     Creates:
-    - _WorkflowIndex.md
+    - _WorkflowIndex.md (detailed template with per-step structure)
     - _PrincipleIndex.md
     - _ImplementationIndex.md
     - _EnvironmentIndex.md
     - _HeuristicIndex.md
     
     Each index tracks pages of that type with cross-references.
-    All indexes use a consistent structure with Status and Connections columns.
+    The WorkflowIndex uses a comprehensive structure that Phase 2 depends on.
     """
-    # All indexes share a common structure:
-    # - Status: ✅ (created) or ⬜ (pending/referenced but not created)
-    # - Page: Name of the wiki page
-    # - File: Link to the .md file (or — if not created)
-    # - Connections: All links TO other pages (from Related Pages section)
-    # - Notes: Natural language comments
+    # Generate the detailed WorkflowIndex template first
+    # This structure is CRITICAL for Phase 2 (Excavation+Synthesis) to work correctly
+    workflow_index_content = f"""# Workflow Index: {repo_name}
+
+> Comprehensive index of Workflows and their implementation context.
+> This index bridges Phase 1 (Anchoring) and Phase 2 (Excavation).
+> **Update IMMEDIATELY** after creating or modifying a Workflow page.
+
+---
+
+## Summary
+
+| Workflow | Steps | Principles | Implementation APIs |
+|----------|-------|------------|---------------------|
+<!-- ADD ROW FOR EACH WORKFLOW: | WorkflowName | N | N | API1, API2, ... | -->
+
+---
+
+<!-- 
+================================================================================
+FOR EACH WORKFLOW, ADD A SECTION LIKE THIS:
+================================================================================
+
+## Workflow: {repo_name}_WorkflowName
+
+**File:** [→](./workflows/{repo_name}_WorkflowName.md)
+**Description:** One-line description of the workflow.
+
+### Steps Overview
+
+| # | Step Name | Principle | Implementation | Status |
+|---|-----------|-----------|----------------|--------|
+| 1 | Step Name | Principle_Name | `API.method()` | ⬜ |
+| 2 | Step Name | Principle_Name | `API.method()` | ⬜ |
+
+### Step 1: Principle_Name
+
+| Attribute | Value |
+|-----------|-------|
+| **Principle** | `{repo_name}_Principle_Name` |
+| **Implementation** | `{repo_name}_Implementation_Name` |
+| **API Call** | `ClassName.method(param1, param2, ...)` |
+| **Source Location** | `path/to/file.py:L100-200` |
+| **External Dependencies** | `library1`, `library2` |
+| **Environment** | `{repo_name}_Environment_Name` |
+| **Key Parameters** | `param1: type`, `param2: type` |
+| **Inputs** | What this step consumes |
+| **Outputs** | What this step produces |
+
+(Repeat Step N: ... for each step)
+
+### Implementation Extraction Guide
+
+| Principle | Implementation | API | Source | Type |
+|-----------|----------------|-----|--------|------|
+| Principle_Name | `Implementation_Name` | `method` | `file.py` | API Doc |
+| Principle_Name | `Wrapper_Name` | `ExternalLib.method` | External | Wrapper Doc |
+
+================================================================================
+-->
+
+---
+
+**Legend:** `✅Type:Name` = page exists | `⬜Type:Name` = page needs creation
+
+**Implementation Types:**
+- **API Doc:** Function/class in this repo
+- **Wrapper Doc:** External library with repo-specific usage
+- **Pattern Doc:** User-defined interface/pattern
+- **External Tool Doc:** CLI or external tool
+"""
+    workflow_index_path = wiki_dir / "_WorkflowIndex.md"
+    workflow_index_path.write_text(workflow_index_content, encoding="utf-8")
     
-    indexes = {
-        "Workflow": {
-            "file": "_WorkflowIndex.md",
-            "folder": "workflows",
-            "desc": "Tracks Workflow pages and their connections to Implementations, Principles, etc.",
-            "connection_hint": f"e.g., `⬜Impl:{repo_name}_FastLanguageModel, ⬜Principle:{repo_name}_LoRA`",
-        },
+    # Other indexes use simpler structure
+    other_indexes = {
         "Principle": {
             "file": "_PrincipleIndex.md",
             "folder": "principles",
@@ -591,7 +653,7 @@ def generate_page_indexes(wiki_dir: Path, repo_name: str) -> None:
         },
     }
     
-    for page_type, config in indexes.items():
+    for page_type, config in other_indexes.items():
         content = f"""# {page_type} Index: {repo_name}
 
 > {config['desc']}
