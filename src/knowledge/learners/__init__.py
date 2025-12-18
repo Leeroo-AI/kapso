@@ -5,6 +5,11 @@
 # Architecture:
 #   Source → Ingestor → WikiPages → Merger → Updated KG
 #
+# The KG is stored in:
+#   - Neo4j: Graph structure (nodes + edges) - THE INDEX
+#   - Weaviate: Embeddings for semantic search
+#   - Source files: Ground truth .md files
+#
 # Main Usage:
 #     from src.knowledge.learners import KnowledgePipeline, Source
 #     
@@ -16,6 +21,7 @@
 #   - Source: Typed wrappers for knowledge sources (Repo, Paper, Doc, etc.)
 #   - Ingestors: Stage 1 - extract WikiPages from sources (in ingestors/)
 #   - KnowledgeMerger: Stage 2 - merge pages into existing KG
+#   - MergeHandlers: Type-specific merge logic (in merge_handlers/)
 
 # Source types
 from src.knowledge.learners.sources import Source
@@ -29,8 +35,18 @@ from src.knowledge.learners.knowledge_learner_pipeline import (
 # Knowledge merger (Stage 2)
 from src.knowledge.learners.knowledge_merger import (
     KnowledgeMerger,
+    MergeInput,
     MergeResult,
-    MergeAction,
+)
+
+# Merge handlers
+from src.knowledge.learners.merge_handlers import (
+    MergeHandler,
+    WorkflowMergeHandler,
+    PrincipleMergeHandler,
+    ImplementationMergeHandler,
+    EnvironmentMergeHandler,
+    HeuristicMergeHandler,
 )
 
 # Ingestors (Stage 1) - import for registration
@@ -51,8 +67,15 @@ __all__ = [
     "Source",
     # Merger (Stage 2)
     "KnowledgeMerger",
+    "MergeInput",
     "MergeResult",
-    "MergeAction",
+    # Merge handlers
+    "MergeHandler",
+    "WorkflowMergeHandler",
+    "PrincipleMergeHandler",
+    "ImplementationMergeHandler",
+    "EnvironmentMergeHandler",
+    "HeuristicMergeHandler",
     # Ingestors (Stage 1)
     "Ingestor",
     "IngestorFactory",
