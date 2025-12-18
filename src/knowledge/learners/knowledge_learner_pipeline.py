@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from src.knowledge.learners.ingestors.factory import IngestorFactory
-from src.knowledge.learners.knowledge_merger import KnowledgeMerger, MergeResult
+from src.knowledge.learners.knowledge_merger import (
+    KnowledgeMerger,
+    MergeInput,
+    MergeResult,
+)
 from src.knowledge.search.base import WikiPage, DEFAULT_WIKI_DIR
 
 # Configure logging
@@ -49,17 +53,12 @@ class PipelineResult:
     @property
     def created(self) -> int:
         """Number of new pages created in KG."""
-        return self.merge_result.created if self.merge_result else 0
+        return len(self.merge_result.created) if self.merge_result else 0
     
     @property
-    def updated(self) -> int:
-        """Number of existing pages updated."""
-        return self.merge_result.updated if self.merge_result else 0
-    
-    @property
-    def skipped(self) -> int:
-        """Number of pages skipped (duplicates, etc.)."""
-        return self.merge_result.skipped if self.merge_result else 0
+    def merged(self) -> int:
+        """Number of pages merged with existing."""
+        return len(self.merge_result.merged) if self.merge_result else 0
     
     @property
     def success(self) -> bool:
@@ -72,8 +71,7 @@ class PipelineResult:
             "sources_processed": self.sources_processed,
             "total_pages_extracted": self.total_pages_extracted,
             "created": self.created,
-            "updated": self.updated,
-            "skipped": self.skipped,
+            "merged": self.merged,
             "merge_result": self.merge_result.to_dict() if self.merge_result else None,
             "errors": self.errors,
         }
@@ -82,7 +80,7 @@ class PipelineResult:
         return (
             f"PipelineResult(sources={self.sources_processed}, "
             f"extracted={self.total_pages_extracted}, "
-            f"created={self.created}, updated={self.updated})"
+            f"created={self.created}, merged={self.merged})"
         )
 
 
@@ -98,6 +96,11 @@ class KnowledgePipeline:
     1. Ingestion: Source → Ingestor → WikiPages
     2. Merging: WikiPages → Merger → Updated KG
     
+    The KG is stored in:
+    - Neo4j: Graph structure (nodes + edges) - THE INDEX
+    - Weaviate: Embeddings for semantic search
+    - Source files: Ground truth .md files
+    
     Usage:
         from src.knowledge.learners import KnowledgePipeline, Source
         
@@ -105,7 +108,7 @@ class KnowledgePipeline:
         
         # Single source - full pipeline
         result = pipeline.run(Source.Repo("https://github.com/user/repo"))
-        print(f"Created: {result.created}, Updated: {result.updated}")
+        print(f"Created: {result.created}, Merged: {result.merged}")
         
         # Multiple sources
         result = pipeline.run(
@@ -113,10 +116,10 @@ class KnowledgePipeline:
             Source.Paper("./research.pdf"),
         )
         
-        # Dry run (analyze without modifying KG)
+        # Extract only (skip merge step)
         result = pipeline.run(
             Source.Repo("https://github.com/user/repo"),
-            dry_run=True,
+            skip_merge=True,
         )
         
         # Ingest only (get pages without merging)
@@ -126,6 +129,7 @@ class KnowledgePipeline:
     def __init__(
         self,
         wiki_dir: Optional[Union[str, Path]] = None,
+        weaviate_collection: str = "KGWikiPages",
         ingestor_params: Optional[Dict[str, Any]] = None,
         merger_params: Optional[Dict[str, Any]] = None,
     ):
@@ -134,34 +138,30 @@ class KnowledgePipeline:
         
         Args:
             wiki_dir: Path to wiki directory (default: data/wikis)
+            weaviate_collection: Weaviate collection for embeddings
             ingestor_params: Default parameters for all ingestors
             merger_params: Parameters for the knowledge merger
         """
-        # Normalize wiki_dir early and make it absolute to avoid ambiguity.
-        #
-        # This matters because ingestors may run tools in different working
-        # directories (e.g., inside a cloned repo under /tmp). If wiki_dir is
-        # relative, pages can end up written to the wrong place.
+        # Normalize wiki_dir and make it absolute
         self.wiki_dir = (Path(wiki_dir) if wiki_dir else DEFAULT_WIKI_DIR).expanduser().resolve()
-
-        # Ensure the wiki root directory exists so the merger can safely
-        # initialize any analysis tools against it.
         self.wiki_dir.mkdir(parents=True, exist_ok=True)
-
-        # Make sure ingestors and the merger share the same wiki_dir.
-        # If the caller already provided an explicit wiki_dir for ingestors,
-        # we respect it.
+        
+        # Store collection name
+        self.weaviate_collection = weaviate_collection
+        
+        # Ingestor params - share wiki_dir
         self.ingestor_params = ingestor_params or {}
         self.ingestor_params.setdefault("wiki_dir", self.wiki_dir)
+        
+        # Merger params
         self.merger_params = merger_params or {}
         
         # Initialize merger
-        self._merger = KnowledgeMerger(params=self.merger_params)
+        self._merger = KnowledgeMerger(agent_config=self.merger_params)
     
     def run(
         self,
         *sources,
-        dry_run: bool = False,
         skip_merge: bool = False,
     ) -> PipelineResult:
         """
@@ -169,7 +169,6 @@ class KnowledgePipeline:
         
         Args:
             *sources: One or more Source objects (Source.Repo, Source.Paper, etc.)
-            dry_run: If True, analyze but don't modify KG files
             skip_merge: If True, only extract (same as ingest_only but returns PipelineResult)
             
         Returns:
@@ -183,7 +182,7 @@ class KnowledgePipeline:
         
         # Stage 1: Ingest all sources
         all_pages = []
-        source_urls = []  # Track source URLs for merger context
+        source_urls = []
         
         for source in sources:
             try:
@@ -198,7 +197,7 @@ class KnowledgePipeline:
                 all_pages.extend(pages)
                 result.sources_processed += 1
                 
-                # Track source URL for merger
+                # Track source URL for context
                 if hasattr(source, 'url'):
                     source_urls.append(source.url)
                 elif hasattr(source, 'path'):
@@ -222,19 +221,22 @@ class KnowledgePipeline:
         
         # Stage 2: Merge into KG
         try:
-            # Use first source URL as context, or "multiple sources"
-            repo_url = source_urls[0] if len(source_urls) == 1 else f"multiple sources ({len(source_urls)})"
+            # Build source context string
+            if len(source_urls) == 1:
+                source_context = source_urls[0]
+            else:
+                source_context = f"multiple sources ({len(source_urls)})"
             
-            # Update merger dry_run setting if needed
-            if dry_run:
-                self._merger.params["dry_run"] = True
-            
-            merge_result = self._merger.merge(
+            # Create merge input
+            merge_input = MergeInput(
                 proposed_pages=all_pages,
-                repo_url=repo_url,
-                wiki_dir=self.wiki_dir,
+                main_kg_path=self.wiki_dir,
+                weaviate_collection=self.weaviate_collection,
+                source_context=source_context,
             )
             
+            # Run merge
+            merge_result = self._merger.merge(merge_input)
             result.merge_result = merge_result
             
             # Add merge errors to result
@@ -243,7 +245,7 @@ class KnowledgePipeline:
             
             logger.info(
                 f"Pipeline complete: {result.created} created, "
-                f"{result.updated} updated, {result.skipped} skipped"
+                f"{result.merged} merged"
             )
             
         except Exception as e:
@@ -273,7 +275,6 @@ class KnowledgePipeline:
         self,
         pages: List[WikiPage],
         source_context: str = "manual",
-        dry_run: bool = False,
     ) -> MergeResult:
         """
         Run only Stage 2: merge existing WikiPages into KG.
@@ -284,19 +285,23 @@ class KnowledgePipeline:
         Args:
             pages: List of WikiPage objects to merge
             source_context: Context string for the source (shown in logs)
-            dry_run: If True, analyze but don't modify files
             
         Returns:
             MergeResult with statistics
         """
-        if dry_run:
-            self._merger.params["dry_run"] = True
-        
-        return self._merger.merge(
+        merge_input = MergeInput(
             proposed_pages=pages,
-            repo_url=source_context,
-            wiki_dir=self.wiki_dir,
+            main_kg_path=self.wiki_dir,
+            weaviate_collection=self.weaviate_collection,
+            source_context=source_context,
         )
+        
+        return self._merger.merge(merge_input)
+    
+    def close(self) -> None:
+        """Clean up resources."""
+        if self._merger:
+            self._merger.close()
 
 
 # =============================================================================
@@ -346,12 +351,6 @@ Examples:
     )
     
     parser.add_argument(
-        "--dry-run", "-n",
-        action="store_true",
-        help="Analyze but don't modify KG files"
-    )
-    
-    parser.add_argument(
         "--extract-only", "-e",
         action="store_true",
         help="Only extract, don't merge into KG"
@@ -362,6 +361,12 @@ Examples:
         type=Path,
         default=None,
         help=f"Wiki directory path (default: {DEFAULT_WIKI_DIR})"
+    )
+    
+    parser.add_argument(
+        "--collection", "-c",
+        default="KGWikiPages",
+        help="Weaviate collection name (default: KGWikiPages)"
     )
     
     parser.add_argument(
@@ -393,14 +398,16 @@ Examples:
     print("=" * 70)
     print(f"\nSource: {args.source}")
     print(f"Type:   {args.type}")
-    print(f"Mode:   {'Dry Run' if args.dry_run else 'Extract Only' if args.extract_only else 'Full Pipeline'}")
+    print(f"Mode:   {'Extract Only' if args.extract_only else 'Full Pipeline'}")
     
     # Run pipeline
-    pipeline = KnowledgePipeline(wiki_dir=args.wiki_dir)
+    pipeline = KnowledgePipeline(
+        wiki_dir=args.wiki_dir,
+        weaviate_collection=args.collection,
+    )
     
     result = pipeline.run(
         source,
-        dry_run=args.dry_run,
         skip_merge=args.extract_only,
     )
     
@@ -412,8 +419,7 @@ Examples:
     
     if result.merge_result:
         print(f"  Pages created:        {result.created}")
-        print(f"  Pages updated:        {result.updated}")
-        print(f"  Pages skipped:        {result.skipped}")
+        print(f"  Pages merged:         {result.merged}")
     
     if result.errors:
         print(f"\n  Errors ({len(result.errors)}):")
@@ -422,7 +428,7 @@ Examples:
     
     if result.extracted_pages and args.extract_only:
         print(f"\n  Extracted Pages:")
-        for page in result.extracted_pages[:10]:  # Show first 10
+        for page in result.extracted_pages[:10]:
             print(f"    - {page.page_title} ({page.page_type})")
         if len(result.extracted_pages) > 10:
             print(f"    ... and {len(result.extracted_pages) - 10} more")
@@ -435,4 +441,3 @@ Examples:
 if __name__ == "__main__":
     import sys
     sys.exit(main())
-
