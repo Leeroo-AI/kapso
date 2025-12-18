@@ -42,6 +42,10 @@ from src.knowledge.learners.merge_handlers import (
 from src.knowledge.search.base import WikiPage, KGIndexInput
 from src.knowledge.search.factory import KnowledgeSearchFactory
 
+# Load merger prompt template
+_PROMPT_FILE = Path(__file__).parent / "merger_prompt.md"
+MERGE_PROMPT_TEMPLATE = _PROMPT_FILE.read_text() if _PROMPT_FILE.exists() else ""
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -201,12 +205,9 @@ class KnowledgeMerger:
         Main merge entry point.
         
         Process:
-        1. Check if KG is indexed in Neo4j
-        2. If not indexed, run initial index from main_kg_path
-        3. Initialize Claude Code agent with wiki MCP tools
-        4. Group proposed pages by type
-        5. For each page, run type-specific handler
-        6. Collect and return results
+        1. Try to initialize search backend (Neo4j + Weaviate)
+        2. If no index exists, create all pages as new (no merge needed)
+        3. If index exists, use agent to decide merge vs create for each page
         
         Args:
             input: MergeInput with proposed pages and configuration
@@ -221,21 +222,21 @@ class KnowledgeMerger:
             return result
         
         try:
-            # Step 1: Initialize search backend with Neo4j + Weaviate config
-            self._initialize_search_backend(input)
+            # Step 1: Check if index is available
+            has_index = self._try_initialize_index(input)
             
-            # Step 2: Check if KG is indexed
-            if not self._is_kg_indexed():
-                logger.info("KG not indexed in Neo4j. Running initial index...")
-                self._run_initial_index(input.main_kg_path)
+            if not has_index:
+                # No index available - create all pages as new
+                logger.info("No existing index. Creating all pages as new...")
+                return self._create_all_pages(input, result)
             
-            # Step 3: Initialize agent with wiki MCP tools
+            # Step 2: Initialize agent with wiki MCP tools
             self._initialize_agent(input.main_kg_path)
             
-            # Step 4: Group pages by type
+            # Step 3: Group pages by type
             by_type = self._group_by_type(input.proposed_pages)
             
-            # Step 5: Process each type
+            # Step 4: Process each type with merge logic
             for page_type, pages in by_type.items():
                 handler = self.handlers.get(page_type)
                 if not handler:
@@ -264,6 +265,96 @@ class KnowledgeMerger:
             logger.error(f"Merge failed: {e}")
             result.errors.append(str(e))
             return result
+    
+    def _try_initialize_index(self, input: MergeInput) -> bool:
+        """
+        Try to initialize search backend and check if index exists.
+        
+        Returns:
+            True if index is available and has pages, False otherwise
+        """
+        try:
+            self._initialize_search_backend(input)
+            return self._is_kg_indexed()
+        except Exception as e:
+            logger.warning(f"Could not initialize index: {e}")
+            return False
+    
+    def _create_all_pages(self, input: MergeInput, result: MergeResult) -> MergeResult:
+        """
+        Create all proposed pages as new (no merge).
+        
+        Used when there's no existing index to merge with.
+        1. Writes pages to wiki directory organized by type
+        2. Indexes pages via search backend (Neo4j + Weaviate if available)
+        """
+        wiki_dir = input.main_kg_path
+        wiki_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Step 1: Write pages to wiki directory
+        for page in input.proposed_pages:
+            try:
+                self._write_page_to_wiki(page, wiki_dir)
+                result.created.append(page.id)
+                logger.info(f"Created new page: {page.id}")
+                
+            except Exception as e:
+                error_msg = f"Failed to create {page.id}: {e}"
+                logger.error(error_msg)
+                result.errors.append(error_msg)
+        
+        logger.info(f"Created {len(result.created)} new pages")
+        
+        # Step 2: Index pages via search backend
+        try:
+            # Initialize search backend if not already done
+            if not self._search_backend:
+                self._initialize_search_backend(input)
+            
+            # Index the pages (will gracefully skip if Neo4j/Weaviate unavailable)
+            index_input = KGIndexInput(
+                pages=input.proposed_pages,
+                wiki_dir=wiki_dir,
+            )
+            self._search_backend.index(index_input)
+            logger.info(f"Indexed {len(input.proposed_pages)} pages to search backend")
+            
+        except Exception as e:
+            logger.warning(f"Could not index pages to search backend: {e}")
+            # Not a critical error - pages are still written to disk
+        
+        return result
+    
+    def _write_page_to_wiki(self, page: "WikiPage", wiki_dir: Path) -> None:
+        """
+        Write a WikiPage to the wiki directory.
+        
+        Organizes pages into type subdirectories:
+        - workflows/
+        - principles/
+        - implementations/
+        - environments/
+        - heuristics/
+        """
+        # Map page type to subdirectory
+        type_to_subdir = {
+            "Workflow": "workflows",
+            "Principle": "principles",
+            "Implementation": "implementations",
+            "Environment": "environments",
+            "Heuristic": "heuristics",
+        }
+        
+        subdir = type_to_subdir.get(page.page_type, "other")
+        type_dir = wiki_dir / subdir
+        type_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write page content to file
+        filename = f"{page.page_title}.md"
+        file_path = type_dir / filename
+        file_path.write_text(page.content, encoding="utf-8")
+        
+        logger.debug(f"Wrote {file_path}")
     
     # =========================================================================
     # Search Backend Management
@@ -455,73 +546,22 @@ class KnowledgeMerger:
         search_query = handler.build_search_query(page)
         search_filters = handler.get_search_filters()
         
-        prompt = f"""# Knowledge Merge Task
-
-You are merging a proposed wiki page into the main Knowledge Graph.
-
-## Available Tools
-
-Use these MCP tools for KG operations:
-
-- `mcp__kg-graph-search__search_knowledge` - Search KG for related pages
-  - Parameters: query (string), page_types (array), top_k (integer)
-  
-- `mcp__kg-graph-search__get_wiki_page` - Read existing page content
-  - Parameters: page_title (string)
-  
-- `mcp__kg-graph-search__kg_index` - Add new page to KG
-  - Parameters: page_data (object with page_title, page_type, overview, content, domains), wiki_dir (string)
-  
-- `mcp__kg-graph-search__kg_edit` - Update existing page
-  - Parameters: page_id (string), updates (object), wiki_dir (string)
-
-## Target Configuration
-
-- Wiki Directory: {input.main_kg_path}
-- Weaviate Collection: {input.weaviate_collection}
-
-## Proposed Page to Merge
-
-**ID:** {page.id}
-**Type:** {page.page_type}
-**Title:** {page.page_title}
-
-**Overview:**
-{page.overview}
-
-**Domains:** {', '.join(page.domains) if page.domains else 'None'}
-
-**Outgoing Links:**
-{links_json}
-
-**Content:**
-{content_preview}
-
-{handler.merge_instructions}
-
-## Your Task
-
-1. **SEARCH** for related {handler.page_type} pages:
-   Use search_knowledge with:
-   - query: "{search_query}"
-   - page_types: {json.dumps(search_filters.get("page_types", []))}
-   - top_k: {search_filters.get("top_k", 5)}
-
-2. **READ** any promising candidates using get_wiki_page
-
-3. **DECIDE**: Should this be merged with an existing page or created as new?
-
-4. **EXECUTE**:
-   - If MERGE: Call kg_edit with the target page_id and merged updates
-   - If CREATE NEW: Call kg_index with the complete page data
-
-5. **REPORT** your decision clearly:
-   - Start your final response with either "ACTION: CREATED" or "ACTION: MERGED"
-   - If merged, include "TARGET: <page_id>" on the next line
-   - Explain your reasoning
-
-Start by searching for related pages.
-"""
+        # Format prompt from template
+        prompt = MERGE_PROMPT_TEMPLATE.format(
+            main_kg_path=input.main_kg_path,
+            weaviate_collection=input.weaviate_collection,
+            page_id=page.id,
+            page_type=page.page_type,
+            page_title=page.page_title,
+            overview=page.overview,
+            domains=", ".join(page.domains) if page.domains else "None",
+            outgoing_links=links_json,
+            content=content_preview,
+            merge_instructions=handler.merge_instructions,
+            search_query=search_query,
+            search_page_types=json.dumps(search_filters.get("page_types", [])),
+            search_top_k=search_filters.get("top_k", 5),
+        )
         
         return prompt
     
