@@ -8,9 +8,11 @@ Each repo's output is logged to a separate file in logs/batch_ingest/
 Usage:
     python tests/run_batch_ingest.py              # Run all repos in parallel
     python tests/run_batch_ingest.py --workers 3  # Limit to 3 parallel workers
+    python tests/run_batch_ingest.py --limit 50   # Only process first 50 repos
 """
 
 import argparse
+import json
 import os
 import sys
 import logging
@@ -22,14 +24,11 @@ from pathlib import Path
 # Configuration
 # ============================================================================
 
-# Repositories to ingest
-REPOS = [
-    "https://github.com/vllm-project/vllm",
-    "https://github.com/huggingface/transformers",
-    "https://github.com/langchain-ai/langchain",
-    "https://github.com/n8n-io/n8n",
-    "https://github.com/huggingface/peft",
-]
+# Path to repo URLs JSON file
+REPO_URLS_FILE = "data/repo_urls.json"
+
+# Default number of repos to process (top N from the JSON file)
+DEFAULT_REPO_LIMIT = 100
 
 # Ingestor settings (AWS Bedrock mode)
 INGESTOR_PARAMS = {
@@ -39,11 +38,33 @@ INGESTOR_PARAMS = {
 }
 
 # Output directories
-WIKI_DIR = "data/wikis_batch2"
-LOG_DIR = "logs/batch_ingest2"
+WIKI_DIR = "data/wikis_batch_top100"
+LOG_DIR = "logs/batch_ingest_top100"
 
 # Default number of parallel workers
-DEFAULT_WORKERS = 5  # Run all 5 repos in parallel by default
+DEFAULT_WORKERS = 5  # Run 5 repos in parallel by default
+
+
+def load_repos(limit: int = DEFAULT_REPO_LIMIT) -> list:
+    """
+    Load repository URLs from the JSON file.
+    
+    Args:
+        limit: Maximum number of repos to load (top N from the file)
+    
+    Returns:
+        List of repository URLs
+    """
+    repo_file = Path(REPO_URLS_FILE)
+    if not repo_file.exists():
+        print(f"ERROR: Repo URLs file not found: {REPO_URLS_FILE}")
+        sys.exit(1)
+    
+    with open(repo_file, "r") as f:
+        all_repos = json.load(f)
+    
+    # Return top N repos
+    return all_repos[:limit]
 
 
 # ============================================================================
@@ -158,13 +179,18 @@ def main():
     parser = argparse.ArgumentParser(description="Parallel batch repo ingestion")
     parser.add_argument("--workers", "-w", type=int, default=DEFAULT_WORKERS,
                         help=f"Number of parallel workers (default: {DEFAULT_WORKERS})")
+    parser.add_argument("--limit", "-l", type=int, default=DEFAULT_REPO_LIMIT,
+                        help=f"Number of repos to process from repo_urls.json (default: {DEFAULT_REPO_LIMIT})")
     args = parser.parse_args()
     
-    num_workers = min(args.workers, len(REPOS))  # Don't use more workers than repos
+    # Load repos from JSON file (top N based on limit)
+    repos = load_repos(limit=args.limit)
+    num_workers = min(args.workers, len(repos))  # Don't use more workers than repos
     
     print("\n" + "=" * 70)
     print("PARALLEL BATCH REPOSITORY INGESTION")
-    print(f"Repos: {len(REPOS)}")
+    print(f"Source: {REPO_URLS_FILE}")
+    print(f"Repos: {len(repos)} (top {args.limit})")
     print(f"Parallel workers: {num_workers}")
     print(f"Wiki dir: {WIKI_DIR}")
     print(f"Log dir: {LOG_DIR}")
@@ -174,11 +200,11 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
     
     # Prepare worker arguments
-    worker_args = [(url, str(log_dir), WIKI_DIR) for url in REPOS]
+    worker_args = [(url, str(log_dir), WIKI_DIR) for url in repos]
     
-    print(f"\nStarting {len(REPOS)} repos with {num_workers} parallel workers...")
+    print(f"\nStarting {len(repos)} repos with {num_workers} parallel workers...")
     print("-" * 70)
-    for url in REPOS:
+    for url in repos:
         print(f"  • {get_repo_name(url)}")
     print("-" * 70 + "\n")
     
@@ -230,7 +256,7 @@ def main():
     total_pages = sum(r["pages"] for r in results)
     total_cpu_time = sum(r["duration"] for r in results)
     
-    print(f"Successful: {successful}/{len(REPOS)}")
+    print(f"Successful: {successful}/{len(repos)}")
     print(f"Total pages: {total_pages}")
     print(f"Wall time: {total_wall_time/60:.1f} minutes")
     print(f"Total CPU time: {total_cpu_time/60:.1f} minutes")
@@ -248,7 +274,7 @@ def main():
     print("\n" + "=" * 70)
     
     # Return exit code based on success
-    return 0 if successful == len(REPOS) else 1
+    return 0 if successful == len(repos) else 1
 
 
 if __name__ == "__main__":
