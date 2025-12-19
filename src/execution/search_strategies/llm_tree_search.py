@@ -286,7 +286,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             - your output must be a list of {top_k} ids.
             - make sure to consider the previous experiments according to their score and the reliable knowledge base information in your selection.
             - selection criteria is ** {selection_criteria} **.
-            - For each selection you must write a reason why you selected that solution.
+            - For each selection you must write a 1 sentence reason why you selected that solution.
             - output must always be a python list of ids between <output> and </output> tags. eg:
                 Reason for solution id 2: ...
                 Reason for solution id 4: ...
@@ -441,7 +441,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             You are a world class problem solver. Generate {per_step_solution_count} exact solutions for the given problem that are the best and significantly better than the previous experiments.
             Requirement:
             - Each solution must be exact and high level steps specific enough to be coded.
-            - If parent solution exists, the newly proposed solutions must extend, improve, or tune it (at least one from each).
+            - If parent solution exists, the newly proposed solutions must either extend, improve, big tune, small tune it or completely change the core idea  (at least one from each).
             - Solutions must be significantly different from each other.
             - Solutions must not reference to each other parts and parent parts. Each solution must be self-contained.
             - CRITICAL: ** Put solutions between <solution> and </solution> tags. ** e.g.:
@@ -507,6 +507,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             user_message=f"""
                 # Problem: \n {context.problem} \n\n 
                 # Solutions list:\n {chr(10).join([f"Solution id {idx}: {solution}" for idx, solution in enumerate(solutions_list)])} 
+                \n\n Provide the list of top {final_solution_count} ids between <output> and </output> tags.
             """,
             reasoning_effort=self.reasoning_effort,
         )

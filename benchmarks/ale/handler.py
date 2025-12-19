@@ -263,6 +263,8 @@ class AleBench(ProblemHandler):
                 -- Depending on the problem balance between next few steps greedy move or longer horizon maximization.
                 -- Defining a strong heuristic scoring function is critical for random simulation. Generally it is best to consider both average and std of the scores and run enough simulations to get a good estimate.
                 -- Here again avoiding recomputations and fast stopping bad solutions is helpful to run more simulations as much as time budget allows.
+            - Ant Colony Optimization (ACO):
+                -- consider Ant Colony Optimization (ACO) for Global Plan Construction. population-based metaheuristic approach highly effective for discovering complex inter-dependencies between leg strategies.
             - Parameter and configs:
                 -- To avoid overfitting or falling into the local optimum trap, based on problem needs, always consider using dynamic hyperparameters that changes according to the situation.
                 -- The parameters must provide a balance between diversity and the quality of the search to find the best answer. One good way is tuning them as you search for the answer. 
@@ -279,6 +281,7 @@ class AleBench(ProblemHandler):
                 -- For operations that are used mostly always make sure to implement the light version. For example simple fast random function instead of rng for time effiecieny.
                 -- Make sure to avoid memory allocation in loops.
             - Diversity:
-                -- You have access to a list of previous ideas, make sure consider other than them and try crazy and out of the box ideas and solutions as well or diverse combination and modifications of them.
+                -- You have access to the summary of previous experiments, make sure consider other than them and try crazy and out of the box ideas and solutions as well or diverse combination and modifications of them.
+                -- Beside improving and modification of current ideas mentioned in the experiments summary, Consider generating and selecting new and out of the box core ideas not in the summary for exploration.
                 -- Try diverse variations of algorithms and structures. Do not drop any idea or solution just because of a few failed implementations.
         """

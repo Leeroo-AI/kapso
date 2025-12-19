@@ -236,7 +236,7 @@ def main():
 
 if __name__ == "__main__":
 
-    # main()
-    problem_handler = AleBench("ahc026")
-    result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/e0596978-f8b5-4778-84ce-79c280b25a15")
-    print(result)
+    main()
+    # problem_handler = AleBench("ahc026")
+    # result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/e0596978-f8b5-4778-84ce-79c280b25a15")
+    # print(result)
