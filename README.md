@@ -275,6 +275,10 @@ praxium/
 git clone <repository-url>
 cd praxium
 
+# Pull Git LFS files (wiki knowledge data)
+git lfs install
+git lfs pull
+
 # Create a dedicated conda environment (recommended)
 conda create -n praxium_conda python=3.12
 conda activate praxium_conda
@@ -282,6 +286,15 @@ conda activate praxium_conda
 # Install the package
 pip install -e .
 ```
+
+> **📦 Git LFS Note**
+>
+> This repository uses Git LFS for large files in `data/wikis_batch_top100/`.
+> If you didn't install Git LFS before cloning, run:
+> ```bash
+> git lfs install
+> git lfs pull
+> ```
 
 > **⚠️ Dependency Compatibility Note**
 >
