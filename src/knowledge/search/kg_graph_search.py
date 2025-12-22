@@ -15,7 +15,7 @@
 # Environment Variables:
 # - OPENAI_API_KEY: For text-embedding-3-large
 # - NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD: Graph database
-# - WEAVIATE_URL: Vector database (default: http://localhost:8081)
+# - WEAVIATE_URL: Vector database (default: http://localhost:8080)
 
 import json
 import logging
@@ -598,7 +598,7 @@ class KGGraphSearch(KnowledgeSearch):
             return
             
         try:
-            url = os.getenv("WEAVIATE_URL", "http://localhost:8081")
+            url = os.getenv("WEAVIATE_URL", "http://localhost:8080")
             # Parse host and port from URL
             host = url.replace("http://", "").replace("https://", "").split(":")[0]
             port = 8080
@@ -812,10 +812,11 @@ class KGGraphSearch(KnowledgeSearch):
                     "domains": page.domains,
                 }
                 
-                # Insert with embedding
+                # Insert with named vector (Weaviate 1.27+ with vectorizer_config=None
+                # creates a named vector "default", so we must use this format)
                 collection.data.insert(
                     properties=properties,
-                    vector=embedding,
+                    vector={"default": embedding},
                 )
                 indexed_count += 1
                 
@@ -837,9 +838,10 @@ class KGGraphSearch(KnowledgeSearch):
                 return
             
             # Create collection with no auto-vectorizer (we provide embeddings)
+            # vectorizer_config=None creates a named vector "default" in Weaviate 1.27+
             self._weaviate_client.collections.create(
                 name=self.weaviate_collection,
-                vectorizer_config=None,  # No auto-vectorizer, we provide embeddings
+                vectorizer_config=None,
                 properties=[
                     wvc.config.Property(name="page_id", data_type=wvc.config.DataType.TEXT),
                     wvc.config.Property(name="page_title", data_type=wvc.config.DataType.TEXT),
@@ -1138,9 +1140,10 @@ Only include pages that would actually help answer the query.
             # Build Weaviate filters
             weaviate_filters = self._build_weaviate_filters(filters)
             
-            # Search with near_vector
+            # Search with near_vector (target named vector "default" for Weaviate 1.27+)
             response = collection.query.near_vector(
                 near_vector=query_embedding,
+                target_vector="default",
                 limit=filters.top_k,
                 filters=weaviate_filters,
                 return_metadata=["distance"],
