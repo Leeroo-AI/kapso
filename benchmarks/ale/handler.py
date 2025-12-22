@@ -119,7 +119,7 @@ class AleBench(ProblemHandler):
             with open(cache_file, 'w') as f: 
                 f.write(self.problem_context)
         self.problem_context += f""" \n\n
-            You are a grandmaster algorithm designer and programmer and your goal to get the highest rank in the contest.
+            You are a grandmaster algorithm designer and programmer and your goal to get the highest rank in the atcoder contest.
             # Problem requirements:
             - It is critical to completely understand the problem statement and its requirements to avoid getting WA (wrong answer) and TLE (time limit exceeded).
             - Make sure to always consider highest value of inputs to avoid time limit for your code execution. The cpp23 can perform only up to 1e8 simple operations per second, so perform no more operations than (time limit seconds * 1e8).
@@ -142,6 +142,7 @@ class AleBench(ProblemHandler):
             - Avoid inefficient algorithms like machine learning based ones as they time consuming and not efficient.
             - Make sure your solutions handle requirements and conditions of the problem inherently and directly.
             - Avoid using fallbacks as much as you can but in special caases use a decent one and not just a naive version for bypassing errors.
+            - You may write up to 5 thousand lines of code but make sure all parts of the solution are contributing to the score and are implemented efficiently.
 
             # Error handling requirements:
             - When handling time limit errors follow below steps are critical and must be followed:
@@ -239,11 +240,11 @@ class AleBench(ProblemHandler):
     def _get_domain_knowledge(self):
           return """
             Helpful knowledge if using different approaches:
-            - Some generla algorithms:
+            - Some usefull algorithms:
                 -- "Linear, Nonlinear, Quadratic, Sequential Quadratic Programming", "Convex Optimization", "Simplex Method", "Interior Point Methods", "Newton’s Method", "L-BFGS", "Conjugate Gradient", "Subgradient Methods", "Proximal Methods", "Frank–Wolfe Algorithm", "Trust Region Methods", "Augmented Lagrangian Methods", "Alternating Direction Method of Multipliers", "Nelder–Mead",
                 -- "Cutting Plane Method", "Column Generation", "Benders Decomposition",
                 -- "DP", "Branch and Bound", "Knapsack", "Set Cover", "Hungarian Algorithm", "Min-Cost Flow", "Dinic’s Algorithm",
-                -- "Genetic Algorithm", "Differential Evolution", "CMA-ES", "Simulated Annealing", "Tabu Search", "Particle Swarm Optimization", "Ant Colony Optimization" 
+                -- "Genetic Algorithm", "Differential Evolution", "CMA-ES", "Simulated Annealing", "Tabu Search", "Particle Swarm Optimization", "Ant Colony Optimization" , "Nested metaheuristic
                 -- "Powell’s Method", "Hooke–Jeeves / Pattern Search", "Ellipsoid Method", "Karmarkar’s Algorithm", "Ford–Fulkerson Algorithm", "Edmonds–Karp Algorithm", "Prim’s Algorithm", "Kruskal’s Algorithm", "Firefly Algorithm", "Bat Algorithm"
             - Simulated Annealing:
                 -- Simulated annealing is the best approach for optimization problems with possibility of creating a very good first solution and then increamental or local changes. It almost always outperforms simple beam or greedy search.
@@ -255,7 +256,7 @@ class AleBench(ProblemHandler):
                 -- Always think how to push the limit of SA and how to investigate 5x or 10x more valuable states.
                 -- Make sure to avoid recomputations for legality check at each step as much as you can, so you can more investigate more neighbors.
                 -- In highly constrained problems, keeping the last few steps and having a regret mechanism always helps.
-                -- Always consider Adaptive, multi phase, or combining simulating annealings if helpful. 
+                -- Must consider Adaptive multi phase SA, Metaheuristic SA, SA on hyper parameters, or combining simulating annealings. 
                 -- As long as time budget allows, you can run multiple simulated annealings with different initial seed or different state and neighborhood design to take out the maximum efficiency from it.
             - Beam / Random Search / MCTS:
                 -- Think about the beam width and evaluation function that could lead to better solutions.

@@ -573,3 +573,4 @@ class LlmSteeredTreeSearch(SearchStrategy):
         except FileNotFoundError:
             print("[LlmSteeredTreeSearch] No checkpoint found")
             raise FileNotFoundError(f"[LlmSteeredTreeSearch] No checkpoint found in {self.workspace_dir}")
+    
