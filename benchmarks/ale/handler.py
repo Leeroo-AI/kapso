@@ -239,6 +239,12 @@ class AleBench(ProblemHandler):
     def _get_domain_knowledge(self):
           return """
             Helpful knowledge if using different approaches:
+            - Some generla algorithms:
+                -- "Linear, Nonlinear, Quadratic, Sequential Quadratic Programming", "Convex Optimization", "Simplex Method", "Interior Point Methods", "Newton’s Method", "L-BFGS", "Conjugate Gradient", "Subgradient Methods", "Proximal Methods", "Frank–Wolfe Algorithm", "Trust Region Methods", "Augmented Lagrangian Methods", "Alternating Direction Method of Multipliers", "Nelder–Mead",
+                -- "Cutting Plane Method", "Column Generation", "Benders Decomposition",
+                -- "DP", "Branch and Bound", "Knapsack", "Set Cover", "Hungarian Algorithm", "Min-Cost Flow", "Dinic’s Algorithm",
+                -- "Genetic Algorithm", "Differential Evolution", "CMA-ES", "Simulated Annealing", "Tabu Search", "Particle Swarm Optimization", "Ant Colony Optimization" 
+                -- "Powell’s Method", "Hooke–Jeeves / Pattern Search", "Ellipsoid Method", "Karmarkar’s Algorithm", "Ford–Fulkerson Algorithm", "Edmonds–Karp Algorithm", "Prim’s Algorithm", "Kruskal’s Algorithm", "Firefly Algorithm", "Bat Algorithm"
             - Simulated Annealing:
                 -- Simulated annealing is the best approach for optimization problems with possibility of creating a very good first solution and then increamental or local changes. It almost always outperforms simple beam or greedy search.
                 -- For better state representation, consider how the current state encoding might be limiting the search space or convergence speed. Think about alternative state encodings that could lead to better local optima or faster convergence.

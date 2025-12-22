@@ -104,6 +104,8 @@ def solve_problem(
         mode=mode,
         coding_agent=coding_agent,
         is_kg_active=use_kg,
+        # workspace_dir="/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/21d07731-bfae-4d4a-b57c-faa416a1a9a3",
+        # start_from_checkpoint=True,
     )
     
     # Run the solve loop
@@ -236,7 +238,11 @@ def main():
 
 if __name__ == "__main__":
 
-    main()
-    # problem_handler = AleBench("ahc026")
-    # result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/e0596978-f8b5-4778-84ce-79c280b25a15")
-    # print(result)
+    # main()
+    problem_handler = AleBench("ahc008")
+    path = "/home/ubuntu/nadaf/ale_top/ahc008/"
+    print(problem_handler.run(path, path).score)
+
+    # result = problem_handler.final_evaluate("/home/ubuntu/nadaf/git/praxium/tmp/search_strategy_workspace/21d07731-bfae-4d4a-b57c-faa416a1a9a3")
+    result = problem_handler.final_evaluate(path)
+    print(result)

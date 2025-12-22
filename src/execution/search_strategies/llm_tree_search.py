@@ -441,7 +441,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             You are a world class problem solver. Generate {per_step_solution_count} exact solutions for the given problem that are the best and significantly better than the previous experiments.
             Requirement:
             - Each solution must be exact and high level steps specific enough to be coded.
-            - If parent solution exists, the newly proposed solutions must either extend, improve, big tune, small tune it or completely change the core idea  (at least one from each).
+            - If parent solution exists, the newly proposed solutions must improve it either by 1-extend and add something to parent solution, 2-remove and change and improve parts, 3-big tune, 4-small tune it or 5-completely change the core idea (at least one from each).
             - Solutions must be significantly different from each other.
             - Solutions must not reference to each other parts and parent parts. Each solution must be self-contained.
             - CRITICAL: ** Put solutions between <solution> and </solution> tags. ** e.g.:
