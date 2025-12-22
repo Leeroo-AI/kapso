@@ -508,6 +508,11 @@ class KnowledgeSearch(ABC):
             params: Implementation-specific parameters
         """
         self.params = params or {}
+        self.enabled = True  # Default to enabled, subclasses can override
+
+    def is_enabled(self) -> bool:
+        """Check if the search backend is enabled."""
+        return self.enabled
     
     @abstractmethod
     def index(self, data: KGIndexInput) -> None:
