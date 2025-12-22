@@ -94,7 +94,7 @@ class TestCognitiveMemory(unittest.TestCase):
         mock_result.run_had_error = True
         mock_result.error_details = "Numpy version mismatch"
         
-        wm = WorkingMemory()
+        wm = WorkingMemory(current_goal="Test", active_plan=[])
         
         new_wm, new_insight = controller.process_result(mock_result, wm)
         
