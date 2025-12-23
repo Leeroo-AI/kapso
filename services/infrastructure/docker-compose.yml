@@ -1,0 +1,78 @@
+# Praxium Infrastructure Stack
+# Weaviate (vector DB), Neo4j (graph DB), MediaWiki (frontend)
+
+services:
+  weaviate:
+    image: semitechnologies/weaviate:1.27.0
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'none'
+      ENABLE_MODULES: 'text2vec-openai,generative-openai'
+      CLUSTER_HOSTNAME: 'node1'
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5.18.0
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/password
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
+
+  db:
+    image: mariadb:11
+    environment:
+      MYSQL_ROOT_PASSWORD: localroot123
+      MYSQL_DATABASE: wiki
+      MYSQL_USER: mediawiki
+      MYSQL_PASSWORD: localpass123
+    volumes:
+      - dbdata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  wiki:
+    build: ../wiki_service/mediawiki
+    image: wiki-service:latest
+    environment:
+      MW_DB_HOST: db
+      MW_DB_NAME: wiki
+      MW_DB_USER: mediawiki
+      MW_DB_PASSWORD: localpass123
+      MW_SITE_SERVER: http://localhost:8090
+      MW_SITENAME: Praxium Knowledge
+      MW_LANG: en
+      MW_ADMIN_USER: admin
+      MW_ADMIN_PASS: adminpass123
+      MW_AGENT_USER: agent
+      MW_AGENT_PASS: agentpass123
+      MW_CREATE_AGENT: "true"
+    ports:
+      - "8090:80"
+    volumes:
+      - ../wiki_service/images:/var/www/html/images
+      - ../../data/wikis:/wikis:rw
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  weaviate_data:
+  neo4j_data:
+  dbdata:
