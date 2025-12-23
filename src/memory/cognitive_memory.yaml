@@ -1,0 +1,151 @@
+# =============================================================================
+# Cognitive Memory Configuration
+# =============================================================================
+#
+# This file configures the cognitive memory system including:
+# - EpisodicStore: Stores insights from past experiments
+# - CognitiveController: Orchestrates memory retrieval and briefing generation
+# - WorkingMemory: Tracks current goal, plan, and facts
+#
+# Usage:
+#   from src.memory.config import CognitiveMemoryConfig
+#   config = CognitiveMemoryConfig.load()
+#   config = CognitiveMemoryConfig.load(preset="high_quality")
+#
+# Environment variable overrides:
+#   COGNITIVE_MEMORY_EPISODIC_EMBEDDING_MODEL=text-embedding-3-large
+#   COGNITIVE_MEMORY_CONTROLLER_LLM_MODEL=gpt-4-turbo
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Default Configuration
+# -----------------------------------------------------------------------------
+defaults:
+  
+  # ---------------------------------------------------------------------------
+  # Episodic Memory Settings
+  # ---------------------------------------------------------------------------
+  episodic:
+    # Weaviate collection name for storing insights
+    collection_name: "EpisodicInsights"
+    
+    # Embedding model for semantic search
+    # Options: text-embedding-3-small (fast/cheap), text-embedding-3-large (better)
+    embedding_model: "text-embedding-3-small"
+    
+    # Weaviate connection
+    weaviate_host: "localhost"
+    weaviate_port: 8080
+    
+    # How many insights to retrieve per query
+    retrieval_top_k: 5
+    
+    # Minimum confidence to store an insight in Weaviate (0.0-1.0)
+    # Low confidence insights are still stored in JSON fallback
+    min_confidence: 0.5
+    
+    # Maximum insights to keep in memory (oldest removed first)
+    max_insights: 1000
+    
+    # JSON fallback file path
+    persist_path: ".memory_store.json"
+
+  # ---------------------------------------------------------------------------
+  # Cognitive Controller Settings  
+  # ---------------------------------------------------------------------------
+  controller:
+    # LLM model for meta-cognition (search query generation, insight extraction)
+    # Should be fast and cheap since it's called frequently
+    llm_model: "gpt-4o-mini"
+    
+    # Alternative models to try if primary fails
+    fallback_models:
+      - "gpt-4.1-mini"
+      - "claude-3-haiku-20240307"
+    
+    # State file path (markdown file showing current agent state)
+    state_file_path: ".praxium_state.md"
+    
+    # Maximum characters to include from error messages
+    max_error_length: 1000
+    
+    # Maximum characters to store in facts
+    max_fact_length: 200
+
+  # ---------------------------------------------------------------------------
+  # Insight Extraction Settings
+  # ---------------------------------------------------------------------------
+  insight_extraction:
+    # Whether to auto-extract insights from errors
+    enabled: true
+    
+    # Minimum error length to trigger extraction (skip trivial errors)
+    min_error_length: 50
+    
+    # Maximum insight content length
+    max_insight_length: 500
+    
+    # Default confidence for auto-extracted insights
+    default_confidence: 0.8
+    
+    # Tags to auto-add to extracted insights
+    auto_tags:
+      - "auto-generated"
+
+  # ---------------------------------------------------------------------------
+  # Briefing Generation Settings
+  # ---------------------------------------------------------------------------
+  briefing:
+    # Maximum characters of KG knowledge to include in briefing
+    max_kg_context: 30000
+    
+    # Maximum number of insights to include in briefing
+    max_insights: 10
+    
+    # Whether to include plan steps in briefing
+    include_plan: true
+    
+    # Whether to include recent error history
+    include_error_history: true
+
+# -----------------------------------------------------------------------------
+# Preset Configurations
+# -----------------------------------------------------------------------------
+presets:
+
+  # Minimal memory usage - for resource-constrained environments
+  minimal:
+    episodic:
+      embedding_model: "text-embedding-3-small"
+      retrieval_top_k: 3
+      max_insights: 100
+    controller:
+      llm_model: "gpt-4o-mini"
+    briefing:
+      max_kg_context: 10000
+      max_insights: 5
+
+  # High quality - better embeddings and more context
+  high_quality:
+    episodic:
+      embedding_model: "text-embedding-3-large"
+      retrieval_top_k: 10
+      max_insights: 5000
+    controller:
+      llm_model: "gpt-4.1-mini"
+    briefing:
+      max_kg_context: 50000
+      max_insights: 20
+
+  # Local development - uses local Weaviate
+  local:
+    episodic:
+      weaviate_host: "localhost"
+      weaviate_port: 8080
+
+  # Docker deployment - uses Docker network names
+  docker:
+    episodic:
+      weaviate_host: "weaviate"
+      weaviate_port: 8080
