@@ -84,3 +84,25 @@ __all__ = [
     "PaperIngestor",
     "ExperimentIngestor",
 ]
+
+# Episodic Learner - learns from experiment history
+from src.knowledge.learners.episodic_learner import (
+    EpisodicLearner,
+    LLMEpisodicLearner,
+    EpisodicLearnerFactory,
+    EpisodicLearnerResult,
+    LearnedPattern,
+    LearnedHeuristic,
+    HarvestedWorkflow,
+)
+
+__all__ += [
+    # Episodic Learner
+    "EpisodicLearner",
+    "LLMEpisodicLearner", 
+    "EpisodicLearnerFactory",
+    "EpisodicLearnerResult",
+    "LearnedPattern",
+    "LearnedHeuristic",
+    "HarvestedWorkflow",
+]

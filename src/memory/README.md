@@ -24,7 +24,7 @@ The Cognitive Memory Architecture addresses "context stuffing" by intelligently 
 │           ┌───────────────┼───────────────┐                 │
 │           ▼               ▼               ▼                 │
 │   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
-│   │ EpisodicStore│ │  KG Search   │ │WorkingMemory │       │
+│   │ EpisodicStore│ │  KG Search   │ │   Context    │       │
 │   │  (Weaviate)  │ │(Neo4j+Weav.) │ │   (State)    │       │
 │   └──────────────┘ └──────────────┘ └──────────────┘       │
 └─────────────────────────────────────────────────────────────┘
@@ -55,8 +55,8 @@ Orchestrates the memory system.
 Core data structures:
 
 - `Insight`: A learned rule with confidence and source tracking
-- `WorkingMemory`: Current goal, plan, and facts
 - `Briefing`: Synthesized context packet for the agent
+- `Goal`: Parsed goal with type classification
 - `ExperimentResultProtocol`: Interface for experiment results
 
 ### Config (`config.py`, `cognitive_memory.yaml`)
@@ -65,30 +65,29 @@ YAML-based configuration with presets.
 ## Quick Start
 
 ```python
-from src.memory import CognitiveController, WorkingMemory
+from src.memory import CognitiveController, Goal
 from src.knowledge.search import KnowledgeSearchFactory
 
 # Initialize with KG search
 kg = KnowledgeSearchFactory.create("kg_graph_search")
 controller = CognitiveController(knowledge_search=kg)
 
-# Create working memory
-memory = WorkingMemory(
-    current_goal="Fine-tune LLaMA with LoRA",
-    active_plan=["Load model", "Configure LoRA", "Train"],
-    facts={"model": "llama-7b"}
-)
+# Initialize goal (triggers KG retrieval for workflow)
+goal = Goal.from_string("Fine-tune LLaMA with LoRA")
+controller.initialize_goal(goal)
 
-# Get briefing for agent
-briefing = controller.prepare_briefing(memory, last_error=None)
+# Get briefing for agent (includes workflow, heuristics, code patterns)
+briefing = controller.prepare_briefing()
 print(briefing.to_string())
 
 # Process experiment result
-class Result:
-    run_had_error = True
-    error_details = "CUDA OOM: reduce batch size"
-
-new_memory, insight = controller.process_result(Result(), memory)
+action, meta = controller.process_result(
+    success=False,
+    error_message="CUDA OOM: reduce batch size",
+    score=0.3,
+    feedback="Out of memory error"
+)
+# Returns: action="retry", meta={"reasoning": "..."}
 
 # Clean up
 controller.close()
@@ -116,9 +115,13 @@ defaults:
     max_insight_length: 500
     default_confidence: 0.8
     
+  # Context size controlled implicitly via KG graph structure:
+  # - ALL heuristics linked to steps (via USES_HEURISTIC edges)
+  # - ALL implementations linked to steps (via IMPLEMENTED_BY edges)
+  # - ALL environments linked to implementations (via REQUIRES_ENV edges)
+  # Well-curated KG = well-bounded context. No arbitrary truncation.
   briefing:
-    max_kg_context: 30000
-    max_insights: 10
+    max_episodic_insights: 5  # Only episodic is limited
 ```
 
 ### Presets
@@ -147,19 +150,69 @@ export COGNITIVE_MEMORY_CONTROLLER_LLM_MODEL=gpt-4-turbo
 export COGNITIVE_MEMORY_EPISODIC_EMBEDDING_MODEL=text-embedding-3-large
 ```
 
+## Switching Between Legacy and Cognitive Mode
+
+The cognitive system is **opt-in** - just change ONE config line.
+
+### In `src/config.yaml`
+
+```yaml
+# Legacy (default for MLE/ALE)
+context_manager:
+  type: "token_efficient"
+
+# Cognitive (new system)
+context_manager:
+  type: "cognitive"
+```
+
+That's it. No new mode needed. Also enable KG if you want workflow retrieval:
+
+```yaml
+knowledge_search:
+  type: "kg_graph_search"
+  enabled: true
+```
+
 ## Running Tests
 
+### Prerequisites
+
 ```bash
-# Unit tests
-pytest tests/test_cognitive_memory.py -v
-
-# Integration tests (requires Weaviate)
-pytest tests/test_cognitive_integration.py -v
-
-# E2E tests (requires full infrastructure)
+# Start KG infrastructure (Neo4j + Weaviate)
 ./start_infra.sh
-python tests/test_cognitive_e2e.py
-python tests/test_cognitive_comprehensive.py
+```
+
+### Main E2E Test (Real KG, No Mocking)
+
+```bash
+PYTHONPATH=. python tests/test_expert_full_e2e.py
+
+# Expected: TIER 1 workflow retrieval, score ~0.9
+```
+
+### Other Tests
+
+```bash
+# Multi-iteration scenarios
+PYTHONPATH=. python tests/test_cognitive_multi_iteration.py
+
+# Quick KG connectivity test
+PYTHONPATH=. python tests/test_cognitive_real_kg.py
+```
+
+### Understanding Logs
+
+Logs are written to `/home/ubuntu/praxium/logs/`:
+- `expert_e2e_*.log` - Full execution log
+- `expert_e2e_results_*.json` - Structured results
+
+Key log sections:
+```
+🎯 GOAL INITIALIZATION  → Shows TIER 1/2/3 retrieval
+📋 PREPARING BRIEFING   → Shows context sent to agent
+⚙️ PROCESSING RESULT    → Shows experiment outcome
+🧠 LLM DECISION         → Shows RETRY/PIVOT/COMPLETE decision
 ```
 
 ## Test Coverage
@@ -182,7 +235,7 @@ python tests/test_cognitive_comprehensive.py
 ```
 src/memory/
 ├── __init__.py              # Module exports
-├── types.py                 # Data types (Insight, WorkingMemory, Briefing)
+├── types.py                 # Data types (Insight, Briefing, Goal)
 ├── episodic.py              # EpisodicStore (Weaviate + JSON)
 ├── controller.py            # CognitiveController
 ├── config.py                # Config loader

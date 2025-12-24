@@ -40,7 +40,8 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         params: Optional[Dict[str, Any]] = None,
     ):
         """Initialize KG LLM Navigation search."""
-        super().__init__(enabled=enabled, params=params)
+        super().__init__(params=params)
+        self._enabled = enabled
         
         # Extract params with defaults
         self.search_top_k = self.params.get("search_top_k", 1)
@@ -58,7 +59,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         self._driver = None
         self._llm = None
         
-        if self.enabled:
+        if self._enabled:
             self._init_backend()
     
     def _init_backend(self) -> None:
@@ -161,7 +162,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         # Use default filters if not provided
         filters = filters or KGSearchFilters()
         
-        if not self.enabled or not self._driver:
+        if not self._enabled or not self._driver:
             return KGOutput(query=query, filters=filters)
         
         # Build query prompt

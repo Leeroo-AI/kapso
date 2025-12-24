@@ -50,6 +50,7 @@ modes:
   # ===========================================
   
   # Standard configuration for generic problems
+  # To enable cognitive memory, change context_manager.type to "cognitive"
   GENERIC:
     # Search strategy configuration
     search_strategy:
@@ -206,3 +207,4 @@ modes:
           - ["threshold", {"threshold": 0.95}]
           - ["max_iterations", {"max_iter": 50}]
         mode: "any"
+

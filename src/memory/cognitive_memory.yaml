@@ -5,7 +5,7 @@
 # This file configures the cognitive memory system including:
 # - EpisodicStore: Stores insights from past experiments
 # - CognitiveController: Orchestrates memory retrieval and briefing generation
-# - WorkingMemory: Tracks current goal, plan, and facts
+# - CognitiveContext: Tracks workflow state, errors, and episodic insights
 #
 # Usage:
 #   from src.memory.config import CognitiveMemoryConfig
@@ -96,18 +96,24 @@ defaults:
   # ---------------------------------------------------------------------------
   # Briefing Generation Settings
   # ---------------------------------------------------------------------------
+  # NOTE: Context size is controlled IMPLICITLY through the KG graph structure:
+  #   - Heuristics: ALL linked heuristics from graph (Principle → USES_HEURISTIC → Heuristic)
+  #   - Implementations: ALL linked from graph (Principle → IMPLEMENTED_BY → Implementation)
+  #   - Environments: ALL linked from graph (Implementation → REQUIRES_ENV → Environment)
+  #   - Episodic insights: Limited by retrieval_top_k
+  # 
+  # We trust the graph structure - well-curated KG = well-bounded context.
+  # No arbitrary truncation. Modern LLMs support 50K+ tokens easily.
+  # ---------------------------------------------------------------------------
   briefing:
-    # Maximum characters of KG knowledge to include in briefing
-    max_kg_context: 30000
-    
-    # Maximum number of insights to include in briefing
-    max_insights: 10
-    
     # Whether to include plan steps in briefing
     include_plan: true
     
     # Whether to include recent error history
     include_error_history: true
+    
+    # Max episodic insights to include (retrieved by relevance)
+    max_episodic_insights: 5
 
 # -----------------------------------------------------------------------------
 # Preset Configurations
@@ -119,24 +125,20 @@ presets:
     episodic:
       embedding_model: "text-embedding-3-small"
       retrieval_top_k: 3
-      max_insights: 100
     controller:
       llm_model: "gpt-4o-mini"
     briefing:
-      max_kg_context: 10000
-      max_insights: 5
+      max_episodic_insights: 3
 
   # High quality - better embeddings and more context
   high_quality:
     episodic:
       embedding_model: "text-embedding-3-large"
       retrieval_top_k: 10
-      max_insights: 5000
     controller:
       llm_model: "gpt-4.1-mini"
     briefing:
-      max_kg_context: 50000
-      max_insights: 20
+      max_episodic_insights: 10
 
   # Local development - uses local Weaviate
   local:

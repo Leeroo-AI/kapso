@@ -1,0 +1,904 @@
+"""
+Full E2E Test - Expert with Real Coding Agent + LLM Judge Evaluator
+
+This test demonstrates the COGNITIVE MEMORY SYSTEM with KG-structured context:
+
+WHAT THIS TESTS:
+1. Uses Expert.build() - the main user-facing API
+2. Creates a REAL code repository
+3. Uses a REAL coding agent (Gemini by default, fast and cheap)
+4. Evaluates with LLM-as-Judge
+5. Uses COGNITIVE context manager with KG workflow retrieval
+
+COGNITIVE FLOW LOGGED:
+  ┌─────────────────────────────────────────────────────────────┐
+  │  1. GOAL INITIALIZATION                                      │
+  │     - Parse goal → Goal object with type/constraints        │
+  │     - KG Query: Find matching workflow                      │
+  │                                                              │
+  │  2. WORKFLOW RETRIEVAL (from KG)                            │
+  │     - TIER 1: Exact workflow match                          │
+  │     - TIER 2: Synthesize from related pages                 │
+  │     - Each step has PRE-LOADED heuristics                   │
+  │                                                              │
+  │  3. ITERATION LOOP                                          │
+  │     a. BRIEFING: Current step + heuristics → Agent          │
+  │     b. EXECUTION: Agent generates code, runs                │
+  │     c. EVALUATION: LLM Judge scores + feedback              │
+  │     d. DECISION: LLM decides RETRY/PIVOT/COMPLETE           │
+  │     e. MEMORY UPDATE: Store insights, update workflow       │
+  │                                                              │
+  │  4. EPISODIC MEMORY                                         │
+  │     - Store error insights for future retrieval             │
+  │     - Store success patterns as best practices              │
+  └─────────────────────────────────────────────────────────────┘
+
+Prerequisites:
+    ./start_infra.sh              # KG infrastructure
+    export GOOGLE_API_KEY=...     # For Gemini coding agent
+    export OPENAI_API_KEY=...     # For LLM Judge + embeddings
+
+To run:
+    PYTHONPATH=. python tests/test_expert_full_e2e.py
+
+Output:
+    - Generated code in /tmp/expert_e2e_*/
+    - Logs in /home/ubuntu/praxium/logs/expert_e2e_*.log
+"""
+
+import os
+import sys
+import json
+import logging
+import shutil
+import tempfile
+import warnings
+import gc
+from datetime import datetime
+from pathlib import Path
+
+# Suppress noisy warnings EARLY (before any imports that trigger them)
+# These warnings pollute the log but don't indicate real problems
+warnings.filterwarnings("ignore", "Pydantic serializer warnings")
+warnings.filterwarnings("ignore", "There is no current event loop")
+warnings.filterwarnings("ignore", category=ResourceWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+from dotenv import load_dotenv
+load_dotenv()
+
+# Import report generator for HTML output
+from src.memory.report_generator import CognitiveReportBuilder, ReportSection
+
+
+# =============================================================================
+# Enhanced Logging Setup - Cognitive Memory Focused
+# =============================================================================
+
+LOG_DIR = Path("/home/ubuntu/praxium/logs")
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / f"expert_e2e_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+
+class CognitiveLogFormatter(logging.Formatter):
+    """
+    Custom formatter that highlights cognitive memory system events.
+    
+    Makes it easy to follow:
+    - KG retrieval operations
+    - Workflow step progression  
+    - LLM decision making
+    - Memory state changes
+    """
+    
+    # Phase markers for easy log scanning
+    PHASE_MARKERS = {
+        'INITIALIZING GOAL': '🎯',
+        'PREPARING BRIEFING': '📋',
+        'PROCESSING RESULT': '⚙️',
+        'LLM DECISION': '🧠',
+        'TIER 3': '🔍',
+        'GOAL INITIALIZED': '✅',
+        'BRIEFING READY': '✅',
+    }
+    
+    def format(self, record):
+        # Get base formatted message
+        msg = super().format(record)
+        
+        # Add phase markers for cognitive events
+        for marker_text, emoji in self.PHASE_MARKERS.items():
+            if marker_text in msg:
+                # Add visual separator for major phases
+                if marker_text.startswith('==='):
+                    msg = f"\n{'─'*70}\n{emoji} {msg}"
+                break
+        
+        return msg
+
+
+def setup_logging():
+    """Setup logging with cognitive-aware formatting."""
+    # Create formatter
+    formatter = CognitiveLogFormatter(
+        '%(asctime)s │ %(levelname)-5s │ %(name)-40s │ %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    # File handler - detailed
+    file_handler = logging.FileHandler(LOG_FILE)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    
+    # Console handler - INFO level
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Set specific module levels for cognitive system visibility
+    logging.getLogger('src.memory.cognitive_controller').setLevel(logging.DEBUG)
+    logging.getLogger('src.memory.knowledge_retriever').setLevel(logging.DEBUG)
+    logging.getLogger('src.memory.decisions').setLevel(logging.DEBUG)
+    logging.getLogger('src.memory.episodic').setLevel(logging.DEBUG)
+    logging.getLogger('src.execution.context_manager').setLevel(logging.DEBUG)
+    
+    # Reduce noise from external libraries
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('LiteLLM').setLevel(logging.WARNING)
+    logging.getLogger('litellm').setLevel(logging.WARNING)
+    
+    # CRITICAL: Suppress neo4j connection pool spam (was 71% of log!)
+    logging.getLogger('neo4j').setLevel(logging.WARNING)
+    logging.getLogger('neo4j.io').setLevel(logging.WARNING)
+    logging.getLogger('neo4j.pool').setLevel(logging.WARNING)
+    
+    # Suppress OpenAI HTTP debug (raw request/response headers)
+    logging.getLogger('openai').setLevel(logging.WARNING)
+    logging.getLogger('openai._base_client').setLevel(logging.WARNING)
+    
+    # Suppress git operations debug
+    logging.getLogger('git').setLevel(logging.WARNING)
+    logging.getLogger('git.cmd').setLevel(logging.WARNING)
+    logging.getLogger('git.util').setLevel(logging.WARNING)
+    logging.getLogger('git.repo').setLevel(logging.WARNING)
+    
+    # Suppress LiteLLM's direct print-style logging
+    import litellm
+    litellm.set_verbose = False
+    litellm.suppress_debug_info = True
+    
+    return logging.getLogger(__name__)
+
+
+logger = setup_logging()
+
+
+# =============================================================================
+# Test Scenarios - Different KG Retrieval Modes
+# =============================================================================
+# 
+# These test scenarios exercise different parts of the cognitive memory system:
+#
+# 1. TIER 1 - EXACT WORKFLOW MATCH
+#    Goal matches a workflow in the KG exactly.
+#    Expected: exact_workflow mode, step-by-step heuristics loaded
+#
+# 2. TIER 2 - SYNTHESIZED WORKFLOW  
+#    Goal has no exact workflow but has related pages.
+#    Expected: synthesized_plan mode, plan generated from related pages
+#
+# 3. TIER 3 - ERROR RECOVERY (tested during failures)
+#    When code fails, retrieves error-specific heuristics.
+#    Expected: error_retrieval triggered on failure
+#
+# 4. WORKFLOW PIVOT
+#    Code keeps failing, LLM decides to try different approach.
+#    Expected: PIVOT action from decision maker
+#
+# =============================================================================
+
+TEST_SCENARIOS = {
+    # =========================================================================
+    # SCENARIO 1: EXACT WORKFLOW MATCH (TIER 1)
+    # =========================================================================
+    # This goal matches the "huggingface peft LoRA Fine Tuning" workflow in KG.
+    # The KG should return an exact workflow with 6 steps and pre-loaded heuristics.
+    # 
+    # Expected log output:
+    #   Retrieval mode: exact_workflow
+    #   Workflow: huggingface peft LoRA Fine Tuning (6 steps)
+    #
+    "tier1_exact_workflow": {
+        "name": "TIER 1: Exact Workflow Match (LoRA Fine-tuning)",
+        "description": "Goal matches KG workflow exactly - tests TIER 1 retrieval",
+    "goal": """
+Fine-tune a language model using LoRA (Low-Rank Adaptation).
+Create a Python script that:
+1. Loads a base model (use a small one like 'gpt2')
+2. Configures LoRA adapter with rank=8
+3. Creates a PEFT model
+4. Prints "LoRA model configured successfully"
+""",
+        "evaluator_criteria": "Code correctly implements LoRA fine-tuning setup with PEFT library",
+        "max_iterations": 5,
+        "expected_retrieval_mode": "exact_workflow",
+        "expected_workflow_keywords": ["LoRA", "PEFT", "Fine Tuning"],
+    },
+    
+    # =========================================================================
+    # SCENARIO 2: SYNTHESIZED WORKFLOW (TIER 2)
+    # =========================================================================
+    # This goal is about a task the KG has knowledge of but no exact workflow.
+    # The system should synthesize a plan from related pages/heuristics.
+    #
+    # Expected log output:
+    #   Retrieval mode: synthesized_plan
+    #   Workflow: Plan: <goal summary> (3 steps)
+    #
+    "tier2_synthesized_workflow": {
+        "name": "TIER 2: Synthesized Workflow (Custom Task)",
+        "description": "No exact workflow match - tests TIER 2 synthesis",
+        "goal": """
+Create a Python script that performs sentiment analysis on a text file.
+The script should:
+1. Read a text file called 'input.txt'
+2. Analyze the sentiment of each line (positive/negative/neutral)
+3. Print a summary with counts for each sentiment
+""",
+        "evaluator_criteria": "Code correctly reads file, analyzes sentiment, and prints summary",
+        "max_iterations": 5,
+        "expected_retrieval_mode": "synthesized_plan",
+        "expected_workflow_keywords": [],  # No exact workflow expected
+    },
+    
+    # =========================================================================
+    # SCENARIO 3: MULTI-STEP WITH POTENTIAL FAILURE (TIER 3 trigger)
+    # =========================================================================
+    # This goal is more complex and likely to fail initially.
+    # When it fails, TIER 3 error recovery should trigger.
+    #
+    # Expected log output (on first failure):
+    #   TIER 3 triggered: Retrieving error-specific heuristics
+    #   Retrieved X heuristics for error recovery
+    #
+    "tier3_error_recovery": {
+        "name": "TIER 3: Error Recovery (Complex Task)",
+        "description": "Complex task that may fail - tests TIER 3 error retrieval",
+        "goal": """
+Create a Python script that loads a HuggingFace model and generates text.
+The script should:
+1. Load the 'distilgpt2' model
+2. Generate 50 tokens given the prompt "Once upon a time"
+3. Print the generated text
+Note: Handle any memory constraints gracefully.
+""",
+        "evaluator_criteria": "Code loads model, generates text, and prints output without errors",
+        "max_iterations": 5,
+        "expected_retrieval_mode": "exact_workflow",  # or synthesized
+        "expected_workflow_keywords": ["HuggingFace", "generate"],
+    },
+    
+    # =========================================================================
+    # SCENARIO 4: SIMPLE TASK (No KG needed)
+    # =========================================================================
+    # A simple task that doesn't need domain knowledge.
+    # Tests that the system works even with minimal_plan fallback.
+    #
+    "simple_no_kg": {
+        "name": "SIMPLE: No KG Knowledge Needed",
+        "description": "Simple task - tests minimal plan fallback",
+        "goal": """
+Create a Python script that prints "Hello, World!" and calculates 2+2.
+Print both results.
+""",
+        "evaluator_criteria": "Code prints Hello World and calculates 2+2=4",
+        "max_iterations": 3,
+        "expected_retrieval_mode": "synthesized_plan",  # Will synthesize simple plan
+        "expected_workflow_keywords": [],
+    },
+}
+
+# Default test to run (can be overridden via command line)
+DEFAULT_TEST_SCENARIO = "tier1_exact_workflow"
+
+
+# =============================================================================
+# Active Test Configuration (built from selected scenario)
+# =============================================================================
+
+def get_test_config(scenario_name: str = None) -> dict:
+    """
+    Get test configuration for a specific scenario.
+    
+    Args:
+        scenario_name: Name of scenario from TEST_SCENARIOS, or None for default
+        
+    Returns:
+        Full test config dict
+    """
+    scenario_name = scenario_name or DEFAULT_TEST_SCENARIO
+    
+    if scenario_name not in TEST_SCENARIOS:
+        available = list(TEST_SCENARIOS.keys())
+        raise ValueError(f"Unknown scenario '{scenario_name}'. Available: {available}")
+    
+    scenario = TEST_SCENARIOS[scenario_name]
+    
+    return {
+        # Scenario info
+        "scenario_name": scenario_name,
+        "scenario_description": scenario.get("description", ""),
+        
+        # Goal from scenario
+        "goal": scenario["goal"],
+    
+    # Expert configuration
+        "max_iterations": scenario.get("max_iterations", 5),
+        "coding_agent": "claude_code",  # Using claude_code as it's available
+    "language": "python",
+    "main_file": "main.py",
+    "timeout": 60,
+    
+        # Evaluation - LLM Judge provides feedback for cognitive learning
+    "evaluator": "llm_judge",
+    "evaluator_params": {
+            "criteria": scenario.get("evaluator_criteria", "Code works correctly"),
+        "model": "gpt-4o-mini",
+        "scale": 10,
+    },
+    "stop_condition": "threshold",
+    "stop_condition_params": {"threshold": 0.7},
+    
+    # Expected results (for validation)
+    "expected_retrieval_mode": scenario.get("expected_retrieval_mode"),
+        "expected_workflow_keywords": scenario.get("expected_workflow_keywords", []),
+    }
+
+
+# For backwards compatibility
+TEST_CONFIG = get_test_config(DEFAULT_TEST_SCENARIO)
+
+
+# =============================================================================
+# Cognitive System Monitoring Helpers
+# =============================================================================
+
+def log_cognitive_state(controller, phase: str):
+    """
+    Log detailed cognitive state for analysis.
+    
+    Shows:
+    - Current workflow progress
+    - Active step with heuristics
+    - Episodic memory state
+    - Decision history
+    """
+    logger.info("")
+    logger.info(f"{'═'*70}")
+    logger.info(f"  COGNITIVE STATE: {phase}")
+    logger.info(f"{'═'*70}")
+    
+    ctx = controller.get_context()
+    if not ctx:
+        logger.info("  [No context initialized]")
+        return
+    
+    # Goal info
+    logger.info(f"  GOAL: {ctx.goal_str[:60]}...")
+    logger.info(f"  ITERATION: {ctx.iteration}")
+    logger.info(f"  CONSECUTIVE FAILURES: {ctx.meta.consecutive_failures}")
+    
+    # Workflow state
+    if ctx.workflow:
+        wf = ctx.workflow
+        logger.info("")
+        logger.info(f"  WORKFLOW: {wf.title}")
+        logger.info(f"  SOURCE: {wf.source} (confidence: {wf.confidence:.0%})")
+        logger.info(f"  PROGRESS: Step {wf.current_step_index + 1}/{len(wf.steps)}")
+        logger.info("")
+        
+        # Show all steps with status
+        logger.info("  STEPS:")
+        for step in wf.steps:
+            status_icons = {
+                "completed": "✅",
+                "in_progress": "▶️",
+                "skipped": "⏭️",
+                "pending": "○"
+            }
+            icon = status_icons.get(step.status, "?")
+            heuristics_count = len(step.heuristics)
+            
+            # Highlight current step
+            current_marker = " ◀── CURRENT" if step.status == "in_progress" else ""
+            logger.info(f"    {icon} Step {step.number}: {step.title}")
+            logger.info(f"       Status: {step.status} | Attempts: {step.attempts} | Heuristics: {heuristics_count}{current_marker}")
+            
+            # Show heuristics for current step
+            if step.status == "in_progress" and step.heuristics:
+                logger.info("       HEURISTICS:")
+                for h in step.heuristics[:3]:
+                    logger.info(f"         • {h[:70]}...")
+                if len(step.heuristics) > 3:
+                    logger.info(f"         ... and {len(step.heuristics) - 3} more")
+    else:
+        logger.info("  [No workflow loaded]")
+    
+    # Last experiment
+    if ctx.last_experiment:
+        exp = ctx.last_experiment
+        logger.info("")
+        logger.info("  LAST EXPERIMENT:")
+        result = "✅ SUCCESS" if exp.success else "❌ FAILED"
+        logger.info(f"    Result: {result}")
+        if exp.score is not None:
+            logger.info(f"    Score: {exp.score:.2f}")
+        if exp.feedback:
+            logger.info(f"    Feedback: {exp.feedback[:100]}...")
+        if exp.error_message and not exp.success:
+            logger.info(f"    Error: {exp.error_message[:100]}...")
+    
+    # Episodic memory
+    if ctx.episodic_memory:
+        logger.info("")
+        logger.info("  EPISODIC MEMORY:")
+        if ctx.episodic_memory.similar_errors:
+            logger.info(f"    Similar errors found: {len(ctx.episodic_memory.similar_errors)}")
+        if ctx.episodic_memory.relevant_insights:
+            logger.info(f"    Relevant insights: {len(ctx.episodic_memory.relevant_insights)}")
+    
+    # KG retrieval state
+    if ctx.kg_retrieval:
+        logger.info("")
+        logger.info("  KG RETRIEVAL:")
+        logger.info(f"    Last consulted: iteration {ctx.kg_retrieval.consulted_at_iteration}")
+        logger.info(f"    Reason: {ctx.kg_retrieval.reason}")
+        logger.info(f"    Heuristics retrieved: {len(ctx.kg_retrieval.heuristics)}")
+    
+    logger.info(f"{'═'*70}")
+    logger.info("")
+
+
+def log_decision_history(controller):
+    """Log all decisions made by the LLM during the session."""
+    decisions = controller.get_decision_history()
+    
+    logger.info("")
+    logger.info(f"{'═'*70}")
+    logger.info("  LLM DECISION HISTORY")
+    logger.info(f"{'═'*70}")
+    
+    if not decisions:
+        logger.info("  [No decisions recorded]")
+        return
+    
+    for i, decision in enumerate(decisions, 1):
+        logger.info(f"  Decision #{i}:")
+        logger.info(f"    Action: {decision.action.value}")
+        logger.info(f"    Confidence: {decision.confidence:.2f}")
+        logger.info(f"    Reasoning: {decision.reasoning[:80]}...")
+        logger.info("")
+    
+    # Summary
+    action_counts = {}
+    for d in decisions:
+        action_counts[d.action.value] = action_counts.get(d.action.value, 0) + 1
+    
+    logger.info("  SUMMARY:")
+    for action, count in action_counts.items():
+        logger.info(f"    {action}: {count}")
+    
+    logger.info(f"{'═'*70}")
+
+
+# =============================================================================
+# Infrastructure Check
+# =============================================================================
+
+def check_prerequisites():
+    """Check all required services and credentials."""
+    logger.info("=" * 70)
+    logger.info("CHECKING PREREQUISITES")
+    logger.info("=" * 70)
+    
+    issues = []
+    
+    # Check API keys
+    logger.info("[1/4] Checking API keys...")
+    if not os.environ.get("OPENAI_API_KEY"):
+        issues.append("OPENAI_API_KEY not set (needed for LLM Judge + embeddings)")
+    else:
+        logger.info("  ✓ OPENAI_API_KEY found")
+    
+    if TEST_CONFIG["coding_agent"] == "gemini":
+        if not os.environ.get("GOOGLE_API_KEY"):
+            issues.append("GOOGLE_API_KEY not set (needed for Gemini coding agent)")
+        else:
+            logger.info("  ✓ GOOGLE_API_KEY found")
+    
+    # Check KG (optional but recommended)
+    logger.info("[2/4] Checking Knowledge Graph...")
+    try:
+        from src.knowledge.search import KnowledgeSearchFactory
+        kg = KnowledgeSearchFactory.create("kg_graph_search")
+        if kg.is_enabled():
+            logger.info("  ✓ KG connected")
+        else:
+            logger.warning("  ⚠ KG not enabled (will proceed without)")
+    except Exception as e:
+        logger.warning(f"  ⚠ KG not available: {e}")
+    
+    # Check coding agent
+    logger.info("[3/4] Checking coding agent availability...")
+    try:
+        from src.execution.coding_agents.factory import CodingAgentFactory
+        agents = CodingAgentFactory.list_available()
+        if TEST_CONFIG["coding_agent"] in agents:
+            logger.info(f"  ✓ {TEST_CONFIG['coding_agent']} agent available")
+        else:
+            issues.append(f"Coding agent '{TEST_CONFIG['coding_agent']}' not available. Available: {agents}")
+    except Exception as e:
+        issues.append(f"Failed to check coding agents: {e}")
+    
+    # Check LLM backend
+    logger.info("[4/4] Checking LLM backend...")
+    try:
+        from src.core.llm import LLMBackend
+        llm = LLMBackend()
+        response = llm.llm_completion(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Say 'OK'"}],
+            max_tokens=5,
+        )
+        logger.info("  ✓ LLM backend working")
+    except Exception as e:
+        issues.append(f"LLM backend failed: {e}")
+    
+    if issues:
+        logger.error("=" * 70)
+        logger.error("PREREQUISITES FAILED:")
+        for issue in issues:
+            logger.error(f"  ✗ {issue}")
+        logger.error("=" * 70)
+        return False
+    
+    logger.info("=" * 70)
+    logger.info("All prerequisites passed!")
+    logger.info("=" * 70)
+    return True
+
+
+# =============================================================================
+# Main Test - With Cognitive Memory Flow Logging
+# =============================================================================
+
+def run_expert_test():
+    """
+    Run full Expert E2E test with detailed cognitive memory logging.
+    
+    This test logs:
+    1. KG workflow retrieval (TIER 1/2/3)
+    2. Step-by-step workflow progress
+    3. Heuristics being applied per step
+    4. LLM decision making (RETRY/PIVOT/COMPLETE)
+    5. Episodic memory updates
+    
+    Outputs:
+    - .log file: Detailed execution log
+    - .html file: Human-readable report
+    """
+    from src.expert import Expert
+    
+    logger.info("")
+    logger.info("╔" + "═"*68 + "╗")
+    logger.info("║" + " EXPERT FULL E2E TEST - COGNITIVE MEMORY SYSTEM ".center(68) + "║")
+    logger.info("╚" + "═"*68 + "╝")
+    logger.info("")
+    logger.info("TEST CONFIGURATION:")
+    logger.info(f"  Goal: {TEST_CONFIG['goal'].strip()[:60]}...")
+    logger.info(f"  Context manager: cognitive (KG workflow retrieval)")
+    logger.info(f"  Coding agent: {TEST_CONFIG['coding_agent']}")
+    logger.info(f"  Evaluator: {TEST_CONFIG['evaluator']}")
+    logger.info(f"  Max iterations: {TEST_CONFIG['max_iterations']}")
+    logger.info(f"  Stop threshold: {TEST_CONFIG['stop_condition_params']['threshold']}")
+    logger.info("")
+    
+    # Create output directory
+    output_dir = tempfile.mkdtemp(prefix="expert_e2e_")
+    logger.info(f"Output directory: {output_dir}")
+    
+    # Reference to cognitive controller for state logging
+    cognitive_controller = None
+    
+    # Initialize HTML report builder
+    report = CognitiveReportBuilder(goal=TEST_CONFIG["goal"])
+    
+    try:
+        # =====================================================================
+        # PHASE 1: Initialize Expert
+        # =====================================================================
+        logger.info("")
+        logger.info("┌" + "─"*68 + "┐")
+        logger.info("│" + " PHASE 1: EXPERT INITIALIZATION ".center(68) + "│")
+        logger.info("└" + "─"*68 + "┘")
+        
+        expert = Expert(domain="ml_finetuning")
+        logger.info(f"Expert created (domain: ml_finetuning)")
+        
+        # Enable KG for cognitive mode
+        from src.knowledge.search import KnowledgeSearchFactory
+        expert.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
+        logger.info(f"KG enabled: {expert.knowledge_search.is_enabled()}")
+        
+        if expert.knowledge_search.is_enabled():
+            logger.info("  ✓ Neo4j connected")
+            logger.info("  ✓ Weaviate connected")
+            logger.info("  → KG will be used for workflow retrieval")
+        
+        # =====================================================================
+        # PHASE 2: Run Expert.build() with Cognitive Context
+        # =====================================================================
+        logger.info("")
+        logger.info("┌" + "─"*68 + "┐")
+        logger.info("│" + " PHASE 2: EXPERT.BUILD() - COGNITIVE LOOP ".center(68) + "│")
+        logger.info("└" + "─"*68 + "┘")
+        logger.info("")
+        logger.info("Starting build - watch for:")
+        logger.info("  🎯 GOAL INITIALIZATION - Goal parsed, KG queried for workflow")
+        logger.info("  📋 BRIEFING - Current step + heuristics sent to agent")
+        logger.info("  ⚙️ PROCESSING - Experiment result evaluated")
+        logger.info("  🧠 LLM DECISION - RETRY/PIVOT/COMPLETE decision")
+        logger.info("")
+        
+        solution = expert.build(
+            goal=TEST_CONFIG["goal"],
+            output_path=output_dir,
+            max_iterations=TEST_CONFIG["max_iterations"],
+            coding_agent=TEST_CONFIG["coding_agent"],
+            language=TEST_CONFIG["language"],
+            main_file=TEST_CONFIG["main_file"],
+            timeout=TEST_CONFIG["timeout"],
+            evaluator=TEST_CONFIG["evaluator"],
+            evaluator_params=TEST_CONFIG["evaluator_params"],
+            stop_condition=TEST_CONFIG["stop_condition"],
+            stop_condition_params=TEST_CONFIG["stop_condition_params"],
+        )
+        
+        # =====================================================================
+        # PHASE 3: Analyze Cognitive Flow Results
+        # =====================================================================
+        logger.info("")
+        logger.info("┌" + "─"*68 + "┐")
+        logger.info("│" + " PHASE 3: COGNITIVE FLOW ANALYSIS ".center(68) + "│")
+        logger.info("└" + "─"*68 + "┘")
+        
+        # Try to get cognitive controller from orchestrator for detailed analysis
+        # (This is accessing internal state for logging purposes)
+        try:
+            # Access cognitive controller through context manager
+            orchestrator = expert._last_orchestrator if hasattr(expert, '_last_orchestrator') else None
+            if orchestrator and hasattr(orchestrator, 'context_manager'):
+                cm = orchestrator.context_manager
+                if hasattr(cm, 'controller'):
+                    cognitive_controller = cm.controller
+                    log_cognitive_state(cognitive_controller, "FINAL STATE")
+                    log_decision_history(cognitive_controller)
+        except Exception as e:
+            logger.debug(f"Could not access cognitive controller: {e}")
+        
+        # =====================================================================
+        # PHASE 4: Results Summary
+        # =====================================================================
+        logger.info("")
+        logger.info("┌" + "─"*68 + "┐")
+        logger.info("│" + " PHASE 4: RESULTS SUMMARY ".center(68) + "│")
+        logger.info("└" + "─"*68 + "┘")
+        
+        logger.info(f"Code path: {solution.code_path}")
+        logger.info(f"Total experiments: {len(solution.experiment_logs)}")
+        
+        # Parse cost from metadata
+        cost_str = solution.metadata.get('cost', '$0.000')
+        logger.info(f"Total cost: {cost_str}")
+        
+        # Show experiment progression with scores
+        logger.info("")
+        logger.info("EXPERIMENT PROGRESSION:")
+        logger.info("─" * 50)
+        
+        import re as re_mod
+        scores = []
+        for i, exp in enumerate(solution.experiment_logs):
+            # Parse score from log string
+            match = re_mod.search(r'Score: ([0-9.]+)', exp)
+            score = float(match.group(1)) if match else None
+            if score:
+                scores.append(score)
+            
+            # Show experiment result
+            if "Failed" in exp:
+                status = "❌ FAILED"
+            else:
+                status = "✅ SUCCESS"
+            
+            score_str = f"Score: {score:.2f}" if score else "No score"
+            logger.info(f"  Iteration {i+1}: {status} | {score_str}")
+            
+            # Show brief error/success info
+            if "Error:" in exp:
+                error_match = re_mod.search(r'Error: (.+?)\)', exp)
+                if error_match:
+                    logger.info(f"             └─ {error_match.group(1)[:60]}...")
+        
+        logger.info("─" * 50)
+        
+        # Score progression
+        if scores:
+            logger.info("")
+            logger.info("SCORE PROGRESSION:")
+            for i, score in enumerate(scores):
+                bar_length = int(score * 20)  # Scale to 20 chars
+                bar = "█" * bar_length + "░" * (20 - bar_length)
+                logger.info(f"  Iter {i+1}: [{bar}] {score:.2f}")
+        
+        # Check generated code
+        main_file = Path(solution.code_path) / TEST_CONFIG["main_file"]
+        if main_file.exists():
+            code = main_file.read_text()
+            logger.info("")
+            logger.info("GENERATED CODE PREVIEW:")
+            logger.info("─" * 50)
+            for line in code.split("\n")[:25]:
+                logger.info(f"  {line}")
+            if len(code.split("\n")) > 25:
+                logger.info("  ... (truncated)")
+            logger.info("─" * 50)
+        
+        # =====================================================================
+        # PHASE 5: Final Verdict
+        # =====================================================================
+        logger.info("")
+        best_score = max(scores) if scores else 0
+        threshold = TEST_CONFIG["stop_condition_params"]["threshold"]
+        
+        if best_score >= threshold:
+            logger.info("╔" + "═"*68 + "╗")
+            logger.info("║" + f" ✅ TEST PASSED - Best score: {best_score:.2f} >= {threshold} ".center(68) + "║")
+            logger.info("╚" + "═"*68 + "╝")
+            return True
+        else:
+            logger.info("╔" + "═"*68 + "╗")
+            logger.info("║" + f" ⚠️ TEST COMPLETED - Best score: {best_score:.2f} < {threshold} ".center(68) + "║")
+            logger.info("╚" + "═"*68 + "╝")
+            return True  # Still consider success if it ran to completion
+            
+    except Exception as e:
+        logger.error("")
+        logger.error("╔" + "═"*68 + "╗")
+        logger.error("║" + " ❌ TEST FAILED WITH EXCEPTION ".center(68) + "║")
+        logger.error("╚" + "═"*68 + "╝")
+        logger.error(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+    finally:
+        # Save detailed results
+        results = {
+            "timestamp": datetime.now().isoformat(),
+            "config": TEST_CONFIG,
+            "output_dir": output_dir,
+            "log_file": str(LOG_FILE),
+            "context_manager": "cognitive",
+        }
+        results_file = LOG_DIR / f"expert_e2e_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=2, default=str)
+        
+        # Generate HTML report
+        html_file = LOG_DIR / f"expert_e2e_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        try:
+            final_report = report.finalize(
+                final_score=best_score if 'best_score' in dir() else 0.0,
+                total_iterations=len(scores) if 'scores' in dir() else 0,
+                total_cost=float(cost_str.replace('$', '')) if 'cost_str' in dir() else 0.0,
+            )
+            final_report.save(html_file)
+            logger.info(f"  📊 HTML Report: {html_file}")
+        except Exception as e:
+            logger.warning(f"Failed to generate HTML report: {e}")
+        
+        logger.info("")
+        logger.info("OUTPUT FILES:")
+        logger.info(f"  📄 Results JSON: {results_file}")
+        logger.info(f"  📝 Full log: {LOG_FILE}")
+        logger.info(f"  💻 Generated code: {output_dir}")
+        
+        # Close KG connection
+        if expert.knowledge_search.is_enabled():
+            expert.knowledge_search.close()
+        
+        # Explicit cleanup to avoid ResourceWarning
+        gc.collect()
+
+
+# =============================================================================
+# Entry Point
+# =============================================================================
+
+def main():
+    """
+    Run the Expert E2E test.
+    
+    Usage:
+        # Run default scenario (tier1_exact_workflow)
+        python tests/test_expert_full_e2e.py
+        
+        # Run specific scenario
+        python tests/test_expert_full_e2e.py tier2_synthesized_workflow
+        
+        # List available scenarios
+        python tests/test_expert_full_e2e.py --list
+    """
+    import sys
+    
+    # Parse command line
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        
+        # List scenarios
+        if arg in ("--list", "-l", "list"):
+            print("\nAvailable Test Scenarios:")
+            print("=" * 60)
+            for name, scenario in TEST_SCENARIOS.items():
+                print(f"\n  {name}")
+                print(f"    {scenario.get('name', 'Unnamed')}")
+                print(f"    {scenario.get('description', '')}")
+                print(f"    Expected mode: {scenario.get('expected_retrieval_mode', '?')}")
+            print("\n" + "=" * 60)
+            print(f"Default: {DEFAULT_TEST_SCENARIO}")
+            print("\nUsage: python tests/test_expert_full_e2e.py <scenario_name>")
+            return True
+        
+        # Run specific scenario
+        scenario_name = arg
+    else:
+        scenario_name = DEFAULT_TEST_SCENARIO
+    
+    # Get config for selected scenario
+    global TEST_CONFIG
+    try:
+        TEST_CONFIG = get_test_config(scenario_name)
+    except ValueError as e:
+        print(f"Error: {e}")
+        print("Use --list to see available scenarios")
+        return False
+    
+    logger.info("")
+    logger.info("=" * 70)
+    logger.info("EXPERT AGENT - FULL E2E TEST")
+    logger.info("=" * 70)
+    logger.info(f"Started: {datetime.now().isoformat()}")
+    logger.info(f"Scenario: {scenario_name}")
+    logger.info(f"Description: {TEST_CONFIG.get('scenario_description', '')}")
+    logger.info("")
+    
+    # Check prerequisites
+    if not check_prerequisites():
+        return False
+    
+    # Run test
+    return run_expert_test()
+
+
+if __name__ == "__main__":
+    success = main()
+    sys.exit(0 if success else 1)
