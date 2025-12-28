@@ -49,6 +49,7 @@ class OrchestratorAgent:
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
         is_kg_active: bool = False,
+        knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
     ):
@@ -67,10 +68,15 @@ class OrchestratorAgent:
             start_from_checkpoint=start_from_checkpoint,
         )
         
-        # Create knowledge search backend
-        self.knowledge_search = self._create_knowledge_search(
-            is_kg_active=is_kg_active,
-        )
+        # Create knowledge search backend (or use provided instance).
+        # This allows Expert.build() to inject a concrete backend (e.g., kg_graph_search)
+        # without relying on config defaults (which may point to a different backend).
+        if knowledge_search is not None:
+            self.knowledge_search = knowledge_search
+        else:
+            self.knowledge_search = self._create_knowledge_search(
+                is_kg_active=is_kg_active,
+            )
         
         # Create context manager with injected search backend
         self.context_manager = self._create_context_manager()
@@ -191,16 +197,17 @@ class OrchestratorAgent:
         # Check use_knowledge_graph flag
         if 'use_knowledge_graph' in mode_config:
             kg_enabled = mode_config.get('use_knowledge_graph', False)
-            return KnowledgeSearchFactory.create(
-                search_type="kg_llm_navigation",
-                enabled=kg_enabled or is_kg_active,
-            )
+            if kg_enabled or is_kg_active:
+                return KnowledgeSearchFactory.create(
+                    search_type="kg_llm_navigation",
+                )
+            else:
+                return KnowledgeSearchFactory.create_null()
         
         # Fall back to is_kg_active parameter
         if is_kg_active:
             return KnowledgeSearchFactory.create(
                 search_type="kg_llm_navigation",
-                enabled=True,
             )
         
         # Default: disabled

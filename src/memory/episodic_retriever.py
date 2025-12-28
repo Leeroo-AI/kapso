@@ -10,14 +10,13 @@
 # This makes retrieval CONTEXT-AWARE and GOAL-ORIENTED.
 #
 # Prompts:
-# - Loaded from external files in src/memory/prompts/
-# - episodic_retrieval_query.md - for query formulation
+# - This module currently uses inline prompts.
+# - (Some older prompt templates may still exist on disk, but are not loaded here.)
 #
 # =============================================================================
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,8 +26,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Path to prompt templates
-PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 @dataclass
@@ -100,13 +97,6 @@ class EpisodicRetriever:
             self._llm = LLMBackend()
         return self._llm
     
-    def _load_prompt(self, filename: str) -> Optional[str]:
-        """Load prompt template from external file."""
-        path = PROMPTS_DIR / filename
-        if path.exists():
-            return path.read_text()
-        return None
-    
     def retrieve_relevant_insights(
         self,
         goal: str,
@@ -135,7 +125,7 @@ class EpisodicRetriever:
         """
         # Step 1: Formulate query
         query = self._formulate_query(goal, current_step, last_error, last_feedback)
-        logger.debug(f"Episodic query: {query.primary_query[:80]}...")
+        logger.debug(f"Episodic query: {query.primary_query}")
         logger.debug(f"Query reasoning: {query.reasoning}")
         
         # Step 2: Retrieve candidates
@@ -169,13 +159,13 @@ class EpisodicRetriever:
         last_feedback: Optional[str],
     ) -> RetrievalQuery:
         """Use LLM to formulate a smart query."""
-        context_parts = [f"Goal: {goal[:200]}"]
+        context_parts = [f"Goal: {goal}"]
         if current_step:
             context_parts.append(f"Current step: {current_step}")
         if last_error:
-            context_parts.append(f"Recent error: {last_error[:300]}")
+            context_parts.append(f"Recent error: {last_error}")
         if last_feedback:
-            context_parts.append(f"Recent feedback: {last_feedback[:200]}")
+            context_parts.append(f"Recent feedback: {last_feedback}")
         
         context = "\n".join(context_parts)
         
@@ -228,7 +218,7 @@ Respond ONLY with JSON."""
         
         # Try fallback queries if needed
         if len(all_results) < max_results // 2:
-            for fallback in query.fallback_queries[:2]:
+            for fallback in query.fallback_queries:
                 more = self.store.retrieve_relevant(fallback, top_k=max_results // 2)
                 for r in more:
                     if r not in all_results:
@@ -256,15 +246,15 @@ Respond ONLY with JSON."""
         
         # Format candidates for LLM
         candidates_text = ""
-        for i, c in enumerate(candidates[:10]):  # Limit to 10 for context
-            candidates_text += f"\n[{i+1}] {c.content[:200]}"
+        for i, c in enumerate(candidates):
+            candidates_text += f"\n[{i+1}] {c.content}"
             candidates_text += f"\n    Type: {c.insight_type.value}, Confidence: {c.confidence:.2f}"
         
-        context = f"Goal: {goal[:150]}"
+        context = f"Goal: {goal}"
         if current_step:
             context += f"\nStep: {current_step}"
         if last_error:
-            context += f"\nError: {last_error[:200]}"
+            context += f"\nError: {last_error}"
         
         prompt = f"""You are filtering episodic memory insights for relevance.
 
@@ -385,13 +375,13 @@ Respond ONLY with JSON."""
         """Create fallback query when LLM fails."""
         if last_error:
             # Extract key terms from error
-            query = f"error {last_error[:100]}"
+            query = f"error {last_error}"
         else:
-            query = f"how to {goal[:100]}"
+            query = f"how to {goal}"
         
         return RetrievalQuery(
             primary_query=query,
-            fallback_queries=[goal[:100]],
+            fallback_queries=[goal],
             filter_tags=[],
             min_confidence=0.3,
             reasoning="Fallback query (LLM formulation failed)",

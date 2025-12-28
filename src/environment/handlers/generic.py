@@ -300,7 +300,7 @@ class GenericProblemHandler(ProblemHandler):
             output=output,
             detailed_output=output,
             run_had_error=had_error,
-            error_message="Execution failed" if had_error else "",
+            error_message=error_details if had_error else "",  # Actual error, not generic string
             error_details=error_details,
             feedbacks=feedback,
             continue_debugging=True,

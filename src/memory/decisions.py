@@ -125,10 +125,9 @@ class DecisionMaker:
             exp = context.last_experiment
             logger.info(f"  Last experiment: {'SUCCESS' if exp.success else 'FAILED'}, score={exp.score}")
             if exp.feedback:
-                logger.info(f"  Feedback: {exp.feedback[:100]}...")
-        if context.workflow and context.workflow.current_step:
-            step = context.workflow.current_step
-            logger.info(f"  Current step: {step.number}. {step.title} (attempts: {step.attempts})")
+                logger.info(f"  Feedback: {exp.feedback}")
+        # No WorkflowState/StepState in the current design. The agent consumes a
+        # unified rendered context string, and decisions are iteration-level.
         
         logger.debug(f"Decision prompt length: {len(prompt)} chars")
         
@@ -275,7 +274,7 @@ class DecisionMaker:
         """Ask LLM to fix malformed response."""
         correction_prompt = f"""Your previous response was not valid JSON:
 
-{bad_response[:500]}
+{bad_response}
 
 Respond ONLY with valid JSON:
 {{"action": "RETRY|PIVOT|COMPLETE", "reasoning": "why", "confidence": 0.8}}"""
@@ -306,7 +305,7 @@ Respond ONLY with valid JSON:
         
         return ActionDecision(
             action=action,
-            reasoning=f"Inferred from text: {response[:100]}...",
+            reasoning=f"Inferred from text: {response}",
             confidence=0.2,
             raw_response=response,
         )

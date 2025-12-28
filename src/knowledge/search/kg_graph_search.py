@@ -796,7 +796,7 @@ class KGGraphSearch(KnowledgeSearch):
             if is_heuristic_backlink:
                 # Create REVERSE edge: target → USES_HEURISTIC → source (this heuristic)
                 query = f"""
-                    MERGE (target:WikiPage {{id: $target_id}})
+                MERGE (target:WikiPage {{id: $target_id}})
                     ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
                     WITH target
                     MATCH (source:WikiPage {{id: $source_id}})
@@ -808,10 +808,10 @@ class KGGraphSearch(KnowledgeSearch):
                 query = f"""
                     MERGE (target:WikiPage {{id: $target_id}})
                     ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
-                WITH target
-                MATCH (source:WikiPage {{id: $source_id}})
-                MERGE (source)-[r:{neo4j_rel_type}]->(target)
-            """
+                    WITH target
+                    MATCH (source:WikiPage {{id: $source_id}})
+                    MERGE (source)-[r:{neo4j_rel_type}]->(target)
+                """
             
             try:
                 session.run(

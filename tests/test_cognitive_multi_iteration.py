@@ -76,8 +76,8 @@ def test_tier2_synthesized_workflow():
     
     Expected:
     - KG search finds related pages but no exact workflow
-    - System synthesizes a plan from principles/heuristics
-    - Log shows: Retrieval mode: SYNTHESIZED_PLAN
+    - System returns relevant Principles (Tier 2) rather than a fake workflow
+    - Log shows: TIER2_RELEVANT
     """
     from src.memory.cognitive_controller import CognitiveController
     from src.memory.types import Goal  # Goal is in types.py
@@ -99,25 +99,21 @@ def test_tier2_synthesized_workflow():
     kg = KnowledgeSearchFactory.create("kg_graph_search")
     controller = CognitiveController(knowledge_search=kg)
     
-    # Initialize goal - should trigger TIER 2
-    controller.initialize_goal(goal)
+    knowledge = controller.initialize_goal(goal)
+    if not knowledge:
+        raise RuntimeError("No knowledge returned from initialize_goal()")
     
-    # Check retrieval mode
-    ctx = controller.get_context()
+    logger.info(f"Tier: {knowledge.tier.value}")
+    logger.info(f"Has workflow: {bool(knowledge.workflow)}")
+    logger.info(f"Principles: {len(knowledge.principles)}")
     
-    if ctx.workflow:
-        logger.info(f"Workflow source: {ctx.workflow.source}")
-        logger.info(f"Workflow title: {ctx.workflow.title}")
-        logger.info(f"Steps: {len(ctx.workflow.steps)}")
-        
-        if ctx.workflow.source == "synthesized":
-            logger.info("✅ TIER 2 triggered: Synthesized workflow")
-            return True
-        elif ctx.workflow.source == "exact_workflow":
-            logger.warning("⚠️ Exact workflow found (unexpected)")
-            return True  # Still valid, just not testing TIER 2
+    # This test is about Tier 2 (relevant principles). If we get Tier 1 exact,
+    # that is acceptable but not the intended coverage.
+    if knowledge.tier.value == "tier2_relevant":
+        assert len(knowledge.principles) > 0, "Tier 2 returned no Principles"
+        logger.info("✅ TIER 2 triggered: Relevant Principles returned")
     else:
-        logger.info("No workflow retrieved")
+        logger.warning(f"⚠️ Tier 2 not triggered (tier={knowledge.tier.value})")
     
     kg.close()
     return True
@@ -190,16 +186,21 @@ def test_multi_iteration_retry():
     logger.info(f"  Iteration: {ctx.iteration}")
     logger.info(f"  Consecutive failures: {ctx.meta.consecutive_failures}")
     
-    # Prepare briefing for retry
+    # Prepare briefing for retry (ensures rendered_context is populated)
     controller.prepare_briefing()
     
     logger.info("")
     logger.info("Briefing prepared for retry iteration")
     
-    # Check if TIER 3 was triggered (error-specific heuristics)
+    # Check if TIER 3 was triggered (error-specific knowledge)
     if ctx.kg_retrieval:
         logger.info(f"  KG consulted at iteration: {ctx.kg_retrieval.consulted_at_iteration}")
         logger.info(f"  Reason: {ctx.kg_retrieval.reason}")
+    
+    knowledge = controller.get_knowledge()
+    if knowledge and knowledge.tier.value == "tier3_error":
+        logger.info(f"  Tier 3 error heuristics: {len(knowledge.error_heuristics)}")
+        logger.info(f"  Tier 3 alternatives: {len(knowledge.alternative_implementations)}")
     
     kg.close()
     return True

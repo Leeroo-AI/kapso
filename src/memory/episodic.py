@@ -261,7 +261,7 @@ class EpisodicStore:
         # Enforce max_insights limit (remove oldest)
         while len(self.insights) > self.max_insights:
             removed = self.insights.pop(0)
-            logger.debug(f"Removed oldest insight to stay under limit: {removed.content[:50]}...")
+            logger.debug(f"Removed oldest insight to stay under limit: {removed.content}")
         
         # Always save to JSON as backup
         self._save_to_json()

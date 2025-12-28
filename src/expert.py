@@ -252,6 +252,7 @@ class Expert:
             mode=mode,
             coding_agent=coding_agent,
             is_kg_active=self.knowledge_search.is_enabled(),
+            knowledge_search=self.knowledge_search if self.knowledge_search.is_enabled() else None,
         )
         
         # Run experimentation

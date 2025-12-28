@@ -22,11 +22,12 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 
 from src.memory.context import (
-    CognitiveContext, WorkflowState, StepState,
+    CognitiveContext,
     ExperimentState, KGRetrievalState, EpisodicState, InsightSummary, MetaState
 )
 from src.memory.decisions import DecisionMaker, WorkflowAction, ActionDecision
 from src.memory.knowledge_retriever import KnowledgeRetriever
+from src.memory.kg_types import KGKnowledge, KGTier  # NEW: KGKnowledge types
 from src.memory.episodic import EpisodicStore
 from src.memory.insight_extractor import InsightExtractor, ExtractedInsight
 from src.memory.episodic_retriever import EpisodicRetriever, RankedInsight
@@ -112,6 +113,7 @@ class CognitiveController:
         
         # State
         self._context: Optional[CognitiveContext] = None
+        self._knowledge: Optional[KGKnowledge] = None  # NEW: Full KG knowledge
         self._goal: Optional[str] = None
         self._iteration: int = 0
         self._success_records: List[SuccessRecord] = []
@@ -123,7 +125,7 @@ class CognitiveController:
     # Public API
     # =========================================================================
     
-    def initialize_goal(self, goal: "str | Goal | Objective") -> Optional[WorkflowState]:
+    def initialize_goal(self, goal: "str | Goal | Objective") -> Optional[KGKnowledge]:
         """
         Initialize controller with a goal.
         
@@ -134,7 +136,7 @@ class CognitiveController:
             goal: The high-level goal (string, Goal, or Objective object)
             
         Returns:
-            WorkflowState with steps and pre-loaded heuristics
+            The retrieved KGKnowledge (Tier 1/2). This is the single source of truth.
         """
         # Convert to Goal if needed - Objective is the preferred type
         if isinstance(goal, Objective):
@@ -166,7 +168,7 @@ class CognitiveController:
         logger.info("└" + "─"*65 + "┘")
         
         goal_type_str = goal_obj.goal_type.value if hasattr(goal_obj.goal_type, 'value') else str(goal_obj.goal_type)
-        logger.info(f"  Goal: {goal_obj.description[:70]}...")
+        logger.info(f"  Goal: {goal_obj.description}")
         logger.info(f"  Type: {goal_type_str} | Source: {goal_obj.source}")
         if goal_obj.constraints:
             logger.info(f"  Constraints: {goal_obj.constraints}")
@@ -174,53 +176,55 @@ class CognitiveController:
         # Log Objective-specific context (data files, etc.)
         if self._objective and self._objective.data_files:
             logger.info(f"  Data files: {len(self._objective.data_files)}")
-            for df in self._objective.data_files[:3]:
+            for df in self._objective.data_files:
                 logger.info(f"    • {df.path} ({'INPUT' if df.is_input else 'OUTPUT'})")
         
-        # Retrieve workflow - heuristics are loaded during retrieval
-        # Use to_kg_query() for better KG search
-        retrieval = self.retriever.retrieve(goal_obj.to_kg_query())
+        # Retrieve knowledge using NEW KGKnowledge structure
+        # This returns properly nested wiki structure (no truncation)
+        self._knowledge = self.retriever.retrieve_knowledge(goal_obj.to_kg_query())
         
         # Log retrieval result
         logger.info("")
-        logger.info(f"  📚 KG Retrieval: {retrieval.mode.value.upper()}")
-        if retrieval.workflow:
-            logger.info(f"     Workflow: {retrieval.workflow.title}")
-            logger.info(f"     Confidence: {retrieval.confidence:.0%}")
-            logger.info(f"     Steps ({len(retrieval.workflow.steps)}):")
-            for step in retrieval.workflow.steps:
-                heur_count = len(step.heuristics)
-                impl_name = step.implementation.get('title', 'N/A')[:40] if step.implementation else 'N/A'
-                logger.info(f"       {step.number}. {step.title}")
+        logger.info(f"  📚 KG Retrieval: {self._knowledge.tier.value.upper()}")
+        if self._knowledge.workflow:
+            wf = self._knowledge.workflow
+            logger.info(f"     Workflow: {wf.title}")
+            logger.info(f"     Confidence: {self._knowledge.confidence:.0%}")
+            logger.info(f"     Steps ({len(wf.steps)}):")
+            for step in wf.steps:
+                p = step.principle
+                impl_count = len(p.implementations)
+                heur_count = len(p.heuristics)
+                impl_name = p.implementations[0].title if p.implementations else 'N/A'
+                logger.info(f"       {step.number}. {p.title}")
                 logger.info(f"          → impl: {impl_name} | heuristics: {heur_count}")
-            
-            # NOTE: Global heuristics removed - all heuristics are now per-step from graph
+        elif self._knowledge.principles:
+            logger.info(f"     No workflow, found {len(self._knowledge.principles)} relevant Principles")
         else:
-            logger.info(f"     No workflow match found")
+            logger.info(f"     No knowledge found")
         logger.info("")
         
         # Build initial context with Goal object
+        # Knowledge rendering comes from KGKnowledge (via _render_full_context).
         self._context = CognitiveContext(
-            goal=goal_obj,  # Use Goal object for richer context
+            goal=goal_obj,
             iteration=1,
-            workflow=retrieval.workflow,
             kg_retrieval=KGRetrievalState(
                 consulted_at_iteration=1,
                 reason="initialization",
-                query_used=retrieval.query_used,
-                heuristics=retrieval.heuristics,
+                query_used=self._knowledge.query_used,
+                heuristics=[],
             ),
             meta=MetaState(
                 steps_since_kg_consult=0,
                 total_kg_consults=1,
             ),
         )
+        # Cache the fully rendered context on the context object so the
+        # DecisionMaker sees exactly what the agent sees.
+        self._context.rendered_context = self._render_full_context()
         
-        # Mark first step as in_progress
-        if self._context.workflow and self._context.workflow.steps:
-            self._context.workflow.steps[0].status = "in_progress"
-        
-        return retrieval.workflow
+        return self._knowledge
     
     def prepare_briefing(self) -> Briefing:
         """
@@ -255,9 +259,7 @@ class CognitiveController:
         # LLM-GOVERNED EPISODIC RETRIEVAL (before rendering context)
         # =====================================================================
         # Use LLM to retrieve relevant insights based on current context
-        current_step_title = None
-        if self._context.workflow and self._context.workflow.current_step:
-            current_step_title = self._context.workflow.current_step.title
+        current_step_title = None  # We do not track step state; knowledge is advisory.
         
         last_error = None
         last_feedback = None
@@ -300,29 +302,31 @@ class CognitiveController:
             logger.warning(f"Episodic retrieval failed: {e}")
         
         # =====================================================================
-        # UNIFIED CONTEXT RENDERING
+        # UNIFIED CONTEXT RENDERING (using KGKnowledge)
         # =====================================================================
-        # The SAME render() output goes to both agent and decision maker
-        unified_context = self._context.render()
+        # Knowledge comes from KGKnowledge.render()
+        # Experiment state comes from CognitiveContext
+        unified_context = self._render_full_context()
+        # Ensure DecisionMaker always sees the same blob the agent sees.
+        self._context.rendered_context = unified_context
         
         # Create Briefing wrapper (for backward compatibility)
-        # The actual content comes from unified_context
         current_step_num = None
+        current_step_title = None
         total_steps = None
-        if self._context.workflow:
-            total_steps = len(self._context.workflow.steps)
-            current = self._context.workflow.current_step
-            if current:
-                current_step_num = current.number
-                current_step_title = current.title
+        if self._knowledge and self._knowledge.workflow:
+            total_steps = len(self._knowledge.workflow.steps)
+            if total_steps > 0:
+                current_step_num = 1  # Always show as step 1 (we don't track step-by-step)
+                current_step_title = self._knowledge.workflow.steps[0].principle.title
         
-        # Build insights list from episodic memory
+        # Build insights list from episodic memory - no truncation
         insights = []
         if self._context.episodic_memory:
             if self._context.episodic_memory.relevant_insights:
-                insights = [i.content for i in self._context.episodic_memory.relevant_insights[:5]]
+                insights = [i.content for i in self._context.episodic_memory.relevant_insights]
             elif self._context.episodic_memory.similar_errors:
-                insights = [i.content for i in self._context.episodic_memory.similar_errors[:3]]
+                insights = [i.content for i in self._context.episodic_memory.similar_errors]
         
         briefing = Briefing(
             goal=self._context.goal_str,
@@ -337,27 +341,118 @@ class CognitiveController:
         
         # Log detailed briefing summary
         logger.info(f"  ✓ Briefing ready for iteration {self._iteration}")
-        if self._context.workflow and self._context.workflow.current_step:
-            step = self._context.workflow.current_step
-            logger.info(f"    Step {step.number}/{len(self._context.workflow.steps)}: {step.title}")
-            logger.info(f"    Status: {step.status} | Attempts: {step.attempts}")
-            
-            # Show implementation linked to this step
-            if hasattr(step, 'implementation') and step.implementation:
-                impl_title = step.implementation.get('title', 'Unknown')
-                logger.info(f"    Implementation: {impl_title}")
-            
-            # Show actual heuristics (not just count)
-            if step.heuristics:
-                logger.info(f"    Heuristics ({len(step.heuristics)}):")
-                for h in step.heuristics[:3]:  # Show first 3
-                    logger.info(f"      • {h[:60]}{'...' if len(h) > 60 else ''}")
+        if self._knowledge and self._knowledge.workflow:
+            wf = self._knowledge.workflow
+            logger.info(f"    Workflow: {wf.title} ({len(wf.steps)} steps)")
+            for step in wf.steps:
+                p = step.principle
+                impl_count = len(p.implementations)
+                logger.info(f"      Step {step.number}: {p.title} ({impl_count} impls)")
+        elif self._knowledge and self._knowledge.principles:
+            logger.info(f"    Relevant Principles: {len(self._knowledge.principles)}")
         
         if insights:
             logger.info(f"    Episodic insights: {len(insights)}")
         logger.info("")
         
         return briefing
+    
+    def _render_full_context(self) -> str:
+        """
+        Render full context combining KGKnowledge + experiment state.
+        
+        This is the UNIFIED context that goes to both agent and decision maker.
+        """
+        lines = []
+        
+        # Goal section
+        lines.append("## Goal")
+        if isinstance(self._context.goal, Goal):
+            goal = self._context.goal
+            lines.append(f"**{goal.description}**")
+            lines.append(f"- Type: {goal.goal_type.value}")
+            lines.append(f"- Source: {goal.source}")
+            if goal.constraints:
+                lines.append(f"- Constraints: {goal.constraints}")
+        else:
+            lines.append(str(self._context.goal))
+        lines.append("")
+        
+        # Status section
+        lines.append("## Status")
+        lines.append(f"- Iteration: {self._iteration}")
+        lines.append(f"- Consecutive failures: {self._context.meta.consecutive_failures}")
+        lines.append("")
+        
+        # Knowledge from KGKnowledge (TIER 1, 2, or 3)
+        if self._knowledge:
+            lines.append(self._knowledge.render())
+        else:
+            lines.append("## Implementation Guide")
+            lines.append("*No knowledge available.*")
+        lines.append("")
+        
+        # Last experiment result
+        if self._context.last_experiment:
+            exp = self._context.last_experiment
+            lines.append("## Last Experiment")
+            if exp.success:
+                lines.append("**Result: ✓ SUCCESS**")
+            else:
+                lines.append("**Result: ✗ FAILED**")
+            
+            if exp.score is not None:
+                lines.append(f"**Score: {exp.score:.2f}**")
+            
+            if exp.feedback:
+                lines.append("")
+                lines.append("**Evaluator Feedback:**")
+                lines.append(f"> {exp.feedback}")
+            
+            if exp.error_message and not exp.success:
+                lines.append("")
+                lines.append("**Error to fix:**")
+                lines.append(f"```\n{exp.error_message}\n```")
+            lines.append("")
+        
+        # Episodic insights
+        if self._context.episodic_memory:
+            has_insights = (
+                self._context.episodic_memory.similar_errors or
+                self._context.episodic_memory.relevant_insights
+            )
+            if has_insights:
+                lines.append("## Lessons from Past Experiments")
+                for insight in self._context.episodic_memory.similar_errors:
+                    lines.append(f"- ⚠️ {insight.content}")
+                for insight in self._context.episodic_memory.relevant_insights:
+                    lines.append(f"- 💡 {insight.content}")
+                lines.append("")
+        
+        return "\n".join(lines)
+    
+    # NOTE: WorkflowState/StepState conversion removed. The sole workflow/knowledge
+    # structure is `KGKnowledge`, and both agent + DecisionMaker consume the same
+    # rendered text blob stored in `CognitiveContext.rendered_context`.
+    
+    def get_workflow_progress(self) -> Dict[str, Any]:
+        """Get workflow progress info for context manager."""
+        if self._knowledge and self._knowledge.workflow:
+            wf = self._knowledge.workflow
+            return {
+                "has_workflow": True,
+                "title": wf.title,
+                "source": wf.source,
+                "total_steps": len(wf.steps),
+                "tier": self._knowledge.tier.value,
+            }
+        elif self._knowledge and self._knowledge.principles:
+            return {
+                "has_workflow": False,
+                "tier": self._knowledge.tier.value,
+                "principles_count": len(self._knowledge.principles),
+            }
+        return {"has_workflow": False}
     
     def process_result(
         self,
@@ -407,9 +502,9 @@ class CognitiveController:
         score_str = f"{score:.2f}" if score is not None else "N/A"
         logger.info(f"  {status_icon} Iteration {self._iteration} | Score: {score_str}")
         if error_message:
-            logger.info(f"  Error: {error_message[:100]}...")
+            logger.info(f"  Error: {error_message}")
         if feedback:
-            logger.info(f"  Feedback: {feedback[:100]}...")
+            logger.info(f"  Feedback: {feedback}")
         
         # Update context with experiment result
         self._context.last_experiment = ExperimentState(
@@ -419,13 +514,7 @@ class CognitiveController:
             error_message=error_message,
             score=score,
         )
-        
-        # Track attempts on current step
-        if self._context.workflow and self._context.workflow.current_step:
-            step = self._context.workflow.current_step
-            step.attempts += 1
-            if error_message:
-                step.last_error = error_message
+        # No WorkflowState step tracking. The agent implements full solution in one go.
         
         # Update meta state and store insights
         if success:
@@ -442,6 +531,9 @@ class CognitiveController:
         # =====================================================================
         # LLM DECIDES WHAT ACTION TO TAKE
         # =====================================================================
+        # Update rendered_context before decisions so DecisionMaker is grounded in
+        # the same unified text we send to the agent.
+        self._context.rendered_context = self._render_full_context()
         decision = self.decision_maker.decide_action(self._context)
         self._decision_history.append(decision)
         
@@ -449,7 +541,7 @@ class CognitiveController:
         logger.info("")
         logger.info(f"  🧠 LLM Decision: {decision.action.value}")
         logger.info(f"     Confidence: {decision.confidence:.0%}")
-        logger.info(f"     Reasoning: {decision.reasoning[:80]}...")
+        logger.info(f"     Reasoning: {decision.reasoning}")
         
         # Execute the decided action
         result = self._execute_action(decision)
@@ -491,26 +583,22 @@ class CognitiveController:
         if not self._goal:
             return "pivot", {"success": False}
         
-        old_workflow = self._context.workflow.title if self._context and self._context.workflow else None
+        old_workflow = self._knowledge.workflow.title if (self._knowledge and self._knowledge.workflow) else None
         
-        # Re-retrieve, excluding current workflow
-        retrieval = self.retriever.retrieve(
-            self._goal,
-            exclude_workflow=old_workflow
+        # Re-retrieve, excluding current workflow (single retrieval implementation).
+        # This returns nested KGKnowledge (workflow + principles/heuristics/implementations).
+        knowledge = self.retriever.retrieve_knowledge(
+            goal=self._goal,
+            exclude_workflow=old_workflow,
         )
         
-        if retrieval.workflow and self._context:
-            self._context.workflow = retrieval.workflow
-            self._context.workflow.revision_count += 1
-            
-            # Mark first step as in_progress
-            if retrieval.workflow.steps:
-                retrieval.workflow.steps[0].status = "in_progress"
-            
-            logger.info(f"Pivoted from '{old_workflow}' to '{retrieval.workflow.title}'")
+        if knowledge.workflow and self._context:
+            # The authoritative knowledge passed to the agent is `self._knowledge`.
+            self._knowledge = knowledge
+            logger.info(f"Pivoted from '{old_workflow}' to '{knowledge.workflow.title}'")
             return "pivot", {
                 "old_workflow": old_workflow,
-                "new_workflow": retrieval.workflow.title
+                "new_workflow": knowledge.workflow.title
             }
         
         return "pivot", {"success": False, "reason": "No alternative found"}
@@ -534,8 +622,6 @@ class CognitiveController:
         # 1. LLM-BASED INSIGHT EXTRACTION (generalize the error)
         # =====================================================================
         current_step = None
-        if self._context.workflow and self._context.workflow.current_step:
-            current_step = self._context.workflow.current_step.title
         
         try:
             extracted = self.insight_extractor.extract_from_error(
@@ -555,13 +641,13 @@ class CognitiveController:
                 tags=extracted.tags,
             )
             self.episodic.add_insight(insight)
-            logger.info(f"Stored generalized error insight: {extracted.lesson[:60]}...")
+            logger.info(f"Stored generalized error insight: {extracted.lesson}")
             
         except Exception as e:
             logger.warning(f"LLM insight extraction failed, storing raw error: {e}")
-            # Fallback: store raw error
+            # Fallback: store raw error (only if LLM extraction failed)
             insight = Insight(
-                content=f"Error: {error_message[:200]}",
+                content=f"Error: {error_message}",  # No truncation - store full error
                 insight_type=InsightType.CRITICAL_ERROR,
                 confidence=0.5,
                 source_experiment_id=experiment_id,
@@ -571,38 +657,24 @@ class CognitiveController:
         # =====================================================================
         # 2. TIER 3: Consult KG for error-specific heuristics
         # =====================================================================
-        if self._goal and self._context.meta.consecutive_failures >= 2:
-            # Only consult KG after 2+ failures to avoid overloading
-            retrieval = self.retriever.retrieve(
-                self._goal,
+        if self._goal and self._knowledge and self._context.meta.consecutive_failures >= 1:
+            # Consult KG after 1+ failures to get error-specific help
+            self._knowledge = self.retriever.retrieve_knowledge(
+                goal=self._goal,
+                existing_knowledge=self._knowledge,
                 last_error=error_message,
-                current_workflow=self._context.workflow,
             )
             
-            # Add retrieved heuristics to current step
-            if retrieval.heuristics and self._context.workflow:
-                current_step_obj = self._context.workflow.current_step
-                if current_step_obj:
-                    # Add new heuristics (avoid duplicates)
-                    existing = set(current_step_obj.heuristics)
-                    for h in retrieval.heuristics:
-                        if h not in existing:
-                            current_step_obj.heuristics.append(h)
-                            existing.add(h)
-                    
-                    # Add code patterns
-                    current_step_obj.code_patterns.extend(retrieval.code_patterns[:3])
-            
-            # Update KG retrieval state
+            # Update KG retrieval state for tracking
             self._context.kg_retrieval = KGRetrievalState(
                 consulted_at_iteration=self._iteration,
-                reason=f"error_recovery: {error_message[:50]}",
-                query_used=retrieval.query_used,
-                heuristics=retrieval.heuristics,
-                code_patterns=retrieval.code_patterns,
+                reason=f"error_recovery: {error_message}",
+                query_used=error_message,
+                heuristics=[h.title for h in self._knowledge.error_heuristics],
+                code_patterns=[],
             )
             self._context.meta.total_kg_consults += 1
-            logger.info(f"TIER 3: Retrieved {len(retrieval.heuristics)} heuristics for error")
+            logger.info(f"TIER 3: Added {len(self._knowledge.error_heuristics)} error heuristics, {len(self._knowledge.alternative_implementations)} alternatives")
     
     def _store_success_insight(self, feedback: str, score: Optional[float], experiment_id: str, solution_summary: Optional[str] = None):
         """
@@ -626,8 +698,6 @@ class CognitiveController:
         # LLM-BASED INSIGHT EXTRACTION (generalize the success)
         # =====================================================================
         current_step = None
-        if self._context.workflow and self._context.workflow.current_step:
-            current_step = self._context.workflow.current_step.title
         
         try:
             extracted = self.insight_extractor.extract_from_success(
@@ -648,14 +718,14 @@ class CognitiveController:
                 tags=extracted.tags + ["success"],
             )
             self.episodic.add_insight(insight)
-            logger.info(f"Stored generalized success insight: {extracted.lesson[:60]}...")
+            logger.info(f"Stored generalized success insight: {extracted.lesson}")
             
         except Exception as e:
             logger.warning(f"LLM insight extraction failed, storing raw feedback: {e}")
-            # Fallback: store raw feedback
+            # Fallback: store raw feedback (only if LLM extraction failed)
             confidence = min(score, 1.0) if score is not None else 0.6
             score_str = f"[Score: {score:.2f}] " if score is not None else ""
-            content = f"{score_str}{feedback[:300]}"
+            content = f"{score_str}{feedback}"  # No truncation
             
             insight = Insight(
                 content=content,
@@ -665,7 +735,7 @@ class CognitiveController:
                 tags=["success", "evaluator_feedback"],
             )
             self.episodic.add_insight(insight)
-            logger.debug(f"Stored success insight: {content[:50]}...")
+            logger.debug(f"Stored success insight: {content}")
 
 
     def _record_success(self):
@@ -673,20 +743,14 @@ class CognitiveController:
         if not self._context:
             return
         
-        steps_completed = []
-        heuristics_used = []
-        
-        if self._context.workflow:
-            for step in self._context.workflow.steps:
-                if step.status == "completed":
-                    steps_completed.append(step.title)
-                    heuristics_used.extend(step.heuristics)
+        steps_completed: List[str] = []
+        heuristics_used: List[str] = []
         
         record = SuccessRecord(
             experiment_id=f"goal_{self._iteration}",
             goal=self._goal or "",
-            workflow_id=self._context.workflow.id if self._context.workflow else None,
-            workflow_source=self._context.workflow.source if self._context.workflow else "none",
+            workflow_id=self._knowledge.workflow.id if (self._knowledge and self._knowledge.workflow) else None,
+            workflow_source=self._knowledge.workflow.source if (self._knowledge and self._knowledge.workflow) else "none",
             steps_completed=steps_completed,
             heuristics_used=list(set(heuristics_used)),
             total_iterations=self._iteration,
@@ -702,37 +766,21 @@ class CognitiveController:
         """Get current context for inspection."""
         return self._context
     
-    def get_workflow_progress(self) -> Dict[str, Any]:
-        """Get workflow progress summary."""
-        if not self._context or not self._context.workflow:
-            return {"has_workflow": False}
-        
-        wf = self._context.workflow
-        completed = [s for s in wf.steps if s.status == "completed"]
-        current = wf.current_step
-        
-        return {
-            "has_workflow": True,
-            "title": wf.title,
-            "source": wf.source,
-            "total_steps": len(wf.steps),
-            "current_step": wf.current_step_index + 1,
-            "current_step_title": current.title if current else None,
-            "completed_steps": len(completed),
-            "is_complete": wf.is_complete,
-        }
+    def get_knowledge(self) -> Optional[KGKnowledge]:
+        """Get current KG knowledge for inspection."""
+        return self._knowledge
+    
+    # NOTE: get_workflow_progress() is defined earlier in the class
     
     def get_decision_history(self) -> List[ActionDecision]:
         """Get history of all LLM decisions made."""
         return self._decision_history
     
     def is_complete(self) -> bool:
-        """Check if workflow is complete."""
-        if not self._context:
-            return False
-        if self._context.workflow:
-            return self._context.workflow.is_complete
-        return False
+        """Check if the run is complete (DecisionMaker signaled COMPLETE)."""
+        # The orchestrator primarily uses ContextManager.should_stop().
+        # This method is retained for compatibility but no longer uses WorkflowState.
+        return bool(self._decision_history and self._decision_history[-1].action == WorkflowAction.COMPLETE)
     
     def close(self):
         """Clean up resources."""

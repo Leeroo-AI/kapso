@@ -168,12 +168,18 @@ class Briefing:
         """
         Format briefing as a string for LLM context.
         
-        UNIFIED CONTEXT: If self.plan contains the full CognitiveContext.render()
-        output (detected by presence of "## Goal"), we use it directly.
+        UNIFIED CONTEXT: If self.plan contains the full rendered context
+        (detected by presence of "## Goal" and knowledge sections), use it directly.
         Otherwise, we format the individual fields.
         """
-        # Check if plan contains unified context (from CognitiveContext.render())
-        if self.plan and "## Goal" in self.plan and "## Workflow" in self.plan:
+        # Check if plan contains unified context (from CognitiveController._render_full_context())
+        # Detect by "## Goal" + any knowledge section (workflow, relevant knowledge, or implementation guide)
+        has_unified = (
+            self.plan and 
+            "## Goal" in self.plan and 
+            ("## Implementation Guide" in self.plan or "## Relevant Knowledge" in self.plan)
+        )
+        if has_unified:
             # UNIFIED CONTEXT MODE: plan is the full rendered context
             # Just add episodic insights if not already included
             unified = self.plan
@@ -181,7 +187,7 @@ class Briefing:
             # Add episodic insights section if we have any and they're not in unified
             if self.insights and "## Episodic Insights" not in unified:
                 insights_section = "\n## Episodic Insights (Past Learnings)\n"
-                for insight in self.insights[:5]:
+                for insight in self.insights:
                     insights_section += f"- {insight}\n"
                 unified += "\n" + insights_section
             

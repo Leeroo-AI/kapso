@@ -98,14 +98,16 @@ def test_real_kg_workflow():
         source="test",
     )
     
-    workflow = controller.initialize_goal(objective)
+    knowledge = controller.initialize_goal(objective)
     
     # STEP 4: Verify workflow came from KG, not fallback
     logger.info("\n[4] Verifying workflow source...")
     
-    if workflow is None:
+    if knowledge is None or knowledge.workflow is None:
         logger.error("FAILED: No workflow returned")
         return False
+    
+    workflow = knowledge.workflow
     
     # Check it's not a fallback
     if workflow.source == "fallback":
@@ -123,10 +125,11 @@ def test_real_kg_workflow():
     logger.info(f"  Steps: {len(workflow.steps)}")
     
     for step in workflow.steps:
-        logger.info(f"    {step.number}. {step.title}")
-        if step.heuristics:
-            for h in step.heuristics[:2]:
-                logger.info(f"       - {h[:60]}...")
+        logger.info(f"    {step.number}. {step.principle.title}")
+        heuristics = step.principle.heuristics
+        logger.info(f"       Heuristics: {len(heuristics)}")
+        for h in heuristics[:2]:
+            logger.info(f"         - {h.title}")
     
     # STEP 5: Process a result
     logger.info("\n[5] Processing experiment result...")

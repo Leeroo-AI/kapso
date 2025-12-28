@@ -25,7 +25,7 @@ COGNITIVE FLOW LOGGED:
   │     a. BRIEFING: Current step + heuristics → Agent          │
   │     b. EXECUTION: Agent generates code, runs                │
   │     c. EVALUATION: LLM Judge scores + feedback              │
-  │     d. DECISION: LLM decides RETRY/PIVOT/COMPLETE           │
+  │     d. DECISION: LLM decides ADVANCE/RETRY/SKIP/PIVOT       │
   │     e. MEMORY UPDATE: Store insights, update workflow       │
   │                                                              │
   │  4. EPISODIC MEMORY                                         │
@@ -52,23 +52,11 @@ import json
 import logging
 import shutil
 import tempfile
-import warnings
-import gc
 from datetime import datetime
 from pathlib import Path
 
-# Suppress noisy warnings EARLY (before any imports that trigger them)
-# These warnings pollute the log but don't indicate real problems
-warnings.filterwarnings("ignore", "Pydantic serializer warnings")
-warnings.filterwarnings("ignore", "There is no current event loop")
-warnings.filterwarnings("ignore", category=ResourceWarning)
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
 from dotenv import load_dotenv
 load_dotenv()
-
-# Import report generator for HTML output
-from src.memory.report_generator import CognitiveReportBuilder, ReportSection
 
 
 # =============================================================================
@@ -125,9 +113,9 @@ def setup_logging():
         datefmt='%H:%M:%S'
     )
     
-    # File handler - detailed
+    # File handler - keep it readable (INFO). We want signal, not raw HTTP dumps.
     file_handler = logging.FileHandler(LOG_FILE)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
     
     # Console handler - INFO level
@@ -137,43 +125,23 @@ def setup_logging():
     
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
     
-    # Set specific module levels for cognitive system visibility
-    logging.getLogger('src.memory.cognitive_controller').setLevel(logging.DEBUG)
-    logging.getLogger('src.memory.knowledge_retriever').setLevel(logging.DEBUG)
-    logging.getLogger('src.memory.decisions').setLevel(logging.DEBUG)
-    logging.getLogger('src.memory.episodic').setLevel(logging.DEBUG)
-    logging.getLogger('src.execution.context_manager').setLevel(logging.DEBUG)
+    # Set specific module levels for cognitive system visibility (still keep INFO-level readable logs)
+    logging.getLogger('src.memory.cognitive_controller').setLevel(logging.INFO)
+    logging.getLogger('src.memory.knowledge_retriever').setLevel(logging.INFO)
+    logging.getLogger('src.memory.decisions').setLevel(logging.INFO)
+    logging.getLogger('src.memory.episodic').setLevel(logging.INFO)
+    logging.getLogger('src.execution.context_manager').setLevel(logging.INFO)
     
-    # Reduce noise from external libraries
-    logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger('httpcore').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('LiteLLM').setLevel(logging.WARNING)
-    logging.getLogger('litellm').setLevel(logging.WARNING)
-    
-    # CRITICAL: Suppress neo4j connection pool spam (was 71% of log!)
-    logging.getLogger('neo4j').setLevel(logging.WARNING)
-    logging.getLogger('neo4j.io').setLevel(logging.WARNING)
-    logging.getLogger('neo4j.pool').setLevel(logging.WARNING)
-    
-    # Suppress OpenAI HTTP debug (raw request/response headers)
-    logging.getLogger('openai').setLevel(logging.WARNING)
-    logging.getLogger('openai._base_client').setLevel(logging.WARNING)
-    
-    # Suppress git operations debug
-    logging.getLogger('git').setLevel(logging.WARNING)
-    logging.getLogger('git.cmd').setLevel(logging.WARNING)
-    logging.getLogger('git.util').setLevel(logging.WARNING)
-    logging.getLogger('git.repo').setLevel(logging.WARNING)
-    
-    # Suppress LiteLLM's direct print-style logging
-    import litellm
-    litellm.set_verbose = False
-    litellm.suppress_debug_info = True
+    # Reduce noise from third-party modules (these swamp the logs with request dumps)
+    for noisy in [
+        'httpx', 'httpcore', 'urllib3', 'openai', 'LiteLLM', 'litellm',
+        'neo4j', 'weaviate',
+    ]:
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     
     return logging.getLogger(__name__)
 
@@ -357,8 +325,11 @@ def get_test_config(scenario_name: str = None) -> dict:
     "stop_condition": "threshold",
     "stop_condition_params": {"threshold": 0.7},
     
-    # Expected results (for validation)
-    "expected_retrieval_mode": scenario.get("expected_retrieval_mode"),
+        # Cognitive mode - enables full workflow tracking + KG exploitation
+        "mode": "COGNITIVE",
+        
+        # Expected results (for validation)
+        "expected_retrieval_mode": scenario.get("expected_retrieval_mode"),
         "expected_workflow_keywords": scenario.get("expected_workflow_keywords", []),
     }
 
@@ -392,45 +363,23 @@ def log_cognitive_state(controller, phase: str):
         return
     
     # Goal info
-    logger.info(f"  GOAL: {ctx.goal_str[:60]}...")
+    logger.info(f"  GOAL: {ctx.goal_str}")
     logger.info(f"  ITERATION: {ctx.iteration}")
     logger.info(f"  CONSECUTIVE FAILURES: {ctx.meta.consecutive_failures}")
     
-    # Workflow state
-    if ctx.workflow:
-        wf = ctx.workflow
+    # Knowledge state (single source of truth)
+    knowledge = controller.get_knowledge() if hasattr(controller, "get_knowledge") else None
+    if knowledge and knowledge.workflow:
+        wf = knowledge.workflow
         logger.info("")
         logger.info(f"  WORKFLOW: {wf.title}")
         logger.info(f"  SOURCE: {wf.source} (confidence: {wf.confidence:.0%})")
-        logger.info(f"  PROGRESS: Step {wf.current_step_index + 1}/{len(wf.steps)}")
+        logger.info(f"  STEPS: {len(wf.steps)}")
+    elif knowledge and knowledge.principles:
         logger.info("")
-        
-        # Show all steps with status
-        logger.info("  STEPS:")
-        for step in wf.steps:
-            status_icons = {
-                "completed": "✅",
-                "in_progress": "▶️",
-                "skipped": "⏭️",
-                "pending": "○"
-            }
-            icon = status_icons.get(step.status, "?")
-            heuristics_count = len(step.heuristics)
-            
-            # Highlight current step
-            current_marker = " ◀── CURRENT" if step.status == "in_progress" else ""
-            logger.info(f"    {icon} Step {step.number}: {step.title}")
-            logger.info(f"       Status: {step.status} | Attempts: {step.attempts} | Heuristics: {heuristics_count}{current_marker}")
-            
-            # Show heuristics for current step
-            if step.status == "in_progress" and step.heuristics:
-                logger.info("       HEURISTICS:")
-                for h in step.heuristics[:3]:
-                    logger.info(f"         • {h[:70]}...")
-                if len(step.heuristics) > 3:
-                    logger.info(f"         ... and {len(step.heuristics) - 3} more")
+        logger.info(f"  PRINCIPLES: {len(knowledge.principles)}")
     else:
-        logger.info("  [No workflow loaded]")
+        logger.info("  [No knowledge loaded]")
     
     # Last experiment
     if ctx.last_experiment:
@@ -442,9 +391,9 @@ def log_cognitive_state(controller, phase: str):
         if exp.score is not None:
             logger.info(f"    Score: {exp.score:.2f}")
         if exp.feedback:
-            logger.info(f"    Feedback: {exp.feedback[:100]}...")
+            logger.info(f"    Feedback: {exp.feedback}")
         if exp.error_message and not exp.success:
-            logger.info(f"    Error: {exp.error_message[:100]}...")
+            logger.info(f"    Error: {exp.error_message}")
     
     # Episodic memory
     if ctx.episodic_memory:
@@ -588,12 +537,8 @@ def run_expert_test():
     1. KG workflow retrieval (TIER 1/2/3)
     2. Step-by-step workflow progress
     3. Heuristics being applied per step
-    4. LLM decision making (RETRY/PIVOT/COMPLETE)
+    4. LLM decision making (ADVANCE/RETRY/SKIP/PIVOT)
     5. Episodic memory updates
-    
-    Outputs:
-    - .log file: Detailed execution log
-    - .html file: Human-readable report
     """
     from src.expert import Expert
     
@@ -603,8 +548,8 @@ def run_expert_test():
     logger.info("╚" + "═"*68 + "╝")
     logger.info("")
     logger.info("TEST CONFIGURATION:")
-    logger.info(f"  Goal: {TEST_CONFIG['goal'].strip()[:60]}...")
-    logger.info(f"  Context manager: cognitive (KG workflow retrieval)")
+    logger.info(f"  Goal: {TEST_CONFIG['goal'].strip()}")
+    logger.info(f"  Mode: {TEST_CONFIG['mode']} (cognitive context manager)")
     logger.info(f"  Coding agent: {TEST_CONFIG['coding_agent']}")
     logger.info(f"  Evaluator: {TEST_CONFIG['evaluator']}")
     logger.info(f"  Max iterations: {TEST_CONFIG['max_iterations']}")
@@ -617,9 +562,6 @@ def run_expert_test():
     
     # Reference to cognitive controller for state logging
     cognitive_controller = None
-    
-    # Initialize HTML report builder
-    report = CognitiveReportBuilder(goal=TEST_CONFIG["goal"])
     
     try:
         # =====================================================================
@@ -655,13 +597,14 @@ def run_expert_test():
         logger.info("  🎯 GOAL INITIALIZATION - Goal parsed, KG queried for workflow")
         logger.info("  📋 BRIEFING - Current step + heuristics sent to agent")
         logger.info("  ⚙️ PROCESSING - Experiment result evaluated")
-        logger.info("  🧠 LLM DECISION - RETRY/PIVOT/COMPLETE decision")
+        logger.info("  🧠 LLM DECISION - ADVANCE/RETRY/SKIP/PIVOT decision")
         logger.info("")
         
         solution = expert.build(
             goal=TEST_CONFIG["goal"],
             output_path=output_dir,
             max_iterations=TEST_CONFIG["max_iterations"],
+            mode=TEST_CONFIG["mode"],
             coding_agent=TEST_CONFIG["coding_agent"],
             language=TEST_CONFIG["language"],
             main_file=TEST_CONFIG["main_file"],
@@ -673,15 +616,14 @@ def run_expert_test():
         )
         
         # =====================================================================
-        # PHASE 3: Analyze Cognitive Flow Results
+        # PHASE 3: Retrieval Quality Checks (Tier 1 / 2 / 3)
         # =====================================================================
         logger.info("")
         logger.info("┌" + "─"*68 + "┐")
         logger.info("│" + " PHASE 3: COGNITIVE FLOW ANALYSIS ".center(68) + "│")
         logger.info("└" + "─"*68 + "┘")
         
-        # Try to get cognitive controller from orchestrator for detailed analysis
-        # (This is accessing internal state for logging purposes)
+        # Try to get cognitive controller from orchestrator for detailed analysis.
         try:
             # Access cognitive controller through context manager
             orchestrator = expert._last_orchestrator if hasattr(expert, '_last_orchestrator') else None
@@ -693,6 +635,53 @@ def run_expert_test():
                     log_decision_history(cognitive_controller)
         except Exception as e:
             logger.debug(f"Could not access cognitive controller: {e}")
+
+        # Explicitly validate retrieval quality independent of whether the coding
+        # agent succeeded early. This keeps the test close to real Expert runs
+        # while still exercising Tier 2 and Tier 3 deterministically.
+        try:
+            from src.memory.knowledge_retriever import KnowledgeRetriever
+            retriever = KnowledgeRetriever(knowledge_search=expert.knowledge_search)
+
+            logger.info("")
+            logger.info("RETRIEVAL QUALITY CHECKS")
+            logger.info("─" * 50)
+
+            # Tier 1: should find a workflow for the main goal (real KG).
+            tier1 = retriever.retrieve_knowledge(TEST_CONFIG["goal"])
+            logger.info(f"TIER 1 check: tier={tier1.tier.value}, has_workflow={bool(tier1.workflow)}")
+            assert tier1.workflow is not None, "Expected Tier 1 workflow retrieval for the main goal"
+
+            # Tier 2: pick a concept-heavy goal unlikely to have a Workflow but likely to have Principles.
+            tier2_goal = "Explain PEFT LoraConfig target_modules rank alpha selection"
+            tier2 = retriever.retrieve_knowledge(tier2_goal)
+            logger.info(f"TIER 2 check: tier={tier2.tier.value}, principles={len(tier2.principles)}")
+            assert tier2.tier.value in ["tier2_relevant", "tier1_exact"], "Unexpected tier for Tier 2 check"
+            if tier2.tier.value == "tier2_relevant":
+                assert len(tier2.principles) > 0, "Tier 2 returned no principles"
+
+            # Tier 3: deterministic error enrichment on top of Tier 1 knowledge.
+            tier3 = retriever.retrieve_knowledge(
+                goal=TEST_CONFIG["goal"],
+                existing_knowledge=tier1,
+                last_error="ImportError: No module named 'peft'",
+            )
+            logger.info(
+                f"TIER 3 check: tier={tier3.tier.value}, "
+                f"error_heuristics={len(tier3.error_heuristics)}, "
+                f"alternatives={len(tier3.alternative_implementations)}"
+            )
+            assert tier3.tier.value == "tier3_error", "Expected Tier 3 enrichment"
+            assert len(tier3.error_heuristics) + len(tier3.alternative_implementations) > 0, "Tier 3 returned no error knowledge"
+
+            # Quality signal: for missing dependency errors we should surface at least one
+            # environment/setup-oriented heuristic now that we include Environment pages.
+            has_env_hint = any(h.title.lower().startswith("environment:") for h in tier3.error_heuristics)
+            logger.info(f"TIER 3 quality (import/install): environment_hint={has_env_hint}")
+
+        except Exception as e:
+            logger.error(f"Retrieval quality checks failed: {e}")
+            raise
         
         # =====================================================================
         # PHASE 4: Results Summary
@@ -797,24 +786,11 @@ def run_expert_test():
             "config": TEST_CONFIG,
             "output_dir": output_dir,
             "log_file": str(LOG_FILE),
-            "context_manager": "cognitive",
+            "cognitive_mode": TEST_CONFIG["mode"],
         }
         results_file = LOG_DIR / f"expert_e2e_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(results_file, 'w') as f:
             json.dump(results, f, indent=2, default=str)
-        
-        # Generate HTML report
-        html_file = LOG_DIR / f"expert_e2e_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-        try:
-            final_report = report.finalize(
-                final_score=best_score if 'best_score' in dir() else 0.0,
-                total_iterations=len(scores) if 'scores' in dir() else 0,
-                total_cost=float(cost_str.replace('$', '')) if 'cost_str' in dir() else 0.0,
-            )
-            final_report.save(html_file)
-            logger.info(f"  📊 HTML Report: {html_file}")
-        except Exception as e:
-            logger.warning(f"Failed to generate HTML report: {e}")
         
         logger.info("")
         logger.info("OUTPUT FILES:")
@@ -825,9 +801,6 @@ def run_expert_test():
         # Close KG connection
         if expert.knowledge_search.is_enabled():
             expert.knowledge_search.close()
-        
-        # Explicit cleanup to avoid ResourceWarning
-        gc.collect()
 
 
 # =============================================================================

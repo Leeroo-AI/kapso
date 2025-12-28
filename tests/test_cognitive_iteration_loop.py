@@ -174,10 +174,11 @@ class CognitiveE2ETest:
             source="e2e_test",
         )
         
-        workflow = self.controller.initialize_goal(self.objective)
-        
-        if not workflow:
+        knowledge = self.controller.initialize_goal(self.objective)
+        if not knowledge or not knowledge.workflow:
             raise RuntimeError("No workflow returned!")
+        
+        workflow = knowledge.workflow
         
         logger.info(f"Workflow: {workflow.title}")
         logger.info(f"Source: {workflow.source}")
@@ -185,16 +186,17 @@ class CognitiveE2ETest:
         logger.info(f"Steps: {len(workflow.steps)}")
         
         for step in workflow.steps:
-            logger.info(f"  {step.number}. {step.title} ({len(step.heuristics)} heuristics)")
-            for h in step.heuristics[:2]:
-                logger.info(f"     - {h[:70]}...")
+            heuristics = step.principle.heuristics
+            logger.info(f"  {step.number}. {step.principle.title} ({len(heuristics)} heuristics)")
+            for h in heuristics[:2]:
+                logger.info(f"     - {h.title}")
         
         self.results["workflow"] = {
             "title": workflow.title,
             "source": workflow.source,
             "confidence": workflow.confidence,
             "steps": len(workflow.steps),
-            "total_heuristics": sum(len(s.heuristics) for s in workflow.steps),
+            "total_heuristics": sum(len(s.principle.heuristics) for s in workflow.steps),
         }
         
         if workflow.source == "fallback":
@@ -218,12 +220,12 @@ class CognitiveE2ETest:
             logger.info(f"Briefing prepared")
             logger.info(f"  Plan:\n{briefing.plan}")
             
-            # Get current step from context
+            # No WorkflowState; show first workflow step as advisory.
             current_step = "N/A"
-            if self.controller._context and self.controller._context.workflow:
-                cs = self.controller._context.workflow.current_step
-                if cs:
-                    current_step = f"Step {cs.number}: {cs.title}"
+            knowledge = self.controller.get_knowledge()
+            if knowledge and knowledge.workflow and knowledge.workflow.steps:
+                first = knowledge.workflow.steps[0]
+                current_step = f"Step {first.number}: {first.principle.title}"
             logger.info(f"Current step: {current_step}")
             
             # Get simulated experiment result
@@ -231,9 +233,9 @@ class CognitiveE2ETest:
             
             logger.info(f"Experiment result:")
             logger.info(f"  Success: {success}, Score: {score:.2f}")
-            logger.info(f"  Feedback: {feedback[:80]}...")
+            logger.info(f"  Feedback: {feedback}")
             if error:
-                logger.info(f"  Error: {error[:80]}...")
+                logger.info(f"  Error: {error}")
             
             # Process through cognitive controller (LLM decision)
             action, details = self.controller.process_result(
@@ -275,23 +277,25 @@ class CognitiveE2ETest:
         
         retriever = KnowledgeRetriever(knowledge_search=self.kg)
         
-        result = retriever.retrieve(
+        # Single Tier 3 implementation: add error knowledge to an existing KGKnowledge object.
+        existing = retriever.retrieve_knowledge(goal="Fine-tune language model with LoRA")
+        result = retriever.retrieve_knowledge(
             goal="Fine-tune language model with LoRA",
             last_error="CUDA out of memory. Tried to allocate 16GB.",
-            current_workflow=self.controller._context.workflow,
+            existing_knowledge=existing,
         )
         
         logger.info(f"TIER 3 Result:")
-        logger.info(f"  Mode: {result.mode.value}")
-        logger.info(f"  Heuristics: {len(result.heuristics)}")
-        for h in result.heuristics[:3]:
-            logger.info(f"    - {h[:70]}...")
-        logger.info(f"  Code patterns: {len(result.code_patterns)}")
+        logger.info(f"  Tier: {result.tier.value}")
+        logger.info(f"  Error heuristics: {len(result.error_heuristics)}")
+        for h in result.error_heuristics[:3]:
+            logger.info(f"    - {h.title}")
+        logger.info(f"  Alternative implementations: {len(result.alternative_implementations)}")
         
         self.results["tier3_test"] = {
-            "mode": result.mode.value,
-            "heuristics": len(result.heuristics),
-            "code_patterns": len(result.code_patterns),
+            "tier": result.tier.value,
+            "error_heuristics": len(result.error_heuristics),
+            "alternative_implementations": len(result.alternative_implementations),
         }
     
     def _test_episodic_store(self):
@@ -345,10 +349,17 @@ class CognitiveE2ETest:
         
         # Check 4: TIER 3
         tier3 = self.results.get("tier3_test", {})
-        tier3_ok = tier3.get("mode") == "error_targeted"
+        tier3_ok = (
+            tier3.get("tier") == "tier3_error"
+            and (tier3.get("error_heuristics") or 0) > 0
+        )
         checks.append(("TIER 3 retrieval", tier3_ok))
         logger.info(f"[4] TIER 3 retrieval: {'✓' if tier3_ok else '✗'}")
-        logger.info(f"    Mode: {tier3.get('mode')}, Heuristics: {tier3.get('heuristics')}")
+        logger.info(
+            f"    Tier: {tier3.get('tier')}, "
+            f"Error heuristics: {tier3.get('error_heuristics')}, "
+            f"Alternatives: {tier3.get('alternative_implementations')}"
+        )
         
         # Check 5: Episodic store
         episodic_ok = True
