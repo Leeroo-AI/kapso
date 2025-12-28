@@ -39,14 +39,49 @@ context_managers:
     default_preset: "DEFAULT"
 
   # =========================================================================
-  # Cached Context Manager (Future - Template)
+  # Cognitive Context Manager
   # =========================================================================
-  # cached:
-  #   description: "Context manager with TTL-based caching"
-  #   presets:
-  #     DEFAULT:
-  #       params:
-  #         cache_ttl_seconds: 300
-  #         max_cache_size: 100
-  #   default_preset: "DEFAULT"
+  cognitive:
+    description: "Cognitive memory context manager with optional workflow tracking"
+    
+    presets:
+      # Legacy mode - original behavior (simple briefings, no workflow)
+      LEGACY:
+        params:
+          mode: legacy
+          episodic_store_path: ".memory_store.json"
+      
+      # Cognitive mode - full workflow tracking with KG exploitation
+      # Use this for tasks that benefit from step-by-step workflows
+      COGNITIVE:
+        params:
+          mode: cognitive
+          episodic_store_path: ".memory_store.json"
+          max_step_retries: 3
+          consult_kg_on_error: true
+          allow_workflow_pivot: true
+      
+      # Cognitive mode - strict (no workflow pivoting)
+      COGNITIVE_STRICT:
+        params:
+          mode: cognitive
+          episodic_store_path: ".memory_store.json"
+          max_step_retries: 5
+          consult_kg_on_error: true
+          allow_workflow_pivot: false
+    
+    default_preset: "LEGACY"
 
+  # =========================================================================
+  # Token Efficient Context Manager
+  # =========================================================================
+  token_efficient:
+    description: "Token-efficient context manager for cost optimization"
+    
+    presets:
+      DEFAULT:
+        params:
+          max_tokens: 8000
+          truncation_strategy: "smart"
+    
+    default_preset: "DEFAULT"

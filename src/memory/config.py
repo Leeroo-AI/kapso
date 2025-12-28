@@ -51,11 +51,22 @@ class InsightExtractionConfig:
 
 @dataclass
 class BriefingConfig:
-    """Configuration for briefing generation."""
-    max_kg_context: int = 30000
-    max_insights: int = 10
+    """
+    Configuration for briefing generation.
+    
+    Context size is controlled implicitly through KG graph structure:
+    - ALL heuristics linked to steps (via USES_HEURISTIC edges)
+    - ALL implementations linked to steps (via IMPLEMENTED_BY edges)  
+    - ALL environments linked to implementations (via REQUIRES_ENV edges)
+    
+    Well-curated KG = well-bounded context. No arbitrary truncation.
+    Only episodic insights are limited by retrieval top_k.
+    """
     include_plan: bool = True
     include_error_history: bool = True
+    
+    # Only episodic insights are limited (everything else comes from graph)
+    max_episodic_insights: int = 5
 
 
 @dataclass
@@ -212,10 +223,9 @@ class CognitiveMemoryConfig:
                 "auto_tags": self.insight_extraction.auto_tags,
             },
             "briefing": {
-                "max_kg_context": self.briefing.max_kg_context,
-                "max_insights": self.briefing.max_insights,
                 "include_plan": self.briefing.include_plan,
                 "include_error_history": self.briefing.include_error_history,
+                "max_episodic_insights": self.briefing.max_episodic_insights,
             }
         }
 

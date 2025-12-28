@@ -68,6 +68,33 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# ID Normalization
+# =============================================================================
+# Wiki files use spaces in names: "huggingface peft LoRA Configuration.md"
+# But wiki links use underscores: [[step::Principle:huggingface_peft_LoRA_Configuration]]
+# This function normalizes both to use spaces for consistent matching.
+
+def normalize_page_id(page_id: str) -> str:
+    """
+    Normalize a page ID for consistent matching.
+    
+    Converts underscores to spaces in the page name part (after the type prefix).
+    Example: "Principle/huggingface_peft_LoRA_Configuration" 
+          -> "Principle/huggingface peft LoRA Configuration"
+    
+    This ensures wiki links match actual wiki file names.
+    """
+    if "/" in page_id:
+        page_type, name = page_id.split("/", 1)
+        # Convert underscores to spaces in the name part only
+        normalized_name = name.replace("_", " ")
+        return f"{page_type}/{normalized_name}"
+    else:
+        # No type prefix, just normalize the whole string
+        return page_id.replace("_", " ")
+
+
+# =============================================================================
 # Wiki Parser Functions
 # =============================================================================
 
@@ -730,32 +757,69 @@ class KGGraphSearch(KnowledgeSearch):
         )
     
     def _create_neo4j_edges(self, session, page: WikiPage) -> None:
-        """Create edges from page's outgoing_links."""
+        """
+        Create edges from page's outgoing_links.
+        
+        SPECIAL HANDLING FOR HEURISTIC BACKLINKS:
+        When a Heuristic page declares [[uses_heuristic::Principle:X]], it's a
+        "backlink" - meaning "Principle X uses me". Per the KG spec, the correct
+        edge direction is Principle → USES_HEURISTIC → Heuristic.
+        
+        So when we see a uses_heuristic link FROM a Heuristic page, we create
+        the edge in REVERSE direction (target → source) instead of (source → target).
+        """
         for link in page.outgoing_links:
             edge_type = link.get("edge_type", "RELATED").upper()
             target_type = link.get("target_type", "")
             target_id = link.get("target_id", "")
             
-            # Construct target page ID
-            target_page_id = f"{target_type}/{target_id}"
+            # Construct and NORMALIZE target page ID
+            # Wiki links use underscores but file names use spaces
+            raw_target_id = f"{target_type}/{target_id}"
+            target_page_id = normalize_page_id(raw_target_id)
+            
+            # Also normalize the title for display
+            normalized_title = target_id.replace("_", " ")
             
             # Map edge types to Neo4j relationship types
             neo4j_rel_type = self._map_edge_type(edge_type)
             
-            # Create edge (ensure target node exists first)
-            query = f"""
-                MERGE (target:WikiPage {{id: $target_id}})
-                ON CREATE SET target.page_type = $target_type, target.page_title = $target_id
+            # SPECIAL CASE: Heuristic backlinks
+            # When a Heuristic page declares [[uses_heuristic::Principle:X]],
+            # it means "Principle X uses this heuristic", so we reverse the edge.
+            is_heuristic_backlink = (
+                page.page_type == "Heuristic" and 
+                edge_type.lower() == "uses_heuristic" and
+                target_type in ("Workflow", "Principle", "Implementation")
+            )
+            
+            if is_heuristic_backlink:
+                # Create REVERSE edge: target → USES_HEURISTIC → source (this heuristic)
+                query = f"""
+                    MERGE (target:WikiPage {{id: $target_id}})
+                    ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
+                    WITH target
+                    MATCH (source:WikiPage {{id: $source_id}})
+                    MERGE (target)-[r:{neo4j_rel_type}]->(source)
+                """
+                logger.debug(f"Creating reverse heuristic edge: {target_page_id} → {page.id}")
+            else:
+                # Normal edge: source → target
+                query = f"""
+                    MERGE (target:WikiPage {{id: $target_id}})
+                    ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
                 WITH target
                 MATCH (source:WikiPage {{id: $source_id}})
                 MERGE (source)-[r:{neo4j_rel_type}]->(target)
             """
+            
             try:
                 session.run(
                     query,
                     source_id=page.id,
                     target_id=target_page_id,
                     target_type=target_type,
+                    target_title=normalized_title,
                 )
             except Exception as e:
                 logger.warning(f"Failed to create edge {page.id} -> {target_page_id}: {e}")
@@ -1750,18 +1814,22 @@ Only include pages that would actually help answer the query.
                     id=page_id,
                 )
                 
-                # Create new edges
+                # Create new edges (with normalized IDs)
                 for link in updates["outgoing_links"]:
                     edge_type = link.get("edge_type", "RELATED").upper()
                     target_type = link.get("target_type", "")
                     target_id = link.get("target_id", "")
-                    target_page_id = f"{target_type}/{target_id}"
+                    
+                    # Normalize ID: convert underscores to spaces
+                    raw_target_id = f"{target_type}/{target_id}"
+                    target_page_id = normalize_page_id(raw_target_id)
+                    normalized_title = target_id.replace("_", " ")
                     
                     neo4j_rel_type = self._map_edge_type(edge_type)
                     
                     query = f"""
                         MERGE (target:WikiPage {{id: $target_id}})
-                        ON CREATE SET target.page_type = $target_type
+                        ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
                         WITH target
                         MATCH (source:WikiPage {{id: $source_id}})
                         MERGE (source)-[r:{neo4j_rel_type}]->(target)
@@ -1771,6 +1839,7 @@ Only include pages that would actually help answer the query.
                         source_id=page_id,
                         target_id=target_page_id,
                         target_type=target_type,
+                        target_title=normalized_title,
                     )
             
             return True

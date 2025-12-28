@@ -115,7 +115,7 @@ class LinearSearch(SearchStrategy):
             print(f"[LinearSearch] ✓ Experiment completed with score: {result.score}")
 
     def _generate_solution(self, context: ContextData, budget_progress: float) -> str:
-        """Generate a solution based on problem and previous experiments."""
+        """Generate a solution based on problem, workflow guidance, and previous experiments."""
         
         # Build prompt with history
         history_summary = ""
@@ -131,27 +131,40 @@ class LinearSearch(SearchStrategy):
             if best:
                 history_summary += f"\nBest so far (score={best.score}): {best.solution[:300]}..."
         
+        # Get workflow guidance from cognitive context manager (if available)
+        workflow_guidance = ""
+        if context.additional_info:
+            workflow_guidance = f"""
+WORKFLOW GUIDANCE (from knowledge base):
+{context.additional_info}
+
+Use the implementation guide above to structure your solution.
+Follow the steps and tips provided.
+"""
+        
         prompt = f"""Generate a solution for this problem. Be specific and detailed.
+
                 PROBLEM:
                 {context.problem}
-
+{workflow_guidance}
                 {history_summary}
 
-                KNOWLEDGE BASE:
+ADDITIONAL KNOWLEDGE:
                 {context.kg_results if context.kg_results else "No additional knowledge available."}
 
                 Requirements:
                 - Provide a complete, implementable solution
+- Follow the workflow guidance if provided
                 - Include specific steps, methods, and hyperparameters
                 - If there are previous experiments, improve upon the best one
-                - Consider the current budget progress: {budget_progress:.1f}%
+- Budget progress: {budget_progress:.1f}%
 
                 Format your solution with:
                 # Core Idea: 
                 [Brief description]
 
                 # Solution Steps:
-                [Detailed implementation steps]
+[Detailed implementation steps - follow workflow guidance]
 
                 # Hyperparameters:
                 [Specific values to use]

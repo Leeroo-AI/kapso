@@ -218,9 +218,20 @@ class OrchestratorAgent:
         # Check for context_manager config
         cm_config = mode_config.get('context_manager', {})
         
-        if cm_config:
+        # If context_manager is explicitly configured, use it
+        if cm_config and cm_config.get('type'):
             return ContextManagerFactory.create_from_config(
                 config=cm_config,
+                problem_handler=self.problem_handler,
+                search_strategy=self.search_strategy,
+                knowledge_search=self.knowledge_search,
+            )
+        
+        # If KG is active and no context_manager specified, use cognitive
+        # for full workflow support
+        if self.knowledge_search and self.knowledge_search.is_enabled():
+            return ContextManagerFactory.create(
+                context_manager_type="cognitive",
                 problem_handler=self.problem_handler,
                 search_strategy=self.search_strategy,
                 knowledge_search=self.knowledge_search,
@@ -251,6 +262,11 @@ class OrchestratorAgent:
         """
         Run the main experimentation loop.
         
+        Stops when ANY of these conditions is met:
+        1. LLM decision says COMPLETE (context_manager.should_stop())
+        2. Score threshold reached (problem_handler.stop_condition())
+        3. Budget exhausted (time/cost/iterations)
+        
         Args:
             experiment_max_iter: Maximum number of experiment iterations
             time_budget_minutes: Time budget in minutes
@@ -269,12 +285,18 @@ class OrchestratorAgent:
                 self.get_cumulative_cost() / cost_budget
             ) * 100
             
-            # Check stopping conditions
+            # Check stopping conditions (score threshold or budget)
             if self.problem_handler.stop_condition() or budget_progress >= 100:
+                print(f"[Orchestrator] Stopping: score threshold or budget reached")
                 break
             
-            # Get context (uses search_strategy for history)
+            # Get context (decision happens inside for cognitive context manager)
             experiment_context = self.context_manager.get_context(budget_progress=budget_progress)
+            
+            # Check if LLM decided COMPLETE
+            if self.context_manager.should_stop():
+                print(f"[Orchestrator] Stopping: LLM decided COMPLETE")
+                break
             
             # Run one iteration of search strategy
             self.search_strategy.run(experiment_context, budget_progress=budget_progress)
