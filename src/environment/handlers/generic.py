@@ -211,7 +211,13 @@ class GenericProblemHandler(ProblemHandler):
         env['PYTHONUNBUFFERED'] = '1'
         
         try:
-            process = subprocess.Popen(
+            # `subprocess.Popen(..., stdout=PIPE)` creates a file object for stdout.
+            # We use a context manager so it always closes deterministically.
+            #
+            # Why:
+            # - Prevent `ResourceWarning: unclosed file <_io.TextIOWrapper ...>` noise.
+            # - Avoid leaking file descriptors in long-running sessions.
+            with subprocess.Popen(
                 command,
                 cwd=file_path,
                 stdout=subprocess.PIPE,
@@ -221,31 +227,37 @@ class GenericProblemHandler(ProblemHandler):
                 errors="replace",
                 env=env,
                 bufsize=1,
-            )
-            
-            output_lines = []
-            for line in process.stdout:
-                print(line, end='', flush=True)
-                output_lines.append(line)
-                if len(output_lines) > 5000:
+            ) as process:
+                
+                output_lines = []
+                if process.stdout:
+                    for line in process.stdout:
+                        print(line, end='', flush=True)
+                        output_lines.append(line)
+                        if len(output_lines) > 5000:
+                            process.kill()
+                            break
+                
+                try:
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
                     process.kill()
-                    break
-            
-            try:
-                process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-            
-            execution_time = time.time() - start_time
-            
-            # Truncate long output
-            if len(output_lines) > 200:
-                output_lines = output_lines[:100] + [" ...\n"] + output_lines[-100:]
-            
-            output = ''.join(output_lines)
-            had_error = process.returncode != 0
-            
-            return had_error, output if had_error else "", output, execution_time
+                    # Reap the process so we don't leak resources.
+                    try:
+                        process.wait(timeout=5)
+                    except Exception:
+                        pass
+                
+                execution_time = time.time() - start_time
+                
+                # Truncate long output
+                if len(output_lines) > 200:
+                    output_lines = output_lines[:100] + [" ...\n"] + output_lines[-100:]
+                
+                output = ''.join(output_lines)
+                had_error = process.returncode != 0
+                
+                return had_error, output if had_error else "", output, execution_time
             
         except Exception as e:
             return True, str(e), "", time.time() - start_time

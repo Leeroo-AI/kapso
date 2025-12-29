@@ -389,12 +389,27 @@ class EpisodicStore:
             logger.warning(f"Failed to load insights from JSON: {e}")
     
     def close(self):
-        """Close Weaviate connection."""
+        """Close external clients (Weaviate + OpenAI)."""
         if self._weaviate_client:
             try:
                 self._weaviate_client.close()
             except:
                 pass
+        
+        # Close OpenAI client if present.
+        #
+        # Why:
+        # - The OpenAI SDK keeps an underlying HTTP client alive (often httpx).
+        # - If we don't close it, Python can emit `ResourceWarning: unclosed <ssl.SSLSocket ...>`
+        #   at process shutdown, which is noisy and can hide real issues.
+        if self._openai_client:
+            try:
+                if hasattr(self._openai_client, "close"):
+                    self._openai_client.close()
+            except Exception:
+                # Best-effort cleanup. Never fail callers during shutdown.
+                pass
+            self._openai_client = None
     
     def get_stats(self) -> dict:
         """Get statistics about the episodic store."""
