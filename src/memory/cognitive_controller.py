@@ -506,13 +506,24 @@ class CognitiveController:
         if feedback:
             logger.info(f"  Feedback: {feedback}")
         
-        # Update context with experiment result
+        # Update context with experiment result.
+        #
+        # IMPORTANT:
+        # - This is the *only* place where we persist evaluator feedback into the
+        #   cognitive state. The DecisionMaker and episodic retriever both rely
+        #   on `context.last_experiment.feedback`.
+        # - Historically this was accidentally dropped, which made decisions and
+        #   episodic retrieval much lower quality (the LLM had less signal).
         self._context.last_experiment = ExperimentState(
             experiment_id=exp_id,
-            branch_name=f"iter_{self._iteration}",
+            # Use the real experiment/branch identifier if provided. This makes
+            # logs and debugging align with the workspace branches created by
+            # the search strategy.
+            branch_name=exp_id,
             success=success,
             error_message=error_message,
             score=score,
+            feedback=feedback,
         )
         # No WorkflowState step tracking. The agent implements full solution in one go.
         
@@ -668,8 +679,12 @@ class CognitiveController:
             # Update KG retrieval state for tracking
             self._context.kg_retrieval = KGRetrievalState(
                 consulted_at_iteration=self._iteration,
-                reason=f"error_recovery: {error_message}",
-                query_used=error_message,
+                # Keep the reason short and stable. The full error is already
+                # available in `last_experiment.error_message`.
+                reason="error_recovery",
+                # Record the *actual* queries used by the retriever (Tier 1/2/3).
+                # This is critical for log auditing and PR review.
+                query_used=self._knowledge.query_used,
                 heuristics=[h.title for h in self._knowledge.error_heuristics],
                 code_patterns=[],
             )

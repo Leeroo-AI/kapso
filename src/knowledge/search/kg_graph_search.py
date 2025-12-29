@@ -1359,13 +1359,33 @@ Only include pages that would actually help answer the query.
         
         try:
             collection = self._weaviate_client.collections.get(self.weaviate_collection)
+
+            # NOTE: although this method is named `get_page(page_title)`, the
+            # cognitive retrieval stack often has a stable page *id* (e.g.
+            # "Principle/huggingface peft LoRA Configuration") from Neo4j.
+            #
+            # To keep the interface stable while making retrieval robust, we
+            # support BOTH lookup modes:
+            # - If the input looks like a typed wiki ID ("Workflow/...", "Principle/...", ...),
+            #   we attempt an exact `page_id` match first.
+            # - Otherwise we fall back to the original `page_title` match.
+            response = None
+            if "/" in page_title:
+                prefix = page_title.split("/", 1)[0]
+                if prefix in PageType.values():
+                    response = collection.query.fetch_objects(
+                        filters=wvc.query.Filter.by_property("page_id").equal(page_title),
+                        limit=1,
+                        include_vector=False,
+                    )
             
-            # Query by exact page_title match
-            response = collection.query.fetch_objects(
-                filters=wvc.query.Filter.by_property("page_title").equal(page_title),
-                limit=1,
-                include_vector=False,
-            )
+            # Fallback / default: Query by exact page_title match
+            if response is None or not response.objects:
+                response = collection.query.fetch_objects(
+                    filters=wvc.query.Filter.by_property("page_title").equal(page_title),
+                    limit=1,
+                    include_vector=False,
+                )
             
             if response.objects:
                 obj = response.objects[0]

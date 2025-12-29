@@ -71,6 +71,11 @@ class CognitiveContextManager(ContextManager):
         
         self._goal_initialized = False
         self._last_action: str = ""  # Track last decision action
+        # Guardrail: `get_context()` may be called multiple times per iteration by
+        # some orchestrators/strategies. Without this, we'd re-process the same
+        # last experiment repeatedly (duplicating insights and inflating failure
+        # counters).
+        self._last_processed_experiment_branch: Optional[str] = None
         logger.info("CognitiveContextManager initialized")
     
     def get_context(self, budget_progress: float = 0) -> ContextData:
@@ -150,6 +155,11 @@ class CognitiveContextManager(ContextManager):
             return
         
         last_exp = recent_history[-1]
+        
+        # Do not process the same experiment twice.
+        if self._last_processed_experiment_branch == last_exp.branch_name:
+            return
+        self._last_processed_experiment_branch = last_exp.branch_name
         
         # Extract all available data from ExperimentResult
         success = not last_exp.had_error

@@ -26,7 +26,7 @@ import logging
 from src.knowledge.search.base import KGSearchFilters, KGResultItem
 import re
 from pathlib import Path
-from typing import Optional, List, Dict, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 # Import new KG types
 from src.memory.kg_types import (
@@ -65,8 +65,14 @@ class KnowledgeRetriever:
                  llm: Optional["LLMBackend"] = None):
         self.kg = knowledge_search
         self._llm = llm
-        # Cache for heuristics to avoid repeated lookups
-        self._heuristic_cache: Dict[str, str] = {}
+        # Small in-process cache for page lookups.
+        #
+        # Why:
+        # - Graph traversal touches many pages (principles, implementations,
+        #   heuristics, environments).
+        # - `KnowledgeSearch.get_page()` can be a network call (Weaviate).
+        # - Caching keeps Tier 1/2 rendering fast without changing semantics.
+        self._page_cache: Dict[str, Dict[str, any]] = {}
 
     # =========================================================================
     # Small shared utilities (used by Tier 1/2/3)
@@ -223,6 +229,36 @@ class KnowledgeRetriever:
         # No workflow found
         return KGKnowledge(tier=KGTier.TIER2_RELEVANT, query_used=" | ".join(queries))
     
+    def _extract_ordered_principle_ids_from_workflow_content(self, workflow_content: str) -> List[str]:
+        """
+        Extract ordered Principle page IDs from a Workflow page's content.
+        
+        Why this exists:
+        - Neo4j `STEP` edges currently do not encode order.
+        - The workflow markdown *does* encode order via sequential step sections.
+        - We prefer the workflow-authored order for determinism and correctness.
+        
+        Expected link format in workflow pages:
+          [[step::Principle:huggingface_peft_Base_Model_Loading]]
+        
+        Returns:
+          A list of Principle IDs matching the Neo4j/Weaviate ID convention used
+          by the typed wiki structure: "Principle/<page name>" with spaces.
+        """
+        if not workflow_content:
+            return []
+        
+        ordered: List[str] = []
+        for m in re.finditer(r"\[\[step::Principle:([^\]]+)\]\]", workflow_content):
+            raw = (m.group(1) or "").strip()
+            if not raw:
+                continue
+            normalized = raw.replace("_", " ")
+            pid = f"Principle/{normalized}"
+            if pid not in ordered:
+                ordered.append(pid)
+        return ordered
+    
     def _build_workflow_from_graph(self, workflow_item) -> Optional[Workflow]:
         """
         Build complete Workflow structure from graph traversal.
@@ -234,113 +270,74 @@ class KnowledgeRetriever:
             return None
         
         workflow_id = workflow_item.id
-        steps = []
-        workflow_heuristics = []
         
         try:
             with self.kg._neo4j_driver.session() as session:
-                # Get all linked data in one query
-                query = """
-                    MATCH (w:WikiPage {id: $workflow_id})-[:STEP]->(p:WikiPage)
-                    OPTIONAL MATCH (p)-[:IMPLEMENTED_BY]->(impl:WikiPage)
-                    OPTIONAL MATCH (impl)-[:REQUIRES_ENV]->(env:WikiPage)
-                    OPTIONAL MATCH (p)-[:USES_HEURISTIC]->(hp:WikiPage)
-                    OPTIONAL MATCH (impl)-[:USES_HEURISTIC]->(hi:WikiPage)
-                    OPTIONAL MATCH (w)-[:USES_HEURISTIC]->(hw:WikiPage)
-                    RETURN 
-                        p.id AS principle_id,
-                        p.page_title AS principle_title,
-                        impl.id AS impl_id,
-                        impl.page_title AS impl_title,
-                        env.id AS env_id,
-                        env.page_title AS env_title,
-                        collect(DISTINCT {id: hp.id, title: hp.page_title}) AS principle_heuristics,
-                        collect(DISTINCT {id: hi.id, title: hi.page_title}) AS impl_heuristics,
-                        collect(DISTINCT {id: hw.id, title: hw.page_title}) AS workflow_heuristics
+                # 1) Workflow-level heuristics
+                heur_query = """
+                    MATCH (w:WikiPage {id: $workflow_id})-[:USES_HEURISTIC]->(hw:WikiPage)
+                    RETURN collect(DISTINCT {id: hw.id, title: hw.page_title}) AS workflow_heuristics
                 """
-                result = session.run(query, workflow_id=workflow_id)
+                heur_record = session.run(heur_query, workflow_id=workflow_id).single()
+                workflow_heuristics = self._build_heuristics((heur_record or {}).get("workflow_heuristics", []) or [])
                 
-                seen_principles = set()
-                step_number = 0
+                # 2) The set of principles linked from this workflow (unordered in graph)
+                steps_query = """
+                    MATCH (w:WikiPage {id: $workflow_id})-[:STEP]->(p:WikiPage)
+                    RETURN p.id AS principle_id, p.page_title AS principle_title
+                """
+                step_rows = list(session.run(steps_query, workflow_id=workflow_id))
+                if not step_rows:
+                    return None
                 
-                for record in result:
-                    principle_id = record["principle_id"]
-                    if not principle_id or principle_id in seen_principles:
-                        continue
-                    seen_principles.add(principle_id)
-                    step_number += 1
-                    
-                    # Build Implementation (if exists)
-                    implementations = []
-                    if record["impl_id"]:
-                        impl_content = self._fetch_page_content(record["impl_id"])
-                        impl_heuristics = self._build_heuristics(record["impl_heuristics"])
-                        
-                        # Build Environment
-                        environment = None
-                        if record["env_id"]:
-                            env_content = self._fetch_page_content(record["env_id"])
-                            environment = Environment(
-                                id=record["env_id"],
-                                title=record["env_title"] or "",
-                                overview=env_content.get("overview", ""),
-                                content=env_content.get("content", ""),
-                                requirements=env_content.get("overview", ""),
-                            )
-                        
-                        implementations.append(Implementation(
-                            id=record["impl_id"],
-                            title=record["impl_title"] or "",
-                            overview=impl_content.get("overview", ""),
-                            content=impl_content.get("content", ""),
-                            code_snippets=impl_content.get("code_snippets", []),
-                            environment=environment,
-                            heuristics=impl_heuristics,
-                        ))
-                    
-                    # Build Principle heuristics
-                    principle_heuristics = self._build_heuristics(record["principle_heuristics"])
-                    
-                    # Fetch Principle content
+                principle_title_by_id: Dict[str, str] = {}
+                for r in step_rows:
+                    pid = r.get("principle_id")
+                    if pid:
+                        principle_title_by_id[pid] = r.get("principle_title") or ""
+                
+                # 3) Determine step order from the workflow page content when possible.
+                #    This is more correct than relying on Neo4j return order.
+                ordered_ids = self._extract_ordered_principle_ids_from_workflow_content(workflow_item.content or "")
+                if ordered_ids:
+                    # Keep only principles that exist in the graph for this workflow.
+                    ordered_ids = [pid for pid in ordered_ids if pid in principle_title_by_id]
+                else:
+                    # Fallback: stable deterministic order (not necessarily the author-intended order).
+                    ordered_ids = sorted(principle_title_by_id.keys(), key=lambda pid: (principle_title_by_id.get(pid, ""), pid))
+                
+                steps: List[WorkflowStep] = []
+                for idx, principle_id in enumerate(ordered_ids, start=1):
+                    linked = self._traverse_principle_for_knowledge(principle_id)
                     principle_content = self._fetch_page_content(principle_id)
                     
-                    # Build Principle
                     principle = Principle(
                         id=principle_id,
-                        title=record["principle_title"] or "",
+                        title=principle_title_by_id.get(principle_id, ""),
                         overview=principle_content.get("overview", ""),
                         content=principle_content.get("content", ""),
-                        implementations=implementations,
-                        heuristics=principle_heuristics,
+                        implementations=linked.get("implementations", []),
+                        heuristics=linked.get("heuristics", []),
                     )
-                    
-                    # Build WorkflowStep
-                    steps.append(WorkflowStep(
-                        number=step_number,
-                        principle=principle,
-                    ))
-                    
-                    # Collect workflow-level heuristics (only once)
-                    if not workflow_heuristics:
-                        workflow_heuristics = self._build_heuristics(record["workflow_heuristics"])
+                    steps.append(WorkflowStep(number=idx, principle=principle))
                 
+                if not steps:
+                    return None
+                
+                return Workflow(
+                    id=workflow_id,
+                    title=workflow_item.page_title,
+                    overview=workflow_item.overview or "",
+                    content=workflow_item.content or "",
+                    source="kg_exact",
+                    confidence=workflow_item.score,
+                    steps=steps,
+                    heuristics=workflow_heuristics,
+                )
+        
         except Exception as e:
             logger.warning(f"Graph traversal failed: {e}")
             return None
-        
-        if not steps:
-            return None
-        
-        return Workflow(
-            id=workflow_id,
-            title=workflow_item.page_title,
-            overview=workflow_item.overview or "",
-            content=workflow_item.content or "",
-            source="kg_exact",
-            confidence=workflow_item.score,
-            steps=steps,
-            heuristics=workflow_heuristics,
-        )
     
     def _fetch_page_content(self, page_id: str) -> Dict[str, any]:
         """
@@ -348,28 +345,41 @@ class KnowledgeRetriever:
         """
         if not self.kg:
             return {}
+        if not page_id:
+            return {}
         
-        # Extract title from ID
-        page_title = page_id.split("/")[-1].replace("_", " ") if "/" in page_id else page_id
+        # Cache hit.
+        cached = self._page_cache.get(page_id)
+        if cached is not None:
+            return cached
         
-        page = self.kg.get_page(page_title)
-        if page:
-            return {
+        # First try: direct lookup by page_id (preferred, stable).
+        #
+        # Note: some KnowledgeSearch backends historically only supported title
+        # lookup. Our `kg_graph_search` backend supports both id and title.
+        page = self.kg.get_page(page_id)
+        if page and getattr(page, "id", None) == page_id:
+            data = {
                 "overview": page.overview or "",
                 "content": page.content or "",  # FULL content
                 "code_snippets": self._extract_code_blocks(page.content) if page.content else [],
             }
+            self._page_cache[page_id] = data
+            return data
         
-        # Try alternate title format
-        alt_title = page_id.replace("_", " ").split("/")[-1] if "/" in page_id else page_id
-        page = self.kg.get_page(alt_title)
+        # Fallback: derive the display title from the id (works for typed wiki structure).
+        page_title = page_id.split("/")[-1].replace("_", " ") if "/" in page_id else page_id
+        page = self.kg.get_page(page_title)
         if page:
-            return {
+            data = {
                 "overview": page.overview or "",
                 "content": page.content or "",
                 "code_snippets": self._extract_code_blocks(page.content) if page.content else [],
             }
+            self._page_cache[page_id] = data
+            return data
         
+        self._page_cache[page_id] = {}
         return {}
     
     def _build_heuristics(self, heuristic_records: List[Dict]) -> List[Heuristic]:
@@ -473,8 +483,8 @@ class KnowledgeRetriever:
         if not self.kg or not hasattr(self.kg, '_neo4j_driver') or not self.kg._neo4j_driver:
             return {"implementations": [], "heuristics": []}
         
-        implementations = []
-        heuristics = []
+        implementations: List[Implementation] = []
+        heuristics: List[Heuristic] = []
         
         try:
             with self.kg._neo4j_driver.session() as session:
@@ -492,38 +502,72 @@ class KnowledgeRetriever:
                         collect(DISTINCT {id: h.id, title: h.page_title}) AS principle_heuristics,
                         collect(DISTINCT {id: hi.id, title: hi.page_title}) AS impl_heuristics
                 """
-                records = session.run(query, principle_id=principle_id)
+                records = list(session.run(query, principle_id=principle_id))
+                if not records:
+                    return {"implementations": [], "heuristics": []}
                 
+                # Collect principle-level heuristics across all rows (they should
+                # be identical, but we dedupe defensively).
+                principle_heuristic_records: List[Dict] = []
+                
+                # Collect implementations across rows (a Principle may have many).
+                impl_records_by_id: Dict[str, Dict[str, Any]] = {}
                 for record in records:
-                    # Build Implementation
-                    if record["impl_id"]:
-                        impl_content = self._fetch_page_content(record["impl_id"])
-                        impl_heuristics = self._build_heuristics(record["impl_heuristics"])
-                        
-                        environment = None
-                        if record["env_id"]:
-                            env_content = self._fetch_page_content(record["env_id"])
-                            environment = Environment(
-                                id=record["env_id"],
-                                title=record["env_title"] or "",
-                                overview=env_content.get("overview", ""),
-                                content=env_content.get("content", ""),
-                                requirements=env_content.get("overview", ""),
-                            )
-                        
-                        implementations.append(Implementation(
-                            id=record["impl_id"],
-                            title=record["impl_title"] or "",
+                    principle_heuristic_records.extend(record.get("principle_heuristics") or [])
+                    
+                    impl_id = record.get("impl_id")
+                    if not impl_id:
+                        continue
+                    
+                    entry = impl_records_by_id.get(impl_id)
+                    if entry is None:
+                        entry = {
+                            "impl_id": impl_id,
+                            "impl_title": record.get("impl_title") or "",
+                            "env_id": record.get("env_id"),
+                            "env_title": record.get("env_title") or "",
+                            "impl_heuristics": [],
+                        }
+                        impl_records_by_id[impl_id] = entry
+                    
+                    # Merge env if we see it later.
+                    if not entry.get("env_id") and record.get("env_id"):
+                        entry["env_id"] = record.get("env_id")
+                        entry["env_title"] = record.get("env_title") or ""
+                    
+                    entry["impl_heuristics"].extend(record.get("impl_heuristics") or [])
+                
+                # Build Principle heuristics.
+                heuristics = self._build_heuristics(_dedupe_records_by_id(principle_heuristic_records))
+                
+                # Build Implementation objects (with env + heuristics).
+                for impl_id, entry in impl_records_by_id.items():
+                    impl_content = self._fetch_page_content(impl_id)
+                    impl_heuristics = self._build_heuristics(_dedupe_records_by_id(entry.get("impl_heuristics") or []))
+                    
+                    environment = None
+                    env_id = entry.get("env_id")
+                    if env_id:
+                        env_content = self._fetch_page_content(env_id)
+                        environment = Environment(
+                            id=env_id,
+                            title=entry.get("env_title") or "",
+                            overview=env_content.get("overview", ""),
+                            content=env_content.get("content", ""),
+                            requirements=env_content.get("overview", ""),
+                        )
+                    
+                    implementations.append(
+                        Implementation(
+                            id=impl_id,
+                            title=entry.get("impl_title") or "",
                             overview=impl_content.get("overview", ""),
                             content=impl_content.get("content", ""),
                             code_snippets=impl_content.get("code_snippets", []),
                             environment=environment,
                             heuristics=impl_heuristics,
-                        ))
-                    
-                    # Build Principle-level heuristics
-                    heuristics = self._build_heuristics(record["principle_heuristics"])
-                    break  # Only one record expected
+                        )
+                    )
                     
         except Exception as e:
             logger.warning(f"Principle graph traversal failed: {e}")
@@ -556,6 +600,7 @@ class KnowledgeRetriever:
         alternative_implementations = []
         seen_ids = set()
         
+        tier3_source_pages: List[str] = []
         for query in search_queries:
             kg_result = self.kg.search(
                 query,
@@ -578,6 +623,7 @@ class KnowledgeRetriever:
                 if item.id in seen_ids:
                     continue
                 seen_ids.add(item.id)
+                tier3_source_pages.append(item.id)
                 
                 content = self._fetch_page_content(item.id)
                 
@@ -621,6 +667,20 @@ class KnowledgeRetriever:
             raise RuntimeError("TIER 3 semantic search returned no results; refusing to silently fallback.")
         
         # Add to existing knowledge - no truncation, pages are already size-limited
+        #
+        # Also: record Tier 3 provenance in metadata so log audits can confirm the
+        # exact queries/pages used (important for PR review).
+        tier3_queries_blob = " | ".join(search_queries)
+        if tier3_queries_blob:
+            existing_knowledge.query_used = (
+                (existing_knowledge.query_used + " | " if existing_knowledge.query_used else "")
+                + f"tier3_error: {tier3_queries_blob}"
+            )
+        if tier3_source_pages:
+            for pid in tier3_source_pages:
+                if pid not in existing_knowledge.source_pages:
+                    existing_knowledge.source_pages.append(pid)
+        
         return existing_knowledge.add_error_knowledge(
             error_heuristics=error_heuristics,
             alternative_implementations=alternative_implementations,
@@ -715,7 +775,7 @@ Generate search queries to find solutions:"""
 
         try:
             response = llm.llm_completion_with_system_prompt(
-                model="gpt-4o-mini",
+                model=get_config().controller.llm_model or self.DEFAULT_MODEL,
                 system_prompt=system_prompt,
                 user_message=user_prompt,
             )
@@ -743,3 +803,21 @@ Generate search queries to find solutions:"""
     
     # NOTE: Legacy RetrievalResult/WorkflowState based retrieval removed.
     # The single supported interface is retrieve_knowledge() returning KGKnowledge.
+
+
+def _dedupe_records_by_id(records: List[Dict]) -> List[Dict]:
+    """
+    Dedupe Neo4j `collect(DISTINCT {id, title})`-style records by `id`.
+    
+    Some Cypher patterns still yield repeated maps across rows. We keep the
+    first instance for stability.
+    """
+    seen: set[str] = set()
+    deduped: List[Dict] = []
+    for r in records or []:
+        rid = (r or {}).get("id")
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        deduped.append(r)
+    return deduped
