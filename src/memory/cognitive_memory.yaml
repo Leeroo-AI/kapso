@@ -72,6 +72,21 @@ defaults:
     
     # Maximum characters to store in facts
     max_fact_length: 200
+    
+    # -------------------------------------------------------------------------
+    # Retrieval tuning (Tier 1 / 2 / 3)
+    # -------------------------------------------------------------------------
+    # These values are intentionally config-driven (no hidden magic numbers).
+    workflow_match_threshold: 0.7
+    workflow_strong_match_threshold: 0.85
+    
+    tier1_top_k: 5
+    tier1_min_score: 0.5
+    
+    tier2_top_k: 10
+    tier2_min_score: 0.4
+    
+    tier3_top_k: 5
 
   # ---------------------------------------------------------------------------
   # Insight Extraction Settings

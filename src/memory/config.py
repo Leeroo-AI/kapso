@@ -37,6 +37,24 @@ class ControllerConfig:
     state_file_path: str = ".praxium_state.md"
     max_error_length: int = 1000
     max_fact_length: int = 200
+    
+    # -------------------------------------------------------------------------
+    # Retrieval tuning (Tier 1 / 2 / 3)
+    # -------------------------------------------------------------------------
+    # These used to be hardcoded in the retriever. Keep them configurable so:
+    # - reviewers can audit changes via config diffs (not code diffs),
+    # - benchmarks can tune recall/precision without patching Python,
+    # - we avoid hidden "magic numbers" in the cognitive stack.
+    workflow_match_threshold: float = 0.7
+    workflow_strong_match_threshold: float = 0.85
+    
+    tier1_top_k: int = 5
+    tier1_min_score: float = 0.5
+    
+    tier2_top_k: int = 10
+    tier2_min_score: float = 0.4
+    
+    tier3_top_k: int = 5
 
 
 @dataclass
@@ -214,6 +232,13 @@ class CognitiveMemoryConfig:
                 "state_file_path": self.controller.state_file_path,
                 "max_error_length": self.controller.max_error_length,
                 "max_fact_length": self.controller.max_fact_length,
+                "workflow_match_threshold": self.controller.workflow_match_threshold,
+                "workflow_strong_match_threshold": self.controller.workflow_strong_match_threshold,
+                "tier1_top_k": self.controller.tier1_top_k,
+                "tier1_min_score": self.controller.tier1_min_score,
+                "tier2_top_k": self.controller.tier2_top_k,
+                "tier2_min_score": self.controller.tier2_min_score,
+                "tier3_top_k": self.controller.tier3_top_k,
             },
             "insight_extraction": {
                 "enabled": self.insight_extraction.enabled,

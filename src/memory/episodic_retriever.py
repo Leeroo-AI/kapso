@@ -17,7 +17,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.memory.episodic import EpisodicStore
@@ -26,6 +26,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Models known to support OpenAI-style JSON mode. This mirrors the DecisionMaker
+# logic so we don't trigger avoidable errors (LLMBackend retries can be slow).
+JSON_MODE_MODELS: Set[str] = {
+    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo",
+    "gpt-4.1-mini", "gpt-4.1",
+    "claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229",
+}
 
 
 @dataclass
@@ -224,6 +231,20 @@ Respond ONLY with JSON."""
                     if r not in all_results:
                         all_results.append(r)
         
+        # Optionally filter by tags (LLM-proposed). This is a soft filter: if it
+        # would eliminate everything, we keep the unfiltered set to avoid false
+        # negatives due to tag mismatch.
+        if query.filter_tags:
+            wanted = {t.strip().lower() for t in query.filter_tags if t and t.strip()}
+            if wanted:
+                tag_filtered = []
+                for r in all_results:
+                    tags = {t.lower() for t in (getattr(r, "tags", None) or []) if t}
+                    if tags & wanted:
+                        tag_filtered.append(r)
+                if tag_filtered:
+                    all_results = tag_filtered
+        
         # Filter by confidence
         filtered = [
             r for r in all_results
@@ -301,13 +322,34 @@ Respond ONLY with JSON."""
                 for c in candidates[:max_insights]
             ]
     
+    def _supports_json_mode(self, model: str) -> bool:
+        """Check if model supports JSON mode."""
+        if model in JSON_MODE_MODELS:
+            return True
+        for known in JSON_MODE_MODELS:
+            if model.startswith(known):
+                return True
+        return False
+    
     def _call_llm(self, prompt: str) -> str:
+        """
+        Call LLM for JSON output.
+        
+        IMPORTANT:
+        - We only request JSON mode when the model is known to support it.
+          Otherwise we'd trigger LLMBackend retries/sleeps on expected errors.
+        - Parsing still handles "JSON in text" defensively.
+        """
         llm = self._get_llm()
+        kwargs = {}
+        if self._supports_json_mode(self.model):
+            kwargs["response_format"] = {"type": "json_object"}
+        
         return llm.llm_completion(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            response_format={"type": "json_object"},
+            **kwargs,
         )
     
     def _parse_query_response(self, response: str) -> RetrievalQuery:
@@ -320,7 +362,7 @@ Respond ONLY with JSON."""
             if match:
                 response = match.group(1)
         
-        data = json.loads(response.strip())
+        data = self._safe_json_load(response)
         
         return RetrievalQuery(
             primary_query=data.get("primary_query", ""),
@@ -345,7 +387,7 @@ Respond ONLY with JSON."""
             if match:
                 response = match.group(1)
         
-        data = json.loads(response.strip())
+        data = self._safe_json_load(response)
         rankings = data.get("rankings", [])
         
         results = []
@@ -366,6 +408,39 @@ Respond ONLY with JSON."""
         results.sort(key=lambda x: x.relevance_score, reverse=True)
         
         return results[:max_insights]
+    
+    def _safe_json_load(self, response: str) -> dict:
+        """
+        Parse a JSON object from an LLM response.
+        
+        Handles:
+        - raw JSON
+        - JSON wrapped in markdown code fences
+        - JSON with surrounding text (best-effort extraction)
+        """
+        import json
+        
+        raw = (response or "").strip()
+        if not raw:
+            return {}
+        
+        # First attempt: direct parse.
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+        
+        # Second attempt: extract the first JSON object substring.
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = raw[start:end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+        
+        raise json.JSONDecodeError("Could not parse JSON from response", raw, 0)
     
     def _fallback_query(
         self,

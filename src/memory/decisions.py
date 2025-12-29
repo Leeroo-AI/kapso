@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Set, TYPE_CHECKING
+from typing import Optional, Set, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.memory.context import CognitiveContext
@@ -79,9 +79,13 @@ class DecisionMaker:
         self,
         llm: Optional["LLMBackend"] = None,
         model: Optional[str] = None,
+        fallback_models: Optional[List[str]] = None,
     ):
         self._llm = llm
         self.model = model or self.DEFAULT_MODEL
+        # Allow the controller/config to supply a fallback chain instead of
+        # relying on hardcoded defaults.
+        self.fallback_models = fallback_models or self.FALLBACK_MODELS
         self._action_prompt = self._load_prompt("decide_action.md")
     
     def _get_llm(self) -> "LLMBackend":
@@ -157,7 +161,11 @@ class DecisionMaker:
         """
         llm = self._get_llm()
         
-        models_to_try = [self.model] + self.FALLBACK_MODELS
+        # Try primary model first, then configured fallbacks.
+        models_to_try: List[str] = []
+        for m in [self.model] + (self.fallback_models or []):
+            if m and m not in models_to_try:
+                models_to_try.append(m)
         last_error = None
         
         for model in models_to_try:

@@ -85,6 +85,8 @@ def check_infrastructure() -> Tuple[bool, Optional[Any]]:
         from src.memory.episodic import EpisodicStore
         episodic = EpisodicStore()
         logger.info("  ✓ Episodic store connected")
+        # Close immediately (this is only a connectivity check).
+        episodic.close()
     except Exception as e:
         logger.error(f"  ✗ Episodic store failed: {e}")
         return False, None
@@ -308,7 +310,11 @@ class CognitiveE2ETest:
         from src.memory.episodic import EpisodicStore
         
         store = EpisodicStore()
-        insights = store.retrieve_relevant(query="LoRA fine-tuning training", top_k=10)
+        try:
+            insights = store.retrieve_relevant(query="LoRA fine-tuning training", top_k=10)
+        finally:
+            # Avoid leaking Weaviate sockets in local test runs.
+            store.close()
         
         logger.info(f"Insights found: {len(insights)}")
         for insight in insights[:5]:
@@ -407,6 +413,7 @@ def main():
         logger.error("Infrastructure check failed! Run: ./start_infra.sh")
         return False
     
+    test = None
     try:
         test = CognitiveE2ETest(kg=kg)
         return test.run_test()
@@ -415,6 +422,18 @@ def main():
         import traceback
         traceback.print_exc()
         return False
+    finally:
+        # Avoid leaking sockets (Neo4j/Weaviate).
+        try:
+            if test and hasattr(test, "controller"):
+                test.controller.close()
+        except Exception:
+            pass
+        try:
+            if kg:
+                kg.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

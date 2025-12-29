@@ -38,6 +38,7 @@ from src.memory.config import get_config
 if TYPE_CHECKING:
     from src.knowledge.search.base import KnowledgeSearch
     from src.core.llm import LLMBackend
+    from src.memory.config import CognitiveMemoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,13 @@ class KnowledgeRetriever:
     DEFAULT_MODEL = "gpt-4o-mini"
     
     def __init__(self, knowledge_search: Optional["KnowledgeSearch"] = None, 
-                 llm: Optional["LLMBackend"] = None):
+                 llm: Optional["LLMBackend"] = None,
+                 config: Optional["CognitiveMemoryConfig"] = None):
         self.kg = knowledge_search
         self._llm = llm
+        # Prefer a config object passed from the controller so the entire
+        # cognitive stack uses the same preset/overrides.
+        self._config = config
         # Small in-process cache for page lookups.
         #
         # Why:
@@ -73,6 +78,15 @@ class KnowledgeRetriever:
         # - `KnowledgeSearch.get_page()` can be a network call (Weaviate).
         # - Caching keeps Tier 1/2 rendering fast without changing semantics.
         self._page_cache: Dict[str, Dict[str, any]] = {}
+    
+    def _get_config(self):
+        """
+        Get the CognitiveMemoryConfig.
+        
+        If the controller injected a config, use it. Otherwise fall back to the
+        default config loader.
+        """
+        return self._config or get_config()
 
     # =========================================================================
     # Small shared utilities (used by Tier 1/2/3)
@@ -178,13 +192,15 @@ class KnowledgeRetriever:
         best_score = 0.0
         query_used = ""
         
+        cfg = self._get_config()
+        
         for query in queries:
             kg_result = self.kg.search(
                 query,
                 filters=KGSearchFilters(
-                    top_k=5,
+                    top_k=cfg.controller.tier1_top_k,
                     page_types=["Workflow"],
-                    min_score=0.5,
+                    min_score=cfg.controller.tier1_min_score,
                 ),
             )
             if kg_result.results:
@@ -200,7 +216,7 @@ class KnowledgeRetriever:
                     continue
                 
                 # Check for workflow match
-                if item.page_type == "Workflow" and item.score >= self.WORKFLOW_MATCH_THRESHOLD:
+                if item.page_type == "Workflow" and item.score >= cfg.controller.workflow_match_threshold:
                     # If we found a significantly better match, take it
                     if item.score > best_score:
                         best_match = item
@@ -208,7 +224,7 @@ class KnowledgeRetriever:
                         query_used = query
             
             # If we found a very strong match, stop searching
-            if best_match and best_score > 0.85:
+            if best_match and best_score > cfg.controller.workflow_strong_match_threshold:
                 break
         
         if best_match:
@@ -418,14 +434,16 @@ class KnowledgeRetriever:
         logger.info(f"TIER 2: Searching with {len(queries)} queries: {queries}")
 
         # Search for Principles across queries and dedupe by id, keeping best score.
+        cfg = self._get_config()
+        
         best_by_id: Dict[str, KGResultItem] = {}
         for query in queries:
             kg_result = self.kg.search(
                 query,
                 filters=KGSearchFilters(
-                    top_k=10,
+                    top_k=cfg.controller.tier2_top_k,
                     page_types=["Principle"],
-                    min_score=0.4,
+                    min_score=cfg.controller.tier2_min_score,
                 ),
             )
             if kg_result.results:
@@ -601,11 +619,13 @@ class KnowledgeRetriever:
         seen_ids = set()
         
         tier3_source_pages: List[str] = []
+        cfg = self._get_config()
+        
         for query in search_queries:
             kg_result = self.kg.search(
                 query,
                 filters=KGSearchFilters(
-                    top_k=5,
+                    top_k=cfg.controller.tier3_top_k,
                     # Include Environment pages so dependency / setup errors can retrieve
                     # install/requirements guidance (critical for ImportError cases).
                     page_types=["Heuristic", "Implementation", "Environment"],
@@ -745,7 +765,7 @@ Hard rules:
         else: # "error"
             # Limit error text only via config (never hardcode truncation).
             # We use the *tail* since tracebacks typically end with the actionable exception.
-            cfg = get_config()
+            cfg = self._get_config()
             max_error_chars = getattr(cfg.controller, "max_error_length", None)
             if max_error_chars is None or max_error_chars <= 0:
                 error_tail = error or ""
@@ -775,7 +795,7 @@ Generate search queries to find solutions:"""
 
         try:
             response = llm.llm_completion_with_system_prompt(
-                model=get_config().controller.llm_model or self.DEFAULT_MODEL,
+                model=self._get_config().controller.llm_model or self.DEFAULT_MODEL,
                 system_prompt=system_prompt,
                 user_message=user_prompt,
             )

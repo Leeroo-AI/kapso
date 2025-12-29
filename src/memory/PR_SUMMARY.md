@@ -60,6 +60,16 @@ This file is the single source of truth for `KGKnowledge` and tier rendering.
 - **Evaluator feedback correctness**: persist evaluator feedback into `ExperimentState` so both the agent context renderer and `DecisionMaker` see the same feedback signal.
 - **No double-processing**: cognitive context manager guards against re-processing the same last experiment multiple times (prevents duplicate insights and inflated failure counters).
 - **Expert/orchestrator wiring**: ensure the configured KG backend instance is actually injected/used end-to-end (no accidental backend mismatch).
+- **Config-driven limits + tuning (no hardcoded cutoffs)**:
+  - `KGGraphSearch` embedding input and reranker overview preview limits are configured in `src/knowledge/search/knowledge_search.yaml` (no `[:8000]` / `[:300]` slices in code).
+  - Tier 1/2/3 retrieval thresholds and `top_k`/`min_score` are now part of `src/memory/cognitive_memory.yaml` (via `ControllerConfig`) rather than hardcoded in the retriever.
+- **No import-time logging side effects**: removed `logging.basicConfig(...)` from `KGGraphSearch` so tests/apps control logging.
+- **Episodic retrieval quality**:
+  - `filter_tags` produced by the LLM are now actually applied (soft filter; won’t eliminate all candidates).
+  - JSON mode is only requested for models known to support it (avoids slow LLMBackend retries on unsupported models).
+- **Resource lifecycle**:
+  - Orchestrator now closes its owned context manager after `solve()` (prevents leaked Weaviate/Neo4j sockets).
+  - Cognitive tests were updated to close controllers/KG handles in `finally` blocks.
 
 ## Testing
 

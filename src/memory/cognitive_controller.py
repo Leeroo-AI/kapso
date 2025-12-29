@@ -99,10 +99,23 @@ class CognitiveController:
             config = CognitiveMemoryConfig.load()
         self._config = config
         
+        # Use config as the single source of truth for model selection unless
+        # explicitly overridden by the caller.
+        decision_model = decision_model or self._config.controller.llm_model
+        
         # Initialize core components
-        self.retriever = KnowledgeRetriever(knowledge_search=knowledge_search)
-        self.decision_maker = DecisionMaker(model=decision_model)
-        self.episodic = EpisodicStore(persist_path=episodic_store_path)
+        self.retriever = KnowledgeRetriever(
+            knowledge_search=knowledge_search,
+            config=self._config,
+        )
+        self.decision_maker = DecisionMaker(
+            model=decision_model,
+            fallback_models=self._config.controller.fallback_models,
+        )
+        self.episodic = EpisodicStore(
+            persist_path=episodic_store_path,
+            config=self._config.episodic,
+        )
         
         # Initialize LLM-governed components
         self.insight_extractor = InsightExtractor(model=decision_model)
@@ -275,7 +288,7 @@ class CognitiveController:
                 current_step=current_step_title,
                 last_error=last_error,
                 last_feedback=last_feedback,
-                max_insights=5,
+                max_insights=self._config.briefing.max_episodic_insights,
             )
             
             # Update context with retrieved insights

@@ -88,66 +88,77 @@ def test_real_kg_workflow():
         knowledge_search=kg,  # REAL KG, not None!
     )
     
-    # STEP 3: Initialize with a goal that should match a real workflow
-    logger.info("\n[3] Initializing goal...")
-    
-    objective = Objective(
-        description="Fine-tune a language model with LoRA",
-        objective_type=ObjectiveType.ML_TRAINING,
-        success_criteria="Model trains without error",
-        source="test",
-    )
-    
-    knowledge = controller.initialize_goal(objective)
-    
-    # STEP 4: Verify workflow came from KG, not fallback
-    logger.info("\n[4] Verifying workflow source...")
-    
-    if knowledge is None or knowledge.workflow is None:
-        logger.error("FAILED: No workflow returned")
-        return False
-    
-    workflow = knowledge.workflow
-    
-    # Check it's not a fallback
-    if workflow.source == "fallback":
-        logger.error(f"FAILED: Got fallback workflow, not real KG data")
-        logger.error(f"Workflow: {workflow.title}")
-        logger.error("The KG may not have matching workflows loaded.")
-        return False
-    
-    if workflow.source not in ["kg_exact", "kg_synthesized"]:
-        logger.warning(f"Workflow source: {workflow.source} (expected kg_exact or kg_synthesized)")
-    
-    logger.info(f"✓ Workflow from KG: {workflow.title}")
-    logger.info(f"  Source: {workflow.source}")
-    logger.info(f"  Confidence: {workflow.confidence}")
-    logger.info(f"  Steps: {len(workflow.steps)}")
-    
-    for step in workflow.steps:
-        logger.info(f"    {step.number}. {step.principle.title}")
-        heuristics = step.principle.heuristics
-        logger.info(f"       Heuristics: {len(heuristics)}")
-        for h in heuristics[:2]:
-            logger.info(f"         - {h.title}")
-    
-    # STEP 5: Process a result
-    logger.info("\n[5] Processing experiment result...")
-    
-    action, details = controller.process_result(
-        success=True,
-        score=0.85,
-        feedback="Model trained successfully with LoRA",
-    )
-    
-    logger.info(f"Action: {action}")
-    logger.info(f"Details: {details}")
-    
-    logger.info("\n" + "=" * 60)
-    logger.info("TEST PASSED - Used real KG data")
-    logger.info("=" * 60)
-    
-    return True
+    try:
+        # STEP 3: Initialize with a goal that should match a real workflow
+        logger.info("\n[3] Initializing goal...")
+        
+        objective = Objective(
+            description="Fine-tune a language model with LoRA",
+            objective_type=ObjectiveType.ML_TRAINING,
+            success_criteria="Model trains without error",
+            source="test",
+        )
+        
+        knowledge = controller.initialize_goal(objective)
+        
+        # STEP 4: Verify workflow came from KG, not fallback
+        logger.info("\n[4] Verifying workflow source...")
+        
+        if knowledge is None or knowledge.workflow is None:
+            logger.error("FAILED: No workflow returned")
+            return False
+        
+        workflow = knowledge.workflow
+        
+        # Check it's not a fallback
+        if workflow.source == "fallback":
+            logger.error(f"FAILED: Got fallback workflow, not real KG data")
+            logger.error(f"Workflow: {workflow.title}")
+            logger.error("The KG may not have matching workflows loaded.")
+            return False
+        
+        if workflow.source not in ["kg_exact", "kg_synthesized"]:
+            logger.warning(f"Workflow source: {workflow.source} (expected kg_exact or kg_synthesized)")
+        
+        logger.info(f"✓ Workflow from KG: {workflow.title}")
+        logger.info(f"  Source: {workflow.source}")
+        logger.info(f"  Confidence: {workflow.confidence}")
+        logger.info(f"  Steps: {len(workflow.steps)}")
+        
+        for step in workflow.steps:
+            logger.info(f"    {step.number}. {step.principle.title}")
+            heuristics = step.principle.heuristics
+            logger.info(f"       Heuristics: {len(heuristics)}")
+            for h in heuristics[:2]:
+                logger.info(f"         - {h.title}")
+        
+        # STEP 5: Process a result
+        logger.info("\n[5] Processing experiment result...")
+        
+        action, details = controller.process_result(
+            success=True,
+            score=0.85,
+            feedback="Model trained successfully with LoRA",
+        )
+        
+        logger.info(f"Action: {action}")
+        logger.info(f"Details: {details}")
+        
+        logger.info("\n" + "=" * 60)
+        logger.info("TEST PASSED - Used real KG data")
+        logger.info("=" * 60)
+        
+        return True
+    finally:
+        # Prevent leaked sockets in local test runs (Weaviate/Neo4j clients).
+        try:
+            controller.close()
+        except Exception:
+            pass
+        try:
+            kg.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

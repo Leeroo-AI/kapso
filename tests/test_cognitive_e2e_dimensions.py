@@ -141,52 +141,63 @@ def test_dimension_1_workflow_quality() -> DimensionResult:
     kg = KnowledgeSearchFactory.create("kg_graph_search")
     controller = CognitiveController(knowledge_search=kg)
     
-    # Use goals that are known to exist in the current KG so this test measures
-    # retrieval quality rather than KG coverage of arbitrary tasks.
-    test_goals = [
-        "Fine-tune a language model with LoRA for text generation",
-        "Fine-tune a language model using QLoRA",
-        "Fine tune GPT-2 with LoRA using PEFT",
-    ]
-    
-    results = {
-        "goals_tested": len(test_goals),
-        "workflows_returned": 0,
-        "steps_with_heuristics": 0,
-        "total_steps": 0,
-    }
-    
-    for goal in test_goals:
-        knowledge = controller.initialize_goal(goal)
+    try:
+        # Use goals that are known to exist in the current KG so this test measures
+        # retrieval quality rather than KG coverage of arbitrary tasks.
+        test_goals = [
+            "Fine-tune a language model with LoRA for text generation",
+            "Fine-tune a language model using QLoRA",
+            "Fine tune GPT-2 with LoRA using PEFT",
+        ]
         
-        if knowledge and knowledge.workflow:
-            results["workflows_returned"] += 1
-            results["total_steps"] += len(knowledge.workflow.steps)
-            
-            for step in knowledge.workflow.steps:
-                if step.principle.heuristics:
-                    results["steps_with_heuristics"] += 1
-    
-    # Calculate score.
-    # NOTE: Heuristic linkage depends on KG curation; we treat "any heuristics"
-    # as a quality signal but do not fail the system if only some steps have them.
-    workflow_rate = results["workflows_returned"] / results["goals_tested"]
-    heuristic_rate = (
-        results["steps_with_heuristics"] / results["total_steps"]
-        if results["total_steps"] > 0 else 0
-    )
-    score = (workflow_rate * 0.7) + (heuristic_rate * 0.3)
-    passed = workflow_rate >= 0.66  # Expect most known workflow goals to resolve
-    
-    return DimensionResult(
-        name="Workflow Quality",
-        passed=passed,
-        score=score,
-        details={
-            "workflows_returned": f"{results['workflows_returned']}/{results['goals_tested']}",
-            "steps_with_heuristics": f"{results['steps_with_heuristics']}/{results['total_steps']}",
+        results = {
+            "goals_tested": len(test_goals),
+            "workflows_returned": 0,
+            "steps_with_heuristics": 0,
+            "total_steps": 0,
         }
-    )
+        
+        for goal in test_goals:
+            knowledge = controller.initialize_goal(goal)
+            
+            if knowledge and knowledge.workflow:
+                results["workflows_returned"] += 1
+                results["total_steps"] += len(knowledge.workflow.steps)
+                
+                for step in knowledge.workflow.steps:
+                    if step.principle.heuristics:
+                        results["steps_with_heuristics"] += 1
+        
+        # Calculate score.
+        # NOTE: Heuristic linkage depends on KG curation; we treat "any heuristics"
+        # as a quality signal but do not fail the system if only some steps have them.
+        workflow_rate = results["workflows_returned"] / results["goals_tested"]
+        heuristic_rate = (
+            results["steps_with_heuristics"] / results["total_steps"]
+            if results["total_steps"] > 0 else 0
+        )
+        score = (workflow_rate * 0.7) + (heuristic_rate * 0.3)
+        passed = workflow_rate >= 0.66  # Expect most known workflow goals to resolve
+        
+        return DimensionResult(
+            name="Workflow Quality",
+            passed=passed,
+            score=score,
+            details={
+                "workflows_returned": f"{results['workflows_returned']}/{results['goals_tested']}",
+                "steps_with_heuristics": f"{results['steps_with_heuristics']}/{results['total_steps']}",
+            }
+        )
+    finally:
+        # Avoid leaking Weaviate/Neo4j sockets in local test runs.
+        try:
+            controller.close()
+        except Exception:
+            pass
+        try:
+            kg.close()
+        except Exception:
+            pass
 
 
 # =============================================================================
@@ -502,6 +513,8 @@ def test_dimension_5_error_recovery() -> DimensionResult:
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         store_path = f.name
     
+    kg = None
+    controller = None
     try:
         # Use real KG so Tier 3 retrieval can be exercised meaningfully.
         from src.knowledge.search import KnowledgeSearchFactory
@@ -561,6 +574,16 @@ def test_dimension_5_error_recovery() -> DimensionResult:
         )
         
     finally:
+        try:
+            if controller:
+                controller.close()
+        except Exception:
+            pass
+        try:
+            if kg:
+                kg.close()
+        except Exception:
+            pass
         if os.path.exists(store_path):
             os.remove(store_path)
 
@@ -586,6 +609,8 @@ def test_dimension_6_e2e_flow() -> DimensionResult:
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         store_path = f.name
     
+    kg = None
+    controller = None
     try:
         from src.knowledge.search import KnowledgeSearchFactory
         kg = KnowledgeSearchFactory.create("kg_graph_search")
@@ -661,6 +686,16 @@ def test_dimension_6_e2e_flow() -> DimensionResult:
         )
         
     finally:
+        try:
+            if controller:
+                controller.close()
+        except Exception:
+            pass
+        try:
+            if kg:
+                kg.close()
+        except Exception:
+            pass
         if os.path.exists(store_path):
             os.remove(store_path)
 
