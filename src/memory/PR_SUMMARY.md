@@ -51,8 +51,14 @@ This file is the single source of truth for `KGKnowledge` and tier rendering.
 ### 5) Retrieval quality + plumbing fixes
 
 - **Tier 1/2 query generation**: Tier 1 and Tier 2 use LLM-generated search queries (no hardcoded examples in prompts) before graph traversal.
+- **Tier 1 workflow traversal correctness**:
+  - Preserve **workflow-authored step order** by extracting ordered `[[step::Principle:...]]` links from the Workflow page content (Neo4j `STEP` edges currently do not encode ordering).
+  - Do not silently drop additional implementations / heuristics during traversal (Principles may have multiple linked leaf pages).
 - **Tier 3 search quality**: Tier 3 includes `Environment` pages in semantic search so ImportError/missing dependency cases retrieve install/setup guidance.
+- **Tier 3 provenance**: Tier 3 now records the error-query set in `KGKnowledge.query_used` (and appends Tier 3 source pages), making log audits deterministic and reviewable.
 - **Context passing**: cognitive context manager passes the full rendered `KGKnowledge` into agent context (`additional_info`) and avoids duplicating/truncating code snippets.
+- **Evaluator feedback correctness**: persist evaluator feedback into `ExperimentState` so both the agent context renderer and `DecisionMaker` see the same feedback signal.
+- **No double-processing**: cognitive context manager guards against re-processing the same last experiment multiple times (prevents duplicate insights and inflated failure counters).
 - **Expert/orchestrator wiring**: ensure the configured KG backend instance is actually injected/used end-to-end (no accidental backend mismatch).
 
 ## Testing
