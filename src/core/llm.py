@@ -3,6 +3,7 @@
 # Unified LLM interface with support for completions, web search, and cost tracking.
 
 import asyncio
+import os
 import time
 from litellm import completion, acompletion
 from typing import Optional, Dict, List
@@ -351,22 +352,44 @@ class LLMBackend:
         
         return asyncio.run(_run())
 
-    def create_embedding(self, text: str, model: str = "text-embedding-3-large") -> List[float]:
+    def create_embedding(
+        self,
+        text: str,
+        model: str = "text-embedding-3-large",
+        max_chars: Optional[int] = None,
+    ) -> List[float]:
         """
         Create embedding for text using OpenAI embeddings API.
         
         Args:
-            text: Text to embed (truncated to 8000 chars)
+            text: Text to embed
             model: Embedding model name (default: "text-embedding-3-large")
+            max_chars: Optional truncation limit.
+                IMPORTANT: We do not hardcode truncation limits in code.
+                If you need a limit due to upstream API constraints, pass it in
+                explicitly or set `PRAXIUM_EMBEDDING_MAX_CHARS` in your `.env`.
             
         Returns:
             List of embedding floats, or empty list on error
         """
         try:
             import openai
+            
+            # Respect optional truncation limit from caller or environment.
+            # Default is NO truncation (safer for correctness; callers can tune).
+            if max_chars is None:
+                env_val = os.getenv("PRAXIUM_EMBEDDING_MAX_CHARS")
+                if env_val:
+                    try:
+                        parsed = int(env_val)
+                        max_chars = parsed if parsed > 0 else None
+                    except Exception:
+                        max_chars = None
+            
+            input_text = text if (max_chars is None) else text[:max_chars]
             response = openai.embeddings.create(
                 model=model,
-                input=text[:8000]
+                input=input_text,
             )
             return response.data[0].embedding
         except Exception:

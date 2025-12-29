@@ -62,8 +62,6 @@ from src.knowledge.search.base import (
 from src.knowledge.search.factory import register_knowledge_search
 from src.core.llm import LLMBackend
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -579,6 +577,15 @@ class KGGraphSearch(KnowledgeSearch):
         self.include_connected_pages = self.params.get("include_connected_pages", True)
         self.use_llm_reranker = self.params.get("use_llm_reranker", True)
         
+        # Truncation limits MUST be config-driven (never hardcoded in code).
+        # These exist only to satisfy upstream API constraints and prompt size.
+        self.embedding_max_input_chars = self._coerce_positive_int(
+            self.params.get("embedding_max_input_chars")
+        )
+        self.reranker_overview_max_chars = self._coerce_positive_int(
+            self.params.get("reranker_overview_max_chars")
+        )
+        
         # Clients (initialized lazily)
         self._neo4j_driver = None
         self._weaviate_client = None
@@ -589,6 +596,31 @@ class KGGraphSearch(KnowledgeSearch):
         self._pages: List[WikiPage] = []
         
         self._initialize_clients()
+    
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> Optional[int]:
+        """Parse an optional positive int from config; return None if unset/invalid."""
+        try:
+            if value is None:
+                return None
+            n = int(value)
+            return n if n > 0 else None
+        except Exception:
+            return None
+    
+    @staticmethod
+    def _maybe_truncate(text: str, max_chars: Optional[int]) -> str:
+        """
+        Optionally truncate text to max_chars.
+        
+        This is intentionally centralized and config-driven. Do NOT add ad-hoc
+        `[:N]` slices in other code paths.
+        """
+        if not text:
+            return ""
+        if max_chars is None:
+            return text
+        return text[:max_chars]
     
     # =========================================================================
     # Client Initialization
@@ -796,7 +828,7 @@ class KGGraphSearch(KnowledgeSearch):
             if is_heuristic_backlink:
                 # Create REVERSE edge: target → USES_HEURISTIC → source (this heuristic)
                 query = f"""
-                    MERGE (target:WikiPage {{id: $target_id}})
+                MERGE (target:WikiPage {{id: $target_id}})
                     ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
                     WITH target
                     MATCH (source:WikiPage {{id: $source_id}})
@@ -808,10 +840,10 @@ class KGGraphSearch(KnowledgeSearch):
                 query = f"""
                     MERGE (target:WikiPage {{id: $target_id}})
                     ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
-                WITH target
-                MATCH (source:WikiPage {{id: $source_id}})
-                MERGE (source)-[r:{neo4j_rel_type}]->(target)
-            """
+                    WITH target
+                    MATCH (source:WikiPage {{id: $source_id}})
+                    MERGE (source)-[r:{neo4j_rel_type}]->(target)
+                """
             
             try:
                 session.run(
@@ -926,9 +958,10 @@ class KGGraphSearch(KnowledgeSearch):
             return None
         
         try:
+            input_text = self._maybe_truncate(text, self.embedding_max_input_chars)
             response = self._openai_client.embeddings.create(
                 model=self.embedding_model,
-                input=text[:8000],  # Limit text length
+                input=input_text,
             )
             return response.data[0].embedding
             
@@ -1078,9 +1111,10 @@ class KGGraphSearch(KnowledgeSearch):
         # Build context for LLM
         pages_info = []
         for i, result in enumerate(results):
+            overview_preview = self._maybe_truncate(result.overview or "", self.reranker_overview_max_chars)
             pages_info.append(
                 f"[{i}] {result.page_title} ({result.page_type})\n"
-                f"    Overview: {result.overview[:300]}..."
+                f"    Overview: {overview_preview}..."
             )
         
         pages_text = "\n\n".join(pages_info)
@@ -1359,13 +1393,33 @@ Only include pages that would actually help answer the query.
         
         try:
             collection = self._weaviate_client.collections.get(self.weaviate_collection)
+
+            # NOTE: although this method is named `get_page(page_title)`, the
+            # cognitive retrieval stack often has a stable page *id* (e.g.
+            # "Principle/huggingface peft LoRA Configuration") from Neo4j.
+            #
+            # To keep the interface stable while making retrieval robust, we
+            # support BOTH lookup modes:
+            # - If the input looks like a typed wiki ID ("Workflow/...", "Principle/...", ...),
+            #   we attempt an exact `page_id` match first.
+            # - Otherwise we fall back to the original `page_title` match.
+            response = None
+            if "/" in page_title:
+                prefix = page_title.split("/", 1)[0]
+                if prefix in PageType.values():
+                    response = collection.query.fetch_objects(
+                        filters=wvc.query.Filter.by_property("page_id").equal(page_title),
+                        limit=1,
+                        include_vector=False,
+                    )
             
-            # Query by exact page_title match
-            response = collection.query.fetch_objects(
-                filters=wvc.query.Filter.by_property("page_title").equal(page_title),
-                limit=1,
-                include_vector=False,
-            )
+            # Fallback / default: Query by exact page_title match
+            if response is None or not response.objects:
+                response = collection.query.fetch_objects(
+                    filters=wvc.query.Filter.by_property("page_title").equal(page_title),
+                    limit=1,
+                    include_vector=False,
+                )
             
             if response.objects:
                 obj = response.objects[0]

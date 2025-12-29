@@ -154,18 +154,18 @@ class InsightExtractor:
         code_snippet: Optional[str],
     ) -> str:
         """Build prompt for error insight extraction."""
-        context = f"Goal: {goal[:200]}"
+        context = f"Goal: {goal}"
         if current_step:
             context += f"\nCurrent step: {current_step}"
         if code_snippet:
-            context += f"\nCode:\n```\n{code_snippet[:500]}\n```"
+            context += f"\nCode:\n```\n{code_snippet}\n```"
         
         # Try external template first
         template = self._load_prompt("extract_error_insight.md")
         if template:
             return template.format(
                 context=context,
-                error_message=error_message[:1000],
+                error_message=error_message,
             )
         
         # Fallback: inline prompt
@@ -175,7 +175,7 @@ class InsightExtractor:
 {context}
 
 ## Error
-{error_message[:1000]}
+{error_message}
 
 ## Task
 Extract a GENERALIZED, REUSABLE lesson from this error.
@@ -202,18 +202,18 @@ Respond ONLY with JSON."""
         solution_summary: Optional[str],
     ) -> str:
         """Build prompt for success insight extraction."""
-        context = f"Goal: {goal[:200]}\nScore: {score:.2f}"
+        context = f"Goal: {goal}\nScore: {score:.2f}"
         if current_step:
             context += f"\nCompleted step: {current_step}"
         if solution_summary:
-            context += f"\nSolution approach: {solution_summary[:300]}"
+            context += f"\nSolution approach: {solution_summary}"
         
         # Try external template first
         template = self._load_prompt("extract_success_insight.md")
         if template:
             return template.format(
                 context=context,
-                feedback=feedback[:500],
+                feedback=feedback,
             )
         
         # Fallback: inline prompt
@@ -223,7 +223,7 @@ Respond ONLY with JSON."""
 {context}
 
 ## Evaluator Feedback
-{feedback[:500]}
+{feedback}
 
 ## Task
 Extract a REUSABLE best practice from this success.
@@ -274,7 +274,7 @@ Respond ONLY with JSON."""
                 trigger_conditions=data.get("trigger_conditions", "Unknown"),
                 suggested_fix=data.get("suggested_fix", "Unknown"),
                 confidence=float(data.get("confidence", 0.5)),
-                original_error=original[:500],
+                original_error=original,
                 tags=data.get("tags", []),
             )
         except (json.JSONDecodeError, KeyError) as e:
@@ -300,22 +300,22 @@ Respond ONLY with JSON."""
             error_type = "attribute_error"
         
         return ExtractedInsight(
-            lesson=f"Error occurred: {error_message[:200]}",
+            lesson=f"Error occurred: {error_message}",
             trigger_conditions=f"When {error_type} happens",
             suggested_fix="Review the error and fix the underlying issue",
             confidence=0.3,
-            original_error=error_message[:500],
+            original_error=error_message,
             tags=[error_type, "error", "fallback"],
         )
     
     def _fallback_success_insight(self, feedback: str, score: float) -> ExtractedInsight:
         """Create basic insight when LLM extraction fails."""
         return ExtractedInsight(
-            lesson=f"Success: {feedback[:200]}",
+            lesson=f"Success: {feedback}",
             trigger_conditions="Similar goals",
             suggested_fix="Follow the same approach",
             confidence=score * 0.5,
-            original_error=feedback[:500],
+            original_error=feedback,
             tags=["success", "fallback"],
         )
 

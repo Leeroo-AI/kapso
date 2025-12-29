@@ -23,7 +23,10 @@ class KnowledgeSearchFactory:
     
     Usage:
         # Create search backend
-        search = KnowledgeSearchFactory.create("kg_llm_navigation", enabled=True)
+        search = KnowledgeSearchFactory.create("kg_llm_navigation")
+        
+        # Create from config (supports enabled: true/false)
+        search = KnowledgeSearchFactory.create_from_config({"type": "kg_graph_search", "enabled": True})
         
         # Create null (disabled) search
         search = KnowledgeSearchFactory.create_null()
@@ -136,6 +139,10 @@ class KnowledgeSearchFactory:
     def create_from_config(cls, config: Dict[str, Any]) -> KnowledgeSearch:
         """Create search backend from a config dictionary."""
         if not config:
+            return cls.create_null()
+        
+        # Check if explicitly disabled
+        if config.get("enabled") is False:
             return cls.create_null()
         
         return cls.create(

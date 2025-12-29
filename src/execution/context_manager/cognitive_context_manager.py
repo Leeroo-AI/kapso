@@ -71,6 +71,11 @@ class CognitiveContextManager(ContextManager):
         
         self._goal_initialized = False
         self._last_action: str = ""  # Track last decision action
+        # Guardrail: `get_context()` may be called multiple times per iteration by
+        # some orchestrators/strategies. Without this, we'd re-process the same
+        # last experiment repeatedly (duplicating insights and inflating failure
+        # counters).
+        self._last_processed_experiment_branch: Optional[str] = None
         logger.info("CognitiveContextManager initialized")
     
     def get_context(self, budget_progress: float = 0) -> ContextData:
@@ -78,8 +83,8 @@ class CognitiveContextManager(ContextManager):
         Get context for the coding agent.
         
         Uses TWO-STAGE RETRIEVAL:
-        - Stage 1 (Planning): Workflow, Principles, Heuristics → additional_info
-        - Stage 2 (Implementation): Code snippets, Implementation pages → kg_code_results
+        - All knowledge (workflow, principles, code, heuristics) → additional_info
+        - kg_code_results is empty (code already in additional_info, no duplication)
         
         On first call: initializes goal and retrieves workflow from KG
         On subsequent calls: updates based on experiment results
@@ -92,12 +97,12 @@ class CognitiveContextManager(ContextManager):
             goal = self._extract_goal(problem_desc)
             self.controller.initialize_goal(goal)
             self._goal_initialized = True
-            logger.info(f"Initialized goal: {goal[:50]}...")
+            logger.info(f"Initialized goal: {goal}")
         
         # 3. Process last experiment result
         self._process_last_experiment()
         
-        # 4. Generate briefing (Stage 1 output: workflow, principles, heuristics)
+        # 4. Generate briefing (contains full KGKnowledge.render() output)
         briefing = self.controller.prepare_briefing()
         
         # 5. Add workflow progress info
@@ -113,10 +118,10 @@ class CognitiveContextManager(ContextManager):
 """
             additional_info = workflow_status + "\n" + additional_info
         
-        # 6. Stage 2: Get implementation context (code snippets, implementation pages)
-        kg_code_results = self._get_implementation_context()
+        # 6. Code is already in additional_info via KGKnowledge.render()
+        # Don't duplicate it in kg_code_results
+        kg_code_results = ""
         
-        # Log context summary for debugging
         context_data = ContextData(
             problem=problem_desc,
             additional_info=additional_info,
@@ -127,68 +132,10 @@ class CognitiveContextManager(ContextManager):
         # Log what's being sent to the agent
         logger.info(f"  📤 Context prepared for agent:")
         logger.info(f"     Problem: {len(problem_desc)} chars")
-        logger.info(f"     Workflow guidance: {len(additional_info)} chars")
-        logger.info(f"     Implementation code: {len(kg_code_results)} chars")
+        logger.info(f"     KG guidance (includes code): {len(additional_info)} chars")
         
         return context_data
     
-    def _get_implementation_context(self) -> str:
-        """
-        Get implementation-level context.
-        
-        UNIFIED: Uses graph-traversed implementations from workflow if available.
-        Falls back to semantic search only when no workflow.
-        """
-        goal = self.controller._goal or ""
-        
-        # Get workflow from controller's context (has graph-traversed implementations)
-        workflow = None
-        if self.controller._context and self.controller._context.workflow:
-            workflow = self.controller._context.workflow
-        
-        # Pass workflow to get graph-based implementations
-        impl_context = self.controller.retriever.get_implementation_context(
-            goal, 
-            workflow=workflow
-        )
-        
-        if not impl_context:
-            return ""
-        
-        lines = []
-        
-        # Add implementation summaries
-        impls = impl_context.get("implementations", [])
-        if impls:
-            lines.append("## Implementation Reference")
-            for impl in impls[:3]:
-                title = impl.get("title", "Unknown")
-                overview = impl.get("overview", "")
-                lines.append(f"### {title}")
-                if overview:
-                    lines.append(overview)
-                lines.append("")
-        
-        # Add code snippets
-        snippets = impl_context.get("code_snippets", [])
-        if snippets:
-            lines.append("## Code Patterns")
-            for i, snippet in enumerate(snippets[:4], 1):
-                lines.append(f"**Pattern {i}:**")
-                lines.append(f"```python\n{snippet.strip()}\n```")
-                lines.append("")
-        
-        # Add environment requirements
-        envs = impl_context.get("environment", [])
-        if envs:
-            lines.append("## Environment Requirements")
-            for env in envs[:2]:
-                title = env.get("title", "")
-                reqs = env.get("requirements", "")
-                if title:
-                    lines.append(f"**{title}:** {reqs}")
-        
-        return "\n".join(lines)
     
     def _process_last_experiment(self):
         """
@@ -208,6 +155,11 @@ class CognitiveContextManager(ContextManager):
             return
         
         last_exp = recent_history[-1]
+        
+        # Do not process the same experiment twice.
+        if self._last_processed_experiment_branch == last_exp.branch_name:
+            return
+        self._last_processed_experiment_branch = last_exp.branch_name
         
         # Extract all available data from ExperimentResult
         success = not last_exp.had_error
@@ -248,8 +200,6 @@ class CognitiveContextManager(ContextManager):
             goal_text = goal_match.group(1).strip()
             # If we got actual content, use it
             if len(goal_text) > 20:
-                if len(goal_text) > 500:
-                    return goal_text[:500] + "..."
                 return goal_text
         
         # Fallback: Find first substantial paragraph (non-header, >20 chars)
@@ -258,13 +208,9 @@ class CognitiveContextManager(ContextManager):
             # Skip headers and short lines
             clean = para.strip()
             if clean and not clean.startswith('#') and len(clean) > 20:
-                if len(clean) > 500:
-                    return clean[:500] + "..."
                 return clean
         
-        # Last resort: use everything (truncated)
-        if len(problem_desc) > 500:
-            return problem_desc[:500] + "..."
+        # Last resort: use everything (no truncation)
         return problem_desc
     
     # =========================================================================

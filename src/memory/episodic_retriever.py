@@ -10,15 +10,14 @@
 # This makes retrieval CONTEXT-AWARE and GOAL-ORIENTED.
 #
 # Prompts:
-# - Loaded from external files in src/memory/prompts/
-# - episodic_retrieval_query.md - for query formulation
+# - This module currently uses inline prompts.
+# - (Some older prompt templates may still exist on disk, but are not loaded here.)
 #
 # =============================================================================
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.memory.episodic import EpisodicStore
@@ -27,8 +26,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Path to prompt templates
-PROMPTS_DIR = Path(__file__).parent / "prompts"
+# Models known to support OpenAI-style JSON mode. This mirrors the DecisionMaker
+# logic so we don't trigger avoidable errors (LLMBackend retries can be slow).
+JSON_MODE_MODELS: Set[str] = {
+    "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo",
+    "gpt-4.1-mini", "gpt-4.1",
+    "claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229",
+}
 
 
 @dataclass
@@ -100,13 +104,6 @@ class EpisodicRetriever:
             self._llm = LLMBackend()
         return self._llm
     
-    def _load_prompt(self, filename: str) -> Optional[str]:
-        """Load prompt template from external file."""
-        path = PROMPTS_DIR / filename
-        if path.exists():
-            return path.read_text()
-        return None
-    
     def retrieve_relevant_insights(
         self,
         goal: str,
@@ -135,7 +132,7 @@ class EpisodicRetriever:
         """
         # Step 1: Formulate query
         query = self._formulate_query(goal, current_step, last_error, last_feedback)
-        logger.debug(f"Episodic query: {query.primary_query[:80]}...")
+        logger.debug(f"Episodic query: {query.primary_query}")
         logger.debug(f"Query reasoning: {query.reasoning}")
         
         # Step 2: Retrieve candidates
@@ -169,13 +166,13 @@ class EpisodicRetriever:
         last_feedback: Optional[str],
     ) -> RetrievalQuery:
         """Use LLM to formulate a smart query."""
-        context_parts = [f"Goal: {goal[:200]}"]
+        context_parts = [f"Goal: {goal}"]
         if current_step:
             context_parts.append(f"Current step: {current_step}")
         if last_error:
-            context_parts.append(f"Recent error: {last_error[:300]}")
+            context_parts.append(f"Recent error: {last_error}")
         if last_feedback:
-            context_parts.append(f"Recent feedback: {last_feedback[:200]}")
+            context_parts.append(f"Recent feedback: {last_feedback}")
         
         context = "\n".join(context_parts)
         
@@ -228,11 +225,25 @@ Respond ONLY with JSON."""
         
         # Try fallback queries if needed
         if len(all_results) < max_results // 2:
-            for fallback in query.fallback_queries[:2]:
+            for fallback in query.fallback_queries:
                 more = self.store.retrieve_relevant(fallback, top_k=max_results // 2)
                 for r in more:
                     if r not in all_results:
                         all_results.append(r)
+        
+        # Optionally filter by tags (LLM-proposed). This is a soft filter: if it
+        # would eliminate everything, we keep the unfiltered set to avoid false
+        # negatives due to tag mismatch.
+        if query.filter_tags:
+            wanted = {t.strip().lower() for t in query.filter_tags if t and t.strip()}
+            if wanted:
+                tag_filtered = []
+                for r in all_results:
+                    tags = {t.lower() for t in (getattr(r, "tags", None) or []) if t}
+                    if tags & wanted:
+                        tag_filtered.append(r)
+                if tag_filtered:
+                    all_results = tag_filtered
         
         # Filter by confidence
         filtered = [
@@ -256,15 +267,15 @@ Respond ONLY with JSON."""
         
         # Format candidates for LLM
         candidates_text = ""
-        for i, c in enumerate(candidates[:10]):  # Limit to 10 for context
-            candidates_text += f"\n[{i+1}] {c.content[:200]}"
+        for i, c in enumerate(candidates):
+            candidates_text += f"\n[{i+1}] {c.content}"
             candidates_text += f"\n    Type: {c.insight_type.value}, Confidence: {c.confidence:.2f}"
         
-        context = f"Goal: {goal[:150]}"
+        context = f"Goal: {goal}"
         if current_step:
             context += f"\nStep: {current_step}"
         if last_error:
-            context += f"\nError: {last_error[:200]}"
+            context += f"\nError: {last_error}"
         
         prompt = f"""You are filtering episodic memory insights for relevance.
 
@@ -311,13 +322,34 @@ Respond ONLY with JSON."""
                 for c in candidates[:max_insights]
             ]
     
+    def _supports_json_mode(self, model: str) -> bool:
+        """Check if model supports JSON mode."""
+        if model in JSON_MODE_MODELS:
+            return True
+        for known in JSON_MODE_MODELS:
+            if model.startswith(known):
+                return True
+        return False
+    
     def _call_llm(self, prompt: str) -> str:
+        """
+        Call LLM for JSON output.
+        
+        IMPORTANT:
+        - We only request JSON mode when the model is known to support it.
+          Otherwise we'd trigger LLMBackend retries/sleeps on expected errors.
+        - Parsing still handles "JSON in text" defensively.
+        """
         llm = self._get_llm()
+        kwargs = {}
+        if self._supports_json_mode(self.model):
+            kwargs["response_format"] = {"type": "json_object"}
+        
         return llm.llm_completion(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            response_format={"type": "json_object"},
+            **kwargs,
         )
     
     def _parse_query_response(self, response: str) -> RetrievalQuery:
@@ -330,7 +362,7 @@ Respond ONLY with JSON."""
             if match:
                 response = match.group(1)
         
-        data = json.loads(response.strip())
+        data = self._safe_json_load(response)
         
         return RetrievalQuery(
             primary_query=data.get("primary_query", ""),
@@ -355,7 +387,7 @@ Respond ONLY with JSON."""
             if match:
                 response = match.group(1)
         
-        data = json.loads(response.strip())
+        data = self._safe_json_load(response)
         rankings = data.get("rankings", [])
         
         results = []
@@ -377,6 +409,39 @@ Respond ONLY with JSON."""
         
         return results[:max_insights]
     
+    def _safe_json_load(self, response: str) -> dict:
+        """
+        Parse a JSON object from an LLM response.
+        
+        Handles:
+        - raw JSON
+        - JSON wrapped in markdown code fences
+        - JSON with surrounding text (best-effort extraction)
+        """
+        import json
+        
+        raw = (response or "").strip()
+        if not raw:
+            return {}
+        
+        # First attempt: direct parse.
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+        
+        # Second attempt: extract the first JSON object substring.
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = raw[start:end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+        
+        raise json.JSONDecodeError("Could not parse JSON from response", raw, 0)
+    
     def _fallback_query(
         self,
         goal: str,
@@ -385,13 +450,13 @@ Respond ONLY with JSON."""
         """Create fallback query when LLM fails."""
         if last_error:
             # Extract key terms from error
-            query = f"error {last_error[:100]}"
+            query = f"error {last_error}"
         else:
-            query = f"how to {goal[:100]}"
+            query = f"how to {goal}"
         
         return RetrievalQuery(
             primary_query=query,
-            fallback_queries=[goal[:100]],
+            fallback_queries=[goal],
             filter_tags=[],
             min_confidence=0.3,
             reasoning="Fallback query (LLM formulation failed)",

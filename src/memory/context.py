@@ -16,52 +16,6 @@ from src.memory.types import Goal
 
 
 @dataclass
-class StepState:
-    """State of a single workflow step."""
-    number: int
-    title: str
-    status: str = "pending"  # pending, in_progress, completed, skipped
-    description: str = ""
-    heuristics: List[str] = field(default_factory=list)
-    code_patterns: List[str] = field(default_factory=list)
-    attempts: int = 0
-    last_error: Optional[str] = None
-    # Implementation info (from graph traversal)
-    implementation: Optional[Dict[str, str]] = None  # {title, overview, code_snippets}
-    principle_id: Optional[str] = None  # For tracking graph links
-
-
-@dataclass
-class WorkflowState:
-    """Current workflow state."""
-    id: str
-    title: str
-    source: str  # "kg_exact", "kg_synthesized", "agent_created"
-    confidence: float
-    steps: List[StepState]
-    current_step_index: int = 0
-    revision_count: int = 0
-    
-    @property
-    def current_step(self) -> Optional[StepState]:
-        if 0 <= self.current_step_index < len(self.steps):
-            return self.steps[self.current_step_index]
-        return None
-    
-    @property
-    def progress(self) -> str:
-        return f"{self.current_step_index + 1}/{len(self.steps)}"
-    
-    @property
-    def completed_steps(self) -> List[StepState]:
-        return [s for s in self.steps if s.status == "completed"]
-    
-    @property
-    def is_complete(self) -> bool:
-        return all(s.status in ["completed", "skipped"] for s in self.steps) if self.steps else True
-
-
-@dataclass
 class ExperimentState:
     """State of the last experiment."""
     experiment_id: str
@@ -110,7 +64,7 @@ class MetaState:
     session_start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-MAX_ERROR_LENGTH = 1500
+# No hardcoded limits - pages are already size-limited
 
 
 @dataclass
@@ -126,11 +80,17 @@ class CognitiveContext:
     """
     goal: Union[str, Goal]  # Accepts string (backward compat) or Goal object
     iteration: int
-    workflow: Optional[WorkflowState] = None
     last_experiment: Optional[ExperimentState] = None
     kg_retrieval: Optional[KGRetrievalState] = None
     episodic_memory: Optional[EpisodicState] = None
     meta: MetaState = field(default_factory=MetaState)
+    # The cognitive system passes a single rendered context blob to BOTH:
+    # - the coding agent (via ContextManager.additional_info)
+    # - the DecisionMaker (for RETRY/PIVOT/COMPLETE)
+    #
+    # Keeping this string avoids maintaining a separate "workflow state machine"
+    # which is not used by the search strategy (it only consumes text).
+    rendered_context: Optional[str] = None
     
     @property
     def goal_str(self) -> str:
@@ -158,6 +118,11 @@ class CognitiveContext:
         - Agent implements full solution in one go
         - Workflow is advisory, not step-by-step execution
         """
+        # If the controller already produced a unified context string,
+        # use it directly. This is the intended execution path.
+        if self.rendered_context:
+            return self.rendered_context
+        
         lines = []
         
         # =================================================================
@@ -184,57 +149,12 @@ class CognitiveContext:
         lines.append(f"- Consecutive failures: {self.meta.consecutive_failures}")
         lines.append("")
         
-        # =================================================================
-        # WORKFLOW GUIDANCE - Show ALL steps with ALL heuristics
-        # =================================================================
-        if self.workflow:
-            wf = self.workflow
-            lines.append("## Implementation Guide")
-            lines.append(f"**{wf.title}** (from {wf.source}, confidence: {wf.confidence:.0%})")
-            lines.append("")
-            lines.append("Follow these steps to implement the solution:")
-            lines.append("")
-            
-            # Show ALL steps with their heuristics, implementations, and code patterns
-            for step in wf.steps:
-                lines.append(f"### Step {step.number}: {step.title}")
-                
-                if step.description:
-                    lines.append(f"{step.description}")
-                    lines.append("")
-                
-                # Show implementation for THIS step (from graph traversal)
-                if step.implementation:
-                    impl = step.implementation
-                    lines.append(f"**Implementation:** `{impl.get('title', 'Unknown')}`")
-                    if impl.get('overview'):
-                        lines.append(f"> {impl['overview'][:200]}")
-                    # Show implementation code snippets
-                    if impl.get('code_snippets'):
-                        for snippet in impl['code_snippets'][:2]:
-                            lines.append(f"```python\n{snippet.strip()}\n```")
-                    lines.append("")
-                
-                # Show heuristics for THIS step
-                if step.heuristics:
-                    lines.append("**Tips:**")
-                    for h in step.heuristics:
-                        lines.append(f"- {h}")
-                    lines.append("")
-                
-                # Show additional code patterns for THIS step (from TIER 3 error recovery)
-                if step.code_patterns:
-                    lines.append("**Additional patterns:**")
-                    for p in step.code_patterns[:2]:  # Limit to 2 patterns per step
-                        lines.append(f"```python\n{p}\n```")
-                    lines.append("")
-            
-            lines.append("---")
-            lines.append("")
-        else:
-            lines.append("## Implementation Guide")
-            lines.append("No specific workflow guidance available. Implement based on the goal.")
-            lines.append("")
+        # NOTE: Knowledge/workflow guidance is owned by KGKnowledge.render()
+        # and is injected by the controller into rendered_context. If we reach
+        # this fallback path, we only provide minimal scaffolding.
+        lines.append("## Implementation Guide")
+        lines.append("See rendered knowledge in controller output.")
+        lines.append("")
         
         # =================================================================
         # LAST EXPERIMENT RESULT
@@ -255,12 +175,12 @@ class CognitiveContext:
             if exp.feedback:
                 lines.append("")
                 lines.append("**Evaluator Feedback:**")
-                lines.append(f"> {exp.feedback[:500]}")
+                lines.append(f"> {exp.feedback}")
             
             if exp.error_message and not exp.success:
                 lines.append("")
                 lines.append("**Error to fix:**")
-                lines.append(f"```\n{exp.error_message[:MAX_ERROR_LENGTH]}\n```")
+                lines.append(f"```\n{exp.error_message}\n```")
             lines.append("")
         
         # =================================================================
@@ -275,11 +195,11 @@ class CognitiveContext:
                 lines.append("## Lessons from Past Experiments")
                 
             if self.episodic_memory.similar_errors:
-                for insight in self.episodic_memory.similar_errors[:3]:
+                for insight in self.episodic_memory.similar_errors:
                     lines.append(f"- ⚠️ {insight.content}")
             
             if self.episodic_memory.relevant_insights:
-                for insight in self.episodic_memory.relevant_insights[:3]:
+                for insight in self.episodic_memory.relevant_insights:
                     lines.append(f"- 💡 {insight.content}")
             lines.append("")
         

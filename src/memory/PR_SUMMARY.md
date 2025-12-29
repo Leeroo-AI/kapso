@@ -1,317 +1,84 @@
-# Pull Request: Cognitive Memory System
+# Pull Request: Cognitive Memory Cleanup (post-merge)
 
 ## Overview
 
-This PR introduces the **Cognitive Memory System** - a workflow-aware context management architecture that enables the Expert agent to leverage the Knowledge Graph (KG) structure for intelligent code generation.
+This PR is a **cleanup pass** on the Cognitive Memory system after the initial implementation landed in `main`.
 
-## Key Features
+The goal is to:
+- remove legacy/orphan code and unused prompt templates,
+- ensure the end-to-end logic is consistent (Tier 1/2/3 → context → decisions → Expert/orchestrator),
+- enforce **fail-fast** behavior where we previously had misleading “fallback” scaffolding,
+- keep logs + tests high-signal for validating retrieval quality and knowledge passing.
 
-1. **Tiered Knowledge Retrieval**
-   - **TIER 1**: Exact workflow match → graph traversal for all linked knowledge
-   - **TIER 2**: No match → synthesize workflow from relevant Principles
-   - **TIER 3**: On error → LLM infers failing step → find alternative implementations
+## Key Changes
 
-2. **Episodic Memory**
-   - LLM-governed insight extraction (generalizes errors into reusable lessons)
-   - LLM-governed retrieval (queries episodic memory based on current context)
-   - Weaviate-based semantic search with JSON fallback
+### 0) End-to-end correctness and simplification
 
-3. **LLM-Based Decisions**
-   - RETRY: Try again with same workflow (agent sees error feedback)
-   - PIVOT: Switch to different workflow from KG
-   - COMPLETE: Goal achieved
+- **Single knowledge representation**: the cognitive loop uses `KGKnowledge` as the only structure for Tier 1/2/3 retrieval and rendering.
+- **No workflow state machine**: removed legacy `WorkflowState`/`StepState` style tracking. The agent consumes full knowledge as text; step-state was redundant and confusing.
+- **No hardcoded truncations**: removed hardcoded `[:N]` truncations in the knowledge/context path. Any length limits are config-driven where required (e.g. error tail length for query generation).
+- **Fail-fast retrieval**: removed silent fallbacks where they masked missing components (LLM unavailable / semantic search returning nothing).
 
----
+### 1) Remove unused prompt templates
 
-## How to Run
+`src/memory/prompts/` now contains **only prompt files that are actually loaded by runtime code**:
+- `decide_action.md` (DecisionMaker)
+- `extract_error_insight.md` (InsightExtractor)
+- `extract_success_insight.md` (InsightExtractor)
 
-### Starting the Expert Agent
+Removed unused `.md` prompts that were remnants of an older workflow/state-machine design:
+- `infer_failing_step.md`, `should_consult_kg.md`, `workflow_action.md`, `error_response.md`
+- `synthesize_plan.md` (old Tier 2 “synthesized workflow” concept)
+- `extract_insight.md` (superseded by `extract_error_insight.md` / `extract_success_insight.md`)
+- `episodic_retrieval_query.md` (current EpisodicRetriever uses inline prompts)
 
-```python
-from src.expert import Expert
+### 2) Remove unused report generator
 
-# Create Expert with cognitive mode enabled
-expert = Expert(domain="ml_finetuning")
+Deleted `src/memory/report_generator.py` because it had **no runtime call sites/importers** and was not part of the current execution path.
 
-# Run with a goal
-solution = expert.build(
-    problem="Fine-tune LLaMA with LoRA adapter",
-    max_iterations=5,
-    coding_agent_name="claude_code",  # or "gemini", "aider"
-    evaluator_name="llm_judge",
-    stop_threshold=0.7,
-)
+### 3) Remove dead / contradictory Tier 3 fallback code
 
-# Solution contains the generated code
-print(f"Code at: {solution.code_dir}")
-print(f"Score: {solution.experiments[-1].score}")
-```
+Tier 3 is intended to be:
+**LLM query generation → KG semantic search → add error knowledge**, with no silent keyword/Neo4j fallbacks.
 
-### From Command Line
+This PR removes an unused Tier 3 Neo4j fallback helper from `src/memory/knowledge_retriever.py` and keeps Tier 3 fail-fast.
 
-```bash
-# Start KG infrastructure first
-./start_infra.sh  # Starts Neo4j, Weaviate, indexes KG
+### 4) Ensure KGKnowledge types are tracked
 
-# Run with cognitive context manager (set in config.yaml)
-PYTHONPATH=. python -m src.runner \
-    -p "Fine-tune a language model using LoRA"
-```
+Adds `src/memory/kg_types.py` as a real tracked module (previously present in the working tree but not committed).
+This file is the single source of truth for `KGKnowledge` and tier rendering.
 
----
+### 5) Retrieval quality + plumbing fixes
 
-## Switching Between Legacy and Cognitive Mode
+- **Tier 1/2 query generation**: Tier 1 and Tier 2 use LLM-generated search queries (no hardcoded examples in prompts) before graph traversal.
+- **Tier 1 workflow traversal correctness**:
+  - Preserve **workflow-authored step order** by extracting ordered `[[step::Principle:...]]` links from the Workflow page content (Neo4j `STEP` edges currently do not encode ordering).
+  - Do not silently drop additional implementations / heuristics during traversal (Principles may have multiple linked leaf pages).
+- **Tier 3 search quality**: Tier 3 includes `Environment` pages in semantic search so ImportError/missing dependency cases retrieve install/setup guidance.
+- **Tier 3 provenance**: Tier 3 now records the error-query set in `KGKnowledge.query_used` (and appends Tier 3 source pages), making log audits deterministic and reviewable.
+- **Context passing**: cognitive context manager passes the full rendered `KGKnowledge` into agent context (`additional_info`) and avoids duplicating/truncating code snippets.
+- **Evaluator feedback correctness**: persist evaluator feedback into `ExperimentState` so both the agent context renderer and `DecisionMaker` see the same feedback signal.
+- **No double-processing**: cognitive context manager guards against re-processing the same last experiment multiple times (prevents duplicate insights and inflated failure counters).
+- **Expert/orchestrator wiring**: ensure the configured KG backend instance is actually injected/used end-to-end (no accidental backend mismatch).
+- **Config-driven limits + tuning (no hardcoded cutoffs)**:
+  - `KGGraphSearch` embedding input and reranker overview preview limits are configured in `src/knowledge/search/knowledge_search.yaml` (no `[:8000]` / `[:300]` slices in code).
+  - Tier 1/2/3 retrieval thresholds and `top_k`/`min_score` are now part of `src/memory/cognitive_memory.yaml` (via `ControllerConfig`) rather than hardcoded in the retriever.
+- **No import-time logging side effects**: removed `logging.basicConfig(...)` from `KGGraphSearch` so tests/apps control logging.
+- **Episodic retrieval quality**:
+  - `filter_tags` produced by the LLM are now actually applied (soft filter; won’t eliminate all candidates).
+  - JSON mode is only requested for models known to support it (avoids slow LLMBackend retries on unsupported models).
+- **Resource lifecycle**:
+  - Orchestrator now closes its owned context manager after `solve()` (prevents leaked Weaviate/Neo4j sockets).
+  - Cognitive tests were updated to close controllers/KG handles in `finally` blocks.
 
-### Automatic: Enable KG
+## Testing
 
-The simplest way - just enable KG and cognitive context is used automatically:
-
-```python
-from src.expert import Expert
-
-expert = Expert(domain="ml_finetuning")
-expert.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
-# Now cognitive context manager is used automatically!
-```
-
-**Rule**: When `knowledge_search.is_enabled() == True`, the orchestrator automatically uses `cognitive` context manager.
-
-### Manual: Config Change
-
-Or explicitly set in `src/config.yaml`:
-
-```yaml
-# Enable cognitive context manager
-context_manager:
-  type: "cognitive"
-
-# Also enable KG for workflow retrieval
-knowledge_search:
-  type: "kg_graph_search"
-  enabled: true
-```
-
-### Legacy Mode (MLE/ALE)
-
-Legacy mode uses `kg_enriched` context manager (no workflow tracking):
-
-```yaml
-context_manager:
-  type: "kg_enriched"  # or omit - this is the default
-knowledge_search:
-  enabled: false
-```
-
----
-
-## Impact on Existing Benchmarks (MLE/ALE)
-
-**No impact.** The cognitive system is:
-- Opt-in via config mode
-- Completely isolated from legacy code paths
-- Default mode (`GENERIC`) uses legacy `token_efficient` context manager
-
-MLE/ALE runs will continue to use:
-- `token_efficient` context manager
-- No KG dependency
-- No episodic memory
-
----
-
-## Running Tests
-
-### Prerequisites
+Run tests using the correct conda environment and `.env`:
 
 ```bash
-# Start KG infrastructure
-./start_infra.sh
-
-# This starts:
-# - Neo4j (bolt://localhost:7687)
-# - Weaviate (http://localhost:8080)
-# - Indexes KG wiki pages
+conda run -n praxium_conda bash -lc 'cd /home/ubuntu/praxium && set -a && source .env && set +a && PYTHONPATH=. python -m compileall -q src tests'
+conda run -n praxium_conda bash -lc 'cd /home/ubuntu/praxium && set -a && source .env && set +a && PYTHONPATH=. python tests/test_cognitive_iteration_loop.py'
+conda run -n praxium_conda bash -lc 'cd /home/ubuntu/praxium && set -a && source .env && set +a && PYTHONPATH=. python tests/test_expert_full_e2e.py'
 ```
 
-### Main E2E Test (Real KG, No Mocking)
-
-```bash
-cd /home/ubuntu/praxium
-PYTHONPATH=. python tests/test_expert_full_e2e.py
-
-# Expected output:
-# - TIER 1 workflow retrieval
-# - Graph traversal (6 implementations, heuristics per step)
-# - Episodic memory query
-# - Agent execution
-# - Score: ~0.9
-```
-
-### Other Tests
-
-```bash
-# Multi-iteration scenarios (uses mocking for results only)
-PYTHONPATH=. python tests/test_cognitive_multi_iteration.py
-
-# Real KG connectivity test
-PYTHONPATH=. python tests/test_cognitive_real_kg.py
-```
-
----
-
-## Understanding the Logs
-
-### Key Log Sections
-
-1. **Goal Initialization**
-```
-🎯 GOAL INITIALIZATION
-  Goal: Fine-tune a language model using LoRA...
-  Type: ml_training | Source: user
-
-📚 KG Retrieval: EXACT_WORKFLOW          ← TIER 1 triggered
-   Workflow: huggingface peft LoRA Fine Tuning
-   Confidence: 84%
-   Steps (6):
-     1. Load Base Model → impl: AutoModelForCausalLM | heuristics: 7
-     2. Configure LoRA Adapter → impl: LoraConfig init | heuristics: 15
-     ...
-```
-
-2. **Briefing Preparation**
-```
-📋 PREPARING BRIEFING
-  💭 Episodic Memory: 1 relevant insights retrieved  ← LLM-governed
-  ✓ Briefing ready for iteration 1
-    Step 1/6: Load Base Model
-    Status: in_progress | Attempts: 0
-    Implementation: huggingface peft AutoModelForCausalLM from pretrained
-    Heuristics (7):
-      • Guidelines for selecting which modules...
-```
-
-3. **Context Sent to Agent**
-```
-📤 Context prepared for agent:
-   Problem: 545 chars
-   Workflow guidance: 12,874 chars    ← Full workflow + heuristics
-   Implementation code: 3,828 chars   ← Code snippets from KG
-```
-
-4. **LLM Decision**
-```
-⚙️ PROCESSING EXPERIMENT RESULT
-  ✅ Iteration 1 | Score: 0.90
-
-🧠 LLM Decision: COMPLETE
-   Confidence: 85%
-   Reasoning: Goal achieved with satisfactory score...
-```
-
-### Log Location
-
-```
-/home/ubuntu/praxium/logs/
-├── expert_e2e_YYYYMMDD_HHMMSS.log      # Full execution log
-├── expert_e2e_results_*.json            # Structured results
-└── expert_e2e_report_*.html             # Visual report
-```
-
----
-
-## File Changes Summary
-
-### New Files
-```
-src/memory/
-├── cognitive_controller.py    # Main orchestrator
-├── context.py                 # CognitiveContext + WorkflowState
-├── decisions.py               # LLM-based action decisions
-├── knowledge_retriever.py     # Tiered KG retrieval (TIER 1/2/3)
-├── episodic.py               # Weaviate-based insight storage
-├── episodic_retriever.py     # LLM-governed episodic queries
-├── insight_extractor.py      # LLM-based insight generalization
-├── objective.py              # Structured goal representation
-├── types.py                  # Core data types
-├── config.py                 # Configuration loader
-├── cognitive_memory.yaml     # Default config
-└── prompts/                  # LLM prompts
-    ├── decide_action.md
-    ├── extract_error_insight.md
-    ├── extract_success_insight.md
-    ├── episodic_retrieval_query.md
-    ├── infer_failing_step.md     # NEW: For TIER 3
-    └── synthesize_plan.md
-```
-
-### Modified Files
-```
-src/config.yaml                              # Documents context_manager.type options
-src/execution/context_manager/
-└── cognitive_context_manager.py             # Bridge to CognitiveController
-src/knowledge/search/kg_graph_search.py      # Fixed uses_heuristic edge direction
-```
-
----
-
-## Known Issues
-
-### KG Data Quality
-
-Some `uses_heuristic` links in the wiki are reversed (Heuristic → Principle instead of Principle → Heuristic). 
-
-**Workaround**: The indexer (`kg_graph_search.py`) now detects and reverses these backlinks during graph creation.
-
-**Permanent fix**: The KG wiki pages should be corrected to use proper linking direction.
-
----
-
-## Configuration Reference
-
-### Cognitive Memory Config (`cognitive_memory.yaml`)
-
-```yaml
-defaults:
-  episodic:
-    embedding_model: "text-embedding-3-small"
-    retrieval_top_k: 5
-    min_confidence: 0.5
-    
-  controller:
-    llm_model: "gpt-4o-mini"
-    
-  briefing:
-    max_episodic_insights: 5
-```
-
-### Environment Variable Overrides
-
-```bash
-# Use better embeddings
-export COGNITIVE_MEMORY_EPISODIC_EMBEDDING_MODEL=text-embedding-3-large
-
-# Use different LLM for decisions
-export COGNITIVE_MEMORY_CONTROLLER_LLM_MODEL=gpt-4-turbo
-```
-
----
-
-## Test Results
-
-| Test | Status | Details |
-|------|--------|---------|
-| `test_expert_full_e2e.py` | ✅ PASS | Score: 0.90, 1 iteration |
-| `test_cognitive_multi_iteration.py` | ✅ PASS | 4/4 tests pass |
-| `test_cognitive_real_kg.py` | ✅ PASS | KG connectivity verified |
-
----
-
-## Checklist
-
-- [x] TIER 1 workflow retrieval works
-- [x] Graph traversal finds implementations + heuristics
-- [x] Episodic memory storage and retrieval works
-- [x] LLM decisions (RETRY/PIVOT/COMPLETE) work
-- [x] Legacy mode unaffected
-- [x] Tests pass without mocking core components
-- [x] Documentation updated
 
