@@ -288,7 +288,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         c = _COLORS  # shorthand
         
         print(f"\n{c['cyan']}━━━ Claude Code Starting ━━━{c['reset']}", flush=True)
-        
+
+        # Ensure stdout/stderr pipes are always closed.
+        #
+        # Why:
+        # - In Python, `subprocess.Popen(..., stdout=PIPE)` creates file objects.
+        # - If we don't close them deterministically, Python can emit noisy
+        #   `ResourceWarning: unclosed file <_io.TextIOWrapper ...>` at shutdown.
+        # - This keeps logs clean and prevents leaking file descriptors in long runs.
         process = subprocess.Popen(
             stream_cmd,
             cwd=self.workspace,
@@ -406,9 +413,32 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 }
             )
             
-        except Exception as e:
-            process.kill()
+        except Exception:
+            # Make best-effort to stop the child process on error.
+            try:
+                process.kill()
+            except Exception:
+                pass
             raise
+        finally:
+            # Always close pipes so Python doesn't warn about unclosed file objects.
+            # This also helps prevent leaking file descriptors in long Expert runs.
+            try:
+                if process.stdout:
+                    process.stdout.close()
+            except Exception:
+                pass
+            try:
+                if process.stderr:
+                    process.stderr.close()
+            except Exception:
+                pass
+            
+            # Reap the child process (best-effort). If it's already exited this returns fast.
+            try:
+                process.wait(timeout=1)
+            except Exception:
+                pass
     
     def _display_stream_event(self, line: str, assistant_texts: List[str]) -> None:
         """Parse and display a single stream-json event."""

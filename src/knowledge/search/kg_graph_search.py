@@ -1946,7 +1946,22 @@ Only include pages that would actually help answer the query.
             self._weaviate_client.close()
             self._weaviate_client = None
         
-        self._openai_client = None
+        # Close the OpenAI client if it exposes a close() method.
+        #
+        # Why:
+        # - The OpenAI SDK uses an underlying HTTP client (often httpx) which
+        #   can keep sockets open if not explicitly closed.
+        # - Our tests intentionally create/close KnowledgeSearch instances, and
+        #   unclosed sockets show up as ResourceWarning noise in CI/log audits.
+        # - We treat this as part of the KnowledgeSearch resource lifecycle.
+        if self._openai_client:
+            try:
+                if hasattr(self._openai_client, "close"):
+                    self._openai_client.close()
+            except Exception:
+                # Best-effort cleanup. Never fail callers during shutdown.
+                pass
+            self._openai_client = None
     
     def __enter__(self):
         """Context manager entry."""
