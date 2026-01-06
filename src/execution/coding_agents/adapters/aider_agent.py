@@ -88,15 +88,8 @@ class AiderCodingAgent(CodingAgentInterface):
         """
         self.workspace = os.path.abspath(workspace)
         
-        # CRITICAL: Change to workspace directory BEFORE creating Aider Coder
-        # This ensures Aider uses the session's git repo, not parent project's
-        original_cwd = os.getcwd()
-        os.chdir(self.workspace)
-        
         try:
-            # Aider needs file paths, not directory
-            # Get existing files or use empty list (Aider creates files from prompts)
-            fnames = self._get_files_in_workspace(self.workspace)
+            fnames = [self.workspace] 
             
             # Check if this workspace has its own git repo
             use_git = self._auto_commits and self._is_git_repo(self.workspace)
@@ -131,8 +124,7 @@ class AiderCodingAgent(CodingAgentInterface):
             if hasattr(self.debug_coder, 'root'):
                 self.debug_coder.root = self.workspace
         finally:
-            # Restore original working directory
-            os.chdir(original_cwd)
+            pass
     
     def _is_git_repo(self, path: str) -> bool:
         """Check if path is inside a git repository."""
@@ -159,10 +151,7 @@ class AiderCodingAgent(CodingAgentInterface):
                 error="Agent not initialized. Call initialize() first."
             )
         
-        # Change to workspace directory for file operations
-        original_cwd = os.getcwd()
         try:
-            os.chdir(self.workspace)
             
             # Run Aider with the prompt
             result = coder.run(prompt)
@@ -194,8 +183,6 @@ class AiderCodingAgent(CodingAgentInterface):
                 output="",
                 error=str(e)
             )
-        finally:
-            os.chdir(original_cwd)
     
     def cleanup(self) -> None:
         """Clean up Aider resources."""

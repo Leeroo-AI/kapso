@@ -108,18 +108,12 @@ def solve_problem(
     
     # Run the solve loop
     orchestrator.solve(experiment_max_iter=max_iterations)
-    
-    # Get results
-    print("\n" + "="*60)
-    print("Experiment History:")
-    print("="*60)
-    print(orchestrator.search_strategy.get_experiment_history())
-    
+
     # Checkout best solution and evaluate
     orchestrator.search_strategy.checkout_to_best_experiment_branch()
     cost = orchestrator.get_cumulative_cost()
     
-    workspace = orchestrator.search_strategy.workspace.workspace_folder
+    workspace = orchestrator.search_strategy.workspace.workspace_dir
     
     print(f"\nBest solution at: {workspace}")
     print(f"Total cost: ${cost:.3f}")
@@ -156,8 +150,8 @@ def main():
     parser.add_argument(
         "-i", "--iterations",
         type=int,
-        default=14,
-        help="Maximum experiment iterations (default: 14)"
+        default=30,
+        help="Maximum experiment iterations (default: 30)"
     )
     parser.add_argument(
         "-m", "--mode",
@@ -218,7 +212,7 @@ def main():
             config_data = yaml.safe_load(f)
         mode_name = args.mode or config_data.get('default_mode', 'ALE_CONFIGS')
         mode_config = config_data.get('modes', {}).get(mode_name, {})
-        use_knowledge_graph = mode_config.get('use_knowledge_graph', True)
+        use_knowledge_graph = mode_config.get('use_knowledge_graph', False)
     except Exception as e:
         print(f"Warning: Could not load config for KG setting: {e}")
         use_knowledge_graph = False

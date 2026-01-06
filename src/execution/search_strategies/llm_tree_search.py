@@ -97,8 +97,8 @@ class LlmSteeredTreeSearch(SearchStrategy):
             self.experiment_history: List[ExperimentResult] = []
             self.nodes: List[Node] = []
             # Initialize root nodes
-            for i in range(self.node_expansion_limit):
-                self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch()))
+            for i in range(self.node_expansion_limit * 4):
+                self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch(), solution="Root node to be expanded for new and diverse ideas."))
         
         # Thread locks
         self.experiment_history_lock = threading.Lock()
@@ -146,7 +146,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         
         # Select and run experiments
         experiments_count = self.experimentation_per_run
-        if budget_progress == 0:
+        if len(self.experiment_history) == 0:
             experiments_count *= self.first_experiment_factor
         
         best_nodes = self.select(
@@ -214,6 +214,9 @@ class LlmSteeredTreeSearch(SearchStrategy):
         if budget_progress >= self.exploration_budget_percent:
             print("Expanding top Nodes for exploitation.")
             selected_nodes = [self.nodes[exp.node_id] for exp in top_experiments]
+        elif len(self.experiment_history) == 0:
+            print("Expanding first iteration")
+            selected_nodes = self.nodes[:self.node_expansion_limit]
         else:
             print("Expanding by LLM selection for exploration.")
             selected_nodes = self.select(
@@ -233,7 +236,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
     def _expand_node(self, context: ContextData, node: Node, budget_progress: float) -> None:
         """Generate new child solutions for a node."""
         expansion_count = self.node_expansion_new_childs_count
-        if budget_progress == 0:
+        if len(self.experiment_history) == 0:
             expansion_count *= self.first_experiment_factor
         
         new_solutions = self.solution_generation(
@@ -283,7 +286,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             - your output must be a list of {top_k} ids.
             - make sure to consider the previous experiments according to their score and the reliable knowledge base information in your selection.
             - selection criteria is ** {selection_criteria} **.
-            - For each selection you must write a reason why you selected that solution.
+            - For each selection you must write a 1 sentence reason why you selected that solution.
             - output must always be a python list of ids between <output> and </output> tags. eg:
                 Reason for solution id 2: ...
                 Reason for solution id 4: ...
@@ -297,6 +300,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             + f"Reliable knowledge base information: {context.kg_results} \n\n"
             + "Candidate Solutions for selection:\n" 
             + "\n\n".join([f" id: {node.node_id}, solution: {node.solution}" for node in leaf_nodes])
+            + f'\n\n Provide the list of top {top_k} ids between <output> and </output> tags.'
         )
         
         output = self.llm.llm_completion_with_system_prompt(
@@ -437,9 +441,30 @@ class LlmSteeredTreeSearch(SearchStrategy):
             You are a world class problem solver. Generate {per_step_solution_count} exact solutions for the given problem that are the best and significantly better than the previous experiments.
             Requirement:
             - Each solution must be exact and high level steps specific enough to be coded.
-            - If parent solution exists, the newly proposed solutions must extend, improve, or tune it.
+            - If parent solution exists, the newly proposed solutions must improve it either by 1-extend and add something to parent solution, 2-remove and change and improve parts, 3-big tune, 4-small tune it or 5-completely change the core idea (at least one from each).
             - Solutions must be significantly different from each other.
-            - Put solutions between <solution> and </solution> tags.
+            - Solutions must not reference to each other parts and parent parts. Each solution must be self-contained.
+            - CRITICAL: ** Put solutions between <solution> and </solution> tags. ** e.g.:
+                Solution 1:
+                <solution>
+                   # Core Idea: 
+                    ...
+                   # Body:
+                    ...
+                   # Runtime expectation:
+                    t1 seconds
+                </solution>
+                
+                Solution 2:
+                <solution>
+                   # Core Idea: 
+                    ...
+                   #Body:
+                    ...
+                   # Runtime expectation:
+                    t2 seconds.
+                </solution>
+                ...
         """
         
         for i in range(step_count):
@@ -482,6 +507,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             user_message=f"""
                 # Problem: \n {context.problem} \n\n 
                 # Solutions list:\n {chr(10).join([f"Solution id {idx}: {solution}" for idx, solution in enumerate(solutions_list)])} 
+                \n\n Provide the list of top {final_solution_count} ids between <output> and </output> tags.
             """,
             reasoning_effort=self.reasoning_effort,
         )
@@ -547,3 +573,4 @@ class LlmSteeredTreeSearch(SearchStrategy):
         except FileNotFoundError:
             print("[LlmSteeredTreeSearch] No checkpoint found")
             raise FileNotFoundError(f"[LlmSteeredTreeSearch] No checkpoint found in {self.workspace_dir}")
+    

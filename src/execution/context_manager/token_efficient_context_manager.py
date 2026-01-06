@@ -101,8 +101,9 @@ class TokenEfficientContextManager(ContextManager):
         if len(self.problem_handler.additional_context) > 0:
             kg_results += self.problem_handler.additional_context + "\n\n"
 
-        if self.knowledge_search.is_enabled():
-            last_exp_context = str(recent_experiments[-1]) if recent_experiments else None
+        if self.knowledge_search.enabled:
+            print('Searching knowledge graph for context...')
+            last_exp_context = str(all_experiments[-1]) if all_experiments else None
             knowledge_result = self.knowledge_search.search(
                 query=problem,
                 context=last_exp_context,
@@ -149,6 +150,7 @@ class TokenEfficientContextManager(ContextManager):
                 -- You are not allowed to just appending experiments. make sure to drop redundant and unimportant parts.
                 -- You are not allowed to show detailed outputs just distil the knowledge that can be extracted from the outputs and feedbacks.
                 -- You are not allowed to suggest solutions and generate new ideas. just witnessed patterns, information and conclusions.
+                -- Make sure to mention the categories of working and best performing experiments and a summary of their scores and output info, and whether they have potential to progress toward goal and solving problem.
             - Keep the information about summary highly oraganized. markdown format with the following sections:
                 --  High level workflows of experiments and core ideas: categorize experiments into categories based on the idea, solution and steps.
                     --- find patterns and compress and summarize the output, and performance, score and quality of each category. (preferred one sentence but at most 3 sentences for each category)
@@ -156,6 +158,12 @@ class TokenEfficientContextManager(ContextManager):
                     --- mention any feedbacks and issues that are mentioned in the experiment, note that you should not create feedbacks and you should just aggregate existing ones. preferred one sentence but No more than 3 sentences for eachcategory.
                     --- Details, hyperparameters and specific parts must be mentioned only when have very high on progress toward goal and solving problem. only one sentence.
                 -- All in all make sure to combine information and extract high level patterns and low level patterns if impactful. Cover everything while respecting the token limit.
+            - At the end of summary, keep a list of high level tried core ideas and previous experiments with their scores so far. each idea should be no more than 5 words and do not repeat same ideas. Make sure to update the list with new experiments and when an idea repeats add one to try count and keep the highest score. e.g.
+                [
+                    "idea1": ["score": "s1", "try count": "k1"],
+                    "idea2": ["score": "s2", "try count": "k2"],
+                    ...
+                ]
         """
         user_prompt = f"""
             # problem / Goal: 

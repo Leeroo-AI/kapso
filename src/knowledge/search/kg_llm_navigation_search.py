@@ -40,9 +40,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         params: Optional[Dict[str, Any]] = None,
     ):
         """Initialize KG LLM Navigation search."""
-        super().__init__(params=params)
-        self._enabled = enabled
-        
+        super().__init__(enabled=enabled, params=params)
         # Extract params with defaults
         self.search_top_k = self.params.get("search_top_k", 1)
         self.navigation_steps = self.params.get("navigation_steps", 3)
