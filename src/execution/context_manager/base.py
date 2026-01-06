@@ -66,3 +66,15 @@ class ContextManager(ABC):
             ContextData with problem, history, and knowledge results
         """
         pass
+
+    def should_stop(self) -> bool:
+        """
+        Check if the context manager wants to stop the experiment loop.
+        
+        Override in subclasses that support decision-based stopping.
+        Default returns False (never stop based on context manager).
+        
+        Returns:
+            True if experiments should stop (e.g., LLM decided COMPLETE)
+        """
+        return False

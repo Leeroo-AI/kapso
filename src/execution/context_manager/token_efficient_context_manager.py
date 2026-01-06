@@ -74,6 +74,7 @@ class TokenEfficientContextManager(ContextManager):
         experiments_context = ""
 
         all_experiments = self.search_strategy.get_experiment_history()
+        recent_experiments = []  # Initialize to empty list
         print("Preparing token efficient context for problem ...")
 
         if len(all_experiments) >= self.top_experiments_in_context_count + self.recent_experiments_in_context_count:

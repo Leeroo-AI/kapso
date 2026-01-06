@@ -49,6 +49,7 @@ class OrchestratorAgent:
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
         is_kg_active: bool = False,
+        knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
     ):
@@ -67,10 +68,18 @@ class OrchestratorAgent:
             start_from_checkpoint=start_from_checkpoint,
         )
         
-        # Create knowledge search backend
-        self.knowledge_search = self._create_knowledge_search(
-            is_kg_active=is_kg_active,
-        )
+        # Create knowledge search backend (or use provided instance).
+        # This allows Expert.build() to inject a concrete backend (e.g., kg_graph_search)
+        # without relying on config defaults (which may point to a different backend).
+        if knowledge_search is not None:
+            self.knowledge_search = knowledge_search
+            self._owns_knowledge_search = False
+        else:
+            self.knowledge_search = self._create_knowledge_search(
+                is_kg_active=is_kg_active,
+            )
+            # We created it inside the orchestrator → we should close it.
+            self._owns_knowledge_search = True
         
         # Create context manager with injected search backend
         self.context_manager = self._create_context_manager()
@@ -191,16 +200,17 @@ class OrchestratorAgent:
         # Check use_knowledge_graph flag
         if 'use_knowledge_graph' in mode_config:
             kg_enabled = mode_config.get('use_knowledge_graph', False)
-            return KnowledgeSearchFactory.create(
-                search_type="kg_llm_navigation",
-                enabled=kg_enabled or is_kg_active,
-            )
+            if kg_enabled or is_kg_active:
+                return KnowledgeSearchFactory.create(
+                    search_type="kg_llm_navigation",
+                )
+            else:
+                return KnowledgeSearchFactory.create_null()
         
         # Fall back to is_kg_active parameter
         if is_kg_active:
             return KnowledgeSearchFactory.create(
                 search_type="kg_llm_navigation",
-                enabled=True,
             )
         
         # Default: disabled
@@ -218,9 +228,20 @@ class OrchestratorAgent:
         # Check for context_manager config
         cm_config = mode_config.get('context_manager', {})
         
-        if cm_config:
+        # If context_manager is explicitly configured, use it
+        if cm_config and cm_config.get('type'):
             return ContextManagerFactory.create_from_config(
                 config=cm_config,
+                problem_handler=self.problem_handler,
+                search_strategy=self.search_strategy,
+                knowledge_search=self.knowledge_search,
+            )
+        
+        # If KG is active and no context_manager specified, use cognitive
+        # for full workflow support
+        if self.knowledge_search and self.knowledge_search.is_enabled():
+            return ContextManagerFactory.create(
+                context_manager_type="cognitive",
                 problem_handler=self.problem_handler,
                 search_strategy=self.search_strategy,
                 knowledge_search=self.knowledge_search,
@@ -251,6 +272,11 @@ class OrchestratorAgent:
         """
         Run the main experimentation loop.
         
+        Stops when ANY of these conditions is met:
+        1. LLM decision says COMPLETE (context_manager.should_stop())
+        2. Score threshold reached (problem_handler.stop_condition())
+        3. Budget exhausted (time/cost/iterations)
+        
         Args:
             experiment_max_iter: Maximum number of experiment iterations
             time_budget_minutes: Time budget in minutes
@@ -261,32 +287,54 @@ class OrchestratorAgent:
         """
         start_time = time.time()
         
-        for i in range(experiment_max_iter):
-            # Calculate budget progress (0-100)
-            budget_progress = max(
-                (time.time() - start_time) / (time_budget_minutes * 60),
-                i / experiment_max_iter,
-                self.get_cumulative_cost() / cost_budget
-            ) * 100
-            
-            # Check stopping conditions
-            if self.problem_handler.stop_condition() or budget_progress >= 100:
-                break
-            
-            # Get context (uses search_strategy for history)
-            experiment_context = self.context_manager.get_context(budget_progress=budget_progress)
-            
-            # Run one iteration of search strategy
-            self.search_strategy.run(experiment_context, budget_progress=budget_progress)
+        try:
+            for i in range(experiment_max_iter):
+                # Calculate budget progress (0-100)
+                budget_progress = max(
+                    (time.time() - start_time) / (time_budget_minutes * 60),
+                    i / experiment_max_iter,
+                    self.get_cumulative_cost() / cost_budget
+                ) * 100
+                
+                # Check stopping conditions (score threshold or budget)
+                if self.problem_handler.stop_condition() or budget_progress >= 100:
+                    print(f"[Orchestrator] Stopping: score threshold or budget reached")
+                    break
+                
+                # Get context (decision happens inside for cognitive context manager)
+                experiment_context = self.context_manager.get_context(budget_progress=budget_progress)
+                
+                # Check if LLM decided COMPLETE
+                if self.context_manager.should_stop():
+                    print(f"[Orchestrator] Stopping: LLM decided COMPLETE")
+                    break
+                
+                # Run one iteration of search strategy
+                self.search_strategy.run(experiment_context, budget_progress=budget_progress)
 
-            print(
-                f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
-                '#' * 100,
-                '\n', 
-                self.search_strategy.get_best_experiment(), 
-                '\n', 
-                '#' * 100
-            )
-            self.search_strategy.export_checkpoint()
+                print(
+                    f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
+                    '#' * 100,
+                    '\n', 
+                    self.search_strategy.get_best_experiment(), 
+                    '\n', 
+                    '#' * 100
+                )
+                self.search_strategy.export_checkpoint()
+        finally:
+            # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
+            # Context managers are orchestrator-owned; close if implemented.
+            if hasattr(self.context_manager, "close"):
+                try:
+                    self.context_manager.close()
+                except Exception:
+                    pass
+            
+            # Close knowledge search only if the orchestrator created it.
+            if getattr(self, "_owns_knowledge_search", False) and hasattr(self.knowledge_search, "close"):
+                try:
+                    self.knowledge_search.close()
+                except Exception:
+                    pass
 
         return self.search_strategy.get_best_experiment()

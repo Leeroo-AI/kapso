@@ -189,3 +189,9 @@ static/
 expert_agent.egg-info/
 mle-bench/
 ALE-Bench/
+
+
+# Cognitive Memory generated files
+.praxium_state.md
+.memory_store.json
+data/wikis/.wikis_imported

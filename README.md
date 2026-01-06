@@ -18,35 +18,35 @@ from src.expert import Expert, Source, DeployStrategy
 
 # Initialize an Expert (connect to knowledge graph)
 expert = Expert(
-    domain="quantitative_finance",
+    domain="machine_learning",
     kg_location="https://skills.leeroo.com",
 )
 
 # Teach it from various sources (optional)
 expert.learn(
-    Source.Repo("https://github.com/alpaca/alpaca-py"),
-    Source.Paper("./momentum_strategies.pdf"),
-    Source.File("./my_notes.md"),
+    Source.Repo("https://github.com/scikit-learn/scikit-learn"),
+    Source.Paper("./gradient_boosting_techniques.pdf"),
+    Source.File("./kaggle_competition_notes.md"),
     target_kg="https://skills.leeroo.com",
 )
 
 # Build a solution — the Expert runs experiments automatically
 solution = expert.build(
-    goal="Momentum trading bot for SP500 with latency < 50ms",
-    output_path="./bots/sp500_v1",
+    goal="XGBoost classifier for Titanic dataset with AUC > 0.85",
+    output_path="./models/titanic_v1",
     evaluator="llm_judge",
     stop_condition="threshold",
-    stop_condition_params={"threshold": 0.9},
+    stop_condition_params={"threshold": 0.85},
 )
 
 # Deploy and run
 software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"ticker": "AAPL", "price": 150.0})
+result = software.run({"data_path": "./test.csv"})
 
 # Lifecycle management
 software.stop()   # Stop the deployment
 software.start()  # Restart the deployment
-result = software.run({"ticker": "MSFT", "price": 400.0})  # Run again
+result = software.run({"data_path": "./validation.csv"})  # Run again
 software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
@@ -55,82 +55,82 @@ expert.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 
 ## Usage Examples
 
-### Quant Trader
+### Kaggle Competitor
 
 ```python
 from src.expert import Expert, Source, DeployStrategy
 
-# 1. Initialize with finance domain knowledge
-quant = Expert(
-    domain="quantitative_finance",
+# 1. Initialize with ML domain knowledge
+kaggler = Expert(
+    domain="machine_learning",
     kg_location="https://skills.leeroo.com",
 )
 
-# 2. Learn from repos and papers
-quant.learn(
-    Source.Repo("https://github.com/alpaca/alpaca-py", branch="main"),
-    Source.Paper("./momentum_strategies.pdf"),
+# 2. Learn from winning solutions and research
+kaggler.learn(
+    Source.Repo("https://github.com/Kaggle/kaggle-api", branch="main"),
+    Source.Paper("./ensemble_methods_survey.pdf"),
     target_kg="https://skills.leeroo.com",
 )
 
-# 3. Build the trading bot
-solution = quant.build(
-    goal="Momentum Bot for SP500 with max drawdown < 2%",
-    output_path="./bots/sp500_v1",
+# 3. Build the ML pipeline for a tabular competition
+solution = kaggler.build(
+    goal="LightGBM + CatBoost ensemble for House Prices with RMSE < 0.12",
+    output_path="./submissions/house_prices_v1",
     max_iterations=10,
     evaluator="regex_pattern",
-    evaluator_params={"pattern": r"Sharpe: ([\d.]+)"},
+    evaluator_params={"pattern": r"RMSE: ([\d.]+)"},
     stop_condition="threshold",
-    stop_condition_params={"threshold": 1.5},
+    stop_condition_params={"threshold": 0.12},
 )
 
-# 4. Deploy and run
-software = quant.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"ticker": "AAPL", "price": 150.0})
+# 4. Deploy and generate predictions
+software = kaggler.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = software.run({"train_path": "./train.csv", "test_path": "./test.csv"})
 
 # 5. Learn from the build experience
-quant.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+kaggler.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```
 
-### Healthcare / GP
+### Data Engineer
 
 ```python
 from src.expert import Expert, Source, DeployStrategy
 
-# 1. Initialize in healthcare domain
-doctor_ai = Expert(
-    domain="healthcare",
+# 1. Initialize in data engineering domain
+data_eng = Expert(
+    domain="data_engineering",
     kg_location="https://skills.leeroo.com",
 )
 
-# 2. Build with data directory (protocols available during build)
-triage_agent = doctor_ai.build(
-    goal="Voice Triage Agent that follows the protocols in data_dir",
-    data_dir="./dr_smith_protocols/",
-    output_path="./agents/triage_v1",
+# 2. Build with data directory (schemas and configs available during build)
+etl_pipeline = data_eng.build(
+    goal="ETL pipeline with PySpark that processes 1M+ rows/min from S3 to Snowflake",
+    data_dir="./schemas/",
+    output_path="./pipelines/s3_to_snowflake_v1",
     evaluator="llm_judge",
-    evaluator_params={"criteria": "medical_accuracy"},
+    evaluator_params={"criteria": "data_quality_and_throughput"},
     stop_condition="plateau",
     stop_condition_params={"patience": 3},
 )
 
 # 3. Deploy to cloud
-software = doctor_ai.deploy(triage_agent, strategy=DeployStrategy.MODAL)
-diagnosis = software.run({"audio": "<binary_audio_data>", "patient_id": "12345"})
+software = data_eng.deploy(etl_pipeline, strategy=DeployStrategy.MODAL)
+result = software.run({"s3_bucket": "raw-data", "table": "events"})
 
 # 4. Learn from the successful build
-doctor_ai.learn(Source.Solution(triage_agent), target_kg="https://skills.leeroo.com")
+data_eng.learn(Source.Solution(etl_pipeline), target_kg="https://skills.leeroo.com")
 ```
 
 ## CLI Usage
 
 ```bash
 # Basic usage
-PYTHONPATH=. python -m src.cli --goal "Build a REST API for user authentication"
+PYTHONPATH=. python -m src.cli --goal "Build a random forest classifier for the Iris dataset"
 
 # With options
 PYTHONPATH=. python -m src.cli \
-    --goal "Build a data pipeline" \
+    --goal "Build a feature engineering pipeline for tabular data" \
     --iterations 10 \
     --language python \
     --coding-agent aider \
@@ -275,6 +275,10 @@ praxium/
 git clone <repository-url>
 cd praxium
 
+# Pull Git LFS files (wiki knowledge data)
+git lfs install
+git lfs pull
+
 # Create a dedicated conda environment (recommended)
 conda create -n praxium_conda python=3.12
 conda activate praxium_conda
@@ -282,6 +286,15 @@ conda activate praxium_conda
 # Install the package
 pip install -e .
 ```
+
+> **📦 Git LFS Note**
+>
+> This repository uses Git LFS for large files in `data/wikis_batch_top100/`.
+> If you didn't install Git LFS before cloning, run:
+> ```bash
+> git lfs install
+> git lfs pull
+> ```
 
 > **⚠️ Dependency Compatibility Note**
 >
@@ -361,12 +374,12 @@ After deploying, the returned `Software` instance supports full lifecycle manage
 ```python
 software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
 
-# Run
-result = software.run({"input": "data"})
+# Run inference
+result = software.run({"data_path": "./test_features.csv"})
 
 # Check health
 if software.is_healthy():
-    print("Service is running")
+    print("Model service is running")
 
 # Stop (cleanup resources)
 software.stop()
@@ -375,7 +388,7 @@ software.stop()
 software.start()
 
 # Run again after restart
-result = software.run({"input": "more data"})
+result = software.run({"data_path": "./new_batch.csv"})
 
 # Final cleanup
 software.stop()

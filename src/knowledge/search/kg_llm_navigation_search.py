@@ -57,7 +57,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         self._driver = None
         self._llm = None
         
-        if self.enabled:
+        if self._enabled:
             self._init_backend()
     
     def _init_backend(self) -> None:
@@ -160,7 +160,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         # Use default filters if not provided
         filters = filters or KGSearchFilters()
         
-        if not self.enabled or not self._driver:
+        if not self._enabled or not self._driver:
             return KGOutput(query=query, filters=filters)
         
         # Build query prompt

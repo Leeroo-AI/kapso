@@ -20,7 +20,13 @@ from src.execution.orchestrator import OrchestratorAgent
 from src.execution.solution import SolutionResult
 from src.environment.handlers.generic import GenericProblemHandler
 from src.knowledge.search import KnowledgeSearchFactory
-from src.knowledge.learners import Source, LearnerFactory, KnowledgeChunk
+from src.knowledge.learners import Source, KnowledgePipeline
+
+# Placeholder types for unimplemented learning
+class KnowledgeChunk:
+    pass
+
+LearnerFactory = None  # Learning not implemented yet
 from src.deployment import (
     Software,
     DeployConfig,
@@ -137,7 +143,7 @@ class Expert:
                 continue
             
             # Create the appropriate learner
-            learner = LearnerFactory.create(learner_type)
+            print(f"  ⚠️ Learning from {source_type.__name__} not yet implemented"); continue  # learner = LearnerFactory.create(learner_type)
             
             # Get data from source
             if source_type == Source.Solution:
@@ -246,6 +252,7 @@ class Expert:
             mode=mode,
             coding_agent=coding_agent,
             is_kg_active=self.knowledge_search.is_enabled(),
+            knowledge_search=self.knowledge_search if self.knowledge_search.is_enabled() else None,
         )
         
         # Run experimentation

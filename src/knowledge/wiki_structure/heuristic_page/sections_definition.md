@@ -115,17 +115,25 @@ Deep Transformers have massive activation maps (Batch x SeqLen x Hidden). Storin
 ## 4. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** List the **Incoming Edges** (Backlinks).
-*   *Concept:* Heuristics are applied *to* things.
-*   *Header:* `=== Used By ===`
-*   *Syntax:* `* [[uses_heuristic::{Namespace}:{Name}]]`
-*   *Target Types:* `Workflow`, `Principle`, `Implementation`.
+**Instruction:** List the incoming connections (backlinks) using semantic wiki links.
+
+Heuristics are **Leaf Nodes** — they only receive connections. List which pages use this heuristic:
+
+*   *Syntax:* `* [[uses_heuristic::{Type}:{Name}]]`
+*   *Source Types:* `Workflow`, `Principle`, `Implementation`
+*   *Meaning:* "This page is guided/optimized by this heuristic"
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-=== Used By ===
 * [[uses_heuristic::Implementation:HuggingFace_Trainer]]
 * [[uses_heuristic::Workflow:QLoRA_Finetuning]]
 * [[uses_heuristic::Principle:Backpropagation]]
 ```
+
+**Connection Types for Heuristic (Incoming Only):**
+| Edge Property | Source Node | Meaning |
+|:--------------|:------------|:--------|
+| `uses_heuristic` | Workflow | "This workflow is guided by this advice" |
+| `uses_heuristic` | Principle | "This theory has these known tricks" |
+| `uses_heuristic` | Implementation | "This code uses this optimization" |

@@ -15,8 +15,14 @@ Usage:
     
     # Or with uv
     uv run src/knowledge/wiki_mcps/mcp_server.py
+    
+    # Use a different search backend
+    KG_SEARCH_BACKEND=kg_llm_navigation python -m src.knowledge.wiki_mcps.mcp_server
 
 Environment Variables:
+    KG_SEARCH_BACKEND: Search backend to use (default: kg_graph_search)
+        - kg_graph_search: Hybrid vector + graph search (Weaviate + Neo4j)
+        - kg_llm_navigation: LLM-guided multi-hop navigation
     OPENAI_API_KEY: Required for embeddings
     NEO4J_URI: Neo4j connection URI (default: bolt://localhost:7687)
     NEO4J_USER: Neo4j username (default: neo4j)
@@ -25,6 +31,8 @@ Environment Variables:
 """
 
 import logging
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # MCP SDK imports
@@ -45,6 +53,7 @@ from src.knowledge.search.factory import KnowledgeSearchFactory
 from src.knowledge.search.base import (
     KGSearchFilters,
     KGIndexInput,
+    KGEditInput,
     PageType,
     WikiPage,
 )
@@ -59,24 +68,38 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 _search_backend = None
+_backend_type = None
 
 
 def get_search_backend():
     """
     Get or create the search backend singleton.
     
-    Uses KGGraphSearch by default (Weaviate + Neo4j hybrid search).
+    The backend type is configured via KG_SEARCH_BACKEND environment variable:
+    - kg_graph_search (default): Hybrid vector + graph search
+    - kg_llm_navigation: LLM-guided multi-hop navigation
+    
     The backend is initialized lazily on first access.
     
     Returns:
         KnowledgeSearch instance
     """
-    global _search_backend
+    global _search_backend, _backend_type
     if _search_backend is None:
-        logger.info("Initializing KG Graph Search backend...")
-        _search_backend = KnowledgeSearchFactory.create("kg_graph_search")
-        logger.info("Knowledge search backend initialized")
+        # Read backend type from environment variable
+        _backend_type = os.getenv("KG_SEARCH_BACKEND", "kg_graph_search")
+        logger.info(f"Initializing search backend: {_backend_type}")
+        _search_backend = KnowledgeSearchFactory.create(_backend_type)
+        logger.info(f"Knowledge search backend '{_backend_type}' initialized")
     return _search_backend
+
+
+def get_backend_type() -> str:
+    """Get the current backend type name."""
+    global _backend_type
+    if _backend_type is None:
+        _backend_type = os.getenv("KG_SEARCH_BACKEND", "kg_graph_search")
+    return _backend_type
 
 
 def reset_search_backend():
@@ -239,6 +262,140 @@ experiment or problem to get more relevant results.""",
                     "required": ["query"],
                 },
             ),
+            
+            # Index pages into the knowledge graph
+            Tool(
+                name="kg_index",
+                description="""Index wiki pages into the knowledge graph.
+
+Use this to add new knowledge pages to the search backend. Supports two modes:
+1. Directory mode: Index all .md files from a wiki directory
+2. Single page mode: Index a single page with provided data
+
+The indexing updates both Weaviate (embeddings) and Neo4j (graph structure).""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "wiki_dir": {
+                            "type": "string",
+                            "description": "Path to directory containing wiki pages (.md files)",
+                        },
+                        "page_data": {
+                            "type": "object",
+                            "description": "Single page to index (alternative to wiki_dir)",
+                            "properties": {
+                                "page_title": {
+                                    "type": "string",
+                                    "description": "Title of the page (e.g., 'QLoRA_Finetuning')",
+                                },
+                                "page_type": {
+                                    "type": "string",
+                                    "enum": ["Workflow", "Principle", "Implementation", "Environment", "Heuristic"],
+                                    "description": "Type of knowledge page",
+                                },
+                                "overview": {
+                                    "type": "string",
+                                    "description": "Brief overview/summary (used for embeddings)",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "Full page content in MediaWiki format",
+                                },
+                                "domains": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Domain tags (e.g., ['LLMs', 'Fine_Tuning'])",
+                                },
+                            },
+                            "required": ["page_title", "page_type", "overview", "content"],
+                        },
+                        "persist_path": {
+                            "type": "string",
+                            "description": "Path to save parsed pages JSON (for caching)",
+                        },
+                        "clear_existing": {
+                            "type": "boolean",
+                            "description": "Clear existing data before indexing (default: false)",
+                            "default": False,
+                        },
+                    },
+                },
+            ),
+            
+            # Edit an existing wiki page
+            Tool(
+                name="kg_edit",
+                description="""Edit an existing wiki page in the knowledge graph.
+
+Updates the page across all storage layers:
+1. Source file (.md) - if wiki_dir provided
+2. Weaviate (embeddings + properties)
+3. Neo4j (graph nodes/edges)
+
+Only include fields you want to update - others remain unchanged.""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "page_id": {
+                            "type": "string",
+                            "description": "Page ID to edit (format: 'Type/Title', e.g., 'Workflow/QLoRA_Finetuning')",
+                        },
+                        "updates": {
+                            "type": "object",
+                            "description": "Fields to update",
+                            "properties": {
+                                "overview": {
+                                    "type": "string",
+                                    "description": "New overview text (triggers re-embedding)",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "Full new content",
+                                },
+                                "domains": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "New domain tags",
+                                },
+                                "sources": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {"type": "string"},
+                                            "title": {"type": "string"},
+                                            "url": {"type": "string"},
+                                        },
+                                    },
+                                    "description": "Updated sources/references",
+                                },
+                                "outgoing_links": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "edge_type": {"type": "string"},
+                                            "target_type": {"type": "string"},
+                                            "target_id": {"type": "string"},
+                                        },
+                                    },
+                                    "description": "Updated links (triggers edge rebuild)",
+                                },
+                            },
+                        },
+                        "wiki_dir": {
+                            "type": "string",
+                            "description": "Wiki directory path (for source file update)",
+                        },
+                        "auto_timestamp": {
+                            "type": "boolean",
+                            "description": "Auto-update last_updated field (default: true)",
+                            "default": True,
+                        },
+                    },
+                    "required": ["page_id", "updates"],
+                },
+            ),
         ]
     
     @mcp.call_tool()
@@ -257,10 +414,16 @@ experiment or problem to get more relevant results.""",
         elif name == "search_with_context":
             return await _handle_search_with_context(arguments)
         
+        elif name == "kg_index":
+            return await _handle_index(arguments)
+        
+        elif name == "kg_edit":
+            return await _handle_edit(arguments)
+        
         else:
             return [TextContent(
                 type="text",
-                text=f"Unknown tool: {name}. Available tools: search_knowledge, get_wiki_page, list_page_types, search_with_context",
+                text=f"Unknown tool: {name}. Available tools: search_knowledge, get_wiki_page, list_page_types, search_with_context, kg_index, kg_edit",
             )]
 
 
@@ -419,6 +582,160 @@ search_knowledge(
         type="text",
         text=types_info,
     )]
+
+
+async def _handle_index(arguments: Dict[str, Any]) -> List[TextContent]:
+    """
+    Handle kg_index tool call.
+    
+    Index wiki pages into the knowledge graph from directory or single page.
+    """
+    try:
+        search = get_search_backend()
+        
+        wiki_dir = arguments.get("wiki_dir")
+        page_data = arguments.get("page_data")
+        persist_path = arguments.get("persist_path")
+        clear_existing = arguments.get("clear_existing", False)
+        
+        # Clear existing data if requested
+        if clear_existing:
+            logger.info("Clearing existing index data...")
+            search.clear()
+        
+        # Mode 1: Index from directory
+        if wiki_dir:
+            wiki_path = Path(wiki_dir)
+            if not wiki_path.exists():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Wiki directory not found: {wiki_dir}",
+                )]
+            
+            logger.info(f"Indexing pages from directory: {wiki_dir}")
+            
+            index_input = KGIndexInput(
+                wiki_dir=wiki_path,
+                persist_path=Path(persist_path) if persist_path else None,
+            )
+            search.index(index_input)
+            
+            return [TextContent(
+                type="text",
+                text=f"Successfully indexed pages from: {wiki_dir}\n\nBackend: {get_backend_type()}",
+            )]
+        
+        # Mode 2: Index single page
+        elif page_data:
+            page_title = page_data.get("page_title", "")
+            page_type = page_data.get("page_type", "")
+            overview = page_data.get("overview", "")
+            content = page_data.get("content", "")
+            domains = page_data.get("domains", [])
+            
+            if not all([page_title, page_type, overview, content]):
+                return [TextContent(
+                    type="text",
+                    text="Error: page_data requires page_title, page_type, overview, and content",
+                )]
+            
+            # Create WikiPage object
+            page = WikiPage(
+                id=f"{page_type}/{page_title}",
+                page_title=page_title,
+                page_type=page_type,
+                overview=overview,
+                content=content,
+                domains=domains,
+                sources=[],
+                outgoing_links=[],
+            )
+            
+            logger.info(f"Indexing single page: {page.id}")
+            
+            index_input = KGIndexInput(pages=[page])
+            search.index(index_input)
+            
+            return [TextContent(
+                type="text",
+                text=f"Successfully indexed page: {page.id}\n\nType: {page_type}\nDomains: {', '.join(domains) if domains else 'None'}\nBackend: {get_backend_type()}",
+            )]
+        
+        else:
+            return [TextContent(
+                type="text",
+                text="Error: Must provide either 'wiki_dir' or 'page_data'",
+            )]
+        
+    except Exception as e:
+        logger.error(f"Index failed: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Index error: {str(e)}",
+        )]
+
+
+async def _handle_edit(arguments: Dict[str, Any]) -> List[TextContent]:
+    """
+    Handle kg_edit tool call.
+    
+    Edit an existing wiki page across all storage layers.
+    """
+    try:
+        search = get_search_backend()
+        
+        page_id = arguments.get("page_id")
+        updates = arguments.get("updates", {})
+        wiki_dir = arguments.get("wiki_dir")
+        auto_timestamp = arguments.get("auto_timestamp", True)
+        
+        if not page_id:
+            return [TextContent(
+                type="text",
+                text="Error: 'page_id' is required",
+            )]
+        
+        if not updates:
+            return [TextContent(
+                type="text",
+                text="Error: 'updates' must contain at least one field to update",
+            )]
+        
+        logger.info(f"Editing page: {page_id}, fields: {list(updates.keys())}")
+        
+        # Build KGEditInput
+        edit_input = KGEditInput(
+            page_id=page_id,
+            wiki_dir=Path(wiki_dir) if wiki_dir else None,
+            auto_timestamp=auto_timestamp,
+            overview=updates.get("overview"),
+            content=updates.get("content"),
+            domains=updates.get("domains"),
+            sources=updates.get("sources"),
+            outgoing_links=updates.get("outgoing_links"),
+        )
+        
+        # Execute edit
+        success = search.edit(edit_input)
+        
+        if success:
+            fields_updated = [k for k in updates.keys()]
+            return [TextContent(
+                type="text",
+                text=f"Successfully edited page: {page_id}\n\nFields updated: {', '.join(fields_updated)}\nAuto-timestamp: {auto_timestamp}\nBackend: {get_backend_type()}",
+            )]
+        else:
+            return [TextContent(
+                type="text",
+                text=f"Edit failed: Page '{page_id}' not found or update failed",
+            )]
+        
+    except Exception as e:
+        logger.error(f"Edit failed: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Edit error: {str(e)}",
+        )]
 
 
 # =============================================================================
