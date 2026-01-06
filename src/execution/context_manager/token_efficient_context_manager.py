@@ -101,7 +101,7 @@ class TokenEfficientContextManager(ContextManager):
         if len(self.problem_handler.additional_context) > 0:
             kg_results += self.problem_handler.additional_context + "\n\n"
 
-        if self.knowledge_search.enabled and 0:
+        if self.knowledge_search.enabled:
             print('Searching knowledge graph for context...')
             last_exp_context = str(all_experiments[-1]) if all_experiments else None
             knowledge_result = self.knowledge_search.search(
