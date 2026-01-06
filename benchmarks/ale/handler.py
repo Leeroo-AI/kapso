@@ -142,7 +142,7 @@ class AleBench(ProblemHandler):
             - Avoid inefficient algorithms like machine learning based ones as they time consuming and not efficient.
             - Make sure your solutions handle requirements and conditions of the problem inherently and directly.
             - Avoid using fallbacks as much as you can but in special caases use a decent one and not just a naive version for bypassing errors.
-            - You may write up to 5 thousand lines of code but make sure all parts of the solution are contributing to the score and are implemented efficiently.
+            - There is not limit on the number of lines of code and solution length. Write as much as you can to get the highest score.
 
             # Error handling requirements:
             - When handling time limit errors follow below steps are critical and must be followed:
@@ -240,10 +240,10 @@ class AleBench(ProblemHandler):
     def _get_domain_knowledge(self):
           return """
             Helpful knowledge if using different approaches:
-            - Some usefull algorithms:
+            - Some usefull algorithms and data structures:
                 -- "Linear, Nonlinear, Quadratic, Sequential Quadratic Programming", "Convex Optimization", "Simplex Method", "Interior Point Methods", "Newton’s Method", "L-BFGS", "Conjugate Gradient", "Subgradient Methods", "Proximal Methods", "Frank–Wolfe Algorithm", "Trust Region Methods", "Augmented Lagrangian Methods", "Alternating Direction Method of Multipliers", "Nelder–Mead",
-                -- "Cutting Plane Method", "Column Generation", "Benders Decomposition",
-                -- "DP", "Branch and Bound", "Knapsack", "Set Cover", "Hungarian Algorithm", "Min-Cost Flow", "Dinic’s Algorithm",
+                -- "Cutting Plane Method", "Column Generation", "Benders Decomposition", "KD-Tree",
+                -- "DP", "Branch and Bound","Delta Updates",  "Knapsack", "Set Cover", "Hungarian Algorithm", "Min-Cost Flow", "Dinic’s Algorithm",
                 -- "Genetic Algorithm", "Differential Evolution", "CMA-ES", "Simulated Annealing", "Tabu Search", "Particle Swarm Optimization", "Ant Colony Optimization" , "Nested metaheuristic
                 -- "Powell’s Method", "Hooke–Jeeves / Pattern Search", "Ellipsoid Method", "Karmarkar’s Algorithm", "Ford–Fulkerson Algorithm", "Edmonds–Karp Algorithm", "Prim’s Algorithm", "Kruskal’s Algorithm", "Firefly Algorithm", "Bat Algorithm"
             - Simulated Annealing:
@@ -279,8 +279,8 @@ class AleBench(ProblemHandler):
                 -- Sometimes combining multiple approaches helps, for example using different types of Simulated Annealings or the multi phase version for a problem or multiple beam search types based on the problem conditions or iterations. 
                 -- Sometimes for different conditions of the problem inputs, it is better to generate different solutions. For example for some problems you can generate different solutions for different input sizes, for example running an efficient brute force in small test cases.
                 -- Sometimes for some conditions of the problem you can precompute answers, for example, this can be helpful in problems with fixed and low variant inputs. Make sure to consider this option if it is applicable.
-                -- If possible consider hardcoding the answer of some conditions of the proble inputs inside the code.
-                -- Always consider multi strategy solutions.
+                -- If possible consider hardcoding the answer of some conditions of the problem inputs inside the code.
+                -- Always consider multi strategy solutions. but make sure to remove strategies that are not performing well and only waste the runtime capacity.
                 --  Some algorithms can constantly be improved and have lots of diversity in their usage like SA and Random Search. 
                     -- Sometimes they might not perform well in a specific type of problem, so they should be combined with another efficient algorithm.
                     -- Sometimes they may face cold start but with constant improving, they mostly perform better in long run.
