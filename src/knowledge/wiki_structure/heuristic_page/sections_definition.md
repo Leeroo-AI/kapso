@@ -115,25 +115,33 @@ Deep Transformers have massive activation maps (Batch x SeqLen x Hidden). Storin
 ## 4. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** List the incoming connections (backlinks) using semantic wiki links.
+**Instruction:** Document which pages reference this heuristic (for informational purposes only).
 
-Heuristics are **Leaf Nodes** — they only receive connections. List which pages use this heuristic:
+Heuristics are **Leaf Nodes** — they have **NO outgoing semantic links**. They only receive connections from other pages.
 
-*   *Syntax:* `* [[uses_heuristic::{Type}:{Name}]]`
-*   *Source Types:* `Workflow`, `Principle`, `Implementation`
-*   *Meaning:* "This page is guided/optimized by this heuristic"
+**⚠️ DO NOT add semantic wiki links** like `[[uses_heuristic::...]]` in this section. Such links would incorrectly imply this Heuristic depends on something else. The `[[uses_heuristic::Heuristic:X]]` link belongs on the **source pages** (Workflow, Principle, Implementation), not on the Heuristic page itself.
+
+Instead, list the pages that reference this heuristic as **plain text** (informational backlinks):
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-* [[uses_heuristic::Implementation:HuggingFace_Trainer]]
-* [[uses_heuristic::Workflow:QLoRA_Finetuning]]
-* [[uses_heuristic::Principle:Backpropagation]]
+
+=== Used By ===
+This heuristic is referenced by:
+* Implementation: HuggingFace_Trainer
+* Workflow: QLoRA_Finetuning
+* Principle: Backpropagation
 ```
 
-**Connection Types for Heuristic (Incoming Only):**
-| Edge Property | Source Node | Meaning |
-|:--------------|:------------|:--------|
-| `uses_heuristic` | Workflow | "This workflow is guided by this advice" |
-| `uses_heuristic` | Principle | "This theory has these known tricks" |
-| `uses_heuristic` | Implementation | "This code uses this optimization" |
+**Why No Outgoing Links on Heuristic Pages?**
+
+The semantic link `[[uses_heuristic::X]]` means "I use heuristic X". If placed on a Heuristic page, it would incorrectly say "this heuristic uses X" which is backwards.
+
+| Edge Property | Direction | Correct Location |
+|:--------------|:----------|:-----------------|
+| `uses_heuristic` | Workflow → Heuristic | On the **Workflow** page |
+| `uses_heuristic` | Principle → Heuristic | On the **Principle** page |
+| `uses_heuristic` | Implementation → Heuristic | On the **Implementation** page |
+
+The links are defined **on the source pages**, not on the Heuristic page itself.

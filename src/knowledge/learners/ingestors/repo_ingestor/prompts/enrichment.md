@@ -245,6 +245,31 @@ When you create an Environment or Heuristic, update references in OTHER indexes:
 | {repo_name}_FastLanguageModel | [→](...) | ✅Principle:{repo_name}_LoRA, ✅Env:{repo_name}_CUDA_11 | ... |
 ```
 
+## ⚠️ Leaf Node Rule (Environment & Heuristic Pages)
+
+**Environment and Heuristic pages are LEAF NODES** — they have **NO outgoing semantic links**.
+
+When creating these pages:
+- **DO NOT** add `[[requires_env::...]]` links on Environment pages
+- **DO NOT** add `[[uses_heuristic::...]]` links on Heuristic pages
+
+These links belong on the **source pages** (Implementation, Principle, Workflow), not on the leaf pages themselves.
+
+The Related Pages section on leaf pages should only contain **plain text backlinks** for informational purposes:
+
+```mediawiki
+== Related Pages ==
+
+=== Used By ===
+This heuristic is referenced by:
+* Implementation: FastLanguageModel_from_pretrained
+* Workflow: QLoRA_Finetuning
+```
+
+**Why?** The link `[[uses_heuristic::X]]` means "I use heuristic X". Placing it on a Heuristic page would incorrectly say "this heuristic uses X" — which is backwards.
+
+---
+
 ## Repo Scoping Rule (CRITICAL)
 
 Only create/update pages whose filenames start with `{repo_name}_`.

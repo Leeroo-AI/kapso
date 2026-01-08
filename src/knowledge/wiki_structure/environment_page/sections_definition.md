@@ -244,25 +244,33 @@ raise NotImplementedError("Unsloth requires NVIDIA, AMD, or Intel GPU.")
 ## 5. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** List the incoming connections (backlinks) using semantic wiki links.
+**Instruction:** Document which pages reference this environment (for informational purposes only).
 
-Environments are **Leaf Nodes** — they only receive connections. List which Implementations require this environment:
+Environments are **Leaf Nodes** — they have **NO outgoing semantic links**. They only receive connections from Implementation pages.
 
-*   *Syntax:* `* [[requires_env::Implementation:{Implementation_Name}]]`
-*   *Source Type:* `Implementation`
-*   *Meaning:* "This Implementation requires this environment to run"
+**⚠️ DO NOT add semantic wiki links** like `[[requires_env::...]]` in this section. Such links would incorrectly imply this Environment depends on something else. The `[[requires_env::Environment:X]]` link belongs on the **Implementation pages**, not on the Environment page itself.
+
+Instead, list the Implementations that require this environment as **plain text** (informational backlinks):
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-* [[requires_env::Implementation:LightningTrainer]]
-* [[requires_env::Implementation:HF_Accelerator]]
+
+=== Required By ===
+This environment is required by:
+* Implementation: LightningTrainer
+* Implementation: HF_Accelerator
 ```
 
-**Connection Types for Environment (Incoming Only):**
-| Edge Property | Source Node | Meaning |
-|:--------------|:------------|:--------|
-| `requires_env` | Implementation | "This code needs this environment to run" |
+**Why No Outgoing Links on Environment Pages?**
+
+The semantic link `[[requires_env::X]]` means "I require environment X". If placed on an Environment page, it would incorrectly say "this environment requires X" which is backwards.
+
+| Edge Property | Direction | Correct Location |
+|:--------------|:----------|:-----------------|
+| `requires_env` | Implementation → Environment | On the **Implementation** page |
+
+The links are defined **on the Implementation pages**, not on the Environment page itself.
 
 ---
 
