@@ -4,6 +4,49 @@ This document defines the schema, purpose, and detailed writing instructions for
 
 ---
 
+## Page Title Requirements (WikiMedia Compliance)
+
+### Naming Format
+```
+{repo_namespace}_{Heuristic_Name}.md
+```
+
+### WikiMedia Syntax Rules
+1. **First character capitalized** — Auto-converted by system
+2. **Underscores only** — Use `_` as word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters
+Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Examples
+| Correct | Incorrect | Issue |
+|---------|-----------|-------|
+| `Owner_Repo_Batch_Size_Multiplier_Tip.md` | `Owner-Repo_Batch-Size-Multiplier.md` | Hyphens |
+| `Owner_Repo_Gradient_Checkpointing_Tip.md` | `owner_repo_gradient_checkpointing_tip.md` | Lowercase |
+| `Owner_Repo_Memory_Tips.md` | `Owner_Repo_Memory/Tips.md` | Slash |
+
+---
+
+## 0. Page Title (REQUIRED - First Line)
+
+**Goal:** Provide a human-readable H1 title as the very first line of the page.
+
+**Format:** `# Heuristic: {Page_Name}`
+
+Where `{Page_Name}` is the page name WITHOUT the repo namespace prefix.
+
+**Sample:**
+```mediawiki
+# Heuristic: Gradient_Checkpointing_Tip
+```
+
+For a file named `Owner_Repo_Gradient_Checkpointing_Tip.md`, the title is:
+- ✅ `# Heuristic: Gradient_Checkpointing_Tip` (correct - no repo prefix)
+- ❌ `# Heuristic: Owner_Repo_Gradient_Checkpointing_Tip` (wrong - includes repo prefix)
+
+---
+
 ## 1. Metadata Block (Top of Page)
 **Goal:** Provide structured context for the graph parser.
 **Format:** Semantic MediaWiki Table (Right-aligned).
@@ -115,33 +158,26 @@ Deep Transformers have massive activation maps (Batch x SeqLen x Hidden). Storin
 ## 4. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** Document which pages reference this heuristic (for informational purposes only).
+**Instruction:** Document which pages reference this heuristic using semantic backlinks.
 
-Heuristics are **Leaf Nodes** — they have **NO outgoing semantic links**. They only receive connections from other pages.
+Heuristics are **Leaf Nodes** — they receive incoming connections from other pages. Use the `used_by` edge type to document these references.
 
-**⚠️ DO NOT add semantic wiki links** like `[[uses_heuristic::...]]` in this section. Such links would incorrectly imply this Heuristic depends on something else. The `[[uses_heuristic::Heuristic:X]]` link belongs on the **source pages** (Workflow, Principle, Implementation), not on the Heuristic page itself.
-
-Instead, list the pages that reference this heuristic as **plain text** (informational backlinks):
+**⚠️ IMPORTANT:** Only add backlinks for pages that ACTUALLY have a forward `[[uses_heuristic::Heuristic:X]]` link pointing to this heuristic. Do NOT add backlinks speculatively.
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-
-=== Used By ===
-This heuristic is referenced by:
-* Implementation: HuggingFace_Trainer
-* Workflow: QLoRA_Finetuning
-* Principle: Backpropagation
+* [[used_by::Implementation:Owner_Repo_Git_Fork_Edit_Workflow]]
+* [[used_by::Implementation:Owner_Repo_Issue_To_PR_Conversion]]
+* [[used_by::Workflow:Owner_Repo_Adding_Software_Entry]]
 ```
 
-**Why No Outgoing Links on Heuristic Pages?**
+**Edge Type for Heuristic Backlinks:**
 
-The semantic link `[[uses_heuristic::X]]` means "I use heuristic X". If placed on a Heuristic page, it would incorrectly say "this heuristic uses X" which is backwards.
+| Edge Property | Meaning | Source Page Types |
+|:--------------|:--------|:------------------|
+| `used_by` | "This heuristic is used by X" | Implementation, Workflow |
 
-| Edge Property | Direction | Correct Location |
-|:--------------|:----------|:-----------------|
-| `uses_heuristic` | Workflow → Heuristic | On the **Workflow** page |
-| `uses_heuristic` | Principle → Heuristic | On the **Principle** page |
-| `uses_heuristic` | Implementation → Heuristic | On the **Implementation** page |
+**Note:** Do NOT use `[[uses_heuristic::...]]` on Heuristic pages — that edge type belongs on the source pages pointing TO this heuristic.
 
-The links are defined **on the source pages**, not on the Heuristic page itself.
+**Why no Principle backlinks?** While the schema allows Principles to use heuristics, in practice most heuristics are referenced by Implementations and Workflows. Principles focus on theory; heuristics are practical tips that belong at the Implementation/Workflow level.

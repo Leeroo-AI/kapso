@@ -4,6 +4,49 @@ This document defines the schema, purpose, and detailed writing instructions for
 
 ---
 
+## Page Title Requirements (WikiMedia Compliance)
+
+### Naming Format
+```
+{repo_namespace}_{Principle_Name}.md
+```
+
+### WikiMedia Syntax Rules
+1. **First character capitalized** — Auto-converted by system
+2. **Underscores only** — Use `_` as word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters
+Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Examples
+| Correct | Incorrect | Issue |
+|---------|-----------|-------|
+| `Owner_Repo_Model_Loading.md` | `Owner-Repo_Model-Loading.md` | Hyphens |
+| `Owner_Repo_LoRA_Configuration.md` | `owner_repo_lora_configuration.md` | Lowercase |
+| `Owner_Repo_Gradient_Checkpointing.md` | `Owner_Repo_Gradient/Checkpointing.md` | Slash |
+
+---
+
+## 0. Page Title (REQUIRED - First Line)
+
+**Goal:** Provide a human-readable H1 title as the very first line of the page.
+
+**Format:** `# Principle: {Page_Name}`
+
+Where `{Page_Name}` is the page name WITHOUT the repo namespace prefix.
+
+**Sample:**
+```mediawiki
+# Principle: Model_Loading
+```
+
+For a file named `Owner_Repo_Model_Loading.md`, the title is:
+- ✅ `# Principle: Model_Loading` (correct - no repo prefix)
+- ❌ `# Principle: Owner_Repo_Model_Loading` (wrong - includes repo prefix)
+
+---
+
 ## 1. Metadata Block (Top of Page)
 **Goal:** Provide structured context for the graph parser.
 **Format:** Semantic MediaWiki Table (Right-aligned).

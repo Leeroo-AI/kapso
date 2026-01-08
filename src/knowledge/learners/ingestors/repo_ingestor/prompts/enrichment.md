@@ -12,8 +12,45 @@ You are a knowledge extraction agent. Your task is to scan the implementation co
 **DO NOT create:**
 - Summary files at the root of `{wiki_dir}`
 - Documentation files outside the designated directories
-- Any file that doesn't follow the `{repo_name}_PageName.md` naming convention
+- Any file that doesn't follow the `{repo_name}_Page_Name.md` naming convention
 - "Notes", "summaries", or "completion reports" outside `_reports/`
+
+## 📛 PAGE NAMING RULES (WikiMedia Compliance)
+
+All page names must follow WikiMedia technical syntax:
+
+### Syntax Rules
+1. **First letter capitalized** — System auto-converts (e.g., `cuda_11` → `Cuda_11`)
+2. **Underscores only** — Use `_` as the sole word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character** — `CUDA_11` ≠ `Cuda_11`
+
+### Forbidden Characters (NEVER use in page names)
+
+| Character | Name | Why Forbidden |
+|-----------|------|---------------|
+| `#` | Hash | Section anchors |
+| `< >` | Angle brackets | HTML tags |
+| `[ ]` | Square brackets | Wiki links |
+| `{{ }}` | Curly brackets | Templates |
+| `\|` | Pipe | Link separators |
+| `+` | Plus | URL encoding |
+| `:` | Colon | Namespaces |
+| `/` | Slash | Subpages |
+| `-` | Hyphen | Use underscore instead |
+
+### Naming Examples
+
+```
+✅ CORRECT:
+   {repo_name}_CUDA_11_Requirements
+   {repo_name}_Batch_Size_Tips
+   {repo_name}_Gradient_Checkpointing
+
+❌ WRONG:
+   {repo_name}_CUDA-11              (hyphen)
+   {repo_name}_batch_size_tips      (lowercase after prefix)
+   {repo_name}_GPU/Memory           (slash)
+```
 
 ## Context
 
@@ -156,8 +193,10 @@ The link target must EXACTLY match the filename (without .md extension).
 ### Update Implementation Pages
 Add `[[requires_env::Environment:{repo_name}_X]]` links.
 
-### Update Principle and Implementation Pages
+### Update Implementation and Workflow Pages
 Add `[[uses_heuristic::Heuristic:{repo_name}_X]]` links.
+
+**Note:** Heuristics are practical tips that belong at the Implementation/Workflow level, not at the Principle (theory) level. Only add heuristic links to Implementation and Workflow pages.
 
 ### Verification Step
 
@@ -247,26 +286,27 @@ When you create an Environment or Heuristic, update references in OTHER indexes:
 
 ## ⚠️ Leaf Node Rule (Environment & Heuristic Pages)
 
-**Environment and Heuristic pages are LEAF NODES** — they have **NO outgoing semantic links**.
+**Environment and Heuristic pages are LEAF NODES** — they receive incoming connections only.
 
-When creating these pages:
-- **DO NOT** add `[[requires_env::...]]` links on Environment pages
-- **DO NOT** add `[[uses_heuristic::...]]` links on Heuristic pages
+When creating the Related Pages section on these pages, use **backlink edge types**:
 
-These links belong on the **source pages** (Implementation, Principle, Workflow), not on the leaf pages themselves.
+**⚠️ IMPORTANT:** Only add backlinks for pages that ACTUALLY have a forward link pointing to this leaf page. Do NOT add backlinks speculatively.
 
-The Related Pages section on leaf pages should only contain **plain text backlinks** for informational purposes:
-
+**For Heuristic pages** (use `used_by`):
 ```mediawiki
 == Related Pages ==
-
-=== Used By ===
-This heuristic is referenced by:
-* Implementation: FastLanguageModel_from_pretrained
-* Workflow: QLoRA_Finetuning
+* [[used_by::Implementation:{repo_name}_Git_Fork_Edit_Workflow]]
+* [[used_by::Workflow:{repo_name}_Adding_Software_Entry]]
 ```
 
-**Why?** The link `[[uses_heuristic::X]]` means "I use heuristic X". Placing it on a Heuristic page would incorrectly say "this heuristic uses X" — which is backwards.
+**For Environment pages** (use `required_by`):
+```mediawiki
+== Related Pages ==
+* [[required_by::Implementation:{repo_name}_Awesome_Lint_Action_Execution]]
+* [[required_by::Implementation:{repo_name}_GitHub_Actions_Cron_Schedule]]
+```
+
+**DO NOT** use outgoing edge types (`[[uses_heuristic::...]]` or `[[requires_env::...]]`) on leaf pages — those belong on the source pages (Implementation, Workflow) pointing TO the leaf pages.
 
 ---
 

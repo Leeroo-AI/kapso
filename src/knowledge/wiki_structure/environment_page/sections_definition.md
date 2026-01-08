@@ -4,7 +4,50 @@ This document defines the schema, purpose, and detailed writing instructions for
 
 ---
 
-## 1. Metadata Block (Top of Page)
+## Page Title Requirements (WikiMedia Compliance)
+
+### Naming Format
+```
+{repo_namespace}_{Environment_Name}.md
+```
+
+### WikiMedia Syntax Rules
+1. **First character capitalized** — Auto-converted by system
+2. **Underscores only** — Use `_` as word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters
+Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Examples
+| Correct | Incorrect | Issue |
+|---------|-----------|-------|
+| `Owner_Repo_CUDA_11_8_Requirements.md` | `Owner-Repo_CUDA-11.8.md` | Hyphens, dot |
+| `Owner_Repo_Python_3_10_Environment.md` | `owner_repo_python_3_10_environment.md` | Lowercase |
+| `Owner_Repo_Docker_GPU.md` | `Owner_Repo_Docker/GPU.md` | Slash |
+
+---
+
+## 0. Page Title (REQUIRED - First Line)
+
+**Goal:** Provide a human-readable H1 title as the very first line of the page.
+
+**Format:** `# Environment: {Page_Name}`
+
+Where `{Page_Name}` is the page name WITHOUT the repo namespace prefix.
+
+**Sample:**
+```mediawiki
+# Environment: GitHub_Actions_Runner
+```
+
+For a file named `Owner_Repo_GitHub_Actions_Runner.md`, the title is:
+- ✅ `# Environment: GitHub_Actions_Runner` (correct - no repo prefix)
+- ❌ `# Environment: Owner_Repo_GitHub_Actions_Runner` (wrong - includes repo prefix)
+
+---
+
+## 1. Metadata Block
 **Goal:** Provide structured, machine-readable context for the graph parser and search index.
 **Format:** Semantic MediaWiki Table (Right-aligned).
 
@@ -244,33 +287,26 @@ raise NotImplementedError("Unsloth requires NVIDIA, AMD, or Intel GPU.")
 ## 5. Graph Connections
 
 ### `== Related Pages ==`
-**Instruction:** Document which pages reference this environment (for informational purposes only).
+**Instruction:** Document which Implementation pages require this environment using semantic backlinks.
 
-Environments are **Leaf Nodes** — they have **NO outgoing semantic links**. They only receive connections from Implementation pages.
-
-**⚠️ DO NOT add semantic wiki links** like `[[requires_env::...]]` in this section. Such links would incorrectly imply this Environment depends on something else. The `[[requires_env::Environment:X]]` link belongs on the **Implementation pages**, not on the Environment page itself.
-
-Instead, list the Implementations that require this environment as **plain text** (informational backlinks):
+Environments are **Leaf Nodes** — they receive incoming connections from Implementation pages. Use the `required_by` edge type to document these references.
 
 **Sample:**
 ```mediawiki
 == Related Pages ==
-
-=== Required By ===
-This environment is required by:
-* Implementation: LightningTrainer
-* Implementation: HF_Accelerator
+* [[required_by::Implementation:Owner_Repo_Awesome_Lint_Action_Execution]]
+* [[required_by::Implementation:Owner_Repo_Issue_To_PR_Conversion]]
+* [[required_by::Implementation:Owner_Repo_GitHub_Actions_Cron_Schedule]]
+* [[required_by::Implementation:Owner_Repo_Git_Config_Add_Commit_Push]]
 ```
 
-**Why No Outgoing Links on Environment Pages?**
+**Edge Type for Environment Backlinks:**
 
-The semantic link `[[requires_env::X]]` means "I require environment X". If placed on an Environment page, it would incorrectly say "this environment requires X" which is backwards.
+| Edge Property | Meaning | Source Page Types |
+|:--------------|:--------|:------------------|
+| `required_by` | "This environment is required by X" | Implementation |
 
-| Edge Property | Direction | Correct Location |
-|:--------------|:----------|:-----------------|
-| `requires_env` | Implementation → Environment | On the **Implementation** page |
-
-The links are defined **on the Implementation pages**, not on the Environment page itself.
+**Note:** Do NOT use `[[requires_env::...]]` on Environment pages — that edge type belongs on Implementation pages pointing TO this environment.
 
 ---
 

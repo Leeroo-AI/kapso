@@ -586,19 +586,19 @@ FOR EACH WORKFLOW, ADD A SECTION LIKE THIS:
 | 1 | Step Name | Principle_Name | `API.method()` | ⬜ |
 | 2 | Step Name | Principle_Name | `API.method()` | ⬜ |
 
-### Step 1: Principle_Name
+### Step 1: Model_Loading
 
 | Attribute | Value |
 |-----------|-------|
-| **Principle** | `{repo_name}_Principle_Name` |
-| **Implementation** | `{repo_name}_Implementation_Name` |
-| **API Call** | `ClassName.method(param1, param2, ...)` |
+| **Principle** | `{repo_name}_Model_Loading` |
+| **Implementation** | `{repo_name}_FastLanguageModel_From_Pretrained` |
+| **API Call** | `FastLanguageModel.from_pretrained(model_name, ...)` |
 | **Source Location** | `path/to/file.py:L100-200` |
-| **External Dependencies** | `library1`, `library2` |
-| **Environment** | `{repo_name}_Environment_Name` |
-| **Key Parameters** | `param1: type`, `param2: type` |
-| **Inputs** | What this step consumes |
-| **Outputs** | What this step produces |
+| **External Dependencies** | `transformers`, `torch` |
+| **Environment** | `{repo_name}_CUDA_11_Requirements` |
+| **Key Parameters** | `model_name: str`, `max_seq_length: int` |
+| **Inputs** | Model name or path |
+| **Outputs** | Loaded model and tokenizer |
 
 (Repeat Step N: ... for each step)
 
@@ -606,8 +606,8 @@ FOR EACH WORKFLOW, ADD A SECTION LIKE THIS:
 
 | Principle | Implementation | API | Source | Type |
 |-----------|----------------|-----|--------|------|
-| Principle_Name | `Implementation_Name` | `method` | `file.py` | API Doc |
-| Principle_Name | `Wrapper_Name` | `ExternalLib.method` | External | Wrapper Doc |
+| Model_Loading | `FastLanguageModel_From_Pretrained` | `from_pretrained` | `loader.py` | API Doc |
+| LoRA_Configuration | `Get_Peft_Model_Wrapper` | `peft.get_peft_model` | External | Wrapper Doc |
 
 ================================================================================
 -->
@@ -626,30 +626,34 @@ FOR EACH WORKFLOW, ADD A SECTION LIKE THIS:
     workflow_index_path.write_text(workflow_index_content, encoding="utf-8")
     
     # Other indexes use simpler structure
+    # NOTE: Example page names follow WikiMedia naming conventions:
+    # - First letter capitalized
+    # - Underscores only (no hyphens)
+    # - Case-sensitive after first character
     other_indexes = {
         "Principle": {
             "file": "_PrincipleIndex.md",
             "folder": "principles",
             "desc": "Tracks Principle pages and their connections to Implementations, Workflows, etc.",
-            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel, ✅Workflow:{repo_name}_QLoRA`",
+            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel_From_Pretrained, ✅Workflow:{repo_name}_QLoRA_Finetuning`",
         },
         "Implementation": {
             "file": "_ImplementationIndex.md",
             "folder": "implementations",
             "desc": "Tracks Implementation pages and their connections to Principles, Environments, etc.",
-            "connection_hint": f"e.g., `⬜Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA_11`",
+            "connection_hint": f"e.g., `⬜Principle:{repo_name}_LoRA_Configuration, ⬜Env:{repo_name}_CUDA_11_Requirements`",
         },
         "Environment": {
             "file": "_EnvironmentIndex.md",
             "folder": "environments",
             "desc": "Tracks Environment pages and which pages require them.",
-            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel`",
+            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel_From_Pretrained`",
         },
         "Heuristic": {
             "file": "_HeuristicIndex.md",
             "folder": "heuristics",
             "desc": "Tracks Heuristic pages and which pages they apply to.",
-            "connection_hint": f"e.g., `✅Impl:{repo_name}_FastLanguageModel, ✅Workflow:{repo_name}_QLoRA`",
+            "connection_hint": f"e.g., `✅Impl:{repo_name}_SFTTrainer_Train, ✅Workflow:{repo_name}_QLoRA_Finetuning`",
         },
     }
     

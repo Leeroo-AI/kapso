@@ -12,8 +12,29 @@ You are a Knowledge Extractor. Your task is to create wiki pages for all approve
 **DO NOT create:**
 - Summary files at the root of `{wiki_dir}`
 - Documentation files outside the designated directories
-- Any file that doesn't follow the `{repo_name}_PageName.md` naming convention
+- Any file that doesn't follow the `{repo_name}_Page_Name.md` naming convention
 - "Notes", "summaries", or "completion reports" outside `_reports/`
+
+## 📛 PAGE NAMING RULES (WikiMedia Compliance)
+
+All page names must follow WikiMedia technical syntax:
+
+### Syntax Rules
+1. **First letter capitalized** — System auto-converts
+2. **Underscores only** — Use `_` as the sole word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters (NEVER use)
+
+`#`, `<`, `>`, `[`, `]`, `{{`, `}}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Examples
+
+```
+✅ {repo_name}_ClassName_Method
+❌ {repo_name}_ClassName-Method   (hyphen)
+❌ {repo_name}_Class/Method       (slash)
+```
 
 ## Context
 

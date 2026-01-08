@@ -53,7 +53,7 @@
 | Status | File | Purpose | Coverage |
 |--------|------|---------|----------|
 | ✅ | `.github/ISSUE_TEMPLATE/add_app.yml` | Form template for adding new applications | Workflow: 0PandaDEV_awesome-windows_Adding_Software_Entry |
-| ✅ | `.github/ISSUE_TEMPLATE/edit_app.yml` | Form template for editing existing applications | — |
+| ✅ | `.github/ISSUE_TEMPLATE/edit_app.yml` | Form template for editing existing applications | Workflow: 0PandaDEV_awesome-windows_Editing_Software_Entry |
 
 ---
 

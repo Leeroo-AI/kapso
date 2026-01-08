@@ -167,9 +167,60 @@ def get_repo_name_from_url(url: str) -> str:
     return url.split("/")[-1]
 
 
+def sanitize_wiki_title(s: str) -> str:
+    """
+    Sanitize a string for WikiMedia page title compliance.
+    
+    WikiMedia Naming Rules:
+    - First character is auto-capitalized by the system
+    - Underscores only as word separators (no hyphens, no spaces)
+    - Forbidden characters: # < > [ ] { } | + : /
+    - Alphanumeric and underscores only
+    
+    Args:
+        s: Raw string to sanitize
+        
+    Returns:
+        WikiMedia-compliant title string with first letter capitalized
+    """
+    if not s:
+        return "X"
+    
+    # Forbidden WikiMedia characters: # < > [ ] { } | + : /
+    # Also replace hyphens and spaces with underscores
+    result = []
+    for ch in s:
+        if ch.isalnum():
+            result.append(ch)
+        elif ch == "_":
+            result.append("_")
+        else:
+            # Replace forbidden chars, hyphens, spaces with underscore
+            result.append("_")
+    
+    # Join and collapse multiple consecutive underscores
+    sanitized = "".join(result)
+    while "__" in sanitized:
+        sanitized = sanitized.replace("__", "_")
+    
+    # Strip leading/trailing underscores
+    sanitized = sanitized.strip("_")
+    
+    # Capitalize first letter (WikiMedia convention)
+    if sanitized:
+        sanitized = sanitized[0].upper() + sanitized[1:]
+    
+    return sanitized or "X"
+
+
 def get_repo_namespace_from_url(url: str) -> str:
     """
     Extract a stable, collision-resistant repo namespace from a git URL.
+    
+    Follows WikiMedia naming conventions:
+    - First character uppercase
+    - Underscores only (no hyphens)
+    - No forbidden characters: # < > [ ] { } | + : /
     
     This is used to:
     - Prefix wiki filenames (prevents cross-repo collisions in a shared wiki_dir)
@@ -181,11 +232,11 @@ def get_repo_namespace_from_url(url: str) -> str:
     - git@github.com:owner/repo.git
     
     Returns:
-        A safe namespace string like: "owner_repo"
+        A WikiMedia-compliant namespace string like: "Owner_Repo"
     """
     raw = (url or "").strip()
     if not raw:
-        return "unknown_repo"
+        return "Unknown_Repo"
     
     # Normalize .git suffix and trailing slash
     raw = raw.rstrip("/")
@@ -218,13 +269,10 @@ def get_repo_namespace_from_url(url: str) -> str:
     
     # Fallbacks
     if not repo:
-        repo = "repo"
+        repo = "Repo"
     if not owner:
-        owner = "owner"
+        owner = "Owner"
     
-    # Make filesystem-friendly (keep it simple)
-    def _sanitize(s: str) -> str:
-        return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in s).strip("_") or "x"
-    
-    return f"{_sanitize(owner)}_{_sanitize(repo)}"
+    # Apply WikiMedia-compliant sanitization
+    return f"{sanitize_wiki_title(owner)}_{sanitize_wiki_title(repo)}"
 

@@ -35,7 +35,15 @@ This document defines the strictly **Top-Down Directed Acyclic Graph (DAG)** sch
 | **Implementation** | `uses_heuristic` | **Heuristic** | "Uses Hack/Config Z." |
 
 ### 4. Leaf Nodes (Attributes)
-These nodes are **Targets Only**. They do not define outgoing edges in the core graph.
+These nodes are **Targets Only** in the core graph. They use **backlink edge types** to document incoming references.
+
+| Leaf Node | Backlink Edge | Source Nodes | Meaning |
+|:----------|:--------------|:-------------|:--------|
+| **Environment** | `required_by` | Implementation | "This environment is required by X." |
+| **Heuristic** | `used_by` | Implementation, Workflow | "This heuristic is used by X." |
+
+**Note:** While the schema allows Principles to use heuristics (`uses_heuristic`), in practice heuristics are practical tips that belong at the Implementation/Workflow level, not the Principle (theory) level.
+
 *   **Environment** (Hardware/OS context)
 *   **Heuristic** (Wisdom/Tips)
 
@@ -65,8 +73,8 @@ Every **Principle** MUST have at least one outgoing `[[implemented_by::Implement
 
 ### Rule 2: Top-Down Only
 - **Implementations** never point to **Principles** (use inverse queries for navigation).
-- **Heuristics** never point to **Implementations**.
-- **Environments** never point to **Implementations**.
+- **Heuristics** use `[[used_by::...]]` backlinks to document which pages reference them.
+- **Environments** use `[[required_by::...]]` backlinks to document which Implementations require them.
 
 ### Rule 3: No Loops
 The graph must remain a DAG. Do not create edges that point back up the hierarchy.
