@@ -25,7 +25,7 @@ from pathlib import Path
 # ============================================================================
 
 # Path to repo URLs JSON file
-REPO_URLS_FILE = "data/repo_urls.json"
+REPO_URLS_FILE = "data/llm_finetuning.json"
 
 # Default number of repos to process (top N from the JSON file)
 DEFAULT_REPO_LIMIT = 1
@@ -38,8 +38,8 @@ INGESTOR_PARAMS = {
 }
 
 # Output directories
-WIKI_DIR = "data/wikis_batch_top1-test"
-LOG_DIR = "logs/batch_ingest_top1-test"
+WIKI_DIR = "data/wikis_llm_finetuning"
+LOG_DIR = "logs/llm_finetuning"
 
 # Default number of parallel workers
 DEFAULT_WORKERS = 5  # Run 5 repos in parallel by default
