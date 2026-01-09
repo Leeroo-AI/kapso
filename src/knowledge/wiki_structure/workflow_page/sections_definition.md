@@ -4,6 +4,49 @@ This document defines the schema, purpose, and detailed writing instructions for
 
 ---
 
+## Page Title Requirements (WikiMedia Compliance)
+
+### Naming Format
+```
+{repo_namespace}_{Workflow_Name}.md
+```
+
+### WikiMedia Syntax Rules
+1. **First character capitalized** — Auto-converted by system
+2. **Underscores only** — Use `_` as word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters
+Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Examples
+| Correct | Incorrect | Issue |
+|---------|-----------|-------|
+| `Owner_Repo_QLoRA_Finetuning.md` | `owner-repo_QLoRA-Finetuning.md` | Hyphens |
+| `Owner_Repo_Model_Training.md` | `owner_repo_model_training.md` | Lowercase |
+| `Owner_Repo_GGUF_Export.md` | `Owner_Repo_GGUF/Export.md` | Slash |
+
+---
+
+## 0. Page Title (REQUIRED - First Line)
+
+**Goal:** Provide a human-readable H1 title as the very first line of the page.
+
+**Format:** `# Workflow: {Page_Name}`
+
+Where `{Page_Name}` is the page name WITHOUT the repo namespace prefix.
+
+**Sample:**
+```mediawiki
+# Workflow: QLoRA_Finetuning
+```
+
+For a file named `Owner_Repo_QLoRA_Finetuning.md`, the title is:
+- ✅ `# Workflow: QLoRA_Finetuning` (correct - no repo prefix)
+- ❌ `# Workflow: Owner_Repo_QLoRA_Finetuning` (wrong - includes repo prefix)
+
+---
+
 ## 1. Metadata Block (Top of Page)
 **Goal:** Provide structured context for the graph parser.
 **Format:** Semantic MediaWiki Table (Right-aligned).

@@ -28,7 +28,7 @@ from pathlib import Path
 REPO_URLS_FILE = "data/repo_urls.json"
 
 # Default number of repos to process (top N from the JSON file)
-DEFAULT_REPO_LIMIT = 100
+DEFAULT_REPO_LIMIT = 1
 
 # Ingestor settings (AWS Bedrock mode)
 INGESTOR_PARAMS = {
@@ -38,8 +38,8 @@ INGESTOR_PARAMS = {
 }
 
 # Output directories
-WIKI_DIR = "data/wikis_batch_top100"
-LOG_DIR = "logs/batch_ingest_top100"
+WIKI_DIR = "data/wikis_batch_top1-test"
+LOG_DIR = "logs/batch_ingest_top1-test"
 
 # Default number of parallel workers
 DEFAULT_WORKERS = 5  # Run 5 repos in parallel by default

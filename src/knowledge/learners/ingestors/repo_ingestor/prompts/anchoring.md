@@ -11,8 +11,46 @@ You are a knowledge extraction agent. Your task is to identify the "Golden Paths
 **DO NOT create:**
 - Summary files at the root of `{wiki_dir}`
 - Documentation files outside the designated directories
-- Any file that doesn't follow the `{repo_name}_PageName.md` naming convention
+- Any file that doesn't follow the `{repo_name}_Page_Name.md` naming convention
 - "Notes", "summaries", or "completion reports" outside `_reports/`
+
+## 📛 PAGE NAMING RULES (WikiMedia Compliance)
+
+All page names must follow WikiMedia technical syntax:
+
+### Syntax Rules
+1. **First letter capitalized** — System auto-converts (e.g., `model_loading` → `Model_loading`)
+2. **Underscores only** — Use `_` as the sole word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character** — `Model_Loading` ≠ `Model_loading`
+
+### Forbidden Characters (NEVER use in page names)
+
+| Character | Name | Why Forbidden |
+|-----------|------|---------------|
+| `#` | Hash | Section anchors |
+| `< >` | Angle brackets | HTML tags |
+| `[ ]` | Square brackets | Wiki links |
+| `{{ }}` | Curly brackets | Templates |
+| `\|` | Pipe | Link separators |
+| `+` | Plus | URL encoding |
+| `:` | Colon | Namespaces |
+| `/` | Slash | Subpages |
+| `-` | Hyphen | Use underscore instead |
+
+### Naming Examples
+
+```
+✅ CORRECT:
+   {repo_name}_QLoRA_Finetuning
+   {repo_name}_Model_Loading
+   {repo_name}_Data_Formatting
+
+❌ WRONG:
+   {repo_name}_QLoRA-Finetuning     (hyphen)
+   {repo_name}_model_loading        (lowercase first letter after prefix)
+   {repo_name}_Model:Loading        (colon)
+   {repo_name}_Model/Loading        (slash)
+```
 
 ## Context
 

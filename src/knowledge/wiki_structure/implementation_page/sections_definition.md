@@ -4,6 +4,54 @@ This document defines the schema, purpose, and detailed writing instructions for
 
 ---
 
+## Page Title Requirements (WikiMedia Compliance)
+
+### Naming Format
+```
+{repo_namespace}_{Implementation_Name}.md
+```
+
+For angle-based implementations (same API documented from different Principle perspectives):
+```
+{repo_namespace}_{ClassName}_{Method}_For_{PrincipleContext}.md
+```
+
+### WikiMedia Syntax Rules
+1. **First character capitalized** — Auto-converted by system
+2. **Underscores only** — Use `_` as word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters
+Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Examples
+| Correct | Incorrect | Issue |
+|---------|-----------|-------|
+| `Owner_Repo_FastLanguageModel_From_Pretrained.md` | `Owner-Repo_FastLanguageModel.from_pretrained.md` | Hyphens, dot |
+| `Owner_Repo_SFTTrainer_Train.md` | `owner_repo_sfttrainer_train.md` | Lowercase |
+| `Owner_Repo_Model_Save_For_GGUF.md` | `Owner_Repo_Model/Save_For_GGUF.md` | Slash |
+
+---
+
+## 0. Page Title (REQUIRED - First Line)
+
+**Goal:** Provide a human-readable H1 title as the very first line of the page.
+
+**Format:** `# Implementation: {Page_Name}`
+
+Where `{Page_Name}` is the page name WITHOUT the repo namespace prefix.
+
+**Sample:**
+```mediawiki
+# Implementation: FastLanguageModel_From_Pretrained
+```
+
+For a file named `Owner_Repo_FastLanguageModel_From_Pretrained.md`, the title is:
+- ✅ `# Implementation: FastLanguageModel_From_Pretrained` (correct - no repo prefix)
+- ❌ `# Implementation: Owner_Repo_FastLanguageModel_From_Pretrained` (wrong - includes repo prefix)
+
+---
+
 ## 1. Metadata Block (Top of Page)
 **Goal:** Provide structured context for the graph parser.
 **Format:** Semantic MediaWiki Table (Right-aligned).

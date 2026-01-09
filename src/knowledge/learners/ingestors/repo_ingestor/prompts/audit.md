@@ -15,8 +15,28 @@ You are a knowledge validation agent. Your task is to verify that all wiki pages
 **DO NOT create:**
 - Summary files at the root of `{wiki_dir}`
 - Documentation files outside the designated directories
-- Any file that doesn't follow the `{repo_name}_PageName.md` naming convention
+- Any file that doesn't follow the `{repo_name}_Page_Name.md` naming convention
 - "Notes", "summaries", or "completion reports" outside `_reports/`
+
+## 📛 PAGE NAMING RULES (WikiMedia Compliance)
+
+All page names must follow WikiMedia technical syntax:
+
+### Syntax Rules
+1. **First letter capitalized** — System auto-converts
+2. **Underscores only** — Use `_` as the sole word separator (NO hyphens, NO spaces)
+3. **Case-sensitive after first character**
+
+### Forbidden Characters (NEVER use)
+
+`#`, `<`, `>`, `[`, `]`, `{{`, `}}`, `|`, `+`, `:`, `/`, `-` (hyphen)
+
+### Validation Check
+
+When auditing page names, flag any that contain:
+- Hyphens (`-`) — should be underscores
+- Lowercase first letter after `{repo_name}_`
+- Any forbidden characters
 
 ## Context
 
