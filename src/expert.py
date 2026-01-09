@@ -166,6 +166,7 @@ class Expert:
         context: Optional[List[Any]] = None,
         constraints: Optional[List[str]] = None,
         output_path: Optional[str] = None,
+        starting_repo_path: Optional[str] = None,
         max_iterations: int = 10,
         # --- Configuration options ---
         mode: Optional[str] = None,
@@ -192,6 +193,9 @@ class Expert:
             context: Optional list of Source objects to learn before building
             constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
+            starting_repo_path: Optional local path to an existing repository to improve.
+                If provided, Praxium will clone/copy it into the experiment workspace and
+                run the experiment loop on top of that baseline.
             max_iterations: Maximum experiment iterations (default: 10)
             
             mode: Configuration mode (GENERIC, MINIMAL, TREE_SEARCH, etc.)
@@ -221,6 +225,8 @@ class Expert:
         print(f"  Evaluator: {evaluator}")
         print(f"  Stop condition: {stop_condition}")
         print(f"  Coding agent: {coding_agent or 'from config'}")
+        if starting_repo_path:
+            print(f"  Starting repo: {starting_repo_path}")
         print()
         
         # Learn from context if provided
@@ -253,6 +259,7 @@ class Expert:
             coding_agent=coding_agent,
             is_kg_active=self.knowledge_search.is_enabled(),
             knowledge_search=self.knowledge_search if self.knowledge_search.is_enabled() else None,
+            starting_repo_path=starting_repo_path,
         )
         
         # Run experimentation

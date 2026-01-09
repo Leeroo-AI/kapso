@@ -106,6 +106,7 @@ class SearchStrategyFactory:
         preset: Optional[str] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
+        seed_repo_path: Optional[str] = None,
     ) -> SearchStrategy:
         """
         Create a search strategy instance.
@@ -142,6 +143,7 @@ class SearchStrategyFactory:
             llm=llm,
             coding_agent_config=coding_agent_config,
             params=resolved_params,
+            seed_repo_path=seed_repo_path,
         )
         
         return cls._registry[strategy_type_lower](

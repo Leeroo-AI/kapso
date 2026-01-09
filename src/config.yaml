@@ -57,13 +57,13 @@ modes:
       type: "linear_search"
       params:
         code_debug_tries: 5
-        idea_generation_model: "gpt-5-mini"
+        idea_generation_model: "gpt-4o-mini"
     
     # Coding agent configuration
     coding_agent:
       type: "aider"
-      model: "gpt-5-mini"
-      debug_model: "gpt-5-mini"
+      model: "gpt-4o-mini"
+      debug_model: "gpt-4o-mini"
     
     # Context manager configuration
     context_manager:
@@ -74,7 +74,7 @@ modes:
         top_experiments_in_context_count: 2
         recent_experiments_in_context_count: 2
         summary_token_limit: 1000
-        summary_model: "gpt-5-mini"
+        summary_model: "gpt-4o-mini"
     
     # No knowledge search for generic problems
     knowledge_search:
@@ -101,12 +101,12 @@ modes:
       type: "linear_search"
       params:
         code_debug_tries: 2
-        idea_generation_model: "gpt-5-mini"
+        idea_generation_model: "gpt-4o-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-5-mini"
-      debug_model: "gpt-5-mini"
+      model: "gpt-4o-mini"
+      debug_model: "gpt-4o-mini"
     
     context_manager:
       type: "token_efficient"
@@ -140,14 +140,14 @@ modes:
         experimentation_per_run: 1
         per_step_maximum_solution_count: 5
         exploration_budget_percent: 40
-        idea_generation_model: "gpt-5-mini"
+        idea_generation_model: "gpt-4o-mini"
         idea_generation_ensemble_models:
-          - "gpt-5-mini"
+          - "gpt-4o-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-5"
-      debug_model: "gpt-5-mini"
+      model: "gpt-4o-mini"
+      debug_model: "gpt-4o-mini"
     
     context_manager:
       type: "kg_enriched"
@@ -175,12 +175,12 @@ modes:
       type: "linear_search"
       params:
         code_debug_tries: 5
-        idea_generation_model: "gpt-5-mini"
+        idea_generation_model: "gpt-4o-mini"
     
     coding_agent:
       type: "aider"
-      model: "gpt-5-mini"
-      debug_model: "gpt-5-mini"
+      model: "gpt-4o-mini"
+      debug_model: "gpt-4o-mini"
     
     context_manager:
       type: "kg_enriched"

@@ -31,23 +31,44 @@ class ExperimentWorkspace:
     """
     
 
-    def __init__(self, coding_agent_config: CodingAgentConfig, workspace_dir: str):
+    def __init__(
+        self,
+        coding_agent_config: CodingAgentConfig,
+        workspace_dir: str,
+        seed_repo_path: Optional[str] = None,
+    ):
         """
         Initialize the Experiment Workspace.
         
         Args:
             coding_agent_config: Configuration for the coding agent (required)
             workspace_dir: Path to the workspace directory (required)
+            seed_repo_path: Optional local filesystem path to a repository to COPY/CLONE
+                into this workspace. This enables "improve an existing repo" workflows.
         """
         
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
+        self.seed_repo_path = os.path.abspath(seed_repo_path) if seed_repo_path else None
+        self.is_seeded = self.seed_repo_path is not None
         
-        # Initialize git repository
-        self.repo = git.Repo.init(self.workspace_dir)
+        # Initialize git repository.
+        #
+        # Two modes:
+        # - Empty workspace (default): start from a fresh git repo (used by many benchmarks).
+        # - Seeded workspace: start from an existing local repo (copy/clone) so experiments
+        #   mutate an input codebase rather than creating everything from scratch.
+        if self.is_seeded:
+            self.repo = self._init_from_seed_repo(self.seed_repo_path)
+        else:
+            self.repo = git.Repo.init(self.workspace_dir)
+
+        # Repo-local git config that helps push branches back into this workspace repo.
+        # This is intentionally local-only (not committed).
         with self.repo.config_writer() as git_config:
             git_config.set_value("user", "name", "Experiment Workspace")
             git_config.set_value("user", "email", "workspace@experiment.com")
+            # Needed because we may push to non-bare repos (this workspace is a working repo).
             git_config.set_value("receive", "denyCurrentBranch", "ignore")
         
         # Store coding agent config
@@ -57,18 +78,21 @@ class ExperimentWorkspace:
         self.previous_sessions_cost = 0
         self.repo_lock = threading.Lock()
         
-        # Initialize main branch
-        if 'main' not in [ref.name for ref in self.repo.heads]:
-            self.create_branch('main')
-            with open(os.path.join(self.workspace_dir, '.gitignore'), 'w') as f:
-                f.write('sessions/*\n*.log')
-            self.repo.git.add(['.gitignore'])
-            self.repo.git.commit('-m', 'chore: initialize repository')
-        else:
-            self.repo.git.checkout('main')
+        # Ensure we have a stable baseline branch called "main".
+        # Many parts of the execution engine assume "main" exists and is the default parent.
+        self._ensure_main_branch()
+
+        # Ensure `sessions/` is ignored in the workspace repo.
+        # Sessions contain nested git clones and should never appear as "untracked noise"
+        # in the workspace repo status.
+        self._ensure_workspace_gitignore()
 
     @classmethod
-    def with_default_config(cls) -> 'ExperimentWorkspace':
+    def with_default_config(
+        cls,
+        workspace_dir: Optional[str] = None,
+        seed_repo_path: Optional[str] = None,
+    ) -> 'ExperimentWorkspace':
         """
         Create ExperimentWorkspace with default coding agent from agents.yaml.
         
@@ -76,7 +100,10 @@ class ExperimentWorkspace:
             ExperimentWorkspace configured with default agent
         """
         config = CodingAgentFactory.build_config()
-        return cls(coding_agent_config=config)
+        # Keep this helper usable in standalone scripts.
+        # If workspace_dir is not provided, create a unique temp path.
+        workspace_dir = workspace_dir or os.path.join("tmp", "experiment_workspace", str(uuid.uuid4()))
+        return cls(coding_agent_config=config, workspace_dir=workspace_dir, seed_repo_path=seed_repo_path)
 
     def get_current_branch(self) -> str:
         """Get the current active branch name."""
@@ -99,6 +126,101 @@ class ExperimentWorkspace:
             branch_name: Name for the new branch
         """
         self.repo.git.checkout('-b', branch_name)
+
+    # =========================================================================
+    # Seeding / bootstrap helpers
+    # =========================================================================
+
+    def _init_from_seed_repo(self, seed_repo_path: str) -> git.Repo:
+        """
+        Initialize this workspace from an existing local repository path.
+        
+        IMPORTANT DESIGN NOTE:
+        - We do NOT mutate the seed repo in-place.
+        - We clone/copy it into this workspace directory so we can diff "evolved"
+          branches against the baseline without touching the original.
+        """
+        if not os.path.exists(seed_repo_path):
+            raise FileNotFoundError(f"Seed repo path does not exist: {seed_repo_path}")
+
+        # If seed is a git repo, do a proper git clone to preserve history.
+        # Otherwise, copy the directory and initialize a new git repo.
+        try:
+            _ = git.Repo(seed_repo_path)
+            is_git_repo = True
+        except Exception:
+            is_git_repo = False
+
+        # Workspace dir must be empty before we populate it.
+        if os.path.exists(self.workspace_dir) and os.listdir(self.workspace_dir):
+            raise ValueError(
+                f"Workspace directory must be empty to seed it: {self.workspace_dir}"
+            )
+
+        if is_git_repo:
+            repo = git.Repo.clone_from(seed_repo_path, self.workspace_dir)
+        else:
+            shutil.copytree(seed_repo_path, self.workspace_dir, dirs_exist_ok=True)
+            repo = git.Repo.init(self.workspace_dir)
+            repo.git.add(".")
+            repo.git.commit("-m", "chore(praxium): seed workspace from directory")
+
+        return repo
+
+    def _ensure_main_branch(self) -> None:
+        """
+        Ensure the workspace has a branch named "main" checked out.
+        
+        This keeps downstream logic simple because ExperimentSession defaults to
+        parent_branch_name="main".
+        """
+        try:
+            current = self.repo.active_branch.name
+        except Exception:
+            # Detached HEAD or unusual repo state - create main at HEAD.
+            self.repo.git.checkout("-b", "main")
+            return
+
+        if current != "main":
+            # Force rename current branch to main (works even if current is "master").
+            self.repo.git.branch("-M", "main")
+        else:
+            self.repo.git.checkout("main")
+
+    def _ensure_workspace_gitignore(self) -> None:
+        """
+        Ensure `.gitignore` includes patterns needed by the experimentation engine.
+        
+        We append patterns instead of overwriting existing .gitignore, because
+        seeded repos often have important ignore rules already.
+        """
+        gitignore_path = os.path.join(self.workspace_dir, ".gitignore")
+        required_lines = ["sessions/*", "*.log"]
+
+        existing = ""
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r") as f:
+                existing = f.read()
+
+        to_add = [line for line in required_lines if line not in existing]
+        if not to_add:
+            return
+
+        # Append with a clear marker so humans know this is infrastructure.
+        with open(gitignore_path, "a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write("\n# Praxium experimentation engine\n")
+            for line in to_add:
+                f.write(line + "\n")
+
+        # Commit the ignore change so all experiment branches inherit it.
+        self.repo.git.add([".gitignore"])
+        try:
+            self.repo.git.commit("-m", "chore(praxium): ignore experiment sessions")
+        except git.GitCommandError:
+            # Nothing to commit (rare). Keep silent.
+            pass
     
     def create_experiment_session(
         self, 
