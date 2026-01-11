@@ -15,6 +15,7 @@ from src.execution.search_strategies.base import (
     ExperimentResult,
 )
 from src.execution.search_strategies.factory import register_strategy
+from src.repo_memory import RepoMemoryManager
 
 
 @register_strategy("linear_search")
@@ -49,8 +50,9 @@ class LinearSearch(SearchStrategy):
         print(f"  - code_debug_tries: {self.code_debug_tries}")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
         
-        # Initialize workspace with empty main file
-        if workspace_dir is None:
+        # Initialize workspace with empty main file only for empty workspaces.
+        # If the workspace is seeded from an existing repo, we must not overwrite it.
+        if workspace_dir is None and not self.workspace.is_seeded:
             self._initialize_workspace()
     
     def _initialize_workspace(self) -> None:
@@ -116,6 +118,16 @@ class LinearSearch(SearchStrategy):
 
     def _generate_solution(self, context: ContextData, budget_progress: float) -> str:
         """Generate a solution based on problem, workflow guidance, and previous experiments."""
+
+        # Ground ideation in the repo memory of the branch we will continue from.
+        # This prevents the LLM from inventing a new project structure when we are
+        # actually iterating on an existing codebase.
+        parent_branch = self._get_best_branch()
+        repo_memory = RepoMemoryManager.render_brief_for_branch(
+            self.workspace.repo,
+            parent_branch,
+            max_chars=6000,
+        )
         
         # Build prompt with history
         history_summary = ""
@@ -146,6 +158,8 @@ Follow the steps and tips provided.
 
                 PROBLEM:
                 {context.problem}
+REPOSITORY MEMORY (base branch: {parent_branch}):
+{repo_memory or "No repo memory available."}
 {workflow_guidance}
                 {history_summary}
 

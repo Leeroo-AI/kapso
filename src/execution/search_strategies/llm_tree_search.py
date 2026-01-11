@@ -19,6 +19,7 @@ from src.execution.search_strategies.base import (
     ExperimentResult,
 )
 from src.execution.search_strategies.factory import register_strategy
+from src.repo_memory import RepoMemoryManager
 
 
 class Node:
@@ -104,8 +105,9 @@ class LlmSteeredTreeSearch(SearchStrategy):
         self.experiment_history_lock = threading.Lock()
         self.nodes_lock = threading.Lock()
 
-        # Initialize with empty main file
-        if workspace_dir is None:
+        # Initialize with an empty main file ONLY when starting from an empty workspace.
+        # If the workspace is seeded from an existing repo, we must not overwrite it.
+        if workspace_dir is None and not self.workspace.is_seeded:
             self._initialize_workspace()
 
     def _initialize_workspace(self) -> None:
@@ -238,6 +240,10 @@ class LlmSteeredTreeSearch(SearchStrategy):
         expansion_count = self.node_expansion_new_childs_count
         if len(self.experiment_history) == 0:
             expansion_count *= self.first_experiment_factor
+
+        # Ground ideation in the closest experimented parent branch memory.
+        # This keeps new solutions consistent with the actual inherited code state.
+        base_branch_name = self._get_closest_experimented_parent(node).branch_name or self.workspace.get_current_branch()
         
         new_solutions = self.solution_generation(
             context,
@@ -245,6 +251,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             final_solution_count=expansion_count,
             step_count=self.idea_generation_steps,
             per_step_solution_count=min(expansion_count, self.per_step_maximum_solution_count),
+            base_branch_name=base_branch_name,
         )
         
         for new_solution in new_solutions:
@@ -431,8 +438,14 @@ class LlmSteeredTreeSearch(SearchStrategy):
         step_count: int,
         per_step_solution_count: int = 3,
         parent_solution: str = "",
+        base_branch_name: str = "main",
     ) -> List[str]:
         """Generate new solutions using LLM."""
+        repo_memory = RepoMemoryManager.render_brief_for_branch(
+            self.workspace.repo,
+            base_branch_name,
+            max_chars=6000,
+        )
         if final_solution_count > per_step_solution_count * len(self.idea_generation_ensemble_models):
             per_step_solution_count = final_solution_count // len(self.idea_generation_ensemble_models) + 1
         
@@ -471,6 +484,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             system_prompt = solution_generation_prompt.format(per_step_solution_count=per_step_solution_count)
             user_prompt = f"""
                 # Problem: \n {context.problem} \n\n 
+                # Repository memory (base branch: {base_branch_name}):\n {repo_memory if repo_memory else "No repo memory available."} \n\n
                 # Additional information:\n {context.additional_info} \n\n 
                 # Reliable knowledge base information:\n {context.kg_results} \n\n 
                 # Parent solution:\n {parent_solution} \n\n
