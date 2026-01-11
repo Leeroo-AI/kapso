@@ -212,10 +212,8 @@ $wgPageNetworkOptions = [
             'color' => ['background' => '#2196F3', 'border' => '#1565C0'],
         ],
         'redlink' => [
-            'shape' => 'dot',
-            'size' => 14,
-            'color' => ['background' => '#ffcdd2', 'border' => '#ef9a9a'],
-            'font' => ['color' => '#c62828'],
+            'hidden' => true,
+            'physics' => false,
         ],
         'externallink' => [
             'hidden' => true,
@@ -281,6 +279,15 @@ EOF
 
     echo "✓ MediaWiki initialized"
     
+    # Patch Network extension to show only outgoing links (not backlinks)
+    # This removes 'linkshere' from the API query so only outgoing links are displayed
+    echo "🔧 Patching Network extension for outgoing-only links..."
+    sed -i "s/prop: \['links', 'linkshere', 'extlinks'\]/prop: ['links', 'extlinks']/" \
+        /var/www/html/extensions/Network/resources/js/ApiPageConnectionRepo.js
+    sed -i "/lhlimit: 'max',/d" \
+        /var/www/html/extensions/Network/resources/js/ApiPageConnectionRepo.js
+    echo "✓ Network extension patched"
+    
     # Setup Semantic MediaWiki data store
     echo "🔄 Setting up Semantic MediaWiki..."
     php extensions/SemanticMediaWiki/maintenance/setupStore.php --skip-optimize --quiet
@@ -304,15 +311,11 @@ This wiki contains structured knowledge organized by type.
 |-
 ! Category !! Description !! Browse
 |-
-| '''Resources''' || '''Main entry points for each repository''' || [[Special:AllPages/Resource:|Browse All]]
-|-
 | '''Workflows''' || Step-by-step processes and procedures || [[Special:AllPages/Workflow:|Browse All]]
 |-
 | '''Principles''' || Core ideas and foundational knowledge || [[Special:AllPages/Principle:|Browse All]]
 |-
 | '''Implementations''' || Code-level details and modules || [[Special:AllPages/Implementation:|Browse All]]
-|-
-| '''Artifacts''' || Data structures and objects || [[Special:AllPages/Artifact:|Browse All]]
 |-
 | '''Heuristics''' || Best practices and guidelines || [[Special:AllPages/Heuristic:|Browse All]]
 |-
@@ -320,13 +323,6 @@ This wiki contains structured knowledge organized by type.
 |}
 
 == Recent Pages ==
-
-=== Resources (Entry Points) ===
-<DPL>
-namespace=Resource
-ordermethod=title
-count=10
-</DPL>
 
 === Workflows ===
 <DPL>
@@ -345,13 +341,6 @@ count=10
 === Implementations ===
 <DPL>
 namespace=Implementation
-ordermethod=title
-count=10
-</DPL>
-
-=== Artifacts ===
-<DPL>
-namespace=Artifact
 ordermethod=title
 count=10
 </DPL>
