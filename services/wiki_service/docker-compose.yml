@@ -1,6 +1,10 @@
 # Wiki Service - serves wiki files from data/wikis
 # Usage: docker compose up -d
 # Access: http://localhost:${WIKI_PORT:-8080}
+#
+# Environment variables:
+#   WIKI_DIR - Path to wiki data directory (relative to project root)
+#              Default: data/wikis
 
 services:
   db:
@@ -39,7 +43,7 @@ services:
       - "${WIKI_PORT:-8080}:80"
     volumes:
       - ./images:/var/www/html/images
-      - ../../data/wikis:/wikis:rw
+      - ../../${WIKI_DIR:-data/wikis}:/wikis:rw
     depends_on:
       db:
         condition: service_healthy
