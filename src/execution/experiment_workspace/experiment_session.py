@@ -78,6 +78,11 @@ class ExperimentSession:
             self.repo.git.checkout(branch_name)
         else:
             self.repo.git.checkout('-b', branch_name)
+
+        # Record the base commit SHA for this experiment branch.
+        # This is the exact repo state we "started from" (inherited from parent_branch_name).
+        # We use it to compute diffs and update RepoMemory with an accurate change log.
+        self.base_commit_sha = self.repo.head.commit.hexsha
         
         # Create run directory for output data
         self.run_dir = os.path.join(self.session_folder, f"output_data_{branch_name}")

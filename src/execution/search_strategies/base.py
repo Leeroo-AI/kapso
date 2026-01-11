@@ -19,6 +19,7 @@ from src.execution.experiment_workspace.experiment_session import ExperimentSess
 from src.execution.coding_agents.base import CodingAgentConfig
 from src.environment.handlers.base import ProblemHandler, ProblemRunResult
 from src.core.llm import LLMBackend
+from src.repo_memory import RepoMemoryManager
 
 
 @dataclass
@@ -58,6 +59,8 @@ class SearchStrategyConfig:
     coding_agent_config: CodingAgentConfig
     # Strategy-specific params (from YAML config)
     params: Dict[str, Any] = field(default_factory=dict)
+    # Optional: start experiments from an existing local repo (copy/clone into workspace)
+    seed_repo_path: Optional[str] = None
 
 
 class SearchStrategy(ABC):
@@ -95,7 +98,37 @@ class SearchStrategy(ABC):
             self.workspace_dir = os.path.join(self.WORKSPACE_FOLDER_BASE, str(uuid.uuid4()))
         else:
             self.workspace_dir = workspace_dir
-        self.workspace = ExperimentWorkspace(coding_agent_config=config.coding_agent_config, workspace_dir=self.workspace_dir)
+        self.workspace = ExperimentWorkspace(
+            coding_agent_config=config.coding_agent_config,
+            workspace_dir=self.workspace_dir,
+            seed_repo_path=config.seed_repo_path,
+        )
+
+        # Ensure baseline RepoMemory exists in the workspace repo.
+        #
+        # - For seeded repos: build an evidence-backed RepoModel once at start so
+        #   ideation and implementation can be grounded in the repo's actual design.
+        # - For empty workspaces: create a lightweight skeleton (RepoMap only).
+        #
+        # RepoMemory is committed into the workspace's "main" branch under `.praxium/`,
+        # so all experiment branches inherit it automatically.
+        if not import_from_checkpoint:
+            # Build baseline RepoMemory and commit it to the workspace's main branch.
+            # - For seeded repos: build evidence-backed RepoModel via LLM.
+            # - For empty workspaces: create a lightweight skeleton (RepoMap only).
+            if self.workspace.is_seeded:
+                RepoMemoryManager.bootstrap_baseline_model(
+                    repo_root=self.workspace_dir,
+                    llm=self.llm,
+                    seed_repo_path=self.workspace.seed_repo_path,
+                )
+            else:
+                RepoMemoryManager.ensure_exists_in_worktree(self.workspace_dir)
+
+            # Commit baseline memory file if it is new/updated.
+            self.workspace.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
+            if self.workspace.repo.is_dirty(untracked_files=True):
+                self.workspace.repo.git.commit("-m", "chore(praxium): add baseline repo memory")
 
         if import_from_checkpoint:
             self.import_checkpoint()
@@ -173,6 +206,13 @@ class SearchStrategy(ABC):
         Returns:
             ProblemRunResult with score and error info
         """
+        # RepoMemory is committed inside branches under `.praxium/`.
+        # This means when we start from a parent branch, we also inherit the memory
+        # corresponding to that code state. We still render a short briefing here
+        # so coding agents don't need to rediscover basic repo structure every time.
+        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
+        repo_memory_brief = RepoMemoryManager.render_brief(repo_memory_doc, max_chars=8000)
+
         developer_prompt = f"""
             You are a world class developer and programmer. Modify the repo or Implement the provided <solution> for <problem>.
             Requirements:
@@ -198,6 +238,10 @@ class SearchStrategy(ABC):
             - At the end create a changes.log file and summarize the changes you made to implement the <solution> in a few sentences.
             - CRITICAL: You are an AI code editor. Your ONLY job is to edit code files. Do NOT write any conversational text, explanations, or descriptions.  Do not respond with "I'll implement..." or any other conversational text.
             - The most critical part of development: Read the <solution> line by line, understand the logic and details and implement the code exactly as <solution> is provided.    
+            \n\n
+            <repository_memory>
+            {repo_memory_brief}
+            </repository_memory>
             \n\n
             <Relible information from knowledge base>
              {context.kg_code_results}
@@ -241,8 +285,15 @@ class SearchStrategy(ABC):
         Returns:
             ProblemRunResult after debug attempt
         """
+        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
+        repo_memory_brief = RepoMemoryManager.render_brief(repo_memory_doc, max_chars=8000)
+
         developer_prompt = f"""
             You are a world class developer. Debug the Implemented <solution> for <problem>.
+            \n\n
+            <repository_memory>
+            {repo_memory_brief}
+            </repository_memory>
             \n\n
             <problem>
              {context.problem}
@@ -304,6 +355,26 @@ class SearchStrategy(ABC):
                 result = self.debug_solution(solution, context, result.error_details, session)
             else:
                 break
+
+        # Update RepoMemory for this experiment branch.
+        # This makes memory correct across the experiment tree: child experiments inherit
+        # the memory file from the parent branch they start from.
+        run_result_payload = {
+            "score": getattr(result, "score", 0),
+            "run_had_error": getattr(result, "run_had_error", False),
+            "error_message": getattr(result, "error_message", "")[:5000],
+            "error_details": getattr(result, "error_details", "")[:10000],
+            "feedbacks": getattr(result, "feedbacks", "")[:10000],
+        }
+        RepoMemoryManager.update_after_experiment(
+            repo_root=session.session_folder,
+            llm=self.llm,
+            branch_name=branch_name,
+            parent_branch_name=parent_branch_name,
+            base_commit_sha=getattr(session, "base_commit_sha", ""),
+            solution_spec=solution,
+            run_result=run_result_payload,
+        )
         
         self.workspace.finalize_session(session)
         return result
