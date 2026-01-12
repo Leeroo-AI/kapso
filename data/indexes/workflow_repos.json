@@ -1,0 +1,238 @@
+{
+  "pages": [
+    {
+      "id": "Workflow/DeepSpeed",
+      "page_title": "DeepSpeed",
+      "page_type": "Workflow",
+      "overview": "DeepSpeed is a deep learning optimization library focused on making large-scale distributed training and inference easier, faster, and more memory-efficient. It provides system and algorithmic optimiz...",
+      "content": "# Workflow: DeepSpeed\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|DeepSpeed|https://github.com/deepspeedai/DeepSpeed]]\n|-\n! Domains\n| [[domain::deep_learning]], [[domain::distributed_training]], [[domain::LLM_inference]], [[domain::PyTorch]], [[domain::GPU_acceleration]]\n|-\n! Stars\n| 41,200\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nDeepSpeed is a deep learning optimization library focused on making large-scale distributed training and inference easier, faster, and more memory-efficient. It provides system and algorithmic optimiz...\n\n=== Description ===\nDeepSpeed is a deep learning optimization library focused on making large-scale distributed training and inference easier, faster, and more memory-efficient. It provides system and algorithmic optimizations (e.g., ZeRO-family techniques, parallelism/offload capabilities, and performance-focused CUDA/C++ extensions) primarily for PyTorch-based workflows.\n\n=== Usage ===\nIt is directly applicable to ML engineering workflows because practitioners can integrate it into PyTorch training loops to train larger models, reduce memory usage, and improve multi-GPU/multi-node efficiency.\n\n== Github URL ==\nhttps://github.com/deepspeedai/DeepSpeed\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "deep learning",
+        "distributed training",
+        "LLM inference",
+        "PyTorch",
+        "GPU acceleration"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "DeepSpeed",
+          "url": "https://github.com/deepspeedai/DeepSpeed"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/keras",
+      "page_title": "keras",
+      "page_type": "Workflow",
+      "overview": "Keras 3 is a high-level, multi-backend deep learning framework for building and training neural networks. It supports running the same Keras workflows on top of TensorFlow, JAX, PyTorch, and OpenVINO ...",
+      "content": "# Workflow: keras\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|keras|https://github.com/keras-team/keras]]\n|-\n! Domains\n| [[domain::deep_learning]], [[domain::machine_learning_framework]], [[domain::neural_networks]], [[domain::tensorflow]], [[domain::pytorch]]\n|-\n! Stars\n| 63,700\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nKeras 3 is a high-level, multi-backend deep learning framework for building and training neural networks. It supports running the same Keras workflows on top of TensorFlow, JAX, PyTorch, and OpenVINO ...\n\n=== Description ===\nKeras 3 is a high-level, multi-backend deep learning framework for building and training neural networks. It supports running the same Keras workflows on top of TensorFlow, JAX, PyTorch, and OpenVINO (inference-only).\n\n=== Usage ===\nIt is directly applicable to day-to-day ML workflows (model authoring, training loops, datasets integration, and inference) and is widely adopted in the ML community, making it both a production tool and a strong educational reference.\n\n== Github URL ==\nhttps://github.com/keras-team/keras\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "deep learning",
+        "machine learning framework",
+        "neural networks",
+        "tensorflow",
+        "pytorch"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "keras",
+          "url": "https://github.com/keras-team/keras"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/numpy",
+      "page_title": "numpy",
+      "page_type": "Workflow",
+      "overview": "NumPy is the core scientific computing library for Python, providing the N-dimensional array (ndarray) along with broadcasting, vectorized operations, and a large set of numerical routines (e.g., line...",
+      "content": "# Workflow: numpy\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|numpy|https://github.com/numpy/numpy]]\n|-\n! Domains\n| [[domain::scientific_computing]], [[domain::numerical_computing]], [[domain::python]], [[domain::ndarray]], [[domain::linear_algebra]]\n|-\n! Stars\n| 31,200\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nNumPy is the core scientific computing library for Python, providing the N-dimensional array (ndarray) along with broadcasting, vectorized operations, and a large set of numerical routines (e.g., line...\n\n=== Description ===\nNumPy is the core scientific computing library for Python, providing the N-dimensional array (ndarray) along with broadcasting, vectorized operations, and a large set of numerical routines (e.g., linear algebra, FFT, random numbers). It also includes tooling to integrate and accelerate code with C/C++ and Fortran extensions.\n\n=== Usage ===\nUse this repository when working on scientific computing, numerical computing, python tasks.\n\n== Github URL ==\nhttps://github.com/numpy/numpy\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "scientific computing",
+        "numerical computing",
+        "python",
+        "ndarray",
+        "linear algebra"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "numpy",
+          "url": "https://github.com/numpy/numpy"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/onnx",
+      "page_title": "onnx",
+      "page_type": "Workflow",
+      "overview": "Reference implementation and specification for the Open Neural Network Exchange (ONNX), an open standard model format enabling interoperability across machine learning frameworks and runtimes. It defi...",
+      "content": "# Workflow: onnx\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|onnx|https://github.com/onnx/onnx]]\n|-\n! Domains\n| [[domain::machine-learning]], [[domain::model-interoperability]], [[domain::onnx]], [[domain::deep-learning]], [[domain::model-format]]\n|-\n! Stars\n| 20,100\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nReference implementation and specification for the Open Neural Network Exchange (ONNX), an open standard model format enabling interoperability across machine learning frameworks and runtimes. It defi...\n\n=== Description ===\nReference implementation and specification for the Open Neural Network Exchange (ONNX), an open standard model format enabling interoperability across machine learning frameworks and runtimes. It defines an extensible computation graph, standard operator sets (opsets), data types, and provides tooling such as model checking, shape/type inference, and graph optimization.\n\n=== Usage ===\nIt is directly applicable in ML workflows for exporting, validating, converting, optimizing, and interoperating models across frameworks and deployment targets, especially for inference.\n\n== Github URL ==\nhttps://github.com/onnx/onnx\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "machine-learning",
+        "model-interoperability",
+        "onnx",
+        "deep-learning",
+        "model-format"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "onnx",
+          "url": "https://github.com/onnx/onnx"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/onnxruntime",
+      "page_title": "onnxruntime",
+      "page_type": "Workflow",
+      "overview": "ONNX Runtime is a cross-platform, high-performance machine learning inference and training engine for running models in the ONNX format. It provides graph optimizations and supports multiple hardware ...",
+      "content": "# Workflow: onnxruntime\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|onnxruntime|https://github.com/microsoft/onnxruntime]]\n|-\n! Domains\n| [[domain::machine_learning]], [[domain::model_inference]], [[domain::onnx]], [[domain::runtime]], [[domain::acceleration]]\n|-\n! Stars\n| 18,900\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nONNX Runtime is a cross-platform, high-performance machine learning inference and training engine for running models in the ONNX format. It provides graph optimizations and supports multiple hardware ...\n\n=== Description ===\nONNX Runtime is a cross-platform, high-performance machine learning inference and training engine for running models in the ONNX format. It provides graph optimizations and supports multiple hardware execution providers (e.g., CPU/GPU/accelerators) to speed up deployment and, in some cases, training workflows.\n\n=== Usage ===\nIt is directly applicable to ML engineering and data science workflows for deploying and optimizing trained models from common frameworks (e.\n\n== Github URL ==\nhttps://github.com/microsoft/onnxruntime\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "machine learning",
+        "model inference",
+        "onnx",
+        "runtime",
+        "acceleration"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "onnxruntime",
+          "url": "https://github.com/microsoft/onnxruntime"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/pandas",
+      "page_title": "pandas",
+      "page_type": "Workflow",
+      "overview": "pandas is a fast, flexible Python library for data analysis and manipulation, providing labeled data structures (Series, DataFrame) and rich functionality for cleaning, transforming, joining, reshapin...",
+      "content": "# Workflow: pandas\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|pandas|https://github.com/pandas-dev/pandas]]\n|-\n! Domains\n| [[domain::data_analysis]], [[domain::data_manipulation]], [[domain::dataframes]], [[domain::python]], [[domain::time_series]]\n|-\n! Stars\n| 47,500\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\npandas is a fast, flexible Python library for data analysis and manipulation, providing labeled data structures (Series, DataFrame) and rich functionality for cleaning, transforming, joining, reshapin...\n\n=== Description ===\npandas is a fast, flexible Python library for data analysis and manipulation, providing labeled data structures (Series, DataFrame) and rich functionality for cleaning, transforming, joining, reshaping, and analyzing tabular and time series data.\n\n=== Usage ===\nIt is directly applicable to nearly all data science and ML workflows for data loading, preprocessing, feature engineering, exploratory analysis, and dataset validation.\n\n== Github URL ==\nhttps://github.com/pandas-dev/pandas\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "data analysis",
+        "data manipulation",
+        "dataframes",
+        "python",
+        "time series"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "pandas",
+          "url": "https://github.com/pandas-dev/pandas"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/pytorch_geometric",
+      "page_title": "pytorch geometric",
+      "page_type": "Workflow",
+      "overview": "PyTorch Geometric (PyG) is a Graph Neural Network (GNN) library built on PyTorch for building, training, and scaling deep learning models on graph-structured and other irregular data. It provides a un...",
+      "content": "# Workflow: pytorch_geometric\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|pytorch_geometric|https://github.com/pyg-team/pytorch_geometric]]\n|-\n! Domains\n| [[domain::graph_neural_networks]], [[domain::geometric_deep_learning]], [[domain::pytorch]], [[domain::python]], [[domain::graph_machine_learning]]\n|-\n! Stars\n| 23,300\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nPyTorch Geometric (PyG) is a Graph Neural Network (GNN) library built on PyTorch for building, training, and scaling deep learning models on graph-structured and other irregular data. It provides a un...\n\n=== Description ===\nPyTorch Geometric (PyG) is a Graph Neural Network (GNN) library built on PyTorch for building, training, and scaling deep learning models on graph-structured and other irregular data. It provides a unified API with many implemented GNN architectures, minibatch loaders, dataset utilities/benchmarks, transforms, and support for large-scale and heterogeneous graphs.\n\n=== Usage ===\nIt is directly applicable to ML/data workflows involving node/edge/graph prediction, supports common benchmark datasets and transforms, and includes tooling for mini-batching and scaling to large graphs.\n\n== Github URL ==\nhttps://github.com/pyg-team/pytorch_geometric\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "graph neural networks",
+        "geometric deep learning",
+        "pytorch",
+        "python",
+        "graph machine learning"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "pytorch_geometric",
+          "url": "https://github.com/pyg-team/pytorch_geometric"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/scikit_learn",
+      "page_title": "scikit learn",
+      "page_type": "Workflow",
+      "overview": "scikit-learn is a widely used open-source Python library for machine learning built on top of the SciPy ecosystem. It provides efficient implementations of classical ML algorithms and utilities for pr...",
+      "content": "# Workflow: scikit-learn\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|scikit-learn|https://github.com/scikit-learn/scikit-learn]]\n|-\n! Domains\n| [[domain::machine_learning]], [[domain::python]], [[domain::scikit-learn]], [[domain::data_science]], [[domain::scientific_computing]]\n|-\n! Stars\n| 64,600\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nscikit-learn is a widely used open-source Python library for machine learning built on top of the SciPy ecosystem. It provides efficient implementations of classical ML algorithms and utilities for pr...\n\n=== Description ===\nscikit-learn is a widely used open-source Python library for machine learning built on top of the SciPy ecosystem. It provides efficient implementations of classical ML algorithms and utilities for preprocessing, model selection, and evaluation.\n\n=== Usage ===\nIt is directly applicable to everyday ML/data science work, integrates tightly with NumPy/SciPy and the broader Python data stack, and is one of the most widely adopted ML libraries in the ecosystem (as reflected by its large community and star count).\n\n== Github URL ==\nhttps://github.com/scikit-learn/scikit-learn\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "machine learning",
+        "python",
+        "scikit-learn",
+        "data science",
+        "scientific computing"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "scikit-learn",
+          "url": "https://github.com/scikit-learn/scikit-learn"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/spark",
+      "page_title": "spark",
+      "page_type": "Workflow",
+      "overview": "Apache Spark is a unified analytics engine for large-scale data processing, providing distributed computation with high-level APIs in Scala, Java, Python, and R. It includes built-in libraries and mod...",
+      "content": "# Workflow: spark\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|spark|https://github.com/apache/spark]]\n|-\n! Domains\n| [[domain::data_engineering]], [[domain::distributed_computing]], [[domain::big_data]], [[domain::apache_spark]], [[domain::batch_processing]]\n|-\n! Stars\n| 42,600\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nApache Spark is a unified analytics engine for large-scale data processing, providing distributed computation with high-level APIs in Scala, Java, Python, and R. It includes built-in libraries and mod...\n\n=== Description ===\nApache Spark is a unified analytics engine for large-scale data processing, providing distributed computation with high-level APIs in Scala, Java, Python, and R. It includes built-in libraries and modules such as Spark SQL/DataFrames, Structured Streaming, MLlib (machine learning), GraphX (graph processing), and the pandas API on Spark.\n\n=== Usage ===\nSpark is directly applicable to ML/data workflows for large-scale ETL, feature engineering, distributed model training/inference (via MLlib and integrations), and production data pipelines.\n\n== Github URL ==\nhttps://github.com/apache/spark\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "data engineering",
+        "distributed computing",
+        "big data",
+        "apache spark",
+        "batch processing"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "spark",
+          "url": "https://github.com/apache/spark"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    },
+    {
+      "id": "Workflow/stable_diffusion_webui",
+      "page_title": "stable diffusion webui",
+      "page_type": "Workflow",
+      "overview": "A browser-based web interface for running Stable Diffusion image generation locally, implemented with the Gradio UI framework. It provides txt2img/img2img workflows plus a large set of built-in featur...",
+      "content": "# Workflow: stable-diffusion-webui\n\n{| class=\"wikitable\" style=\"float:right; margin-left:1em; width:300px;\"\n|-\n! Knowledge Sources\n|\n* [[source::Repo|stable-diffusion-webui|https://github.com/AUTOMATIC1111/stable-diffusion-webui]]\n|-\n! Domains\n| [[domain::generative-ai]], [[domain::stable-diffusion]], [[domain::diffusion-models]], [[domain::computer-vision]], [[domain::gradio]]\n|-\n! Stars\n| 160,000\n|-\n! Last Updated\n| [[last_updated::2026-01-12]]\n|}\n\n== Overview ==\nA browser-based web interface for running Stable Diffusion image generation locally, implemented with the Gradio UI framework. It provides txt2img/img2img workflows plus a large set of built-in featur...\n\n=== Description ===\nA browser-based web interface for running Stable Diffusion image generation locally, implemented with the Gradio UI framework. It provides txt2img/img2img workflows plus a large set of built-in features (inpainting/outpainting, upscaling, model/LoRA handling, training utilities, and an API) and supports community extensions.\n\n=== Usage ===\nUse this repository when working on generative-ai, stable-diffusion, diffusion-models tasks.\n\n== Github URL ==\nhttps://github.com/AUTOMATIC1111/stable-diffusion-webui\n\n== Related Pages ==\n* Repository serves as a starter template for ML workflows\n* Can be cloned and adapted for specific use cases\n",
+      "domains": [
+        "generative-ai",
+        "stable-diffusion",
+        "diffusion-models",
+        "computer-vision",
+        "gradio"
+      ],
+      "sources": [
+        {
+          "type": "Repo",
+          "title": "stable-diffusion-webui",
+          "url": "https://github.com/AUTOMATIC1111/stable-diffusion-webui"
+        }
+      ],
+      "last_updated": "2026-01-12",
+      "outgoing_links": []
+    }
+  ],
+  "metadata": {
+    "collection": "KGWikiPages",
+    "embedding_model": "text-embedding-3-large"
+  }
+}
