@@ -81,15 +81,6 @@ Look for:
 - Files with Purpose like "QLoRA training example", "Fine-tuning script"
 - Example files (📝 section)
 
-## About Status Tags in Connections
-
-When you reference pages in the Connections column:
-- Use `⬜Impl:Name` for Implementations that DON'T exist yet (later phases will create them)
-- Use `⬜Principle:Name` for Principles that DON'T exist yet
-- Use `✅Type:Name` only if that page already exists
-
-Since you're the first phase creating wiki pages, most references will be `⬜` (pending creation by later phases).
-
 ## Wiki Structure Definition
 
 {workflow_structure}
@@ -128,22 +119,34 @@ For EACH workflow you identify, create a wiki page following the exact structure
 2. `== Overview ==` - One sentence summary
 3. `=== Description ===` - What this workflow does
 4. `=== Usage ===` - When to use it
-5. `== Execution Steps ==` - Ordered steps with `[[step::Principle:{repo_name}_X]]` links
+5. `== Execution Steps ==` - Ordered steps in natural language (NO code!)
 6. `== Execution Diagram ==` - Mermaid flowchart
-7. `== Related Pages ==` - Step links and heuristic links
+7. `== GitHub URL ==` - Placeholder (will be filled in later by repo builder phase)
 
 **Important:**
-- **NO CODE in Workflow steps!** Code belongs in Implementation pages (linked through Principles).
+- **NO CODE in Workflow steps!** Code will be in the GitHub repository created later.
 - Write each step as a natural language description summarizing WHAT happens.
 - Use pseudocode only if needed for clarity (not actual implementation code).
-- For the `[[step::Principle:{repo_name}_X]]` links, use descriptive names matching the concept.
-- Do NOT add `[[uses_heuristic::...]]` links yet - those come later.
+- **NO `[[step::Principle:X]]` links** - Workflows no longer connect to Principles.
+- **NO `[[uses_heuristic::...]]` links** - Workflows are self-contained.
 
-**Graph Flow:**
+**Graph Flow (New):**
 ```
-Workflow Step → Principle (theory) → Implementation (actual code)
+Workflow → GitHub Repository (implementation)
 ```
-Workflows describe WHAT. Principles explain WHY. Implementations show HOW with real code.
+Workflows describe WHAT happens. The GitHub repository contains the executable HOW.
+
+**GitHub URL Placeholder:**
+Add this section at the end of the workflow:
+```mediawiki
+== GitHub URL ==
+
+The executable implementation will be available at:
+
+[[github_url::PENDING_REPO_BUILD]]
+
+<!-- This URL will be populated by the repo builder phase -->
+```
 
 ### Step 5: Update Coverage in Repository Map
 
@@ -169,16 +172,16 @@ Write THIS structure:
 # Workflow Index: {repo_name}
 
 > Comprehensive index of Workflows and their implementation context.
-> This index bridges Phase 1 (Anchoring) and Phase 2 (Excavation).
+> This index bridges Phase 1 (Anchoring) and Phase 2 (Repository Building).
 > **Update IMMEDIATELY** after creating or modifying a Workflow page.
 
 ---
 
 ## Summary
 
-| Workflow | Steps | Principles | Rough APIs |
+| Workflow | Steps | Rough APIs | GitHub URL |
 |----------|-------|------------|------------|
-| QLoRA_Finetuning | 7 | 7 | FastLanguageModel, get_peft_model, SFTTrainer |
+| QLoRA_Finetuning | 7 | FastLanguageModel, get_peft_model, SFTTrainer | PENDING |
 
 ---
 
@@ -186,14 +189,15 @@ Write THIS structure:
 
 **File:** [→](./workflows/{repo_name}_WorkflowName.md)
 **Description:** One-line description of the workflow.
+**GitHub URL:** PENDING
 
 ### Steps Overview
 
-| # | Step Name | Principle | Rough API | Related Files |
-|---|-----------|-----------|-----------|---------------|
-| 1 | Model Loading | Model_Loading | `FastLanguageModel.from_pretrained` | loader.py |
-| 2 | LoRA Injection | LoRA_Configuration | `get_peft_model` | llama.py |
-| 3 | Data Formatting | Data_Formatting | `get_chat_template` | chat_templates.py |
+| # | Step Name | Rough API | Related Files |
+|---|-----------|-----------|---------------|
+| 1 | Model Loading | `FastLanguageModel.from_pretrained` | loader.py |
+| 2 | LoRA Injection | `get_peft_model` | llama.py |
+| 3 | Data Formatting | `get_chat_template` | chat_templates.py |
 
 ### Source Files (for enrichment)
 
@@ -208,7 +212,7 @@ Write THIS structure:
 
 ---
 
-**Legend:** `✅Type:Name` = page exists | `⬜Type:Name` = page needs creation
+**Legend:** `PENDING` = GitHub repo not yet created
 ```
 
 **Key points:**

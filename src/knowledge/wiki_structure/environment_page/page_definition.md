@@ -14,8 +14,6 @@ An **Environment** defines the hardware, OS, dependencies, and credentials requi
 ### Incoming Connections (Backlinks)
 *   **From Implementation:** `requires_env`
     *   *Meaning:* "This Implementation code cannot run unless this Environment is set up."
-*   **From Workflow:** (Implicitly via Implementation)
-    *   *Meaning:* Workflows rely on Implementations, which in turn rely on Environments.
 
 ### Visualization
 ```mermaid
@@ -27,4 +25,3 @@ graph TD
 1.  **Reproducibility:** Prevents "It works on my machine" by strictly defining the stack.
 2.  **Hardware Awareness:** Explicitly calls out GPU/TPU/RAM needs.
 3.  **Secret Management:** Documents *which* keys are needed (without storing the keys themselves).
-

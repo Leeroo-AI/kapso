@@ -1,6 +1,6 @@
 # Phase 1b: WorkflowIndex Enrichment
 
-You are a Code Analyst. Your task is to ENRICH the rough WorkflowIndex with detailed implementation context that Phase 2 needs.
+You are a Code Analyst. Your task is to ENRICH the rough WorkflowIndex with detailed implementation context that the Repository Builder phase needs.
 
 ## ⚠️ FILE PLACEMENT RULES (CRITICAL)
 
@@ -25,7 +25,7 @@ You are a Code Analyst. Your task is to ENRICH the rough WorkflowIndex with deta
 ## What You Have (Input)
 
 Phase 1a created a **rough WorkflowIndex** with:
-- Summary table (Workflow | Steps | Principles | Rough APIs)
+- Summary table (Workflow | Steps | Rough APIs | GitHub URL)
 - Per-workflow sections with Steps Overview tables
 - Source file hints for each workflow
 
@@ -37,6 +37,8 @@ For EACH step in EACH workflow, add a **detailed attribute table** with:
 - External dependencies
 - Key parameters with types
 - Input/Output specifications
+
+This information will be used by the Repository Builder to create GitHub repositories.
 
 ## Your Task
 
@@ -79,16 +81,13 @@ For each step's API:
 For EACH step, add this structure:
 
 ```markdown
-### Step N: Principle_Name
+### Step N: Step_Name
 
 | Attribute | Value |
 |-----------|-------|
-| **Principle** | `{repo_name}_Principle_Name` |
-| **Implementation** | `{repo_name}_Implementation_Name` |
 | **API Call** | `ClassName.method(param1: Type, param2: Type) -> ReturnType` |
 | **Source Location** | `path/to/file.py:L100-200` |
 | **External Dependencies** | `library1`, `library2` |
-| **Environment** | `{repo_name}_Environment_Name` |
 | **Key Parameters** | `param1: Type` - description, `param2: Type` - description |
 | **Inputs** | What this step consumes (from previous step or user) |
 | **Outputs** | What this step produces (for next step or final result) |
@@ -99,11 +98,11 @@ For EACH step, add this structure:
 ```markdown
 ### Implementation Extraction Guide
 
-| Principle | Implementation | API | Source | Type |
-|-----------|----------------|-----|--------|------|
-| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` | `loader.py:L120-620` | API Doc |
-| LoRA_Configuration | `get_peft_model` | `get_peft_model` | `llama.py:L2578-3100` | API Doc |
-| Training_Config | `SFTTrainer_usage` | `SFTTrainer` | TRL (external) | Wrapper Doc |
+| Step | API | Source | Dependencies | Type |
+|------|-----|--------|--------------|------|
+| Data_Preparation | `get_chat_template` | `chat_templates.py:L50-100` | transformers | API Doc |
+| Model_Loading | `FastLanguageModel.from_pretrained` | `loader.py:L120-620` | bitsandbytes | API Doc |
+| Training | `SFTTrainer` | TRL (external) | trl | Wrapper Doc |
 ```
 
 ## Implementation Types
@@ -117,24 +116,12 @@ Mark each implementation with its type:
 | **Pattern Doc** | User-defined interface or pattern | `reward_function(prompts, completions)` |
 | **External Tool Doc** | CLI tool or external system | `llama-cli` for GGUF validation |
 
-## 1:1 Principle-Implementation Mapping Rule
-
-**CRITICAL:** Each Principle should map to ONE dedicated Implementation page.
-
-If the same underlying API is used by multiple Principles (from different angles), create **separate Implementation names**:
-
-| Principle | Implementation Name | Angle |
-|-----------|---------------------|-------|
-| `Model_Loading` | `FastLanguageModel_from_pretrained` | QLoRA loading |
-| `RL_Model_Loading` | `FastLanguageModel_from_pretrained_vllm` | vLLM-enabled for RL |
-| `Model_Preparation` | `FastLanguageModel_from_pretrained_lora` | Reload trained LoRA |
-
 ## Verification Checklist
 
 Before finishing, verify:
 
 - [ ] Every workflow section has detailed Step N tables
-- [ ] Every step table has ALL 9 attributes filled in
+- [ ] Every step table has ALL 6 attributes filled in
 - [ ] Source locations include file path AND line numbers (e.g., `file.py:L100-200`)
 - [ ] Implementation Extraction Guide exists for each workflow
 - [ ] No `<!-- ENRICHMENT NEEDED -->` comments remain
@@ -188,9 +175,8 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase1b_anchoring_
 - [Files that don't exist]
 - [Unclear mappings]
 
-## Ready for Phase 2
+## Ready for Repository Builder
 - [ ] All Step tables complete
 - [ ] All source locations verified
 - [ ] Implementation Extraction Guides complete
 ```
-

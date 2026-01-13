@@ -111,30 +111,31 @@ Check each file in `principles/`:
 - Create a stub Implementation page if needed
 - Or remove the Principle if it's not actually implemented
 
-### Rule 2: Edge Targets Must Exist
+### Rule 2: Workflow GitHub URL Constraint (CRITICAL)
+
+**Every Workflow MUST have a `[[github_url::...]]` link.**
+
+Check each file in `workflows/`:
+1. Find the `[[github_url::...]]` link
+2. Verify the URL is valid (not "PENDING")
+
+**Fix:** If missing or PENDING, add a placeholder note in the audit report. The Repository Builder phase will create the actual repos.
+
+### Rule 3: Edge Targets Must Exist
 
 All link targets must point to actual pages:
 
 | Link Type | Target Directory |
 |-----------|------------------|
-| `[[step::Principle:{repo_name}_X]]` | `principles/{repo_name}_X.md` |
 | `[[implemented_by::Implementation:{repo_name}_X]]` | `implementations/{repo_name}_X.md` |
 | `[[requires_env::Environment:{repo_name}_X]]` | `environments/{repo_name}_X.md` |
 | `[[uses_heuristic::Heuristic:{repo_name}_X]]` | `heuristics/{repo_name}_X.md` |
 
+**Note:** `[[github_url::...]]` links point to external URLs, not wiki pages.
+
 **Fix:** Remove broken links or create missing target pages.
 
-### Rule 3: No Orphan Principles
-
-Every Principle should be reachable from at least one Workflow via `[[step::Principle:X]]`.
-
-**Fix:** If a Principle is orphaned but valid, add it as a step to an appropriate Workflow.
-
-### Rule 4: Workflows Have Steps
-
-Every Workflow should have at least 2-3 `[[step::Principle:X]]` links.
-
-### Rule 5: Index Cross-References Are Valid
+### Rule 4: Index Cross-References Are Valid
 
 For each index file, verify that **Connections column** entries point to real pages:
 
@@ -148,7 +149,7 @@ If a `✅` reference points to a non-existent page, either:
 - Create the page, OR
 - Change to `⬜` (if page genuinely doesn't exist)
 
-### Rule 6: Indexes Match Directory Contents
+### Rule 5: Indexes Match Directory Contents
 
 **Every page file MUST have a row in its index:**
 - Every `.md` in `workflows/` → row with `[→]` link in `_WorkflowIndex.md`
@@ -159,14 +160,13 @@ If a `✅` reference points to a non-existent page, either:
 
 **Missing index entries are a CRITICAL error.** Add them.
 
-### Rule 7: ⬜ References Need Resolution
+### Rule 6: ⬜ References Need Resolution
 
 Connections with `⬜` prefix indicate referenced-but-not-created pages.
 - Either create the missing page and change `⬜Type:{repo_name}_Name` to `✅Type:{repo_name}_Name`
 - Or remove the reference if it's no longer needed
 
 Scan all index files for `⬜` and resolve them.
-- Every `.md` file in `heuristics/` should have a row in `_HeuristicIndex.md`
 
 ## Your Task
 
@@ -194,8 +194,8 @@ Check each link against the inventory.
 ### Step 4: Check Constraints
 
 - Executability: All Principles have implementations?
-- Connectivity: All Principles reachable from Workflows?
-- Completeness: Workflows have sufficient steps?
+- GitHub URLs: All Workflows have repository links?
+- Completeness: All indexes match directory contents?
 
 ### Step 5: Fix Issues
 
@@ -207,18 +207,9 @@ For missing `implemented_by` links:
 - Find an existing Implementation that implements this Principle
 - Add the link
 
-For orphan Principles:
-- Find a Workflow that logically includes this Principle
-- Add a step link
-
 ### Step 6: Update Repository Map Coverage
 
 Ensure the **Coverage column** in `{repo_map_path}` accurately reflects what's documented.
-
-If a file now has more coverage (new pages created), update it:
-```markdown
-| ✅ | `unsloth/save.py` | 450 | Model saving | Impl: save_pretrained, save_gguf; Env: — | [→](...) |
-```
 
 ### Step 7: Update Missing Index Entries
 
@@ -246,6 +237,10 @@ Link Issues:
   - Issues found: X
   - Issues fixed: X
 
+GitHub URL Status:
+  - Workflows with valid URLs: X
+  - Workflows with PENDING URLs: X
+
 Remaining issues (if any):
   - [list any unfixable issues]
 
@@ -264,7 +259,7 @@ Graph Status: VALID / INVALID
 When finished, write a summary report to `{wiki_dir}/_reports/phase4_audit.md`:
 
 ```markdown
-# Phase 5: Audit Report
+# Phase 4: Audit Report
 
 ## Graph Statistics
 | Type | Count |
@@ -279,6 +274,10 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase4_audit.md`:
 - Broken links removed: X
 - Missing pages created: X
 - Missing index entries added: X
+
+## GitHub URL Status
+- Valid URLs: X
+- Pending (need repo builder): X
 
 ## Remaining Issues
 - [Any unfixed issues]
