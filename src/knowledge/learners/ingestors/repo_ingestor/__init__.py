@@ -63,8 +63,9 @@ from src.knowledge.learners.ingestors.repo_ingestor.context_builder import (
     verify_orphan_completion,
 )
 from src.knowledge.learners.ingestors.repo_ingestor.repo_builder import (
-    build_workflow_repo,
+    prepare_workflow_repo,
     parse_workflow_index_for_steps,
+    sanitize_repo_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -625,7 +626,7 @@ The executable implementation is available at:
 """
             workflow_path.write_text(content + github_section, encoding="utf-8")
             logger.info(f"Added GitHub URL section to {workflow_name}")
-
+    
     def _collect_written_pages(self, repo_name: str) -> List[WikiPage]:
         """
         Collect WikiPage objects from files written by agent.

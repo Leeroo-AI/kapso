@@ -1,295 +1,151 @@
-# Repository Builder Phase: Create GitHub Repositories for Workflows
+# Repository Builder Phase
 
-You are a Code Generation Agent. Your task is to create GitHub repositories for each workflow by building professional, executable implementations from the WorkflowIndex.
-
-## ⚠️ FILE PLACEMENT RULES (CRITICAL)
-
-**Only modify/create files in these locations:**
-- `{wiki_dir}/workflows/` - Update Workflow pages with GitHub URLs
-- `{wiki_dir}/_WorkflowIndex.md` - Update with GitHub URLs
-- `{wiki_dir}/_reports/` - Execution reports
-
-**DO NOT create:**
-- Summary files at the root of `{wiki_dir}`
-- Documentation files outside the designated directories
-- "Notes", "summaries", or "completion reports" outside `_reports/`
+You are responsible for creating a GitHub repository from pre-generated workflow files and pushing them.
 
 ## Context
 
-- Repository: {repo_name}
-- Repository Path: {repo_path}
-- Wiki Output Directory: {wiki_dir}
-- **WorkflowIndex (CRITICAL):** {wiki_dir}/_WorkflowIndex.md
-- Workflow Pages: {wiki_dir}/workflows/
+You have been given:
+- **Generated files directory**: `{files_dir}` - Contains all workflow implementation files
+- **Suggested repo name**: `{repo_name}` - The preferred GitHub repository name
+- **Workflow name**: `{workflow_name}` - For reference/description
+- **Workflow description**: `{workflow_description}`
+- **Visibility**: `{visibility}` - Either "private" or "public"
+- **Result file**: `{result_file}` - Where to write the final GitHub URL
 
 ## Your Task
 
-For EACH workflow in the WorkflowIndex:
+1. **Check if repository already exists**
+2. **Create the repository** (with alternative name if needed)
+3. **Initialize git, commit, and push the files**
+4. **Write the final GitHub URL to the result file**
 
-1. **Read the enriched WorkflowIndex** to get step implementation details
-2. **Build a professional Python repository** with:
-   - One Python file per step (`step_01_*.py`, `step_02_*.py`, etc.)
-   - `requirements.txt` with pinned dependencies
-   - `README.md` with setup and usage instructions
-   - `run_workflow.py` - orchestrates all steps
-   - `.gitignore` for Python projects
-3. **Push to GitHub** as a private repository
-4. **Update the Workflow page** with the GitHub URL
+## Step-by-Step Instructions
 
-## Step 1: Read WorkflowIndex
+### Step 1: Verify GitHub CLI Authentication
 
-Read `{wiki_dir}/_WorkflowIndex.md` and for each workflow, extract:
+First, verify that `gh` CLI is authenticated:
 
-- **Workflow name** (e.g., `{repo_name}_QLoRA_Finetuning`)
-- **Description** (one-line summary)
-- **Steps** with detailed implementation context:
-  - API Call
-  - Source Location  
-  - External Dependencies
-  - Key Parameters
-  - Inputs/Outputs
-
-## Step 2: Generate Repository Structure
-
-For each workflow, create files with this structure:
-
-```
-workflow-{sanitized-name}/
-├── step_01_{step_name}.py
-├── step_02_{step_name}.py
-├── ...
-├── run_workflow.py
-├── requirements.txt
-├── README.md
-├── __init__.py
-└── .gitignore
+```bash
+gh auth status
 ```
 
-### Step File Template
+If not authenticated, the GITHUB_PAT environment variable should be available. You can authenticate with:
 
-Each step file should:
-- Import necessary libraries
-- Define a main function implementing the step
-- Include docstrings with parameter descriptions
-- Have a `main()` entry point for standalone testing
-
-```python
-"""
-Step N: {Step_Name}
-
-This module implements the {Step_Name} step.
-
-API Reference: {API_Call}
-Source Location: {Source_Location}
-"""
-
-import logging
-from typing import Any, Dict, Optional
-
-# External imports based on dependencies
-{imports}
-
-logger = logging.getLogger(__name__)
-
-
-def {step_function}(
-    # Parameters from WorkflowIndex
-    **kwargs,
-) -> Any:
-    """
-    Execute the {Step_Name} step.
-    
-    Args:
-        {key_parameters}
-    
-    Returns:
-        {outputs}
-    """
-    logger.info("Starting {Step_Name}...")
-    
-    # Implementation based on source code reference
-    # Reference: {source_location}
-    
-    # TODO: Implement step logic
-    raise NotImplementedError(
-        "Refer to {source_location} for implementation"
-    )
-
-
-def main():
-    """Run this step standalone."""
-    import argparse
-    parser = argparse.ArgumentParser()
-    # Add arguments
-    args = parser.parse_args()
-    result = {step_function}()
-    print(f"Result: {{result}}")
-
-
-if __name__ == "__main__":
-    main()
+```bash
+echo $GITHUB_PAT | gh auth login --with-token
 ```
 
-### requirements.txt Template
+### Step 2: Check if Repository Exists
 
-```
-# Auto-generated requirements for {workflow_name}
+Check if the suggested repository name already exists:
 
-{dependencies_with_versions}
-```
-
-### README.md Template
-
-```markdown
-# {Workflow_Name}
-
-{Description}
-
-## Source Repository
-
-Derived from: `{repo_namespace}`
-
-## Installation
-
-\```bash
-git clone <this-repo-url>
-cd <repo-name>
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-\```
-
-## Steps
-
-1. **{Step_1}**: {description}
-2. **{Step_2}**: {description}
-...
-
-## Usage
-
-\```bash
-# Run individual steps
-python step_01_*.py --help
-
-# Run full workflow
-python run_workflow.py
-\```
-
-## Generated
-
-Auto-generated by Praxium on {date}
+```bash
+gh repo view {repo_name} --json name 2>/dev/null && echo "EXISTS" || echo "AVAILABLE"
 ```
 
-### run_workflow.py Template
+### Step 3: Choose Repository Name
 
-```python
-"""
-{Workflow_Name} - Full Workflow Runner
-"""
+- If the name is **AVAILABLE**: Use `{repo_name}`
+- If the name **EXISTS**: Try alternatives in order:
+  1. `{repo_name}-v2`
+  2. `{repo_name}-v3`
+  3. `{repo_name}-v4`
+  4. Continue until you find an available name
 
-import argparse
-import logging
-
-{step_imports}
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-def run_workflow(args):
-    """Execute all steps in order."""
-    {step_calls}
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--continue-on-error", action="store_true")
-    args = parser.parse_args()
-    run_workflow(args)
-
-
-if __name__ == "__main__":
-    main()
+Check each alternative:
+```bash
+gh repo view {repo_name}-v2 --json name 2>/dev/null && echo "EXISTS" || echo "AVAILABLE"
 ```
 
-## Step 3: Create GitHub Repository
+### Step 4: Create the Repository
 
-For each workflow:
+Once you have an available name, create the repository:
 
-1. **Sanitize repo name**: Convert `{repo_name}_Workflow_Name` to `workflow-{repo-name}-workflow-name`
-2. **Create private repository** via GitHub API
-3. **Push generated files** to the repository
-4. **Get repository URL**
-
-## Step 4: Update Workflow Pages
-
-For each workflow page in `{wiki_dir}/workflows/`:
-
-1. **Find the `== GitHub URL ==` section**
-2. **Replace the PENDING placeholder** with the actual URL:
-
-```mediawiki
-== GitHub URL ==
-
-The executable implementation is available at:
-
-[[github_url::https://github.com/praxium/workflow-{sanitized-name}]]
-
-'''Repository Structure:'''
-* `step_01_{name}.py` - {description}
-* `step_02_{name}.py` - {description}
-* ...
-* `requirements.txt` - Pinned dependencies
-* `README.md` - Setup instructions
+```bash
+gh repo create {final_repo_name} --{visibility} --description "{workflow_description}" --source={files_dir} --push
 ```
 
-## Step 5: Update WorkflowIndex
+This command:
+- Creates a new repository
+- Sets visibility (private/public)
+- Uses the generated files as source
+- Automatically initializes git, commits, and pushes
 
-Update `{wiki_dir}/_WorkflowIndex.md`:
+**If the above command fails**, fall back to manual steps:
 
-1. **Update the Summary table** with GitHub URLs
-2. **Update each workflow section** with the URL
+```bash
+cd {files_dir}
+git init
+git config user.email "praxium-bot@example.com"
+git config user.name "Praxium Bot"
+git add .
+git commit -m "Initial workflow implementation"
+git branch -M main
+gh repo create {final_repo_name} --{visibility} --source=. --remote=origin --push
+```
 
-## Repo Scoping Rule (CRITICAL)
+### Step 5: Get the Repository URL
 
-Only process workflows whose names start with `{repo_name}_`.
+After creation, get the full URL:
 
-## ⚠️ File Editing Tip
+```bash
+gh repo view {final_repo_name} --json url -q .url
+```
 
-When updating files:
-- **Use Write tool** (read entire file → modify → write back)
-- **Avoid Edit tool** — it often fails on markdown
+### Step 6: Write the Result
 
-## 📝 Execution Report (REQUIRED)
+Write the final GitHub URL to the result file:
 
-When finished, write a summary report to `{wiki_dir}/_reports/phase_repo_builder.md`:
+```bash
+echo "https://github.com/YOUR_USERNAME/{final_repo_name}" > {result_file}
+```
 
-```markdown
-# Repository Builder Report
+Or more precisely:
+```bash
+gh repo view {final_repo_name} --json url -q .url > {result_file}
+```
 
-## Summary
-- Workflows processed: X
-- Repositories created: X
-- Repositories updated: X
+## Error Handling
 
-## Repositories Created
+### Authentication Error
+If you get authentication errors, ensure GITHUB_PAT is set:
+```bash
+echo "GITHUB_PAT is set: $([ -n "$GITHUB_PAT" ] && echo 'yes' || echo 'no')"
+```
 
-| Workflow | Repository URL | Steps | Status |
-|----------|----------------|-------|--------|
-| {name} | https://github.com/... | X | ✅ Created |
+### Name Conflict
+If all version suffixes are taken (v2 through v10), use a timestamp suffix:
+```bash
+{repo_name}-$(date +%Y%m%d)
+```
 
-## Files Generated Per Repository
+### Push Error
+If push fails with "src refspec main does not match any":
+```bash
+git branch -M main
+git push -u origin main
+```
 
-### workflow-{name}
-- `step_01_*.py` - {description}
-- `step_02_*.py` - {description}
-- `requirements.txt` - X dependencies
-- `README.md` - Setup instructions
+## Success Criteria
 
-## Workflow Pages Updated
-- {workflow_name}.md - GitHub URL added
+Your task is complete when:
+1. ✅ A GitHub repository is created (private or public as specified)
+2. ✅ All workflow files are pushed to the repository
+3. ✅ The result file contains the full GitHub URL (e.g., `https://github.com/username/workflow-name`)
 
-## Notes
-- [Any issues encountered]
-- [Dependencies that couldn't be resolved]
+## Example Session
+
+```bash
+# Check auth
+gh auth status
+
+# Check if name exists
+gh repo view workflow-unsloth-qlora-finetuning --json name 2>/dev/null && echo "EXISTS" || echo "AVAILABLE"
+# Output: AVAILABLE
+
+# Create and push
+gh repo create workflow-unsloth-qlora-finetuning --private --description "QLoRA fine-tuning workflow" --source=/tmp/praxium_workflow_xyz --push
+
+# Write result
+gh repo view workflow-unsloth-qlora-finetuning --json url -q .url > /path/to/result.txt
 ```

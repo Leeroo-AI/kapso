@@ -1,50 +1,27 @@
 # Workflow Repository Builder
 #
-# Creates private GitHub repositories from workflow implementations.
-# Each workflow gets a dedicated repository with:
+# Generates workflow repository files for GitHub deployment.
+# Each workflow gets a dedicated repository structure with:
 # - Step-by-step implementation files (one Python file per step)
 # - requirements.txt with pinned dependencies
 # - README.md with setup and execution instructions
 # - Proper Python package structure
 #
-# This module integrates with the repo ingestion pipeline to ensure
-# deterministic, version-controlled workflow implementations.
+# File generation is deterministic. GitHub operations are handled
+# by the agentic repo_builder phase which can adapt to edge cases
+# like naming conflicts.
 
 import logging
-import os
 import re
 import tempfile
-import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-# GitHub API URL
-GITHUB_API_URL = "https://api.github.com"
 
-
-def _get_github_token() -> str:
-    """
-    Get GitHub Personal Access Token from environment.
-    
-    Returns:
-        GitHub PAT
-        
-    Raises:
-        ValueError: If GITHUB_PAT is not set
-    """
-    token = os.getenv("GITHUB_PAT")
-    if not token:
-        raise ValueError(
-            "GITHUB_PAT environment variable is not set. "
-            "Please add your GitHub Personal Access Token to .env file."
-        )
-    return token
-
-
-def _sanitize_repo_name(name: str) -> str:
+def sanitize_repo_name(name: str) -> str:
     """
     Convert a workflow name to a valid GitHub repository name.
     
@@ -69,83 +46,6 @@ def _sanitize_repo_name(name: str) -> str:
     sanitized = sanitized.strip("-")
     # Add workflow prefix
     return f"workflow-{sanitized}"
-
-
-def _create_github_repo(
-    repo_name: str,
-    description: str,
-    private: bool = True,
-    org: Optional[str] = None,
-) -> str:
-    """
-    Create a new GitHub repository using the API.
-    
-    Args:
-        repo_name: Repository name (e.g., "workflow-unsloth-qlora-finetuning")
-        description: Repository description
-        private: Whether the repo should be private (default: True)
-        org: Optional organization name (creates under user if None)
-        
-    Returns:
-        Repository URL (e.g., "https://github.com/username/repo-name")
-        
-    Raises:
-        RuntimeError: If repository creation fails
-    """
-    import requests
-    
-    token = _get_github_token()
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
-    
-    # Create repo payload
-    payload = {
-        "name": repo_name,
-        "description": description,
-        "private": private,
-        "auto_init": False,  # We'll push our own content
-    }
-    
-    # Determine API endpoint based on org or user
-    if org:
-        url = f"{GITHUB_API_URL}/orgs/{org}/repos"
-    else:
-        url = f"{GITHUB_API_URL}/user/repos"
-    
-    response = requests.post(url, json=payload, headers=headers)
-    
-    if response.status_code == 201:
-        repo_data = response.json()
-        repo_url = repo_data["html_url"]
-        logger.info(f"Created GitHub repository: {repo_url}")
-        return repo_url
-    elif response.status_code == 422:
-        # Repository might already exist
-        error_data = response.json()
-        errors = error_data.get("errors", [])
-        for error in errors:
-            if error.get("message") == "name already exists on this account":
-                # Return existing repo URL
-                if org:
-                    repo_url = f"https://github.com/{org}/{repo_name}"
-                else:
-                    # Get username from API
-                    user_response = requests.get(
-                        f"{GITHUB_API_URL}/user",
-                        headers=headers,
-                    )
-                    if user_response.status_code == 200:
-                        username = user_response.json()["login"]
-                        repo_url = f"https://github.com/{username}/{repo_name}"
-                        logger.info(f"Repository already exists: {repo_url}")
-                        return repo_url
-        raise RuntimeError(f"Failed to create repository: {error_data}")
-    else:
-        raise RuntimeError(
-            f"GitHub API error ({response.status_code}): {response.text}"
-        )
 
 
 def _generate_step_file(
@@ -528,170 +428,9 @@ if __name__ == "__main__":
     return code
 
 
-def _push_to_github(
-    local_path: Path,
-    repo_url: str,
-    branch: str = "main",
-) -> bool:
-    """
-    Push local repository content to GitHub.
-    
-    Args:
-        local_path: Path to local git repository
-        repo_url: GitHub repository URL
-        branch: Branch name to push to
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    import subprocess
-    
-    token = _get_github_token()
-    
-    # Add token to URL for authentication
-    # https://github.com/user/repo -> https://token@github.com/user/repo
-    auth_url = repo_url.replace("https://", f"https://{token}@")
-    
-    try:
-        # Initialize git repo if not already
-        subprocess.run(
-            ["git", "init"],
-            cwd=local_path,
-            check=True,
-            capture_output=True,
-        )
-        
-        # Configure git user (required for commits)
-        subprocess.run(
-            ["git", "config", "user.email", "praxium-bot@example.com"],
-            cwd=local_path,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Praxium Bot"],
-            cwd=local_path,
-            check=True,
-            capture_output=True,
-        )
-        
-        # Add all files
-        subprocess.run(
-            ["git", "add", "."],
-            cwd=local_path,
-            check=True,
-            capture_output=True,
-        )
-        
-        # Commit
-        subprocess.run(
-            ["git", "commit", "-m", "Initial workflow implementation"],
-            cwd=local_path,
-            check=True,
-            capture_output=True,
-        )
-        
-        # Add remote
-        subprocess.run(
-            ["git", "remote", "add", "origin", auth_url],
-            cwd=local_path,
-            capture_output=True,  # Don't check - might already exist
-        )
-        
-        # Push
-        result = subprocess.run(
-            ["git", "push", "-u", "origin", branch, "--force"],
-            cwd=local_path,
-            capture_output=True,
-            text=True,
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"Git push failed: {result.stderr}")
-            return False
-        
-        logger.info(f"Successfully pushed to {repo_url}")
-        return True
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Git operation failed: {e}")
-        return False
-
-
-def build_workflow_repo(
-    workflow_name: str,
-    workflow_description: str,
-    steps: List[Dict[str, Any]],
-    repo_namespace: str,
-    org: Optional[str] = None,
-    private: bool = True,
-) -> Tuple[str, bool]:
-    """
-    Build and push a GitHub repository for a workflow.
-    
-    This is the main entry point for the repo builder.
-    
-    Args:
-        workflow_name: Workflow page name (e.g., "unslothai_unsloth_QLoRA_Finetuning")
-        workflow_description: One-line description of the workflow
-        steps: List of step information dictionaries from WorkflowIndex
-        repo_namespace: Source repository namespace
-        org: Optional GitHub organization to create repo under
-        private: Whether the repo should be private (default: True)
-        
-    Returns:
-        Tuple of (repo_url, success_bool)
-        
-    Example:
-        url, success = build_workflow_repo(
-            workflow_name="unslothai_unsloth_QLoRA_Finetuning",
-            workflow_description="QLoRA fine-tuning workflow",
-            steps=[
-                {"name": "Data_Preparation", "api_call": "get_chat_template()", ...},
-                {"name": "Model_Loading", "api_call": "FastLanguageModel.from_pretrained()", ...},
-            ],
-            repo_namespace="unslothai_unsloth",
-        )
-    """
-    logger.info(f"Building repository for workflow: {workflow_name}")
-    
-    # Sanitize repo name for GitHub
-    repo_name = _sanitize_repo_name(workflow_name)
-    
-    # Create temporary directory for repo content
-    temp_dir = Path(tempfile.mkdtemp(prefix="praxium_workflow_"))
-    
-    try:
-        # Generate step files
-        for i, step in enumerate(steps, 1):
-            step_name = step.get("name", f"Step_{i}")
-            func_name = step_name.lower().replace(" ", "_")
-            filename = f"step_{i:02d}_{func_name}.py"
-            
-            step_code = _generate_step_file(i, step_name, step, repo_namespace)
-            (temp_dir / filename).write_text(step_code, encoding="utf-8")
-            logger.debug(f"Generated {filename}")
-        
-        # Generate requirements.txt
-        requirements = _generate_requirements_txt(steps)
-        (temp_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
-        
-        # Generate README.md
-        readme = _generate_readme(
-            workflow_name, workflow_description, steps, repo_namespace
-        )
-        (temp_dir / "README.md").write_text(readme, encoding="utf-8")
-        
-        # Generate workflow runner
-        runner = _generate_workflow_runner(workflow_name, steps)
-        (temp_dir / "run_workflow.py").write_text(runner, encoding="utf-8")
-        
-        # Generate __init__.py for package structure
-        init_content = f'"""Auto-generated workflow package: {workflow_name}"""\n'
-        (temp_dir / "__init__.py").write_text(init_content, encoding="utf-8")
-        
-        # Create .gitignore
-        gitignore = """# Python
+def _generate_gitignore() -> str:
+    """Generate .gitignore content."""
+    return """# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -713,33 +452,85 @@ wandb/
 outputs/
 checkpoints/
 """
-        (temp_dir / ".gitignore").write_text(gitignore, encoding="utf-8")
+
+
+def prepare_workflow_repo(
+    workflow_name: str,
+    workflow_description: str,
+    steps: List[Dict[str, Any]],
+    repo_namespace: str,
+) -> Path:
+    """
+    Generate all files for a workflow repository in a temporary directory.
+    
+    This function creates the repository structure but does NOT handle
+    GitHub operations (repo creation, git init/commit/push). Those are
+    handled by the agentic repo_builder phase.
+    
+    Args:
+        workflow_name: Workflow page name (e.g., "unslothai_unsloth_QLoRA_Finetuning")
+        workflow_description: One-line description of the workflow
+        steps: List of step information dictionaries from WorkflowIndex
+        repo_namespace: Source repository namespace
         
-        # Create GitHub repository
-        try:
-            repo_url = _create_github_repo(
-                repo_name=repo_name,
-                description=workflow_description[:100],  # GitHub limits description length
-                private=private,
-                org=org,
-            )
-        except Exception as e:
-            logger.error(f"Failed to create GitHub repository: {e}")
-            return "", False
+    Returns:
+        Path to temporary directory containing generated files
         
-        # Push to GitHub
-        success = _push_to_github(temp_dir, repo_url)
+    Example:
+        temp_dir = prepare_workflow_repo(
+            workflow_name="unslothai_unsloth_QLoRA_Finetuning",
+            workflow_description="QLoRA fine-tuning workflow",
+            steps=[
+                {"name": "Data_Preparation", "api_call": "get_chat_template()", ...},
+                {"name": "Model_Loading", "api_call": "FastLanguageModel.from_pretrained()", ...},
+            ],
+            repo_namespace="unslothai_unsloth",
+        )
+        # temp_dir now contains all files ready for GitHub push
+    """
+    logger.info(f"Preparing repository files for workflow: {workflow_name}")
+    
+    # Create temporary directory for repo content
+    temp_dir = Path(tempfile.mkdtemp(prefix="praxium_workflow_"))
+    
+    # Generate step files
+    for i, step in enumerate(steps, 1):
+        step_name = step.get("name", f"Step_{i}")
+        func_name = step_name.lower().replace(" ", "_")
+        filename = f"step_{i:02d}_{func_name}.py"
         
-        if success:
-            logger.info(f"Successfully created workflow repository: {repo_url}")
-        else:
-            logger.error(f"Failed to push to GitHub: {repo_url}")
-        
-        return repo_url, success
-        
-    finally:
-        # Cleanup temporary directory
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        step_code = _generate_step_file(i, step_name, step, repo_namespace)
+        (temp_dir / filename).write_text(step_code, encoding="utf-8")
+        logger.debug(f"Generated {filename}")
+    
+    # Generate requirements.txt
+    requirements = _generate_requirements_txt(steps)
+    (temp_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
+    logger.debug("Generated requirements.txt")
+    
+    # Generate README.md
+    readme = _generate_readme(
+        workflow_name, workflow_description, steps, repo_namespace
+    )
+    (temp_dir / "README.md").write_text(readme, encoding="utf-8")
+    logger.debug("Generated README.md")
+    
+    # Generate workflow runner
+    runner = _generate_workflow_runner(workflow_name, steps)
+    (temp_dir / "run_workflow.py").write_text(runner, encoding="utf-8")
+    logger.debug("Generated run_workflow.py")
+    
+    # Generate __init__.py for package structure
+    init_content = f'"""Auto-generated workflow package: {workflow_name}"""\n'
+    (temp_dir / "__init__.py").write_text(init_content, encoding="utf-8")
+    
+    # Create .gitignore
+    gitignore = _generate_gitignore()
+    (temp_dir / ".gitignore").write_text(gitignore, encoding="utf-8")
+    
+    logger.info(f"Generated {len(steps)} step files + supporting files in {temp_dir}")
+    
+    return temp_dir
 
 
 def parse_workflow_index_for_steps(
