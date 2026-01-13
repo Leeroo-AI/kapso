@@ -29,13 +29,73 @@ from src.repo_memory.builders import (
 
 
 class RepoMemoryManager:
-    SCHEMA_VERSION = 1
+    # ---------------------------------------------------------------------
+    # Schema
+    # ---------------------------------------------------------------------
+    #
+    # v1 stored semantic memory in a flat `repo_model` with `claims[]`.
+    # v2 adds a "Book" view (`book.summary`, `book.toc`, `book.sections`) so prompts
+    # can stay bounded (Summary + TOC only) while agents can read full details
+    # directly from `.praxium/repo_memory.json`.
+    #
+    # IMPORTANT: We keep `repo_model` for backward compatibility and for existing
+    # consumers/tests that still read `repo_model.summary/claims/...`.
+    SCHEMA_VERSION = 2
     PRAXIUM_DIR = ".praxium"
     MEMORY_FILE = "repo_memory.json"
     MEMORY_REL_PATH = os.path.join(PRAXIUM_DIR, MEMORY_FILE)
 
     # Default model for repo-model inference.
     DEFAULT_REPO_MODEL_LLM = "gpt-4o-mini"
+
+    # Stable section IDs (contract). Keep these IDs stable across versions.
+    #
+    # Notes:
+    # - These correspond to "core" sections that are always meaningful to
+    #   navigation, even if empty in a small repo.
+    # - Optional LLM-generated sections must use the `opt.` prefix.
+    CORE_SECTIONS = [
+        "core.architecture",
+        "core.entrypoints",
+        "core.where_to_edit",
+        "core.invariants",
+        "core.testing",
+        "core.gotchas",
+        "core.dependencies",
+    ]
+
+    # Deterministic titles + one-liners for core TOC entries.
+    # This keeps the TOC stable even when a section has no content yet.
+    CORE_SECTION_META: Dict[str, Dict[str, str]] = {
+        "core.architecture": {
+            "title": "Architecture",
+            "one_liner": "System design and module structure",
+        },
+        "core.entrypoints": {
+            "title": "Entrypoints",
+            "one_liner": "How to run the application",
+        },
+        "core.where_to_edit": {
+            "title": "Where to edit",
+            "one_liner": "Key files for modifications",
+        },
+        "core.invariants": {
+            "title": "Invariants",
+            "one_liner": "Contracts, constraints, and assumptions",
+        },
+        "core.testing": {
+            "title": "Testing",
+            "one_liner": "How to run tests and validate changes",
+        },
+        "core.gotchas": {
+            "title": "Gotchas",
+            "one_liner": "Common pitfalls and sharp edges",
+        },
+        "core.dependencies": {
+            "title": "Dependencies",
+            "one_liner": "Key dependencies and environment notes",
+        },
+    }
 
     # ---------------------------------------------------------------------
     # Helpers
@@ -53,6 +113,245 @@ class RepoMemoryManager:
     def _ensure_dir(cls, repo_root: str) -> None:
         os.makedirs(os.path.join(repo_root, cls.PRAXIUM_DIR), exist_ok=True)
 
+    @classmethod
+    def _count_claims_in_book_sections(cls, sections: Dict[str, Any]) -> int:
+        """Count claims across all book sections (v2)."""
+        total = 0
+        for sec in (sections or {}).values():
+            total += len((sec or {}).get("claims", []) or [])
+        return total
+
+    @classmethod
+    def _build_toc_from_sections(cls, sections: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Build an ordered TOC list from sections.
+        
+        Rules:
+        - Core sections first in stable order (always included).
+        - Optional sections (`opt.*`) next, ordered by section id.
+        """
+        sections = sections or {}
+
+        toc: List[Dict[str, Any]] = []
+        for sid in cls.CORE_SECTIONS:
+            meta = cls.CORE_SECTION_META.get(sid, {"title": sid, "one_liner": ""})
+            sec = sections.get(sid, {}) or {}
+            toc.append(
+                {
+                    "id": sid,
+                    "title": sec.get("title") or meta["title"],
+                    "one_liner": sec.get("one_liner") or meta.get("one_liner", ""),
+                }
+            )
+
+        # Optional sections: include anything not core, prefer opt.* ids
+        optional_ids = [sid for sid in sections.keys() if sid not in set(cls.CORE_SECTIONS)]
+        optional_ids.sort()
+        for sid in optional_ids:
+            sec = sections.get(sid, {}) or {}
+            toc.append(
+                {
+                    "id": sid,
+                    "title": sec.get("title") or sid,
+                    "one_liner": sec.get("one_liner") or "",
+                }
+            )
+        return toc
+
+    @classmethod
+    def _ensure_core_sections_present(cls, sections: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure all core section IDs exist in the sections dict."""
+        sections = dict(sections or {})
+        for sid in cls.CORE_SECTIONS:
+            if sid in sections and isinstance(sections[sid], dict):
+                # Fill missing metadata fields if absent.
+                meta = cls.CORE_SECTION_META.get(sid, {})
+                sections[sid].setdefault("title", meta.get("title", sid))
+                sections[sid].setdefault("one_liner", meta.get("one_liner", ""))
+                continue
+
+            meta = cls.CORE_SECTION_META.get(sid, {})
+            sections[sid] = {
+                "title": meta.get("title", sid),
+                "one_liner": meta.get("one_liner", ""),
+                # Keep both possible shapes available; empty by default.
+                "claims": [],
+                "content": [],
+            }
+        return sections
+
+    @classmethod
+    def _build_book_from_v1_repo_model(cls, repo_model: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build a v2 `book` from a v1-style `repo_model`.
+        
+        This is used both for v1→v2 migration and as a fallback path while we
+        incrementally roll out v2 builders.
+        """
+        repo_model = repo_model or {}
+        claims = repo_model.get("claims", []) or []
+
+        # Split claims into sections by kind (simple, deterministic mapping).
+        sections: Dict[str, Any] = {}
+        sections["core.entrypoints"] = {
+            "title": cls.CORE_SECTION_META["core.entrypoints"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.entrypoints"]["one_liner"],
+            "content": repo_model.get("entrypoints", []) or [],
+        }
+        sections["core.where_to_edit"] = {
+            "title": cls.CORE_SECTION_META["core.where_to_edit"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.where_to_edit"]["one_liner"],
+            "content": repo_model.get("where_to_edit", []) or [],
+        }
+
+        architecture_claims = []
+        invariants_claims = []
+        deps_claims = []
+        gotchas_claims = []
+        testing_claims = []
+
+        for c in claims:
+            kind = (c or {}).get("kind", "") or ""
+            if kind in ("architecture", "algorithm"):
+                architecture_claims.append(c)
+            elif kind == "contract":
+                invariants_claims.append(c)
+            elif kind == "deployment":
+                deps_claims.append(c)
+            elif kind == "testing":
+                testing_claims.append(c)
+            else:
+                gotchas_claims.append(c)
+
+        sections["core.architecture"] = {
+            "title": cls.CORE_SECTION_META["core.architecture"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.architecture"]["one_liner"],
+            "claims": architecture_claims,
+        }
+        sections["core.invariants"] = {
+            "title": cls.CORE_SECTION_META["core.invariants"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.invariants"]["one_liner"],
+            "claims": invariants_claims,
+        }
+        sections["core.dependencies"] = {
+            "title": cls.CORE_SECTION_META["core.dependencies"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.dependencies"]["one_liner"],
+            "claims": deps_claims,
+        }
+        sections["core.gotchas"] = {
+            "title": cls.CORE_SECTION_META["core.gotchas"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.gotchas"]["one_liner"],
+            "claims": gotchas_claims,
+        }
+        sections["core.testing"] = {
+            "title": cls.CORE_SECTION_META["core.testing"]["title"],
+            "one_liner": cls.CORE_SECTION_META["core.testing"]["one_liner"],
+            "claims": testing_claims,
+        }
+
+        sections = cls._ensure_core_sections_present(sections)
+        toc = cls._build_toc_from_sections(sections)
+
+        return {
+            "summary": (repo_model.get("summary") or "").strip(),
+            "toc": toc,
+            "sections": sections,
+        }
+
+    @classmethod
+    def _build_book_from_v2_model(cls, model: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build the `book` from the LLM's RepoMemory V2 output.
+        
+        Expected model shape:
+        {
+          "summary": "...",
+          "sections": { "core.architecture": {...}, ... }
+        }
+        """
+        model = model or {}
+        sections = model.get("sections", {}) if isinstance(model.get("sections"), dict) else {}
+        sections = cls._ensure_core_sections_present(sections)
+        toc = cls._build_toc_from_sections(sections)
+        return {
+            "summary": (model.get("summary") or "").strip(),
+            "toc": toc,
+            "sections": sections,
+        }
+
+    @classmethod
+    def _legacy_repo_model_from_book(cls, book: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Derive a legacy `repo_model` view from the `book`.
+        
+        This keeps backward compatibility with existing code/tests that still read:
+        - repo_model.summary
+        - repo_model.entrypoints
+        - repo_model.where_to_edit
+        - repo_model.claims[]
+        """
+        book = book or {}
+        sections = book.get("sections", {}) if isinstance(book.get("sections"), dict) else {}
+
+        entrypoints = (sections.get("core.entrypoints", {}) or {}).get("content", []) or []
+        where_to_edit = (sections.get("core.where_to_edit", {}) or {}).get("content", []) or []
+
+        # Flatten all claims across sections.
+        flat_claims: List[Dict[str, Any]] = []
+        for sec in (sections or {}).values():
+            for claim in (sec or {}).get("claims", []) or []:
+                if isinstance(claim, dict):
+                    flat_claims.append(claim)
+
+        return {
+            "summary": (book.get("summary") or "").strip(),
+            "entrypoints": entrypoints,
+            "where_to_edit": where_to_edit,
+            "claims": flat_claims,
+        }
+
+    @classmethod
+    def migrate_v1_to_v2(cls, doc: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-migrate a v1 RepoMemory document to schema v2.
+        
+        Key design:
+        - Add `book` as a structured, navigable view.
+        - Preserve existing `repo_model` unchanged for backward compatibility.
+        - Migration is idempotent (safe to call multiple times).
+        """
+        doc = doc or {}
+        schema = int(doc.get("schema_version") or 1)
+
+        book = doc.get("book", None)
+        if not isinstance(book, dict):
+            # v1 (or malformed) doc: derive Book from legacy repo_model.
+            repo_model = doc.get("repo_model", {}) or {}
+            book = cls._build_book_from_v1_repo_model(repo_model)
+        else:
+            # Already has a Book view: ensure it has all core sections + a stable TOC.
+            sections = book.get("sections", {}) if isinstance(book.get("sections"), dict) else {}
+            sections = cls._ensure_core_sections_present(sections)
+            book["sections"] = sections
+            book["toc"] = cls._build_toc_from_sections(sections)
+
+            # Ensure a usable summary is always present.
+            if not (book.get("summary") or "").strip():
+                repo_model = doc.get("repo_model", {}) or {}
+                book["summary"] = (repo_model.get("summary") or "").strip()
+
+        doc["book"] = book
+        # Bump schema version in-memory (we keep `repo_model` for compatibility).
+        doc["schema_version"] = max(schema, 2)
+
+        # Update/extend quality metrics (do not remove old keys).
+        doc.setdefault("quality", {})
+        doc["quality"]["section_count"] = len((book.get("sections") or {}) if isinstance(book.get("sections"), dict) else {})
+        doc["quality"]["claim_count"] = cls._count_claims_in_book_sections(
+            (book.get("sections") or {}) if isinstance(book.get("sections"), dict) else {}
+        )
+        return doc
+
     # ---------------------------------------------------------------------
     # Load / save
     # ---------------------------------------------------------------------
@@ -64,7 +363,11 @@ class RepoMemoryManager:
         if not os.path.exists(path):
             return None
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            doc = json.load(f)
+        # Return a v2-shaped document to callers (without writing).
+        # NOTE: `ensure_exists_in_worktree()` is responsible for persisting the
+        # migration back to disk when needed.
+        return cls.migrate_v1_to_v2(doc)
 
     @classmethod
     def write_to_worktree(cls, repo_root: str, doc: Dict[str, Any]) -> None:
@@ -87,9 +390,27 @@ class RepoMemoryManager:
         
         Note: skeleton contains RepoMap but may omit RepoModel until inference.
         """
-        existing = cls.load_from_worktree(repo_root)
-        if existing is not None:
-            return existing
+        # If the memory file exists, load it and *persist* any v1→v2 migration.
+        #
+        # Why persist?
+        # - Coding agents read `.praxium/repo_memory.json` from disk.
+        # - If we only migrate in-memory, agents won't see the Book/TOC structure.
+        # - Persisting keeps branches consistent and auditable.
+        path = cls._memory_abs_path(repo_root)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                raw_doc = json.load(f)
+            # IMPORTANT:
+            # `migrate_v1_to_v2()` mutates the input dict in-place.
+            # If we want to decide whether to persist changes back to disk, we must
+            # snapshot the pre-migration state before calling it.
+            before = json.dumps(raw_doc, sort_keys=True, ensure_ascii=False)
+            migrated = cls.migrate_v1_to_v2(raw_doc)
+            after = json.dumps(migrated, sort_keys=True, ensure_ascii=False)
+            # If migration changed schema_version/book/sections, write it back.
+            if before != after:
+                cls.write_to_worktree(repo_root, migrated)
+            return migrated
 
         repo_map = build_repo_map(repo_root)
         doc: Dict[str, Any] = {
@@ -105,10 +426,20 @@ class RepoMemoryManager:
                 "where_to_edit": [],
                 "claims": [],
             },
+            # v2 Book view (keeps prompts bounded and memory navigable).
+            "book": cls._build_book_from_v1_repo_model(
+                {
+                    "summary": "",
+                    "entrypoints": [],
+                    "where_to_edit": [],
+                    "claims": [],
+                }
+            ),
             "experiments": [],
             "quality": {
                 "evidence_ok": False,
                 "missing_evidence": [],
+                "section_count": len(cls.CORE_SECTIONS),
                 "claim_count": 0,
             },
         }
@@ -127,13 +458,128 @@ class RepoMemoryManager:
         except git.GitCommandError:
             return None
         try:
-            return json.loads(raw)
+            doc = json.loads(raw)
+            return cls.migrate_v1_to_v2(doc)
         except Exception:
             return None
 
     # ---------------------------------------------------------------------
     # Prompt rendering
     # ---------------------------------------------------------------------
+
+    @classmethod
+    def render_summary_and_toc(cls, doc: Dict[str, Any], max_chars: int = 3000) -> str:
+        """
+        Render Summary + TOC (bounded) for prompt injection.
+        
+        This is the v2 replacement for injecting large `render_brief()` blobs.
+        Coding agents can read `.praxium/repo_memory.json` directly for details.
+        """
+        doc = cls.migrate_v1_to_v2(doc or {})
+        book = doc.get("book", {}) or {}
+
+        summary = (book.get("summary") or "").strip() or "(missing)"
+        toc = book.get("toc", []) or []
+
+        toc_lines = []
+        for item in toc:
+            sid = (item or {}).get("id", "")
+            title = (item or {}).get("title", "")
+            one = (item or {}).get("one_liner", "")
+            if sid:
+                suffix = f": {one}" if one else ""
+                toc_lines.append(f"- [{sid}] {title}{suffix}")
+
+        text = f"""# Repo Memory (book)
+Schema: v{doc.get('schema_version')}
+GeneratedAt: {doc.get('generated_at')}
+
+## Summary
+{summary}
+
+## Table of Contents (section IDs)
+{os.linesep.join(toc_lines) or '(no sections)'}
+
+## How to read details
+- Open `.praxium/repo_memory.json`
+- Find `book.sections[section_id]` from the TOC above
+"""
+        if len(text) > max_chars:
+            # Keep output strictly bounded.
+            suffix = "\n... (truncated)\n"
+            if max_chars <= len(suffix):
+                return text[:max_chars]
+            return text[: max_chars - len(suffix)] + suffix
+        return text
+
+    @classmethod
+    def render_summary_and_toc_for_branch(
+        cls,
+        repo: git.Repo,
+        branch_name: str,
+        max_chars: int = 3000,
+    ) -> str:
+        """Load memory from a branch and render Summary+TOC (bounded)."""
+        doc = cls.load_from_git_branch(repo, branch_name)
+        if not doc:
+            return ""
+        return cls.render_summary_and_toc(doc, max_chars=max_chars)
+
+    @classmethod
+    def list_sections(cls, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Return TOC section metadata (v2)."""
+        doc = cls.migrate_v1_to_v2(doc or {})
+        return (doc.get("book", {}) or {}).get("toc", []) or []
+
+    @classmethod
+    def get_section(cls, doc: Dict[str, Any], section_id: str, max_chars: int = 8000) -> str:
+        """
+        Render a single section (v2) as human-readable text.
+        
+        This is intended for tool-style access and debugging.
+        """
+        doc = cls.migrate_v1_to_v2(doc or {})
+        book = doc.get("book", {}) or {}
+        sections = (book.get("sections", {}) or {}) if isinstance(book.get("sections", {}), dict) else {}
+
+        if not section_id or section_id not in sections:
+            available = list(sections.keys())
+            msg = f"Section '{section_id}' not found. Available: {available}"
+            return msg[:max_chars]
+
+        sec = sections.get(section_id, {}) or {}
+        title = sec.get("title") or section_id
+        one_liner = sec.get("one_liner") or ""
+
+        lines: List[str] = [f"# {title}", ""]
+        if one_liner:
+            lines.append(one_liner)
+            lines.append("")
+
+        # Claims section
+        claims = sec.get("claims", None)
+        if isinstance(claims, list):
+            for claim in claims:
+                kind = (claim or {}).get("kind", "?")
+                stmt = (claim or {}).get("statement", "")
+                lines.append(f"- [{kind}] {stmt}")
+                for ev in (claim or {}).get("evidence", []) or []:
+                    path = (ev or {}).get("path", "?")
+                    quote = (ev or {}).get("quote", "")
+                    # Keep quotes short and readable in section view.
+                    quote_short = quote if len(quote) <= 200 else quote[:200] + "...(truncated)"
+                    lines.append(f"  - evidence: {path}: \"{quote_short}\"")
+            text = "\n".join(lines)
+            return text[:max_chars]
+
+        # Content section
+        content = sec.get("content", None)
+        if content is not None:
+            # JSON is the most faithful representation for entrypoints/where-to-edit.
+            text = json.dumps(content, indent=2, ensure_ascii=False)
+            return text[:max_chars]
+
+        return f"(empty section: {section_id})"[:max_chars]
 
     @classmethod
     def render_brief(cls, doc: Dict[str, Any], max_chars: int = 8000) -> str:
@@ -237,11 +683,27 @@ GeneratedAt: {doc.get('generated_at')}
                 f"Missing evidence: {check.missing[:10]}"
             )
         
-        doc["repo_model"] = model
+        # Builders may return either:
+        # - v1: {"summary", "entrypoints", "where_to_edit", "claims"}
+        # - v2: {"summary", "sections": {...}}
+        if isinstance((model or {}).get("sections"), dict):
+            book = cls._build_book_from_v2_model(model)
+            doc["book"] = book
+            doc["repo_model"] = cls._legacy_repo_model_from_book(book)
+        else:
+            # Store legacy v1 model for compatibility.
+            doc["repo_model"] = model  # Legacy v1 model (kept for backward compatibility)
+            # Derive v2 Book view deterministically from v1 repo_model.
+            doc["book"] = cls._build_book_from_v1_repo_model(model)
+        doc["schema_version"] = cls.SCHEMA_VERSION
+
         doc["quality"] = {
             "evidence_ok": True,
             "missing_evidence": [],
-            "claim_count": len((model or {}).get("claims", []) or []),
+            "section_count": len((doc.get("book") or {}).get("sections", {}) or {}),
+            "claim_count": cls._count_claims_in_book_sections(
+                (doc.get("book") or {}).get("sections", {}) or {}
+            ),
         }
         cls.write_to_worktree(repo_root, doc)
 
@@ -295,6 +757,10 @@ GeneratedAt: {doc.get('generated_at')}
                 "parent_branch": parent_branch_name,
                 "base_commit": base_commit_sha,
                 "head_commit": head_commit_sha,
+                # Explicit: commit hash of the code state this memory describes.
+                # Note: the RepoMemory update itself is committed as a follow-up metadata commit,
+                # so the branch HEAD may advance after this update.
+                "code_head_commit": head_commit_sha,
                 "solution_spec": (solution_spec or "")[:8000],
                 "changed_files": changed_files[:200],
                 "diff_numstat": diff_numstat,
@@ -304,11 +770,24 @@ GeneratedAt: {doc.get('generated_at')}
 
         # 3) Update semantic RepoModel via LLM.
         llm_model = llm_model or cls.DEFAULT_REPO_MODEL_LLM
-        previous_model = (doc.get("repo_model") or {}) if isinstance(doc.get("repo_model"), dict) else {}
+        # Builders update the public RepoMemory V2 semantic model (summary + sections).
+        # We also keep a legacy `repo_model` view for backward compatibility, so for updates
+        # we derive the semantic model from `doc["book"]`.
+        previous_book = doc.get("book", {}) if isinstance(doc.get("book"), dict) else {}
+        previous_model_v2 = {
+            "summary": (previous_book.get("summary") or "").strip(),
+            "sections": previous_book.get("sections", {}) if isinstance(previous_book.get("sections"), dict) else {},
+        }
 
         updated_model: Dict[str, Any]
-        # If we have no model yet, do a full initial inference.
-        if not previous_model.get("summary") and not previous_model.get("claims"):
+        # If we have no meaningful semantic model yet, do a full initial inference.
+        #
+        # Note: v2 always has core section shells, so checking `sections` truthiness
+        # is not enough. Instead, treat it as "missing" when we have no summary AND
+        # no evidence-backed claims anywhere.
+        prev_sections = previous_model_v2.get("sections", {}) if isinstance(previous_model_v2.get("sections"), dict) else {}
+        prev_claim_count = cls._count_claims_in_book_sections(prev_sections)
+        if not (previous_model_v2.get("summary") or "").strip() and prev_claim_count == 0:
             updated_model = infer_repo_model_initial(
                 llm=llm,
                 model=llm_model,
@@ -321,7 +800,7 @@ GeneratedAt: {doc.get('generated_at')}
                 model=llm_model,
                 repo_root=repo_root,
                 repo_map=doc["repo_map"],
-                previous_model=previous_model,
+                previous_model=previous_model_v2,
                 diff_summary=diff_summary[:8000],
                 changed_files=changed_files,
             )
@@ -329,8 +808,14 @@ GeneratedAt: {doc.get('generated_at')}
         # Evidence validation is the hard quality gate.
         check = validate_evidence(repo_root, updated_model)
         if not check.ok:
-            # Retry once with a full rebuild (more robust than delta update).
-            rebuilt = infer_repo_model_initial(
+            # Retry once with a full rebuild using the same "retry on bad evidence" loop
+            # we use for bootstrapping.
+            #
+            # Why:
+            # - Delta updates are cheaper but can be fragile if the model mis-cites evidence.
+            # - A full rebuild is more robust, and the retry loop gives explicit feedback
+            #   about missing quotes so the model can correct itself.
+            rebuilt = infer_repo_model_with_retry(
                 llm=llm,
                 model=llm_model,
                 repo_root=repo_root,
@@ -345,10 +830,21 @@ GeneratedAt: {doc.get('generated_at')}
             updated_model = rebuilt
 
         doc["repo_model"] = updated_model
+        if isinstance((updated_model or {}).get("sections"), dict):
+            book = cls._build_book_from_v2_model(updated_model)
+            doc["book"] = book
+            doc["repo_model"] = cls._legacy_repo_model_from_book(book)
+        else:
+            doc["repo_model"] = updated_model
+            doc["book"] = cls._build_book_from_v1_repo_model(updated_model)
+        doc["schema_version"] = cls.SCHEMA_VERSION
         doc["quality"] = {
             "evidence_ok": True,
             "missing_evidence": [],
-            "claim_count": len((updated_model or {}).get("claims", []) or []),
+            "section_count": len((doc.get("book") or {}).get("sections", {}) or {}),
+            "claim_count": cls._count_claims_in_book_sections(
+                (doc.get("book") or {}).get("sections", {}) or {}
+            ),
         }
 
         cls.write_to_worktree(repo_root, doc)

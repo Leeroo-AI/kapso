@@ -11,13 +11,14 @@
 import os
 import shutil
 import copy
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import git
 
 from src.execution.coding_agents.base import CodingAgentConfig, CodingResult
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.execution.coding_agents.commit_message_generator import CommitMessageGenerator
+from src.repo_memory import RepoMemoryManager
 
 
 class ExperimentSession:
@@ -42,6 +43,7 @@ class ExperimentSession:
         coding_agent_config: CodingAgentConfig,
         parent_branch_name: str, 
         branch_name: str,
+        repo_memory_llm: Any = None,
     ):
         """
         Initialize an experiment session.
@@ -57,6 +59,13 @@ class ExperimentSession:
         self.session_folder = session_folder
         self.branch_name = branch_name
         self.parent_branch_name = parent_branch_name
+        # Optional: LLM handle for RepoMemory updates. Stored here so we can update
+        # memory after the session's *final* commits (latest-commit semantics).
+        self._repo_memory_llm = repo_memory_llm
+        self._repo_memory_update_scheduled: bool = False
+        self._repo_memory_solution_spec: str = ""
+        self._repo_memory_run_result: Dict[str, Any] = {}
+        self._repo_memory_llm_model: Optional[str] = None
         
         # === GIT SETUP ===
         os.makedirs(os.path.dirname(self.session_folder), exist_ok=True)
@@ -78,7 +87,7 @@ class ExperimentSession:
             self.repo.git.checkout(branch_name)
         else:
             self.repo.git.checkout('-b', branch_name)
-
+        
         # Record the base commit SHA for this experiment branch.
         # This is the exact repo state we "started from" (inherited from parent_branch_name).
         # We use it to compute diffs and update RepoMemory with an accurate change log.
@@ -105,6 +114,26 @@ class ExperimentSession:
         
         # Store solution context for richer commit messages
         self._current_solution_summary: Optional[str] = None
+
+    def schedule_repo_memory_update(
+        self,
+        *,
+        solution_spec: str,
+        run_result: Dict[str, Any],
+        llm_model: Optional[str] = None,
+    ) -> None:
+        """
+        Schedule a RepoMemory update to run at session close.
+
+        Why:
+        - We want RepoMemory diffs/metadata to be computed from a committed code state.
+        - `close_session()` performs final commits (run data + any remaining changes),
+          so running the update there guarantees we don't accidentally diff uncommitted files.
+        """
+        self._repo_memory_update_scheduled = True
+        self._repo_memory_solution_spec = solution_spec or ""
+        self._repo_memory_run_result = run_result or {}
+        self._repo_memory_llm_model = llm_model
     
     def set_solution_context(self, solution_summary: str) -> None:
         """
@@ -213,6 +242,32 @@ class ExperimentSession:
                 self.repo.git.commit('-m', 'chore: final session commit')
             except git.GitCommandError:
                 pass
+
+        # Update RepoMemory AFTER all other commits, but BEFORE push/cleanup.
+        #
+        # This enforces "latest commit semantics" for memory updates:
+        # - The repo state we diff/inspect is fully committed (no dirty worktree).
+        # - The memory file update itself is committed as the final metadata commit.
+        if self._repo_memory_update_scheduled and self._repo_memory_llm is not None:
+            RepoMemoryManager.update_after_experiment(
+                repo_root=self.session_folder,
+                llm=self._repo_memory_llm,
+                branch_name=self.branch_name,
+                parent_branch_name=self.parent_branch_name,
+                base_commit_sha=getattr(self, "base_commit_sha", ""),
+                solution_spec=self._repo_memory_solution_spec,
+                run_result=self._repo_memory_run_result,
+                llm_model=self._repo_memory_llm_model,
+            )
+
+            # Commit the memory update so child experiments inherit it via git.
+            self.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
+            try:
+                self.repo.git.commit("-m", "chore(praxium): update repo memory")
+            except git.GitCommandError as e:
+                # Nothing to commit or commit failed. If nothing changed, keep going.
+                if "nothing to commit" not in str(e).lower():
+                    raise
         
         # Push to origin (makes branch available for child nodes)
         try:
