@@ -5,7 +5,7 @@
 # Usage:
 #     from src import Tinkerer, Source, DeployStrategy
 #     
-#     tinkerer = Tinkerer(domain="healthcare")
+#     tinkerer = Tinkerer()
 #     tinkerer.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
 #     solution = tinkerer.evolve(goal="Create a triage agent")
 #     software = solution.deploy()

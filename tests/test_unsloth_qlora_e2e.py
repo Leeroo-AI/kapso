@@ -131,7 +131,7 @@ def run_test():
     
     try:
         # Initialize Tinkerer with KG
-        tinkerer = Tinkerer(domain="llm_finetuning")
+        tinkerer = Tinkerer()
         tinkerer.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
         logger.info(f"KG enabled: {tinkerer.knowledge_search.is_enabled()}")
         

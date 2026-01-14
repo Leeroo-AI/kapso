@@ -195,3 +195,6 @@ ALE-Bench/
 .praxium_state.md
 .memory_store.json
 data/wikis/.wikis_imported
+
+# Paper directory (private/unpublished work)
+paper/

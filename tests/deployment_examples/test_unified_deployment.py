@@ -6,7 +6,7 @@ Tests the Tinkerer deployment flow as shown in the README:
 
     from src.tinkerer import Tinkerer, DeployStrategy
     
-    tinkerer = Tinkerer(domain="testing")
+    tinkerer = Tinkerer()
     solution = tinkerer.evolve(goal="...", output_path="./repo")  # We create SolutionResult manually
     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
     result = software.run({"input": "data"})
@@ -161,7 +161,7 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     """
     Test a single repository following the README user flow:
     
-        tinkerer = Tinkerer(domain="testing")
+        tinkerer = Tinkerer()
         software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
         result = software.run(sample_input)
         software.stop()
@@ -194,8 +194,8 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         # =====================================================================
         # Step 1: Create Tinkerer (simulating user initialization)
         # =====================================================================
-        tinkerer = Tinkerer(domain="testing")
-        info("Created Tinkerer(domain='testing')")
+        tinkerer = Tinkerer()
+        info("Created Tinkerer()")
         
         # =====================================================================
         # Step 2: Create SolutionResult (simulating tinkerer.evolve() output)
@@ -310,7 +310,7 @@ def main():
     
     header("UNIFIED DEPLOYMENT TEST")
     print("Testing the Tinkerer deployment flow from README:\n")
-    print("    tinkerer = Tinkerer(domain='testing')")
+    print("    tinkerer = Tinkerer()")
     print("    solution = SolutionResult(goal='...', code_path='./repo')")
     print("    software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)")
     print("    result = software.run(sample_input)")

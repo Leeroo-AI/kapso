@@ -33,7 +33,7 @@ The user journey follows a strict lifecycle that separates **Creation** (expensi
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
 # 1. Initialize
-tinkerer = Tinkerer(domain="healthcare")
+tinkerer = Tinkerer()
 
 # 2. Learn
 tinkerer.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
@@ -54,8 +54,7 @@ The central intelligence. It holds the KG and manages the build process.
 
 ```python
 tinkerer = Tinkerer(
-    domain="quantitative_finance",  # Domain of tinkering
-    kg_location="./my_brain",       # Path to persist KG
+    kg_location="./my_brain",  # Path to persist KG
 )
 ```
 
@@ -130,8 +129,8 @@ The Tinkerer API is implemented in:
 ```python
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# Initialize tinkerer in finance domain
-quant = Tinkerer(domain="quantitative_finance")
+# Initialize tinkerer
+quant = Tinkerer()
 
 # Learn from various sources
 quant.learn(

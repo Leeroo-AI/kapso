@@ -7,7 +7,7 @@
 # Usage:
 #     from src.tinkerer import Tinkerer, Source, DeployStrategy
 #     
-#     tinkerer = Tinkerer(domain="healthcare")
+#     tinkerer = Tinkerer()
 #     tinkerer.learn(Source.Repo("https://github.com/..."), target_kg="https://skills.leeroo.com")
 #     solution = tinkerer.evolve(goal="Create a triage agent")
 #     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
@@ -54,7 +54,7 @@ class Tinkerer:
     
     Usage:
         # Simple usage
-        tinkerer = Tinkerer(domain="quantitative_finance")
+        tinkerer = Tinkerer(kg_location="https://skills.leeroo.com")
         tinkerer.learn(Source.Repo("https://github.com/alpaca/alpaca-py"), target_kg="https://skills.leeroo.com")
         solution = tinkerer.evolve(goal="Create a momentum trading bot")
         software = tinkerer.deploy(solution)
@@ -81,7 +81,6 @@ class Tinkerer:
     
     def __init__(
         self, 
-        domain: str = "general",
         kg_location: str = "default",
         config_path: Optional[str] = None,
     ):
@@ -89,11 +88,9 @@ class Tinkerer:
         Initialize an Tinkerer agent.
         
         Args:
-            domain: The domain of expertise (e.g., "healthcare", "quant")
             kg_location: Path to local KG or URL to remote KG
             config_path: Path to configuration file (uses default if not provided)
         """
-        self.domain = domain
         self.kg_location = kg_location
         self.config_path = config_path or DEFAULT_CONFIG_PATH
         
@@ -104,7 +101,7 @@ class Tinkerer:
         # Track learned knowledge chunks (in-memory for MVP)
         self._learned_chunks: List[KnowledgeChunk] = []
         
-        print(f"Initialized Tinkerer in domain '{domain}' (KG: {kg_location})")
+        print(f"Initialized Tinkerer (KG: {kg_location})")
     
     def learn(
         self, 
@@ -292,7 +289,6 @@ class Tinkerer:
             code_path=code_path,
             experiment_logs=experiment_logs,
             metadata={
-                "domain": self.domain,
                 "constraints": constraints or [],
                 "iterations": max_iterations,
                 "cost": f"${cost:.3f}",
@@ -416,7 +412,6 @@ __all__ = [
     "Tinkerer",
     "Source",
     "SolutionResult",
-    # Re-export from deployment module
     "Software",
     "DeployStrategy",
     "DeployConfig",

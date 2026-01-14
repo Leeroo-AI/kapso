@@ -18,7 +18,6 @@ from src.tinkerer import Tinkerer, Source, DeployStrategy
 
 # Initialize a Tinkerer (connect to knowledge graph)
 tinkerer = Tinkerer(
-    domain="machine_learning",
     kg_location="https://skills.leeroo.com",
 )
 
@@ -60,9 +59,8 @@ tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```python
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# 1. Initialize with ML domain knowledge
+# 1. Initialize with knowledge graph
 kaggler = Tinkerer(
-    domain="machine_learning",
     kg_location="https://skills.leeroo.com",
 )
 
@@ -97,9 +95,8 @@ kaggler.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```python
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# 1. Initialize in data engineering domain
+# 1. Initialize with knowledge graph
 data_eng = Tinkerer(
-    domain="data_engineering",
     kg_location="https://skills.leeroo.com",
 )
 

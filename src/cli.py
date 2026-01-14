@@ -214,7 +214,7 @@ Examples:
         sys.exit(1)
     
     # Create expert
-    tinkerer = Tinkerer(domain="general")
+    tinkerer = Tinkerer()
     
     # Parse context files
     context = parse_context_files(args.context)

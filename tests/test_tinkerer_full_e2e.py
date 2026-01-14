@@ -572,8 +572,8 @@ def run_tinkerer_test():
         logger.info("│" + " PHASE 1: EXPERT INITIALIZATION ".center(68) + "│")
         logger.info("└" + "─"*68 + "┘")
         
-        tinkerer = Tinkerer(domain="ml_finetuning")
-        logger.info(f"Tinkerer created (domain: ml_finetuning)")
+        tinkerer = Tinkerer()
+        logger.info("Tinkerer created")
         
         # Enable KG for cognitive mode
         from src.knowledge.search import KnowledgeSearchFactory

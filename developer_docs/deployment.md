@@ -9,7 +9,7 @@ Deploy solutions to various targets (local, Docker, Modal, BentoML, LangGraph).
 ```python
 from src.tinkerer import Tinkerer, DeployStrategy
 
-tinkerer = Tinkerer(domain="ml")
+tinkerer = Tinkerer()
 solution = tinkerer.evolve(goal="Sentiment API", output_path="./repo")
 
 # Deploy and run
