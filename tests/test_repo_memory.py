@@ -366,9 +366,10 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     assert doc is not None, "Memory file should exist"
     
     # Check structure
-    assert doc.get("schema_version") == 1
+    assert doc.get("schema_version") == 2
     assert "repo_map" in doc
     assert "repo_model" in doc
+    assert "book" in doc
     assert "quality" in doc
     
     # Check quality - evidence must pass
@@ -380,6 +381,11 @@ def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
     repo_model = doc["repo_model"]
     assert repo_model.get("summary"), "Summary should not be empty"
     assert len(repo_model.get("claims", [])) >= 1, "Should have at least one claim"
+    
+    # Check book is present and has TOC/sections (v2)
+    book = doc.get("book", {}) or {}
+    assert "toc" in book
+    assert "sections" in book
     
     # Verify evidence validation independently
     check = validate_evidence(str(sample_repo), repo_model)
@@ -563,7 +569,7 @@ def test_validate_evidence_catches_invalid_quotes():
 # ---------------------------------------------------------------------------
 
 def test_render_brief_produces_usable_prompt(sample_repo, llm):
-    """Test that render_brief produces a usable prompt summary."""
+    """Test that render_summary_and_toc produces a usable prompt summary."""
     # Bootstrap
     RepoMemoryManager.bootstrap_baseline_model(
         repo_root=str(sample_repo),
@@ -572,14 +578,12 @@ def test_render_brief_produces_usable_prompt(sample_repo, llm):
     )
     
     doc = RepoMemoryManager.load_from_worktree(str(sample_repo))
-    brief = RepoMemoryManager.render_brief(doc)
+    brief = RepoMemoryManager.render_summary_and_toc(doc)
     
     # Should have key sections
     assert "# Repo Memory" in brief
-    assert "## Repo Summary" in brief
-    assert "## Entrypoints" in brief
-    assert "## Where to edit" in brief
-    assert "## Key claims" in brief
+    assert "## Summary" in brief
+    assert "## Table of Contents" in brief
     
     # Should be bounded
     assert len(brief) <= 10000, "Brief should be bounded for prompt context"

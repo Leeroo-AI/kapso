@@ -148,9 +148,16 @@ class TestResult:
 
 
 # =============================================================================
-# Main Test Function - Following README User Flow
+# Main runner function - Following README User Flow
 # =============================================================================
-def test_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
+#
+# NOTE:
+# This module is primarily intended to be run as a script:
+#   PYTHONPATH=. python tests/deployment_examples/test_unified_deployment.py --strategy local
+#
+# We intentionally do NOT expose this as a pytest test (no `test_*` prefix)
+# because it depends on external runtime deployment capabilities.
+def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     """
     Test a single repository following the README user flow:
     
@@ -344,7 +351,7 @@ def main():
     for i, repo in enumerate(repos_to_test, 1):
         info(f"[{i}/{len(repos_to_test)}] Testing {repo.name}...")
         
-        result = test_repo(repo, strategy=args.strategy)
+        result = run_repo(repo, strategy=args.strategy)
         results.append(result)
         
         print()

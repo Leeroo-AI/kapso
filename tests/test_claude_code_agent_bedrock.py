@@ -7,6 +7,7 @@ Run: python tests/test_claude_code_agent.py
 import os
 import shutil
 import tempfile
+import pytest
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,8 +16,19 @@ from src.execution.coding_agents.base import CodingAgentConfig
 from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
 
 
-def test_bedrock_hello_world():
-    """Test Claude Code via Bedrock by writing a hello world file."""
+RUN_BEDROCK_TESTS = os.getenv("PRAXIUM_RUN_BEDROCK_TESTS") == "1"
+
+
+def _has_bedrock_creds() -> bool:
+    return bool(
+        os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+        or (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"))
+        or os.environ.get("AWS_PROFILE")
+    )
+
+
+def run_bedrock_hello_world() -> bool:
+    """Run Claude Code via Bedrock by writing a hello world file (returns success bool)."""
     
     print("=" * 60)
     print("Claude Code + AWS Bedrock Test")
@@ -84,9 +96,21 @@ def test_bedrock_hello_world():
     print(f"TEST {'PASSED' if result.success and file_exists else 'FAILED'}")
     print("=" * 60)
     
-    return result.success and file_exists
+    return bool(result.success and file_exists)
+
+
+def test_bedrock_hello_world():
+    """Pytest entrypoint (skipped unless explicitly enabled)."""
+    if not RUN_BEDROCK_TESTS:
+        pytest.skip("Bedrock test disabled (set PRAXIUM_RUN_BEDROCK_TESTS=1 to enable).")
+    if shutil.which("claude") is None:
+        pytest.skip("Claude Code CLI not installed (required for this test).")
+    if not _has_bedrock_creds():
+        pytest.skip("No AWS Bedrock credentials found in environment (required for this test).")
+
+    assert run_bedrock_hello_world()
 
 
 if __name__ == "__main__":
-    success = test_bedrock_hello_world()
+    success = run_bedrock_hello_world()
     exit(0 if success else 1)

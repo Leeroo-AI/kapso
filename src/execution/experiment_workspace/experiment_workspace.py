@@ -195,7 +195,13 @@ class ExperimentWorkspace:
         seeded repos often have important ignore rules already.
         """
         gitignore_path = os.path.join(self.workspace_dir, ".gitignore")
-        required_lines = ["sessions/*", "*.log"]
+        # Keep session clones out of the workspace repo.
+        # Keep generic logs ignored, BUT explicitly allow `changes.log` so it is committed
+        # into experiment branches as an audit trail (RepoMemory observability).
+        #
+        # IMPORTANT: Ordering matters in .gitignore.
+        # The negation rule (`!changes.log`) must appear after `*.log`.
+        required_lines = ["sessions/*", "*.log", "!changes.log"]
 
         existing = ""
         if os.path.exists(gitignore_path):
@@ -225,7 +231,8 @@ class ExperimentWorkspace:
     def create_experiment_session(
         self, 
         branch_name: str, 
-        parent_branch_name: str = "main"
+        parent_branch_name: str = "main",
+        llm=None,
     ) -> ExperimentSession:
         """
         Create a new experiment session.
@@ -254,6 +261,7 @@ class ExperimentWorkspace:
             coding_agent_config=self.coding_agent_config,
             parent_branch_name=parent_branch_name,
             branch_name=branch_name,
+            repo_memory_llm=llm,
         )
         
         return session

@@ -50,6 +50,9 @@ config = CodingAgentConfig(
         "timeout": 3600,              # 1 hour timeout
         "streaming": True,            # Live output to terminal
         "allowed_tools": ["Edit", "Read", "Write", "Bash"],
+        # RepoMemory section retrieval (recommended):
+        # Claude Code can call our standalone CLI via its Bash tool:
+        #   python3 tools/repo_memory_cli.py get-section core.architecture
         # For AWS Bedrock (optional):
         # "use_bedrock": True,
         # "aws_region": "us-east-1",
@@ -138,6 +141,15 @@ class CodingAgentConfig:
 ## Integration with ExperimentSession
 
 **Key Design**: `ExperimentSession` owns git operations. Agents only generate code.
+
+### RepoMemory (Summary+TOC injection + section retrieval)
+
+- **Coding prompts** inject RepoMemory **Summary + TOC** to ground implementation.
+- For **Claude Code**, we additionally support auditable section retrieval via CLI:
+  - `python3 tools/repo_memory_cli.py list-sections`
+  - `python3 tools/repo_memory_cli.py get-section core.architecture`
+
+This avoids MCP/tool wiring changes while still enabling “tool-like” access.
 
 ```python
 # ExperimentSession creates and manages coding agent

@@ -26,6 +26,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
+from src.repo_memory.observation import (
+    extract_repo_memory_sections_consulted,
+)
+
 
 # =============================================================================
 # Test Configuration
@@ -61,6 +65,66 @@ TEST_CONFIG = {
 # Helpers
 # =============================================================================
 
+def _assert_repo_map_invariants(doc: dict, *, label: str) -> None:
+    """
+    Hard assertions for RepoMap portability + consistency.
+    
+    These invariants are critical because `.praxium/repo_memory.json` is committed into git
+    experiment branches and must be portable across machines/runs.
+    """
+    repo_map = doc.get("repo_map", {}) or {}
+    assert repo_map.get("repo_root") == ".", (
+        f"{label}: expected repo_map.repo_root == '.', got {repo_map.get('repo_root')!r}"
+    )
+
+    files = repo_map.get("files", []) or []
+    assert isinstance(files, list), f"{label}: expected repo_map.files to be a list"
+
+    # Never include observability metadata or infrastructure paths in RepoMap.
+    assert "changes.log" not in files, f"{label}: repo_map.files unexpectedly contains changes.log"
+    assert not any(p.startswith(".praxium/") for p in files), f"{label}: repo_map.files contains .praxium/*"
+    assert not any(p.startswith("sessions/") for p in files), f"{label}: repo_map.files contains sessions/*"
+
+
+def _assert_changes_log_auditability(repo, *, branch_name: str, doc: dict) -> None:
+    """
+    Ensure observability is auditable:
+    - `changes.log` is committed into the branch
+    - it contains the explicit 'RepoMemory sections consulted:' line
+    - parsed sections match persisted experiment metadata
+    """
+    try:
+        changes_text = repo.git.show(f"{branch_name}:changes.log")
+    except Exception as e:
+        raise AssertionError(f"{branch_name}: changes.log not committed (git show failed): {e}") from e
+
+    # This is the contract we instruct agents to follow.
+    assert "repomemory sections consulted:" in changes_text.lower(), (
+        f"{branch_name}: changes.log missing 'RepoMemory sections consulted:' line"
+    )
+
+    from_log = extract_repo_memory_sections_consulted(changes_text)
+
+    experiments = doc.get("experiments", []) or []
+    assert experiments, f"{branch_name}: expected experiments recorded in repo memory"
+    last = experiments[-1] or {}
+    assert last.get("branch") == branch_name, (
+        f"{branch_name}: last experiment branch mismatch in repo memory: {last.get('branch')!r}"
+    )
+
+    rr = last.get("run_result", {}) or {}
+    persisted = rr.get("repo_memory_sections_consulted", [])
+    if not isinstance(persisted, list):
+        persisted = []
+    persisted = sorted(set(str(x) for x in persisted))
+
+    assert persisted == from_log, (
+        f"{branch_name}: repo_memory_sections_consulted mismatch\n"
+        f"  from changes.log: {from_log}\n"
+        f"  persisted:        {persisted}"
+    )
+
+
 def dump_repo_memory(workspace_dir: str, label: str) -> dict:
     """Load and print .praxium/repo_memory.json from a workspace."""
     memory_path = Path(workspace_dir) / ".praxium" / "repo_memory.json"
@@ -76,21 +140,49 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
     with open(memory_path) as f:
         doc = json.load(f)
     
-    # Print summary
+    # Print summary (v2 book + legacy repo_model for compatibility)
+    book = doc.get("book", {}) or {}
     repo_model = doc.get("repo_model", {})
     quality = doc.get("quality", {})
     experiments = doc.get("experiments", [])
     
     print(f"Generated at: {doc.get('generated_at', 'unknown')}")
-    print(f"Summary: {repo_model.get('summary', '(none)')[:200]}")
-    print(f"Claims: {len(repo_model.get('claims', []))}")
+    print(f"Schema: v{doc.get('schema_version')}")
+    print(f"Book Summary: {(book.get('summary') or '(none)')[:200]}")
+    print(f"Legacy Claims (flattened): {len(repo_model.get('claims', []))}")
     print(f"Evidence OK: {quality.get('evidence_ok', False)}")
     print(f"Experiments recorded: {len(experiments)}")
     
-    if repo_model.get("claims"):
-        print("\nClaims:")
-        for claim in repo_model.get("claims", [])[:5]:
-            print(f"  - [{claim.get('kind')}] {claim.get('statement', '')[:80]}")
+    # Show TOC + per-section claim counts (this is what agents use to navigate)
+    toc = book.get("toc", []) or []
+    sections = book.get("sections", {}) or {}
+    if toc:
+        print("\nBook TOC (claim counts):")
+        for item in toc:
+            sid = (item or {}).get("id", "")
+            title = (item or {}).get("title", "")
+            sec = sections.get(sid, {}) if isinstance(sections, dict) else {}
+            claim_count = len((sec or {}).get("claims", []) or []) if isinstance((sec or {}).get("claims", []), list) else 0
+            print(f"  - {sid}: {title} (claims={claim_count})")
+
+    # High-signal semantic content (this is what matters for memory quality).
+    # We print claim statements (not the whole JSON) so humans can quickly judge usefulness.
+    if toc and isinstance(sections, dict):
+        printed_any = False
+        for item in toc:
+            sid = (item or {}).get("id", "")
+            sec = sections.get(sid, {}) if sid else {}
+            claims = (sec or {}).get("claims", [])
+            if not isinstance(claims, list) or not claims:
+                continue
+            if not printed_any:
+                printed_any = True
+                print("\nSemantic claims (first 5 per section):")
+            print(f"  [{sid}]")
+            for c in claims[:5]:
+                stmt = (c or {}).get("statement", "")
+                kind = (c or {}).get("kind", "?")
+                print(f"    - [{kind}] {stmt}")
     
     if repo_model.get("entrypoints"):
         print("\nEntrypoints:")
@@ -103,7 +195,15 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
     if experiments:
         print("\nExperiment deltas:")
         for exp in experiments[-3:]:
-            print(f"  - Branch: {exp.get('branch')}, files: {len(exp.get('changed_files', []))}")
+            rr = exp.get("run_result", {}) or {}
+            consulted = rr.get("repo_memory_sections_consulted", [])
+            ideation_consulted = rr.get("ideation_repo_memory_sections_consulted", [])
+            print(
+                f"  - Branch: {exp.get('branch')}, files: {len(exp.get('changed_files', []))}, "
+                f"score: {rr.get('score')}, "
+                f"ideation_repo_memory_sections_consulted: {ideation_consulted}, "
+                f"repo_memory_sections_consulted: {consulted}"
+            )
     
     print(f"{'='*70}\n")
     return doc
@@ -122,17 +222,24 @@ def dump_branch_memory(repo, branch_name: str) -> dict:
     print(f"REPO MEMORY FROM BRANCH: {branch_name}")
     print(f"{'='*70}")
     
+    book = doc.get("book", {}) or {}
     repo_model = doc.get("repo_model", {})
     quality = doc.get("quality", {})
     experiments = doc.get("experiments", [])
     
-    print(f"Summary: {repo_model.get('summary', '(none)')[:200]}")
-    print(f"Claims: {len(repo_model.get('claims', []))}, Evidence OK: {quality.get('evidence_ok')}")
+    print(f"Schema: v{doc.get('schema_version')}")
+    print(f"Book Summary: {(book.get('summary') or '(none)')[:200]}")
+    print(f"Legacy Claims (flattened): {len(repo_model.get('claims', []))}, Evidence OK: {quality.get('evidence_ok')}")
     print(f"Experiments recorded: {len(experiments)}")
     
     if experiments:
         last = experiments[-1]
-        print(f"Last experiment: branch={last.get('branch')}, score={last.get('run_result', {}).get('score')}")
+        rr = last.get("run_result", {}) or {}
+        print(
+            f"Last experiment: branch={last.get('branch')}, score={rr.get('score')}, "
+            f"ideation_repo_memory_sections_consulted={rr.get('ideation_repo_memory_sections_consulted', [])}, "
+            f"repo_memory_sections_consulted={rr.get('repo_memory_sections_consulted', [])}"
+        )
     
     print(f"{'='*70}\n")
     return doc
@@ -195,17 +302,25 @@ def run_test():
         
         # Dump baseline memory (from main branch)
         repo = git.Repo(workspace_dir)
-        dump_branch_memory(repo, "main")
+        main_doc = dump_branch_memory(repo, "main")
+        if main_doc:
+            _assert_repo_map_invariants(main_doc, label="branch=main")
         
         # List all experiment branches and dump their memories
         branches = [ref.name for ref in repo.heads if ref.name != "main"]
         print(f"\nExperiment branches: {branches}")
         
         for branch in branches:
-            dump_branch_memory(repo, branch)
+            doc = dump_branch_memory(repo, branch)
+            if not doc:
+                raise AssertionError(f"branch={branch}: expected repo memory to exist")
+            _assert_repo_map_invariants(doc, label=f"branch={branch}")
+            _assert_changes_log_auditability(repo, branch_name=branch, doc=doc)
         
         # Dump current worktree memory (should be best branch after checkout)
-        dump_repo_memory(workspace_dir, "FINAL (best branch)")
+        final_doc = dump_repo_memory(workspace_dir, "FINAL (best branch)")
+        if final_doc:
+            _assert_repo_map_invariants(final_doc, label="worktree=final")
         
         print("\n" + "=" * 70)
         print("TEST COMPLETE - Review memories above for quality")

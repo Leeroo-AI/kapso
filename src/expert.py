@@ -259,6 +259,12 @@ class Expert:
             coding_agent=coding_agent,
             is_kg_active=self.knowledge_search.is_enabled(),
             knowledge_search=self.knowledge_search if self.knowledge_search.is_enabled() else None,
+            # IMPORTANT:
+            # - Many callers (CLI + E2E tests) pass `output_path` expecting the final repo to live there.
+            # - The orchestration layer owns the experiment workspace (a git repo with branches).
+            # - Therefore, when `output_path` is provided, we must use it as the workspace directory
+            #   so `solution.code_path` points at a real git repo (with `.praxium/repo_memory.json`).
+            workspace_dir=output_path,
             starting_repo_path=starting_repo_path,
         )
         
