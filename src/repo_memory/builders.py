@@ -17,8 +17,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
+
+from src.core.prompt_loader import load_prompt, render_prompt
 
 
 class LLMLike(Protocol):
@@ -74,30 +77,102 @@ def build_repo_map(
     - a stable "repo map" for coding agents, and
     - an input to the agentic repo-model inference workflow.
     """
+    # IMPORTANT:
+    # - RepoMemory is committed into git branches and should be portable across machines/runs.
+    # - Experiments run inside a temporary clone (`sessions/<branch>`), which is deleted on close.
+    #   This means persisting absolute paths like `/tmp/.../sessions/...` into memory is wrong.
+    #
+    # Therefore:
+    # - We store `repo_map["repo_root"]` as "." (portable, stable).
+    # - When possible, we enumerate files via git (so the RepoMap matches what is committed and
+    #   respects `.gitignore`). We still keep a filesystem `os.walk` fallback for non-git dirs.
     repo_root = os.path.abspath(repo_root)
     file_paths: List[str] = []
     languages: Dict[str, int] = {}
 
-    root_depth = repo_root.rstrip(os.sep).count(os.sep)
-    for dirpath, dirnames, filenames in os.walk(repo_root):
-        # Prune ignored dirs in-place to prevent descending into them.
-        dirnames[:] = [d for d in dirnames if d not in _IGNORE_DIRS]
+    # Preferred enumeration path: ask git for the file list.
+    #
+    # Why:
+    # - RepoMap must reflect the actual repo state (tracked + untracked-not-ignored),
+    #   not transient/ignored artifacts like `sessions/*` or `.praxium/*`.
+    # - This also avoids phantom files such as `changes.log` when it is ignored.
+    #
+    # We still explicitly filter out `changes.log` because it is observability metadata,
+    # not part of "what does the repo do?".
+    git_files: Optional[List[str]] = None
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", repo_root, "ls-files", "--cached", "--others", "--exclude-standard"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", "replace")
+        git_files = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    except Exception:
+        git_files = None
 
-        depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
-        if depth > max_depth:
-            dirnames[:] = []
-            continue
-
-        for fname in filenames:
+    if git_files is not None:
+        for rel_path in git_files:
             if len(file_paths) >= max_files:
                 break
-            abs_path = os.path.join(dirpath, fname)
-            rel_path = os.path.relpath(abs_path, repo_root)
+
+            # git always uses "/" separators; keep paths in that canonical form.
+            #
+            # IMPORTANT: Do NOT use `lstrip("./")` here.
+            # `lstrip` removes *any* leading '.' characters, which corrupts dotfiles:
+            # - ".gitignore" would become "gitignore"
+            # - ".praxium/repo_memory.json" would become "praxium/repo_memory.json"
+            # That breaks portability and also defeats our `.praxium` exclusion filter.
+            if rel_path.startswith("./"):
+                rel_path = rel_path[2:]
+            if not rel_path:
+                continue
+
+            # Explicitly exclude observability metadata from the semantic repo map.
+            if rel_path == "changes.log":
+                continue
+
+            # Exclude meta directories (RepoMemory itself, sessions, VCS dirs, etc.).
+            top_level = rel_path.split("/", 1)[0]
+            if top_level in _IGNORE_DIRS:
+                continue
+
+            # Keep behavior consistent with the filesystem traversal by enforcing a max depth.
+            # Depth is measured as number of path separators.
+            if rel_path.count("/") > max_depth:
+                continue
+
             file_paths.append(rel_path)
 
-            _, ext = os.path.splitext(fname)
+            _, ext = os.path.splitext(rel_path)
             if ext:
                 languages[ext.lower()] = languages.get(ext.lower(), 0) + 1
+    else:
+        # Fallback enumeration path: walk the filesystem.
+        # This is used for non-git directories (rare in the experimentation engine).
+        root_depth = repo_root.rstrip(os.sep).count(os.sep)
+        for dirpath, dirnames, filenames in os.walk(repo_root):
+            # Prune ignored dirs in-place to prevent descending into them.
+            dirnames[:] = [d for d in dirnames if d not in _IGNORE_DIRS]
+
+            depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+            if depth > max_depth:
+                dirnames[:] = []
+                continue
+
+            for fname in filenames:
+                if len(file_paths) >= max_files:
+                    break
+                abs_path = os.path.join(dirpath, fname)
+                rel_path = os.path.relpath(abs_path, repo_root)
+
+                # Explicitly exclude observability metadata from the semantic repo map.
+                if rel_path == "changes.log":
+                    continue
+
+                file_paths.append(rel_path)
+
+                _, ext = os.path.splitext(fname)
+                if ext:
+                    languages[ext.lower()] = languages.get(ext.lower(), 0) + 1
 
     file_paths.sort()
 
@@ -113,14 +188,17 @@ def build_repo_map(
         "Dockerfile",
         "Makefile",
     ]
-    key_files = [p for p in key_file_candidates if os.path.exists(os.path.join(repo_root, p))]
+    # Derive key files from the enumerated file list (portable, avoids filesystem drift).
+    key_file_set = set(file_paths)
+    key_files = [p for p in key_file_candidates if p in key_file_set]
 
     # Simple entrypoint heuristics (cheap and usually correct).
     entrypoint_names = {"main.py", "app.py", "server.py", "cli.py", "main.cpp", "main.cc", "main.c"}
     entrypoints = [p for p in file_paths if os.path.basename(p) in entrypoint_names]
 
     return {
-        "repo_root": repo_root,
+        # Keep this portable: repo roots are often under /tmp in E2E tests.
+        "repo_root": ".",
         "file_count": len(file_paths),
         "files": file_paths[:2000],  # Keep bounded in memory file.
         "languages_by_extension": dict(sorted(languages.items(), key=lambda kv: kv[1], reverse=True)),
@@ -135,10 +213,81 @@ class EvidenceCheck:
     missing: List[str]
 
 
+def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    Build a simple Table of Contents from a v2 `sections` dict.
+    
+    This is intentionally lightweight and deterministic:
+    - Sort by section id for stability
+    - Include only id/title/one_liner (no content)
+    """
+    sections = sections or {}
+    toc: List[Dict[str, str]] = []
+    for sid in sorted(sections.keys()):
+        sec = sections.get(sid, {}) or {}
+        toc.append(
+            {
+                "id": sid,
+                "title": (sec.get("title") or sid),
+                "one_liner": (sec.get("one_liner") or ""),
+            }
+        )
+    return toc
+
+
+def _sections_to_flat_claims(sections: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Flatten v2 sections -> a single list of claims (legacy compatibility helper).
+    
+    This is useful when a consumer still expects a v1-style `repo_model.claims[]`.
+    """
+    sections = sections or {}
+    flat: List[Dict[str, Any]] = []
+    for sec in sections.values():
+        for claim in (sec or {}).get("claims", []) or []:
+            if isinstance(claim, dict):
+                flat.append(claim)
+    return flat
+
+
 def _normalize_whitespace(text: str) -> str:
     """Normalize whitespace for fuzzy quote matching (preserves semantics)."""
     # Collapse all whitespace sequences to single space, strip ends
     return " ".join(text.split())
+
+
+def _normalize_punct_whitespace(text: str) -> str:
+    """
+    Normalize whitespace and also remove whitespace around punctuation.
+
+    Why:
+    - LLMs sometimes "flatten" multi-line code into a single-line quote, e.g.:
+        code:  lora_config = LoraConfig(
+                 r=8,
+                 lora_alpha=8,
+               )
+        quote: lora_config = LoraConfig(r=8, lora_alpha=8,
+      This is still grounded, but fails strict substring matching.
+    - We want to tolerate *whitespace-only* differences around punctuation ((), commas, =, etc.)
+      without allowing the model to invent new tokens.
+    """
+    raw = _normalize_whitespace(text or "")
+    # Remove whitespace around common punctuation tokens used in code/config.
+    # Keep this conservative: only punctuation, not alphanumeric boundaries.
+    return re.sub(r"\s*([()\[\]{}.,:;=])\s*", r"\1", raw)
+
+
+def _strip_markdown_backticks(text: str) -> str:
+    """
+    Remove Markdown inline-code backticks.
+    
+    Why:
+    - Repos often wrap identifiers in backticks in README/docs.
+    - LLMs sometimes omit backticks when copying evidence quotes.
+    - Allowing a backtick-stripped fallback keeps evidence grounded while
+      avoiding flaky failures on purely presentational characters.
+    """
+    return (text or "").replace("`", "")
 
 
 def _quote_in_text(quote: str, text: str) -> bool:
@@ -155,7 +304,25 @@ def _quote_in_text(quote: str, text: str) -> bool:
     # Whitespace-normalized match (fallback)
     norm_quote = _normalize_whitespace(quote)
     norm_text = _normalize_whitespace(text)
-    return norm_quote in norm_text
+    if norm_quote and norm_quote in norm_text:
+        return True
+
+    # Markdown backtick-stripped match (fallback)
+    # Keep this narrow: only strip backticks (common LLM mismatch) and still
+    # require substring containment after whitespace normalization.
+    bt_quote = _normalize_whitespace(_strip_markdown_backticks(quote))
+    bt_text = _normalize_whitespace(_strip_markdown_backticks(text))
+
+    if bt_quote and bt_quote in bt_text:
+        return True
+
+    # Punctuation/whitespace normalized match (fallback)
+    #
+    # This specifically addresses cases where the model collapses newlines around punctuation,
+    # e.g. "LoraConfig(r=8, lora_alpha=8," when the file is formatted as multi-line args.
+    pw_quote = _normalize_punct_whitespace(_strip_markdown_backticks(quote))
+    pw_text = _normalize_punct_whitespace(_strip_markdown_backticks(text))
+    return bool(pw_quote) and pw_quote in pw_text
 
 
 def validate_evidence(repo_root: str, repo_model: Dict[str, Any]) -> EvidenceCheck:
@@ -168,11 +335,39 @@ def validate_evidence(repo_root: str, repo_model: Dict[str, Any]) -> EvidenceChe
     repo_root = os.path.abspath(repo_root)
     missing: List[str] = []
 
+    # v2 (book-model) shape: {"summary": "...", "sections": {section_id: {"claims": [...]}}}
+    if isinstance((repo_model or {}).get("sections"), dict):
+        sections = (repo_model or {}).get("sections", {}) or {}
+        for sid, sec in sections.items():
+            claims = (sec or {}).get("claims", []) or []
+            for idx, claim in enumerate(claims):
+                for eidx, ev in enumerate((claim or {}).get("evidence", []) or []):
+                    path = (ev or {}).get("path", "")
+                    quote = (ev or {}).get("quote", "")
+                    if not path or not quote:
+                        missing.append(f"{sid}.claims[{idx}].evidence[{eidx}]: missing path/quote")
+                        continue
+                    abs_path = os.path.join(repo_root, path)
+                    if not os.path.exists(abs_path):
+                        missing.append(f"{sid}.claims[{idx}].evidence[{eidx}]: file not found: {path}")
+                        continue
+                    try:
+                        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                            text = f.read()
+                    except Exception:
+                        missing.append(f"{sid}.claims[{idx}].evidence[{eidx}]: unreadable file: {path}")
+                        continue
+                    if not _quote_in_text(quote, text):
+                        missing.append(f"{sid}.claims[{idx}].evidence[{eidx}]: quote not found in {path}")
+
+        return EvidenceCheck(ok=len(missing) == 0, missing=missing)
+
+    # v1 (legacy) shape: {"claims": [...]}
     claims = (repo_model or {}).get("claims", [])
     for idx, claim in enumerate(claims):
-        for eidx, ev in enumerate(claim.get("evidence", []) or []):
-            path = ev.get("path", "")
-            quote = ev.get("quote", "")
+        for eidx, ev in enumerate((claim or {}).get("evidence", []) or []):
+            path = (ev or {}).get("path", "")
+            quote = (ev or {}).get("quote", "")
             if not path or not quote:
                 missing.append(f"claims[{idx}].evidence[{eidx}]: missing path/quote")
                 continue
@@ -223,35 +418,48 @@ def plan_files_to_read(
     key_files = repo_map.get("key_files", [])
     entrypoints = repo_map.get("entrypoints", [])
 
-    prompt = f"""You are inferring a repository's architecture and algorithms.
-
-You will choose up to {max_files_to_read} files to read. Choose files that maximize:
-- understanding of core algorithms/ideas
-- entrypoints (how to run)
-- configuration and evaluation contracts
-
-You MUST return valid JSON only:
-{{
-  "files_to_read": [
-    {{"path": "README.md", "why": "..." }}
-  ]
-}}
-
-Repo key files: {key_files}
-Repo entrypoints: {entrypoints}
-Sample file list (paths): {files}
-"""
-    data = _extract_json(llm.llm_completion(model=model, messages=[{"role": "user", "content": prompt}]))
+    template = load_prompt("repo_memory/prompts/plan_files_to_read.md")
+    prompt = render_prompt(
+        template,
+        {
+            "max_files_to_read": str(max_files_to_read),
+            "key_files_json": json.dumps(key_files),
+            "entrypoints_json": json.dumps(entrypoints),
+            "files_json": json.dumps(files),
+        },
+    )
+    # Deterministic planning: this output is structural JSON, not creative writing.
+    data = _extract_json(
+        llm.llm_completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+    )
     chosen = []
     for item in data.get("files_to_read", [])[:max_files_to_read]:
         p = (item or {}).get("path", "")
         if p and p in repo_map.get("files", []):
             chosen.append(p)
-    # Always include key files if present (cheap + high leverage)
-    for p in key_files:
-        if p in repo_map.get("files", []) and p not in chosen:
-            chosen.insert(0, p)
-    return chosen[:max_files_to_read]
+
+    # Always include key files + entrypoints if present (cheap + high leverage).
+    #
+    # Why:
+    # - Key files (README, pyproject, requirements, etc.) often contain the "story" of the repo.
+    # - Entrypoints show the real runtime data flow and output contracts.
+    # - Making this deterministic improves semantic memory quality and reduces dependence
+    #   on the LLM planner picking the obvious files.
+    must_include: List[str] = []
+    for p in list(key_files or []) + list(entrypoints or []):
+        if p and p in repo_map.get("files", []) and p not in must_include:
+            must_include.append(p)
+
+    # Preserve the LLM's ordering for the rest (it often clusters related modules).
+    for p in chosen:
+        if p not in must_include:
+            must_include.append(p)
+
+    return must_include[:max_files_to_read]
 
 
 def infer_repo_model_initial(
@@ -275,38 +483,23 @@ def infer_repo_model_initial(
 
     files_payload = "\n\n".join([f"=== FILE: {p} ===\n{t}" for p, t in file_blobs if t])
 
-    prompt = f"""You are inferring repository memory for an automated coding system.
-
-Return ONLY valid JSON. Every claim MUST include evidence.
-
-CRITICAL: Evidence quotes must be EXACT VERBATIM substrings that appear in the file.
-- Copy quotes character-for-character from the file content below
-- Do NOT paraphrase, summarize, or modify quotes in any way
-- The quote must exist as a continuous substring in the file
-- Shorter quotes (e.g., function signatures, class names) are safer than long ones
-
-Required JSON schema:
-{{
-  "summary": "High-level what the repo does",
-  "entrypoints": [{{"path": "main.py", "how_to_run": "python main.py --help"}}],
-  "where_to_edit": [{{"path": "src/foo.py", "role": "core algorithm implementation"}}],
-  "claims": [
-    {{
-      "kind": "algorithm|architecture|contract|deployment|other",
-      "statement": "...",
-      "confidence": 0.0,
-      "evidence": [{{"path": "path/in/repo.py", "quote": "EXACT verbatim substring from file - copy carefully"}}]
-    }}
-  ]
-}}
-
-RepoMap key files: {repo_map.get("key_files", [])}
-RepoMap entrypoints: {repo_map.get("entrypoints", [])}
-
-FILE CONTENTS (authoritative - copy quotes EXACTLY from here):
-{files_payload}
-"""
-    repo_model = _extract_json(llm.llm_completion(model=model, messages=[{"role": "user", "content": prompt}]))
+    template = load_prompt("repo_memory/prompts/infer_repo_model_initial.md")
+    prompt = render_prompt(
+        template,
+        {
+            "repo_map_key_files_json": json.dumps(repo_map.get("key_files", [])),
+            "repo_map_entrypoints_json": json.dumps(repo_map.get("entrypoints", [])),
+            "files_payload": files_payload,
+        },
+    )
+    # Deterministic: evidence quotes must be exact; reduce randomness to avoid drift.
+    repo_model = _extract_json(
+        llm.llm_completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+    )
     return repo_model
 
 
@@ -317,7 +510,7 @@ def infer_repo_model_with_retry(
     repo_map: Dict[str, Any],
     max_file_chars: int = 20000,
     max_files_to_read: int = 20,
-    max_retries: int = 2,
+    max_retries: int = 4,
 ) -> Dict[str, Any]:
     """
     Build a semantic repo model with retry on evidence validation failure.
@@ -325,54 +518,67 @@ def infer_repo_model_with_retry(
     If evidence validation fails, retries with explicit feedback about which
     quotes were invalid, giving the LLM a chance to correct them.
     """
-    repo_model = infer_repo_model_initial(
-        llm=llm,
-        model=model,
-        repo_root=repo_root,
-        repo_map=repo_map,
-        max_file_chars=max_file_chars,
-        max_files_to_read=max_files_to_read,
+    # Plan + read files ONCE and reuse the same file payload for retries.
+    #
+    # Why:
+    # - Evidence failures are usually about mis-copied quotes/paths, not missing files.
+    # - Re-planning on each retry can remove the relevant file from the prompt, making it
+    #   impossible for the model to fix its own evidence.
+    files_to_read = plan_files_to_read(
+        llm, model=model, repo_map=repo_map, max_files_to_read=max_files_to_read
     )
-    
+    file_blobs: List[Tuple[str, str]] = []
+    for rel in files_to_read:
+        abs_path = os.path.join(repo_root, rel)
+        file_blobs.append((rel, _safe_read_text(abs_path, max_chars=max_file_chars)))
+    files_payload = "\n\n".join([f"=== FILE: {p} ===\n{t}" for p, t in file_blobs if t])
+
+    # Initial inference.
+    template = load_prompt("repo_memory/prompts/infer_repo_model_initial.md")
+    prompt = render_prompt(
+        template,
+        {
+            "repo_map_key_files_json": json.dumps(repo_map.get("key_files", [])),
+            "repo_map_entrypoints_json": json.dumps(repo_map.get("entrypoints", [])),
+            "files_payload": files_payload,
+        },
+    )
+    repo_model = _extract_json(
+        llm.llm_completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+    )
+
     check = validate_evidence(repo_root, repo_model)
     if check.ok:
         return repo_model
-    
-    # Retry with feedback about invalid quotes
-    for attempt in range(max_retries):
-        files_to_read = plan_files_to_read(llm, model=model, repo_map=repo_map, max_files_to_read=max_files_to_read)
-        file_blobs: List[Tuple[str, str]] = []
-        for rel in files_to_read:
-            abs_path = os.path.join(repo_root, rel)
-            file_blobs.append((rel, _safe_read_text(abs_path, max_chars=max_file_chars)))
-        files_payload = "\n\n".join([f"=== FILE: {p} ===\n{t}" for p, t in file_blobs if t])
-        
+
+    # Retry with feedback about invalid quotes.
+    template = load_prompt("repo_memory/prompts/infer_repo_model_retry.md")
+    for _ in range(max_retries):
         error_feedback = "\n".join(f"- {err}" for err in check.missing[:10])
-        
-        retry_prompt = f"""Your previous response had evidence quotes that don't exist in the files.
-
-ERRORS (quotes not found):
-{error_feedback}
-
-Please regenerate the repo model with CORRECT quotes.
-- Quotes must be EXACT VERBATIM substrings from the file content
-- Copy character-for-character, do NOT paraphrase
-- Use shorter quotes (function/class names) if unsure
-
-Your previous model (fix the evidence):
-{json.dumps(repo_model, indent=2)[:15000]}
-
-FILE CONTENTS (copy quotes EXACTLY from here):
-{files_payload}
-
-Return ONLY valid JSON with the same schema, but with corrected evidence quotes.
-"""
-        repo_model = _extract_json(llm.llm_completion(model=model, messages=[{"role": "user", "content": retry_prompt}]))
+        retry_prompt = render_prompt(
+            template,
+            {
+                "error_feedback": error_feedback,
+                "previous_model_json": json.dumps(repo_model, indent=2)[:15000],
+                "files_payload": files_payload,
+            },
+        )
+        repo_model = _extract_json(
+            llm.llm_completion(
+                model=model,
+                messages=[{"role": "user", "content": retry_prompt}],
+                temperature=0,
+            )
+        )
         check = validate_evidence(repo_root, repo_model)
         if check.ok:
             return repo_model
-    
-    # After all retries, return what we have (caller will validate and may raise)
+
+    # After all retries, return what we have (caller will validate and may raise).
     return repo_model
 
 
@@ -398,29 +604,20 @@ def infer_repo_model_update(
             changed_blobs.append((rel, _safe_read_text(abs_path, max_chars=max_file_chars)))
     changed_payload = "\n\n".join([f"=== FILE: {p} ===\n{t}" for p, t in changed_blobs if t])
 
-    prompt = f"""You are updating repository memory after code changes.
-
-Return ONLY valid JSON and keep it evidence-backed:
-- Preserve previous claims if still supported.
-- Update/add/remove claims as needed based on the diff and changed files.
-- Every NEW or MODIFIED claim MUST include evidence quotes from the provided changed files.
-
-Schema is identical to initial inference:
-{{
-  "summary": "...",
-  "entrypoints": [...],
-  "where_to_edit": [...],
-  "claims": [{{"kind": "...", "statement": "...", "confidence": 0.0, "evidence": [...]}}]
-}}
-
-DIFF SUMMARY:
-{diff_summary}
-
-PREVIOUS MODEL (may contain stale items):
-{json.dumps(previous_model, indent=2)[:20000]}
-
-CHANGED FILE CONTENTS (authoritative for new/updated claims):
-{changed_payload}
-"""
-    return _extract_json(llm.llm_completion(model=model, messages=[{"role": "user", "content": prompt}]))
+    template = load_prompt("repo_memory/prompts/infer_repo_model_update.md")
+    prompt = render_prompt(
+        template,
+        {
+            "diff_summary": diff_summary,
+            "previous_model_json": json.dumps(previous_model, indent=2)[:20000],
+            "changed_payload": changed_payload,
+        },
+    )
+    return _extract_json(
+        llm.llm_completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+    )
 

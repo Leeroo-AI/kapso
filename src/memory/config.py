@@ -37,7 +37,7 @@ class ControllerConfig:
     state_file_path: str = ".praxium_state.md"
     max_error_length: int = 1000
     max_fact_length: int = 200
-    
+
     # -------------------------------------------------------------------------
     # Retrieval tuning (Tier 1 / 2 / 3)
     # -------------------------------------------------------------------------

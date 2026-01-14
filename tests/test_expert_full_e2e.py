@@ -750,6 +750,55 @@ def run_expert_test():
             if len(code.split("\n")) > 25:
                 logger.info("  ... (truncated)")
             logger.info("─" * 50)
+
+        # =====================================================================
+        # RepoMemory auditability checks (post-run invariants)
+        # =====================================================================
+        #
+        # This test is meant to be a true E2E: code changes + RepoMemory evolution.
+        # We assert a couple of critical properties:
+        # - RepoMap is portable (no absolute /tmp/... paths)
+        # - RepoMap reflects repo structure, not infrastructure/metadata paths
+        # - Observability is auditable: `changes.log` is committed and matches persisted metadata
+        try:
+            import git
+            from src.repo_memory.observation import extract_repo_memory_sections_consulted
+
+            repo = git.Repo(solution.code_path)
+            changes_text = repo.git.show("HEAD:changes.log")
+            assert "repomemory sections consulted:" in changes_text.lower(), (
+                "changes.log missing 'RepoMemory sections consulted:' line"
+            )
+
+            memory_path = Path(solution.code_path) / ".praxium" / "repo_memory.json"
+            assert memory_path.exists(), f"missing repo memory file: {memory_path}"
+            doc = json.loads(memory_path.read_text())
+
+            repo_map = doc.get("repo_map", {}) or {}
+            assert repo_map.get("repo_root") == ".", f"expected repo_map.repo_root == '.', got {repo_map.get('repo_root')!r}"
+
+            files = repo_map.get("files", []) or []
+            assert "changes.log" not in files, "repo_map.files unexpectedly contains changes.log"
+            assert not any(p.startswith(".praxium/") for p in files), "repo_map.files contains .praxium/*"
+            assert not any(p.startswith("sessions/") for p in files), "repo_map.files contains sessions/*"
+
+            # If RepoMemory captured a section-consultation list, it must match the committed changes.log.
+            from_log = extract_repo_memory_sections_consulted(changes_text)
+            experiments = doc.get("experiments", []) or []
+            if experiments:
+                rr = (experiments[-1].get("run_result") or {})
+                persisted = rr.get("repo_memory_sections_consulted", []) or []
+                if not isinstance(persisted, list):
+                    persisted = []
+                persisted = sorted(set(str(x) for x in persisted))
+                assert persisted == from_log, (
+                    f"repo_memory_sections_consulted mismatch\n"
+                    f"  from changes.log: {from_log}\n"
+                    f"  persisted:        {persisted}"
+                )
+        except Exception as e:
+            logger.error(f"RepoMemory audit checks failed: {e}")
+            raise
         
         # =====================================================================
         # PHASE 5: Final Verdict

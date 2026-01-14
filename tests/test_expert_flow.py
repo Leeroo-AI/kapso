@@ -121,16 +121,16 @@ def test_workflow_retrieval_quality():
         print(f"\n  Goal: {goal}")
         knowledge = retriever.retrieve_knowledge(goal)
         print(f"  Tier: {knowledge.tier.value}")
-
+        
         if knowledge.workflow:
             wf = knowledge.workflow
             print(f"  Workflow: {wf.title}")
             print(f"  Steps: {len(wf.steps)}")
-
+            
             # Check quality metrics
             has_heuristics = any(s.principle.heuristics for s in wf.steps) or bool(wf.heuristics)
             print(f"  Has heuristics: {has_heuristics}")
-
+            
             for i, step in enumerate(wf.steps, 1):
                 h_count = len(step.principle.heuristics)
                 print(f"    Step {i}: {step.principle.title} ({h_count} heuristics)")

@@ -19,7 +19,9 @@ from src.execution.experiment_workspace.experiment_session import ExperimentSess
 from src.execution.coding_agents.base import CodingAgentConfig
 from src.environment.handlers.base import ProblemHandler, ProblemRunResult
 from src.core.llm import LLMBackend
+from src.core.prompt_loader import load_prompt, render_prompt
 from src.repo_memory import RepoMemoryManager
+from src.repo_memory.observation import extract_repo_memory_sections_consulted
 
 
 @dataclass
@@ -211,52 +213,40 @@ class SearchStrategy(ABC):
         # corresponding to that code state. We still render a short briefing here
         # so coding agents don't need to rediscover basic repo structure every time.
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
-        repo_memory_brief = RepoMemoryManager.render_brief(repo_memory_doc, max_chars=8000)
+        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
 
-        developer_prompt = f"""
-            You are a world class developer and programmer. Modify the repo or Implement the provided <solution> for <problem>.
-            Requirements:
-            - Write a clean and functional code.
-            - You must implement the <solution> exactly as it is provided.
-                - Read Sections and Steps of <solution> carefully and implement them exactly.
-            - Output code and format must be as mentioned in the problem statement.
-            - Do not write any comments in the code. Just the start of each section.
-            - Choose the names of the variables and functions according to the the solution.
-            - The code must be highly structured and well organized. Separate sections for different functionalities.
-            - Run the code only if asked in the problem context.
-            - Use the informaton from knowledge base to develop with less error. under no circumstances deviate from the <solution> provided because of the knowledge base.
-            - CRITICAL: Never print or allow interactive or multiline outputs like tqdm, progress bar, etc.
-            - You have access to a list of your recent errors that you have made in the past. make sure to no repeat them.
-                <previous_errors>
-                {self.previous_errors[-self.recent_error_count:]}
-                </previous_errors>
-            - Directories:
-                - Codes must be implemented in the current directory and git root.
-                - Experiment Output Data Directory: For the outputs of running the main code like checkpoints, data files and final outputs use Experiment Output Data Directory : "./output_data_{session.branch_name}".
-                    -- Always use this path relative and always set it in each implementation.
-                - It is highly critical that not using absolute path for the above directories but if the problem provided absolute folders, it is ok to use them.
-            - At the end create a changes.log file and summarize the changes you made to implement the <solution> in a few sentences.
-            - CRITICAL: You are an AI code editor. Your ONLY job is to edit code files. Do NOT write any conversational text, explanations, or descriptions.  Do not respond with "I'll implement..." or any other conversational text.
-            - The most critical part of development: Read the <solution> line by line, understand the logic and details and implement the code exactly as <solution> is provided.    
-            \n\n
-            <repository_memory>
-            {repo_memory_brief}
-            </repository_memory>
-            \n\n
-            <Relible information from knowledge base>
-             {context.kg_code_results}
-            <Relible information from knowledge base>
-            \n\n
-            <problem>
-             {context.problem}
-            </problem>
-            \n\n
-            <solution>
-             {solution}
-            </solution>
-            
-            - Do not ask any questions from the user. Just implement everything as you said. It is highly critical to implement everything as you said so be through.
-        """
+        # By default, agents can read the JSON file directly.
+        # For Claude Code specifically, we also provide a tiny CLI so it can fetch
+        # a section via the existing "Bash" tool (auditable + easy to use).
+        agent_type = getattr(getattr(self.workspace, "coding_agent_config", None), "agent_type", "")
+        if agent_type == "claude_code":
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
+                "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
+                "Fallback: open `.praxium/repo_memory.json` and read `book.sections[section_id]`."
+            )
+        else:
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "read: `.praxium/repo_memory.json` and look up by section ID from the TOC."
+            )
+
+        template = load_prompt("execution/prompts/coding_agent_implement.md")
+        developer_prompt = render_prompt(
+            template,
+            {
+                "previous_errors": "\n".join(
+                    str(e) for e in self.previous_errors[-self.recent_error_count :]
+                ),
+                "branch_name": session.branch_name,
+                "repo_memory_brief": repo_memory_brief,
+                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
+                "kg_code_results": str(getattr(context, "kg_code_results", "")),
+                "problem": str(getattr(context, "problem", "")),
+                "solution": str(solution or ""),
+            },
+        )
 
         session.generate_code(developer_prompt)
 
@@ -286,37 +276,33 @@ class SearchStrategy(ABC):
             ProblemRunResult after debug attempt
         """
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
-        repo_memory_brief = RepoMemoryManager.render_brief(repo_memory_doc, max_chars=8000)
+        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
 
-        developer_prompt = f"""
-            You are a world class developer. Debug the Implemented <solution> for <problem>.
-            \n\n
-            <repository_memory>
-            {repo_memory_brief}
-            </repository_memory>
-            \n\n
-            <problem>
-             {context.problem}
-            </problem>
-            \n\n
-            <solution>
-             {solution}
-            </solution>
-            \n\n
-            current output: {error}
-            Requirements:
-            - Read the code line by line and understand the logic.
-            - Make sure every part of the <solution> is implemented correctly.
-                - Read sections and steps of <solution> carefully and implement them exactly.            
-            - Do not propose a new solution or drift away from the current implementation for <solution> and only fix the errors.
-            - Write clean, functional code, that can be improved iteratively later.
-            - Output code and format must be as mentioned in the problem statement.
-            - Do not add logics like fallback and functionality discarding to avoid the error. you must fix the error directly.
-            - Never and under no circumstances use try except blocks to fix the errors. you should fix the error directly.
-            - Beside fixing the current error, read the code and make sure other parts of the code will be run correctly and without errors.
-            - Do not change any hyper parameter or logic of the solution to fix the error.
-            - Do not ask any questions from the user. just do as you said.
-        """
+        agent_type = getattr(getattr(self.workspace, "coding_agent_config", None), "agent_type", "")
+        if agent_type == "claude_code":
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
+                "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
+                "Fallback: open `.praxium/repo_memory.json` and read `book.sections[section_id]`."
+            )
+        else:
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "read: `.praxium/repo_memory.json` and look up by section ID from the TOC."
+            )
+
+        template = load_prompt("execution/prompts/coding_agent_debug.md")
+        developer_prompt = render_prompt(
+            template,
+            {
+                "repo_memory_brief": repo_memory_brief,
+                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
+                "problem": str(getattr(context, "problem", "")),
+                "solution": str(solution or ""),
+                "error_details": str(error or ""),
+            },
+        )
         session.generate_code(developer_prompt, debug_mode=True)
         return self.problem_handler.run(
             session.session_folder,
@@ -331,7 +317,8 @@ class SearchStrategy(ABC):
         context: ContextData, 
         code_debug_tries: int, 
         branch_name: str, 
-        parent_branch_name: str = "main"
+        parent_branch_name: str = "main",
+        ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
     ) -> ProblemRunResult:
         """
         Full implementation + debugging loop.
@@ -346,7 +333,7 @@ class SearchStrategy(ABC):
         Returns:
             Final ProblemRunResult
         """
-        session = self.workspace.create_experiment_session(branch_name, parent_branch_name)
+        session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
         result = self.implement_solution(solution, context, session)
         
         for i in range(code_debug_tries):
@@ -365,13 +352,26 @@ class SearchStrategy(ABC):
             "error_message": getattr(result, "error_message", "")[:5000],
             "error_details": getattr(result, "error_details", "")[:10000],
             "feedbacks": getattr(result, "feedbacks", "")[:10000],
+            # Observability: which RepoMemory sections were consulted during ideation (engine-mediated).
+            "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted or [],
         }
-        RepoMemoryManager.update_after_experiment(
-            repo_root=session.session_folder,
-            llm=self.llm,
-            branch_name=branch_name,
-            parent_branch_name=parent_branch_name,
-            base_commit_sha=getattr(session, "base_commit_sha", ""),
+
+        # Observability: record which RepoMemory sections the agent claims to have consulted.
+        # We instruct the agent to write this into `changes.log`.
+        sections_consulted = []
+        try:
+            changes_log_path = os.path.join(session.session_folder, "changes.log")
+            if os.path.exists(changes_log_path):
+                with open(changes_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    sections_consulted = extract_repo_memory_sections_consulted(f.read())
+        except Exception:
+            sections_consulted = []
+        run_result_payload["repo_memory_sections_consulted"] = sections_consulted
+
+        # Schedule RepoMemory update for session close.
+        # This ensures the update runs AFTER final commits (run data + remaining changes),
+        # and BEFORE push/cleanup (latest-commit semantics).
+        session.schedule_repo_memory_update(
             solution_spec=solution,
             run_result=run_result_payload,
         )

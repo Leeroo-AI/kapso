@@ -10,7 +10,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.execution.context_manager.types import ContextData
 from src.execution.search_strategies.base import (
@@ -19,7 +19,7 @@ from src.execution.search_strategies.base import (
     ExperimentResult,
 )
 from src.execution.search_strategies.factory import register_strategy
-from src.repo_memory import RepoMemoryManager
+from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
 
 
 class Node:
@@ -35,6 +35,9 @@ class Node:
         self.experiment_result: Optional[ExperimentResult] = None
         self.node_event_history: List = []
         self.is_root = parent_node is None
+        # Observability: which RepoMemory sections were consulted during ideation
+        # when this node's solution text was generated.
+        self.ideation_repo_memory_sections_consulted: List[str] = []
 
     @property
     def is_leaf(self) -> bool:
@@ -245,7 +248,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         # This keeps new solutions consistent with the actual inherited code state.
         base_branch_name = self._get_closest_experimented_parent(node).branch_name or self.workspace.get_current_branch()
         
-        new_solutions = self.solution_generation(
+        new_solutions, ideation_sections = self.solution_generation(
             context,
             parent_solution=node.solution,
             final_solution_count=expansion_count,
@@ -261,6 +264,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
                     parent_node=node, 
                     solution=new_solution
                 )
+                new_node.ideation_repo_memory_sections_consulted = list(ideation_sections or [])
                 self.nodes.append(new_node)
             new_node.node_event_history.append([self.experimentation_count, "create"])
             node.children.append(new_node)
@@ -397,6 +401,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
             code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
             parent_branch_name=self._get_closest_experimented_parent(node).branch_name,
+            ideation_repo_memory_sections_consulted=getattr(node, "ideation_repo_memory_sections_consulted", []),
         )
 
         if result.run_had_error:
@@ -439,17 +444,13 @@ class LlmSteeredTreeSearch(SearchStrategy):
         per_step_solution_count: int = 3,
         parent_solution: str = "",
         base_branch_name: str = "main",
-    ) -> List[str]:
-        """Generate new solutions using LLM."""
-        repo_memory = RepoMemoryManager.render_brief_for_branch(
-            self.workspace.repo,
-            base_branch_name,
-            max_chars=6000,
-        )
+    ) -> Tuple[List[str], List[str]]:
+        """Generate new solutions using an engine-mediated RepoMemory ReAct loop."""
         if final_solution_count > per_step_solution_count * len(self.idea_generation_ensemble_models):
             per_step_solution_count = final_solution_count // len(self.idea_generation_ensemble_models) + 1
         
         solutions = ""
+        all_sections_consulted: List[str] = []
         solution_generation_prompt = """
             You are a world class problem solver. Generate {per_step_solution_count} exact solutions for the given problem that are the best and significantly better than the previous experiments.
             Requirement:
@@ -481,34 +482,33 @@ class LlmSteeredTreeSearch(SearchStrategy):
         """
         
         for i in range(step_count):
-            system_prompt = solution_generation_prompt.format(per_step_solution_count=per_step_solution_count)
-            user_prompt = f"""
-                # Problem: \n {context.problem} \n\n 
-                # Repository memory (base branch: {base_branch_name}):\n {repo_memory if repo_memory else "No repo memory available."} \n\n
-                # Additional information:\n {context.additional_info} \n\n 
-                # Reliable knowledge base information:\n {context.kg_results} \n\n 
-                # Parent solution:\n {parent_solution} \n\n
-                # Last iteration proposed solutions:\n {solutions} 
-            """
-            
-            new_solutions = self.llm.llm_multiple_completions(
-                models=(
-                    self.idea_generation_ensemble_models 
-                    if self.experiment_history 
-                    else self.idea_generation_ensemble_models * 2
-                ),
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                reasoning_effort=self.reasoning_effort
+            output_requirements = (
+                solution_generation_prompt.format(per_step_solution_count=per_step_solution_count).strip()
+                + "\n\nCRITICAL: In your FINAL action, the JSON `solution` string must contain the solutions"
+                + " exactly between <solution> and </solution> tags (as shown above)."
             )
-            solutions = "\n".join(new_solutions)
+            history = (
+                f"# Parent solution:\n{parent_solution}\n\n"
+                f"# Last iteration proposed solutions:\n{solutions}"
+            )
+
+            solutions, sections = ideate_solution_with_repo_memory_react(
+                llm=self.llm,
+                model=self.idea_generation_model,
+                repo=self.workspace.repo,
+                base_branch=base_branch_name,
+                problem=str(getattr(context, "problem", "")),
+                workflow_guidance=str(getattr(context, "additional_info", "") or ""),
+                history_summary=history,
+                additional_knowledge=str(getattr(context, "kg_results", "") or ""),
+                output_requirements=output_requirements,
+            )
+            all_sections_consulted.extend(list(sections or []))
         
         solutions_list = re.findall(r'<solution>(.*?)</solution>', solutions, re.DOTALL)
 
         if final_solution_count >= len(solutions_list):
-            return solutions_list
+            return solutions_list, all_sections_consulted
 
         # Select best solutions if we have too many
         final_solution = self.llm.llm_completion_with_system_prompt(
@@ -527,7 +527,10 @@ class LlmSteeredTreeSearch(SearchStrategy):
         )
         
         final_solutions_ids = eval(re.findall(r'<output>(.*?)</output>', final_solution, re.DOTALL)[0].strip())
-        return [solutions_list[int(id)] for id in final_solutions_ids if id < len(solutions_list)]
+        return (
+            [solutions_list[int(id)] for id in final_solutions_ids if id < len(solutions_list)],
+            all_sections_consulted,
+        )
 
     # =========================================================================
     # Utilities

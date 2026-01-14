@@ -15,7 +15,7 @@ from src.execution.search_strategies.base import (
     ExperimentResult,
 )
 from src.execution.search_strategies.factory import register_strategy
-from src.repo_memory import RepoMemoryManager
+from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
 
 
 @register_strategy("linear_search")
@@ -80,7 +80,7 @@ class LinearSearch(SearchStrategy):
         print(f"\n[LinearSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
         
         # Generate solution
-        solution = self._generate_solution(context, budget_progress)
+        solution, ideation_sections = self._generate_solution(context, budget_progress)
         print(f"[LinearSearch] Generated solution ({len(solution)} chars)")
         
         # Implement and run
@@ -95,6 +95,7 @@ class LinearSearch(SearchStrategy):
             code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
             parent_branch_name=parent_branch,
+            ideation_repo_memory_sections_consulted=ideation_sections,
         )
         
         # Store result
@@ -116,18 +117,9 @@ class LinearSearch(SearchStrategy):
         else:
             print(f"[LinearSearch] ✓ Experiment completed with score: {result.score}")
 
-    def _generate_solution(self, context: ContextData, budget_progress: float) -> str:
+    def _generate_solution(self, context: ContextData, budget_progress: float) -> tuple[str, list[str]]:
         """Generate a solution based on problem, workflow guidance, and previous experiments."""
-
-        # Ground ideation in the repo memory of the branch we will continue from.
-        # This prevents the LLM from inventing a new project structure when we are
-        # actually iterating on an existing codebase.
         parent_branch = self._get_best_branch()
-        repo_memory = RepoMemoryManager.render_brief_for_branch(
-            self.workspace.repo,
-            parent_branch,
-            max_chars=6000,
-        )
         
         # Build prompt with history
         history_summary = ""
@@ -154,18 +146,7 @@ Use the implementation guide above to structure your solution.
 Follow the steps and tips provided.
 """
         
-        prompt = f"""Generate a solution for this problem. Be specific and detailed.
-
-                PROBLEM:
-                {context.problem}
-REPOSITORY MEMORY (base branch: {parent_branch}):
-{repo_memory or "No repo memory available."}
-{workflow_guidance}
-                {history_summary}
-
-ADDITIONAL KNOWLEDGE:
-                {context.kg_results if context.kg_results else "No additional knowledge available."}
-
+        output_requirements = f"""
                 Requirements:
                 - Provide a complete, implementable solution
 - Follow the workflow guidance if provided
@@ -182,14 +163,20 @@ ADDITIONAL KNOWLEDGE:
 
                 # Hyperparameters:
                 [Specific values to use]
-        """
+""".strip()
         
-        response = self.llm.llm_completion(
+        solution, sections = ideate_solution_with_repo_memory_react(
+            llm=self.llm,
             model=self.idea_generation_model,
-            messages=[{"role": "user", "content": prompt}],
+            repo=self.workspace.repo,
+            base_branch=parent_branch,
+            problem=str(getattr(context, "problem", "")),
+            workflow_guidance=workflow_guidance or "",
+            history_summary=history_summary or "",
+            additional_knowledge=str(context.kg_results if context.kg_results else ""),
+            output_requirements=output_requirements,
         )
-        
-        return response
+        return solution, sections
 
     def _get_best_branch(self) -> str:
         """Get the branch of the best experiment, or main if none."""
