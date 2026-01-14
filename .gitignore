@@ -196,5 +196,8 @@ ALE-Bench/
 .memory_store.json
 data/wikis/.wikis_imported
 
+# Data indexes (generated locally)
+data/indexes/
+
 # Paper directory (private/unpublished work)
 paper/
