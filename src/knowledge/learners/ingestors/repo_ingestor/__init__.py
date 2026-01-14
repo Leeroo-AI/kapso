@@ -1,7 +1,8 @@
 # Phased Repository Ingestor
 #
-# Extracts knowledge from Git repositories using a two-branch pipeline.
+# Extracts knowledge from Git repositories using a multi-branch pipeline.
 # The agent directly writes wiki pages following wiki_structure definitions.
+# Workflows link to GitHub repositories containing executable implementations.
 #
 # Phase 0: Repository Understanding (pre-phase)
 # - Parse repo structure, generate _RepoMap.md with AST info
@@ -15,15 +16,17 @@
 #    (merged to keep concepts tightly connected to implementations)
 # 3. Enrichment - Mine constraints/tips, write Environment/Heuristic pages
 # 4. Audit - Validate graph integrity, fix broken links
+# 4b. Repo Builder - Create GitHub repositories for workflows (NEW)
 #
 # Branch 2: Orphan Mining (multi-step pipeline, runs after Branch 1)
 # 5a. Triage (code) - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
 # 5b. Review (agent) - Agent evaluates MANUAL_REVIEW files
 # 5c. Create (agent) - Agent creates wiki pages for approved files
 # 5d. Verify (code) - Verify all approved files have pages
-# 6. Orphan Audit - Validate orphan nodes, check for hidden workflows
+# 6. Orphan Audit - Validate orphan nodes
 #
 # The final graph is the union of both branches.
+# Workflows connect to GitHub repositories instead of Principle pages.
 #
 # Usage:
 #     from src.knowledge.learners.ingestors import RepoIngestor
@@ -58,6 +61,9 @@ from src.knowledge.learners.ingestors.repo_ingestor.context_builder import (
     generate_orphan_candidates,
     get_orphan_candidates_path,
     verify_orphan_completion,
+)
+from src.knowledge.learners.ingestors.repo_ingestor.repo_builder import (
+    sanitize_repo_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,6 +100,7 @@ class RepoIngestor(Ingestor):
        (merged phase keeps concepts tightly connected to implementations)
     3. Enrichment: Mine constraints → write Environment/Heuristic pages
     4. Audit: Validate pages → fix broken links
+    4b. Repo Builder: Create GitHub repositories for workflows → update workflow pages with URLs
     
     Branch 2: Orphan Mining (Multi-Step Pipeline)
     5a. Triage (code): Deterministic filtering → AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
@@ -121,6 +128,7 @@ class RepoIngestor(Ingestor):
                 - staging_subdir: Where to stage phase outputs inside wiki_dir (default: "_staging")
                 - cleanup_staging: Whether to remove the staging directory after ingest (default: False)
                 - fail_on_validation_errors: If True, raise if deterministic validation fails (default: True)
+                - github_repo_visibility: "private" or "public" for workflow repos (default: "private")
         """
         super().__init__(params)
         self._timeout = self.params.get("timeout", 1800)  # 30 minutes default
@@ -129,6 +137,7 @@ class RepoIngestor(Ingestor):
         self._staging_subdir = self.params.get("staging_subdir", "_staging")
         self._cleanup_staging = self.params.get("cleanup_staging", False)
         self._fail_on_validation_errors = self.params.get("fail_on_validation_errors", True)
+        self._github_repo_visibility = self.params.get("github_repo_visibility", "private")
         self._agent = None
         self._last_repo_path: Optional[Path] = None
         self._last_staging_dir: Optional[Path] = None
@@ -472,6 +481,204 @@ class RepoIngestor(Ingestor):
         
         return "\n".join(lines)
     
+    def _run_repo_builder_phase(self, repo_name: str, repo_url: str) -> None:
+        """
+        Run the Repository Builder phase to create GitHub repos for workflows.
+        
+        Fully agentic approach: the agent reads WorkflowIndex and source code,
+        then designs and creates an appropriate repository structure based on
+        the workflow's domain.
+        
+        The agent handles:
+        - Reading workflow context from WorkflowIndex and source code
+        - Designing domain-appropriate repository structure
+        - Implementing clean, runnable code
+        - Creating user-friendly documentation
+        - GitHub repository creation and pushing
+        
+        Args:
+            repo_name: Repository namespace
+            repo_url: Source repository URL (for reference)
+        """
+        import re
+        
+        logger.info("Running Repository Builder phase (agentic)...")
+        
+        # Get path to WorkflowIndex
+        workflow_index_path = self._wiki_dir / "_WorkflowIndex.md"
+        
+        if not workflow_index_path.exists():
+            logger.warning("WorkflowIndex not found, skipping repo builder phase")
+            return
+        
+        # Read WorkflowIndex to find all workflows
+        content = workflow_index_path.read_text(encoding="utf-8")
+        
+        # Find workflow sections: ## Workflow: {repo_name}_WorkflowName
+        workflow_pattern = rf"## Workflow:\s*({re.escape(repo_name)}_\w+)"
+        workflows = re.findall(workflow_pattern, content)
+        
+        if not workflows:
+            logger.warning("No workflows found in WorkflowIndex")
+            return
+        
+        logger.info(f"Found {len(workflows)} workflows to build repositories for")
+        
+        # Load the agentic repo_builder prompt template
+        base_prompt = _load_prompt("repo_builder")
+        
+        # Process each workflow
+        repos_created = 0
+        workflow_results = []
+        
+        for workflow_name in workflows:
+            try:
+                logger.info(f"Building repository for {workflow_name}")
+                
+                # Prepare result file path - use ABSOLUTE paths for agent
+                # The agent runs in a different workspace, so relative paths won't work
+                wiki_dir_abs = self._wiki_dir.resolve()
+                repo_path_abs = self._last_repo_path.resolve() if self._last_repo_path else Path.cwd()
+                result_file = wiki_dir_abs / "_repo_builder_result.txt"
+                
+                if result_file.exists():
+                    result_file.unlink()  # Remove any previous result
+                
+                # Build the agentic prompt with full context
+                # The agent will read WorkflowIndex and source code itself
+                suggested_repo_name = sanitize_repo_name(workflow_name)
+                prompt = base_prompt.format(
+                    workflow_name=workflow_name,
+                    repo_path=str(repo_path_abs),
+                    wiki_dir=str(wiki_dir_abs),
+                    suggested_repo_name=suggested_repo_name,
+                    visibility=self._github_repo_visibility,
+                    result_file=str(result_file),
+                )
+                
+                # Run the agent to create the repository
+                start = time.time()
+                result = self._agent.generate_code(prompt)
+                elapsed = time.time() - start
+                
+                logger.info(f"Agent completed for {workflow_name} in {elapsed:.1f}s (success={result.success})")
+                
+                # Check result file for GitHub URL
+                # Check REGARDLESS of result.success - agent may have completed successfully
+                if result_file.exists():
+                    github_url = result_file.read_text(encoding="utf-8").strip()
+                    if github_url and github_url.startswith("https://github.com/"):
+                        # Update the Workflow page with the GitHub URL
+                        self._update_workflow_github_url(workflow_name, github_url)
+                        repos_created += 1
+                        logger.info(f"Created repository: {github_url}")
+                        workflow_results.append((workflow_name, "SUCCESS", github_url))
+                    else:
+                        logger.warning(f"Invalid GitHub URL in result file: {github_url}")
+                        if not result.success:
+                            workflow_results.append((workflow_name, "FAILED", f"Agent error: {result.error}, Invalid URL: {github_url}"))
+                        else:
+                            workflow_results.append((workflow_name, "FAILED", f"Invalid URL: {github_url}"))
+                else:
+                    # No result file - this is a real failure
+                    if not result.success:
+                        logger.error(f"Agent failed for {workflow_name}: {result.error}")
+                        workflow_results.append((workflow_name, "FAILED", f"Agent error: {result.error}"))
+                    else:
+                        logger.warning(f"Result file not found for {workflow_name}")
+                        workflow_results.append((workflow_name, "FAILED", "No result file"))
+                    
+            except Exception as e:
+                logger.error(f"Error processing workflow {workflow_name}: {e}")
+                workflow_results.append((workflow_name, "ERROR", str(e)))
+                continue
+        
+        # Write detailed report
+        report_path = self._wiki_dir / "_reports" / "phase_repo_builder.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        report_lines = [
+            "# Repository Builder Report (Agentic)",
+            "",
+            "## Summary",
+            f"- Workflows processed: {len(workflows)}",
+            f"- Repositories created: {repos_created}",
+            f"- Visibility: {self._github_repo_visibility}",
+            f"- Mode: Fully agentic (agent designed repository structure)",
+            "",
+            "## Workflow Details",
+            "",
+            "| Workflow | Status | Details |",
+            "|----------|--------|---------|",
+        ]
+        
+        for wf_name, status, details in workflow_results:
+            status_emoji = "✅" if status == "SUCCESS" else "⚠️" if status == "SKIPPED" else "❌"
+            report_lines.append(f"| {wf_name} | {status_emoji} {status} | {details} |")
+        
+        report_lines.extend([
+            "",
+            "## Status",
+            "✅ All repositories created successfully" if repos_created == len(workflows) 
+            else f"⚠️ {len(workflows) - repos_created} workflows could not be processed",
+        ])
+        
+        report_path.write_text("\n".join(report_lines), encoding="utf-8")
+        logger.info(f"Repository Builder phase complete: {repos_created}/{len(workflows)} repos created")
+    
+    def _update_workflow_github_url(self, workflow_name: str, github_url: str) -> None:
+        """
+        Update a Workflow page with its GitHub repository URL.
+        
+        Args:
+            workflow_name: Workflow page name
+            github_url: GitHub repository URL
+        """
+        import re
+        
+        workflow_path = self._wiki_dir / "workflows" / f"{workflow_name}.md"
+        
+        if not workflow_path.exists():
+            logger.warning(f"Workflow page not found: {workflow_path}")
+            return
+        
+        content = workflow_path.read_text(encoding="utf-8")
+        
+        # Replace PENDING placeholder with actual URL
+        # Pattern: [[github_url::PENDING_REPO_BUILD]] or [[github_url::PENDING]]
+        updated = re.sub(
+            r'\[\[github_url::(PENDING_REPO_BUILD|PENDING)\]\]',
+            f'[[github_url::{github_url}]]',
+            content
+        )
+        
+        # If no placeholder found, try to update the GitHub URL section
+        if updated == content:
+            # Look for == GitHub URL == section and update it
+            github_section_pattern = r'(== GitHub URL ==.*?)(\[\[github_url::)([^\]]+)(\]\])'
+            match = re.search(github_section_pattern, content, re.DOTALL)
+            if match:
+                updated = re.sub(
+                    github_section_pattern,
+                    f'\\1\\2{github_url}\\4',
+                    content,
+                    flags=re.DOTALL
+                )
+        
+        if updated != content:
+            workflow_path.write_text(updated, encoding="utf-8")
+            logger.info(f"Updated {workflow_name} with GitHub URL: {github_url}")
+        else:
+            # Append GitHub URL section if not found (minimal format)
+            github_section = f"""
+
+== GitHub URL ==
+
+[[github_url::{github_url}]]
+"""
+            workflow_path.write_text(content + github_section, encoding="utf-8")
+            logger.info(f"Added GitHub URL section to {workflow_name}")
+    
     def _collect_written_pages(self, repo_name: str) -> List[WikiPage]:
         """
         Collect WikiPage objects from files written by agent.
@@ -580,6 +787,12 @@ class RepoIngestor(Ingestor):
                 if not success:
                     logger.warning(f"Phase {phase} failed, continuing to next phase...")
                     # Continue even if a phase fails - try to extract what we can
+            
+            # Step 5b: Run Repository Builder Phase (creates GitHub repos for workflows)
+            logger.info("=" * 60)
+            logger.info("PHASE 4b: Repository Builder")
+            logger.info("=" * 60)
+            self._run_repo_builder_phase(repo_name, url)
             
             # Step 6: Run Branch 2 - Orphan mining (multi-step pipeline)
             logger.info("=" * 60)

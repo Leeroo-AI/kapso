@@ -12,8 +12,6 @@ A **Heuristic** captures tribal knowledge, decision frameworks, and optimization
 *   **Direction:** **Inward Only**. Heuristics do not depend on other nodes; they are *applied to* other nodes.
 
 ### Incoming Connections (Backlinks)
-*   **From Workflow:** `uses_heuristic`
-    *   *Meaning:* "This workflow is optimized or guided by this advice."
 *   **From Principle:** `uses_heuristic`
     *   *Meaning:* "This theoretical concept has these known limitations or tricks."
 *   **From Implementation:** `uses_heuristic`
@@ -22,8 +20,7 @@ A **Heuristic** captures tribal knowledge, decision frameworks, and optimization
 ### Visualization
 ```mermaid
 graph TD
-    W[Workflow] -->|uses_heuristic| H[Heuristic]
-    P[Principle] -->|uses_heuristic| H
+    P[Principle] -->|uses_heuristic| H[Heuristic]
     I[Implementation] -->|uses_heuristic| H
 ```
 
@@ -31,4 +28,3 @@ graph TD
 1.  **Optimization:** Captures "How to make it fast/cheap" (e.g., Memory tricks, Batch sizing).
 2.  **Troubleshooting:** Documents common pitfalls and solutions (e.g., OOM errors, Divergence).
 3.  **Decision Making:** Provides frameworks for choices (e.g., "When to use Adam vs SGD").
-

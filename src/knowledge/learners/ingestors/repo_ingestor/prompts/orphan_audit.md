@@ -5,7 +5,6 @@ You are a Quality Auditor. Your task is to validate that orphan nodes (created i
 ## ⚠️ FILE PLACEMENT RULES (CRITICAL)
 
 **Only modify/create files in these directories:**
-- `{wiki_dir}/workflows/` - New workflows for hidden usage patterns
 - `{wiki_dir}/principles/` - Principle pages (rename if needed)
 - `{wiki_dir}/implementations/` - Implementation pages (rename if needed)
 - `{wiki_dir}/heuristics/` - Deprecation warnings
@@ -33,8 +32,8 @@ All page names must follow WikiMedia technical syntax:
 ### Examples
 
 ```
-✅ {repo_name}_Hidden_Workflow_Name
-❌ {repo_name}_Hidden-Workflow       (hyphen)
+✅ {repo_name}_Hidden_API_Name
+❌ {repo_name}_Hidden-API       (hyphen)
 ```
 
 ## Context
@@ -57,18 +56,15 @@ Also check `{wiki_dir}/_orphan_candidates.md` to see:
 
 These reports tell you:
 - Which orphan pages were created
-- Pages needing hidden workflow check
 - Potential naming issues
 
 ## IMPORTANT: Use the Repository Map AND Page Indexes
 
 Read the Repository Map at `{repo_map_path}` to:
 - Check **Coverage column** to see what's marked as covered
-- Identify files that might have hidden workflows
 - Verify coverage accuracy
 
 **Also read the Page Indexes** for cross-reference validation:
-- `{wiki_dir}/_WorkflowIndex.md` - Check for new workflows to create
 - `{wiki_dir}/_PrincipleIndex.md` - Verify orphan Principles are listed
 - `{wiki_dir}/_ImplementationIndex.md` - Verify orphan Implementations are listed
 
@@ -86,7 +82,7 @@ Read the Repository Map at `{repo_map_path}` to:
 
 ## Your Task: Validate Orphan Nodes
 
-Perform these three checks on ALL Implementation and Principle pages, especially those created in the Orphan Mining phase.
+Perform these checks on ALL Implementation and Principle pages, especially those created in the Orphan Mining phase.
 
 ## Repo Scoping Rule (CRITICAL)
 
@@ -94,30 +90,7 @@ Only validate and fix pages whose filenames start with `{repo_name}_`.
 
 ---
 
-### Check 1: The "Hidden Workflow" Check
-
-**Goal:** Ensure the node is truly an orphan, not accidentally missed.
-
-**Action:** 
-1. For each Implementation page, get the class/function name
-2. Search the repository for usage in:
-   - `examples/` folder
-   - `notebooks/` folder
-   - `scripts/` folder
-   - `README.md`
-3. Also check the Repository Map for example files that might use this
-
-**Decision:**
-- **If Found in an example/script:** It is NOT an orphan!
-  - Create a new Workflow page for that script
-  - Link this Principle as a step
-  - **Update Coverage in the index** for that example file
-  
-- **If Not Found:** Confirmed orphan. Proceed to Check 2.
-
----
-
-### Check 2: The "Dead Code" Check
+### Check 1: The "Dead Code" Check
 
 **Goal:** Identify deprecated or legacy code.
 
@@ -133,11 +106,11 @@ Only validate and fix pages whose filenames start with `{repo_name}_`.
   - Add warning in the Implementation's Description
   - **Update Coverage** to note deprecation
   
-- **If Not Deprecated:** Proceed to Check 3.
+- **If Not Deprecated:** Proceed to Check 2.
 
 ---
 
-### Check 3: The "Naming Specificity" Check
+### Check 2: The "Naming Specificity" Check
 
 **Goal:** Ensure orphan nodes are self-descriptive.
 
@@ -160,7 +133,7 @@ Review all Principle names, especially newly created ones.
 
 ---
 
-### Check 4: Verify Repository Map Coverage
+### Check 3: Verify Repository Map Coverage
 
 **Goal:** Ensure the Repository Map accurately reflects all coverage.
 
@@ -169,7 +142,7 @@ Review all Principle names, especially newly created ones.
 2. For each file with coverage listed, verify those pages actually exist
 3. Fix any mismatches
 
-### Check 5: Verify Page Index Completeness
+### Check 4: Verify Page Index Completeness
 
 **Goal:** Ensure all pages are listed in their indexes with correct connection statuses.
 
@@ -201,9 +174,6 @@ ORPHAN AUDIT SUMMARY
 Total orphan Implementations checked: X
 Total orphan Principles checked: X
 
-Hidden Workflows discovered: X
-  - [list any new Workflows created]
-
 Deprecated code flagged: X
   - [list any deprecation warnings added]
 
@@ -213,7 +183,6 @@ Names corrected: X
 Index Updates:
   - Missing ImplementationIndex entries added: X
   - Missing PrincipleIndex entries added: X
-  - Missing WorkflowIndex entries added: X (for new workflows)
   - Invalid cross-references fixed: X
 
 Coverage column corrections: X
@@ -221,7 +190,6 @@ Coverage column corrections: X
 
 Orphan Status:
   - Confirmed orphans: X
-  - Promoted to Workflows: X
   - Flagged as deprecated: X
 ```
 
@@ -230,7 +198,7 @@ Orphan Status:
 When finished, write the final summary to `{wiki_dir}/_reports/phase6_orphan_audit.md`:
 
 ```markdown
-# Phase 7: Orphan Audit Report (FINAL)
+# Phase 6: Orphan Audit Report (FINAL)
 
 ## Final Graph Statistics
 | Type | Count |
@@ -242,7 +210,6 @@ When finished, write the final summary to `{wiki_dir}/_reports/phase6_orphan_aud
 | Heuristics | X |
 
 ## Orphan Audit Results
-- Hidden workflows discovered: X
 - Deprecated code flagged: X
 - Names corrected: X
 - Index entries fixed: X
@@ -258,8 +225,6 @@ When finished, write the final summary to `{wiki_dir}/_reports/phase6_orphan_aud
 ```
 
 ## Wiki Structure Definitions
-
-{workflow_structure}
 
 {implementation_structure}
 

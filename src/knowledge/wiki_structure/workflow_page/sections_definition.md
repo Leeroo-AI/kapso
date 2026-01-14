@@ -144,26 +144,21 @@ Execute this workflow when you have a domain-specific dataset (instruction-tunin
 ### `== Execution Steps ==`
 **Instruction:** The ordered list of steps in natural language.
 
-**⚠️ NO CODE IN WORKFLOW STEPS!** Actual code belongs in Implementation pages, which are linked through Principles.
+**⚠️ NO CODE IN WORKFLOW STEPS!** The actual implementation lives in the GitHub Repository linked below.
 
 *   *Structure:* Use Level 3 Headers (`===`) for each step.
 *   *Content per Step:*
-    1.  **Link:** `[[step::Principle:{Principle_Name}]]` — links to the theoretical concept.
-    2.  **Description:** Natural language summary of what this step accomplishes. This should echo/summarize the Overview of the linked Principle.
+    1.  **Description:** Natural language summary of what this step accomplishes.
+    2.  **Key Points:** Important considerations for this step.
     3.  **Pseudocode (optional):** If needed for clarity, use high-level pseudocode (not actual implementation code).
 
-**Graph Flow Reminder:**
-```
-Workflow Step → Principle (theory) → Implementation (actual code)
-```
-The Workflow describes WHAT happens. The Principle explains WHY. The Implementation shows HOW with real code.
+**Note:** Steps describe WHAT happens conceptually. The actual executable implementation is in the GitHub Repository.
 
 **Sample:**
 ```mediawiki
 == Execution Steps ==
 
 === Step 1: Data Preparation ===
-[[step::Principle:Data_Formatting]]
 
 Transform raw training data into the structured prompt format expected by the model. This involves mapping input fields to a consistent template (e.g., instruction/input/output structure) and applying the model's chat template for proper tokenization boundaries.
 
@@ -173,7 +168,6 @@ Transform raw training data into the structured prompt format expected by the mo
 * Validate that special tokens are properly inserted
 
 === Step 2: Model Quantization ===
-[[step::Principle:Quantization]]
 
 Load the base model in reduced precision to minimize memory footprint. The quantization process maps 16-bit weights to a lower bit representation (e.g., 4-bit NormalFloat) while preserving model quality through careful calibration.
 
@@ -183,7 +177,6 @@ Load the base model in reduced precision to minimize memory footprint. The quant
   3. Load weights with on-the-fly dequantization for compute
 
 === Step 3: Adapter Training ===
-[[step::Principle:Low_Rank_Adaptation]]
 
 Inject low-rank adapter matrices into the frozen base model's attention and feedforward layers. Only these small adapter weights are trained, dramatically reducing memory requirements and training time while preserving the base model's capabilities.
 
@@ -196,17 +189,15 @@ Inject low-rank adapter matrices into the frozen base model's attention and feed
 **❌ WRONG (actual code in workflow step):**
 ```mediawiki
 === Step 1: Load Model ===
-[[step::Principle:Model_Loading]]
 ```python
 from unsloth import FastLanguageModel
-model, tokenizer = FastLanguageModel.from_pretrained(...)  # ← WRONG! Code belongs in Implementation
+model, tokenizer = FastLanguageModel.from_pretrained(...)  # ← WRONG! Code belongs in GitHub repo
 ```
 ```
 
 **✅ CORRECT (natural language description):**
 ```mediawiki
 === Step 1: Load Model ===
-[[step::Principle:Model_Loading]]
 
 Initialize the language model with memory-optimized settings. The loader applies 4-bit quantization automatically and patches attention layers for efficient training on consumer GPUs.
 ```
@@ -233,33 +224,31 @@ Initialize the language model with memory-optimized settings. The loader applies
 
 ---
 
-## 5. Graph Connections
+## 5. GitHub Repository (Executable Implementation)
 
-### `== Related Pages ==`
-**Instruction:** Define outgoing connections using semantic wiki links.
+### `== GitHub URL ==`
+**Instruction:** Link to the private GitHub repository containing the executable implementation of this workflow.
 
-Workflow pages have outgoing connections to:
-
-*   **Principle:** `[[step::Principle:{Principle_Name}]]`
-    *   *Meaning:* "This workflow executes this theory as a step."
-*   **Heuristic:** `[[uses_heuristic::Heuristic:{Heuristic_Name}]]`
-    *   *Meaning:* "This whole process is guided by this wisdom."
+*   **Purpose:** Provides deterministic, version-controlled implementation
+*   **Format:** `[[github_url::{URL}]]`
+*   **Content:** The repository contains:
+    *   Step-by-step implementation files (one file per step)
+    *   `requirements.txt` with pinned dependencies
+    *   `README.md` with setup and execution instructions
+    *   Proper Python package structure
 
 **Sample:**
 ```mediawiki
-== Related Pages ==
-* [[step::Principle:Data_Formatting]]
-* [[step::Principle:Quantization]]
-* [[step::Principle:Low_Rank_Adaptation]]
-* [[uses_heuristic::Heuristic:Gradient_Checkpointing_Optimization]]
-* [[uses_heuristic::Heuristic:Packing_Short_Sequences]]
+== GitHub URL ==
+
+[[github_url::https://github.com/praxium/workflow-unslothai-qlora-finetuning]]
 ```
 
-**Connection Types for Workflow:**
-| Edge Property | Target Node | Meaning |
-|:--------------|:------------|:--------|
-| `step` | Principle | "This workflow executes this theory as a step" |
-| `uses_heuristic` | Heuristic | "This process is guided by this wisdom" |
+**Why a GitHub Repository?**
+- **Deterministic:** Pinned versions ensure reproducibility
+- **Version-controlled:** Track changes over time
+- **Testable:** Can be executed and validated
+- **Professional:** Follows software engineering best practices
 
 ---
 
@@ -269,7 +258,7 @@ After creating a Workflow page, you **MUST** update the `_WorkflowIndex.md` file
 
 ### Why This Matters
 
-The WorkflowIndex preserves **implementation context** that Phase 2 needs to create correct Principle→Implementation mappings. Without this context, Phase 2 must guess which APIs implement which Principles, leading to incorrect connections.
+The WorkflowIndex preserves **implementation context** that Phase 2 needs to create the GitHub repository. Without this context, the repository builder cannot determine which APIs and libraries to use.
 
 ### Required Information Per Step
 
@@ -277,12 +266,10 @@ For each workflow step, capture in the WorkflowIndex:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Principle** | The linked Principle name | `Model_Loading` |
-| **Implementation** | Suggested Implementation page name | `FastLanguageModel_from_pretrained` |
+| **Step Name** | The step name | `Model_Loading` |
 | **API Call** | Exact function/method signature | `FastLanguageModel.from_pretrained(model_name, load_in_4bit, ...)` |
 | **Source Location** | File path and line numbers | `unsloth/models/loader.py:L120-620` |
 | **External Dependencies** | Libraries outside the repo | `transformers`, `bitsandbytes` |
-| **Environment** | Required environment page | `unslothai_unsloth_CUDA` |
 | **Key Parameters** | Important params with types | `model_name: str`, `load_in_4bit: bool` |
 | **Inputs** | What this step consumes | Model name/path |
 | **Outputs** | What this step produces | `Tuple[PeftModel, Tokenizer]` |
@@ -294,27 +281,25 @@ For each workflow step, capture in the WorkflowIndex:
 
 **File:** [→](./workflows/{filename}.md)
 **Description:** One-line description.
+**GitHub URL:** https://github.com/praxium/workflow-{repo}-{name}
 
 ### Steps Overview
 
-| # | Step Name | Principle | Implementation | Status |
-|---|-----------|-----------|----------------|--------|
-| 1 | Step One | Principle_A | `api_call_a` | ✅ |
-| 2 | Step Two | Principle_B | `api_call_b` | ✅ |
+| # | Step Name | API | Source | Status |
+|---|-----------|-----|--------|--------|
+| 1 | Step One | `api_call_a` | file.py:L100 | ✅ |
+| 2 | Step Two | `api_call_b` | file.py:L200 | ✅ |
 
-### Step 1: Principle_A
+### Step 1: Data_Preparation
 
 | Attribute | Value |
 |-----------|-------|
-| **Principle** | `repo_Principle_A` |
-| **Implementation** | `repo_Implementation_A` |
-| **API Call** | `ClassName.method(param1, param2)` |
+| **API Call** | `get_chat_template(tokenizer, ...)` |
 | **Source Location** | `path/to/file.py:L100-200` |
-| **External Dependencies** | `library1`, `library2` |
-| **Environment** | `repo_Environment_X` |
-| **Key Parameters** | `param1: type`, `param2: type` |
-| **Inputs** | Description of inputs |
-| **Outputs** | Description of outputs |
+| **External Dependencies** | `transformers` |
+| **Key Parameters** | `tokenizer: PreTrainedTokenizer` |
+| **Inputs** | Raw dataset, tokenizer |
+| **Outputs** | Formatted prompts |
 ```
 
 ### Implementation Types to Document
@@ -326,27 +311,15 @@ For each workflow step, capture in the WorkflowIndex:
 | **Pattern Doc** | User-defined pattern | `reward_function_interface` |
 | **External Tool Doc** | CLI/external tool | `llama_cli_validation` |
 
-### Extraction Hints for Phase 2
+### Extraction Hints for Repository Builder
 
-Include a summary section at the end of each workflow listing all APIs to extract:
+Include a summary section at the end of each workflow listing all APIs to implement:
 
 ```markdown
 ### Implementation Extraction Guide
 
-| Principle | Implementation | API | Source |
-|-----------|----------------|-----|--------|
-| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` | `loader.py` |
-| LoRA_Injection | `get_peft_model` | `get_peft_model` | `llama.py` |
+| Step | API | Source | Dependencies |
+|------|-----|--------|--------------|
+| Data_Preparation | `get_chat_template` | `chat_templates.py` | transformers |
+| Model_Loading | `FastLanguageModel.from_pretrained` | `loader.py` | bitsandbytes |
 ```
-
-### 1:1 Principle-Implementation Mapping
-
-**Key Rule:** Each Principle gets its own Implementation page, even if the underlying API is the same.
-
-Example: `FastLanguageModel.from_pretrained` is used by:
-- `Model_Loading` → Create `FastLanguageModel_from_pretrained` (QLoRA angle)
-- `RL_Model_Loading` → Create `FastLanguageModel_from_pretrained_vllm` (vLLM angle)
-- `Model_Preparation` → Create `FastLanguageModel_from_pretrained_lora` (reload LoRA angle)
-
-Each Implementation documents the API **from that Principle's perspective** with relevant parameters and use cases.
-

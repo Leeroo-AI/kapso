@@ -187,10 +187,10 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
 
     core_types = {"Workflow", "Principle", "Implementation", "Environment", "Heuristic"}
 
-    workflow_steps: Dict[str, Set[str]] = {}   # workflow_id -> set(principle_page_id)
+    workflow_github_urls: Dict[str, str] = {}   # workflow_id -> github_url
     principle_impls: Dict[str, Set[str]] = {}  # principle_id -> set(implementation_page_id)
 
-    # 1) Link target existence
+    # 1) Link target existence and workflow GitHub URL extraction
     for page in pages:
         for link in page.outgoing_links:
             edge_type = (link.get("edge_type") or "").strip()
@@ -199,6 +199,12 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
 
             if not edge_type or not target_type or not target_id:
                 report.errors.append(f"{page.id}: malformed link dict: {link!r}")
+                continue
+
+            # Handle github_url as a special case (not a page link)
+            if edge_type.lower() == "github_url":
+                if page.page_type == "Workflow":
+                    workflow_github_urls[page.id] = target_id
                 continue
 
             if target_type not in core_types:
@@ -211,9 +217,6 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
                     f"(missing page {target_page_id})"
                 )
 
-            if page.page_type == "Workflow" and edge_type.lower() == "step" and target_type == "Principle":
-                workflow_steps.setdefault(page.id, set()).add(target_page_id)
-
             if page.page_type == "Principle" and edge_type.lower() in ("implemented_by", "realized_by") and target_type == "Implementation":
                 principle_impls.setdefault(page.id, set()).add(target_page_id)
 
@@ -225,23 +228,28 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
                 f"{principle_id}: missing mandatory [[implemented_by::Implementation:...]] link"
             )
 
-    # 3) Warnings: workflows should have >= 2 steps
+    # 3) Mandatory: every Workflow must have a GitHub URL
+    # Workflows now link to GitHub repositories instead of step links
     for workflow_id in by_type.get("Workflow", []):
-        steps = workflow_steps.get(workflow_id, set())
-        if len(steps) < 2:
-            report.warnings.append(
-                f"{workflow_id}: has only {len(steps)} step link(s); expected at least 2"
+        if workflow_id not in workflow_github_urls:
+            # Also check if the page content contains a github_url
+            for page in pages:
+                if page.id == workflow_id:
+                    # Check content for [[github_url::...]] pattern
+                    if page.content and "[[github_url::" in page.content:
+                        # Extract URL from content
+                        url_match = re.search(r'\[\[github_url::([^\]]+)\]\]', page.content)
+                        if url_match:
+                            workflow_github_urls[workflow_id] = url_match.group(1)
+                    break
+        
+        if workflow_id not in workflow_github_urls:
+            report.errors.append(
+                f"{workflow_id}: missing mandatory [[github_url::...]] link to implementation repository"
             )
 
-    # 4) Warnings: principles should be reachable from at least one workflow
-    reachable_principles: Set[str] = set()
-    for steps in workflow_steps.values():
-        reachable_principles |= steps
-    for principle_id in by_type.get("Principle", []):
-        if principle_id not in reachable_principles:
-            report.warnings.append(
-                f"{principle_id}: orphan principle (no Workflow has [[step::Principle:{principle_id.split('/', 1)[1]}]])"
-            )
+    # 4) Note: Principles are no longer connected to Workflows via step links
+    # Principles are standalone knowledge units that may be orphaned (this is acceptable)
 
     # 5) Validate page indexes match directory contents
     validate_page_indexes(wiki_dir, report)

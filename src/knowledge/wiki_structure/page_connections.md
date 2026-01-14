@@ -9,12 +9,13 @@ This document defines the strictly **Top-Down Directed Acyclic Graph (DAG)** sch
 ## Complete Edge Registry
 
 ### 1. Workflow Layer (The Recipe)
-*Top-down. Orchestrates Principles.*
+*Top-level entry points. Workflows are self-contained and link to external GitHub repositories for implementation.*
 
-| Source Node | Edge Property | Target Node | Meaning |
-|:---|:---|:---|:---|
-| **Workflow** | `step` | **Principle** | "Step X of this workflow is defined by Theory Y." |
-| **Workflow** | `uses_heuristic` | **Heuristic** | "This workflow is guided/warned by Wisdom Z." |
+| Source Node | External Resource | Meaning |
+|:---|:---|:---|
+| **Workflow** | GitHub Repository | "This workflow's implementation lives at this URL." |
+
+**Note:** Workflows no longer have outgoing wiki links. The executable implementation is stored in a GitHub repository linked via `[[github_url::...]]`.
 
 ### 2. Principle Layer (The Theory)
 *The heavy lifter. Must be connected to Code.*
@@ -40,9 +41,7 @@ These nodes are **Targets Only** in the core graph. They use **backlink edge typ
 | Leaf Node | Backlink Edge | Source Nodes | Meaning |
 |:----------|:--------------|:-------------|:--------|
 | **Environment** | `required_by` | Implementation | "This environment is required by X." |
-| **Heuristic** | `used_by` | Implementation, Workflow | "This heuristic is used by X." |
-
-**Note:** While the schema allows Principles to use heuristics (`uses_heuristic`), in practice heuristics are practical tips that belong at the Implementation/Workflow level, not the Principle (theory) level.
+| **Heuristic** | `used_by` | Implementation, Principle | "This heuristic is used by X." |
 
 *   **Environment** (Hardware/OS context)
 *   **Heuristic** (Wisdom/Tips)
@@ -53,11 +52,10 @@ These nodes are **Targets Only** in the core graph. They use **backlink edge typ
 
 ```mermaid
 graph TD
-    W[Workflow] -->|step| P[Principle]
-    W -->|uses_heuristic| H[Heuristic]
+    W[Workflow] -.->|github_url| GH[GitHub Repo]
     
-    P -->|implemented_by| I[Implementation]
-    P -->|uses_heuristic| H
+    P[Principle] -->|implemented_by| I[Implementation]
+    P -->|uses_heuristic| H[Heuristic]
     
     I -->|requires_env| E[Environment]
     I -->|uses_heuristic| H
@@ -71,10 +69,15 @@ graph TD
 Every **Principle** MUST have at least one outgoing `[[implemented_by::Implementation:X]]` link.
 - If the Principle is abstract (e.g., "Optimization"), it must link to a "Base Class" or "Interface" implementation.
 
-### Rule 2: Top-Down Only
+### Rule 2: Workflow GitHub URL Constraint
+Every **Workflow** MUST have a `[[github_url::...]]` link to a GitHub repository.
+- The repository contains the executable implementation of the workflow steps.
+- The repository must follow the standard structure (step files, requirements.txt, README.md).
+
+### Rule 3: Top-Down Only
 - **Implementations** never point to **Principles** (use inverse queries for navigation).
 - **Heuristics** use `[[used_by::...]]` backlinks to document which pages reference them.
 - **Environments** use `[[required_by::...]]` backlinks to document which Implementations require them.
 
-### Rule 3: No Loops
+### Rule 4: No Loops
 The graph must remain a DAG. Do not create edges that point back up the hierarchy.

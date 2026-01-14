@@ -169,15 +169,15 @@ Heuristics are **Leaf Nodes** — they receive incoming connections from other p
 == Related Pages ==
 * [[used_by::Implementation:Owner_Repo_Git_Fork_Edit_Workflow]]
 * [[used_by::Implementation:Owner_Repo_Issue_To_PR_Conversion]]
-* [[used_by::Workflow:Owner_Repo_Adding_Software_Entry]]
+* [[used_by::Principle:Owner_Repo_Memory_Optimization]]
 ```
 
 **Edge Type for Heuristic Backlinks:**
 
 | Edge Property | Meaning | Source Page Types |
 |:--------------|:--------|:------------------|
-| `used_by` | "This heuristic is used by X" | Implementation, Workflow |
+| `used_by` | "This heuristic is used by X" | Implementation, Principle |
 
 **Note:** Do NOT use `[[uses_heuristic::...]]` on Heuristic pages — that edge type belongs on the source pages pointing TO this heuristic.
 
-**Why no Principle backlinks?** While the schema allows Principles to use heuristics, in practice most heuristics are referenced by Implementations and Workflows. Principles focus on theory; heuristics are practical tips that belong at the Implementation/Workflow level.
+**Why these source types?** Heuristics are practical tips that are referenced by Implementations (code-level optimizations) and Principles (theoretical considerations). Workflows no longer have wiki link connections — their implementations live in GitHub repositories.

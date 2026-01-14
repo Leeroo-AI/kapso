@@ -8,7 +8,8 @@
 # =============================================================================
 
 set -e
-cd "$(dirname "$0")"
+# Navigate to project root (parent of scripts directory)
+cd "$(dirname "$0")/.."
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -228,5 +229,5 @@ if [[ "$SKIP_INDEX" == "false" ]] && [[ -n "$WIKI_DIR" ]]; then
     echo ""
 fi
 
-echo "  Stop:         ./stop_infra.sh"
-echo "  Stop + wipe:  ./stop_infra.sh --volumes"
+echo "  Stop:         ./scripts/stop_infra.sh"
+echo "  Stop + wipe:  ./scripts/stop_infra.sh --volumes"

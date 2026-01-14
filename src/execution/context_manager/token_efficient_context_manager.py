@@ -165,13 +165,16 @@ class TokenEfficientContextManager(ContextManager):
                     ...
                 ]
         """
+        # Build experiments string outside f-string to avoid backslash limitation
+        new_experiments_str = "\n".join(str(exp) for exp in new_experiments_list)
+        prev_summary = self.accumulated_summary if self.accumulated_summary else "No previous accumulated summary"
         user_prompt = f"""
             # problem / Goal: 
             {problem}
             # Previous accumulated summary of experiments:
-            {self.accumulated_summary if self.accumulated_summary else "No previous accumulated summary"}
+            {prev_summary}
             # New experiments:
-            {"\n".join(str(exp) for exp in new_experiments_list)}
+            {new_experiments_str}
         """
         
         self.accumulated_summary = self.llm.llm_completion_with_system_prompt(

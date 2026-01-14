@@ -551,7 +551,8 @@ class KGGraphSearch(KnowledgeSearch):
     # =========================================================================
     
     # Graph edge types from wiki structure (non-configurable)
-    EDGE_TYPES = ["STEP", "IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
+    # Note: STEP removed - Workflows now link to GitHub repos instead of Principles
+    EDGE_TYPES = ["IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
     
     def __init__(
         self,
@@ -859,13 +860,14 @@ class KGGraphSearch(KnowledgeSearch):
     def _map_edge_type(self, edge_type: str) -> str:
         """Map wiki edge types to Neo4j relationship types."""
         mapping = {
-            "step": "STEP",
+            # Note: "step" removed - Workflows now use github_url instead
             "implemented_by": "IMPLEMENTED_BY",
             "uses_heuristic": "USES_HEURISTIC",
             "requires_env": "REQUIRES_ENV",
             "realized_by": "IMPLEMENTED_BY",
             "consumes": "CONSUMES",
             "produces": "PRODUCES",
+            "github_url": "GITHUB_URL",  # External link to GitHub repository
         }
         return mapping.get(edge_type.lower(), "RELATED")
     

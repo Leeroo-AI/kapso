@@ -38,8 +38,8 @@ INGESTOR_PARAMS = {
 }
 
 # Output directories
-WIKI_DIR = "data/wikis_llm_finetuning"
-LOG_DIR = "logs/llm_finetuning"
+WIKI_DIR = "data/wikis_llm_finetuning_test"
+LOG_DIR = "logs/llm_finetuning_test"
 
 # Default number of parallel workers
 DEFAULT_WORKERS = 5  # Run 5 repos in parallel by default

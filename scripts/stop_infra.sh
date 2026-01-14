@@ -5,7 +5,8 @@
 # - Optionally removes all data (--volumes)
 # =============================================================================
 
-cd "$(dirname "$0")"
+# Navigate to project root (parent of scripts directory)
+cd "$(dirname "$0")/.."
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -75,4 +76,4 @@ else
 fi
 
 echo ""
-echo "To restart: ./start_infra.sh"
+echo "To restart: ./scripts/start_infra.sh"

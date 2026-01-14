@@ -20,7 +20,7 @@ You are a knowledge extraction agent. Your task is to scan the implementation co
 All page names must follow WikiMedia technical syntax:
 
 ### Syntax Rules
-1. **First letter capitalized** — System auto-converts (e.g., `cuda_11` → `Cuda_11`)
+1. **First character capitalized** — System auto-converts (e.g., `cuda_11` → `Cuda_11`)
 2. **Underscores only** — Use `_` as the sole word separator (NO hyphens, NO spaces)
 3. **Case-sensitive after first character** — `CUDA_11` ≠ `Cuda_11`
 
@@ -86,7 +86,6 @@ For files likely to have environment requirements, read their detail pages in `_
 
 **Also read:**
 - `{wiki_dir}/_ImplementationIndex.md` — See `⬜Env:{repo_name}_X` references (Environments needed)
-- `{wiki_dir}/_WorkflowIndex.md` — See `⬜Heuristic:{repo_name}_X` references (Heuristics needed)
 
 **How to read the Connections column:**
 - `✅Env:{repo_name}_CUDA_11` = Environment page EXISTS (don't create duplicate)
@@ -193,10 +192,10 @@ The link target must EXACTLY match the filename (without .md extension).
 ### Update Implementation Pages
 Add `[[requires_env::Environment:{repo_name}_X]]` links.
 
-### Update Implementation and Workflow Pages
+### Update Implementation and Principle Pages
 Add `[[uses_heuristic::Heuristic:{repo_name}_X]]` links.
 
-**Note:** Heuristics are practical tips that belong at the Implementation/Workflow level, not at the Principle (theory) level. Only add heuristic links to Implementation and Workflow pages.
+**Note:** Heuristics are practical tips that belong at the Implementation and Principle level. **Do NOT add heuristic links to Workflow pages** — Workflows no longer have wiki link connections.
 
 ### Verification Step
 
@@ -254,14 +253,12 @@ After creating Heuristic pages, add entries to `{wiki_dir}/_HeuristicIndex.md`:
 
 **Connections Format (use FULL page names with `{repo_name}_` prefix):**
 - `✅Impl:{repo_name}_UnslothTrainer` = Implementation exists
-- `⬜Workflow:{repo_name}_QLoRA_Finetuning` = Workflow not created yet
+- `✅Principle:{repo_name}_Gradient_Optimization` = Principle exists
 
 **Example row:**
 ```
-| {repo_name}_Batch_Size_Tips | [→](./heuristics/...) | ✅Impl:{repo_name}_UnslothTrainer, ⬜Workflow:{repo_name}_QLoRA_Finetuning | Use batch_size=1 with grad accum |
+| {repo_name}_Batch_Size_Tips | [→](./heuristics/...) | ✅Impl:{repo_name}_UnslothTrainer, ✅Principle:{repo_name}_Memory_Optimization | Use batch_size=1 with grad accum |
 ```
-
-This shows which referenced pages exist (✅) and which need creation (⬜).
 
 ### Update Other Indexes (Bi-directional)
 
@@ -272,17 +269,8 @@ When you create an Environment or Heuristic, update references in OTHER indexes:
 2. Change to `✅Env:{repo_name}_CUDA_11`
 
 **For Heuristics (e.g., `{repo_name}_Batch_Size_Tips`):**
-1. Search `_WorkflowIndex.md` and `_ImplementationIndex.md` for `⬜Heuristic:{repo_name}_Batch_Size_Tips`
+1. Search `_ImplementationIndex.md` and `_PrincipleIndex.md` for `⬜Heuristic:{repo_name}_Batch_Size_Tips`
 2. Change to `✅Heuristic:{repo_name}_Batch_Size_Tips`
-
-**Example:**
-```markdown
-# BEFORE (in _ImplementationIndex.md):
-| {repo_name}_FastLanguageModel | [→](...) | ✅Principle:{repo_name}_LoRA, ⬜Env:{repo_name}_CUDA_11 | ... |
-
-# AFTER (you created CUDA_11 Environment):
-| {repo_name}_FastLanguageModel | [→](...) | ✅Principle:{repo_name}_LoRA, ✅Env:{repo_name}_CUDA_11 | ... |
-```
 
 ## ⚠️ Leaf Node Rule (Environment & Heuristic Pages)
 
@@ -296,7 +284,7 @@ When creating the Related Pages section on these pages, use **backlink edge type
 ```mediawiki
 == Related Pages ==
 * [[used_by::Implementation:{repo_name}_Git_Fork_Edit_Workflow]]
-* [[used_by::Workflow:{repo_name}_Adding_Software_Entry]]
+* [[used_by::Principle:{repo_name}_Memory_Optimization]]
 ```
 
 **For Environment pages** (use `required_by`):
@@ -306,7 +294,7 @@ When creating the Related Pages section on these pages, use **backlink edge type
 * [[required_by::Implementation:{repo_name}_GitHub_Actions_Cron_Schedule]]
 ```
 
-**DO NOT** use outgoing edge types (`[[uses_heuristic::...]]` or `[[requires_env::...]]`) on leaf pages — those belong on the source pages (Implementation, Workflow) pointing TO the leaf pages.
+**DO NOT** use outgoing edge types (`[[uses_heuristic::...]]` or `[[requires_env::...]]`) on leaf pages — those belong on the source pages (Implementation, Principle) pointing TO the leaf pages.
 
 ---
 
@@ -325,7 +313,7 @@ When updating index files:
 When finished, write a summary report to `{wiki_dir}/_reports/phase3_enrichment.md`:
 
 ```markdown
-# Phase 4: Enrichment Report
+# Phase 3: Enrichment Report
 
 ## Environments Created
 | Environment | Required By |
