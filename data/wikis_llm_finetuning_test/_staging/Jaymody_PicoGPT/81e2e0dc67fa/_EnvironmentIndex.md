@@ -7,7 +7,7 @@
 
 | Page | File | Connections | Notes |
 |------|------|-------------|-------|
-<!-- e.g., `✅Impl:Jaymody_PicoGPT_FastLanguageModel_From_Pretrained` -->
+| Jaymody_PicoGPT_Python_Dependencies | [→](./environments/Jaymody_PicoGPT_Python_Dependencies.md) | ✅Impl:Jaymody_PicoGPT_Load_Encoder_Hparams_And_Params, ✅Impl:Jaymody_PicoGPT_Encoder_Encode, ✅Impl:Jaymody_PicoGPT_Gpt2, ✅Impl:Jaymody_PicoGPT_Generate, ✅Impl:Jaymody_PicoGPT_Encoder_Decode | NumPy, TensorFlow, regex, requests dependencies for GPT-2 inference |
 
 ---
 

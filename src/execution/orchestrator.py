@@ -140,20 +140,25 @@ class OrchestratorAgent:
                 coding_agent_type = coding_agent
                 coding_agent_model = None
                 coding_agent_debug_model = None
+                coding_agent_specific = None
             elif coding_config:
                 coding_agent_type = coding_config.get('type', 'aider')
                 coding_agent_model = coding_config.get('model')
                 coding_agent_debug_model = coding_config.get('debug_model')
+                # Support agent_specific from YAML config (e.g., use_bedrock for Claude Code)
+                coding_agent_specific = coding_config.get('agent_specific')
             else:
                 coding_agent_type = 'aider'
                 coding_agent_model = mode_config.get('developer_model')
                 coding_agent_debug_model = mode_config.get('developer_debug_model')
+                coding_agent_specific = None
         
         # Build coding agent config
         coding_agent_config = CodingAgentFactory.build_config(
             agent_type=coding_agent_type,
             model=coding_agent_model,
             debug_model=coding_agent_debug_model,
+            agent_specific=coding_agent_specific,
         )
         
         # Create strategy via factory

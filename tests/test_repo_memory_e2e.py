@@ -1,14 +1,16 @@
 """
-E2E Test for RepoMemory - Seeded Repo Improvement
+E2E Test for RepoMemory - Seeded Repo Improvement (Claude Code + Bedrock)
 
 This test:
 1. Seeds from a real repo (tests/fixtures/sample_repo_to_improve)
-2. Runs Expert.build() to improve it
+2. Runs Expert.build() to improve it using Claude Code with AWS Bedrock
 3. Dumps .praxium/repo_memory.json at baseline + after each experiment
 4. Prints memory for human quality assessment
 
 Prerequisites:
-    - API keys in .env (OPENAI_API_KEY required, ANTHROPIC_API_KEY for claude_code)
+    - AWS Bedrock credentials (AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE)
+    - Claude Code CLI installed (`claude` command available)
+    - OPENAI_API_KEY for RepoMemory inference (gpt-4o-mini)
     - Optional: ./start_infra.sh for KG support
 
 Run:
@@ -25,6 +27,41 @@ from pathlib import Path
 # Load env
 from dotenv import load_dotenv
 load_dotenv()
+
+
+# =============================================================================
+# Bedrock Credential Check
+# =============================================================================
+
+def _has_bedrock_creds() -> bool:
+    """Check if AWS Bedrock credentials are available."""
+    return bool(
+        os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+        or (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"))
+        or os.environ.get("AWS_PROFILE")
+    )
+
+
+def _check_prerequisites() -> tuple[bool, str]:
+    """Check all prerequisites for the test. Returns (ok, error_message)."""
+    # Check Claude CLI
+    if shutil.which("claude") is None:
+        return False, "Claude Code CLI not installed (run: npm install -g @anthropic-ai/claude-code)"
+    
+    # Check Bedrock credentials
+    if not _has_bedrock_creds():
+        return False, (
+            "No AWS Bedrock credentials found. Set one of:\n"
+            "  - AWS_BEARER_TOKEN_BEDROCK\n"
+            "  - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n"
+            "  - AWS_PROFILE"
+        )
+    
+    # Check OpenAI key (for RepoMemory inference)
+    if not os.environ.get("OPENAI_API_KEY"):
+        return False, "OPENAI_API_KEY not set (required for RepoMemory inference with gpt-4o-mini)"
+    
+    return True, ""
 
 from src.repo_memory.observation import (
     extract_repo_memory_sections_consulted,
@@ -51,13 +88,24 @@ Requested improvements:
 Keep the existing structure. Only modify what's needed.
 """
 
+# Claude Code + Bedrock configuration
+# Uses Claude Opus 4.5 via AWS Bedrock for code generation
 TEST_CONFIG = {
     "goal": GOAL,
     "max_iterations": 2,
-    "coding_agent": "openhands",  # Works without special deps
+    "coding_agent": "claude_code",  # Use Claude Code agent
     "mode": "MINIMAL",
     "evaluator": "regex_pattern",
     "evaluator_params": {"pattern": r"SCORE:\s*(\d+)"},
+    # Bedrock-specific configuration for Claude Code
+    "coding_agent_params": {
+        "use_bedrock": True,
+        "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
+        "streaming": True,
+        "timeout": 180,  # Longer timeout for complex tasks
+    },
+    # Model configuration (Claude Opus 4.5 on Bedrock)
+    "coding_agent_model": "us.anthropic.claude-opus-4-5-20251101-v1:0",
 }
 
 
@@ -249,18 +297,89 @@ def dump_branch_memory(repo, branch_name: str) -> dict:
 # Main Test
 # =============================================================================
 
+def _create_bedrock_config_file(output_dir: str) -> str:
+    """Create a temporary config file with Claude Code + Bedrock settings."""
+    import yaml
+    
+    config = {
+        "default_mode": "BEDROCK_TEST",
+        "modes": {
+            "BEDROCK_TEST": {
+                "search_strategy": {
+                    "type": "llm_tree_search",
+                    "params": {
+                        "code_debug_tries": 2,
+                        "idea_generation_model": "gpt-4o-mini",
+                        "reasoning_effort": "medium",
+                        "node_expansion_limit": 2,
+                        "node_expansion_new_childs_count": 2,
+                        "idea_generation_steps": 1,
+                        "first_experiment_factor": 1,
+                        "experimentation_per_run": 1,
+                        "per_step_maximum_solution_count": 5,
+                        "exploration_budget_percent": 40,
+                        "idea_generation_ensemble_models": ["gpt-4o-mini"],
+                    }
+                },
+                "coding_agent": {
+                    "type": "claude_code",
+                    "model": TEST_CONFIG["coding_agent_model"],
+                    "debug_model": TEST_CONFIG["coding_agent_model"],
+                    "agent_specific": TEST_CONFIG["coding_agent_params"],
+                },
+                "context_manager": {
+                    "type": "token_efficient",
+                    "params": {
+                        "max_experiment_history_count": 3,
+                        "max_recent_experiment_count": 3,
+                    }
+                },
+                "knowledge_search": {
+                    "type": "kg_llm_navigation",
+                    "enabled": False,
+                },
+                "evaluator": {
+                    "type": "regex_pattern",
+                    "params": TEST_CONFIG["evaluator_params"],
+                },
+                "stop_condition": {
+                    "type": "never",
+                    "params": {},
+                },
+            }
+        }
+    }
+    
+    config_path = os.path.join(output_dir, "bedrock_test_config.yaml")
+    with open(config_path, "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
+    
+    return config_path
+
+
 def run_test():
-    """Run the E2E repo memory test."""
-    from src.expert import Expert
+    """Run the E2E repo memory test with Claude Code + Bedrock."""
+    from src.execution.orchestrator import OrchestratorAgent
+    from src.execution.coding_agents.factory import CodingAgentFactory
+    from src.environment.handlers.generic import GenericProblemHandler
     import git
     
     print("\n" + "=" * 70)
-    print("REPO MEMORY E2E TEST")
+    print("REPO MEMORY E2E TEST (Claude Code + Bedrock)")
     print("=" * 70)
+    
+    # Check prerequisites
+    ok, err = _check_prerequisites()
+    if not ok:
+        print(f"ERROR: {err}")
+        return False
+    
     print(f"Seed repo: {SEED_REPO}")
     print(f"Goal: {TEST_CONFIG['goal'][:100]}...")
     print(f"Coding agent: {TEST_CONFIG['coding_agent']}")
+    print(f"Model: {TEST_CONFIG['coding_agent_model']}")
     print(f"Max iterations: {TEST_CONFIG['max_iterations']}")
+    print(f"Bedrock config: {TEST_CONFIG['coding_agent_params']}")
     print("=" * 70 + "\n")
     
     # Verify seed repo exists
@@ -269,39 +388,63 @@ def run_test():
         return False
     
     # Create output directory
-    output_dir = tempfile.mkdtemp(prefix="repo_memory_e2e_")
-    print(f"Output directory: {output_dir}\n")
+    output_dir = tempfile.mkdtemp(prefix="repo_memory_e2e_bedrock_")
+    workspace_dir = os.path.join(output_dir, "workspace")
+    os.makedirs(workspace_dir, exist_ok=True)
+    print(f"Output directory: {output_dir}")
+    print(f"Workspace directory: {workspace_dir}\n")
     
     try:
-        # Create Expert
-        expert = Expert(domain="data_processing")
+        # Create custom config file with Bedrock settings (in output_dir, not workspace)
+        config_path = _create_bedrock_config_file(output_dir)
+        print(f"Created config file: {config_path}\n")
         
-        # Run build with seed repo
-        print("Starting Expert.build()...\n")
-        solution = expert.build(
-            goal=TEST_CONFIG["goal"],
-            starting_repo_path=str(SEED_REPO),
-            output_path=output_dir,
-            max_iterations=TEST_CONFIG["max_iterations"],
-            mode=TEST_CONFIG["mode"],
-            coding_agent=TEST_CONFIG["coding_agent"],
-            language="python",
+        # Create problem handler
+        handler = GenericProblemHandler(
+            problem_description=TEST_CONFIG["goal"],
             main_file="main.py",
+            language="python",
+            timeout=300,
             evaluator=TEST_CONFIG["evaluator"],
             evaluator_params=TEST_CONFIG["evaluator_params"],
         )
         
-        # Get workspace path from solution
-        workspace_dir = solution.code_path
+        # Create orchestrator with custom config
+        orchestrator = OrchestratorAgent(
+            problem_handler=handler,
+            config_path=config_path,
+            mode="BEDROCK_TEST",
+            coding_agent=None,  # Use config, not override
+            is_kg_active=False,
+            workspace_dir=workspace_dir,  # Use separate workspace subdirectory
+            starting_repo_path=str(SEED_REPO),
+        )
+        
+        # Verify the coding agent config was set correctly
+        ca_config = orchestrator.search_strategy.workspace.coding_agent_config
+        print(f"CodingAgentConfig:")
+        print(f"  agent_type: {ca_config.agent_type}")
+        print(f"  model: {ca_config.model}")
+        print(f"  agent_specific: {ca_config.agent_specific}")
+        print()
+        
+        # Run experimentation
+        print("Starting experimentation loop...\n")
+        orchestrator.solve(experiment_max_iter=TEST_CONFIG["max_iterations"])
+        
+        # Get workspace path (use the one from the strategy, which should match our workspace_dir)
+        actual_workspace_dir = orchestrator.search_strategy.workspace.workspace_dir
+        
         print(f"\n{'='*70}")
         print("BUILD COMPLETE")
         print(f"{'='*70}")
-        print(f"Workspace: {workspace_dir}")
-        print(f"Experiments: {len(solution.experiment_logs)}")
-        print(f"Metadata: {solution.metadata}")
+        print(f"Workspace: {actual_workspace_dir}")
+        
+        # Checkout to best solution
+        orchestrator.search_strategy.checkout_to_best_experiment_branch()
         
         # Dump baseline memory (from main branch)
-        repo = git.Repo(workspace_dir)
+        repo = git.Repo(actual_workspace_dir)
         main_doc = dump_branch_memory(repo, "main")
         if main_doc:
             _assert_repo_map_invariants(main_doc, label="branch=main")
@@ -318,7 +461,7 @@ def run_test():
             _assert_changes_log_auditability(repo, branch_name=branch, doc=doc)
         
         # Dump current worktree memory (should be best branch after checkout)
-        final_doc = dump_repo_memory(workspace_dir, "FINAL (best branch)")
+        final_doc = dump_repo_memory(actual_workspace_dir, "FINAL (best branch)")
         if final_doc:
             _assert_repo_map_invariants(final_doc, label="worktree=final")
         
