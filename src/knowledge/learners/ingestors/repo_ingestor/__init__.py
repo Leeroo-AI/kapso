@@ -63,8 +63,6 @@ from src.knowledge.learners.ingestors.repo_ingestor.context_builder import (
     verify_orphan_completion,
 )
 from src.knowledge.learners.ingestors.repo_ingestor.repo_builder import (
-    prepare_workflow_repo,
-    parse_workflow_index_for_steps,
     sanitize_repo_name,
 )
 
@@ -130,6 +128,7 @@ class RepoIngestor(Ingestor):
                 - staging_subdir: Where to stage phase outputs inside wiki_dir (default: "_staging")
                 - cleanup_staging: Whether to remove the staging directory after ingest (default: False)
                 - fail_on_validation_errors: If True, raise if deterministic validation fails (default: True)
+                - github_repo_visibility: "private" or "public" for workflow repos (default: "private")
         """
         super().__init__(params)
         self._timeout = self.params.get("timeout", 1800)  # 30 minutes default
@@ -138,6 +137,7 @@ class RepoIngestor(Ingestor):
         self._staging_subdir = self.params.get("staging_subdir", "_staging")
         self._cleanup_staging = self.params.get("cleanup_staging", False)
         self._fail_on_validation_errors = self.params.get("fail_on_validation_errors", True)
+        self._github_repo_visibility = self.params.get("github_repo_visibility", "private")
         self._agent = None
         self._last_repo_path: Optional[Path] = None
         self._last_staging_dir: Optional[Path] = None
@@ -485,10 +485,16 @@ class RepoIngestor(Ingestor):
         """
         Run the Repository Builder phase to create GitHub repos for workflows.
         
-        This phase:
-        1. Reads the enriched WorkflowIndex
-        2. For each workflow, creates a GitHub repository with step implementations
-        3. Updates the Workflow pages with the GitHub URLs
+        Fully agentic approach: the agent reads WorkflowIndex and source code,
+        then designs and creates an appropriate repository structure based on
+        the workflow's domain.
+        
+        The agent handles:
+        - Reading workflow context from WorkflowIndex and source code
+        - Designing domain-appropriate repository structure
+        - Implementing clean, runnable code
+        - Creating user-friendly documentation
+        - GitHub repository creation and pushing
         
         Args:
             repo_name: Repository namespace
@@ -496,7 +502,7 @@ class RepoIngestor(Ingestor):
         """
         import re
         
-        logger.info("Running Repository Builder phase...")
+        logger.info("Running Repository Builder phase (agentic)...")
         
         # Get path to WorkflowIndex
         workflow_index_path = self._wiki_dir / "_WorkflowIndex.md"
@@ -518,58 +524,106 @@ class RepoIngestor(Ingestor):
         
         logger.info(f"Found {len(workflows)} workflows to build repositories for")
         
+        # Load the agentic repo_builder prompt template
+        base_prompt = _load_prompt("repo_builder")
+        
         # Process each workflow
         repos_created = 0
+        workflow_results = []
+        
         for workflow_name in workflows:
             try:
-                # Parse workflow steps from index
-                description, steps = parse_workflow_index_for_steps(
-                    workflow_index_path, workflow_name
-                )
+                logger.info(f"Building repository for {workflow_name}")
                 
-                if not steps:
-                    logger.warning(f"No steps found for workflow: {workflow_name}")
-                    continue
+                # Prepare result file path - use ABSOLUTE paths for agent
+                # The agent runs in a different workspace, so relative paths won't work
+                wiki_dir_abs = self._wiki_dir.resolve()
+                repo_path_abs = self._last_repo_path.resolve() if self._last_repo_path else Path.cwd()
+                result_file = wiki_dir_abs / "_repo_builder_result.txt"
                 
-                logger.info(f"Building repository for {workflow_name} ({len(steps)} steps)")
+                if result_file.exists():
+                    result_file.unlink()  # Remove any previous result
                 
-                # Build and push the repository
-                github_url, success = build_workflow_repo(
+                # Build the agentic prompt with full context
+                # The agent will read WorkflowIndex and source code itself
+                suggested_repo_name = sanitize_repo_name(workflow_name)
+                prompt = base_prompt.format(
                     workflow_name=workflow_name,
-                    workflow_description=description or f"Workflow implementation for {workflow_name}",
-                    steps=steps,
-                    repo_namespace=repo_name,
-                    private=True,
+                    repo_path=str(repo_path_abs),
+                    wiki_dir=str(wiki_dir_abs),
+                    suggested_repo_name=suggested_repo_name,
+                    visibility=self._github_repo_visibility,
+                    result_file=str(result_file),
                 )
                 
-                if success and github_url:
-                    # Update the Workflow page with the GitHub URL
-                    self._update_workflow_github_url(workflow_name, github_url)
-                    repos_created += 1
-                    logger.info(f"Created repository: {github_url}")
+                # Run the agent to create the repository
+                start = time.time()
+                result = self._agent.generate_code(prompt)
+                elapsed = time.time() - start
+                
+                logger.info(f"Agent completed for {workflow_name} in {elapsed:.1f}s (success={result.success})")
+                
+                # Check result file for GitHub URL
+                # Check REGARDLESS of result.success - agent may have completed successfully
+                if result_file.exists():
+                    github_url = result_file.read_text(encoding="utf-8").strip()
+                    if github_url and github_url.startswith("https://github.com/"):
+                        # Update the Workflow page with the GitHub URL
+                        self._update_workflow_github_url(workflow_name, github_url)
+                        repos_created += 1
+                        logger.info(f"Created repository: {github_url}")
+                        workflow_results.append((workflow_name, "SUCCESS", github_url))
+                    else:
+                        logger.warning(f"Invalid GitHub URL in result file: {github_url}")
+                        if not result.success:
+                            workflow_results.append((workflow_name, "FAILED", f"Agent error: {result.error}, Invalid URL: {github_url}"))
+                        else:
+                            workflow_results.append((workflow_name, "FAILED", f"Invalid URL: {github_url}"))
                 else:
-                    logger.warning(f"Failed to create repository for {workflow_name}")
+                    # No result file - this is a real failure
+                    if not result.success:
+                        logger.error(f"Agent failed for {workflow_name}: {result.error}")
+                        workflow_results.append((workflow_name, "FAILED", f"Agent error: {result.error}"))
+                    else:
+                        logger.warning(f"Result file not found for {workflow_name}")
+                        workflow_results.append((workflow_name, "FAILED", "No result file"))
                     
             except Exception as e:
                 logger.error(f"Error processing workflow {workflow_name}: {e}")
+                workflow_results.append((workflow_name, "ERROR", str(e)))
                 continue
         
-        # Write report
+        # Write detailed report
         report_path = self._wiki_dir / "_reports" / "phase_repo_builder.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_content = f"""# Repository Builder Report
-
-## Summary
-- Workflows processed: {len(workflows)}
-- Repositories created: {repos_created}
-
-## Workflows Processed
-{chr(10).join(f"- {w}" for w in workflows)}
-
-## Status
-{"✅ All repositories created successfully" if repos_created == len(workflows) else f"⚠️ {len(workflows) - repos_created} workflows could not be processed"}
-"""
-        report_path.write_text(report_content, encoding="utf-8")
+        
+        report_lines = [
+            "# Repository Builder Report (Agentic)",
+            "",
+            "## Summary",
+            f"- Workflows processed: {len(workflows)}",
+            f"- Repositories created: {repos_created}",
+            f"- Visibility: {self._github_repo_visibility}",
+            f"- Mode: Fully agentic (agent designed repository structure)",
+            "",
+            "## Workflow Details",
+            "",
+            "| Workflow | Status | Details |",
+            "|----------|--------|---------|",
+        ]
+        
+        for wf_name, status, details in workflow_results:
+            status_emoji = "✅" if status == "SUCCESS" else "⚠️" if status == "SKIPPED" else "❌"
+            report_lines.append(f"| {wf_name} | {status_emoji} {status} | {details} |")
+        
+        report_lines.extend([
+            "",
+            "## Status",
+            "✅ All repositories created successfully" if repos_created == len(workflows) 
+            else f"⚠️ {len(workflows) - repos_created} workflows could not be processed",
+        ])
+        
+        report_path.write_text("\n".join(report_lines), encoding="utf-8")
         logger.info(f"Repository Builder phase complete: {repos_created}/{len(workflows)} repos created")
     
     def _update_workflow_github_url(self, workflow_name: str, github_url: str) -> None:
@@ -615,12 +669,10 @@ class RepoIngestor(Ingestor):
             workflow_path.write_text(updated, encoding="utf-8")
             logger.info(f"Updated {workflow_name} with GitHub URL: {github_url}")
         else:
-            # Append GitHub URL section if not found
+            # Append GitHub URL section if not found (minimal format)
             github_section = f"""
 
 == GitHub URL ==
-
-The executable implementation is available at:
 
 [[github_url::{github_url}]]
 """

@@ -141,11 +141,7 @@ Add this section at the end of the workflow:
 ```mediawiki
 == GitHub URL ==
 
-The executable implementation will be available at:
-
 [[github_url::PENDING_REPO_BUILD]]
-
-<!-- This URL will be populated by the repo builder phase -->
 ```
 
 ### Step 5: Update Coverage in Repository Map

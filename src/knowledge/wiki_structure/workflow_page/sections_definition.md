@@ -241,16 +241,7 @@ Initialize the language model with memory-optimized settings. The loader applies
 ```mediawiki
 == GitHub URL ==
 
-The executable implementation of this workflow is available in the following repository:
-
 [[github_url::https://github.com/praxium/workflow-unslothai-qlora-finetuning]]
-
-'''Repository Structure:'''
-* `step_01_data_preparation.py` - Data formatting and preprocessing
-* `step_02_model_quantization.py` - Model loading with 4-bit quantization
-* `step_03_adapter_training.py` - LoRA injection and training
-* `requirements.txt` - Pinned dependencies
-* `README.md` - Setup and execution instructions
 ```
 
 **Why a GitHub Repository?**
