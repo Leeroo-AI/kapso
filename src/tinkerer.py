@@ -1,16 +1,16 @@
-# Expert Agent - Main Entry Point
+# Tinkerer Agent - Main Entry Point
 #
-# The primary user-facing API for the Expert Agent system.
+# The primary user-facing API for the Tinkerer Agent system.
 # Provides a clean interface for the "Brain to Binary" workflow:
-#   Expert.learn() -> Expert.build() -> Expert.deploy() -> Software.run()
+#   Tinkerer.learn() -> Tinkerer.evolve() -> Tinkerer.deploy() -> Software.run()
 #
 # Usage:
-#     from src.expert import Expert, Source, DeployStrategy
+#     from src.tinkerer import Tinkerer, Source, DeployStrategy
 #     
-#     expert = Expert(domain="healthcare")
-#     expert.learn(Source.Repo("https://github.com/..."), target_kg="https://skills.leeroo.com")
-#     solution = expert.build(goal="Create a triage agent")
-#     software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+#     tinkerer = Tinkerer(domain="healthcare")
+#     tinkerer.learn(Source.Repo("https://github.com/..."), target_kg="https://skills.leeroo.com")
+#     solution = tinkerer.evolve(goal="Create a triage agent")
+#     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
 import os
@@ -43,25 +43,25 @@ from src.deployment import (
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 
-class Expert:
+class Tinkerer:
     """
-    The main Expert Agent class.
+    The main Tinkerer Agent class.
     
-    An Expert is an intelligent agent that can:
+    A Tinkerer is an intelligent agent that can:
     1. Learn from various sources (repos, papers, files, past solutions)
-    2. Build software to solve goals using experimentation
+    2. Evolve software to solve goals using experimentation
     3. Improve over time through the feedback loop
     
     Usage:
         # Simple usage
-        expert = Expert(domain="quantitative_finance")
-        expert.learn(Source.Repo("https://github.com/alpaca/alpaca-py"), target_kg="https://skills.leeroo.com")
-        solution = expert.build(goal="Create a momentum trading bot")
-        software = expert.deploy(solution)
+        tinkerer = Tinkerer(domain="quantitative_finance")
+        tinkerer.learn(Source.Repo("https://github.com/alpaca/alpaca-py"), target_kg="https://skills.leeroo.com")
+        solution = tinkerer.evolve(goal="Create a momentum trading bot")
+        software = tinkerer.deploy(solution)
         result = software.run({"ticker": "AAPL"})
         
         # Advanced usage with evaluator and stop condition
-        solution = expert.build(
+        solution = tinkerer.evolve(
             goal="Build a classifier with 95% accuracy",
             evaluator="regex_pattern",
             evaluator_params={"pattern": r"Accuracy: ([\\d.]+)"},
@@ -86,7 +86,7 @@ class Expert:
         config_path: Optional[str] = None,
     ):
         """
-        Initialize an Expert agent.
+        Initialize an Tinkerer agent.
         
         Args:
             domain: The domain of expertise (e.g., "healthcare", "quant")
@@ -97,14 +97,14 @@ class Expert:
         self.kg_location = kg_location
         self.config_path = config_path or DEFAULT_CONFIG_PATH
         
-        # Initialize knowledge search (for querying during build)
+        # Initialize knowledge search (for querying during evolve)
         # Default to disabled for now - can be enabled via config
         self.knowledge_search = KnowledgeSearchFactory.create_null()
         
         # Track learned knowledge chunks (in-memory for MVP)
         self._learned_chunks: List[KnowledgeChunk] = []
         
-        print(f"Initialized Expert in domain '{domain}' (KG: {kg_location})")
+        print(f"Initialized Tinkerer in domain '{domain}' (KG: {kg_location})")
     
     def learn(
         self, 
@@ -114,7 +114,7 @@ class Expert:
         """
         Learn from one or more knowledge sources.
         
-        This ingests knowledge into the Expert's brain (KG).
+        This ingests knowledge into the Tinkerer's brain (KG).
         
         Args:
             *sources: One or more Source objects
@@ -122,13 +122,13 @@ class Expert:
                        Defaults to "https://skills.leeroo.com".
             
         Example:
-            expert.learn(
+            tinkerer.learn(
                 Source.Repo("https://github.com/user/repo"),
                 Source.Paper("./paper.pdf"),
             )
             
             # With custom KG target
-            expert.learn(
+            tinkerer.learn(
                 Source.File("./notes.md"),
                 target_kg="https://custom-wiki.example.com",
             )
@@ -160,7 +160,7 @@ class Expert:
                 for chunk in chunks:
                     self.knowledge_search.index(chunk.to_dict())
     
-    def build(
+    def evolve(
         self,
         goal: str,
         context: Optional[List[Any]] = None,
@@ -183,14 +183,14 @@ class Expert:
         stop_condition_params: Optional[Dict[str, Any]] = None,
     ) -> SolutionResult:
         """
-        Build a solution for the given goal.
+        Evolve a solution for the given goal.
         
-        Uses the Expert's knowledge (KG) and online experimentation to
+        Uses the Tinkerer's knowledge (KG) and online experimentation to
         generate robust software.
         
         Args:
             goal: The high-level objective (problem description)
-            context: Optional list of Source objects to learn before building
+            context: Optional list of Source objects to learn before evolving
             constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
             starting_repo_path: Optional local path to an existing repository to improve.
@@ -204,7 +204,7 @@ class Expert:
             language: Programming language (default: python)
             main_file: Entry point file (default: main.py)
             timeout: Execution timeout in seconds (default: 300)
-            data_dir: Path to data files needed for the build
+            data_dir: Path to data files needed for the evolution
             
             evaluator: Evaluator type (no_score, regex_pattern, llm_judge, etc.)
             evaluator_params: Parameters for the evaluator
@@ -215,7 +215,7 @@ class Expert:
             SolutionResult with code_path, experiment_logs, and metadata
         """
         print(f"\n{'='*60}")
-        print(f"BUILDING: {goal}")
+        print(f"EVOLVING: {goal}")
         print(f"{'='*60}")
         print(f"  Max iterations: {max_iterations}")
         print(f"  Language: {language}")
@@ -303,7 +303,7 @@ class Expert:
         )
         
         print(f"\n{'='*60}")
-        print("Build Complete")
+        print("Evolution Complete")
         print(f"{'='*60}")
         print(f"Solution at: {code_path}")
         print(f"Experiments run: {len(experiment_logs)}")
@@ -327,7 +327,7 @@ class Expert:
         3. Runner: Creates execution backend
         
         Args:
-            solution: The SolutionResult from build()
+            solution: The SolutionResult from evolve()
             strategy: Where to deploy (AUTO, LOCAL, DOCKER, MODAL, BENTOML)
                 - AUTO: System analyzes code and chooses best strategy
                 - LOCAL: Run as local Python process (fastest)
@@ -345,8 +345,8 @@ class Expert:
             - .is_healthy() -> health check
             
         Example:
-            solution = expert.build(goal="Create a trading bot")
-            software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+            solution = tinkerer.evolve(goal="Create a trading bot")
+            software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
             result = software.run({"ticker": "AAPL"})
             software.stop()
         """
@@ -387,7 +387,7 @@ class Expert:
         
         # For MVP, just concatenate recent chunks
         recent = self._learned_chunks[-5:]  # Last 5 chunks
-        context_parts = ["# Knowledge from Expert's Brain"]
+        context_parts = ["# Knowledge from Tinkerer's Brain"]
         for chunk in recent:
             context_parts.append(f"- [{chunk.chunk_type}] {chunk.content[:200]}...")
         
@@ -413,7 +413,7 @@ class Expert:
 # =============================================================================
 
 __all__ = [
-    "Expert",
+    "Tinkerer",
     "Source",
     "SolutionResult",
     # Re-export from deployment module

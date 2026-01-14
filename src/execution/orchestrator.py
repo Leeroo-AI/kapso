@@ -72,7 +72,7 @@ class OrchestratorAgent:
         )
         
         # Create knowledge search backend (or use provided instance).
-        # This allows Expert.build() to inject a concrete backend (e.g., kg_graph_search)
+        # This allows Tinkerer.evolve() to inject a concrete backend (e.g., kg_graph_search)
         # without relying on config defaults (which may point to a different backend).
         if knowledge_search is not None:
             self.knowledge_search = knowledge_search

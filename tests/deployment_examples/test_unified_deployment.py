@@ -2,13 +2,13 @@
 """
 Unified Deployment Test
 
-Tests the Expert deployment flow as shown in the README:
+Tests the Tinkerer deployment flow as shown in the README:
 
-    from src.expert import Expert, DeployStrategy
+    from src.tinkerer import Tinkerer, DeployStrategy
     
-    expert = Expert(domain="testing")
-    solution = expert.build(goal="...", output_path="./repo")  # We create SolutionResult manually
-    software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+    tinkerer = Tinkerer(domain="testing")
+    solution = tinkerer.evolve(goal="...", output_path="./repo")  # We create SolutionResult manually
+    software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
     result = software.run({"input": "data"})
     software.stop()
 
@@ -161,12 +161,12 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     """
     Test a single repository following the README user flow:
     
-        expert = Expert(domain="testing")
-        software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+        tinkerer = Tinkerer(domain="testing")
+        software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
         result = software.run(sample_input)
         software.stop()
     """
-    from src.expert import Expert, DeployStrategy
+    from src.tinkerer import Tinkerer, DeployStrategy
     from src.execution.solution import SolutionResult
     
     subheader(f"Testing: {repo.name}")
@@ -192,14 +192,14 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     
     try:
         # =====================================================================
-        # Step 1: Create Expert (simulating user initialization)
+        # Step 1: Create Tinkerer (simulating user initialization)
         # =====================================================================
-        expert = Expert(domain="testing")
-        info("Created Expert(domain='testing')")
+        tinkerer = Tinkerer(domain="testing")
+        info("Created Tinkerer(domain='testing')")
         
         # =====================================================================
-        # Step 2: Create SolutionResult (simulating expert.build() output)
-        # In real usage, this comes from expert.build()
+        # Step 2: Create SolutionResult (simulating tinkerer.evolve() output)
+        # In real usage, this comes from tinkerer.evolve()
         # Here we create it manually from our test repos
         # =====================================================================
         solution = SolutionResult(
@@ -210,7 +210,7 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         
         # =====================================================================
         # Step 3: Deploy the solution
-        # expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+        # tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
         # =====================================================================
         strategy_upper = strategy.upper()
         try:
@@ -223,15 +223,15 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         
         import time
         deploy_start = time.time()
-        info(f"Calling expert.deploy(solution, strategy=DeployStrategy.{strategy_upper})...")
+        info(f"Calling tinkerer.deploy(solution, strategy=DeployStrategy.{strategy_upper})...")
         
-        software = expert.deploy(solution, strategy=deploy_strategy)
+        software = tinkerer.deploy(solution, strategy=deploy_strategy)
         
         deploy_elapsed = time.time() - deploy_start
         result.strategy = software.name
         result.deploy_ok = True
         
-        success(f"software = expert.deploy() completed in {deploy_elapsed:.1f}s")
+        success(f"software = tinkerer.deploy() completed in {deploy_elapsed:.1f}s")
         info(f"  software.name: {software.name}")
         info(f"  software.is_healthy(): {software.is_healthy()}")
         
@@ -309,10 +309,10 @@ def main():
     args = parser.parse_args()
     
     header("UNIFIED DEPLOYMENT TEST")
-    print("Testing the Expert deployment flow from README:\n")
-    print("    expert = Expert(domain='testing')")
+    print("Testing the Tinkerer deployment flow from README:\n")
+    print("    tinkerer = Tinkerer(domain='testing')")
     print("    solution = SolutionResult(goal='...', code_path='./repo')")
-    print("    software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)")
+    print("    software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)")
     print("    result = software.run(sample_input)")
     print("    software.stop()")
     print()
@@ -337,7 +337,7 @@ def main():
             return 1
     
     # Show available strategies
-    from src.expert import DeployStrategy
+    from src.tinkerer import DeployStrategy
     available_strategies = [s.name.lower() for s in DeployStrategy]
     info(f"Available strategies: {available_strategies}")
     print()

@@ -7,13 +7,13 @@ Deploy solutions to various targets (local, Docker, Modal, BentoML, LangGraph).
 ## User Flow
 
 ```python
-from src.expert import Expert, DeployStrategy
+from src.tinkerer import Tinkerer, DeployStrategy
 
-expert = Expert(domain="ml")
-solution = expert.build(goal="Sentiment API", output_path="./repo")
+tinkerer = Tinkerer(domain="ml")
+solution = tinkerer.evolve(goal="Sentiment API", output_path="./repo")
 
 # Deploy and run
-software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"text": "I love this!"})
 software.stop()
 ```
@@ -23,7 +23,7 @@ software.stop()
 ## Architecture
 
 ```
-expert.deploy(solution, strategy)
+tinkerer.deploy(solution, strategy)
               │
               ▼
 ┌─────────────────────────────────────────────────────────────┐

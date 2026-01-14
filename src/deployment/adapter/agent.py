@@ -96,7 +96,7 @@ class AdapterAgent:
         performs adaptation there. The original solution is never modified.
         
         Args:
-            solution: The SolutionResult from Expert.build()
+            solution: The SolutionResult from Tinkerer.evolve()
             setting: Selected deployment configuration
             allowed_strategies: Optional list of allowed strategies
             

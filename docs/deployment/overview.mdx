@@ -35,14 +35,14 @@ flowchart LR
 ### Basic Usage
 
 ```python
-from src.expert import Expert
+from src.tinkerer import Tinkerer
 
 # Build a solution
-expert = Expert()
-solution = expert.build("Create a sentiment analysis API")
+tinkerer = Tinkerer()
+solution = tinkerer.evolve("Create a sentiment analysis API")
 
 # Deploy it (AUTO selects best strategy)
-software = expert.deploy(solution)
+software = tinkerer.deploy(solution)
 
 # Use it
 result = software.run({"text": "I love this product!"})
@@ -57,7 +57,7 @@ software.stop()
 
 ```python
 # Deploy
-software = expert.deploy(solution, strategy=DeployStrategy.DOCKER)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.DOCKER)
 
 # Run
 result = software.run({"text": "hello"})
@@ -81,16 +81,16 @@ software.stop()
 from src.deployment import DeployStrategy
 
 # Force a specific deployment target
-software = expert.deploy(solution, strategy=DeployStrategy.MODAL)
-software = expert.deploy(solution, strategy=DeployStrategy.DOCKER)
-software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.MODAL)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.DOCKER)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 ```
 
 ### Using Context Manager
 
 ```python
 # Auto-cleanup when done
-with expert.deploy(solution) as software:
+with tinkerer.deploy(solution) as software:
     result = software.run({"input": "data"})
     print(result)
 # software.stop() called automatically

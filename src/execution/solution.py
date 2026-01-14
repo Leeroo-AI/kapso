@@ -1,11 +1,11 @@
 # Solution Result
 #
-# The artifact produced by Expert.build() / OrchestratorAgent.solve().
+# The artifact produced by Tinkerer.evolve() / OrchestratorAgent.solve().
 # Contains the generated code, experiment logs, and metadata.
 #
 # Usage:
-#     solution = expert.build(goal="Create a trading bot")
-#     software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+#     solution = tinkerer.evolve(goal="Create a trading bot")
+#     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"ticker": "AAPL"})
 #     software.stop()
 
@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 @dataclass
 class SolutionResult:
     """
-    The artifact produced by Expert.build().
+    The artifact produced by Tinkerer.evolve().
     
     Contains the generated code, experiment logs, and metadata.
     This is not just code - it captures the entire problem-solving attempt.

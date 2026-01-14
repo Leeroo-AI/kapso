@@ -62,7 +62,7 @@ class SelectorAgent:
         Select deployment configuration for a solution.
         
         Args:
-            solution: The SolutionResult from Expert.build()
+            solution: The SolutionResult from Tinkerer.evolve()
             allowed_strategies: Optional list of strategies to consider (default: all)
             resources: Optional user-specified resources
             

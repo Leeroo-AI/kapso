@@ -1,13 +1,13 @@
-# Expert Agent
+# Tinkerer Agent
 #
 # Build robust software from knowledge and experimentation.
 #
 # Usage:
-#     from src import Expert, Source, DeployStrategy
+#     from src import Tinkerer, Source, DeployStrategy
 #     
-#     expert = Expert(domain="healthcare")
-#     expert.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
-#     solution = expert.build(goal="Create a triage agent")
+#     tinkerer = Tinkerer(domain="healthcare")
+#     tinkerer.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
+#     solution = tinkerer.evolve(goal="Create a triage agent")
 #     software = solution.deploy()
 #     result = software.run({"symptoms": "headache"})
 #
@@ -24,16 +24,16 @@ from src.deployment import (
     DeploymentFactory,
 )
 
-# Lazy load Expert to avoid loading OrchestratorAgent (which has heavy deps)
+# Lazy load Tinkerer to avoid loading OrchestratorAgent (which has heavy deps)
 def __getattr__(name):
-    if name == "Expert":
-        from src.expert import Expert
-        return Expert
+    if name == "Tinkerer":
+        from src.tinkerer import Tinkerer
+        return Tinkerer
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Core API
-    "Expert",
+    "Tinkerer",
     "Source",
     "SolutionResult",
     # Deployment

@@ -2,7 +2,7 @@
 """
 MLE-Bench Runner
 
-Runs the Expert Agent on Kaggle ML competitions from MLE-Bench.
+Runs the Tinkerer Agent on Kaggle ML competitions from MLE-Bench.
 
 Usage:
     python -m benchmarks.mle.runner --competition <competition_id>
@@ -158,7 +158,7 @@ def solve_competition(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run Expert Agent on MLE-Bench competitions",
+        description="Run Tinkerer Agent on MLE-Bench competitions",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )

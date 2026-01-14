@@ -14,7 +14,7 @@ from src.knowledge.search.base import WikiPage
 
 # Avoid circular import
 if TYPE_CHECKING:
-    from src.expert import SolutionResult
+    from src.tinkerer import SolutionResult
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,7 @@ class ExperimentIngestor(Ingestor):
     - Final solution patterns
     - Error patterns to avoid
     
-    This ingestor is key for the "reinforcement" step where the Expert
+    This ingestor is key for the "reinforcement" step where the Tinkerer
     learns from its own experiments to improve future builds.
     
     Input formats:

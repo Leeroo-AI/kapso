@@ -1,12 +1,12 @@
 # Knowledge Sources
 #
 # Typed wrappers for knowledge inputs.
-# These define what can be passed to Expert.learn() and Learner.learn().
+# These define what can be passed to Tinkerer.learn() and Learner.learn().
 #
 # Usage:
 #     from src.knowledge.learners import Source
 #     
-#     expert.learn(
+#     tinkerer.learn(
 #         Source.Repo("https://github.com/user/repo"),
 #         Source.Paper("./research.pdf"),
 #         target_kg="https://skills.leeroo.com",
@@ -17,19 +17,19 @@ from typing import Any, Dict, TYPE_CHECKING
 
 # Avoid circular import
 if TYPE_CHECKING:
-    from src.expert import SolutionResult
+    from src.tinkerer import SolutionResult
 
 
 class Source:
     """
     Namespace for knowledge source types.
     
-    Each source type is a typed wrapper that tells Expert.learn() 
+    Each source type is a typed wrapper that tells Tinkerer.learn() 
     how to process the input. The type determines which Learner
     is used to extract knowledge.
     
     Usage:
-        expert.learn(
+        tinkerer.learn(
             Source.Repo("https://github.com/user/repo"),
             Source.Paper("./research.pdf"),
             Source.File("./notes.md"),

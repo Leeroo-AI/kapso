@@ -87,7 +87,7 @@ It is intended to be used as PR description material and as reviewer context.
   - Switch solution generation to the engine-mediated RepoMemory ReAct loop.
   - Record ideation-consulted section IDs on each node.
 
-- `src/expert.py`
+- `src/tinkerer.py`
   - When `output_path` is provided, use it as the experiment workspace directory so the returned `solution.code_path` points to a real git repo with `.praxium/repo_memory.json`.
 
 - `src/memory/config.py`
