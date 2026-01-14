@@ -14,24 +14,24 @@ Praxium lets domain experts (quant, healthcare, data engineering, etc.) turn the
 ## Quick Start
 
 ```python
-from src.expert import Expert, Source, DeployStrategy
+from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# Initialize an Expert (connect to knowledge graph)
-expert = Expert(
+# Initialize a Tinkerer (connect to knowledge graph)
+tinkerer = Tinkerer(
     domain="machine_learning",
     kg_location="https://skills.leeroo.com",
 )
 
 # Teach it from various sources (optional)
-expert.learn(
+tinkerer.learn(
     Source.Repo("https://github.com/scikit-learn/scikit-learn"),
     Source.Paper("./gradient_boosting_techniques.pdf"),
     Source.File("./kaggle_competition_notes.md"),
     target_kg="https://skills.leeroo.com",
 )
 
-# Build a solution — the Expert runs experiments automatically
-solution = expert.build(
+# Build a solution — the Tinkerer runs experiments automatically
+solution = tinkerer.evolve(
     goal="XGBoost classifier for Titanic dataset with AUC > 0.85",
     output_path="./models/titanic_v1",
     evaluator="llm_judge",
@@ -40,7 +40,7 @@ solution = expert.build(
 )
 
 # Deploy and run
-software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"data_path": "./test.csv"})
 
 # Lifecycle management
@@ -50,7 +50,7 @@ result = software.run({"data_path": "./validation.csv"})  # Run again
 software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
-expert.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```
 
 ## Usage Examples
@@ -58,10 +58,10 @@ expert.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ### Kaggle Competitor
 
 ```python
-from src.expert import Expert, Source, DeployStrategy
+from src.tinkerer import Tinkerer, Source, DeployStrategy
 
 # 1. Initialize with ML domain knowledge
-kaggler = Expert(
+kaggler = Tinkerer(
     domain="machine_learning",
     kg_location="https://skills.leeroo.com",
 )
@@ -74,7 +74,7 @@ kaggler.learn(
 )
 
 # 3. Build the ML pipeline for a tabular competition
-solution = kaggler.build(
+solution = kaggler.evolve(
     goal="LightGBM + CatBoost ensemble for House Prices with RMSE < 0.12",
     output_path="./submissions/house_prices_v1",
     max_iterations=10,
@@ -95,16 +95,16 @@ kaggler.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ### Data Engineer
 
 ```python
-from src.expert import Expert, Source, DeployStrategy
+from src.tinkerer import Tinkerer, Source, DeployStrategy
 
 # 1. Initialize in data engineering domain
-data_eng = Expert(
+data_eng = Tinkerer(
     domain="data_engineering",
     kg_location="https://skills.leeroo.com",
 )
 
 # 2. Build with data directory (schemas and configs available during build)
-etl_pipeline = data_eng.build(
+etl_pipeline = data_eng.evolve(
     goal="ETL pipeline with PySpark that processes 1M+ rows/min from S3 to Snowflake",
     data_dir="./schemas/",
     output_path="./pipelines/s3_to_snowflake_v1",
@@ -159,14 +159,14 @@ Control how solutions are scored:
 
 ```python
 # Regex example
-solution = expert.build(
+solution = tinkerer.evolve(
     goal="...",
     evaluator="regex_pattern",
     evaluator_params={"pattern": r"Accuracy: ([\d.]+)%"},
 )
 
 # LLM judge example
-solution = expert.build(
+solution = tinkerer.evolve(
     goal="...",
     evaluator="llm_judge",
     evaluator_params={"criteria": "correctness and efficiency"},
@@ -190,14 +190,14 @@ Control when to stop experimentation:
 
 ```python
 # Threshold example
-solution = expert.build(
+solution = tinkerer.evolve(
     goal="...",
     stop_condition="threshold",
     stop_condition_params={"threshold": 0.95},
 )
 
 # Composite: stop if score >= 0.9 OR no improvement for 5 iterations
-solution = expert.build(
+solution = tinkerer.evolve(
     goal="...",
     stop_condition="composite",
     stop_condition_params={
@@ -224,7 +224,7 @@ Pluggable agents for code generation:
 > **⚠️ Note:** `openhands` requires a separate conda environment due to conflicting dependencies with `aider-chat`. See [Installation](#installation) for details.
 
 ```python
-solution = expert.build(
+solution = tinkerer.evolve(
     goal="...",
     coding_agent="claude_code",  # Use Claude Code instead of default
 )
@@ -246,7 +246,7 @@ Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
 ```
 praxium/
 ├── src/
-│   ├── expert.py              # Main Expert API
+│   ├── tinkerer.py              # Main Tinkerer API
 │   ├── cli.py                 # CLI entry point
 │   ├── core/                  # LLM backend, config
 │   ├── deployment/            # Local, Docker, Cloud deployment
@@ -359,7 +359,7 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 
 | Component | Description |
 |-----------|-------------|
-| `Expert` | Main API - learn, build, deploy |
+| `Tinkerer` | Main API - learn, evolve, deploy |
 | `OrchestratorAgent` | Coordinates experimentation loop |
 | `SearchStrategy` | Tree/Linear search for solutions |
 | `CodingAgent` | Code generation (Aider, Gemini, etc.) |
@@ -372,7 +372,7 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 After deploying, the returned `Software` instance supports full lifecycle management:
 
 ```python
-software = expert.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 
 # Run inference
 result = software.run({"data_path": "./test_features.csv"})

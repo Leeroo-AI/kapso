@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# Expert Agent CLI
+# Tinkerer Agent CLI
 #
-# Command-line interface for the Expert Agent system.
+# Command-line interface for the Tinkerer Agent system.
 #
 # Usage:
 #     python -m src.cli --goal "Build a web scraper..."
@@ -29,7 +29,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.expert import Expert, Source
+from src.tinkerer import Tinkerer, Source
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.environment.evaluators import EvaluatorFactory
 from src.environment.stop_conditions import StopConditionFactory
@@ -63,7 +63,7 @@ def parse_context_files(context_args: Optional[List[str]]) -> List[Source.File]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Expert Agent - Build robust software from goals",
+        description="Tinkerer Agent - Build robust software from goals",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -214,13 +214,13 @@ Examples:
         sys.exit(1)
     
     # Create expert
-    expert = Expert(domain="general")
+    tinkerer = Tinkerer(domain="general")
     
     # Parse context files
     context = parse_context_files(args.context)
     
     # Build solution
-    solution = expert.build(
+    solution = tinkerer.evolve(
         goal=goal,
         context=context if context else None,
         output_path=args.output,
@@ -242,7 +242,7 @@ Examples:
     print(f"Cost: {solution.metadata.get('cost', 'N/A')}")
     
     # Optionally learn from the solution for future runs
-    # expert.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+    # tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 
 
 if __name__ == "__main__":

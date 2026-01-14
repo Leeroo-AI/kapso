@@ -1,5 +1,5 @@
 """
-Expert Agent - A machine learning expert agent for automated ML experimentation.
+Tinkerer Agent - A machine learning tinkerer agent for automated ML experimentation.
 
 This package provides agents for:
 - Orchestrating ML experiments

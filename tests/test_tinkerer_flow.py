@@ -1,5 +1,5 @@
 """
-Expert Flow Tests - Validate the full cognitive memory flow
+Tinkerer Flow Tests - Validate the full cognitive memory flow
 
 Tests that the system ACTUALLY WORKS, not just doesn't crash:
 
@@ -33,7 +33,7 @@ load_dotenv()
 # =============================================================================
 LOG_DIR = Path("/home/ubuntu/praxium/logs")
 LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / f"expert_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+LOG_FILE = LOG_DIR / f"tinkerer_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -251,7 +251,7 @@ def test_decision_maker_behavior():
 
 def test_full_flow_simulation():
     """
-    Simulate the full Expert flow without actually running agents.
+    Simulate the full Tinkerer flow without actually running agents.
     
     This tests the cognitive memory system in isolation:
     1. Initialize with goal
@@ -419,7 +419,7 @@ def main():
         logger.info(f"  {icon} {name}: {status}")
     
     # Save results to JSON
-    results_file = LOG_DIR / f"expert_flow_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    results_file = LOG_DIR / f"tinkerer_flow_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(results_file, 'w') as f:
         json.dump({
             "tests": [{"name": n, "status": s} for n, s in results],

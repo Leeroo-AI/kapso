@@ -3,7 +3,7 @@ E2E Test for RepoMemory - Seeded Repo Improvement (Claude Code + Bedrock)
 
 This test:
 1. Seeds from a real repo (tests/fixtures/sample_repo_to_improve)
-2. Runs Expert.build() to improve it using Claude Code with AWS Bedrock
+2. Runs Tinkerer.evolve() to improve it using Claude Code with AWS Bedrock
 3. Dumps .praxium/repo_memory.json at baseline + after each experiment
 4. Prints memory for human quality assessment
 

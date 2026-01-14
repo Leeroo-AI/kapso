@@ -1,7 +1,7 @@
 # =============================================================================
 # Cognitive System - Multi-Iteration & Error Recovery Test
 # =============================================================================
-# This test exercises components NOT covered by test_expert_full_e2e.py:
+# This test exercises components NOT covered by test_tinkerer_full_e2e.py:
 #
 # WHAT THIS TESTS:
 # 1. TIER 2: Synthesized workflow (no exact KG match)
@@ -340,7 +340,7 @@ def main():
     logger.info("║" + " COGNITIVE SYSTEM - MULTI-ITERATION TESTS ".center(58) + "║")
     logger.info("╚" + "═"*58 + "╝")
     logger.info("")
-    logger.info("Testing components NOT covered by test_expert_full_e2e.py:")
+    logger.info("Testing components NOT covered by test_tinkerer_full_e2e.py:")
     logger.info("  - TIER 2: Synthesized workflow")
     logger.info("  - Multi-iteration retry flow")
     logger.info("  - Episodic memory write/read")

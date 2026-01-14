@@ -2,7 +2,7 @@
 """
 ALE-Bench Runner
 
-Runs the Expert Agent on AtCoder Heuristic Contest problems from ALE-Bench.
+Runs the Tinkerer Agent on AtCoder Heuristic Contest problems from ALE-Bench.
 
 Usage:
     python -m benchmarks.ale.runner --problem <problem_id>
@@ -137,7 +137,7 @@ def solve_problem(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run Expert Agent on ALE-Bench problems",
+        description="Run Tinkerer Agent on ALE-Bench problems",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
