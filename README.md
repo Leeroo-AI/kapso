@@ -22,9 +22,15 @@ tinkerer = Tinkerer(
 )
 
 # Teach it from various sources (optional)
+titanic_research = tinkerer.research(
+    "XGBoost classifier best practices for Titanic-like tabular datasets",
+    mode="idea",
+    depth="deep",
+)
 tinkerer.learn(
     Source.Repo("https://github.com/scikit-learn/scikit-learn"),
-    target_kg="https://skills.leeroo.com",
+    titanic_research,
+    target_kg="data/wikis",
 )
 
 # Build a solution — the Tinkerer runs experiments automatically
@@ -47,7 +53,7 @@ result = software.run({"data_path": "./validation.csv"})  # Run again
 software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
-tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+tinkerer.learn(Source.Solution(solution), target_kg="data/wikis")
 ```
 
 ## Web Research (Optional)
@@ -209,7 +215,7 @@ kaggler = Tinkerer(
 # 3. Learn from winning solutions and research
 kaggler.learn(
     Source.Repo("https://github.com/Kaggle/kaggle-api", branch="main"),
-    target_kg="https://skills.leeroo.com",
+    target_kg="data/wikis",
 )
 
 # 4. Build the ML pipeline for a tabular competition
@@ -228,7 +234,7 @@ software = kaggler.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"train_path": "./train.csv", "test_path": "./test.csv"})
 
 # 6. Learn from the build experience
-kaggler.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+kaggler.learn(Source.Solution(solution), target_kg="data/wikis")
 ```
 
 ### LLM Fine-Tuning Expert
@@ -290,7 +296,7 @@ software = data_eng.deploy(etl_pipeline, strategy=DeployStrategy.MODAL)
 result = software.run({"s3_bucket": "raw-data", "table": "events"})
 
 # 4. Learn from the successful build
-data_eng.learn(Source.Solution(etl_pipeline), target_kg="https://skills.leeroo.com")
+data_eng.learn(Source.Solution(etl_pipeline), target_kg="data/wikis")
 ```
 
 ## CLI Usage

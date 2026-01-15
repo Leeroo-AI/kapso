@@ -350,51 +350,63 @@ class Tinkerer:
     
     def learn(
         self, 
-        *sources: Union[Source.Repo, Source.Solution],
-        target_kg: str = "https://skills.leeroo.com",
-    ):
+        *sources: Union[Source.Repo, Source.Solution, Source.Research],
+        target_kg: str = "data/wikis",
+        skip_merge: bool = False,
+    ) -> "PipelineResult":
         """
         Learn from one or more knowledge sources.
         
-        This ingests knowledge into the Tinkerer's brain (KG).
+        This ingests knowledge into the Knowledge Graph (KG) via `KnowledgePipeline`.
+        
+        Supported sources (MVP):
+        - `Source.Repo(...)`
+        - `Source.Solution(...)`
+        - `Source.Research(...)` (output of `Tinkerer.research(...)`)
         
         Args:
-            *sources: One or more Source objects (Source.Repo or Source.Solution)
-            target_kg: URL or path to the target knowledge graph/wiki to update.
-                       Defaults to "https://skills.leeroo.com".
+            *sources: One or more Source objects.
+            target_kg: Path to a local wiki directory (e.g., `data/wikis`) used as
+                the KG source-of-truth on disk.
+                
+                Note:
+                - URL-based KG targets (e.g. `https://skills.leeroo.com`) are not
+                  supported in this code path yet.
+            skip_merge: If True, only extract `WikiPage`s (Stage 1) and skip merging
+                into the KG backends (Stage 2). This avoids requiring Neo4j/Weaviate.
             
         Example:
+            # Learn from repo + web research and merge into local KG
             tinkerer.learn(
                 Source.Repo("https://github.com/user/repo"),
-                target_kg="https://skills.leeroo.com",
+                tinkerer.research("How to pick LoRA rank?", mode="idea"),
+                target_kg="data/wikis",
             )
         """
-        print(f"Learning to KG: {target_kg}")
-        for source in sources:
-            source_type = type(source)
-            learner_type = self._SOURCE_TO_LEARNER.get(source_type)
-            
-            if learner_type is None:
-                print(f"Warning: Unknown source type {source_type}, skipping")
-                continue
-            
-            # Create the appropriate learner
-            print(f"  ⚠️ Learning from {source_type.__name__} not yet implemented"); continue  # learner = LearnerFactory.create(learner_type)
-            
-            # Get data from source
-            if source_type == Source.Solution:
-                source_data = source.obj  # Pass Solution object directly
-            else:
-                source_data = source.to_dict()
-            
-            # Learn and collect chunks
-            chunks = learner.learn(source_data)
-            self._learned_chunks.extend(chunks)
-            
-            # Index into KG if enabled
-            if self.knowledge_search.is_enabled():
-                for chunk in chunks:
-                    self.knowledge_search.index(chunk.to_dict())
+        if not sources:
+            raise ValueError("learn() requires at least one source")
+
+        # Backward-compatible handling: if a URL is provided, fall back to the default local wiki dir.
+        wiki_dir = target_kg
+        if isinstance(target_kg, str) and target_kg.startswith(("http://", "https://")):
+            print(
+                f"Warning: URL target_kg not supported yet ({target_kg}). "
+                f"Using local wiki_dir='data/wikis' instead."
+            )
+            wiki_dir = "data/wikis"
+
+        pipeline = KnowledgePipeline(wiki_dir=wiki_dir)
+        result = pipeline.run(*sources, skip_merge=skip_merge)
+
+        # Keep a small, user-friendly summary.
+        print(
+            f"Learn complete: sources={result.sources_processed}, "
+            f"extracted_pages={result.total_pages_extracted}, "
+            f"created={result.created}, merged={result.merged}, "
+            f"errors={len(result.errors)}"
+        )
+
+        return result
     
     def evolve(
         self,
