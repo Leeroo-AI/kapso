@@ -107,9 +107,6 @@ class Tinkerer:
     # Mapping from Source type to Learner type
     _SOURCE_TO_LEARNER = {
         Source.Repo: "repo",
-        Source.Paper: "paper",
-        Source.File: "file",
-        Source.Doc: "file",  # Use file learner for now
         Source.Solution: "experiment",
     }
     
@@ -317,7 +314,7 @@ class Tinkerer:
     
     def learn(
         self, 
-        *sources: Union[Source.Repo, Source.Paper, Source.File, Source.Doc, Source.Solution],
+        *sources: Union[Source.Repo, Source.Solution],
         target_kg: str = "https://skills.leeroo.com",
     ):
         """
@@ -326,20 +323,14 @@ class Tinkerer:
         This ingests knowledge into the Tinkerer's brain (KG).
         
         Args:
-            *sources: One or more Source objects
+            *sources: One or more Source objects (Source.Repo or Source.Solution)
             target_kg: URL or path to the target knowledge graph/wiki to update.
                        Defaults to "https://skills.leeroo.com".
             
         Example:
             tinkerer.learn(
                 Source.Repo("https://github.com/user/repo"),
-                Source.Paper("./paper.pdf"),
-            )
-            
-            # With custom KG target
-            tinkerer.learn(
-                Source.File("./notes.md"),
-                target_kg="https://custom-wiki.example.com",
+                target_kg="https://skills.leeroo.com",
             )
         """
         print(f"Learning to KG: {target_kg}")

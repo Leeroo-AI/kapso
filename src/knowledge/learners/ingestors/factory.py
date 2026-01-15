@@ -53,7 +53,7 @@ class IngestorFactory:
         Create an ingestor by source type name.
         
         Args:
-            source_type: Registered name (e.g., 'repo', 'paper', 'doc')
+            source_type: Registered name (e.g., 'repo', 'solution')
             **params: Parameters passed to the ingestor constructor
             
         Returns:
@@ -80,7 +80,7 @@ class IngestorFactory:
         Automatically determines the source type from the source class name.
         
         Args:
-            source: A Source.* object (Source.Repo, Source.Paper, etc.)
+            source: A Source.* object (Source.Repo, Source.Solution)
             **params: Parameters passed to the ingestor constructor
             
         Returns:

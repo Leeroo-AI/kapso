@@ -36,7 +36,7 @@ from src.tinkerer import Tinkerer, Source, DeployStrategy
 tinkerer = Tinkerer()
 
 # 2. Learn
-tinkerer.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
+tinkerer.learn(Source.Repo("https://github.com/user/repo"), target_kg="https://skills.leeroo.com")
 
 # 3. Build
 solution = tinkerer.evolve(goal="Create a triage agent")
@@ -65,9 +65,6 @@ A typed wrapper for knowledge inputs.
 | Source Type | Description |
 |-------------|-------------|
 | `Source.Repo(url)` | Git repository |
-| `Source.Paper(path)` | Research paper (PDF) |
-| `Source.File(path)` | Generic file (text, code, markdown) |
-| `Source.Doc(url)` | Documentation website |
 | `Source.Solution(obj)` | Previous solution (experiment logs) |
 
 ### SolutionResult
@@ -82,7 +79,6 @@ The artifact produced by `.evolve()`. Contains:
 solution = tinkerer.evolve(
     goal="Momentum trading bot",
     constraints=["latency < 50ms"],
-    context=[Source.File("./strategy.pdf")],  # Build-specific knowledge
     max_iterations=10,
 )
 
@@ -117,10 +113,9 @@ The Tinkerer API is implemented in:
 - `src/knowledge/learners/`: Knowledge learning pipeline
   - `knowledge_learner_pipeline.py`: Main `KnowledgePipeline` orchestrator
   - `knowledge_merger.py`: Stage 2 merger for integrating pages into KG
-  - `sources.py`: Source type wrappers (`Source.Repo`, `Source.Paper`, etc.)
+  - `sources.py`: Source type wrappers (`Source.Repo`, `Source.Solution`)
   - `ingestors/`: Stage 1 ingestors
     - `repo_ingestor/`: 7-phase two-branch extraction pipeline
-    - `paper_ingestor.py`: Research paper extraction (stub)
     - `experiment_ingestor.py`: Experiment log extraction (basic)
 - `src/deployment/`: Modular deployment system with `DeploymentFactory`
 
@@ -135,7 +130,6 @@ quant = Tinkerer()
 # Learn from various sources
 quant.learn(
     Source.Repo("https://github.com/alpaca/alpaca-py"),
-    Source.Paper("./momentum_strategies.pdf"),
     target_kg="https://skills.leeroo.com",
 )
 

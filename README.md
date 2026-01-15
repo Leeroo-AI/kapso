@@ -24,8 +24,6 @@ tinkerer = Tinkerer(
 # Teach it from various sources (optional)
 tinkerer.learn(
     Source.Repo("https://github.com/scikit-learn/scikit-learn"),
-    Source.Paper("./gradient_boosting_techniques.pdf"),
-    Source.File("./kaggle_competition_notes.md"),
     target_kg="https://skills.leeroo.com",
 )
 
@@ -156,7 +154,6 @@ kaggler = Tinkerer(
 # 3. Learn from winning solutions and research
 kaggler.learn(
     Source.Repo("https://github.com/Kaggle/kaggle-api", branch="main"),
-    Source.Paper("./ensemble_methods_survey.pdf"),
     target_kg="https://skills.leeroo.com",
 )
 

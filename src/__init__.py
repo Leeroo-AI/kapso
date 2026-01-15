@@ -6,7 +6,7 @@
 #     from src import Tinkerer, Source, DeployStrategy
 #     
 #     tinkerer = Tinkerer()
-#     tinkerer.learn(Source.Paper("./triage.pdf"), target_kg="https://skills.leeroo.com")
+#     tinkerer.learn(Source.Repo("https://github.com/user/repo"), target_kg="https://skills.leeroo.com")
 #     solution = tinkerer.evolve(goal="Create a triage agent")
 #     software = solution.deploy()
 #     result = software.run({"symptoms": "headache"})

@@ -27,7 +27,7 @@ Source → Ingestor → WikiPages → Merger → Updated KG
 | `RepoIngestor` | `ingestors/repo_ingestor/__init__.py` | 7-phase pipeline for Git repos |
 | `KnowledgeMerger` | `knowledge_merger.py` | Merges WikiPages into KG via Claude agent |
 | `MergeHandler` | `merge_handlers/*.py` | Type-specific merge logic (Workflow, Principle, etc.) |
-| `Source` | `sources.py` | Typed wrappers: `Source.Repo()`, `Source.Paper()` |
+| `Source` | `sources.py` | Typed wrappers: `Source.Repo()`, `Source.Solution()` |
 
 ---
 

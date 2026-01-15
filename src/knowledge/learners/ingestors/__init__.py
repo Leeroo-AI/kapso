@@ -14,7 +14,6 @@ from src.knowledge.learners.ingestors.factory import IngestorFactory, register_i
 
 # Import all ingestor implementations to register them
 from src.knowledge.learners.ingestors.repo_ingestor import RepoIngestor
-from src.knowledge.learners.ingestors.paper_ingestor import PaperIngestor
 from src.knowledge.learners.ingestors.experiment_ingestor import ExperimentIngestor
 
 __all__ = [
@@ -25,7 +24,6 @@ __all__ = [
     "register_ingestor",
     # Implementations
     "RepoIngestor",
-    "PaperIngestor",
     "ExperimentIngestor",
 ]
 

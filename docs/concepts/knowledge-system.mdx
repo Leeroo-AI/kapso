@@ -56,7 +56,6 @@ result = pipeline.run(Source.Repo("https://github.com/user/repo"))
 # Multiple sources
 result = pipeline.run(
     Source.Repo("https://github.com/user/repo"),
-    Source.Paper("./research.pdf"),
 )
 
 # Dry run (analyze without modifying KG)
@@ -73,9 +72,6 @@ The `Source` namespace provides typed wrappers for different knowledge inputs:
 | Source Type | Description | Status |
 |-------------|-------------|--------|
 | `Source.Repo(url, branch="main")` | Git repository (GitHub, etc.) | ✅ Implemented |
-| `Source.Paper(path)` | Research paper (PDF) | 🚧 Stub |
-| `Source.File(path)` | Generic file (text, markdown, code) | 📋 Planned |
-| `Source.Doc(url)` | Documentation website | 📋 Planned |
 | `Source.Solution(obj)` | Completed experiment logs | ⚠️ Basic |
 
 ### Stage 1: Ingestors
@@ -85,7 +81,6 @@ Ingestors extract WikiPages from knowledge sources. Each source type has a dedic
 | Ingestor | Source Type | Description |
 |----------|-------------|-------------|
 | `RepoIngestor` | `Source.Repo` | 7-phase two-branch pipeline with Claude Code agent |
-| `PaperIngestor` | `Source.Paper` | Extracts knowledge from PDFs (stub, returns empty) |
 | `ExperimentIngestor` | `Source.Solution` | Learns from completed experiments (basic) |
 
 ```python

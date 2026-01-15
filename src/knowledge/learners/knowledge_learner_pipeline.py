@@ -113,7 +113,6 @@ class KnowledgePipeline:
         # Multiple sources
         result = pipeline.run(
             Source.Repo("https://github.com/user/repo"),
-            Source.Paper("./research.pdf"),
         )
         
         # Extract only (skip merge step)
@@ -168,7 +167,7 @@ class KnowledgePipeline:
         Run the complete knowledge pipeline.
         
         Args:
-            *sources: One or more Source objects (Source.Repo, Source.Paper, etc.)
+            *sources: One or more Source objects (Source.Repo, Source.Solution)
             skip_merge: If True, only extract (same as ingest_only but returns PipelineResult)
             
         Returns:
@@ -386,8 +385,6 @@ Examples:
     # Create source object based on type
     if args.type == "repo":
         source = Source.Repo(args.source, branch=args.branch)
-    elif args.type == "paper":
-        source = Source.Paper(args.source)
     else:
         print(f"Unsupported source type: {args.type}")
         sys.exit(1)

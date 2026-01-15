@@ -19,7 +19,6 @@
 #     --timeout               Execution timeout in seconds (default: 300)
 #     --evaluator             Evaluator type: no_score, regex_pattern, llm_judge
 #     --stop-condition        Stop condition: never, threshold, plateau
-#     --context               Additional context file(s) to learn from
 #     --output                Output directory for the solution
 
 import argparse
@@ -54,13 +53,6 @@ def list_stop_conditions() -> None:
     StopConditionFactory.print_conditions_info()
 
 
-def parse_context_files(context_args: Optional[List[str]]) -> List[Source.File]:
-    """Parse context file arguments into Source objects."""
-    if not context_args:
-        return []
-    return [Source.File(path) for path in context_args]
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Tinkerer Agent - Build robust software from goals",
@@ -74,10 +66,6 @@ Examples:
   python -m src.cli --goal "Build a classifier" \\
       --evaluator regex_pattern \\
       --stop-condition threshold
-  
-  # With context files
-  python -m src.cli --goal "Build a trading bot" \\
-      --context strategy.pdf requirements.txt
   
   # Full options
   python -m src.cli --goal-file problem.txt \\
@@ -113,12 +101,6 @@ Examples:
         type=str,
         default=None,
         help="Output directory for the solution"
-    )
-    parser.add_argument(
-        "--context",
-        type=str,
-        nargs="+",
-        help="Context file(s) to learn from before building"
     )
     
     # Configuration options
@@ -216,13 +198,9 @@ Examples:
     # Create expert
     tinkerer = Tinkerer()
     
-    # Parse context files
-    context = parse_context_files(args.context)
-    
     # Build solution
     solution = tinkerer.evolve(
         goal=goal,
-        context=context if context else None,
         output_path=args.output,
         max_iterations=args.iterations,
         mode=args.mode,

@@ -8,7 +8,6 @@
 #     
 #     tinkerer.learn(
 #         Source.Repo("https://github.com/user/repo"),
-#         Source.Paper("./research.pdf"),
 #         target_kg="https://skills.leeroo.com",
 #     )
 
@@ -31,8 +30,6 @@ class Source:
     Usage:
         tinkerer.learn(
             Source.Repo("https://github.com/user/repo"),
-            Source.Paper("./research.pdf"),
-            Source.File("./notes.md"),
             target_kg="https://skills.leeroo.com",
         )
     """
@@ -50,45 +47,6 @@ class Source:
         
         def to_dict(self) -> Dict[str, Any]:
             return {"url": self.url, "branch": self.branch}
-    
-    @dataclass
-    class Paper:
-        """
-        Source from a research paper (PDF).
-        
-        Processed by: PaperLearner
-        Extracts: Abstract, methodology, findings, formulas
-        """
-        path: str
-        
-        def to_dict(self) -> Dict[str, Any]:
-            return {"path": self.path}
-    
-    @dataclass
-    class File:
-        """
-        Source from a generic file (text, markdown, code).
-        
-        Processed by: (learner not yet implemented)
-        Extracts: Content based on file type
-        """
-        path: str
-        
-        def to_dict(self) -> Dict[str, Any]:
-            return {"path": self.path}
-    
-    @dataclass
-    class Doc:
-        """
-        Source from a documentation website.
-        
-        Processed by: (learner not yet implemented)
-        Extracts: Structured documentation content
-        """
-        url: str
-        
-        def to_dict(self) -> Dict[str, Any]:
-            return {"url": self.url}
     
     @dataclass
     class Solution:

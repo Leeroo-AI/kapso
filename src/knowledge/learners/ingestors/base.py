@@ -1,7 +1,7 @@
 # Ingestor Base Class
 #
 # Abstract interface for knowledge ingestors.
-# Each implementation handles a specific source type (Repo, Paper, Doc, etc.)
+# Each implementation handles a specific source type (Repo, Solution)
 # and converts it into WikiPage objects for the KG.
 #
 # To create a new ingestor:
@@ -19,7 +19,7 @@ class Ingestor(ABC):
     """
     Abstract base class for knowledge ingestors.
     
-    Each implementation handles a specific source type (Repo, Paper, Doc, etc.)
+    Each implementation handles a specific source type (Repo, Solution)
     and converts it into a list of WikiPage objects for the Knowledge Graph.
     
     The KnowledgePipeline dispatches to the appropriate Ingestor based on
@@ -57,7 +57,7 @@ class Ingestor(ABC):
         Return the source type this ingestor handles.
         
         Returns:
-            Source type identifier (e.g., 'repo', 'paper', 'doc')
+            Source type identifier (e.g., 'repo', 'solution')
         """
         pass
     
@@ -73,7 +73,7 @@ class Ingestor(ABC):
         3. Return WikiPage objects ready for merging into KG
         
         Args:
-            source: The input source (Source.Repo, Source.Paper, etc.)
+            source: The input source (Source.Repo, Source.Solution)
                     or a dict with source data
             
         Returns:

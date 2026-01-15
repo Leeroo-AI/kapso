@@ -55,7 +55,6 @@ from src.knowledge.learners.ingestors import (
     IngestorFactory,
     register_ingestor,
     RepoIngestor,
-    PaperIngestor,
     ExperimentIngestor,
 )
 
@@ -81,7 +80,6 @@ __all__ = [
     "IngestorFactory",
     "register_ingestor",
     "RepoIngestor",
-    "PaperIngestor",
     "ExperimentIngestor",
 ]
 
