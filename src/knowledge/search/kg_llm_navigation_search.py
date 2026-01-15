@@ -487,6 +487,53 @@ class KGLLMNavigationSearch(KnowledgeSearch):
             print(f"Error in edit: {e}")
             return False
     
+    # =========================================================================
+    # Index Metadata Methods (for .index files)
+    # =========================================================================
+    
+    def get_backend_refs(self) -> Dict[str, Any]:
+        """
+        Return backend-specific references for index file.
+        
+        Returns Neo4j URI and node label used by this backend.
+        """
+        return {
+            "neo4j_uri": self.neo4j_uri,
+            "node_label": "Node",  # This backend uses :Node label
+        }
+    
+    def validate_backend_data(self) -> bool:
+        """
+        Check if Neo4j has indexed Node data.
+        
+        Returns:
+            True if Neo4j has Node entries, False otherwise
+        """
+        if not self._driver:
+            return False
+        try:
+            with self._driver.session() as session:
+                result = session.run("MATCH (n:Node) RETURN count(n) as count")
+                return result.single()["count"] > 0
+        except Exception:
+            return False
+    
+    def get_indexed_count(self) -> int:
+        """
+        Get the number of indexed nodes.
+        
+        Returns:
+            Count of Node entries in Neo4j
+        """
+        if not self._driver:
+            return 0
+        try:
+            with self._driver.session() as session:
+                result = session.run("MATCH (n:Node) RETURN count(n) as count")
+                return result.single()["count"]
+        except Exception:
+            return 0
+    
     def close(self) -> None:
         """Close the Neo4j driver connection."""
         if self._driver:

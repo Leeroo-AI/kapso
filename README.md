@@ -16,9 +16,9 @@ Praxium lets domain experts (quant, healthcare, data engineering, etc.) turn the
 ```python
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# Initialize a Tinkerer (connect to knowledge graph)
+# Initialize a Tinkerer with a pre-indexed Knowledge Graph
 tinkerer = Tinkerer(
-    kg_location="https://skills.leeroo.com",
+    kg_index="data/indexes/kaggle.index",  # Load existing KG index
 )
 
 # Teach it from various sources (optional)
@@ -52,6 +52,85 @@ software.stop()   # Final cleanup
 tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```
 
+## Knowledge Graph Indexing
+
+Praxium uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
+
+### One-Time Indexing
+
+```python
+from src.tinkerer import Tinkerer
+
+# Create a Tinkerer (no KG loaded yet)
+tinkerer = Tinkerer(config_path="src/config.yaml")
+
+# Index wiki pages (for kg_graph_search backend)
+tinkerer.index_kg(
+    wiki_dir="data/wikis_llm_finetuning",  # Directory with .md/.mediawiki files
+    save_to="data/indexes/llm_finetuning.index",
+    force=True,  # Clear existing data before indexing
+)
+
+# Or index JSON graph data (for kg_llm_navigation backend)
+tinkerer.index_kg(
+    data_path="benchmarks/mle/data/kg_data.json",  # JSON with nodes/edges
+    save_to="data/indexes/kaggle_kg.index",
+    search_type="kg_llm_navigation",  # Override backend type
+)
+```
+
+### Loading Pre-Indexed KG
+
+```python
+from src.tinkerer import Tinkerer
+
+# Load from existing .index file (skips indexing)
+tinkerer = Tinkerer(
+    config_path="src/config.yaml",
+    kg_index="data/indexes/llm_finetuning.index",
+)
+
+# Now evolve() will use KG context automatically
+solution = tinkerer.evolve(
+    goal="Fine-tune LLaMA with QLoRA for code generation",
+    output_path="./models/qlora_v1",
+)
+```
+
+### Index File Format
+
+The `.index` file is a JSON file containing:
+
+```json
+{
+  "version": "1.0",
+  "created_at": "2025-01-15T10:30:00Z",
+  "wiki_dir": "data/wikis_llm_finetuning",
+  "search_backend": "kg_graph_search",
+  "backend_refs": {
+    "weaviate_collection": "PraxiumWiki",
+    "embedding_model": "text-embedding-3-large"
+  },
+  "page_count": 99
+}
+```
+
+### KG Search Backends
+
+| Backend | Data Format | Storage | Use Case |
+|---------|-------------|---------|----------|
+| `kg_graph_search` | Wiki pages (.md/.mediawiki) | Weaviate + Neo4j | Semantic search with LLM reranking |
+| `kg_llm_navigation` | JSON (nodes/edges) | Neo4j only | LLM-guided graph navigation |
+
+### Infrastructure Requirements
+
+Both backends require database infrastructure:
+
+```bash
+# Start Weaviate and Neo4j (required for indexing/search)
+./scripts/start_infra.sh
+```
+
 ## Usage Examples
 
 ### Kaggle Competitor
@@ -59,19 +138,29 @@ tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```python
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# 1. Initialize with knowledge graph
+# 1. One-time setup: Index Kaggle competition knowledge
+tinkerer = Tinkerer(config_path="src/config.yaml")
+tinkerer.index_kg(
+    data_path="benchmarks/mle/data/kg_data.json",
+    save_to="data/indexes/kaggle.index",
+    search_type="kg_llm_navigation",
+)
+tinkerer.knowledge_search.close()
+
+# 2. Normal usage: Load pre-indexed KG and evolve
 kaggler = Tinkerer(
-    kg_location="https://skills.leeroo.com",
+    config_path="src/config.yaml",
+    kg_index="data/indexes/kaggle.index",
 )
 
-# 2. Learn from winning solutions and research
+# 3. Learn from winning solutions and research
 kaggler.learn(
     Source.Repo("https://github.com/Kaggle/kaggle-api", branch="main"),
     Source.Paper("./ensemble_methods_survey.pdf"),
     target_kg="https://skills.leeroo.com",
 )
 
-# 3. Build the ML pipeline for a tabular competition
+# 4. Build the ML pipeline for a tabular competition
 solution = kaggler.evolve(
     goal="LightGBM + CatBoost ensemble for House Prices with RMSE < 0.12",
     output_path="./submissions/house_prices_v1",
@@ -82,12 +171,47 @@ solution = kaggler.evolve(
     stop_condition_params={"threshold": 0.12},
 )
 
-# 4. Deploy and generate predictions
+# 5. Deploy and generate predictions
 software = kaggler.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"train_path": "./train.csv", "test_path": "./test.csv"})
 
-# 5. Learn from the build experience
+# 6. Learn from the build experience
 kaggler.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+```
+
+### LLM Fine-Tuning Expert
+
+```python
+from src.tinkerer import Tinkerer, Source, DeployStrategy
+
+# 1. One-time setup: Index LLM fine-tuning wiki
+tinkerer = Tinkerer(config_path="src/config.yaml")
+tinkerer.index_kg(
+    wiki_dir="data/wikis_llm_finetuning",
+    save_to="data/indexes/llm_finetuning.index",
+)
+tinkerer.knowledge_search.close()
+
+# 2. Normal usage: Load pre-indexed KG
+finetuner = Tinkerer(
+    config_path="src/config.yaml",
+    kg_index="data/indexes/llm_finetuning.index",
+)
+
+# 3. Build a QLoRA fine-tuning pipeline
+solution = finetuner.evolve(
+    goal="Fine-tune Llama-3.1-8B with QLoRA on custom dataset, target loss < 0.5",
+    output_path="./models/qlora_llama_v1",
+    max_iterations=5,
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"loss: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.5},
+)
+
+# 4. Deploy and run training
+software = finetuner.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = software.run({"dataset_path": "./training_data.jsonl"})
 ```
 
 ### Data Engineer
@@ -95,10 +219,8 @@ kaggler.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```python
 from src.tinkerer import Tinkerer, Source, DeployStrategy
 
-# 1. Initialize with knowledge graph
-data_eng = Tinkerer(
-    kg_location="https://skills.leeroo.com",
-)
+# 1. Initialize (no KG needed for this example)
+data_eng = Tinkerer(config_path="src/config.yaml")
 
 # 2. Build with data directory (schemas and configs available during build)
 etl_pipeline = data_eng.evolve(
@@ -243,7 +365,7 @@ Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
 ```
 praxium/
 ├── src/
-│   ├── tinkerer.py              # Main Tinkerer API
+│   ├── tinkerer.py              # Main Tinkerer API (learn, evolve, deploy, index_kg)
 │   ├── cli.py                 # CLI entry point
 │   ├── core/                  # LLM backend, config
 │   ├── deployment/            # Local, Docker, Cloud deployment
@@ -257,9 +379,14 @@ praxium/
 │   │   └── orchestrator.py    # Main coordination
 │   └── knowledge/
 │       ├── learners/          # Repo, Paper, File learners
-│       └── search/            # Knowledge graph search
+│       └── search/            # KG search backends (kg_graph_search, kg_llm_navigation)
+├── data/
+│   ├── indexes/               # .index files (KG references)
+│   ├── wikis_llm_finetuning/  # LLM fine-tuning wiki pages
+│   └── wikis_batch_top100/    # Batch processing wiki pages
 ├── benchmarks/
 │   ├── mle/                   # MLE-Bench (Kaggle)
+│   │   └── data/kg_data.json  # Kaggle competition KG data
 │   └── ale/                   # ALE-Bench (AtCoder)
 └── docs/                      # Documentation
 ```
@@ -356,10 +483,11 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 
 | Component | Description |
 |-----------|-------------|
-| `Tinkerer` | Main API - learn, evolve, deploy |
+| `Tinkerer` | Main API - learn, evolve, deploy, index_kg |
 | `OrchestratorAgent` | Coordinates experimentation loop |
 | `SearchStrategy` | Tree/Linear search for solutions |
 | `CodingAgent` | Code generation (Aider, Gemini, etc.) |
+| `KnowledgeSearch` | KG search backends (kg_graph_search, kg_llm_navigation) |
 | `Evaluator` | Score solutions |
 | `StopCondition` | Control when to stop |
 | `ProblemHandler` | Problem-specific logic |

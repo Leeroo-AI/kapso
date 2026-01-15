@@ -2,25 +2,34 @@
 #
 # The primary user-facing API for the Tinkerer Agent system.
 # Provides a clean interface for the "Brain to Binary" workflow:
-#   Tinkerer.learn() -> Tinkerer.evolve() -> Tinkerer.deploy() -> Software.run()
+#   Tinkerer.index_kg() -> Tinkerer.evolve() -> Tinkerer.deploy() -> Software.run()
 #
 # Usage:
 #     from src.tinkerer import Tinkerer, Source, DeployStrategy
 #     
-#     tinkerer = Tinkerer()
-#     tinkerer.learn(Source.Repo("https://github.com/..."), target_kg="https://skills.leeroo.com")
+#     # One-time setup: Index knowledge graph
+#     tinkerer = Tinkerer(config_path="./config.yaml")
+#     tinkerer.index_kg(wiki_dir="data/wikis/ml_knowledge", save_to="data/indexes/ml.index")
+#     
+#     # Normal usage: Load existing index
+#     tinkerer = Tinkerer(config_path="./config.yaml", kg_index="data/indexes/ml.index")
 #     solution = tinkerer.evolve(goal="Create a triage agent")
 #     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
+import json
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from src.execution.orchestrator import OrchestratorAgent
 from src.execution.solution import SolutionResult
 from src.environment.handlers.generic import GenericProblemHandler
-from src.knowledge.search import KnowledgeSearchFactory
+from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
+from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.learners import Source, KnowledgePipeline
+from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
 class KnowledgeChunk:
@@ -36,7 +45,23 @@ from src.deployment import (
 
 
 # =============================================================================
-# EXPERT
+# EXCEPTIONS
+# =============================================================================
+
+class KGIndexError(Exception):
+    """
+    Raised when KG index file is invalid or backend data is missing.
+    
+    This typically happens when:
+    - The .index file exists but the backend (Weaviate/Neo4j) was wiped
+    - The .index file is corrupted or has invalid format
+    - The backend is not accessible
+    """
+    pass
+
+
+# =============================================================================
+# TINKERER AGENT
 # =============================================================================
 
 # Path to default configuration
@@ -48,19 +73,28 @@ class Tinkerer:
     The main Tinkerer Agent class.
     
     A Tinkerer is an intelligent agent that can:
-    1. Learn from various sources (repos, papers, files, past solutions)
+    1. Index knowledge from wiki pages or JSON knowledge graphs
     2. Evolve software to solve goals using experimentation
-    3. Improve over time through the feedback loop
+    3. Deploy solutions as running software
     
-    Usage:
-        # Simple usage
-        tinkerer = Tinkerer(kg_location="https://skills.leeroo.com")
-        tinkerer.learn(Source.Repo("https://github.com/alpaca/alpaca-py"), target_kg="https://skills.leeroo.com")
+    Knowledge Graph Workflow:
+        # ONE-TIME SETUP: Index your knowledge
+        tinkerer = Tinkerer(config_path="./config.yaml")
+        tinkerer.index_kg(
+            wiki_dir="data/wikis/ml_knowledge",
+            save_to="data/indexes/ml.index",
+        )
+        
+        # EVERY TIME: Load existing index
+        tinkerer = Tinkerer(
+            config_path="./config.yaml",
+            kg_index="data/indexes/ml.index",
+        )
         solution = tinkerer.evolve(goal="Create a momentum trading bot")
         software = tinkerer.deploy(solution)
         result = software.run({"ticker": "AAPL"})
         
-        # Advanced usage with evaluator and stop condition
+    Advanced usage with evaluator and stop condition:
         solution = tinkerer.evolve(
             goal="Build a classifier with 95% accuracy",
             evaluator="regex_pattern",
@@ -81,27 +115,205 @@ class Tinkerer:
     
     def __init__(
         self, 
-        kg_location: str = "default",
         config_path: Optional[str] = None,
+        kg_index: Optional[str] = None,
     ):
         """
-        Initialize an Tinkerer agent.
+        Initialize a Tinkerer agent.
         
         Args:
-            kg_location: Path to local KG or URL to remote KG
             config_path: Path to configuration file (uses default if not provided)
+            kg_index: Path to existing .index file to load knowledge graph from.
+                      If provided, connects to the indexed knowledge graph.
+                      If not provided, knowledge search is disabled.
         """
-        self.kg_location = kg_location
         self.config_path = config_path or DEFAULT_CONFIG_PATH
-        
-        # Initialize knowledge search (for querying during evolve)
-        # Default to disabled for now - can be enabled via config
-        self.knowledge_search = KnowledgeSearchFactory.create_null()
+        self._config = load_config(self.config_path)
         
         # Track learned knowledge chunks (in-memory for MVP)
         self._learned_chunks: List[KnowledgeChunk] = []
         
-        print(f"Initialized Tinkerer (KG: {kg_location})")
+        # Initialize knowledge search
+        if kg_index:
+            self._load_kg_index(kg_index)
+            self._kg_index_path = kg_index
+        else:
+            self.knowledge_search = KnowledgeSearchFactory.create_null()
+            self._kg_index_path = None
+        
+        # Print initialization status
+        if kg_index:
+            print(f"Initialized Tinkerer")
+        else:
+            print(f"Initialized Tinkerer (Knowledge Graph: disabled)")
+    
+    # =========================================================================
+    # Knowledge Graph Indexing
+    # =========================================================================
+    
+    def _load_kg_index(self, index_path: str) -> None:
+        """
+        Load existing index from .index file.
+        
+        Args:
+            index_path: Path to the .index file
+            
+        Raises:
+            KGIndexError: If index file is invalid or backend data is missing
+            FileNotFoundError: If index file doesn't exist
+        """
+        index_path = Path(index_path)
+        
+        if not index_path.exists():
+            raise FileNotFoundError(f"Index file not found: {index_path}")
+        
+        # Load index metadata
+        with open(index_path) as f:
+            index_data = json.load(f)
+        
+        metadata = KGIndexMetadata.from_dict(index_data)
+        
+        # Get search config from mode config
+        mode = self._config.get("default_mode", "GENERIC")
+        mode_config = self._config.get("modes", {}).get(mode, {})
+        search_config = mode_config.get("knowledge_search", {})
+        
+        # Merge backend_refs into params (backend_refs take precedence)
+        params = search_config.get("params", {}).copy()
+        params.update(metadata.backend_refs)
+        
+        # Create search backend
+        self.knowledge_search = KnowledgeSearchFactory.create(
+            search_type=metadata.search_backend,
+            params=params,
+        )
+        
+        # Validate backend has data
+        if not self.knowledge_search.validate_backend_data():
+            raise KGIndexError(
+                f"Index file exists but backend data not found.\n"
+                f"Re-index with: tinkerer.index_kg("
+                f"wiki_dir='{metadata.data_source}', save_to='{index_path}')"
+            )
+        
+        print(f"  Knowledge Graph: Loaded ({metadata.page_count} pages from {metadata.search_backend})")
+    
+    def index_kg(
+        self,
+        wiki_dir: Optional[str] = None,
+        data_path: Optional[str] = None,
+        save_to: str = None,
+        search_type: Optional[str] = None,
+        force: bool = False,
+    ) -> str:
+        """
+        Index knowledge data and save index reference file.
+        
+        This is a ONE-TIME operation. After indexing, the data persists
+        in the configured backends (Weaviate, Neo4j, etc.). Use the returned
+        .index file path with kg_index parameter on subsequent runs.
+        
+        Args:
+            wiki_dir: Path to wiki directory (for kg_graph_search backend).
+                      Contains .md files organized in type subdirectories.
+            data_path: Path to JSON data file (for kg_llm_navigation backend).
+                       Contains nodes and edges dict.
+            save_to: Path to save .index file (e.g., "data/indexes/ml.index")
+            search_type: Override search backend type. If not provided, uses
+                         config default or infers from input type.
+            force: If True, clears existing data before indexing
+            
+        Returns:
+            Path to created .index file
+            
+        Raises:
+            ValueError: If neither wiki_dir nor data_path provided
+            
+        Example:
+            # Index wiki pages (kg_graph_search)
+            tinkerer.index_kg(
+                wiki_dir="data/wikis/ml_knowledge",
+                save_to="data/indexes/ml.index",
+            )
+            
+            # Index JSON knowledge graph (kg_llm_navigation)
+            tinkerer.index_kg(
+                data_path="benchmarks/mle/data/kg_data.json",
+                save_to="data/indexes/kaggle.index",
+                search_type="kg_llm_navigation",
+            )
+        """
+        if save_to is None:
+            raise ValueError("save_to is required - specify where to save the .index file")
+        
+        if not wiki_dir and not data_path:
+            raise ValueError("Must provide either wiki_dir or data_path")
+        
+        # Determine search type
+        if search_type is None:
+            if data_path:
+                # JSON data implies kg_llm_navigation
+                search_type = "kg_llm_navigation"
+            else:
+                # Wiki dir implies kg_graph_search (or use config default)
+                mode = self._config.get("default_mode", "GENERIC")
+                mode_config = self._config.get("modes", {}).get(mode, {})
+                search_config = mode_config.get("knowledge_search", {})
+                search_type = search_config.get("type", "kg_graph_search")
+        
+        # Get params from config
+        mode = self._config.get("default_mode", "GENERIC")
+        mode_config = self._config.get("modes", {}).get(mode, {})
+        search_config = mode_config.get("knowledge_search", {})
+        params = search_config.get("params", {}).copy()
+        
+        # Create search backend
+        self.knowledge_search = KnowledgeSearchFactory.create(
+            search_type=search_type,
+            params=params,
+        )
+        
+        # Clear existing data if force=True
+        if force:
+            print("  Clearing existing index...")
+            self.knowledge_search.clear()
+        
+        # Determine data source and index
+        if wiki_dir:
+            data_source = str(wiki_dir)
+            print(f"  Indexing wiki: {wiki_dir}")
+            self.knowledge_search.index(KGIndexInput(wiki_dir=wiki_dir))
+        else:
+            data_source = str(data_path)
+            print(f"  Indexing JSON: {data_path}")
+            # Load JSON and index directly (for kg_llm_navigation)
+            with open(data_path) as f:
+                graph_data = json.load(f)
+            self.knowledge_search.index(graph_data)
+        
+        # Get page count
+        page_count = self.knowledge_search.get_indexed_count()
+        
+        # Build index metadata
+        metadata = KGIndexMetadata(
+            version="1.0",
+            created_at=datetime.now().isoformat(),
+            data_source=data_source,
+            search_backend=search_type,
+            backend_refs=self.knowledge_search.get_backend_refs(),
+            page_count=page_count,
+        )
+        
+        # Save index file
+        save_path = Path(save_to)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, 'w') as f:
+            json.dump(metadata.to_dict(), f, indent=2)
+        
+        self._kg_index_path = str(save_path)
+        print(f"  Index saved: {save_to} ({page_count} pages)")
+        
+        return str(save_path)
     
     def learn(
         self, 
@@ -410,6 +622,7 @@ class Tinkerer:
 
 __all__ = [
     "Tinkerer",
+    "KGIndexError",
     "Source",
     "SolutionResult",
     "Software",

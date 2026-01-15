@@ -2,9 +2,11 @@
 # =============================================================================
 # Praxium Infrastructure Startup Script
 # - Starts Weaviate, Neo4j, MediaWiki containers
-# - Asks for wiki data directory
-# - Imports pages to MediaWiki
-# - Indexes pages for KG search
+# - Optionally imports wiki pages to MediaWiki (for browsing)
+#
+# Note: For KG indexing, use Tinkerer.index_kg() in Python:
+#   tinkerer = Tinkerer(config_path="src/config.yaml")
+#   tinkerer.index_kg(wiki_dir="data/wikis_llm_finetuning", save_to="data/indexes/my.index")
 # =============================================================================
 
 set -e
@@ -187,26 +189,6 @@ if [[ "$SKIP_INDEX" == "false" ]] && [[ -n "$WIKI_DIR" ]] && [[ -d "$WIKI_DIR" ]
     else
         echo -e "${RED}  Import script not found!${NC}"
     fi
-
-    # =============================================================================
-    # Step 5: Index pages for KG search (Weaviate + Neo4j)
-    # =============================================================================
-    echo -e "\n${YELLOW}Indexing pages for KG search...${NC}"
-    
-    python -c "
-from pathlib import Path
-from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
-
-print('  Connecting to Weaviate and Neo4j...')
-search = KnowledgeSearchFactory.create('kg_graph_search')
-print('  Indexing pages...')
-search.index(KGIndexInput(
-    wiki_dir=Path('$WIKI_DIR'),
-    persist_path=Path('data/indexes/wikis.json'),
-))
-search.close()
-print('  Done!')
-"
 fi
 
 # =============================================================================
@@ -225,9 +207,11 @@ echo ""
 if [[ "$SKIP_INDEX" == "false" ]] && [[ -n "$WIKI_DIR" ]]; then
     page_count=$(curl -s "http://localhost:8090/api.php?action=query&meta=siteinfo&siprop=statistics&format=json" 2>/dev/null | grep -o '"pages":[0-9]*' | grep -o '[0-9]*' || echo "?")
     echo "  Wiki Data:    $WIKI_DIR"
-    echo "  Pages:        $page_count"
+    echo "  Pages:        $page_count (in MediaWiki)"
     echo ""
 fi
 
+echo "  Index KG:     tinkerer.index_kg(wiki_dir='...', save_to='...')"
+echo ""
 echo "  Stop:         ./scripts/stop_infra.sh"
 echo "  Stop + wipe:  ./scripts/stop_infra.sh --volumes"

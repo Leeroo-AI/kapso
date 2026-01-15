@@ -18,7 +18,8 @@
 #   - composite: Combine multiple conditions
 #
 # Knowledge Search Backends (via KnowledgeSearchFactory):
-#   - kg_llm_navigation: Neo4j KG with LLM-guided navigation
+#   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
+#   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
 
 # Default mode to use
 default_mode: GENERIC
@@ -76,10 +77,16 @@ modes:
         summary_token_limit: 1000
         summary_model: "gpt-4o-mini"
     
-    # No knowledge search for generic problems
+    # Knowledge search configuration
+    # Use index_kg() to index data, then pass kg_index to Tinkerer
     knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
+      type: "kg_graph_search"
+      enabled: true
+      params:
+        weaviate_collection: "PraxiumKG"
+        embedding_model: "text-embedding-3-large"
+        use_llm_reranker: true
+        reranker_model: "gpt-4.1-mini"
     
     # Evaluator for this mode (overrides default)
     evaluator:

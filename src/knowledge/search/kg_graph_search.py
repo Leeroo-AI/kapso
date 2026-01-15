@@ -1914,6 +1914,58 @@ Only include pages that would actually help answer the query.
                 break
     
     # =========================================================================
+    # Index Metadata Methods (for .index files)
+    # =========================================================================
+    
+    def get_backend_refs(self) -> Dict[str, Any]:
+        """
+        Return backend-specific references for index file.
+        
+        Returns Weaviate collection name and embedding model used.
+        """
+        return {
+            "weaviate_collection": self.weaviate_collection,
+            "embedding_model": self.embedding_model,
+        }
+    
+    def validate_backend_data(self) -> bool:
+        """
+        Check if Weaviate collection has indexed data.
+        
+        Returns:
+            True if collection exists and has data, False otherwise
+        """
+        if not self._weaviate_client:
+            return False
+        try:
+            collection = self._weaviate_client.collections.get(self.weaviate_collection)
+            response = collection.aggregate.over_all(total_count=True)
+            return response.total_count > 0
+        except Exception:
+            return False
+    
+    def get_indexed_count(self) -> int:
+        """
+        Get the number of indexed pages.
+        
+        Returns:
+            Count from internal cache, or queries Weaviate if cache is empty
+        """
+        # First check internal cache
+        if self._pages:
+            return len(self._pages)
+        
+        # Otherwise query Weaviate
+        if not self._weaviate_client:
+            return 0
+        try:
+            collection = self._weaviate_client.collections.get(self.weaviate_collection)
+            response = collection.aggregate.over_all(total_count=True)
+            return response.total_count
+        except Exception:
+            return 0
+    
+    # =========================================================================
     # Cleanup
     # =========================================================================
     

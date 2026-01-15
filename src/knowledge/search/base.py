@@ -350,6 +350,58 @@ class KGSearchFilters:
 
 
 # =============================================================================
+# Index Metadata (for .index files)
+# =============================================================================
+
+@dataclass
+class KGIndexMetadata:
+    """
+    Metadata stored in .index files.
+    
+    This dataclass represents the contents of an index file that tracks
+    what data was indexed and where it's stored. Users create this once
+    via index_kg() and load it on subsequent runs to skip re-indexing.
+    
+    Attributes:
+        version: Schema version for forward compatibility
+        created_at: ISO timestamp when index was created
+        data_source: Path to source data (wiki_dir or data_path)
+        search_backend: Name of the search backend used (e.g., "kg_graph_search")
+        backend_refs: Backend-specific references (collection names, URIs, etc.)
+        page_count: Number of pages/nodes indexed
+    """
+    version: str = "1.0"
+    created_at: str = ""
+    data_source: str = ""  # wiki_dir for kg_graph_search, data_path for kg_llm_navigation
+    search_backend: str = ""
+    backend_refs: Dict[str, Any] = field(default_factory=dict)
+    page_count: int = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "version": self.version,
+            "created_at": self.created_at,
+            "data_source": self.data_source,
+            "search_backend": self.search_backend,
+            "backend_refs": self.backend_refs,
+            "page_count": self.page_count,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "KGIndexMetadata":
+        """Create KGIndexMetadata from dictionary."""
+        return cls(
+            version=data.get("version", "1.0"),
+            created_at=data.get("created_at", ""),
+            data_source=data.get("data_source", ""),
+            search_backend=data.get("search_backend", ""),
+            backend_refs=data.get("backend_refs", {}),
+            page_count=data.get("page_count", 0),
+        )
+
+
+# =============================================================================
 # Search Result Data Structures
 # =============================================================================
 
@@ -467,6 +519,35 @@ class KGOutput:
                     f"{item.overview}"
                 )
         return "\n\n---\n\n".join(parts)
+    
+    @property
+    def text_results(self) -> str:
+        """
+        Get formatted text results for context managers.
+        
+        This is an alias for to_context_string() to maintain compatibility
+        with context managers that expect this property.
+        """
+        return self.to_context_string()
+    
+    @property
+    def code_results(self) -> str:
+        """
+        Get code/implementation results for context managers.
+        
+        Extracts Implementation-type results and formats them as code context.
+        """
+        code_items = self.get_by_type("Implementation")
+        if not code_items:
+            # Also check for "code" type (used by kg_llm_navigation)
+            code_items = [r for r in self.results if r.page_type.lower() == "code"]
+        
+        if not code_items:
+            return ""
+        
+        return "\n\n".join(
+            f"## {item.page_title}\n{item.content}" for item in code_items
+        )
     
     def __len__(self) -> int:
         return len(self.results)
@@ -640,6 +721,46 @@ class KnowledgeSearch(ABC):
         Optional - subclasses may override to close connections.
         """
         pass
+    
+    def get_backend_refs(self) -> Dict[str, Any]:
+        """
+        Return backend-specific references for index file.
+        
+        These references identify WHERE the indexed data is stored
+        (e.g., Weaviate collection name, Neo4j database).
+        Used when saving/loading .index files.
+        
+        Returns:
+            Dictionary of backend-specific identifiers
+            
+        Example (kg_graph_search):
+            {"weaviate_collection": "PraxiumKG", "embedding_model": "text-embedding-3-large"}
+            
+        Example (kg_llm_navigation):
+            {"neo4j_uri": "bolt://localhost:7687", "node_label": "Node"}
+        """
+        return {}
+    
+    def validate_backend_data(self) -> bool:
+        """
+        Check if the backend has indexed data.
+        
+        Used when loading from an .index file to verify that the
+        backend actually contains the expected data.
+        
+        Returns:
+            True if backend has indexed data, False otherwise
+        """
+        return True
+    
+    def get_indexed_count(self) -> int:
+        """
+        Get the number of indexed pages/nodes.
+        
+        Returns:
+            Count of indexed items, or 0 if unknown
+        """
+        return 0
 
 
 class NullKnowledgeSearch(KnowledgeSearch):
