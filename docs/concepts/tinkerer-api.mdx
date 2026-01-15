@@ -36,7 +36,7 @@ from src.tinkerer import Tinkerer, Source, DeployStrategy
 tinkerer = Tinkerer()
 
 # 2. Learn
-tinkerer.learn(Source.Repo("https://github.com/user/repo"), target_kg="https://skills.leeroo.com")
+tinkerer.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
 
 # 3. Build
 solution = tinkerer.evolve(goal="Create a triage agent")
@@ -130,7 +130,7 @@ quant = Tinkerer()
 # Learn from various sources
 quant.learn(
     Source.Repo("https://github.com/alpaca/alpaca-py"),
-    target_kg="https://skills.leeroo.com",
+    wiki_dir="data/wikis",
 )
 
 # Build a trading bot
@@ -141,7 +141,7 @@ solution = quant.evolve(
 )
 
 # Learn from the build experience (feedback loop)
-quant.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+quant.learn(Source.Solution(solution), wiki_dir="data/wikis")
 
 # Deploy and run
 software = solution.deploy(strategy=DeployStrategy.LOCAL)

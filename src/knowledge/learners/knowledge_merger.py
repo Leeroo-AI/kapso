@@ -180,6 +180,12 @@ class KnowledgeMerger:
             agent_config: Configuration for Claude Code agent
         """
         self._agent_config = agent_config or {}
+        # Optional path to a Praxium `.index` file.
+        #
+        # When provided, we pass it down to the Claude Code subprocess as
+        # KG_INDEX_PATH so the spawned MCP server can initialize the correct
+        # KG backend (backend type + backend_refs like Weaviate collection).
+        self._kg_index_path: Optional[str] = self._agent_config.get("kg_index_path")
         self._agent = None
         self._search_backend = None
         
@@ -432,20 +438,26 @@ class KnowledgeMerger:
             workspace: Working directory for the agent
         """
         try:
+            agent_specific: Dict[str, Any] = {
+                # Wiki MCP tools for KG operations
+                "allowed_tools": [
+                    "Read",
+                    "mcp__kg-graph-search__search_knowledge",
+                    "mcp__kg-graph-search__get_wiki_page",
+                    "mcp__kg-graph-search__kg_index",
+                    "mcp__kg-graph-search__kg_edit",
+                ],
+                "timeout": self._agent_config.get("timeout", 1800),
+            }
+
+            # Option A: propagate `.index` path to the MCP server via env.
+            if self._kg_index_path:
+                agent_specific["env_overrides"] = {"KG_INDEX_PATH": str(self._kg_index_path)}
+
             # Build config for Claude Code agent with wiki tools
             config = CodingAgentFactory.build_config(
                 agent_type="claude_code",
-                agent_specific={
-                    # Wiki MCP tools for KG operations
-                    "allowed_tools": [
-                        "Read",
-                        "mcp__kg-graph-search__search_knowledge",
-                        "mcp__kg-graph-search__get_wiki_page",
-                        "mcp__kg-graph-search__kg_index",
-                        "mcp__kg-graph-search__kg_edit",
-                    ],
-                    "timeout": self._agent_config.get("timeout", 1800),
-                }
+                agent_specific=agent_specific
             )
             
             self._agent = CodingAgentFactory.create(config)

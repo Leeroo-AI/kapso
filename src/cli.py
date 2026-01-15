@@ -220,7 +220,7 @@ Examples:
     print(f"Cost: {solution.metadata.get('cost', 'N/A')}")
     
     # Optionally learn from the solution for future runs
-    # tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
+    # tinkerer.learn(Source.Solution(solution), wiki_dir="data/wikis")
 
 
 if __name__ == "__main__":

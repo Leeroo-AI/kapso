@@ -351,8 +351,9 @@ class Tinkerer:
     def learn(
         self, 
         *sources: Union[Source.Repo, Source.Solution, Source.Research],
-        target_kg: str = "data/wikis",
+        wiki_dir: str = "data/wikis",
         skip_merge: bool = False,
+        kg_index: Optional[str] = None,
     ) -> "PipelineResult":
         """
         Learn from one or more knowledge sources.
@@ -366,7 +367,7 @@ class Tinkerer:
         
         Args:
             *sources: One or more Source objects.
-            target_kg: Path to a local wiki directory (e.g., `data/wikis`) used as
+            wiki_dir: Path to a local wiki directory (e.g., `data/wikis`) used as
                 the KG source-of-truth on disk.
                 
                 Note:
@@ -380,22 +381,32 @@ class Tinkerer:
             tinkerer.learn(
                 Source.Repo("https://github.com/user/repo"),
                 tinkerer.research("How to pick LoRA rank?", mode="idea"),
-                target_kg="data/wikis",
+                wiki_dir="data/wikis",
             )
         """
         if not sources:
             raise ValueError("learn() requires at least one source")
 
         # Backward-compatible handling: if a URL is provided, fall back to the default local wiki dir.
-        wiki_dir = target_kg
-        if isinstance(target_kg, str) and target_kg.startswith(("http://", "https://")):
+        resolved_wiki_dir = wiki_dir
+        if isinstance(wiki_dir, str) and wiki_dir.startswith(("http://", "https://")):
             print(
-                f"Warning: URL target_kg not supported yet ({target_kg}). "
-                f"Using local wiki_dir='data/wikis' instead."
+                f"Warning: URL wiki_dir not supported yet ({wiki_dir}). "
+                "Using local wiki_dir='data/wikis' instead."
             )
-            wiki_dir = "data/wikis"
+            resolved_wiki_dir = "data/wikis"
 
-        pipeline = KnowledgePipeline(wiki_dir=wiki_dir)
+        # Optional: propagate an existing `.index` file path into the merge agent.
+        #
+        # Why:
+        # - The KnowledgeMerger performs create/edit operations via an MCP server.
+        # - That MCP server now supports Option A: initializing from KG_INDEX_PATH.
+        # - We pass the index path through pipeline->merger so the Claude Code
+        #   subprocess can set KG_INDEX_PATH for the MCP server.
+        index_path = kg_index or getattr(self, "_kg_index_path", None)
+        merger_params = {"kg_index_path": index_path} if index_path else None
+
+        pipeline = KnowledgePipeline(wiki_dir=resolved_wiki_dir, merger_params=merger_params)
         result = pipeline.run(*sources, skip_merge=skip_merge)
 
         # Keep a small, user-friendly summary.

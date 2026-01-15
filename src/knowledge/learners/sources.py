@@ -8,7 +8,7 @@
 #     
 #     tinkerer.learn(
 #         Source.Repo("https://github.com/user/repo"),
-#         target_kg="https://skills.leeroo.com",
+#         wiki_dir="data/wikis",
 #     )
 #
 #     # Public web research (deep search)
@@ -34,7 +34,7 @@ class Source:
     Usage:
         tinkerer.learn(
             Source.Repo("https://github.com/user/repo"),
-            target_kg="https://skills.leeroo.com",
+            wiki_dir="data/wikis",
         )
     """
     

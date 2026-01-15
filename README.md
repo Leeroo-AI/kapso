@@ -27,10 +27,11 @@ titanic_research = tinkerer.research(
     mode="idea",
     depth="deep",
 )
+
 tinkerer.learn(
     Source.Repo("https://github.com/scikit-learn/scikit-learn"),
     titanic_research,
-    target_kg="data/wikis",
+    wiki_dir="data/wikis",
 )
 
 # Build a solution — the Tinkerer runs experiments automatically
@@ -53,7 +54,7 @@ result = software.run({"data_path": "./validation.csv"})  # Run again
 software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
-tinkerer.learn(Source.Solution(solution), target_kg="data/wikis")
+tinkerer.learn(Source.Solution(solution), wiki_dir="data/wikis")
 ```
 
 ## Web Research (Optional)
@@ -215,7 +216,7 @@ kaggler = Tinkerer(
 # 3. Learn from winning solutions and research
 kaggler.learn(
     Source.Repo("https://github.com/Kaggle/kaggle-api", branch="main"),
-    target_kg="data/wikis",
+    wiki_dir="data/wikis",
 )
 
 # 4. Build the ML pipeline for a tabular competition
@@ -234,7 +235,7 @@ software = kaggler.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"train_path": "./train.csv", "test_path": "./test.csv"})
 
 # 6. Learn from the build experience
-kaggler.learn(Source.Solution(solution), target_kg="data/wikis")
+kaggler.learn(Source.Solution(solution), wiki_dir="data/wikis")
 ```
 
 ### LLM Fine-Tuning Expert
@@ -296,7 +297,7 @@ software = data_eng.deploy(etl_pipeline, strategy=DeployStrategy.MODAL)
 result = software.run({"s3_bucket": "raw-data", "table": "events"})
 
 # 4. Learn from the successful build
-data_eng.learn(Source.Solution(etl_pipeline), target_kg="data/wikis")
+data_eng.learn(Source.Solution(etl_pipeline), wiki_dir="data/wikis")
 ```
 
 ## CLI Usage

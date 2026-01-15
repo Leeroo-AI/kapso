@@ -20,6 +20,10 @@ Usage:
     KG_SEARCH_BACKEND=kg_llm_navigation python -m src.knowledge.wiki_mcps.mcp_server
 
 Environment Variables:
+    KG_INDEX_PATH: Optional path to a Praxium `.index` file.
+        If set, the MCP server initializes the search backend from that file
+        (backend type + backend_refs like Weaviate collection).
+        This overrides `KG_SEARCH_BACKEND`.
     KG_SEARCH_BACKEND: Search backend to use (default: kg_graph_search)
         - kg_graph_search: Hybrid vector + graph search (Weaviate + Neo4j)
         - kg_llm_navigation: LLM-guided multi-hop navigation
@@ -32,6 +36,7 @@ Environment Variables:
 
 import logging
 import os
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +58,7 @@ from src.knowledge.search.factory import KnowledgeSearchFactory
 from src.knowledge.search.base import (
     KGSearchFilters,
     KGIndexInput,
+    KGIndexMetadata,
     KGEditInput,
     PageType,
     WikiPage,
@@ -69,6 +75,9 @@ logger = logging.getLogger(__name__)
 
 _search_backend = None
 _backend_type = None
+_index_path: Optional[str] = None
+_index_metadata: Optional[KGIndexMetadata] = None
+_index_data_source: Optional[str] = None
 
 
 def get_search_backend():
@@ -84,9 +93,49 @@ def get_search_backend():
     Returns:
         KnowledgeSearch instance
     """
-    global _search_backend, _backend_type
+    global _search_backend, _backend_type, _index_path, _index_metadata, _index_data_source
     if _search_backend is None:
-        # Read backend type from environment variable
+        # Option A: index-aware initialization.
+        #
+        # If KG_INDEX_PATH is set, we treat the `.index` file as the source of truth
+        # for which backend to use AND which backend refs to use (e.g. Weaviate
+        # collection name). This prevents drift between:
+        # - a Tinkerer instance that loaded a specific `.index`, and
+        # - the MCP server that Claude Code spawns for kg_index/kg_edit/search.
+        #
+        # If the index cannot be loaded, we fall back to env/default behavior.
+        _index_path = os.getenv("KG_INDEX_PATH")
+        if _index_path:
+            try:
+                index_path = Path(_index_path).expanduser().resolve()
+                if not index_path.exists():
+                    raise FileNotFoundError(f"Index file not found: {index_path}")
+
+                index_data = json.loads(index_path.read_text(encoding="utf-8"))
+                _index_metadata = KGIndexMetadata.from_dict(index_data)
+                _index_data_source = _index_metadata.data_source
+
+                # Backend type comes from the .index file.
+                # If missing, default to kg_graph_search.
+                _backend_type = (_index_metadata.search_backend or "").strip() or "kg_graph_search"
+                backend_refs = _index_metadata.backend_refs or {}
+
+                logger.info(
+                    f"Initializing search backend from KG_INDEX_PATH={str(index_path)!r}: {_backend_type}"
+                )
+                _search_backend = KnowledgeSearchFactory.create(_backend_type, params=backend_refs)
+                logger.info(
+                    f"Knowledge search backend '{_backend_type}' initialized from index "
+                    f"(data_source={_index_metadata.data_source!r})"
+                )
+                return _search_backend
+
+            except Exception as e:
+                # Best-effort fallback: keep the MCP server usable even if the
+                # index file is missing/corrupt or the backend can't initialize.
+                logger.warning(f"Failed to initialize from KG_INDEX_PATH={_index_path!r}: {e}")
+
+        # Fallback: Read backend type from environment variable.
         _backend_type = os.getenv("KG_SEARCH_BACKEND", "kg_graph_search")
         logger.info(f"Initializing search backend: {_backend_type}")
         _search_backend = KnowledgeSearchFactory.create(_backend_type)
@@ -104,10 +153,14 @@ def get_backend_type() -> str:
 
 def reset_search_backend():
     """Reset the search backend singleton (useful for testing)."""
-    global _search_backend
+    global _search_backend, _backend_type, _index_path, _index_metadata, _index_data_source
     if _search_backend is not None:
         _search_backend.close()
         _search_backend = None
+    _backend_type = None
+    _index_path = None
+    _index_metadata = None
+    _index_data_source = None
 
 
 # =============================================================================

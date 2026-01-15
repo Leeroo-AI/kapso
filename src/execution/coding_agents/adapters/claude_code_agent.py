@@ -95,6 +95,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "allowed_tools", 
             ["Edit", "Read", "Write", "Bash"]
         )
+        # Optional environment overrides for the Claude Code subprocess.
+        #
+        # Why:
+        # - Claude Code spawns MCP servers as subprocesses.
+        # - The simplest way to pass per-run configuration (like KG_INDEX_PATH)
+        #   into those MCP server processes is via inherited environment vars.
+        # - We keep this explicit to avoid relying on global os.environ mutation.
+        self._env_overrides: Dict[str, str] = {
+            str(k): str(v)
+            for k, v in (config.agent_specific.get("env_overrides") or {}).items()
+            if v is not None
+        }
         # Streaming: print Claude Code output live to terminal (default True for visibility)
         self._streaming = config.agent_specific.get("streaming", True)
         
@@ -561,6 +573,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             # Direct Anthropic mode: Ensure API key is available
             if "ANTHROPIC_API_KEY" not in env:
                 raise ValueError("ANTHROPIC_API_KEY not set")
+
+        # Apply caller-provided env overrides last so they take precedence.
+        if self._env_overrides:
+            env.update(self._env_overrides)
         
         return env
     
