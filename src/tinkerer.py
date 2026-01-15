@@ -29,6 +29,7 @@ from src.environment.handlers.generic import GenericProblemHandler
 from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
 from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.learners import Source, KnowledgePipeline
+from src.knowledge.web_research import DeepWebResearch, ResearchDepth, ResearchMode
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
@@ -143,6 +144,9 @@ class Tinkerer:
             print(f"Initialized Tinkerer")
         else:
             print(f"Initialized Tinkerer (Knowledge Graph: disabled)")
+
+        # Lazy-initialized web researcher (created on first `.research()` call).
+        self._web_researcher: Optional[DeepWebResearch] = None
     
     # =========================================================================
     # Knowledge Graph Indexing
@@ -311,6 +315,38 @@ class Tinkerer:
         print(f"  Index saved: {save_to} ({page_count} pages)")
         
         return str(save_path)
+
+    # =========================================================================
+    # Public Web Research
+    # =========================================================================
+
+    def research(
+        self,
+        objective: str,
+        *,
+        mode: ResearchMode = "both",
+        depth: ResearchDepth = "deep",
+    ) -> Source.Research:
+        """
+        Do deep public web research for an objective.
+        
+        Args:
+            objective: What you want to research on the public web.
+            mode: "idea" | "implementation" | "both"
+            depth: "light" | "deep"
+                Maps to OpenAI `reasoning.effort`:
+                - light -> "medium"
+                - deep  -> "high"
+        
+        Returns:
+            `Source.Research` (by default) so callers can:
+            - ingest it into the KG via `KnowledgePipeline.run(research_source)`, or
+            - inject it into `.evolve()` via `research_source.to_context_string()`.
+        """
+        if self._web_researcher is None:
+            self._web_researcher = DeepWebResearch()
+
+        return self._web_researcher.research(objective, mode=mode, depth=depth)
     
     def learn(
         self, 
@@ -381,6 +417,8 @@ class Tinkerer:
         evaluator_params: Optional[Dict[str, Any]] = None,
         stop_condition: str = "never",
         stop_condition_params: Optional[Dict[str, Any]] = None,
+        # --- Extra context options ---
+        additional_context: str = "",
     ) -> SolutionResult:
         """
         Evolve a solution for the given goal.
@@ -411,6 +449,9 @@ class Tinkerer:
             stop_condition: Stop condition (never, threshold, plateau, etc.)
             stop_condition_params: Parameters for stop condition
             
+            additional_context: Extra context appended to the problem prompt.
+                This is the intended integration point for `Source.Research.to_context_string()`.
+            
         Returns:
             SolutionResult with code_path, experiment_logs, and metadata
         """
@@ -436,6 +477,15 @@ class Tinkerer:
         
         # Build problem description
         problem = self._build_problem_description(goal, constraints)
+
+        # Combine knowledge context + caller-provided context.
+        #
+        # Why:
+        # - The system already uses `additional_context` to inject KG snippets.
+        # - Research should be injected the same way, without changing the orchestration flow.
+        kg_context = (self._get_kg_context() or "").strip()
+        user_context = (additional_context or "").strip()
+        combined_context = "\n\n".join([c for c in [kg_context, user_context] if c])
         
         # Create problem handler with all options
         handler = GenericProblemHandler(
@@ -448,7 +498,7 @@ class Tinkerer:
             evaluator_params=evaluator_params or {},
             stop_condition=stop_condition,
             stop_condition_params=stop_condition_params or {},
-            additional_context=self._get_kg_context(),
+            additional_context=combined_context,
         )
         
         # Create orchestrator

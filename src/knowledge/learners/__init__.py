@@ -56,6 +56,7 @@ from src.knowledge.learners.ingestors import (
     register_ingestor,
     RepoIngestor,
     ExperimentIngestor,
+    ResearchIngestor,
 )
 
 __all__ = [
@@ -81,6 +82,7 @@ __all__ = [
     "register_ingestor",
     "RepoIngestor",
     "ExperimentIngestor",
+    "ResearchIngestor",
 ]
 
 # Episodic Learner - learns from experiment history

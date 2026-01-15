@@ -50,6 +50,61 @@ software.stop()   # Final cleanup
 tinkerer.learn(Source.Solution(solution), target_kg="https://skills.leeroo.com")
 ```
 
+## Web Research (Optional)
+
+Praxium can do deep public web research via `Tinkerer.research()`. This is useful when:
+
+- Your Knowledge Graph (KG) does not have the needed information yet
+- You want fresh implementation references (official docs + popular repos)
+
+`research()` returns a `Source.Research` object (with `report_markdown` and `to_context_string()`).
+It supports:
+
+- `mode`: `"idea"` | `"implementation"` | `"both"`
+- `depth`: `"light"` | `"deep"` (maps to OpenAI `reasoning.effort="medium"` / `"high"`)
+
+### Research → Evolve (add context)
+
+```python
+from src.tinkerer import Tinkerer
+
+tinkerer = Tinkerer()
+
+research = tinkerer.research(
+    "unsloth FastLanguageModel example",
+    mode="implementation",
+    depth="deep",
+)
+
+solution = tinkerer.evolve(
+    goal="Fine-tune a model with Unsloth + LoRA",
+    additional_context=research.to_context_string(),
+    output_path="./models/unsloth_v1",
+)
+```
+
+### Research → KnowledgePipeline (ingest into KG)
+
+```python
+from src.tinkerer import Tinkerer
+from src.knowledge.learners import KnowledgePipeline
+
+tinkerer = Tinkerer()
+research = tinkerer.research(
+    "LoRA rank selection best practices",
+    mode="idea",
+    depth="deep",
+)
+
+pipeline = KnowledgePipeline(wiki_dir="data/wikis")
+
+# skip_merge=True extracts WikiPages only (does not require Neo4j/Weaviate).
+result = pipeline.run(research, skip_merge=True)
+print(result.total_pages_extracted)
+```
+
+Prompt templates live in `src/knowledge/web_research/prompts/`.
+
 ## Knowledge Graph Indexing
 
 Praxium uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
@@ -362,7 +417,7 @@ Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
 ```
 praxium/
 ├── src/
-│   ├── tinkerer.py              # Main Tinkerer API (learn, evolve, deploy, index_kg)
+│   ├── tinkerer.py              # Main Tinkerer API (learn, research, evolve, deploy, index_kg)
 │   ├── cli.py                 # CLI entry point
 │   ├── core/                  # LLM backend, config
 │   ├── deployment/            # Local, Docker, Cloud deployment
@@ -376,7 +431,8 @@ praxium/
 │   │   └── orchestrator.py    # Main coordination
 │   └── knowledge/
 │       ├── learners/          # Repo, Paper, File learners
-│       └── search/            # KG search backends (kg_graph_search, kg_llm_navigation)
+│       ├── search/            # KG search backends (kg_graph_search, kg_llm_navigation)
+│       └── web_research/      # Deep public web research (OpenAI web_search)
 ├── data/
 │   ├── indexes/               # .index files (KG references)
 │   ├── wikis_llm_finetuning/  # LLM fine-tuning wiki pages
@@ -480,7 +536,7 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 
 | Component | Description |
 |-----------|-------------|
-| `Tinkerer` | Main API - learn, evolve, deploy, index_kg |
+| `Tinkerer` | Main API - learn, research, evolve, deploy, index_kg |
 | `OrchestratorAgent` | Coordinates experimentation loop |
 | `SearchStrategy` | Tree/Linear search for solutions |
 | `CodingAgent` | Code generation (Aider, Gemini, etc.) |

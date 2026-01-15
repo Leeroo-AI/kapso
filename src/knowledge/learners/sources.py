@@ -10,6 +10,10 @@
 #         Source.Repo("https://github.com/user/repo"),
 #         target_kg="https://skills.leeroo.com",
 #     )
+#
+#     # Public web research (deep search)
+#     research = tinkerer.research("How to pick LoRA rank?", mode="idea")
+#     pipeline.run(research)
 
 from dataclasses import dataclass
 from typing import Any, Dict, TYPE_CHECKING
@@ -60,4 +64,38 @@ class Source:
         
         def to_dict(self) -> Dict[str, Any]:
             return {"solution": self.obj}
+
+    @dataclass
+    class Research:
+        """
+        Source from public web research.
+        
+        Produced by: Tinkerer.research()
+        Consumed by: KnowledgePipeline.run(...) via ResearchIngestor
+        
+        Notes:
+        - `report_markdown` is the only required artifact. It should include URLs inline.
+        - `mode` controls the shape of the report: "idea" | "implementation" | "both".
+        """
+        objective: str
+        mode: str  # "idea" | "implementation" | "both"
+        report_markdown: str
+        
+        def to_context_string(self) -> str:
+            """
+            Format research for LLM prompt context.
+            
+            Keep it simple and copy-paste friendly.
+            """
+            header = f"# Web Research ({self.mode})\nObjective: {self.objective}\n"
+            body = (self.report_markdown or "").strip()
+            return (header + "\n" + body).strip() if body else header.strip()
+        
+        def to_dict(self) -> Dict[str, Any]:
+            """Convert to dict (useful for logging/serialization)."""
+            return {
+                "objective": self.objective,
+                "mode": self.mode,
+                "report_markdown": self.report_markdown,
+            }
 

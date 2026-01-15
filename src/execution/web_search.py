@@ -4,6 +4,10 @@
 # - WebIdeaSearch: Searches web for concepts, principles, best practices
 # - WebCodeSearch: Searches web for code implementations and documentation
 #
+# NOTE:
+# Deep public research (returns `Source.Research` for KG ingestion) lives in
+# `src/knowledge/web_research/`. We import it here for convenience.
+#
 # Usage:
 #   from src.execution.web_search import WebIdeaSearch, WebCodeSearch
 #   
@@ -18,6 +22,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from openai import OpenAI
+
+from src.knowledge.web_research import DeepWebResearch, ResearchMode  # noqa: F401
 
 
 # =============================================================================
