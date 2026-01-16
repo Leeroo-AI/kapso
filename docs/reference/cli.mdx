@@ -1,0 +1,186 @@
+---
+title: "CLI Reference"
+description: "Command line interface options"
+---
+
+## MLE-Bench Runner
+
+```bash
+PYTHONPATH=. python -m benchmarks.mle.runner [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| `--competition` | `-c` | string | Required | Competition ID |
+| `--iterations` | `-i` | int | 20 | Max experiment iterations |
+| `--mode` | `-m` | string | `MLE_CONFIGS` | Configuration mode |
+| `--coding-agent` | `-d` | string | From config | Coding agent type |
+| `--no-kg` | - | flag | - | Disable knowledge graph |
+| `--list` | - | flag | - | List all competitions |
+| `--lite` | - | flag | - | List lite competitions |
+| `--list-agents` | - | flag | - | List coding agents |
+
+### Examples
+
+```bash
+# Solve a competition
+PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-2021
+
+# With custom settings
+PYTHONPATH=. python -m benchmarks.mle.runner \
+    -c spooky-author-identification \
+    -i 10 \
+    -m MINIMAL \
+    -d gemini \
+    --no-kg
+
+# List competitions
+PYTHONPATH=. python -m benchmarks.mle.runner --list
+PYTHONPATH=. python -m benchmarks.mle.runner --lite
+```
+
+---
+
+## ALE-Bench Runner
+
+```bash
+PYTHONPATH=. python -m benchmarks.ale.runner [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| `--problem` | `-p` | string | Required | Problem ID (e.g., `ahc039`) |
+| `--iterations` | `-i` | int | 14 | Max experiment iterations |
+| `--mode` | `-m` | string | `ALE_CONFIGS` | Configuration mode |
+| `--coding-agent` | `-d` | string | From config | Coding agent type |
+| `--list` | - | flag | - | List all problems |
+| `--lite` | - | flag | - | List lite problems |
+| `--list-agents` | - | flag | - | List coding agents |
+
+### Examples
+
+```bash
+# Solve a problem
+PYTHONPATH=. python -m benchmarks.ale.runner -p ahc039
+
+# With custom settings
+PYTHONPATH=. python -m benchmarks.ale.runner \
+    -p ahc039 \
+    -i 10 \
+    -m MINIMAL
+
+# List problems
+PYTHONPATH=. python -m benchmarks.ale.runner --list
+```
+
+---
+
+## Generic Runner
+
+```bash
+PYTHONPATH=. python -m src.runner [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Type | Default | Description |
+|--------|-------|------|---------|-------------|
+| `--problem` | `-p` | string | - | Problem description (inline) |
+| `--problem-file` | `-f` | string | - | File with problem description |
+| `--iterations` | `-i` | int | 10 | Max experiment iterations |
+| `--mode` | `-m` | string | `GENERIC` | Configuration mode |
+| `--coding-agent` | `-d` | string | From config | Coding agent type |
+| `--main-file` | - | string | `main.py` | Entry point file |
+| `--language` | - | string | `python` | Programming language |
+| `--timeout` | - | int | 300 | Execution timeout (seconds) |
+| `--evaluator` | - | string | `no_score` | Evaluator type |
+| `--stop-condition` | - | string | `never` | Stop condition type |
+| `--context` | - | string | - | Additional context |
+| `--list-agents` | - | flag | - | List coding agents |
+| `--list-evaluators` | - | flag | - | List evaluator types |
+| `--list-stop-conditions` | - | flag | - | List stop condition types |
+
+### Examples
+
+```bash
+# Inline problem
+PYTHONPATH=. python -m src.runner -p "Create a prime number generator"
+
+# From file
+PYTHONPATH=. python -m src.runner -f problem.txt -i 10
+
+# With scoring
+PYTHONPATH=. python -m src.runner \
+    -f problem.txt \
+    --evaluator regex_pattern \
+    --stop-condition threshold
+
+# List options
+PYTHONPATH=. python -m src.runner --list-evaluators
+PYTHONPATH=. python -m src.runner --list-stop-conditions
+```
+
+---
+
+## Coding Agents
+
+Available agents (use with `-d`):
+
+| Agent | Description |
+|-------|-------------|
+| `aider` | Aider CLI tool (default) |
+| `gemini` | Google Gemini API |
+| `claude_code` | Anthropic Claude |
+| `openhands` | OpenHands platform |
+
+List with details:
+```bash
+PYTHONPATH=. python -m benchmarks.mle.runner --list-agents
+```
+
+---
+
+## Configuration Modes
+
+### MLE-Bench
+
+| Mode | Description |
+|------|-------------|
+| `MLE_CONFIGS` | Production (full features) |
+| `HEAVY_EXPERIMENTATION` | Many parallel experiments |
+| `LINEAR` | Sequential search (testing) |
+| `MINIMAL` | Fast testing mode |
+
+### ALE-Bench
+
+| Mode | Description |
+|------|-------------|
+| `ALE_CONFIGS` | Production |
+
+### Generic
+
+| Mode | Description |
+|------|-------------|
+| `GENERIC` | Standard configuration |
+| `MINIMAL` | Fast testing mode |
+| `TREE_SEARCH` | Tree search for complex problems |
+| `SCORED` | With regex evaluator |
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | OpenAI API key |
+| `GOOGLE_API_KEY` | Yes | Google API key |
+| `ANTHROPIC_API_KEY` | No | Anthropic API key |
+| `CUDA_DEVICE` | No | GPU device ID (default: 0) |
+| `NEO4J_URI` | No | Neo4j connection URI |
+| `NEO4J_USER` | No | Neo4j username |
+| `NEO4J_PASSWORD` | No | Neo4j password |
+

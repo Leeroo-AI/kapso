@@ -1,0 +1,905 @@
+---
+title: "API Reference"
+description: "Complete API documentation for the deployment module"
+---
+
+## Module Exports
+
+```python
+from src.deployment import (
+    # Main factory
+    DeploymentFactory,
+    
+    # Enums and configs
+    DeployStrategy,
+    DeployConfig,
+    
+    # Data classes
+    DeploymentSetting,
+    AdaptationResult,
+    DeploymentInfo,
+    
+    # Base classes
+    Software,
+)
+```
+
+---
+
+## DeploymentFactory
+
+Factory for creating deployed Software instances.
+
+### Methods
+
+#### create()
+
+Create a deployed Software instance.
+
+```python
+@classmethod
+def create(
+    cls,
+    strategy: DeployStrategy,
+    config: DeployConfig,
+    strategies: Optional[List[str]] = None,
+) -> Software
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `strategy` | `DeployStrategy` | Deployment target (AUTO, LOCAL, DOCKER, etc.) |
+| `config` | `DeployConfig` | Deployment configuration |
+| `strategies` | `List[str]` | Optional list of allowed strategies (for AUTO) |
+
+**Returns:** `Software` instance with unified interface
+
+**Raises:** 
+- `ValueError` if strategy not in allowed list
+- `RuntimeError` if adaptation fails
+
+**Example:**
+
+```python
+from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
+
+config = DeployConfig(
+    solution=my_solution,
+    env_vars={"API_KEY": "xxx"},
+    timeout=300,
+)
+
+# Auto-select best strategy
+software = DeploymentFactory.create(DeployStrategy.AUTO, config)
+
+# Force specific strategy
+software = DeploymentFactory.create(DeployStrategy.MODAL, config)
+
+# Restrict to certain strategies
+software = DeploymentFactory.create(
+    DeployStrategy.AUTO, 
+    config,
+    strategies=["local", "docker"]
+)
+```
+
+---
+
+#### list_strategies()
+
+List all available deployment strategies.
+
+```python
+@classmethod
+def list_strategies(cls) -> List[str]
+```
+
+**Returns:** List of strategy names
+
+**Example:**
+
+```python
+strategies = DeploymentFactory.list_strategies()
+print(strategies)
+# ['bentoml', 'docker', 'langgraph', 'local', 'modal']
+```
+
+---
+
+#### explain_strategy()
+
+Get explanation of a deployment strategy.
+
+```python
+@classmethod
+def explain_strategy(cls, strategy: str) -> str
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `strategy` | `str` | Strategy name |
+
+**Returns:** One-line description from selector instruction
+
+**Example:**
+
+```python
+desc = DeploymentFactory.explain_strategy("modal")
+print(desc)
+# "Serverless GPU deployment on Modal.com with auto-scaling."
+```
+
+---
+
+#### print_strategies_info()
+
+Print information about all deployment strategies.
+
+```python
+@classmethod
+def print_strategies_info(cls) -> None
+```
+
+**Example:**
+
+```python
+DeploymentFactory.print_strategies_info()
+# Available Deployment Strategies:
+# ==================================================
+#   bentoml: Production ML service deployment...
+#   docker: Run in an isolated Docker container...
+#   ...
+```
+
+---
+
+## DeployStrategy
+
+Enum of available deployment strategies. **Auto-generated** from `strategies/` directory.
+
+```python
+from src.deployment import DeployStrategy
+
+# Always available
+DeployStrategy.AUTO      # Let system choose
+
+# Discovered from strategies/
+DeployStrategy.LOCAL     # Local Python process
+DeployStrategy.DOCKER    # Docker container
+DeployStrategy.MODAL     # Modal.com serverless
+DeployStrategy.BENTOML   # BentoML/BentoCloud
+DeployStrategy.LANGGRAPH # LangGraph Platform
+```
+
+**Usage:**
+
+```python
+# Use enum value
+strategy = DeployStrategy.MODAL
+
+# Get string value
+print(strategy.value)  # "modal"
+
+# Compare
+if strategy == DeployStrategy.AUTO:
+    print("Auto-selecting...")
+```
+
+---
+
+## DeployConfig
+
+Configuration for deploying software.
+
+```python
+@dataclass
+class DeployConfig:
+    solution: SolutionResult
+    env_vars: Dict[str, str] = None
+    timeout: int = 300
+    coding_agent: str = "claude_code"
+```
+
+**Fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `solution` | `SolutionResult` | Required | The built solution from `Tinkerer.evolve()` |
+| `env_vars` | `Dict[str, str]` | `{}` | Environment variables |
+| `timeout` | `int` | `300` | Execution timeout in seconds |
+| `coding_agent` | `str` | `"claude_code"` | Coding agent for adaptation |
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `code_path` | `str` | Path to the generated code |
+| `goal` | `str` | The original goal/objective |
+
+**Example:**
+
+```python
+from src.deployment import DeployConfig
+
+config = DeployConfig(
+    solution=solution,
+    env_vars={
+        "API_KEY": "xxx",
+        "DEBUG": "true",
+    },
+    timeout=600,
+    coding_agent="gemini",
+)
+
+print(config.code_path)  # "/path/to/solution"
+print(config.goal)       # "Create a sentiment API"
+```
+
+---
+
+## Software (Abstract Base Class)
+
+Unified interface for deployed software. Users interact with this class.
+
+### Methods
+
+#### run()
+
+Execute the software with given inputs.
+
+```python
+@abstractmethod
+def run(self, inputs: Union[Dict, str, bytes]) -> Dict[str, Any]
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `inputs` | `Dict`, `str`, or `bytes` | Input data |
+
+**Returns:** Normalized response dictionary
+
+**Response Format:**
+
+```python
+# Success
+{
+    "status": "success",
+    "output": {...}  # Your result
+}
+
+# Error
+{
+    "status": "error",
+    "error": "Error message"
+}
+```
+
+**Example:**
+
+```python
+result = software.run({"text": "hello"})
+
+if result["status"] == "success":
+    print(result["output"])
+else:
+    print(f"Error: {result['error']}")
+```
+
+---
+
+#### stop()
+
+Stop the software and cleanup resources.
+
+```python
+@abstractmethod
+def stop(self) -> None
+```
+
+**Behavior by Strategy:**
+
+| Strategy | What `stop()` Does |
+|----------|-------------------|
+| **LOCAL** | Unloads Python module from `sys.modules` |
+| **DOCKER** | Stops and removes the Docker container |
+| **MODAL** | Runs `modal app stop` to terminate the deployment |
+| **BENTOML** | Runs `bentoml deployment terminate` to stop the service |
+| **LANGGRAPH** | Deletes the conversation thread and disconnects |
+
+**Example:**
+
+```python
+software.stop()
+print(software.is_healthy())  # False
+```
+
+---
+
+#### start()
+
+Start or restart a stopped deployment.
+
+```python
+@abstractmethod
+def start(self) -> None
+```
+
+**Behavior by Strategy:**
+
+| Strategy | What `start()` Does |
+|----------|---------------------|
+| **LOCAL** | Reloads the Python module |
+| **DOCKER** | Creates and starts a new container |
+| **MODAL** | Re-lookups the Modal function |
+| **BENTOML** | Re-deploys by running `deploy.py` from code_path |
+| **LANGGRAPH** | Reconnects to LangGraph Platform |
+
+**Example:**
+
+```python
+# After stop()
+software.stop()
+print(software.is_healthy())  # False
+
+# Restart
+software.start()
+print(software.is_healthy())  # True
+
+# Can run again
+result = software.run({"text": "hello again"})
+```
+
+---
+
+#### logs()
+
+Get execution logs.
+
+```python
+@abstractmethod
+def logs(self) -> str
+```
+
+**Returns:** Log content as string
+
+**Example:**
+
+```python
+print(software.logs())
+# Initialized local deployment
+# run() called with: {"text": "hello"}
+# run() completed: status=success
+```
+
+---
+
+#### is_healthy()
+
+Check if software is running and healthy.
+
+```python
+@abstractmethod
+def is_healthy(self) -> bool
+```
+
+**Returns:** `True` if healthy, `False` otherwise
+
+**Example:**
+
+```python
+if software.is_healthy():
+    result = software.run(inputs)
+else:
+    print("Software not healthy!")
+```
+
+---
+
+#### name (property)
+
+Return the deployment strategy name.
+
+```python
+@property
+@abstractmethod
+def name(self) -> str
+```
+
+**Example:**
+
+```python
+print(software.name)  # "modal"
+```
+
+---
+
+### Convenience Methods
+
+#### __call__()
+
+Shorthand for `run()`.
+
+```python
+# These are equivalent
+result = software.run(inputs)
+result = software(inputs)
+```
+
+---
+
+#### run_batch()
+
+Run multiple inputs in sequence.
+
+```python
+def run_batch(self, inputs_list: List[Any]) -> List[Dict[str, Any]]
+```
+
+**Example:**
+
+```python
+results = software.run_batch([
+    {"text": "hello"},
+    {"text": "world"},
+    {"text": "test"},
+])
+
+for result in results:
+    print(result["output"])
+```
+
+---
+
+#### Context Manager Support
+
+```python
+with DeploymentFactory.create(strategy, config) as software:
+    result = software.run(inputs)
+# software.stop() called automatically
+```
+
+---
+
+## DeployedSoftware
+
+Concrete implementation of `Software`. Wraps any runner with unified interface.
+
+### Additional Methods
+
+#### get_adapted_path()
+
+Get path to the adapted code.
+
+```python
+def get_adapted_path(self) -> str
+```
+
+**Example:**
+
+```python
+path = software.get_adapted_path()
+print(path)  # "/path/to/solution_adapted_modal"
+```
+
+---
+
+#### get_endpoint()
+
+Get HTTP endpoint if applicable.
+
+```python
+def get_endpoint(self) -> Optional[str]
+```
+
+**Returns:** Endpoint URL or `None`
+
+**Example:**
+
+```python
+endpoint = software.get_endpoint()
+if endpoint:
+    print(f"API available at: {endpoint}")
+```
+
+---
+
+#### get_deployment_info()
+
+Get full deployment metadata.
+
+```python
+def get_deployment_info(self) -> Dict[str, Any]
+```
+
+**Returns:**
+
+```python
+{
+    "strategy": "modal",
+    "provider": "modal",
+    "endpoint": "https://...",
+    "adapted_path": "/path/to/...",
+    "adapted_files": ["modal_app.py", "main.py"],
+    "resources": {"gpu": "T4", "memory": "16Gi"},
+}
+```
+
+---
+
+#### get_strategy()
+
+Get the deployment strategy name.
+
+```python
+def get_strategy(self) -> str
+```
+
+---
+
+#### get_provider()
+
+Get the cloud provider name.
+
+```python
+def get_provider(self) -> Optional[str]
+```
+
+---
+
+## Data Classes
+
+### DeploymentSetting
+
+Result of strategy selection.
+
+```python
+@dataclass
+class DeploymentSetting:
+    strategy: str              # "local", "docker", "modal", etc.
+    provider: Optional[str]    # Cloud provider name
+    resources: Dict[str, Any]  # Resource requirements
+    interface: str             # "function", "http", etc.
+    reasoning: str             # Why this was selected
+```
+
+---
+
+### AdaptationResult
+
+Result of code adaptation.
+
+```python
+@dataclass
+class AdaptationResult:
+    success: bool
+    adapted_path: str           # Path to adapted repo
+    run_interface: Dict[str, Any]
+    files_changed: List[str] = field(default_factory=list)
+    error: Optional[str] = None
+```
+
+---
+
+### DeploymentInfo
+
+Metadata about the deployment.
+
+```python
+@dataclass
+class DeploymentInfo:
+    strategy: str
+    provider: Optional[str] = None
+    endpoint: Optional[str] = None
+    adapted_path: str = ""
+    adapted_files: List[str] = field(default_factory=list)
+    resources: Dict[str, Any] = field(default_factory=dict)
+```
+
+---
+
+## SelectorAgent
+
+LLM-based strategy selection agent.
+
+```python
+from src.deployment.selector.agent import SelectorAgent
+```
+
+### Methods
+
+#### select()
+
+Select deployment configuration for a solution.
+
+```python
+def select(
+    self,
+    solution: SolutionResult,
+    allowed_strategies: Optional[List[str]] = None,
+    resources: Optional[Dict[str, Any]] = None,
+) -> DeploymentSetting
+```
+
+---
+
+#### explain()
+
+Get human-readable explanation of selection.
+
+```python
+def explain(self, solution: SolutionResult) -> str
+```
+
+**Example:**
+
+```python
+selector = SelectorAgent()
+explanation = selector.explain(solution)
+print(explanation)
+# Deployment Selection Analysis
+# ========================================
+# 
+# Strategy:  modal
+# Interface: function
+# Provider:  modal
+# Resources: {'gpu': 'T4', 'memory': '16Gi'}
+# 
+# Reasoning: GPU workload detected (torch dependency)
+```
+
+---
+
+## AdapterAgent
+
+Code transformation and deployment agent.
+
+```python
+from src.deployment.adapter.agent import AdapterAgent
+```
+
+### Methods
+
+#### adapt()
+
+Adapt a solution for deployment.
+
+```python
+def adapt(
+    self,
+    solution: SolutionResult,
+    setting: DeploymentSetting,
+    allowed_strategies: Optional[List[str]] = None,
+) -> AdaptationResult
+```
+
+**Note:** Creates a copy of the solution at `{code_path}_adapted_{strategy}`. Original is never modified.
+
+---
+
+## StrategyRegistry
+
+Auto-discovery system for deployment strategies.
+
+```python
+from src.deployment.strategies import StrategyRegistry
+```
+
+### Methods
+
+#### get()
+
+Get singleton registry instance.
+
+```python
+@classmethod
+def get(cls) -> StrategyRegistry
+```
+
+---
+
+#### list_strategies()
+
+List available strategy names.
+
+```python
+def list_strategies(self, allowed: Optional[List[str]] = None) -> List[str]
+```
+
+---
+
+#### get_strategy()
+
+Get strategy config by name.
+
+```python
+def get_strategy(self, name: str) -> DeployStrategyConfig
+```
+
+---
+
+#### get_selector_instruction()
+
+Get selector instruction content.
+
+```python
+def get_selector_instruction(self, name: str) -> str
+```
+
+---
+
+#### get_adapter_instruction()
+
+Get adapter instruction content.
+
+```python
+def get_adapter_instruction(self, name: str) -> str
+```
+
+---
+
+#### get_runner_class()
+
+Get the runner class for a strategy.
+
+```python
+def get_runner_class(self, name: str) -> type
+```
+
+---
+
+#### get_default_run_interface()
+
+Get default run interface from config.yaml.
+
+```python
+def get_default_run_interface(self, name: str) -> Dict[str, Any]
+```
+
+---
+
+## Runner (Abstract Base Class)
+
+Base class for strategy-specific runners.
+
+```python
+from src.deployment.strategies.base import Runner
+```
+
+### Lifecycle
+
+Runners follow this lifecycle:
+1. `__init__()` → Ready state
+2. `run()` → Execute (can be called multiple times)
+3. `stop()` → Stopped state (resources cleaned up)
+4. `start()` → Ready state (can run again)
+
+```
+┌─────────────┐    stop()    ┌─────────────┐
+│   READY     │ ──────────>  │   STOPPED   │
+│ is_healthy  │              │ !is_healthy │
+│   = True    │  <──────────  │   = False   │
+└─────────────┘    start()   └─────────────┘
+```
+
+### Abstract Methods
+
+```python
+class Runner(ABC):
+    @abstractmethod
+    def run(self, inputs: Union[Dict, str, bytes]) -> Any:
+        """Execute with inputs and return result."""
+        pass
+    
+    @abstractmethod
+    def start(self) -> None:
+        """Start or restart the runner."""
+        pass
+    
+    @abstractmethod
+    def stop(self) -> None:
+        """Stop and cleanup resources."""
+        pass
+    
+    @abstractmethod
+    def is_healthy(self) -> bool:
+        """Check if runner is healthy."""
+        pass
+    
+    def get_logs(self) -> str:
+        """Get runner logs (default: empty)."""
+        return ""
+```
+
+---
+
+## Complete Usage Example
+
+```python
+from src.tinkerer import Tinkerer
+from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
+
+# 1. Build a solution
+tinkerer = Tinkerer()
+solution = tinkerer.evolve("Create a text embedding API using sentence-transformers")
+
+# 2. Deploy with auto-selection
+software = tinkerer.deploy(solution)
+print(f"Deployed using: {software.name}")
+print(f"Endpoint: {software.get_endpoint()}")
+
+# 3. Use the software
+result = software.run({"text": "Hello world"})
+if result["status"] == "success":
+    embeddings = result["output"]["embeddings"]
+    print(f"Got {len(embeddings)} dimensional embeddings")
+
+# 4. Batch processing
+texts = ["text 1", "text 2", "text 3"]
+results = software.run_batch([{"text": t} for t in texts])
+
+# 5. Check health
+if software.is_healthy():
+    print("Service is healthy")
+
+# 6. Get logs for debugging
+print(software.logs())
+
+# 7. Get deployment details
+info = software.get_deployment_info()
+print(f"Strategy: {info['strategy']}")
+print(f"Adapted path: {info['adapted_path']}")
+
+# 8. Stop and restart (full lifecycle)
+software.stop()
+print(f"Is healthy after stop: {software.is_healthy()}")  # False
+
+software.start()
+print(f"Is healthy after start: {software.is_healthy()}")  # True
+
+# 9. Run again after restart
+result = software.run({"text": "Working again!"})
+
+# 10. Final cleanup
+software.stop()
+```
+
+---
+
+## Error Handling
+
+```python
+try:
+    software = DeploymentFactory.create(DeployStrategy.MODAL, config)
+    result = software.run(inputs)
+    
+    if result["status"] == "error":
+        print(f"Execution error: {result['error']}")
+        
+except ValueError as e:
+    print(f"Invalid configuration: {e}")
+    
+except RuntimeError as e:
+    print(f"Deployment failed: {e}")
+    
+finally:
+    if 'software' in locals():
+        software.stop()
+```
+
+---
+
+## Environment Variables
+
+| Variable | Strategy | Description |
+|----------|----------|-------------|
+| `MODAL_TOKEN_ID` | Modal | Modal authentication |
+| `MODAL_TOKEN_SECRET` | Modal | Modal authentication |
+| `LANGSMITH_API_KEY` | LangGraph | LangSmith API key |
+| `BENTOML_API_TOKEN` | BentoML | BentoCloud authentication |
+

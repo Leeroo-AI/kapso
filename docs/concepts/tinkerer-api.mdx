@@ -1,0 +1,158 @@
+---
+title: Tinkerer API
+description: The high-level Tinkerer Agent API for building robust software from knowledge
+---
+
+# Tinkerer API
+
+The Tinkerer API provides a clean interface for the "Brain to Binary" workflow.
+
+## Philosophy: From Brain to Binary
+
+The goal is to bridge the gap between **Abstract Knowledge** (what a tinkerer knows) and **Robust Software** (what an engineer builds).
+
+The system operationalizes the scientific method for software generation:
+
+> **Hypothesis (KG) + Experiment (Search/Trial) = Theory (Robust Software)**
+
+## The Lifecycle
+
+The user journey follows a strict lifecycle that separates **Creation** (expensive, intelligent) from **Execution** (cheap, fast).
+
+1. **Knowledge (The "Brain")**: The Tinkerer ingests knowledge from various sources (Repos, Papers, Heuristics) to build the Knowledge Graph (KG).
+
+2. **Fabrication (The "Build")**: The User defines a Goal and Context. The Tinkerer runs experiments to find the best implementation. Output: A `Solution` object.
+
+3. **Reinforcement (The "Loop")**: The Tinkerer learns from the `Solution`. This updates the KG for future builds.
+
+4. **Deployment (The "Live")**: The `Solution` is deployed as `Software` (Local, Docker, or Cloud) with a universal `.run()` interface.
+
+## Quick Start
+
+```python
+from src.tinkerer import Tinkerer, Source, DeployStrategy
+
+# 1. Initialize
+tinkerer = Tinkerer()
+
+# 2. Learn
+tinkerer.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
+
+# 3. Build
+solution = tinkerer.evolve(goal="Create a triage agent")
+
+# 4. Deploy & Run
+software = solution.deploy(strategy=DeployStrategy.LOCAL)
+result = software.run({"symptoms": "headache"})
+```
+
+## Core Abstractions
+
+### Tinkerer
+
+The central intelligence. It holds the KG and manages the build process.
+
+```python
+tinkerer = Tinkerer(
+    kg_location="./my_brain",  # Path to persist KG
+)
+```
+
+### Source
+
+A typed wrapper for knowledge inputs.
+
+| Source Type | Description |
+|-------------|-------------|
+| `Source.Repo(url)` | Git repository |
+| `Source.Solution(obj)` | Previous solution (experiment logs) |
+
+### SolutionResult
+
+The artifact produced by `.evolve()`. Contains:
+
+- **Code**: The generated Python package / Dockerfile
+- **Logs**: The trace of experiments run during the build
+- **Context**: The original goal and constraints
+
+```python
+solution = tinkerer.evolve(
+    goal="Momentum trading bot",
+    constraints=["latency < 50ms"],
+    max_iterations=10,
+)
+
+print(solution.explain())  # Show experiment history
+```
+
+### Software
+
+The running instance of a deployed Solution. Supports full lifecycle management.
+
+| Method | Description |
+|--------|-------------|
+| `.run(input)` | Execute with input data |
+| `.stop()` | Shutdown and cleanup resources |
+| `.start()` | Restart a stopped deployment |
+| `.logs()` | Get execution logs |
+| `.is_healthy()` | Health check |
+
+### DeployStrategy
+
+| Strategy | Description |
+|----------|-------------|
+| `LOCAL` | Run as local process (fast, for development) |
+| `DOCKER` | Run in Docker container (isolated, for testing) |
+| `CLOUD` | Deploy to cloud infrastructure (scalable, for production) |
+
+## Implementation
+
+The Tinkerer API is implemented in:
+
+- `src/tinkerer.py`: Main entry point with `Tinkerer`, `Source`, `SolutionResult`
+- `src/knowledge/learners/`: Knowledge learning pipeline
+  - `knowledge_learner_pipeline.py`: Main `KnowledgePipeline` orchestrator
+  - `knowledge_merger.py`: Stage 2 merger for integrating pages into KG
+  - `sources.py`: Source type wrappers (`Source.Repo`, `Source.Solution`)
+  - `ingestors/`: Stage 1 ingestors
+    - `repo_ingestor/`: 7-phase two-branch extraction pipeline
+    - `experiment_ingestor.py`: Experiment log extraction (basic)
+- `src/deployment/`: Modular deployment system with `DeploymentFactory`
+
+## Example: Full Flow
+
+```python
+from src.tinkerer import Tinkerer, Source, DeployStrategy
+
+# Initialize tinkerer
+quant = Tinkerer()
+
+# Learn from various sources
+quant.learn(
+    Source.Repo("https://github.com/alpaca/alpaca-py"),
+    wiki_dir="data/wikis",
+)
+
+# Build a trading bot
+solution = quant.evolve(
+    goal="Momentum Bot for SP500",
+    constraints=["latency < 50ms", "max_drawdown < 2%"],
+    output_path="./bots/sp500_v1"
+)
+
+# Learn from the build experience (feedback loop)
+quant.learn(Source.Solution(solution), wiki_dir="data/wikis")
+
+# Deploy and run
+software = solution.deploy(strategy=DeployStrategy.LOCAL)
+result = software.run({"ticker": "AAPL", "price": 150.0})
+
+# Lifecycle: stop, restart, run again
+software.stop()
+software.start()
+result = software.run({"ticker": "MSFT", "price": 400.0})
+software.stop()
+```
+
+See `examples/tinkerer_demo.py` for a runnable demonstration.
+

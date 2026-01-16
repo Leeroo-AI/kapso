@@ -1,0 +1,197 @@
+---
+title: "Configuration"
+description: "YAML configuration reference"
+---
+
+Tinkerer Agent uses YAML configuration files to define modes, strategies, and component settings.
+
+## Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `src/config.yaml` | Generic runner configuration |
+| `benchmarks/mle/config.yaml` | MLE-Bench configuration |
+| `benchmarks/ale/config.yaml` | ALE-Bench configuration |
+
+## Structure
+
+```yaml
+# Default mode to use
+default_mode: MLE_CONFIGS
+
+# Available modes
+modes:
+  MLE_CONFIGS:
+    search_strategy:
+      type: "llm_tree_search"
+      params: {...}
+    
+    coding_agent:
+      type: "aider"
+      model: "gpt-4.1"
+    
+    context_manager:
+      type: "kg_enriched"
+      params: {...}
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: true
+      params: {...}
+```
+
+## Search Strategy
+
+<Tabs>
+  <Tab title="LLM Tree Search">
+    ```yaml
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        reasoning_effort: "high"      # low, medium, high
+        code_debug_tries: 15          # Max debug attempts
+        node_expansion_limit: 2       # Nodes expanded per iteration
+        node_expansion_new_childs_count: 5  # Solutions per expansion
+        idea_generation_steps: 2      # Refinement steps
+        first_experiment_factor: 1    # First iteration multiplier
+        experimentation_per_run: 1    # Experiments per iteration
+        per_step_maximum_solution_count: 10
+        exploration_budget_percent: 30  # When to switch to exploitation
+        idea_generation_model: "gemini/gemini-2.5-pro"
+        idea_generation_ensemble_models:
+          - "o3"
+          - "gemini/gemini-2.5-pro"
+    ```
+  </Tab>
+  <Tab title="Linear Search">
+    ```yaml
+    search_strategy:
+      type: "linear_search"
+      params:
+        code_debug_tries: 5
+        idea_generation_model: "gpt-4.1-mini"
+    ```
+  </Tab>
+</Tabs>
+
+## Coding Agent
+
+```yaml
+coding_agent:
+  type: "aider"           # aider, gemini, claude_code, openhands
+  model: "gpt-4.1"        # Primary model
+  debug_model: "gpt-4.1-mini"  # Model for debugging
+```
+
+Override via CLI: `--coding-agent gemini`
+
+## Context Manager
+
+```yaml
+context_manager:
+  type: "kg_enriched"
+  params:
+    max_experiment_history_count: 5   # Top experiments to include
+    max_recent_experiment_count: 5    # Recent experiments to include
+```
+
+## Knowledge Search
+
+```yaml
+knowledge_search:
+  type: "kg_llm_navigation"
+  enabled: true
+  params:
+    search_top_k: 1           # Initial nodes to find
+    navigation_steps: 3       # Graph navigation depth
+    expansion_limit: 3        # Nodes per step
+    search_node_type: "specialization"
+```
+
+Or use a preset:
+```yaml
+knowledge_search:
+  type: "kg_llm_navigation"
+  enabled: true
+  preset: "DEEP_SEARCH"
+```
+
+## Evaluator (Generic Runner)
+
+```yaml
+evaluator:
+  type: "regex_pattern"
+  params:
+    pattern: 'SCORE:\s*([-+]?\d*\.?\d+)'
+    default_score: 0.0
+```
+
+Available types:
+- `no_score` - Always returns 0
+- `regex_pattern` - Parse score from output
+- `file_json` - Read score from JSON file
+- `llm_judge` - LLM-based evaluation
+
+## Stop Condition (Generic Runner)
+
+```yaml
+stop_condition:
+  type: "composite"
+  params:
+    conditions:
+      - ["threshold", {"threshold": 0.95}]
+      - ["max_iterations", {"max_iter": 50}]
+    mode: "any"
+```
+
+Available types:
+- `never` - Run all iterations
+- `threshold` - Stop at score threshold
+- `plateau` - Stop if no improvement
+- `composite` - Combine conditions
+
+## Example Modes
+
+### Production (MLE-Bench)
+```yaml
+MLE_CONFIGS:
+  search_strategy:
+    type: "llm_tree_search"
+    params:
+      reasoning_effort: "high"
+      code_debug_tries: 15
+  coding_agent:
+    type: "aider"
+    model: "o3"
+  knowledge_search:
+    enabled: true
+```
+
+### Testing
+```yaml
+MINIMAL:
+  search_strategy:
+    type: "llm_tree_search"
+    params:
+      reasoning_effort: "medium"
+      code_debug_tries: 2
+  coding_agent:
+    type: "aider"
+    model: "gpt-4.1-mini"
+  knowledge_search:
+    enabled: false
+```
+
+## CLI Override
+
+Most settings can be overridden via CLI:
+
+```bash
+PYTHONPATH=. python -m benchmarks.mle.runner \
+    -c competition \
+    -m MINIMAL \           # Mode override
+    -d gemini \            # Coding agent override
+    -i 10 \                # Iterations override
+    --no-kg                # Disable knowledge graph
+```
+

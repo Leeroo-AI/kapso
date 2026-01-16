@@ -1,0 +1,153 @@
+---
+title: "Search Strategies"
+description: "Pluggable algorithms for solution exploration"
+---
+
+Search strategies control how Tinkerer Agent explores the solution space. They're registered via factory and configured in YAML.
+
+## Available Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `llm_tree_search` | Tree-based exploration with LLM-guided expand/select/prune |
+| `linear_search` | Simple sequential exploration |
+
+## Factory Pattern
+
+Strategies are created via `SearchStrategyFactory`:
+
+```python
+from src.execution.search_strategies import SearchStrategyFactory
+
+strategy = SearchStrategyFactory.create(
+    strategy_type="llm_tree_search",
+    problem_handler=handler,
+    llm=llm_backend,
+    coding_agent_config=agent_config,
+    params={
+        "node_expansion_limit": 2,
+        "code_debug_tries": 5,
+    }
+)
+```
+
+## Configuration
+
+In your mode's YAML config:
+
+```yaml
+search_strategy:
+  type: "llm_tree_search"
+  params:
+    reasoning_effort: "high"
+    code_debug_tries: 15
+    node_expansion_limit: 2
+    node_expansion_new_childs_count: 5
+    idea_generation_steps: 2
+    exploration_budget_percent: 30
+    idea_generation_model: "gemini/gemini-2.5-pro"
+```
+
+## LLM Tree Search Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `reasoning_effort` | string | `"medium"` | LLM reasoning level |
+| `code_debug_tries` | int | 5 | Max debug attempts per solution |
+| `node_expansion_limit` | int | 2 | Nodes to expand per iteration |
+| `node_expansion_new_childs_count` | int | 5 | Solutions per expansion |
+| `idea_generation_steps` | int | 1 | Refinement steps |
+| `first_experiment_factor` | int | 1 | Multiplier for first iteration |
+| `experimentation_per_run` | int | 1 | Experiments per iteration |
+| `exploration_budget_percent` | int | 30 | When to switch to exploitation |
+| `idea_generation_model` | string | `"gpt-4.1-mini"` | Model for ideas |
+| `idea_generation_ensemble_models` | list | `["gpt-4.1-mini"]` | Ensemble models |
+
+## Linear Search Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `code_debug_tries` | int | 5 | Max debug attempts |
+| `idea_generation_model` | string | `"gpt-4.1-mini"` | Model for ideas |
+
+## Base Interface
+
+All strategies implement:
+
+```python
+class SearchStrategy(ABC):
+    @abstractmethod
+    def run(self, context: ContextData, budget_progress: float) -> None:
+        """Execute one iteration of the search."""
+        pass
+    
+    @abstractmethod
+    def get_experiment_history(self, best_last: bool = False) -> List[ExperimentResult]:
+        """Get all experiment results."""
+        pass
+    
+    @abstractmethod
+    def get_best_experiment(self) -> Optional[ExperimentResult]:
+        """Get the best experiment result."""
+        pass
+    
+    @abstractmethod
+    def checkout_to_best_experiment_branch(self) -> None:
+        """Checkout git to the best solution."""
+        pass
+```
+
+## Shared Implementation
+
+The base class provides common methods:
+
+```python
+def implement_solution(self, solution, context, session):
+    """Generate code for a solution and run it."""
+    
+def debug_solution(self, solution, context, error, session):
+    """Debug a failed solution."""
+    
+def _implement_n_debug(self, solution, context, debug_tries, branch, parent):
+    """Full implement + debug loop."""
+```
+
+## Creating Custom Strategies
+
+1. Subclass `SearchStrategy`
+2. Implement abstract methods
+3. Register with decorator
+
+```python
+from src.execution.search_strategies.factory import register_strategy
+from src.execution.search_strategies.base import SearchStrategy
+
+@register_strategy("my_strategy")
+class MyStrategy(SearchStrategy):
+    def __init__(self, config):
+        super().__init__(config)
+        self.custom_param = config.params.get("custom_param", 10)
+    
+    def run(self, context, budget_progress):
+        # Your exploration logic
+        pass
+    
+    def get_experiment_history(self, best_last=False):
+        return self.history
+    
+    def get_best_experiment(self):
+        return max(self.history, key=lambda x: x.score)
+    
+    def checkout_to_best_experiment_branch(self):
+        best = self.get_best_experiment()
+        self.workspace.switch_branch(best.branch_name)
+```
+
+Then configure:
+```yaml
+search_strategy:
+  type: "my_strategy"
+  params:
+    custom_param: 20
+```
+

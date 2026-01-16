@@ -93,7 +93,9 @@
     ]
   },
 
-  "footerSocials": {
-    "github": "https://github.com/leeroo"
+  "footer": {
+    "socials": {
+      "github": "https://github.com/leeroo"
+    }
   }
 }
