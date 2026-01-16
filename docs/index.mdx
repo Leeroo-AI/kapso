@@ -1,9 +1,11 @@
 ---
 title: "Tinkerer"
-description: "A framework where AI LeArns, experiments, Builds, and Ships."
+description: "A framework for autonomous program discovery and optimization"
 ---
 
-Tinkerer is an automated experimentation system that uses LLM-guided tree search to solve Kaggle competitions and algorithmic optimization problems.
+Tinkerer combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover code improvements. 
+
+It automates the cycle of **designing**, **testing**, and **refining** algorithms,  eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
 
 ## How It Works
 
@@ -11,7 +13,13 @@ Tinkerer is an automated experimentation system that uses LLM-guided tree search
   <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Tinkerer Framework Architecture" />
 </Frame>
 
-The system iteratively generates solutions, implements them via coding agents, evaluates results, and uses feedback to guide the next iteration.
+- **`.research()`** — Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions.
+
+- **`.learn()`** — Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph.
+
+- **`.evolve()`** — Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions.
+
+- **`.deploy()`** — Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal.
 
 ## Supported Benchmarks
 
