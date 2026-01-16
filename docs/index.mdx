@@ -7,16 +7,9 @@ Tinkerer is an automated experimentation system that uses LLM-guided tree search
 
 ## How It Works
 
-```mermaid
-flowchart LR
-    A[Problem] --> B[Orchestrator]
-    B --> C[Tree Search]
-    C --> D[Solution Generation]
-    D --> E[Code Generation]
-    E --> F[Evaluation]
-    F --> |Feedback| C
-    F --> G[Best Solution]
-```
+<Frame>
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Tinkerer Framework Architecture" />
+</Frame>
 
 The system iteratively generates solutions, implements them via coding agents, evaluates results, and uses feedback to guide the next iteration.
 
