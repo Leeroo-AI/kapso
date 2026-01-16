@@ -201,3 +201,6 @@ data/indexes/
 
 # Paper directory (private/unpublished work)
 paper/
+
+# Data directory (local data files)
+data/
