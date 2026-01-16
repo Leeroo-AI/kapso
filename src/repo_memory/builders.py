@@ -43,7 +43,7 @@ _IGNORE_DIRS = {
     "node_modules",
     "dist",
     "build",
-    ".praxium",  # RepoMemory lives here; exclude it from "what does the repo do?"
+    ".tinkerer",  # RepoMemory lives here; exclude it from "what does the repo do?"
     "sessions",  # ExperimentWorkspace nested clones
 }
 
@@ -94,7 +94,7 @@ def build_repo_map(
     #
     # Why:
     # - RepoMap must reflect the actual repo state (tracked + untracked-not-ignored),
-    #   not transient/ignored artifacts like `sessions/*` or `.praxium/*`.
+    #   not transient/ignored artifacts like `sessions/*` or `.tinkerer/*`.
     # - This also avoids phantom files such as `changes.log` when it is ignored.
     #
     # We still explicitly filter out `changes.log` because it is observability metadata,
@@ -119,8 +119,8 @@ def build_repo_map(
             # IMPORTANT: Do NOT use `lstrip("./")` here.
             # `lstrip` removes *any* leading '.' characters, which corrupts dotfiles:
             # - ".gitignore" would become "gitignore"
-            # - ".praxium/repo_memory.json" would become "praxium/repo_memory.json"
-            # That breaks portability and also defeats our `.praxium` exclusion filter.
+            # - ".tinkerer/repo_memory.json" would become "tinkerer/repo_memory.json"
+            # That breaks portability and also defeats our `.tinkerer` exclusion filter.
             if rel_path.startswith("./"):
                 rel_path = rel_path[2:]
             if not rel_path:

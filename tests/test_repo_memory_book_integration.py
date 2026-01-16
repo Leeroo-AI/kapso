@@ -18,7 +18,7 @@ from src.repo_memory import RepoMemoryManager
 
 def test_ensure_exists_in_worktree_persists_v1_to_v2_migration(tmp_path: Path) -> None:
     # Write a v1 memory file to disk.
-    prax = tmp_path / ".praxium"
+    prax = tmp_path / ".tinkerer"
     prax.mkdir()
     memory_path = prax / "repo_memory.json"
     v1 = {
@@ -50,7 +50,7 @@ def test_load_from_git_branch_migrates_v1_doc(tmp_path: Path) -> None:
     repo = git.Repo.init(tmp_path)
     (tmp_path / "README.md").write_text("# Repo\n")
 
-    prax = tmp_path / ".praxium"
+    prax = tmp_path / ".tinkerer"
     prax.mkdir()
     (prax / "repo_memory.json").write_text(
         json.dumps({"schema_version": 1, "repo_model": {"summary": "x", "claims": []}}, indent=2)

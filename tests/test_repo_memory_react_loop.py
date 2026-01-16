@@ -41,7 +41,7 @@ def test_ideation_react_loop_smoke(tmp_path: Path):
     repo_dir.mkdir()
     repo = git.Repo.init(repo_dir)
 
-    (repo_dir / ".praxium").mkdir()
+    (repo_dir / ".tinkerer").mkdir()
     doc = {
         "schema_version": 2,
         "generated_at": "2026-01-01T00:00:00Z",
@@ -54,8 +54,8 @@ def test_ideation_react_loop_smoke(tmp_path: Path):
         },
         "experiments": [],
     }
-    (repo_dir / ".praxium" / "repo_memory.json").write_text(json.dumps(doc))
-    repo.git.add([".praxium/repo_memory.json"])
+    (repo_dir / ".tinkerer" / "repo_memory.json").write_text(json.dumps(doc))
+    repo.git.add([".tinkerer/repo_memory.json"])
     repo.git.commit("-m", "chore: add repo memory")
 
     llm = LLMBackend()

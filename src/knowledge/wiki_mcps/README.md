@@ -58,18 +58,18 @@ Or manually add to `~/.config/claude-code/settings.json`:
     "kg-graph-search": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/home/ubuntu/praxium",
+      "cwd": "/home/ubuntu/tinkerer",
       "env": {
-        "PYTHONPATH": "/home/ubuntu/praxium",
+        "PYTHONPATH": "/home/ubuntu/tinkerer",
         "KG_SEARCH_BACKEND": "kg_graph_search"
       }
     },
     "kg-llm-navigation": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/home/ubuntu/praxium",
+      "cwd": "/home/ubuntu/tinkerer",
       "env": {
-        "PYTHONPATH": "/home/ubuntu/praxium",
+        "PYTHONPATH": "/home/ubuntu/tinkerer",
         "KG_SEARCH_BACKEND": "kg_llm_navigation"
       }
     }

@@ -35,7 +35,7 @@ It provides:
 Set an environment variable:
 
 ```bash
-export PRAXIUM_PROMPTS_DIR=/path/to/your/prompts_root
+export TINKERER_PROMPTS_DIR=/path/to/your/prompts_root
 ```
 
 Then a call like:

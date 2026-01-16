@@ -43,7 +43,7 @@ To run:
 
 Output:
     - Generated code in /tmp/tinkerer_e2e_*/
-    - Logs in /home/ubuntu/praxium/logs/tinkerer_e2e_*.log
+    - Logs in /home/ubuntu/tinkerer/logs/tinkerer_e2e_*.log
 """
 
 import os
@@ -63,7 +63,7 @@ load_dotenv()
 # Enhanced Logging Setup - Cognitive Memory Focused
 # =============================================================================
 
-LOG_DIR = Path("/home/ubuntu/praxium/logs")
+LOG_DIR = Path("/home/ubuntu/tinkerer/logs")
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / f"tinkerer_e2e_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
@@ -770,7 +770,7 @@ def run_tinkerer_test():
                 "changes.log missing 'RepoMemory sections consulted:' line"
             )
 
-            memory_path = Path(solution.code_path) / ".praxium" / "repo_memory.json"
+            memory_path = Path(solution.code_path) / ".tinkerer" / "repo_memory.json"
             assert memory_path.exists(), f"missing repo memory file: {memory_path}"
             doc = json.loads(memory_path.read_text())
 
@@ -779,7 +779,7 @@ def run_tinkerer_test():
 
             files = repo_map.get("files", []) or []
             assert "changes.log" not in files, "repo_map.files unexpectedly contains changes.log"
-            assert not any(p.startswith(".praxium/") for p in files), "repo_map.files contains .praxium/*"
+            assert not any(p.startswith(".tinkerer/") for p in files), "repo_map.files contains .tinkerer/*"
             assert not any(p.startswith("sessions/") for p in files), "repo_map.files contains sessions/*"
 
             # If RepoMemory captured a section-consultation list, it must match the committed changes.log.

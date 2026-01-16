@@ -109,9 +109,9 @@ KG_SEARCH_BACKEND=kg_llm_navigation python -m src.knowledge.wiki_mcps.mcp_server
     "kg-graph-search": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/path/to/praxium",
+      "cwd": "/path/to/tinkerer",
       "env": {
-        "PYTHONPATH": "/path/to/praxium",
+        "PYTHONPATH": "/path/to/tinkerer",
         "KG_SEARCH_BACKEND": "kg_graph_search"
       }
     }

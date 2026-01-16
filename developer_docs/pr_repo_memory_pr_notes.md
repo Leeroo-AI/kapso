@@ -19,7 +19,7 @@ It is intended to be used as PR description material and as reviewer context.
 
 - RepoMemory unit/integration (fast; no infra):
   - `tests/test_repo_map_git_consistency.py`
-    - Verifies `build_repo_map()` is portable and git-consistent (e.g., filters out `.praxium/*`, `sessions/*`, and `changes.log`).
+    - Verifies `build_repo_map()` is portable and git-consistent (e.g., filters out `.tinkerer/*`, `sessions/*`, and `changes.log`).
   - `tests/test_prompt_externalization.py`
     - Verifies all required prompt template files exist and can be loaded via `prompt_loader`.
   - `tests/test_repo_memory_book.py`
@@ -67,7 +67,7 @@ It is intended to be used as PR description material and as reviewer context.
 
 - `src/execution/experiment_workspace/experiment_session.py`
   - Add `schedule_repo_memory_update()` and run RepoMemory update in `close_session()` **after** final commits and **before** push/cleanup.
-  - Commit `.praxium/repo_memory.json` as the final metadata commit (latest-commit semantics).
+  - Commit `.tinkerer/repo_memory.json` as the final metadata commit (latest-commit semantics).
 
 - `src/execution/experiment_workspace/experiment_workspace.py`
   - Ensure `.gitignore` includes `!changes.log` after `*.log` so `changes.log` is committed for auditability.
@@ -88,7 +88,7 @@ It is intended to be used as PR description material and as reviewer context.
   - Record ideation-consulted section IDs on each node.
 
 - `src/tinkerer.py`
-  - When `output_path` is provided, use it as the experiment workspace directory so the returned `solution.code_path` points to a real git repo with `.praxium/repo_memory.json`.
+  - When `output_path` is provided, use it as the experiment workspace directory so the returned `solution.code_path` points to a real git repo with `.tinkerer/repo_memory.json`.
 
 - `src/memory/config.py`
   - Whitespace-only formatting change.
@@ -97,7 +97,7 @@ It is intended to be used as PR description material and as reviewer context.
   - RepoMap fixes:
     - `repo_root` stored as `"."` (portable).
     - File enumeration uses git where possible (respects `.gitignore`).
-    - Filters out `changes.log`, `.praxium/*`, `sessions/*`.
+    - Filters out `changes.log`, `.tinkerer/*`, `sessions/*`.
   - Inference robustness:
     - Reuse the same file payload during evidence-retry loops (so the model can fix its own citations).
     - Improve evidence matching to tolerate whitespace around punctuation (handles multi-line-to-single-line quote flattening without allowing invented tokens).
@@ -110,7 +110,7 @@ It is intended to be used as PR description material and as reviewer context.
 
 - `tests/deployment_examples/input_repos/chatbot_adapted_langgraph/test_deployment.py`
   - Fix indentation so pytest can import/collect the file.
-  - Still skip-by-default unless `PRAXIUM_RUN_DEPLOYMENT_TESTS=1`.
+  - Still skip-by-default unless `TINKERER_RUN_DEPLOYMENT_TESTS=1`.
   - **Why in this PR**: on `main`, this file was an ad-hoc script under `tests/` that performed HTTP calls at import time.
     That is unsafe for pytest collection and can hang/fail CI. We converted it into an opt-in smoke test.
 
@@ -121,7 +121,7 @@ It is intended to be used as PR description material and as reviewer context.
     it depends on external deployment/runtime setup. Renaming makes it opt-in (script-run), not an accidental test gate.
 
 - `tests/test_claude_code_agent_bedrock.py`
-  - Make the Bedrock smoke test skip-by-default unless explicitly enabled (`PRAXIUM_RUN_BEDROCK_TESTS=1`) and credentials + `claude` CLI exist.
+  - Make the Bedrock smoke test skip-by-default unless explicitly enabled (`TINKERER_RUN_BEDROCK_TESTS=1`) and credentials + `claude` CLI exist.
 
 - `tests/test_expert_flow.py`
   - Whitespace-only formatting change.
@@ -151,7 +151,7 @@ It is intended to be used as PR description material and as reviewer context.
 - `developer_docs/pr_repo_memory_pr_notes.md`
   - This PR-notes file.
 
-- `paper/Praxium_paper_v1.md`, `paper/Praxium_paper_v1.tex`
+- `paper/Tinkerer_paper_v1.md`, `paper/Tinkerer_paper_v1.tex`
   - Draft paper artifacts (documentation/research; no runtime impact).
 
 - `src/core/prompt_loader.py`
@@ -193,5 +193,5 @@ It is intended to be used as PR description material and as reviewer context.
   - Tests JSON protocol parsing and includes a smoke run of ideation ReAct.
 
 - `tools/repo_memory_cli.py`
-  - Standalone CLI for agents (no `import src`) that reads `.praxium/repo_memory.json` directly.
+  - Standalone CLI for agents (no `import src`) that reads `.tinkerer/repo_memory.json` directly.
 

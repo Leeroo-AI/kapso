@@ -4,8 +4,8 @@ Repository Memory (RepoMemory)
 
 This module provides "memory about the repository at hand" that is:
 
-- **Branch-scoped**: memory is committed into each experiment branch under `.praxium/`,
-  so when Praxium continues from a branch, it naturally continues with the memory
+- **Branch-scoped**: memory is committed into each experiment branch under `.tinkerer/`,
+  so when Tinkerer continues from a branch, it naturally continues with the memory
   that corresponds to that exact code state.
 - **Evidence-backed**: semantic claims (e.g., algorithms/architecture) must cite
   exact quotes from files in the repo. This prevents "hallucinated" repo memories.

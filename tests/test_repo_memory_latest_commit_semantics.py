@@ -2,7 +2,7 @@
 Latest-commit semantics for RepoMemory updates
 =============================================
 
-We want `.praxium/repo_memory.json` to reflect a *committed* code state, not a dirty
+We want `.tinkerer/repo_memory.json` to reflect a *committed* code state, not a dirty
 worktree. The engine now schedules RepoMemory updates to run inside
 `ExperimentSession.close_session()` after final commits and before push/cleanup.
 
@@ -56,7 +56,7 @@ def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
     RepoMemoryManager.ensure_exists_in_worktree(str(workspace_dir))
     workspace.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
     if workspace.repo.is_dirty(untracked_files=True):
-        workspace.repo.git.commit("-m", "chore(praxium): add baseline repo memory")
+        workspace.repo.git.commit("-m", "chore(tinkerer): add baseline repo memory")
 
     branch_name = "exp_latest_commit_semantics"
     session = workspace.create_experiment_session(branch_name=branch_name, parent_branch_name="main", llm=llm)

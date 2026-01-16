@@ -76,18 +76,18 @@ Use the template provided at `src/knowledge/wiki_mcps/mcp_config_template.json`:
     "kg-graph-search": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/path/to/praxium",
+      "cwd": "/path/to/tinkerer",
       "env": {
-        "PYTHONPATH": "/path/to/praxium",
+        "PYTHONPATH": "/path/to/tinkerer",
         "KG_SEARCH_BACKEND": "kg_graph_search"
       }
     },
     "kg-llm-navigation": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/path/to/praxium",
+      "cwd": "/path/to/tinkerer",
       "env": {
-        "PYTHONPATH": "/path/to/praxium",
+        "PYTHONPATH": "/path/to/tinkerer",
         "KG_SEARCH_BACKEND": "kg_llm_navigation"
       }
     }
@@ -103,9 +103,9 @@ Use the template provided at `src/knowledge/wiki_mcps/mcp_config_template.json`:
     "knowledge-search": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/path/to/praxium",
+      "cwd": "/path/to/tinkerer",
       "env": {
-        "PYTHONPATH": "/path/to/praxium",
+        "PYTHONPATH": "/path/to/tinkerer",
         "KG_SEARCH_BACKEND": "kg_graph_search",
         "OPENAI_API_KEY": "${OPENAI_API_KEY}",
         "NEO4J_URI": "bolt://localhost:7687",

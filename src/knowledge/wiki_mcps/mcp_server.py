@@ -20,7 +20,7 @@ Usage:
     KG_SEARCH_BACKEND=kg_llm_navigation python -m src.knowledge.wiki_mcps.mcp_server
 
 Environment Variables:
-    KG_INDEX_PATH: Optional path to a Praxium `.index` file.
+    KG_INDEX_PATH: Optional path to a Tinkerer `.index` file.
         If set, the MCP server initializes the search backend from that file
         (backend type + backend_refs like Weaviate collection).
         This overrides `KG_SEARCH_BACKEND`.

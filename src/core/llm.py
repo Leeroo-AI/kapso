@@ -367,7 +367,7 @@ class LLMBackend:
             max_chars: Optional truncation limit.
                 IMPORTANT: We do not hardcode truncation limits in code.
                 If you need a limit due to upstream API constraints, pass it in
-                explicitly or set `PRAXIUM_EMBEDDING_MAX_CHARS` in your `.env`.
+                explicitly or set `TINKERER_EMBEDDING_MAX_CHARS` in your `.env`.
             
         Returns:
             List of embedding floats, or empty list on error
@@ -378,7 +378,7 @@ class LLMBackend:
             # Respect optional truncation limit from caller or environment.
             # Default is NO truncation (safer for correctness; callers can tune).
             if max_chars is None:
-                env_val = os.getenv("PRAXIUM_EMBEDDING_MAX_CHARS")
+                env_val = os.getenv("TINKERER_EMBEDDING_MAX_CHARS")
                 if env_val:
                     try:
                         parsed = int(env_val)

@@ -455,7 +455,7 @@ class Tinkerer:
             constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
             starting_repo_path: Optional local path to an existing repository to improve.
-                If provided, Praxium will clone/copy it into the experiment workspace and
+                If provided, Tinkerer will clone/copy it into the experiment workspace and
                 run the experiment loop on top of that baseline.
             max_iterations: Maximum experiment iterations (default: 10)
             
@@ -536,7 +536,7 @@ class Tinkerer:
             # - Many callers (CLI + E2E tests) pass `output_path` expecting the final repo to live there.
             # - The orchestration layer owns the experiment workspace (a git repo with branches).
             # - Therefore, when `output_path` is provided, we must use it as the workspace directory
-            #   so `solution.code_path` points at a real git repo (with `.praxium/repo_memory.json`).
+            #   so `solution.code_path` points at a real git repo (with `.tinkerer/repo_memory.json`).
             workspace_dir=output_path,
             starting_repo_path=starting_repo_path,
         )

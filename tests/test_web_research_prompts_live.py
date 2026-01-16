@@ -10,7 +10,7 @@ are being followed at a basic structural level:
 - Implementation mode includes a ranked "Top sources" section (and typically GitHub stars)
 
 Run (example):
-  conda run -n praxium_conda python tests/test_web_research_prompts_live.py
+  conda run -n tinkerer_conda python tests/test_web_research_prompts_live.py
 """
 
 from __future__ import annotations

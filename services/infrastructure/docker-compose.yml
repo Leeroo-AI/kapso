@@ -1,4 +1,4 @@
-# Praxium Infrastructure Stack
+# Tinkerer Infrastructure Stack
 # Weaviate (vector DB), Neo4j (graph DB), MediaWiki (frontend)
 
 services:
@@ -55,7 +55,7 @@ services:
       MW_DB_USER: mediawiki
       MW_DB_PASSWORD: localpass123
       MW_SITE_SERVER: http://localhost:8090
-      MW_SITENAME: Praxium Knowledge
+      MW_SITENAME: Tinkerer Knowledge
       MW_LANG: en
       MW_ADMIN_USER: admin
       MW_ADMIN_PASS: adminpass123

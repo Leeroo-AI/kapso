@@ -11,7 +11,7 @@ Override mechanism
 ------------------
 By default, prompts are loaded from the repository under `src/<relative_path>`.
 
-If you set `PRAXIUM_PROMPTS_DIR=/some/dir`, we will load prompts from:
+If you set `TINKERER_PROMPTS_DIR=/some/dir`, we will load prompts from:
   /some/dir/<relative_path>
 
 This lets you tune prompts in a separate directory (e.g. mounted volume) without
@@ -31,7 +31,7 @@ _DEFAULT_PROMPTS_ROOT = Path(__file__).resolve().parents[1]  # .../src
 
 def _get_prompts_root() -> Path:
     """Return the root directory where prompt files are loaded from."""
-    override = os.environ.get("PRAXIUM_PROMPTS_DIR", "").strip()
+    override = os.environ.get("TINKERER_PROMPTS_DIR", "").strip()
     if override:
         return Path(override).expanduser().resolve()
     return _DEFAULT_PROMPTS_ROOT

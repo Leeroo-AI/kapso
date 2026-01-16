@@ -1,4 +1,4 @@
-# Praxium
+# Tinkerer
 
 > *A framework where AI Learns, experiments, Builds, and Ships.*
 
@@ -6,10 +6,10 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/hqVbPNNEZM)
 [![Y Combinator](https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white)](https://www.ycombinator.com/companies/leeroo)
 [![Website](https://img.shields.io/badge/Website-leeroo.com-green)](https://leeroo.com/)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/leeroo-ai/praxium)](https://github.com/leeroo-ai/praxium)
-[![PyPI version](https://img.shields.io/pypi/v/praxium)](https://pypi.org/project/praxium/)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/leeroo-ai/tinkerer)](https://github.com/leeroo-ai/tinkerer)
+[![PyPI version](https://img.shields.io/pypi/v/tinkerer)](https://pypi.org/project/tinkerer/)
 
-Praxium lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
+Tinkerer lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
 
 ## Quick Start
 
@@ -59,7 +59,7 @@ tinkerer.learn(Source.Solution(solution), wiki_dir="data/wikis")
 
 ## Web Research (Optional)
 
-Praxium can do deep public web research via `Tinkerer.research()`. This is useful when:
+Tinkerer can do deep public web research via `Tinkerer.research()`. This is useful when:
 
 - Your Knowledge Graph (KG) does not have the needed information yet
 - You want fresh implementation references (official docs + popular repos)
@@ -114,7 +114,7 @@ Prompt templates live in `src/knowledge/web_research/prompts/`.
 
 ## Knowledge Graph Indexing
 
-Praxium uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
+Tinkerer uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
 
 ### One-Time Indexing
 
@@ -168,7 +168,7 @@ The `.index` file is a JSON file containing:
   "wiki_dir": "data/wikis_llm_finetuning",
   "search_backend": "kg_graph_search",
   "backend_refs": {
-    "weaviate_collection": "PraxiumWiki",
+    "weaviate_collection": "TinkererWiki",
     "embedding_model": "text-embedding-3-large"
   },
   "page_count": 99
@@ -422,7 +422,7 @@ Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
 ## Architecture
 
 ```
-praxium/
+tinkerer/
 ├── src/
 │   ├── tinkerer.py              # Main Tinkerer API (learn, research, evolve, deploy, index_kg)
 │   ├── cli.py                 # CLI entry point
@@ -457,15 +457,15 @@ praxium/
 
 ```bash
 git clone <repository-url>
-cd praxium
+cd tinkerer
 
 # Pull Git LFS files (wiki knowledge data)
 git lfs install
 git lfs pull
 
 # Create a dedicated conda environment (recommended)
-conda create -n praxium_conda python=3.12
-conda activate praxium_conda
+conda create -n tinkerer_conda python=3.12
+conda activate tinkerer_conda
 
 # Install the package
 pip install -e .

@@ -16,7 +16,7 @@ from src.execution.coding_agents.base import CodingAgentConfig
 from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
 
 
-RUN_BEDROCK_TESTS = os.getenv("PRAXIUM_RUN_BEDROCK_TESTS") == "1"
+RUN_BEDROCK_TESTS = os.getenv("TINKERER_RUN_BEDROCK_TESTS") == "1"
 
 
 def _has_bedrock_creds() -> bool:
@@ -102,7 +102,7 @@ def run_bedrock_hello_world() -> bool:
 def test_bedrock_hello_world():
     """Pytest entrypoint (skipped unless explicitly enabled)."""
     if not RUN_BEDROCK_TESTS:
-        pytest.skip("Bedrock test disabled (set PRAXIUM_RUN_BEDROCK_TESTS=1 to enable).")
+        pytest.skip("Bedrock test disabled (set TINKERER_RUN_BEDROCK_TESTS=1 to enable).")
     if shutil.which("claude") is None:
         pytest.skip("Claude Code CLI not installed (required for this test).")
     if not _has_bedrock_creds():

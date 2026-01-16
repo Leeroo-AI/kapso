@@ -83,7 +83,7 @@ modes:
       type: "kg_graph_search"
       enabled: true
       params:
-        weaviate_collection: "PraxiumKG"
+        weaviate_collection: "TinkererKG"
         embedding_model: "text-embedding-3-large"
         use_llm_reranker: true
         reranker_model: "gpt-4.1-mini"

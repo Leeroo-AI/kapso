@@ -139,7 +139,7 @@ class KnowledgeMerger:
             agent_config: Configuration for Claude Code agent
         """
         self._agent_config = agent_config or {}
-        # Optional path to a Praxium `.index` file.
+        # Optional path to a Tinkerer `.index` file.
         #
         # When provided, we pass it down to the Claude Code subprocess as
         # KG_INDEX_PATH so the spawned MCP server can initialize the correct

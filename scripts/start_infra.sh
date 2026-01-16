@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Praxium Infrastructure Startup Script
+# Tinkerer Infrastructure Startup Script
 # - Starts Weaviate, Neo4j, MediaWiki containers
 # - Optionally imports wiki pages to MediaWiki (for browsing)
 #
@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo -e "${BLUE}=========================================="
-echo "  Praxium Infrastructure Startup"
+echo "  Tinkerer Infrastructure Startup"
 echo -e "==========================================${NC}"
 
 # Check prerequisites

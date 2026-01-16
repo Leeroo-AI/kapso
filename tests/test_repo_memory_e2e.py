@@ -4,7 +4,7 @@ E2E Test for RepoMemory - Seeded Repo Improvement (Claude Code + Bedrock)
 This test:
 1. Seeds from a real repo (tests/fixtures/sample_repo_to_improve)
 2. Runs Tinkerer.evolve() to improve it using Claude Code with AWS Bedrock
-3. Dumps .praxium/repo_memory.json at baseline + after each experiment
+3. Dumps .tinkerer/repo_memory.json at baseline + after each experiment
 4. Prints memory for human quality assessment
 
 Prerequisites:
@@ -117,7 +117,7 @@ def _assert_repo_map_invariants(doc: dict, *, label: str) -> None:
     """
     Hard assertions for RepoMap portability + consistency.
     
-    These invariants are critical because `.praxium/repo_memory.json` is committed into git
+    These invariants are critical because `.tinkerer/repo_memory.json` is committed into git
     experiment branches and must be portable across machines/runs.
     """
     repo_map = doc.get("repo_map", {}) or {}
@@ -130,7 +130,7 @@ def _assert_repo_map_invariants(doc: dict, *, label: str) -> None:
 
     # Never include observability metadata or infrastructure paths in RepoMap.
     assert "changes.log" not in files, f"{label}: repo_map.files unexpectedly contains changes.log"
-    assert not any(p.startswith(".praxium/") for p in files), f"{label}: repo_map.files contains .praxium/*"
+    assert not any(p.startswith(".tinkerer/") for p in files), f"{label}: repo_map.files contains .tinkerer/*"
     assert not any(p.startswith("sessions/") for p in files), f"{label}: repo_map.files contains sessions/*"
 
 
@@ -174,8 +174,8 @@ def _assert_changes_log_auditability(repo, *, branch_name: str, doc: dict) -> No
 
 
 def dump_repo_memory(workspace_dir: str, label: str) -> dict:
-    """Load and print .praxium/repo_memory.json from a workspace."""
-    memory_path = Path(workspace_dir) / ".praxium" / "repo_memory.json"
+    """Load and print .tinkerer/repo_memory.json from a workspace."""
+    memory_path = Path(workspace_dir) / ".tinkerer" / "repo_memory.json"
     
     print(f"\n{'='*70}")
     print(f"REPO MEMORY: {label}")

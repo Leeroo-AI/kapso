@@ -241,7 +241,7 @@ Initialize the language model with memory-optimized settings. The loader applies
 ```mediawiki
 == GitHub URL ==
 
-[[github_url::https://github.com/praxium/workflow-unslothai-qlora-finetuning]]
+[[github_url::https://github.com/tinkerer/workflow-unslothai-qlora-finetuning]]
 ```
 
 **Why a GitHub Repository?**
@@ -281,7 +281,7 @@ For each workflow step, capture in the WorkflowIndex:
 
 **File:** [→](./workflows/{filename}.md)
 **Description:** One-line description.
-**GitHub URL:** https://github.com/praxium/workflow-{repo}-{name}
+**GitHub URL:** https://github.com/tinkerer/workflow-{repo}-{name}
 
 ### Steps Overview
 

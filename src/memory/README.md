@@ -1,6 +1,6 @@
 # Cognitive Memory Architecture
 
-A memory system for the Praxium agent that enables learning from past experiments and providing contextual briefings.
+A memory system for the Tinkerer agent that enables learning from past experiments and providing contextual briefings.
 
 ## Overview
 
@@ -203,7 +203,7 @@ PYTHONPATH=. python tests/test_cognitive_real_kg.py
 
 ### Understanding Logs
 
-Logs are written to `/home/ubuntu/praxium/logs/`:
+Logs are written to `/home/ubuntu/tinkerer/logs/`:
 - `expert_e2e_*.log` - Full execution log
 - `expert_e2e_results_*.json` - Structured results
 

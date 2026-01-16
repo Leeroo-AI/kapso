@@ -4,14 +4,14 @@
 # we would need to change to enable tool calling (MCP, CLI tools, etc.) across
 # different coding agents.
 
-## Current reality in Praxium (as implemented)
+## Current reality in Tinkerer (as implemented)
 
 ### Claude Code (`claude_code`)
 
 - **Tool runtime exists** because Claude Code is a CLI agent that supports tools.
 - Our adapter already supports a tool allowlist via `--allowedTools`.
 - Today we allow only built-ins like `Edit`, `Read`, `Write`, `Bash` (see `agents.yaml`).
-- **MCP is NOT wired in the Praxium adapter today**:
+- **MCP is NOT wired in the Tinkerer adapter today**:
   - We do not pass an MCP config flag.
   - Even if the user configured MCP globally, our `--allowedTools` would block
     `mcp__...` tools unless we explicitly include them.
@@ -81,7 +81,7 @@ Pros:
 
 Cons:
 - each agent must support MCP *and* allow tool names (e.g. `mcp__server__tool`)
-- Praxium must pass MCP config through adapters, and manage allowlists
+- Tinkerer must pass MCP config through adapters, and manage allowlists
 
 ## Recommended next engineering steps
 

@@ -1,6 +1,6 @@
 # Infrastructure Setup
 
-Unified scripts and Docker configuration for Praxium's knowledge infrastructure.
+Unified scripts and Docker configuration for Tinkerer's knowledge infrastructure.
 
 ## Components
 

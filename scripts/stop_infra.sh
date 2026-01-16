@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Praxium Infrastructure Stop/Kill Script
+# Tinkerer Infrastructure Stop/Kill Script
 # - Stops all containers
 # - Optionally removes all data (--volumes)
 # =============================================================================
@@ -46,7 +46,7 @@ if ! docker info &> /dev/null 2>&1; then
     fi
 fi
 
-echo -e "${YELLOW}Stopping Praxium infrastructure...${NC}"
+echo -e "${YELLOW}Stopping Tinkerer infrastructure...${NC}"
 
 if [[ "$REMOVE_VOLUMES" == "true" ]]; then
     echo -e "${RED}WARNING: This will DELETE all data:${NC}"

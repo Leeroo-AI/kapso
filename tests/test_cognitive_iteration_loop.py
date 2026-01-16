@@ -14,7 +14,7 @@ To run:
     PYTHONPATH=. python tests/test_cognitive_e2e_full.py
     
 Output:
-    - Logs to /home/ubuntu/praxium/logs/cognitive_e2e_full_*.log
+    - Logs to /home/ubuntu/tinkerer/logs/cognitive_e2e_full_*.log
 """
 
 import os
@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Setup comprehensive logging
-LOG_DIR = Path("/home/ubuntu/praxium/logs")
+LOG_DIR = Path("/home/ubuntu/tinkerer/logs")
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / f"cognitive_iteration_loop_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 

@@ -31,7 +31,7 @@ load_dotenv()
 # =============================================================================
 # Logging Setup - Save to file
 # =============================================================================
-LOG_DIR = Path("/home/ubuntu/praxium/logs")
+LOG_DIR = Path("/home/ubuntu/tinkerer/logs")
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / f"tinkerer_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 

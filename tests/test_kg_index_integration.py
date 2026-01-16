@@ -5,7 +5,7 @@
 #
 # Requirements:
 #   - Weaviate and Neo4j must be running (./scripts/start_infra.sh)
-#   - Run with: conda activate praxium_conda && pytest tests/test_kg_index_integration.py -v
+#   - Run with: conda activate tinkerer_conda && pytest tests/test_kg_index_integration.py -v
 #
 # Data:
 #   - kg_graph_search: data/wikis_llm_finetuning/ (Unsloth fine-tuning wiki pages)
@@ -701,7 +701,7 @@ if __name__ == "__main__":
     Run tests manually for debugging.
     
     Usage:
-        conda activate praxium_conda
+        conda activate tinkerer_conda
         python tests/test_kg_index_integration.py
     """
     print("=" * 60)

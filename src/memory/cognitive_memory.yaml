@@ -65,7 +65,7 @@ defaults:
       - "claude-3-haiku-20240307"
     
     # State file path (markdown file showing current agent state)
-    state_file_path: ".praxium_state.md"
+    state_file_path: ".tinkerer_state.md"
     
     # Maximum characters to include from error messages
     max_error_length: 1000
