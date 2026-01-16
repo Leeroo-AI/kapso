@@ -1,0 +1,7 @@
+# Exclude non-documentation directories that contain .md files
+src/
+data/
+paper/
+tests/
+benchmarks/mle/
+benchmarks/ale/
