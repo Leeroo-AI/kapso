@@ -1,0 +1,258 @@
+---
+title: "Learning Pipeline"
+description: "How Kapso extracts and merges knowledge from sources"
+---
+
+## Overview
+
+The Knowledge Learning Pipeline is a two-stage process that transforms raw sources (repositories, research, experiments) into structured wiki pages in the Knowledge Graph.
+
+```mermaid
+flowchart LR
+    subgraph Stage1["Stage 1: Ingestion"]
+        S1["Source"] --> I1["Ingestor"]
+        I1 --> P1["WikiPages"]
+    end
+
+    subgraph Stage2["Stage 2: Merging"]
+        P1 --> M1["Merger"]
+        M1 --> KG["Knowledge Graph"]
+    end
+```
+
+## Using the Pipeline
+
+### Full Pipeline
+
+```python
+from src.knowledge.learners import KnowledgePipeline, Source
+
+pipeline = KnowledgePipeline(wiki_dir="data/wikis")
+
+# Full pipeline: ingest + merge
+result = pipeline.run(Source.Repo("https://github.com/user/repo"))
+print(f"Created: {result.created}, Merged: {result.merged}")
+```
+
+### Via Kapso API
+
+```python
+from src.kapso import Kapso, Source
+
+kapso = Kapso()
+
+# Learn from multiple sources
+kapso.learn(
+    Source.Repo("https://github.com/huggingface/transformers"),
+    kapso.research("QLoRA best practices", mode="idea"),
+    wiki_dir="data/wikis",
+)
+```
+
+### Extract Only (No Merge)
+
+```python
+# Get WikiPages without modifying KG
+result = pipeline.run(
+    Source.Repo("https://github.com/user/repo"),
+    skip_merge=True,
+)
+pages = result.extracted_pages
+```
+
+## Source Types
+
+The `Source` namespace provides typed wrappers for knowledge inputs:
+
+| Source Type | Description | Status |
+|-------------|-------------|--------|
+| `Source.Repo(url, branch="main")` | Git repository | ✅ Implemented |
+| `Source.Solution(solution)` | Completed experiment | ⚠️ Basic |
+| `Source.Research(...)` | Web research result | ✅ Implemented |
+
+```python
+from src.knowledge.learners import Source
+
+# Repository source
+repo = Source.Repo("https://github.com/user/repo", branch="main")
+
+# Solution source (from evolve())
+solution = kapso.evolve(goal="...")
+sol_source = Source.Solution(solution)
+
+# Research source (from research())
+research = kapso.research("topic", mode="idea")
+# research is already a Source.Research
+```
+
+## Stage 1: Ingestors
+
+Ingestors extract WikiPages from sources. Each source type has a dedicated ingestor.
+
+### IngestorFactory
+
+```python
+from src.knowledge.learners.ingestors import IngestorFactory
+
+# Create by type
+ingestor = IngestorFactory.create("repo")
+pages = ingestor.ingest(Source.Repo("..."))
+
+# Auto-detect from source
+ingestor = IngestorFactory.for_source(source)
+
+# List available ingestors
+IngestorFactory.list_ingestors()  # ["repo", "solution", "research"]
+```
+
+### RepoIngestor
+
+The most sophisticated ingestor, using a 7-phase two-branch pipeline:
+
+**Phase 0: Repository Understanding**
+- Generates AST scaffold with file structure
+- Agent fills in understanding for each file
+- Verification ensures all files are explored
+
+**Branch 1: Workflow-Based Extraction**
+1. **Anchoring** - Find workflows from README/examples → Workflow pages
+2. **Excavation+Synthesis** - Trace imports → Implementation-Principle pairs
+3. **Enrichment** - Mine constraints/tips → Environment/Heuristic pages
+4. **Audit** - Validate graph integrity, fix broken links
+
+**Branch 2: Orphan Mining**
+- **5a. Triage** - Filter into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+- **5b. Review** - Agent evaluates MANUAL_REVIEW files
+- **5c. Create** - Agent creates pages for approved files
+- **5d. Verify** - Verify all approved files have pages
+- **6. Orphan Audit** - Validate orphan nodes
+
+### ResearchIngestor
+
+Converts web research results into WikiPages:
+
+```python
+research = kapso.research("QLoRA best practices", mode="idea")
+# Research contains structured findings
+
+# Ingest into WikiPages
+ingestor = IngestorFactory.create("research")
+pages = ingestor.ingest(research)
+```
+
+## Stage 2: Knowledge Merger
+
+The merger uses an LLM agent to analyze proposed pages against the existing KG.
+
+### Merge Actions
+
+| Action | Description |
+|--------|-------------|
+| `create_new` | New page for novel knowledge |
+| `update_existing` | Improve existing page |
+| `add_links` | Add new connections |
+| `skip` | Duplicate or low-quality |
+
+### Using the Merger
+
+```python
+from src.knowledge.learners import KnowledgeMerger
+
+merger = KnowledgeMerger()
+result = merger.merge(
+    proposed_pages=pages,
+    wiki_dir="data/wikis",
+)
+
+print(f"Created: {len(result.created)}")
+print(f"Merged: {len(result.merged)}")
+print(f"Skipped: {len(result.skipped)}")
+```
+
+### Merge Result
+
+```python
+@dataclass
+class MergeResult:
+    created: List[str]      # New page IDs created
+    merged: List[str]       # Existing pages updated
+    skipped: List[str]      # Pages not added
+    errors: List[str]       # Error messages
+```
+
+## WikiPage Structure
+
+```python
+@dataclass
+class WikiPage:
+    id: str                 # "Workflow/QLoRA_Finetuning"
+    page_title: str         # "QLoRA Fine-tuning"
+    page_type: str          # "Workflow", "Principle", etc.
+    overview: str           # Brief summary (for embedding)
+    content: str            # Full page content
+    domains: List[str]      # ["LLMs", "Fine_Tuning"]
+    sources: List[Dict]     # [{"type": "repo", "url": "..."}]
+    outgoing_links: List[Dict]  # Graph connections
+```
+
+## CLI Usage
+
+```bash
+# Learn from a GitHub repository
+python -m src.knowledge.learners https://github.com/user/repo
+
+# Specify a branch
+python -m src.knowledge.learners https://github.com/user/repo --branch develop
+
+# Extract only (don't merge)
+python -m src.knowledge.learners https://github.com/user/repo --extract-only
+
+# Custom wiki directory
+python -m src.knowledge.learners https://github.com/user/repo --wiki-dir ./my_wikis
+
+# Verbose logging
+python -m src.knowledge.learners https://github.com/user/repo --verbose
+```
+
+### CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--type` | `-t` | Source type: `repo`, `paper`, `solution` |
+| `--branch` | `-b` | Git branch (default: main) |
+| `--extract-only` | `-e` | Only extract, don't merge |
+| `--wiki-dir` | `-w` | Wiki directory path |
+| `--verbose` | `-v` | Enable verbose logging |
+
+## Pipeline Result
+
+```python
+@dataclass
+class PipelineResult:
+    sources_processed: int
+    total_pages_extracted: int
+    merge_result: Optional[MergeResult]
+    extracted_pages: List[WikiPage]
+    errors: List[str]
+
+    @property
+    def created(self) -> int
+    @property
+    def merged(self) -> int
+    @property
+    def success(self) -> bool
+```
+
+## Best Practices
+
+<Tip>
+**Start with extract-only** to preview what would be extracted before committing to a merge.
+</Tip>
+
+<Warning>
+**Large repositories** may take significant time and API costs. Consider extracting specific branches or directories.
+</Warning>
+
+<Note>
+**Quality over quantity** - The merger is designed to skip low-quality or duplicate content. Don't worry about over-extracting.
+</Note>

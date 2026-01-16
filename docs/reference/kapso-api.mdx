@@ -1,0 +1,399 @@
+---
+title: "Kapso API Reference"
+description: "Complete API reference for the Kapso class"
+---
+
+## Overview
+
+The `Kapso` class is the main entry point for the framework. It provides methods for research, learning, evolving, and deploying solutions.
+
+## Constructor
+
+```python
+from src.kapso import Kapso
+
+kapso = Kapso(
+    config_path: Optional[str] = None,
+    kg_index: Optional[str] = None,
+)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `config_path` | `str` | `src/config.yaml` | Path to configuration file |
+| `kg_index` | `str` | `None` | Path to existing `.index` file for KG |
+
+### Examples
+
+```python
+# Basic initialization (no KG)
+kapso = Kapso()
+
+# With custom config
+kapso = Kapso(config_path="my_config.yaml")
+
+# With pre-indexed KG
+kapso = Kapso(kg_index="data/indexes/my_knowledge.index")
+
+# Full initialization
+kapso = Kapso(
+    config_path="src/config.yaml",
+    kg_index="data/indexes/llm_finetuning.index",
+)
+```
+
+## Methods
+
+### research()
+
+Run deep web research for an objective.
+
+```python
+def research(
+    self,
+    objective: str,
+    *,
+    mode: str = "both",
+    depth: str = "deep",
+) -> Source.Research
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `objective` | `str` | - | What to research |
+| `mode` | `str` | `"both"` | `"idea"`, `"implementation"`, or `"both"` |
+| `depth` | `str` | `"deep"` | `"light"` or `"deep"` |
+
+#### Returns
+
+`Source.Research` object with:
+- `report_markdown`: Full research report
+- `to_context_string()`: Format for prompt injection
+
+#### Example
+
+```python
+research = kapso.research(
+    "QLoRA best practices for fine-tuning",
+    mode="idea",
+    depth="deep",
+)
+
+# Use as context
+solution = kapso.evolve(
+    goal="Fine-tune LLaMA",
+    additional_context=research.to_context_string(),
+)
+
+# Or learn into KG
+kapso.learn(research, wiki_dir="data/wikis")
+```
+
+### learn()
+
+Learn from knowledge sources.
+
+```python
+def learn(
+    self,
+    *sources: Union[Source.Repo, Source.Solution, Source.Research],
+    wiki_dir: str = "data/wikis",
+    skip_merge: bool = False,
+    kg_index: Optional[str] = None,
+) -> PipelineResult
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `*sources` | `Source.*` | - | One or more source objects |
+| `wiki_dir` | `str` | `"data/wikis"` | Wiki directory path |
+| `skip_merge` | `bool` | `False` | Only extract, don't merge |
+| `kg_index` | `str` | `None` | Index path for MCP server |
+
+#### Returns
+
+`PipelineResult` with:
+- `sources_processed`: Number of sources processed
+- `total_pages_extracted`: Pages extracted
+- `created`: New pages created
+- `merged`: Pages merged with existing
+- `errors`: List of errors
+
+#### Example
+
+```python
+result = kapso.learn(
+    Source.Repo("https://github.com/huggingface/transformers"),
+    kapso.research("LoRA best practices"),
+    wiki_dir="data/wikis",
+)
+print(f"Created: {result.created}, Merged: {result.merged}")
+```
+
+### evolve()
+
+Evolve a solution through experimentation.
+
+```python
+def evolve(
+    self,
+    goal: str,
+    context: Optional[List[Any]] = None,
+    constraints: Optional[List[str]] = None,
+    output_path: Optional[str] = None,
+    starting_repo_path: Optional[str] = None,
+    max_iterations: int = 10,
+    # Configuration
+    mode: Optional[str] = None,
+    coding_agent: Optional[str] = None,
+    # Execution
+    language: str = "python",
+    main_file: str = "main.py",
+    timeout: int = 300,
+    data_dir: Optional[str] = None,
+    # Evaluation
+    evaluator: str = "no_score",
+    evaluator_params: Optional[Dict[str, Any]] = None,
+    stop_condition: str = "never",
+    stop_condition_params: Optional[Dict[str, Any]] = None,
+    # Extra context
+    additional_context: str = "",
+) -> SolutionResult
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `goal` | `str` | - | High-level objective |
+| `context` | `List` | `None` | Sources to learn before evolving |
+| `constraints` | `List[str]` | `None` | Constraints (e.g., "latency < 50ms") |
+| `output_path` | `str` | `None` | Where to save generated code |
+| `starting_repo_path` | `str` | `None` | Existing repo to improve |
+| `max_iterations` | `int` | `10` | Maximum experiment iterations |
+| `mode` | `str` | `None` | Config mode (GENERIC, MINIMAL, etc.) |
+| `coding_agent` | `str` | `None` | Coding agent override |
+| `language` | `str` | `"python"` | Programming language |
+| `main_file` | `str` | `"main.py"` | Entry point file |
+| `timeout` | `int` | `300` | Execution timeout (seconds) |
+| `data_dir` | `str` | `None` | Path to data files |
+| `evaluator` | `str` | `"no_score"` | Evaluator type |
+| `evaluator_params` | `Dict` | `None` | Evaluator parameters |
+| `stop_condition` | `str` | `"never"` | Stop condition type |
+| `stop_condition_params` | `Dict` | `None` | Stop condition parameters |
+| `additional_context` | `str` | `""` | Extra context for prompts |
+
+#### Returns
+
+`SolutionResult` with:
+- `goal`: Original goal
+- `code_path`: Path to generated code
+- `experiment_logs`: List of experiment summaries
+- `metadata`: Cost, iterations, final evaluation
+
+#### Example
+
+```python
+solution = kapso.evolve(
+    goal="Build XGBoost classifier with AUC > 0.85",
+    output_path="./models/v1",
+    max_iterations=10,
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"AUC: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.85},
+)
+```
+
+### deploy()
+
+Deploy a solution as running software.
+
+```python
+def deploy(
+    self,
+    solution: SolutionResult,
+    strategy: DeployStrategy = DeployStrategy.AUTO,
+    env_vars: Optional[Dict[str, str]] = None,
+    coding_agent: str = "claude_code",
+) -> Software
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `solution` | `SolutionResult` | - | Solution from evolve() |
+| `strategy` | `DeployStrategy` | `AUTO` | Deployment strategy |
+| `env_vars` | `Dict[str, str]` | `None` | Environment variables |
+| `coding_agent` | `str` | `"claude_code"` | Agent for adaptation |
+
+#### Returns
+
+`Software` instance with:
+- `run(inputs)`: Execute with inputs
+- `stop()`: Stop and cleanup
+- `start()`: Restart
+- `is_healthy()`: Health check
+- `logs()`: Get logs
+
+#### Example
+
+```python
+software = kapso.deploy(
+    solution,
+    strategy=DeployStrategy.LOCAL,
+    env_vars={"API_KEY": "..."},
+)
+
+result = software.run({"data_path": "./test.csv"})
+software.stop()
+```
+
+### index_kg()
+
+Index knowledge data into the KG.
+
+```python
+def index_kg(
+    self,
+    wiki_dir: Optional[str] = None,
+    data_path: Optional[str] = None,
+    save_to: str = None,
+    search_type: Optional[str] = None,
+    force: bool = False,
+) -> str
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `wiki_dir` | `str` | `None` | Path to wiki directory |
+| `data_path` | `str` | `None` | Path to JSON data file |
+| `save_to` | `str` | - | Path to save .index file |
+| `search_type` | `str` | `None` | Override search backend |
+| `force` | `bool` | `False` | Clear existing data |
+
+#### Returns
+
+Path to created `.index` file.
+
+#### Example
+
+```python
+# Index wiki pages
+kapso.index_kg(
+    wiki_dir="data/wikis_llm_finetuning",
+    save_to="data/indexes/llm_finetuning.index",
+    force=True,
+)
+
+# Index JSON graph
+kapso.index_kg(
+    data_path="data/kg_data.json",
+    save_to="data/indexes/kg.index",
+    search_type="kg_llm_navigation",
+)
+```
+
+## Data Classes
+
+### SolutionResult
+
+```python
+@dataclass
+class SolutionResult:
+    goal: str
+    code_path: str
+    experiment_logs: List[str]
+    metadata: Dict[str, Any]
+```
+
+### Source Types
+
+```python
+from src.kapso import Source
+
+# Repository
+Source.Repo(url: str, branch: str = "main")
+
+# Solution (from evolve)
+Source.Solution(solution: SolutionResult)
+
+# Research (from research)
+Source.Research  # Returned by kapso.research()
+```
+
+### DeployStrategy
+
+```python
+from src.kapso import DeployStrategy
+
+DeployStrategy.AUTO
+DeployStrategy.LOCAL
+DeployStrategy.DOCKER
+DeployStrategy.MODAL
+DeployStrategy.BENTOML
+DeployStrategy.LANGGRAPH
+```
+
+## Exceptions
+
+### KGIndexError
+
+Raised when KG index is invalid or backend data is missing.
+
+```python
+from src.kapso import KGIndexError
+
+try:
+    kapso = Kapso(kg_index="invalid.index")
+except KGIndexError as e:
+    print(f"Index error: {e}")
+```
+
+## Complete Example
+
+```python
+from src.kapso import Kapso, Source, DeployStrategy
+
+# Initialize with KG
+kapso = Kapso(kg_index="data/indexes/ml.index")
+
+# Research
+research = kapso.research("XGBoost best practices", mode="idea")
+
+# Learn
+kapso.learn(
+    Source.Repo("https://github.com/dmlc/xgboost"),
+    research,
+)
+
+# Evolve
+solution = kapso.evolve(
+    goal="XGBoost classifier with AUC > 0.9",
+    output_path="./models/xgb_v1",
+    max_iterations=10,
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"AUC: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.9},
+)
+
+# Deploy
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = software.run({"data_path": "./test.csv"})
+
+# Cleanup
+software.stop()
+
+# Learn from experience
+kapso.learn(Source.Solution(solution))
+```

@@ -1,606 +1,160 @@
-# Kapso
+<h1 align="center">Kapso</h1>
 
-> *A framework where AI Learns, experiments, Builds, and Ships.*
+<h4 align="center">A framework where AI Learns, Experiments, Builds, and Ships</h4>
 
-[![Python](https://img.shields.io/badge/python-3.12+-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/hqVbPNNEZM)
-[![Y Combinator](https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white)](https://www.ycombinator.com/companies/leeroo)
-[![Website](https://img.shields.io/badge/Website-leeroo.com-green)](https://leeroo.com/)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/leeroo-ai/kapso)](https://github.com/leeroo-ai/kapso)
-[![PyPI version](https://img.shields.io/pypi/v/kapso)](https://pypi.org/project/kapso/)
+<p align="center">
+  <a href="https://docs.leeroo.com">Learn more</a> ·
+  <a href="https://discord.gg/hqVbPNNEZM">Join Discord</a> ·
+  <a href="https://leeroo.com">Website</a>
+</p>
 
-Kapso lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
+<p align="center">
+  <a href="https://discord.gg/hqVbPNNEZM"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://pypi.org/project/kapso/"><img src="https://img.shields.io/pypi/dm/kapso" alt="PyPI Downloads"></a>
+  <a href="https://github.com/leeroo-ai/kapso"><img src="https://img.shields.io/github/commit-activity/m/leeroo-ai/kapso" alt="GitHub commit activity"></a>
+  <a href="https://pypi.org/project/kapso/"><img src="https://img.shields.io/pypi/v/kapso" alt="Package version"></a>
+  <a href="https://www.ycombinator.com/companies/leeroo"><img src="https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white" alt="Y Combinator X25"></a>
+</p>
 
-## Quick Start
+<p align="center">
+  <img src="assets/framework.png" alt="Kapso Framework Architecture" width="800">
+</p>
 
-```python
-from src.kapso import Kapso, Source, DeployStrategy
+---
 
-# Initialize a Kapso with a pre-indexed Knowledge Graph
-kapso = Kapso(
-    kg_index="data/indexes/kaggle.index",  # Load existing KG index
-)
+## Introduction
 
-# Teach it from various sources (optional)
-titanic_research = kapso.research(
-    "XGBoost classifier best practices for Titanic-like tabular datasets",
-    mode="idea",
-    depth="deep",
-)
+Kapso lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise. The system automates the cycle of **designing**, **testing**, and **refining** algorithms, eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
 
-kapso.learn(
-    Source.Repo("https://github.com/scikit-learn/scikit-learn"),
-    titanic_research,
-    wiki_dir="data/wikis",
-)
+### Key Features
 
-# Build a solution — the Kapso runs experiments automatically
-solution = kapso.evolve(
-    goal="XGBoost classifier for Titanic dataset with AUC > 0.85",
-    output_path="./models/titanic_v1",
-    evaluator="llm_judge",
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.85},
-)
+- **Knowledge-Grounded**: Solutions are informed by domain knowledge, not just LLM priors
+- **Iterative Refinement**: Tree search explores multiple approaches, learns from failures
+- **Pluggable Components**: Swap coding agents, evaluators, and search strategies
+- **Full Lifecycle**: From research to deployment in a single framework
+- **Evidence-Backed Memory**: RepoMemory tracks code understanding with file-level evidence
 
-# Deploy and run
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"data_path": "./test.csv"})
+### Use Cases
 
-# Lifecycle management
-software.stop()   # Stop the deployment
-software.start()  # Restart the deployment
-result = software.run({"data_path": "./validation.csv"})  # Run again
-software.stop()   # Final cleanup
+- **ML Competitions**: Automated Kaggle solution development with knowledge-guided experimentation
+- **LLM Fine-Tuning**: Build QLoRA/LoRA training pipelines with best practices from your knowledge base
+- **Data Engineering**: Create ETL pipelines that meet throughput and quality requirements
+- **General Software**: Any problem that benefits from iterative experimentation and domain knowledge
 
-# Learn from the experience (feedback loop)
-kapso.learn(Source.Solution(solution), wiki_dir="data/wikis")
-```
+## 🚀 Quickstart
 
-## Web Research (Optional)
-
-Kapso can do deep public web research via `Kapso.research()`. This is useful when:
-
-- Your Knowledge Graph (KG) does not have the needed information yet
-- You want fresh implementation references (official docs + popular repos)
-
-`research()` returns a `Source.Research` object (with `report_markdown` and `to_context_string()`).
-It supports:
-
-- `mode`: `"idea"` | `"implementation"` | `"both"`
-- `depth`: `"light"` | `"deep"` (maps to OpenAI `reasoning.effort="medium"` / `"high"`)
-
-### Research → Evolve (add context)
-
-```python
-from src.kapso import Kapso
-
-kapso = Kapso()
-
-research = kapso.research(
-    "unsloth FastLanguageModel example",
-    mode="implementation",
-    depth="deep",
-)
-
-solution = kapso.evolve(
-    goal="Fine-tune a model with Unsloth + LoRA",
-    additional_context=research.to_context_string(),
-    output_path="./models/unsloth_v1",
-)
-```
-
-### Research → KnowledgePipeline (ingest into KG)
-
-```python
-from src.kapso import Kapso
-from src.knowledge.learners import KnowledgePipeline
-
-kapso = Kapso()
-research = kapso.research(
-    "LoRA rank selection best practices",
-    mode="idea",
-    depth="deep",
-)
-
-pipeline = KnowledgePipeline(wiki_dir="data/wikis")
-
-# skip_merge=True extracts WikiPages only (does not require Neo4j/Weaviate).
-result = pipeline.run(research, skip_merge=True)
-print(result.total_pages_extracted)
-```
-
-Prompt templates live in `src/knowledge/web_research/prompts/`.
-
-## Knowledge Graph Indexing
-
-Kapso uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
-
-### One-Time Indexing
-
-```python
-from src.kapso import Kapso
-
-# Create a Kapso (no KG loaded yet)
-kapso = Kapso(config_path="src/config.yaml")
-
-# Index wiki pages (for kg_graph_search backend)
-kapso.index_kg(
-    wiki_dir="data/wikis_llm_finetuning",  # Directory with .md/.mediawiki files
-    save_to="data/indexes/llm_finetuning.index",
-    force=True,  # Clear existing data before indexing
-)
-
-# Or index JSON graph data (for kg_llm_navigation backend)
-kapso.index_kg(
-    data_path="benchmarks/mle/data/kg_data.json",  # JSON with nodes/edges
-    save_to="data/indexes/kaggle_kg.index",
-    search_type="kg_llm_navigation",  # Override backend type
-)
-```
-
-### Loading Pre-Indexed KG
-
-```python
-from src.kapso import Kapso
-
-# Load from existing .index file (skips indexing)
-kapso = Kapso(
-    config_path="src/config.yaml",
-    kg_index="data/indexes/llm_finetuning.index",
-)
-
-# Now evolve() will use KG context automatically
-solution = kapso.evolve(
-    goal="Fine-tune LLaMA with QLoRA for code generation",
-    output_path="./models/qlora_v1",
-)
-```
-
-### Index File Format
-
-The `.index` file is a JSON file containing:
-
-```json
-{
-  "version": "1.0",
-  "created_at": "2025-01-15T10:30:00Z",
-  "wiki_dir": "data/wikis_llm_finetuning",
-  "search_backend": "kg_graph_search",
-  "backend_refs": {
-    "weaviate_collection": "KapsoWiki",
-    "embedding_model": "text-embedding-3-large"
-  },
-  "page_count": 99
-}
-```
-
-### KG Search Backends
-
-| Backend | Data Format | Storage | Use Case |
-|---------|-------------|---------|----------|
-| `kg_graph_search` | Wiki pages (.md/.mediawiki) | Weaviate + Neo4j | Semantic search with LLM reranking |
-| `kg_llm_navigation` | JSON (nodes/edges) | Neo4j only | LLM-guided graph navigation |
-
-### Infrastructure Requirements
-
-Both backends require database infrastructure:
+### Installation
 
 ```bash
-# Start Weaviate and Neo4j (required for indexing/search)
-./scripts/start_infra.sh
-```
-
-## Usage Examples
-
-### Kaggle Competitor
-
-```python
-from src.kapso import Kapso, Source, DeployStrategy
-
-# 1. One-time setup: Index Kaggle competition knowledge
-kapso = Kapso(config_path="src/config.yaml")
-kapso.index_kg(
-    data_path="benchmarks/mle/data/kg_data.json",
-    save_to="data/indexes/kaggle.index",
-    search_type="kg_llm_navigation",
-)
-kapso.knowledge_search.close()
-
-# 2. Normal usage: Load pre-indexed KG and evolve
-kaggler = Kapso(
-    config_path="src/config.yaml",
-    kg_index="data/indexes/kaggle.index",
-)
-
-# 3. Learn from winning solutions and research
-kaggler.learn(
-    Source.Repo("https://github.com/Kaggle/kaggle-api", branch="main"),
-    wiki_dir="data/wikis",
-)
-
-# 4. Build the ML pipeline for a tabular competition
-solution = kaggler.evolve(
-    goal="LightGBM + CatBoost ensemble for House Prices with RMSE < 0.12",
-    output_path="./submissions/house_prices_v1",
-    max_iterations=10,
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"RMSE: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.12},
-)
-
-# 5. Deploy and generate predictions
-software = kaggler.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"train_path": "./train.csv", "test_path": "./test.csv"})
-
-# 6. Learn from the build experience
-kaggler.learn(Source.Solution(solution), wiki_dir="data/wikis")
-```
-
-### LLM Fine-Tuning Expert
-
-```python
-from src.kapso import Kapso, Source, DeployStrategy
-
-# 1. One-time setup: Index LLM fine-tuning wiki
-kapso = Kapso(config_path="src/config.yaml")
-kapso.index_kg(
-    wiki_dir="data/wikis_llm_finetuning",
-    save_to="data/indexes/llm_finetuning.index",
-)
-kapso.knowledge_search.close()
-
-# 2. Normal usage: Load pre-indexed KG
-finetuner = Kapso(
-    config_path="src/config.yaml",
-    kg_index="data/indexes/llm_finetuning.index",
-)
-
-# 3. Build a QLoRA fine-tuning pipeline
-solution = finetuner.evolve(
-    goal="Fine-tune Llama-3.1-8B with QLoRA on custom dataset, target loss < 0.5",
-    output_path="./models/qlora_llama_v1",
-    max_iterations=5,
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"loss: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.5},
-)
-
-# 4. Deploy and run training
-software = finetuner.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"dataset_path": "./training_data.jsonl"})
-```
-
-### Data Engineer
-
-```python
-from src.kapso import Kapso, Source, DeployStrategy
-
-# 1. Initialize (no KG needed for this example)
-data_eng = Kapso(config_path="src/config.yaml")
-
-# 2. Build with data directory (schemas and configs available during build)
-etl_pipeline = data_eng.evolve(
-    goal="ETL pipeline with PySpark that processes 1M+ rows/min from S3 to Snowflake",
-    data_dir="./schemas/",
-    output_path="./pipelines/s3_to_snowflake_v1",
-    evaluator="llm_judge",
-    evaluator_params={"criteria": "data_quality_and_throughput"},
-    stop_condition="plateau",
-    stop_condition_params={"patience": 3},
-)
-
-# 3. Deploy to cloud
-software = data_eng.deploy(etl_pipeline, strategy=DeployStrategy.MODAL)
-result = software.run({"s3_bucket": "raw-data", "table": "events"})
-
-# 4. Learn from the successful build
-data_eng.learn(Source.Solution(etl_pipeline), wiki_dir="data/wikis")
-```
-
-## CLI Usage
-
-```bash
-# Basic usage
-PYTHONPATH=. python -m src.cli --goal "Build a random forest classifier for the Iris dataset"
-
-# With options
-PYTHONPATH=. python -m src.cli \
-    --goal "Build a feature engineering pipeline for tabular data" \
-    --iterations 10 \
-    --language python \
-    --coding-agent aider \
-    --evaluator regex_pattern \
-    --stop-condition threshold
-
-# List available options
-PYTHONPATH=. python -m src.cli --list-agents
-PYTHONPATH=. python -m src.cli --list-evaluators
-PYTHONPATH=. python -m src.cli --list-stops
-```
-
-## Evaluators
-
-Control how solutions are scored:
-
-| Evaluator | Description |
-|-----------|-------------|
-| `no_score` | No scoring, always returns 0 (default) |
-| `regex_pattern` | Extract score from output using regex |
-| `file_json` | Read score from a JSON file |
-| `multi_metric` | Weighted combination of multiple regex metrics |
-| `llm_judge` | LLM-based evaluation with custom criteria |
-| `llm_comparison` | Compare output against expected result |
-| `composite` | Combine multiple evaluators |
-
-```python
-# Regex example
-solution = kapso.evolve(
-    goal="...",
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"Accuracy: ([\d.]+)%"},
-)
-
-# LLM judge example
-solution = kapso.evolve(
-    goal="...",
-    evaluator="llm_judge",
-    evaluator_params={"criteria": "correctness and efficiency"},
-)
-```
-
-## Stop Conditions
-
-Control when to stop experimentation:
-
-| Condition | Description |
-|-----------|-------------|
-| `never` | Never stop early (default) |
-| `threshold` | Stop when score reaches threshold |
-| `max_iterations` | Stop after N iterations |
-| `plateau` | Stop if no improvement for N iterations |
-| `cost_limit` | Stop when cost limit reached |
-| `time_limit` | Stop when time limit reached |
-| `consecutive_errors` | Stop after N consecutive errors |
-| `composite` | Combine multiple conditions (any/all) |
-
-```python
-# Threshold example
-solution = kapso.evolve(
-    goal="...",
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.95},
-)
-
-# Composite: stop if score >= 0.9 OR no improvement for 5 iterations
-solution = kapso.evolve(
-    goal="...",
-    stop_condition="composite",
-    stop_condition_params={
-        "conditions": [
-            ("threshold", {"threshold": 0.9}),
-            ("plateau", {"patience": 5}),
-        ],
-        "mode": "any",
-    },
-)
-```
-
-## Coding Agents
-
-Pluggable agents for code generation:
-
-| Agent | Description |
-|-------|-------------|
-| `aider` | Git-centric pair programming with diff-based editing (default) |
-| `gemini` | Google Gemini SDK for code generation |
-| `claude_code` | Anthropic Claude Code CLI for complex refactoring |
-| `openhands` | OpenHands agent with sandboxed execution ⚠️ |
-
-> **⚠️ Note:** `openhands` requires a separate conda environment due to conflicting dependencies with `aider-chat`. See [Installation](#installation) for details.
-
-```python
-solution = kapso.evolve(
-    goal="...",
-    coding_agent="claude_code",  # Use Claude Code instead of default
-)
-```
-
-## Search Strategies
-
-Control how solutions are explored:
-
-| Strategy | Description |
-|----------|-------------|
-| `llm_tree_search` | Tree-based exploration with LLM-guided selection (default) |
-| `linear_search` | Simple sequential search, one solution per iteration |
-
-Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
-
-## Architecture
-
-```
-kapso/
-├── src/
-│   ├── kapso.py              # Main Kapso API (learn, research, evolve, deploy, index_kg)
-│   ├── cli.py                 # CLI entry point
-│   ├── core/                  # LLM backend, config
-│   ├── deployment/            # Local, Docker, Cloud deployment
-│   ├── environment/
-│   │   ├── evaluators/        # Pluggable scoring
-│   │   ├── handlers/          # Problem handlers
-│   │   └── stop_conditions/   # Pluggable stop conditions
-│   ├── execution/
-│   │   ├── coding_agents/     # Aider, Gemini, Claude Code, OpenHands
-│   │   ├── search_strategies/ # Tree search, Linear search
-│   │   └── orchestrator.py    # Main coordination
-│   └── knowledge/
-│       ├── learners/          # Repo, Paper, File learners
-│       ├── search/            # KG search backends (kg_graph_search, kg_llm_navigation)
-│       └── web_research/      # Deep public web research (OpenAI web_search)
-├── data/
-│   ├── indexes/               # .index files (KG references)
-│   ├── wikis_llm_finetuning/  # LLM fine-tuning wiki pages
-│   └── wikis_batch_top100/    # Batch processing wiki pages
-├── benchmarks/
-│   ├── mle/                   # MLE-Bench (Kaggle)
-│   │   └── data/kg_data.json  # Kaggle competition KG data
-│   └── ale/                   # ALE-Bench (AtCoder)
-└── docs/                      # Documentation
-```
-
-## Installation
-
-### 1. Clone and Install
-
-```bash
-git clone <repository-url>
+git clone https://github.com/leeroo-ai/kapso.git
 cd kapso
 
 # Pull Git LFS files (wiki knowledge data)
 git lfs install
 git lfs pull
 
-# Create a dedicated conda environment (recommended)
-conda create -n kapso_conda python=3.12
-conda activate kapso_conda
+# Create conda environment (recommended)
+conda create -n kapso python=3.12
+conda activate kapso
 
-# Install the package
+# Install
 pip install -e .
 ```
 
-> **📦 Git LFS Note**
->
-> This repository uses Git LFS for large files in `data/wikis_batch_top100/`.
-> If you didn't install Git LFS before cloning, run:
-> ```bash
-> git lfs install
-> git lfs pull
-> ```
-
-> **⚠️ Dependency Compatibility Note**
->
-> `aider-chat` has strict pinned dependencies that conflict with some packages:
-> - `openhands` requires `litellm>=1.80.7`, but aider pins `litellm==1.75.0`
-> - `browser-use` requires `openai>=2.7.2`, but aider pins `openai==1.99.1`
->
-> **Do not install openhands or browser-use in the same environment.**
-> Use a separate conda environment if you need those packages.
-
-### 2. Set Up API Keys
+### Set Up API Keys
 
 Create `.env` in project root:
 
 ```bash
-OPENAI_API_KEY=your-openai-api-key       # For GPT models
-GOOGLE_API_KEY=your-google-api-key       # For Gemini models
-ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude models
+OPENAI_API_KEY=your-openai-api-key
+GOOGLE_API_KEY=your-google-api-key       # For Gemini
+ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
 ```
 
-### 3. Install Coding Agent (optional)
+### Basic Usage
 
-```bash
-# Aider (default) - included in pip install -e .
-# Already installed as a core dependency
+```python
+from src.kapso import Kapso, DeployStrategy
 
-# Claude Code
-npm install -g @anthropic-ai/claude-code
+# Initialize Kapso
+kapso = Kapso()
 
-# OpenHands - INCOMPATIBLE with aider-chat (use separate environment)
-# conda create -n openhands_env python=3.12
-# conda activate openhands_env
-# pip install openhands-ai litellm
+# Build a solution — Kapso runs experiments automatically
+solution = kapso.evolve(
+    goal="Build a random forest classifier for the Iris dataset with accuracy > 0.9",
+    output_path="./models/iris_v1",
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"Accuracy: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.9},
+)
+
+# Deploy and run
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = software.run({"data_path": "./test.csv"})
+
+# Cleanup
+software.stop()
 ```
 
-## Running Benchmarks
+### With Knowledge Graph
 
-### MLE-Bench (Kaggle)
+```python
+from src.kapso import Kapso, Source
 
-```bash
-# Install MLE-Bench
-git clone https://github.com/openai/mle-bench.git
-cd mle-bench && pip install -e . && cd ..
-pip install -r benchmarks/mle/requirements.txt
+# Initialize with pre-indexed knowledge
+kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
 
-# Run
-PYTHONPATH=. python -m benchmarks.mle.runner
+# Research best practices
+research = kapso.research(
+    "QLoRA fine-tuning best practices",
+    mode="implementation",
+    depth="deep",
+)
+
+# Learn from repositories
+kapso.learn(
+    Source.Repo("https://github.com/huggingface/peft"),
+    research,
+    wiki_dir="data/wikis",
+)
+
+# Build with knowledge context
+solution = kapso.evolve(
+    goal="Fine-tune Llama-3.1-8B with QLoRA, target loss < 0.5",
+    output_path="./models/qlora_v1",
+)
 ```
 
-### ALE-Bench (AtCoder)
+For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.
 
-```bash
-# Install ALE-Bench
-git clone https://github.com/SakanaAI/ALE-Bench.git
-cd ALE-Bench && pip install . && pip install ".[eval]" && bash ./scripts/docker_build_202301.sh 1000 1000 && cd ..
+## 📚 Documentation & Support
 
-# Run
-PYTHONPATH=. python -m benchmarks.ale.runner
-```
+- **Full Documentation**: [docs.leeroo.com](https://docs.leeroo.com)
+- **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
+- **Website**: [leeroo.com](https://leeroo.com)
 
 ## Core Components
 
 | Component | Description |
 |-----------|-------------|
-| `Kapso` | Main API - learn, research, evolve, deploy, index_kg |
-| `OrchestratorAgent` | Coordinates experimentation loop |
-| `SearchStrategy` | Tree/Linear search for solutions |
-| `CodingAgent` | Code generation (Aider, Gemini, etc.) |
-| `KnowledgeSearch` | KG search backends (kg_graph_search, kg_llm_navigation) |
-| `Evaluator` | Score solutions |
-| `StopCondition` | Control when to stop |
-| `ProblemHandler` | Problem-specific logic |
+| **Kapso** | Main API — orchestrates research, learn, evolve, and deploy |
+| **OrchestratorAgent** | Runs the experimentation loop with budget tracking |
+| **Search Strategy** | Explores solutions via tree search or linear search |
+| **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
+| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
+| **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
+| **Evaluators** | Score solutions: regex patterns, JSON files, LLM judges |
+| **Stop Conditions** | Control when to stop: threshold, plateau, cost/time limits |
+| **Deployment** | Turn solutions into running software: Local, Docker, Modal, BentoML |
 
-## Software Lifecycle
+## Supported Benchmarks
 
-After deploying, the returned `Software` instance supports full lifecycle management:
+| Benchmark | Description |
+|-----------|-------------|
+| **MLE-Bench** | Kaggle ML competitions — tabular, image, text, audio problems |
+| **ALE-Bench** | AtCoder algorithmic optimization — C++ solution generation |
 
-```python
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+## ⚖️ License
 
-# Run inference
-result = software.run({"data_path": "./test_features.csv"})
-
-# Check health
-if software.is_healthy():
-    print("Model service is running")
-
-# Stop (cleanup resources)
-software.stop()
-
-# Restart (re-initialize)
-software.start()
-
-# Run again after restart
-result = software.run({"data_path": "./new_batch.csv"})
-
-# Final cleanup
-software.stop()
-```
-
-| Method | Description |
-|--------|-------------|
-| `run(inputs)` | Execute with input data, returns `{"status": "success/error", "output": ...}` |
-| `stop()` | Stop and cleanup resources (containers, modules, cloud deployments) |
-| `start()` | Restart a stopped deployment (re-deploy for cloud, reload for local) |
-| `is_healthy()` | Check if the service is running and ready |
-| `logs()` | Get execution logs for debugging |
-
-## Running Documentation Locally
-
-To run the Mintlify documentation locally:
-
-```bash
-# Install Mintlify CLI (if not already installed)
-npm i -g mintlify
-
-# Start the local development server
-mintlify dev
-```
-
-The documentation will be available at `http://localhost:3000` by default.
-
-## License
-
-MIT
+MIT — see the [LICENSE](LICENSE) file for details.

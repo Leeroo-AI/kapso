@@ -8,27 +8,97 @@ description: "Complete installation guide for Kapso and benchmarks"
 <Steps>
   <Step title="Clone the repository">
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/leeroo-ai/kapso.git
     cd kapso
     ```
   </Step>
-  <Step title="Install core dependencies">
+  <Step title="Pull Git LFS files">
     ```bash
-    pip install -r requirements.txt
+    # Install Git LFS if not already installed
+    git lfs install
+    git lfs pull
+    ```
+    <Note>
+      This repository uses Git LFS for large files in `data/wikis_batch_top100/`.
+      If you didn't install Git LFS before cloning, run these commands to fetch the files.
+    </Note>
+  </Step>
+  <Step title="Create conda environment (recommended)">
+    ```bash
+    conda create -n kapso_conda python=3.12
+    conda activate kapso_conda
+    ```
+  </Step>
+  <Step title="Install the package">
+    ```bash
+    pip install -e .
     ```
   </Step>
   <Step title="Configure API keys">
     Create `.env` in project root:
     ```bash
-    # Required
+    # Required for most operations
     OPENAI_API_KEY=your-openai-api-key
+
+    # For Gemini coding agent
     GOOGLE_API_KEY=your-google-api-key
 
-    # Optional
+    # For Claude Code coding agent
     ANTHROPIC_API_KEY=your-anthropic-api-key
     ```
   </Step>
 </Steps>
+
+## Coding Agent Setup
+
+Kapso supports multiple coding agents. Install the ones you plan to use:
+
+<Tabs>
+  <Tab title="Aider (Default)">
+    Aider is installed automatically with `pip install -e .`
+
+    No additional setup required. Uses git-centric diff-based editing.
+
+    ```bash
+    # Verify installation
+    aider --version
+    ```
+  </Tab>
+  <Tab title="Claude Code">
+    Claude Code requires Node.js and the Anthropic CLI:
+
+    ```bash
+    # Install Claude Code CLI
+    npm install -g @anthropic-ai/claude-code
+
+    # Verify installation
+    claude --version
+    ```
+
+    Set `ANTHROPIC_API_KEY` in your `.env` file.
+  </Tab>
+  <Tab title="Gemini">
+    Gemini uses the Google AI SDK, installed with core dependencies.
+
+    Set `GOOGLE_API_KEY` in your `.env` file.
+  </Tab>
+  <Tab title="OpenHands">
+    <Warning>
+      OpenHands has conflicting dependencies with `aider-chat`. Use a **separate conda environment**.
+    </Warning>
+
+    ```bash
+    # Create separate environment
+    conda create -n openhands_env python=3.12
+    conda activate openhands_env
+
+    # Install OpenHands
+    pip install openhands-ai litellm
+    ```
+
+    Do NOT install OpenHands in the same environment as Kapso.
+  </Tab>
+</Tabs>
 
 ## Benchmark Installation
 
@@ -88,14 +158,15 @@ description: "Complete installation guide for Kapso and benchmarks"
 
 ## Infrastructure Setup
 
-Kapso uses Docker containers for its infrastructure: Weaviate (vector DB), Neo4j (graph DB), and MediaWiki (knowledge browser).
+Kapso uses Docker containers for its knowledge graph infrastructure:
+- **Weaviate**: Vector database for semantic search
+- **Neo4j**: Graph database for relationships
+- **MediaWiki** (optional): Web UI for browsing wiki pages
 
 ### Quick Start (Recommended)
 
-Use the provided scripts to start all services at once:
-
 ```bash
-# Start all infrastructure (Weaviate, Neo4j, MediaWiki)
+# Start all infrastructure
 ./scripts/start_infra.sh
 
 # Stop infrastructure (data preserved)
@@ -105,68 +176,55 @@ Use the provided scripts to start all services at once:
 ./scripts/stop_infra.sh --volumes
 ```
 
-The start script will:
-1. Start Docker containers for Weaviate, Neo4j, and MediaWiki
-2. Wait for services to be ready
-3. Optionally import wiki pages to MediaWiki for browsing
-
-**Default Credentials:**
+### Default Service URLs
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | MediaWiki | http://localhost:8090 | `admin` / `adminpass123` |
-| Neo4j | http://localhost:7474 | `neo4j` / `password` |
+| Neo4j Browser | http://localhost:7474 | `neo4j` / `password` |
 | Weaviate | http://localhost:8080 | Anonymous (no auth) |
 
 ### Manual Setup
 
 If you prefer to start services individually:
 
-<Tabs>
-  <Tab title="All Services (Docker Compose)">
-    Start the full stack using Docker Compose:
+<Accordion title="Docker Compose (All Services)">
+  ```bash
+  docker compose -f services/infrastructure/docker-compose.yml up -d
+  ```
 
-    ```bash
-    docker compose -f services/infrastructure/docker-compose.yml up -d
-    ```
+  This starts:
+  - **Weaviate** (port 8080) - Vector database for embeddings
+  - **Neo4j** (ports 7474, 7687) - Graph database for relationships
+  - **MediaWiki** (port 8090) - Web UI for browsing wiki pages
+  - **MariaDB** - Backend database for MediaWiki
+</Accordion>
 
-    This starts:
-    - **Weaviate** (port 8080) - Vector database for embeddings
-    - **Neo4j** (ports 7474, 7687) - Graph database for relationships
-    - **MediaWiki** (port 8090) - Web UI for browsing wiki pages
-    - **MariaDB** - Backend database for MediaWiki
-  </Tab>
-  <Tab title="Individual Containers">
-    Start only the services you need:
+<Accordion title="Individual Containers">
+  **Weaviate (vector DB):**
+  ```bash
+  docker run -d --name weaviate \
+      -p 8080:8080 -p 50051:50051 \
+      -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      -e PERSISTENCE_DATA_PATH='/var/lib/weaviate' \
+      semitechnologies/weaviate:1.27.0
+  ```
 
-    **Weaviate (vector DB):**
-    ```bash
-    docker run -d --name weaviate \
-        -p 8080:8080 -p 50051:50051 \
-        -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        -e PERSISTENCE_DATA_PATH='/var/lib/weaviate' \
-        semitechnologies/weaviate:1.27.0
-    ```
-
-    **Neo4j (graph DB):**
-    ```bash
-    docker run -d --name neo4j \
-        --restart unless-stopped \
-        -p 7474:7474 -p 7687:7687 \
-        -e NEO4J_AUTH=neo4j/password \
-        neo4j:5.18.0
-    ```
-  </Tab>
-</Tabs>
+  **Neo4j (graph DB):**
+  ```bash
+  docker run -d --name neo4j \
+      --restart unless-stopped \
+      -p 7474:7474 -p 7687:7687 \
+      -e NEO4J_AUTH=neo4j/password \
+      neo4j:5.18.0
+  ```
+</Accordion>
 
 ### Configure Environment
 
 Add infrastructure settings to your `.env`:
 
 ```bash
-# Required for embeddings
-OPENAI_API_KEY=your-openai-api-key
-
 # Neo4j connection
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
@@ -174,11 +232,16 @@ NEO4J_PASSWORD=password
 
 # Weaviate connection
 WEAVIATE_URL=http://localhost:8080
+
+# MediaWiki (optional)
+MW_BASE=http://localhost:8090
+MW_USER=admin
+MW_PASS=adminpass123
 ```
 
 ## Knowledge Graph Indexing
 
-After infrastructure is running, index your wiki pages into the knowledge graph.
+After infrastructure is running, index your wiki pages:
 
 ### Using Kapso API (Recommended)
 
@@ -201,68 +264,38 @@ kapso = Kapso(
 )
 ```
 
-### Using CLI
+### Index File Format
 
-```bash
-PYTHONPATH=. python -c "
-from src.kapso import Kapso
-kapso = Kapso(config_path='src/config.yaml')
-kapso.index_kg(wiki_dir='data/wikis', save_to='data/indexes/wikis.index')
-print('Knowledge graph indexed')
-"
+The `.index` file is a JSON reference to the indexed data:
+
+```json
+{
+  "version": "1.0",
+  "created_at": "2025-01-15T10:30:00Z",
+  "data_source": "data/wikis_llm_finetuning",
+  "search_backend": "kg_graph_search",
+  "backend_refs": {
+    "weaviate_collection": "KapsoWiki",
+    "embedding_model": "text-embedding-3-large"
+  },
+  "page_count": 99
+}
 ```
 
-## MediaWiki (Knowledge Browser)
+### KG Search Backends
 
-MediaWiki provides a web interface to browse and edit wiki pages.
+| Backend | Data Format | Storage | Use Case |
+|---------|-------------|---------|----------|
+| `kg_graph_search` | Wiki pages (.md/.mediawiki) | Weaviate + Neo4j | Semantic search with LLM reranking |
+| `kg_llm_navigation` | JSON (nodes/edges) | Neo4j only | LLM-guided graph navigation |
 
-### Import Wiki Pages
-
-Import `.md` files from `data/wikis/` into MediaWiki:
-
-```bash
-# Auto-import during infrastructure start
-./scripts/start_infra.sh --wiki-dir data/wikis
-
-# Or import manually
-python services/wiki_service/tools/import_wiki_pages.py \
-    --wiki-dir data/wikis \
-    --base http://localhost:8090
-
-# Force reimport (overwrite existing)
-python services/wiki_service/tools/import_wiki_pages.py \
-    --wiki-dir data/wikis \
-    --base http://localhost:8090 \
-    --force
-```
-
-### Export Wiki Edits
-
-Sync edits made in MediaWiki back to `data/wikis/`:
-
-```bash
-python services/wiki_service/tools/export_wikis.py \
-    --base http://localhost:8090 \
-    --user agent \
-    --password agentpass123 \
-    --output data/wikis
-```
-
-### MediaWiki Users
-
-| User | Password | Purpose |
-|------|----------|---------|
-| `admin` | `adminpass123` | Full admin access |
-| `agent` | `agentpass123` | API access for scripts |
-
-## Environment Variables
+## Environment Variables Reference
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key (also for embeddings) |
-| `GOOGLE_API_KEY` | Yes | - | Google API key for Gemini |
+| `GOOGLE_API_KEY` | No | - | Google API key for Gemini |
 | `ANTHROPIC_API_KEY` | No | - | Anthropic API key for Claude |
-| `CUDA_DEVICE` | No | `0` | GPU device for ML training |
 | `NEO4J_URI` | No | `bolt://localhost:7687` | Neo4j connection URI |
 | `NEO4J_USER` | No | `neo4j` | Neo4j username |
 | `NEO4J_PASSWORD` | No | `password` | Neo4j password |
@@ -270,17 +303,24 @@ python services/wiki_service/tools/export_wikis.py \
 | `MW_BASE` | No | `http://localhost:8090` | MediaWiki base URL |
 | `MW_USER` | No | `admin` | MediaWiki username |
 | `MW_PASS` | No | `adminpass123` | MediaWiki password |
+| `CUDA_DEVICE` | No | `0` | GPU device for ML training |
 
 ## Verify Installation
 
 ```bash
 # Check core installation
-python -c "from src.execution.orchestrator import OrchestratorAgent; print('Core OK')"
+python -c "from src.kapso import Kapso; print('Kapso OK')"
 
-# Check MLE-Bench
+# Check orchestrator
+python -c "from src.execution.orchestrator import OrchestratorAgent; print('Orchestrator OK')"
+
+# Check knowledge search
+python -c "from src.knowledge.search import KnowledgeSearchFactory; print('Knowledge Search OK')"
+
+# Check MLE-Bench (if installed)
 python -c "import mlebench; print('MLE-Bench OK')"
 
-# Check ALE-Bench
+# Check ALE-Bench (if installed)
 python -c "import ale_bench; print('ALE-Bench OK')"
 
 # Check Neo4j driver
@@ -288,35 +328,48 @@ python -c "from neo4j import GraphDatabase; print('Neo4j driver OK')"
 
 # Check Weaviate client
 python -c "import weaviate; print('Weaviate client OK')"
-
-# Check Knowledge Search
-python -c "from src.knowledge.search import KGGraphSearch; print('Knowledge Search OK')"
-
-# Check Kapso main class
-python -c "from src.kapso import Kapso; print('Kapso OK')"
 ```
 
 ## Troubleshooting
 
-### Services won't start
-```bash
-# Check Docker logs
-docker compose -f services/infrastructure/docker-compose.yml logs
+<Accordion title="Services won't start">
+  ```bash
+  # Check Docker logs
+  docker compose -f services/infrastructure/docker-compose.yml logs
 
-# Check individual service
-docker logs weaviate
-docker logs neo4j
-```
+  # Check individual service
+  docker logs weaviate
+  docker logs neo4j
+  ```
+</Accordion>
 
-### MediaWiki issues
-```bash
-# View MediaWiki logs
-docker compose -f services/infrastructure/docker-compose.yml logs wiki
+<Accordion title="Dependency conflicts with aider-chat">
+  `aider-chat` has strict pinned dependencies that conflict with some packages:
+  - `openhands` requires `litellm>=1.80.7`, but aider pins `litellm==1.75.0`
+  - `browser-use` requires `openai>=2.7.2`, but aider pins `openai==1.99.1`
 
-# Full reset (deletes all data)
-./scripts/stop_infra.sh --volumes
-./scripts/start_infra.sh
-```
+  **Solution**: Use separate conda environments for conflicting packages.
+</Accordion>
 
-### Port conflicts
-If default ports are in use, modify `services/infrastructure/docker-compose.yml` or use different port mappings.
+<Accordion title="MediaWiki issues">
+  ```bash
+  # View MediaWiki logs
+  docker compose -f services/infrastructure/docker-compose.yml logs wiki
+
+  # Full reset (deletes all data)
+  ./scripts/stop_infra.sh --volumes
+  ./scripts/start_infra.sh
+  ```
+</Accordion>
+
+<Accordion title="Port conflicts">
+  If default ports are in use, modify `services/infrastructure/docker-compose.yml` or use different port mappings.
+</Accordion>
+
+<Accordion title="Git LFS files not downloaded">
+  ```bash
+  git lfs install
+  git lfs fetch --all
+  git lfs pull
+  ```
+</Accordion>

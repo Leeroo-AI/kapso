@@ -33,26 +33,35 @@
             "group": "Core Concepts",
             "pages": [
               "docs/concepts/architecture",
+              "docs/concepts/execution-flow",
               "docs/concepts/tree-search",
-              "docs/concepts/experiment-lifecycle",
-              "docs/concepts/knowledge-system"
+              "docs/concepts/experiment-lifecycle"
             ]
           },
           {
-            "group": "Benchmarks",
+            "group": "Knowledge System",
             "pages": [
-              "docs/benchmarks/mle-bench",
-              "docs/benchmarks/ale-bench",
-              "docs/benchmarks/generic-problems"
+              "docs/knowledge/overview",
+              "docs/knowledge/learning-pipeline",
+              "docs/knowledge/search-backends",
+              "docs/knowledge/wiki-structure"
             ]
           },
           {
             "group": "Components",
             "pages": [
               "docs/components/orchestrator",
-              "docs/components/search-strategies/overview",
-              "docs/components/coding-agents/overview",
-              "docs/components/knowledge-search/overview"
+              "docs/components/search-strategies",
+              "docs/components/coding-agents",
+              "docs/components/evaluators",
+              "docs/components/stop-conditions"
+            ]
+          },
+          {
+            "group": "Memory Systems",
+            "pages": [
+              "docs/memory/repo-memory",
+              "docs/memory/cognitive-memory"
             ]
           },
           {
@@ -76,16 +85,25 @@
               "docs/guides/configuration",
               "docs/guides/setup-neo4j"
             ]
+          },
+          {
+            "group": "Benchmarks",
+            "pages": [
+              "docs/benchmarks/mle-bench",
+              "docs/benchmarks/ale-bench",
+              "docs/benchmarks/generic-problems"
+            ]
           }
         ]
       },
       {
-        "tab": "Reference",
+        "tab": "API Reference",
         "groups": [
           {
             "group": "CLI Reference",
             "pages": [
-              "docs/reference/cli"
+              "docs/reference/cli",
+              "docs/reference/kapso-api"
             ]
           }
         ]
@@ -95,7 +113,7 @@
 
   "footer": {
     "socials": {
-    "github": "https://github.com/leeroo"
+    "github": "https://github.com/leeroo-ai/kapso"
     }
   }
 }

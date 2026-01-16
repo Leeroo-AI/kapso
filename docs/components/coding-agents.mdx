@@ -1,0 +1,309 @@
+---
+title: "Coding Agents"
+description: "Pluggable code generation backends"
+---
+
+## Overview
+
+Coding agents are responsible for generating and modifying code based on prompts. Kapso supports multiple agents, each with different strengths.
+
+## Available Agents
+
+| Agent | Description | Best For |
+|-------|-------------|----------|
+| `aider` | Git-centric diff-based editing | General purpose, default |
+| `gemini` | Google Gemini SDK | Fast generation |
+| `claude_code` | Anthropic Claude Code CLI | Complex refactoring |
+| `openhands` | OpenHands with sandbox | Isolated execution |
+
+## Agent Interface
+
+All agents implement `CodingAgentInterface`:
+
+```python
+class CodingAgentInterface(ABC):
+    def initialize(self, workspace: str) -> None:
+        """Initialize for a specific workspace."""
+
+    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
+        """Generate or modify code based on prompt."""
+
+    def cleanup(self) -> None:
+        """Clean up resources."""
+
+    def get_cumulative_cost(self) -> float:
+        """Return total cost accumulated."""
+
+    def supports_native_git(self) -> bool:
+        """Return True if agent handles its own commits."""
+```
+
+## Aider (Default)
+
+Git-centric pair programming with diff-based editing.
+
+### Features
+- Automatic git commits
+- Diff-based file editing
+- Context-aware code understanding
+- Cost tracking
+
+### Configuration
+
+```yaml
+coding_agent:
+  type: "aider"
+  model: "gpt-4o-mini"
+  debug_model: "gpt-4o-mini"
+```
+
+### Usage
+
+```python
+from src.execution.coding_agents.factory import CodingAgentFactory
+
+config = CodingAgentFactory.build_config(
+    agent_type="aider",
+    model="gpt-4o-mini",
+)
+
+agent = CodingAgentFactory.create(config)
+agent.initialize("/path/to/workspace")
+
+result = agent.generate_code("Implement a sorting algorithm")
+print(f"Files changed: {result.files_changed}")
+print(f"Cost: ${result.cost:.4f}")
+```
+
+## Claude Code
+
+Anthropic's Claude Code CLI for complex tasks.
+
+### Features
+- Advanced reasoning
+- Complex refactoring
+- MCP tool support
+- Bedrock integration option
+
+### Installation
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### Configuration
+
+```yaml
+coding_agent:
+  type: "claude_code"
+  model: "claude-sonnet-4-20250514"
+  agent_specific:
+    use_bedrock: false
+    claude_md_path: "CLAUDE.md"
+```
+
+### Bedrock Support
+
+For AWS Bedrock:
+
+```yaml
+coding_agent:
+  type: "claude_code"
+  agent_specific:
+    use_bedrock: true
+```
+
+Set environment variables:
+```bash
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+```
+
+## Gemini
+
+Google Gemini SDK for fast generation.
+
+### Features
+- Fast response times
+- Good for iterative refinement
+- Cost-effective
+
+### Configuration
+
+```yaml
+coding_agent:
+  type: "gemini"
+  model: "gemini-2.0-flash"
+  debug_model: "gemini-2.0-flash"
+```
+
+Set API key:
+```bash
+GOOGLE_API_KEY=your-google-api-key
+```
+
+## OpenHands
+
+OpenHands agent with sandboxed execution.
+
+<Warning>
+OpenHands has conflicting dependencies with `aider-chat`. Use a **separate conda environment**.
+</Warning>
+
+### Installation
+
+```bash
+# Create separate environment
+conda create -n openhands_env python=3.12
+conda activate openhands_env
+pip install openhands-ai litellm
+```
+
+### Features
+- Sandboxed execution
+- Docker-based isolation
+- Full system access in sandbox
+
+### Configuration
+
+```yaml
+coding_agent:
+  type: "openhands"
+  model: "gpt-4o"
+  agent_specific:
+    sandbox_type: "docker"
+```
+
+## CodingResult
+
+All agents return a standardized result:
+
+```python
+@dataclass
+class CodingResult:
+    success: bool           # Whether generation succeeded
+    output: str             # Agent's response text
+    files_changed: List[str]  # Modified files
+    error: Optional[str]    # Error message if failed
+    cost: float             # Cost in dollars
+    commit_message: Optional[str]  # Agent-generated message
+    metadata: Dict[str, Any]  # Agent-specific data
+```
+
+## CodingAgentConfig
+
+Configuration passed to agents:
+
+```python
+@dataclass
+class CodingAgentConfig:
+    agent_type: str         # "aider", "gemini", etc.
+    model: str              # Primary model
+    debug_model: str        # Model for debugging
+    workspace: str = ""     # Working directory
+    use_git: bool = True    # Git integration
+    agent_specific: Dict[str, Any] = field(default_factory=dict)
+```
+
+## Creating Custom Agents
+
+```python
+from src.execution.coding_agents.base import CodingAgentInterface, CodingResult
+from src.execution.coding_agents.factory import register_agent
+
+@register_agent("my_custom_agent")
+class MyCustomAgent(CodingAgentInterface):
+    def initialize(self, workspace: str) -> None:
+        self.workspace = workspace
+        # Setup agent
+
+    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
+        # Generate code
+        model = self.config.debug_model if debug_mode else self.config.model
+
+        # Call your API
+        response = my_api.generate(prompt, model=model)
+
+        # Track cost
+        self._cumulative_cost += response.cost
+
+        return CodingResult(
+            success=True,
+            output=response.text,
+            files_changed=response.files,
+            cost=response.cost,
+        )
+
+    def cleanup(self) -> None:
+        # Clean up resources
+        pass
+
+    def supports_native_git(self) -> bool:
+        return False  # Let ExperimentSession handle commits
+```
+
+## Git Integration
+
+Agents can handle git in two ways:
+
+### Native Git (Aider)
+
+Agent commits changes automatically:
+
+```python
+def supports_native_git(self) -> bool:
+    return True  # Aider auto-commits
+```
+
+### Session-Managed Git (Others)
+
+ExperimentSession commits after generation:
+
+```python
+def supports_native_git(self) -> bool:
+    return False  # Session will commit
+```
+
+## Agent Capabilities
+
+```python
+def get_capabilities(self) -> Dict[str, bool]:
+    return {
+        "native_git": self.supports_native_git(),
+        "sandbox": False,
+        "planning_mode": False,
+        "cost_tracking": True,
+        "streaming": False,
+    }
+```
+
+## Best Practices
+
+<Tip>
+**Aider is the default** for good reason. It handles git well and works with most models.
+</Tip>
+
+<Note>
+**Claude Code excels** at complex refactoring and understanding large codebases.
+</Note>
+
+<Warning>
+**Don't mix OpenHands** with the main environment. Dependency conflicts will break things.
+</Warning>
+
+## Listing Agents
+
+```bash
+PYTHONPATH=. python -m src.cli --list-agents
+```
+
+Output:
+```
+Available Coding Agents:
+==================================================
+  aider: Git-centric pair programming with diff-based editing
+  gemini: Google Gemini SDK for code generation
+  claude_code: Anthropic Claude Code CLI for complex refactoring
+  openhands: OpenHands agent with sandboxed execution (separate env required)
+```

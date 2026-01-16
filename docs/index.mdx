@@ -1,25 +1,85 @@
 ---
-title: "KAPSO"
-description: "A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization"
+title: "Kapso"
+description: "A framework where AI Learns, Experiments, Builds, and Ships"
 ---
 
-Kapso combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover code improvements. 
-
-It automates the cycle of **designing**, **testing**, and **refining** algorithms,  eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
-
-## How It Works
+Kapso is an intelligent agent framework that transforms domain expertise into executable software through **iterative experimentation** and **knowledge-grounded code generation**.
 
 <Frame>
   <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" />
 </Frame>
 
-- **`.research()`** — Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions.
+## What is Kapso?
 
-- **`.learn()`** — Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph.
+Kapso lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise. The system automates the cycle of **designing**, **testing**, and **refining** algorithms, eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
 
-- **`.evolve()`** — Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions.
+## Core Workflow
 
-- **`.deploy()`** — Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal.
+```python
+from src.kapso import Kapso, Source, DeployStrategy
+
+# Initialize Kapso with a pre-indexed Knowledge Graph
+kapso = Kapso(kg_index="data/indexes/kaggle.index")
+
+# Research: Gather ideas from the web
+research = kapso.research(
+    "XGBoost best practices for tabular datasets",
+    mode="idea",
+    depth="deep",
+)
+
+# Learn: Ingest knowledge from repositories
+kapso.learn(
+    Source.Repo("https://github.com/scikit-learn/scikit-learn"),
+    research,
+    wiki_dir="data/wikis",
+)
+
+# Evolve: Build a solution through experimentation
+solution = kapso.evolve(
+    goal="XGBoost classifier for Titanic dataset with AUC > 0.85",
+    output_path="./models/titanic_v1",
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"AUC: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.85},
+)
+
+# Deploy: Turn solution into running software
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = software.run({"data_path": "./test.csv"})
+```
+
+## The Four Pillars
+
+<CardGroup cols={2}>
+  <Card title="Research" icon="magnifying-glass">
+    **`.research()`** — Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions.
+  </Card>
+  <Card title="Learn" icon="brain">
+    **`.learn()`** — Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph.
+  </Card>
+  <Card title="Evolve" icon="dna">
+    **`.evolve()`** — Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions.
+  </Card>
+  <Card title="Deploy" icon="rocket">
+    **`.deploy()`** — Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal.
+  </Card>
+</CardGroup>
+
+## Core Components
+
+| Component | Description |
+|-----------|-------------|
+| **Kapso** | Main API class — orchestrates research, learn, evolve, and deploy |
+| **OrchestratorAgent** | Runs the experimentation loop with budget tracking and stopping conditions |
+| **Search Strategy** | Explores solutions via tree search or linear search |
+| **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
+| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
+| **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
+| **Evaluators** | Score solutions: regex patterns, JSON files, LLM judges |
+| **Stop Conditions** | Control when to stop: threshold, plateau, cost/time limits |
+| **Deployment** | Turn solutions into running software: Local, Docker, Modal, BentoML |
 
 ## Supported Benchmarks
 
@@ -36,17 +96,6 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
   Solve arbitrary problems with custom evaluators and stop conditions.
 </Card>
 
-## Core Components
-
-| Component | Description |
-|-----------|-------------|
-| **OrchestratorAgent** | Runs the main experimentation loop. Stops when score threshold is reached, budget is exhausted, or LLM decides the task is complete. |
-| **Search Strategy** | Explores solutions via tree search — expands promising nodes, selects best candidates, and prunes underperformers. Runs experiments in parallel. |
-| **Experiment Workspace** | Git-based isolation for experiments. Each experiment runs on its own branch, enabling tree-based exploration and easy rollback. |
-| **Coding Agents** | Pluggable code generators: Aider (diff-based editing), Gemini, Claude Code, OpenHands. Agents generate code; git is handled separately. |
-| **Knowledge Pipeline** | Two-stage learning: (1) Ingestors extract WikiPages from repos, solutions, or research; (2) Merger intelligently creates or merges pages into the KG. |
-| **Knowledge Search** | Hybrid retrieval using Weaviate (semantic embeddings) + Neo4j (graph structure). Supports LLM reranking and connected-page enrichment. |
-
 ## Quick Links
 
 <CardGroup cols={3}>
@@ -61,3 +110,10 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
   </Card>
 </CardGroup>
 
+## Why Kapso?
+
+- **Knowledge-Grounded**: Solutions are informed by domain knowledge, not just LLM priors
+- **Iterative Refinement**: Tree search explores multiple approaches, learns from failures
+- **Pluggable Components**: Swap coding agents, evaluators, and search strategies
+- **Full Lifecycle**: From research to deployment in a single framework
+- **Evidence-Backed Memory**: RepoMemory tracks code understanding with file-level evidence

@@ -1,186 +1,237 @@
 ---
 title: "CLI Reference"
-description: "Command line interface options"
+description: "Command-line interface for Kapso"
 ---
 
-## MLE-Bench Runner
+## Overview
+
+Kapso provides a CLI for running experiments without writing Python code.
+
+## Basic Usage
 
 ```bash
-PYTHONPATH=. python -m benchmarks.mle.runner [OPTIONS]
+PYTHONPATH=. python -m src.cli --goal "Your problem description"
 ```
 
-### Options
+## Options
 
-| Option | Short | Type | Default | Description |
-|--------|-------|------|---------|-------------|
-| `--competition` | `-c` | string | Required | Competition ID |
-| `--iterations` | `-i` | int | 20 | Max experiment iterations |
-| `--mode` | `-m` | string | `MLE_CONFIGS` | Configuration mode |
-| `--coding-agent` | `-d` | string | From config | Coding agent type |
-| `--no-kg` | - | flag | - | Disable knowledge graph |
-| `--list` | - | flag | - | List all competitions |
-| `--lite` | - | flag | - | List lite competitions |
-| `--list-agents` | - | flag | - | List coding agents |
+### Goal Specification
 
-### Examples
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--goal` | `-g` | Goal/problem description (inline) |
+| `--goal-file` | `-f` | File containing goal description |
 
 ```bash
-# Solve a competition
-PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-2021
-
-# With custom settings
-PYTHONPATH=. python -m benchmarks.mle.runner \
-    -c spooky-author-identification \
-    -i 10 \
-    -m MINIMAL \
-    -d gemini \
-    --no-kg
-
-# List competitions
-PYTHONPATH=. python -m benchmarks.mle.runner --list
-PYTHONPATH=. python -m benchmarks.mle.runner --lite
-```
-
----
-
-## ALE-Bench Runner
-
-```bash
-PYTHONPATH=. python -m benchmarks.ale.runner [OPTIONS]
-```
-
-### Options
-
-| Option | Short | Type | Default | Description |
-|--------|-------|------|---------|-------------|
-| `--problem` | `-p` | string | Required | Problem ID (e.g., `ahc039`) |
-| `--iterations` | `-i` | int | 14 | Max experiment iterations |
-| `--mode` | `-m` | string | `ALE_CONFIGS` | Configuration mode |
-| `--coding-agent` | `-d` | string | From config | Coding agent type |
-| `--list` | - | flag | - | List all problems |
-| `--lite` | - | flag | - | List lite problems |
-| `--list-agents` | - | flag | - | List coding agents |
-
-### Examples
-
-```bash
-# Solve a problem
-PYTHONPATH=. python -m benchmarks.ale.runner -p ahc039
-
-# With custom settings
-PYTHONPATH=. python -m benchmarks.ale.runner \
-    -p ahc039 \
-    -i 10 \
-    -m MINIMAL
-
-# List problems
-PYTHONPATH=. python -m benchmarks.ale.runner --list
-```
-
----
-
-## Generic Runner
-
-```bash
-PYTHONPATH=. python -m src.runner [OPTIONS]
-```
-
-### Options
-
-| Option | Short | Type | Default | Description |
-|--------|-------|------|---------|-------------|
-| `--problem` | `-p` | string | - | Problem description (inline) |
-| `--problem-file` | `-f` | string | - | File with problem description |
-| `--iterations` | `-i` | int | 10 | Max experiment iterations |
-| `--mode` | `-m` | string | `GENERIC` | Configuration mode |
-| `--coding-agent` | `-d` | string | From config | Coding agent type |
-| `--main-file` | - | string | `main.py` | Entry point file |
-| `--language` | - | string | `python` | Programming language |
-| `--timeout` | - | int | 300 | Execution timeout (seconds) |
-| `--evaluator` | - | string | `no_score` | Evaluator type |
-| `--stop-condition` | - | string | `never` | Stop condition type |
-| `--context` | - | string | - | Additional context |
-| `--list-agents` | - | flag | - | List coding agents |
-| `--list-evaluators` | - | flag | - | List evaluator types |
-| `--list-stop-conditions` | - | flag | - | List stop condition types |
-
-### Examples
-
-```bash
-# Inline problem
-PYTHONPATH=. python -m src.runner -p "Create a prime number generator"
+# Inline goal
+python -m src.cli --goal "Build a classifier for Iris dataset"
 
 # From file
-PYTHONPATH=. python -m src.runner -f problem.txt -i 10
+python -m src.cli --goal-file problem.txt
+```
 
-# With scoring
-PYTHONPATH=. python -m src.runner \
-    -f problem.txt \
+### Basic Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--iterations` | `-i` | `1` | Maximum experiment iterations |
+| `--output` | `-o` | auto | Output directory for solution |
+
+```bash
+python -m src.cli --goal "..." --iterations 10 --output ./my_solution
+```
+
+### Configuration Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--mode` | `-m` | Configuration mode (GENERIC, MINIMAL, TREE_SEARCH) |
+| `--coding-agent` | `-a` | Coding agent (aider, gemini, claude_code, openhands) |
+
+```bash
+python -m src.cli --goal "..." --mode TREE_SEARCH --coding-agent gemini
+```
+
+### Execution Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--main-file` | `main.py` | Entry point file |
+| `--language` | `python` | Programming language |
+| `--timeout` | `300` | Execution timeout in seconds |
+
+```bash
+python -m src.cli --goal "..." --main-file app.py --timeout 600
+```
+
+### Evaluation Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--evaluator` | `no_score` | Evaluator type |
+| `--stop-condition` | `never` | Stop condition type |
+
+```bash
+python -m src.cli --goal "..." \
     --evaluator regex_pattern \
     --stop-condition threshold
-
-# List options
-PYTHONPATH=. python -m src.runner --list-evaluators
-PYTHONPATH=. python -m src.runner --list-stop-conditions
 ```
 
----
+### List Commands
 
-## Coding Agents
+| Option | Description |
+|--------|-------------|
+| `--list-agents` | List available coding agents |
+| `--list-evaluators` | List available evaluators |
+| `--list-stop-conditions` | List available stop conditions |
 
-Available agents (use with `-d`):
-
-| Agent | Description |
-|-------|-------------|
-| `aider` | Aider CLI tool (default) |
-| `gemini` | Google Gemini API |
-| `claude_code` | Anthropic Claude |
-| `openhands` | OpenHands platform |
-
-List with details:
 ```bash
-PYTHONPATH=. python -m benchmarks.mle.runner --list-agents
+python -m src.cli --list-agents
+python -m src.cli --list-evaluators
+python -m src.cli --list-stop-conditions
 ```
 
----
+## Examples
 
-## Configuration Modes
+### Simple Usage
 
-### MLE-Bench
+```bash
+PYTHONPATH=. python -m src.cli \
+    --goal "Build a random forest classifier for the Iris dataset"
+```
 
-| Mode | Description |
-|------|-------------|
-| `MLE_CONFIGS` | Production (full features) |
-| `HEAVY_EXPERIMENTATION` | Many parallel experiments |
-| `LINEAR` | Sequential search (testing) |
-| `MINIMAL` | Fast testing mode |
+### With Evaluation
 
-### ALE-Bench
+```bash
+PYTHONPATH=. python -m src.cli \
+    --goal "Build a classifier with accuracy > 0.9" \
+    --evaluator regex_pattern \
+    --stop-condition threshold
+```
 
-| Mode | Description |
-|------|-------------|
-| `ALE_CONFIGS` | Production |
+### Full Options
 
-### Generic
+```bash
+PYTHONPATH=. python -m src.cli \
+    --goal-file problem.txt \
+    --iterations 20 \
+    --mode TREE_SEARCH \
+    --coding-agent gemini \
+    --main-file main.py \
+    --language python \
+    --timeout 600 \
+    --evaluator llm_judge \
+    --stop-condition plateau \
+    --output ./my_solution
+```
 
-| Mode | Description |
-|------|-------------|
-| `GENERIC` | Standard configuration |
-| `MINIMAL` | Fast testing mode |
-| `TREE_SEARCH` | Tree search for complex problems |
-| `SCORED` | With regex evaluator |
+## Output
 
----
+```
+============================================================
+EVOLVING: Build a random forest classifier for the Iris dataset
+============================================================
+  Max iterations: 10
+  Language: python
+  Main file: main.py
+  Evaluator: regex_pattern
+  Stop condition: threshold
+  Coding agent: from config
+
+Running experiments...
+Experiment 1 completed with cumulative cost: $0.125
+####################################################################################################
+Experiment with final score 0.92:
+# Solution: Random forest with GridSearchCV hyperparameter tuning...
+####################################################################################################
+
+============================================================
+Evolution Complete
+============================================================
+Solution at: ./my_solution
+Experiments run: 3
+Total cost: $0.450
+
+============================================================
+COMPLETED
+============================================================
+Solution: ./my_solution
+Cost: $0.450
+```
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key |
-| `GOOGLE_API_KEY` | Yes | Google API key |
-| `ANTHROPIC_API_KEY` | No | Anthropic API key |
-| `CUDA_DEVICE` | No | GPU device ID (default: 0) |
-| `NEO4J_URI` | No | Neo4j connection URI |
-| `NEO4J_USER` | No | Neo4j username |
-| `NEO4J_PASSWORD` | No | Neo4j password |
+The CLI loads environment variables from `.env`:
 
+```bash
+OPENAI_API_KEY=your-openai-api-key
+GOOGLE_API_KEY=your-google-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key
+```
+
+## Available Coding Agents
+
+```bash
+$ python -m src.cli --list-agents
+
+Available Coding Agents:
+==================================================
+  aider: Git-centric pair programming with diff-based editing
+  gemini: Google Gemini SDK for code generation
+  claude_code: Anthropic Claude Code CLI for complex refactoring
+  openhands: OpenHands agent with sandboxed execution
+```
+
+## Available Evaluators
+
+```bash
+$ python -m src.cli --list-evaluators
+
+Available Evaluators:
+==================================================
+  no_score: No scoring, always returns 0
+  regex_pattern: Extract score using regex pattern
+  file_json: Read score from JSON file
+  multi_metric: Weighted combination of multiple metrics
+  llm_judge: LLM-based evaluation (flexible criteria)
+  llm_comparison: Compare against expected output
+  composite: Combine multiple evaluators
+```
+
+## Available Stop Conditions
+
+```bash
+$ python -m src.cli --list-stop-conditions
+
+Available Stop Conditions:
+==================================================
+  never: Never stop early
+  threshold: Stop when score reaches threshold
+  max_iterations: Stop after N iterations
+  plateau: Stop if no improvement for N iterations
+  cost_limit: Stop when cost limit reached
+  time_limit: Stop when time limit reached
+  consecutive_errors: Stop after N consecutive errors
+  composite: Combine multiple conditions
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Error (missing arguments, failed experiment) |
+
+## Tips
+
+<Tip>
+**Use `--list-*` options** to discover available components.
+</Tip>
+
+<Note>
+**Set PYTHONPATH** to the project root for imports to work correctly.
+</Note>
+
+<Warning>
+**API keys are required**. Set them in `.env` or as environment variables.
+</Warning>

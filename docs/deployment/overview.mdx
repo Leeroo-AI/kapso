@@ -1,205 +1,187 @@
 ---
 title: "Deployment Overview"
-description: "Deploy your solutions with a unified interface across multiple platforms"
+description: "Turn solutions into running software"
 ---
 
-## Introduction
+## Overview
 
-The Deployment module transforms built solutions into runnable software. It provides a **unified interface** that works the same whether you're running locally, in Docker, on Modal, or any other platform.
+After `evolve()` generates a solution, `deploy()` turns it into running software. The deployment pipeline handles adaptation, strategy selection, and execution.
+
+## Deployment Flow
 
 ```mermaid
 flowchart LR
-    A[Solution] --> B[Deployment Factory]
-    B --> C{Strategy}
-    C --> D[Local]
-    C --> E[Docker]
-    C --> F[Modal]
-    C --> G[BentoML]
-    C --> H[LangGraph]
-    D & E & F & G & H --> I[Unified Software Interface]
-    I --> J["software.run()"]
+    SOL["SolutionResult"] --> SEL["Selector"]
+    SEL --> ADAPT["Adapter"]
+    ADAPT --> RUN["Runner"]
+    RUN --> SOFT["Software"]
 ```
 
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Unified Interface** | Same `run()`, `stop()`, `start()`, `logs()` API regardless of deployment target |
-| **Full Lifecycle** | Start, stop, and restart deployments programmatically |
-| **Plugin Architecture** | Strategies are self-contained packages - add new ones without changing core code |
-| **Auto-Selection** | LLM-based selector chooses optimal strategy based on your code |
-| **Agent-Driven Adaptation** | Coding agents transform your code and handle deployment |
+1. **Selector**: Analyzes code and chooses deployment strategy
+2. **Adapter**: Modifies code for the chosen strategy
+3. **Runner**: Executes the adapted code
+4. **Software**: Unified interface for running and managing
 
 ## Quick Start
 
-### Basic Usage
-
 ```python
-from src.kapso import Kapso
+from src.kapso import Kapso, DeployStrategy
 
-# Build a solution
 kapso = Kapso()
-solution = kapso.evolve("Create a sentiment analysis API")
+solution = kapso.evolve(goal="Build a classifier")
 
-# Deploy it (AUTO selects best strategy)
-software = kapso.deploy(solution)
+# Deploy with explicit strategy
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 
-# Use it
-result = software.run({"text": "I love this product!"})
-print(result)
-# {"status": "success", "output": {"sentiment": "positive"}}
+# Run inference
+result = software.run({"data_path": "./test.csv"})
+print(result)  # {"status": "success", "output": ...}
 
-# Clean up
+# Lifecycle management
+software.stop()
+software.start()
 software.stop()
 ```
 
-### Full Lifecycle Management
+## Deployment Strategies
+
+| Strategy | Description | Best For |
+|----------|-------------|----------|
+| `AUTO` | System chooses best strategy | Default |
+| `LOCAL` | Run as local Python process | Development, testing |
+| `DOCKER` | Run in Docker container | Isolation, reproducibility |
+| `MODAL` | Deploy to Modal.com | Serverless, GPU |
+| `BENTOML` | Deploy with BentoML | Production ML |
+| `LANGGRAPH` | Deploy as LangGraph agent | Agent workflows |
+
+## DeployStrategy Enum
 
 ```python
-# Deploy
-software = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
+from src.deployment import DeployStrategy
 
-# Run
-result = software.run({"text": "hello"})
+DeployStrategy.AUTO      # System selects
+DeployStrategy.LOCAL     # Local process
+DeployStrategy.DOCKER    # Docker container
+DeployStrategy.MODAL     # Modal.com
+DeployStrategy.BENTOML   # BentoML
+DeployStrategy.LANGGRAPH # LangGraph
+```
 
-# Stop (terminates container/cloud deployment)
+## Software Interface
+
+All deployments return a `Software` instance with a unified interface:
+
+```python
+class Software:
+    def run(self, inputs: Dict) -> Dict:
+        """Execute with input data."""
+        # Returns: {"status": "success", "output": ...}
+        # Or: {"status": "error", "error": ...}
+
+    def stop(self) -> None:
+        """Stop and cleanup resources."""
+
+    def start(self) -> None:
+        """Restart a stopped deployment."""
+
+    def is_healthy(self) -> bool:
+        """Check if service is running."""
+
+    def logs(self) -> str:
+        """Get execution logs."""
+```
+
+## Response Format
+
+All `run()` calls return a consistent format:
+
+```python
+# Success
+{"status": "success", "output": <result>}
+
+# Error
+{"status": "error", "error": <message>}
+```
+
+## Configuration
+
+```python
+from src.deployment import DeployConfig
+
+config = DeployConfig(
+    solution=solution,
+    env_vars={"API_KEY": "..."},
+    coding_agent="claude_code",
+)
+
+software = DeploymentFactory.create(DeployStrategy.LOCAL, config)
+```
+
+## Deployment Info
+
+Get details about the deployment:
+
+```python
+# Get deployment metadata
+info = software.get_deployment_info()
+print(info)
+# {
+#     "strategy": "local",
+#     "provider": None,
+#     "endpoint": None,
+#     "adapted_path": "/path/to/adapted",
+#     "adapted_files": ["main.py", "run.py"],
+#     "resources": {}
+# }
+
+# Individual accessors
+software.get_strategy()      # "local"
+software.get_adapted_path()  # Path to adapted code
+software.get_endpoint()      # HTTP endpoint (if applicable)
+```
+
+## Lifecycle Management
+
+```python
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+
+# Initial run
+result = software.run({"data": "..."})
+
+# Check health
+if software.is_healthy():
+    print("Service is running")
+
+# Stop (cleanup resources)
 software.stop()
 
-# Restart (re-creates container/re-deploys to cloud)
+# Restart
 software.start()
 
-# Run again after restart
-result = software.run({"text": "world"})
+# Run again
+result = software.run({"data": "..."})
 
 # Final cleanup
 software.stop()
 ```
 
-### Specify a Strategy
+## Error Handling
 
 ```python
-from src.deployment import DeployStrategy
+result = software.run({"data": "..."})
 
-# Force a specific deployment target
-software = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-software = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+if result["status"] == "error":
+    print(f"Error: {result['error']}")
+    print(f"Logs: {software.logs()}")
 ```
-
-### Using Context Manager
-
-```python
-# Auto-cleanup when done
-with kapso.deploy(solution) as software:
-    result = software.run({"input": "data"})
-    print(result)
-# software.stop() called automatically
-```
-
-### Direct Factory Usage
-
-```python
-from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
-
-config = DeployConfig(
-    solution=solution,
-    env_vars={"API_KEY": "xxx"},
-    timeout=300,
-)
-
-software = DeploymentFactory.create(DeployStrategy.AUTO, config)
-```
-
-## Deployment Flow
-
-The system works in **four phases**:
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Phase 1: SELECTION                                                     │
-│  ─────────────────                                                      │
-│  SelectorAgent analyzes your code and chooses the best strategy         │
-│  (skipped if you specify a strategy explicitly)                         │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Phase 2: ADAPTATION                                                    │
-│  ───────────────────                                                    │
-│  AdapterAgent transforms your code for the target platform:             │
-│  - Creates deployment files (Dockerfile, modal_app.py, etc.)            │
-│  - Adds entry point (main.py with predict() function)                   │
-│  - Runs the deployment command                                          │
-│  - Reports the endpoint URL                                             │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Phase 3: RUNNER CREATION                                               │
-│  ────────────────────────                                               │
-│  Factory creates the appropriate Runner for the strategy:               │
-│  - LocalRunner: imports and calls Python functions                      │
-│  - ModalRunner: calls Modal remote functions                            │
-│  - DockerRunner: makes HTTP requests to container                       │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  Phase 4: SOFTWARE WRAPPER                                              │
-│  ─────────────────────────                                              │
-│  DeployedSoftware wraps the runner with unified interface:              │
-│  - Normalizes all responses to {"status": "...", "output": ...}         │
-│  - Provides run(), stop(), logs(), is_healthy()                         │
-│  - Hides all infrastructure complexity from users                       │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-## Available Strategies
-
-| Strategy | Interface | Best For | GPU Support |
-|----------|-----------|----------|-------------|
-| **LOCAL** | Function import | Development, testing | No |
-| **DOCKER** | HTTP | Microservices, containerization | Optional |
-| **MODAL** | Remote function | Serverless GPU, ML inference | Yes |
-| **BENTOML** | HTTP | Production ML serving, batching | Optional |
-| **LANGGRAPH** | LangGraph Cloud | Agent deployments | No |
-
-See [Strategies Reference](/docs/deployment/strategies) for detailed information on each.
-
-## Response Format
-
-All `software.run()` calls return a **consistent format**:
-
-```python
-# Success
-{
-    "status": "success",
-    "output": {...}  # Your function's return value
-}
-
-# Error
-{
-    "status": "error",
-    "error": "Error message here"
-}
-```
-
-This consistency holds regardless of whether you're running locally or on a cloud platform.
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Architecture" icon="sitemap" href="/docs/deployment/architecture">
-    Deep dive into modules and data flow
-  </Card>
   <Card title="Strategies" icon="layer-group" href="/docs/deployment/strategies">
-    Detailed guide to each deployment strategy
+    Details on each deployment strategy
   </Card>
   <Card title="Adding Strategies" icon="plus" href="/docs/deployment/adding-strategies">
-    Step-by-step guide to add new deployment targets
-  </Card>
-  <Card title="API Reference" icon="book" href="/docs/deployment/api-reference">
-    Complete API documentation
+    Create custom deployment strategies
   </Card>
 </CardGroup>
-
