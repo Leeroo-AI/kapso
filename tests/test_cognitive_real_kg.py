@@ -23,7 +23,7 @@ load_dotenv()
 # =============================================================================
 # Logging Setup - Save to file
 # =============================================================================
-LOG_DIR = Path("/home/ubuntu/tinkerer/logs")
+LOG_DIR = Path("/home/ubuntu/kapso/logs")
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / f"cognitive_real_kg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 

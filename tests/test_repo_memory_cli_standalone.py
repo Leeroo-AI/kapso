@@ -20,8 +20,8 @@ from pathlib import Path
 
 def test_repo_memory_cli_get_section(tmp_path: Path):
     repo_root = tmp_path / "repo"
-    tinkerer_dir = repo_root / ".tinkerer"
-    tinkerer_dir.mkdir(parents=True)
+    kapso_dir = repo_root / ".kapso"
+    kapso_dir.mkdir(parents=True)
 
     (repo_root / "README.md").write_text("hello\n")
 
@@ -47,7 +47,7 @@ def test_repo_memory_cli_get_section(tmp_path: Path):
             },
         },
     }
-    (tinkerer_dir / "repo_memory.json").write_text(json.dumps(doc))
+    (kapso_dir / "repo_memory.json").write_text(json.dumps(doc))
 
     cli_path = Path(__file__).resolve().parents[1] / "tools" / "repo_memory_cli.py"
     result = subprocess.run(

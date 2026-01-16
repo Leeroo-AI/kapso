@@ -1,4 +1,4 @@
-# Tinkerer
+# Kapso
 
 > *A framework where AI Learns, experiments, Builds, and Ships.*
 
@@ -6,36 +6,36 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/hqVbPNNEZM)
 [![Y Combinator](https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white)](https://www.ycombinator.com/companies/leeroo)
 [![Website](https://img.shields.io/badge/Website-leeroo.com-green)](https://leeroo.com/)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/leeroo-ai/tinkerer)](https://github.com/leeroo-ai/tinkerer)
-[![PyPI version](https://img.shields.io/pypi/v/tinkerer)](https://pypi.org/project/tinkerer/)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/leeroo-ai/kapso)](https://github.com/leeroo-ai/kapso)
+[![PyPI version](https://img.shields.io/pypi/v/kapso)](https://pypi.org/project/kapso/)
 
-Tinkerer lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
+Kapso lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise.
 
 ## Quick Start
 
 ```python
-from src.tinkerer import Tinkerer, Source, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
-# Initialize a Tinkerer with a pre-indexed Knowledge Graph
-tinkerer = Tinkerer(
+# Initialize a Kapso with a pre-indexed Knowledge Graph
+kapso = Kapso(
     kg_index="data/indexes/kaggle.index",  # Load existing KG index
 )
 
 # Teach it from various sources (optional)
-titanic_research = tinkerer.research(
+titanic_research = kapso.research(
     "XGBoost classifier best practices for Titanic-like tabular datasets",
     mode="idea",
     depth="deep",
 )
 
-tinkerer.learn(
+kapso.learn(
     Source.Repo("https://github.com/scikit-learn/scikit-learn"),
     titanic_research,
     wiki_dir="data/wikis",
 )
 
-# Build a solution — the Tinkerer runs experiments automatically
-solution = tinkerer.evolve(
+# Build a solution — the Kapso runs experiments automatically
+solution = kapso.evolve(
     goal="XGBoost classifier for Titanic dataset with AUC > 0.85",
     output_path="./models/titanic_v1",
     evaluator="llm_judge",
@@ -44,7 +44,7 @@ solution = tinkerer.evolve(
 )
 
 # Deploy and run
-software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = software.run({"data_path": "./test.csv"})
 
 # Lifecycle management
@@ -54,12 +54,12 @@ result = software.run({"data_path": "./validation.csv"})  # Run again
 software.stop()   # Final cleanup
 
 # Learn from the experience (feedback loop)
-tinkerer.learn(Source.Solution(solution), wiki_dir="data/wikis")
+kapso.learn(Source.Solution(solution), wiki_dir="data/wikis")
 ```
 
 ## Web Research (Optional)
 
-Tinkerer can do deep public web research via `Tinkerer.research()`. This is useful when:
+Kapso can do deep public web research via `Kapso.research()`. This is useful when:
 
 - Your Knowledge Graph (KG) does not have the needed information yet
 - You want fresh implementation references (official docs + popular repos)
@@ -73,17 +73,17 @@ It supports:
 ### Research → Evolve (add context)
 
 ```python
-from src.tinkerer import Tinkerer
+from src.kapso import Kapso
 
-tinkerer = Tinkerer()
+kapso = Kapso()
 
-research = tinkerer.research(
+research = kapso.research(
     "unsloth FastLanguageModel example",
     mode="implementation",
     depth="deep",
 )
 
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="Fine-tune a model with Unsloth + LoRA",
     additional_context=research.to_context_string(),
     output_path="./models/unsloth_v1",
@@ -93,11 +93,11 @@ solution = tinkerer.evolve(
 ### Research → KnowledgePipeline (ingest into KG)
 
 ```python
-from src.tinkerer import Tinkerer
+from src.kapso import Kapso
 from src.knowledge.learners import KnowledgePipeline
 
-tinkerer = Tinkerer()
-research = tinkerer.research(
+kapso = Kapso()
+research = kapso.research(
     "LoRA rank selection best practices",
     mode="idea",
     depth="deep",
@@ -114,25 +114,25 @@ Prompt templates live in `src/knowledge/web_research/prompts/`.
 
 ## Knowledge Graph Indexing
 
-Tinkerer uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
+Kapso uses Knowledge Graphs (KG) to provide domain-specific context during code generation. The KG must be indexed **once** before use, then subsequent `evolve()` calls can load the pre-indexed data.
 
 ### One-Time Indexing
 
 ```python
-from src.tinkerer import Tinkerer
+from src.kapso import Kapso
 
-# Create a Tinkerer (no KG loaded yet)
-tinkerer = Tinkerer(config_path="src/config.yaml")
+# Create a Kapso (no KG loaded yet)
+kapso = Kapso(config_path="src/config.yaml")
 
 # Index wiki pages (for kg_graph_search backend)
-tinkerer.index_kg(
+kapso.index_kg(
     wiki_dir="data/wikis_llm_finetuning",  # Directory with .md/.mediawiki files
     save_to="data/indexes/llm_finetuning.index",
     force=True,  # Clear existing data before indexing
 )
 
 # Or index JSON graph data (for kg_llm_navigation backend)
-tinkerer.index_kg(
+kapso.index_kg(
     data_path="benchmarks/mle/data/kg_data.json",  # JSON with nodes/edges
     save_to="data/indexes/kaggle_kg.index",
     search_type="kg_llm_navigation",  # Override backend type
@@ -142,16 +142,16 @@ tinkerer.index_kg(
 ### Loading Pre-Indexed KG
 
 ```python
-from src.tinkerer import Tinkerer
+from src.kapso import Kapso
 
 # Load from existing .index file (skips indexing)
-tinkerer = Tinkerer(
+kapso = Kapso(
     config_path="src/config.yaml",
     kg_index="data/indexes/llm_finetuning.index",
 )
 
 # Now evolve() will use KG context automatically
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="Fine-tune LLaMA with QLoRA for code generation",
     output_path="./models/qlora_v1",
 )
@@ -168,7 +168,7 @@ The `.index` file is a JSON file containing:
   "wiki_dir": "data/wikis_llm_finetuning",
   "search_backend": "kg_graph_search",
   "backend_refs": {
-    "weaviate_collection": "TinkererWiki",
+    "weaviate_collection": "KapsoWiki",
     "embedding_model": "text-embedding-3-large"
   },
   "page_count": 99
@@ -196,19 +196,19 @@ Both backends require database infrastructure:
 ### Kaggle Competitor
 
 ```python
-from src.tinkerer import Tinkerer, Source, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
 # 1. One-time setup: Index Kaggle competition knowledge
-tinkerer = Tinkerer(config_path="src/config.yaml")
-tinkerer.index_kg(
+kapso = Kapso(config_path="src/config.yaml")
+kapso.index_kg(
     data_path="benchmarks/mle/data/kg_data.json",
     save_to="data/indexes/kaggle.index",
     search_type="kg_llm_navigation",
 )
-tinkerer.knowledge_search.close()
+kapso.knowledge_search.close()
 
 # 2. Normal usage: Load pre-indexed KG and evolve
-kaggler = Tinkerer(
+kaggler = Kapso(
     config_path="src/config.yaml",
     kg_index="data/indexes/kaggle.index",
 )
@@ -241,18 +241,18 @@ kaggler.learn(Source.Solution(solution), wiki_dir="data/wikis")
 ### LLM Fine-Tuning Expert
 
 ```python
-from src.tinkerer import Tinkerer, Source, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
 # 1. One-time setup: Index LLM fine-tuning wiki
-tinkerer = Tinkerer(config_path="src/config.yaml")
-tinkerer.index_kg(
+kapso = Kapso(config_path="src/config.yaml")
+kapso.index_kg(
     wiki_dir="data/wikis_llm_finetuning",
     save_to="data/indexes/llm_finetuning.index",
 )
-tinkerer.knowledge_search.close()
+kapso.knowledge_search.close()
 
 # 2. Normal usage: Load pre-indexed KG
-finetuner = Tinkerer(
+finetuner = Kapso(
     config_path="src/config.yaml",
     kg_index="data/indexes/llm_finetuning.index",
 )
@@ -276,10 +276,10 @@ result = software.run({"dataset_path": "./training_data.jsonl"})
 ### Data Engineer
 
 ```python
-from src.tinkerer import Tinkerer, Source, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
 # 1. Initialize (no KG needed for this example)
-data_eng = Tinkerer(config_path="src/config.yaml")
+data_eng = Kapso(config_path="src/config.yaml")
 
 # 2. Build with data directory (schemas and configs available during build)
 etl_pipeline = data_eng.evolve(
@@ -337,14 +337,14 @@ Control how solutions are scored:
 
 ```python
 # Regex example
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="...",
     evaluator="regex_pattern",
     evaluator_params={"pattern": r"Accuracy: ([\d.]+)%"},
 )
 
 # LLM judge example
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="...",
     evaluator="llm_judge",
     evaluator_params={"criteria": "correctness and efficiency"},
@@ -368,14 +368,14 @@ Control when to stop experimentation:
 
 ```python
 # Threshold example
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="...",
     stop_condition="threshold",
     stop_condition_params={"threshold": 0.95},
 )
 
 # Composite: stop if score >= 0.9 OR no improvement for 5 iterations
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="...",
     stop_condition="composite",
     stop_condition_params={
@@ -402,7 +402,7 @@ Pluggable agents for code generation:
 > **⚠️ Note:** `openhands` requires a separate conda environment due to conflicting dependencies with `aider-chat`. See [Installation](#installation) for details.
 
 ```python
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="...",
     coding_agent="claude_code",  # Use Claude Code instead of default
 )
@@ -422,9 +422,9 @@ Presets: `PRODUCTION`, `HEAVY_EXPERIMENTATION`, `HEAVY_THINKING`, `MINIMAL`
 ## Architecture
 
 ```
-tinkerer/
+kapso/
 ├── src/
-│   ├── tinkerer.py              # Main Tinkerer API (learn, research, evolve, deploy, index_kg)
+│   ├── kapso.py              # Main Kapso API (learn, research, evolve, deploy, index_kg)
 │   ├── cli.py                 # CLI entry point
 │   ├── core/                  # LLM backend, config
 │   ├── deployment/            # Local, Docker, Cloud deployment
@@ -457,15 +457,15 @@ tinkerer/
 
 ```bash
 git clone <repository-url>
-cd tinkerer
+cd kapso
 
 # Pull Git LFS files (wiki knowledge data)
 git lfs install
 git lfs pull
 
 # Create a dedicated conda environment (recommended)
-conda create -n tinkerer_conda python=3.12
-conda activate tinkerer_conda
+conda create -n kapso_conda python=3.12
+conda activate kapso_conda
 
 # Install the package
 pip install -e .
@@ -543,7 +543,7 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 
 | Component | Description |
 |-----------|-------------|
-| `Tinkerer` | Main API - learn, research, evolve, deploy, index_kg |
+| `Kapso` | Main API - learn, research, evolve, deploy, index_kg |
 | `OrchestratorAgent` | Coordinates experimentation loop |
 | `SearchStrategy` | Tree/Linear search for solutions |
 | `CodingAgent` | Code generation (Aider, Gemini, etc.) |
@@ -557,7 +557,7 @@ PYTHONPATH=. python -m benchmarks.ale.runner
 After deploying, the returned `Software` instance supports full lifecycle management:
 
 ```python
-software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 
 # Run inference
 result = software.run({"data_path": "./test_features.csv"})

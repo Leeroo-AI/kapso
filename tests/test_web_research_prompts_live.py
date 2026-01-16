@@ -10,7 +10,7 @@ are being followed at a basic structural level:
 - Implementation mode includes a ranked "Top sources" section (and typically GitHub stars)
 
 Run (example):
-  conda run -n tinkerer_conda python tests/test_web_research_prompts_live.py
+  conda run -n kapso_conda python tests/test_web_research_prompts_live.py
 """
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ def _require_env() -> None:
         )
 
 
-def _run_case(tinkerer, *, objective: str, mode: str, depth: str, must_contain: list[str]) -> None:
+def _run_case(kapso, *, objective: str, mode: str, depth: str, must_contain: list[str]) -> None:
     print("\n" + "=" * 80)
     print(f"CASE: mode={mode} depth={depth}")
     print(f"Objective: {objective}")
     print("=" * 80)
 
-    research = tinkerer.research(objective, mode=mode, depth=depth)
+    research = kapso.research(objective, mode=mode, depth=depth)
     text = (research.report_markdown or "").strip()
 
     assert text, "Expected non-empty report_markdown"
@@ -58,9 +58,9 @@ def main() -> None:
     _require_env()
 
     # Import here so the env is loaded first.
-    from src.tinkerer import Tinkerer
+    from src.kapso import Kapso
 
-    tinkerer = Tinkerer()
+    kapso = Kapso()
 
     # Keep this small and fast-ish. Add more cases as needed.
     cases = [
@@ -97,7 +97,7 @@ def main() -> None:
 
     for c in cases:
         _run_case(
-            tinkerer,
+            kapso,
             objective=c["objective"],
             mode=c["mode"],
             depth=c["depth"],

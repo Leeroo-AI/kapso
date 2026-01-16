@@ -48,7 +48,7 @@ def _repo_memory_manager():
 
 
 def _load_doc(repo_root: str) -> Dict[str, Any]:
-    """Load `.tinkerer/repo_memory.json` from a repo worktree and migrate to v2."""
+    """Load `.kapso/repo_memory.json` from a repo worktree and migrate to v2."""
     RepoMemoryManager = _repo_memory_manager()
     repo_root = os.path.abspath(repo_root)
     path = os.path.join(repo_root, RepoMemoryManager.MEMORY_REL_PATH)
@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         default=".",
-        help="Path to the repo root that contains `.tinkerer/repo_memory.json` (default: .)",
+        help="Path to the repo root that contains `.kapso/repo_memory.json` (default: .)",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)

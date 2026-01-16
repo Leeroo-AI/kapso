@@ -11,8 +11,8 @@ Why:
 - Coding agents use this command as a "tool", so stdout must stay clean and only
   contain the requested RepoMemory content.
 
-This script is the simplest reliable approach: read `.tinkerer/repo_memory.json`
-directly and render sections without importing Tinkerer internals.
+This script is the simplest reliable approach: read `.kapso/repo_memory.json`
+directly and render sections without importing Kapso internals.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Tuple
 
 def _load_doc(repo_root: str) -> Dict[str, Any]:
     repo_root = os.path.abspath(repo_root)
-    path = os.path.join(repo_root, ".tinkerer", "repo_memory.json")
+    path = os.path.join(repo_root, ".kapso", "repo_memory.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"RepoMemory file not found: {path}")
     with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -37,7 +37,7 @@ def _ensure_book_v2(doc: Dict[str, Any]) -> Dict[str, Any]:
     """
     Best-effort migration to a v2 "book" view.
 
-    In Tinkerer today, `.tinkerer/repo_memory.json` should already contain `book`.
+    In Kapso today, `.kapso/repo_memory.json` should already contain `book`.
     This is only a safety net for older v1 documents.
     """
     doc = doc or {}
@@ -115,7 +115,7 @@ def _render_summary_toc(doc: Dict[str, Any], max_chars: int) -> str:
         [
             "",
             "## How to read details",
-            "- Open `.tinkerer/repo_memory.json`",
+            "- Open `.kapso/repo_memory.json`",
             "- Find `book.sections[section_id]` from the TOC above",
         ]
     )

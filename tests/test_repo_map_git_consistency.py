@@ -6,7 +6,7 @@ This test is intentionally small and fast. It does NOT call any LLMs.
 We validate that the deterministic RepoMap builder:
 - Stores a portable `repo_root` (".", not absolute /tmp/... paths)
 - Excludes infrastructure/meta paths even if they exist in git:
-  - `.tinkerer/*` (RepoMemory storage)
+  - `.kapso/*` (RepoMemory storage)
   - `sessions/*` (nested experiment clones)
   - `changes.log` (observability/audit metadata)
 """
@@ -36,7 +36,7 @@ def test_build_repo_map_git_filters_meta_paths(tmp_path: Path) -> None:
     (repo_dir / "changes.log").write_text("RepoMemory sections consulted: none\n")
 
     # RepoMemory storage (must be excluded)
-    prax = repo_dir / ".tinkerer"
+    prax = repo_dir / ".kapso"
     prax.mkdir()
     (prax / "repo_memory.json").write_text(json.dumps({"schema_version": 2}, indent=2))
 
@@ -59,7 +59,7 @@ def test_build_repo_map_git_filters_meta_paths(tmp_path: Path) -> None:
 
     # Meta exclusions
     assert "changes.log" not in files
-    assert not any(p.startswith(".tinkerer/") for p in files)
-    assert "tinkerer/repo_memory.json" not in files  # guard against dot-stripping regressions
+    assert not any(p.startswith(".kapso/") for p in files)
+    assert "kapso/repo_memory.json" not in files  # guard against dot-stripping regressions
     assert not any(p.startswith("sessions/") for p in files)
 

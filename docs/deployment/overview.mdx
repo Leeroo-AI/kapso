@@ -35,14 +35,14 @@ flowchart LR
 ### Basic Usage
 
 ```python
-from src.tinkerer import Tinkerer
+from src.kapso import Kapso
 
 # Build a solution
-tinkerer = Tinkerer()
-solution = tinkerer.evolve("Create a sentiment analysis API")
+kapso = Kapso()
+solution = kapso.evolve("Create a sentiment analysis API")
 
 # Deploy it (AUTO selects best strategy)
-software = tinkerer.deploy(solution)
+software = kapso.deploy(solution)
 
 # Use it
 result = software.run({"text": "I love this product!"})
@@ -57,7 +57,7 @@ software.stop()
 
 ```python
 # Deploy
-software = tinkerer.deploy(solution, strategy=DeployStrategy.DOCKER)
+software = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
 
 # Run
 result = software.run({"text": "hello"})
@@ -81,16 +81,16 @@ software.stop()
 from src.deployment import DeployStrategy
 
 # Force a specific deployment target
-software = tinkerer.deploy(solution, strategy=DeployStrategy.MODAL)
-software = tinkerer.deploy(solution, strategy=DeployStrategy.DOCKER)
-software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+software = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
+software = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 ```
 
 ### Using Context Manager
 
 ```python
 # Auto-cleanup when done
-with tinkerer.deploy(solution) as software:
+with kapso.deploy(solution) as software:
     result = software.run({"input": "data"})
     print(result)
 # software.stop() called automatically

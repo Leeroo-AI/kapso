@@ -5,7 +5,7 @@
 # regardless of the underlying infrastructure (Local, Docker, Modal, etc.).
 #
 # The deployment flow:
-# 1. Tinkerer.deploy(solution) -> DeploymentFactory.create()
+# 1. Kapso.deploy(solution) -> DeploymentFactory.create()
 # 2. Selector chooses best strategy (if AUTO)
 # 3. Adapter transforms repo for the strategy
 # 4. Runner handles actual execution
@@ -77,7 +77,7 @@ class DeployConfig:
     Configuration for deploying software.
     
     Attributes:
-        solution: The SolutionResult from Tinkerer.evolve()
+        solution: The SolutionResult from Kapso.evolve()
         env_vars: Environment variables to pass to the software
         timeout: Execution timeout in seconds
         coding_agent: Which coding agent to use for adaptation
@@ -158,7 +158,7 @@ class Software(ABC):
     All infrastructure details are hidden behind this interface.
     
     Usage:
-        software = tinkerer.deploy(solution)  # Returns Software
+        software = kapso.deploy(solution)  # Returns Software
         result = software.run({"text": "hello"})  # Always works the same
         software.stop()
         

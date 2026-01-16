@@ -263,7 +263,7 @@ class ExperimentSession:
             # Commit the memory update so child experiments inherit it via git.
             self.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
             try:
-                self.repo.git.commit("-m", "chore(tinkerer): update repo memory")
+                self.repo.git.commit("-m", "chore(kapso): update repo memory")
             except git.GitCommandError as e:
                 # Nothing to commit or commit failed. If nothing changed, keep going.
                 if "nothing to commit" not in str(e).lower():

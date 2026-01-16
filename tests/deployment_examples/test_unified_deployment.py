@@ -2,13 +2,13 @@
 """
 Unified Deployment Test
 
-Tests the Tinkerer deployment flow as shown in the README:
+Tests the Kapso deployment flow as shown in the README:
 
-    from src.tinkerer import Tinkerer, DeployStrategy
+    from src.kapso import Kapso, DeployStrategy
     
-    tinkerer = Tinkerer()
-    solution = tinkerer.evolve(goal="...", output_path="./repo")  # We create SolutionResult manually
-    software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+    kapso = Kapso()
+    solution = kapso.evolve(goal="...", output_path="./repo")  # We create SolutionResult manually
+    software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
     result = software.run({"input": "data"})
     software.stop()
 
@@ -161,12 +161,12 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     """
     Test a single repository following the README user flow:
     
-        tinkerer = Tinkerer()
-        software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+        kapso = Kapso()
+        software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
         result = software.run(sample_input)
         software.stop()
     """
-    from src.tinkerer import Tinkerer, DeployStrategy
+    from src.kapso import Kapso, DeployStrategy
     from src.execution.solution import SolutionResult
     
     subheader(f"Testing: {repo.name}")
@@ -192,14 +192,14 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
     
     try:
         # =====================================================================
-        # Step 1: Create Tinkerer (simulating user initialization)
+        # Step 1: Create Kapso (simulating user initialization)
         # =====================================================================
-        tinkerer = Tinkerer()
-        info("Created Tinkerer()")
+        kapso = Kapso()
+        info("Created Kapso()")
         
         # =====================================================================
-        # Step 2: Create SolutionResult (simulating tinkerer.evolve() output)
-        # In real usage, this comes from tinkerer.evolve()
+        # Step 2: Create SolutionResult (simulating kapso.evolve() output)
+        # In real usage, this comes from kapso.evolve()
         # Here we create it manually from our test repos
         # =====================================================================
         solution = SolutionResult(
@@ -210,7 +210,7 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         
         # =====================================================================
         # Step 3: Deploy the solution
-        # tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+        # kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
         # =====================================================================
         strategy_upper = strategy.upper()
         try:
@@ -223,15 +223,15 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         
         import time
         deploy_start = time.time()
-        info(f"Calling tinkerer.deploy(solution, strategy=DeployStrategy.{strategy_upper})...")
+        info(f"Calling kapso.deploy(solution, strategy=DeployStrategy.{strategy_upper})...")
         
-        software = tinkerer.deploy(solution, strategy=deploy_strategy)
+        software = kapso.deploy(solution, strategy=deploy_strategy)
         
         deploy_elapsed = time.time() - deploy_start
         result.strategy = software.name
         result.deploy_ok = True
         
-        success(f"software = tinkerer.deploy() completed in {deploy_elapsed:.1f}s")
+        success(f"software = kapso.deploy() completed in {deploy_elapsed:.1f}s")
         info(f"  software.name: {software.name}")
         info(f"  software.is_healthy(): {software.is_healthy()}")
         
@@ -309,10 +309,10 @@ def main():
     args = parser.parse_args()
     
     header("UNIFIED DEPLOYMENT TEST")
-    print("Testing the Tinkerer deployment flow from README:\n")
-    print("    tinkerer = Tinkerer()")
+    print("Testing the Kapso deployment flow from README:\n")
+    print("    kapso = Kapso()")
     print("    solution = SolutionResult(goal='...', code_path='./repo')")
-    print("    software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)")
+    print("    software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)")
     print("    result = software.run(sample_input)")
     print("    software.stop()")
     print()
@@ -337,7 +337,7 @@ def main():
             return 1
     
     # Show available strategies
-    from src.tinkerer import DeployStrategy
+    from src.kapso import DeployStrategy
     available_strategies = [s.name.lower() for s in DeployStrategy]
     info(f"Available strategies: {available_strategies}")
     print()

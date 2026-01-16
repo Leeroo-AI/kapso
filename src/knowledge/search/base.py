@@ -734,7 +734,7 @@ class KnowledgeSearch(ABC):
             Dictionary of backend-specific identifiers
             
         Example (kg_graph_search):
-            {"weaviate_collection": "TinkererKG", "embedding_model": "text-embedding-3-large"}
+            {"weaviate_collection": "KapsoKG", "embedding_model": "text-embedding-3-large"}
             
         Example (kg_llm_navigation):
             {"neo4j_uri": "bolt://localhost:7687", "node_label": "Node"}

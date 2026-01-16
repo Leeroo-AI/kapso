@@ -20,7 +20,7 @@ Usage:
     KG_SEARCH_BACKEND=kg_llm_navigation python -m src.knowledge.wiki_mcps.mcp_server
 
 Environment Variables:
-    KG_INDEX_PATH: Optional path to a Tinkerer `.index` file.
+    KG_INDEX_PATH: Optional path to a Kapso `.index` file.
         If set, the MCP server initializes the search backend from that file
         (backend type + backend_refs like Weaviate collection).
         This overrides `KG_SEARCH_BACKEND`.
@@ -100,7 +100,7 @@ def get_search_backend():
         # If KG_INDEX_PATH is set, we treat the `.index` file as the source of truth
         # for which backend to use AND which backend refs to use (e.g. Weaviate
         # collection name). This prevents drift between:
-        # - a Tinkerer instance that loaded a specific `.index`, and
+        # - a Kapso instance that loaded a specific `.index`, and
         # - the MCP server that Claude Code spawns for kg_index/kg_edit/search.
         #
         # If the index cannot be loaded, we fall back to env/default behavior.

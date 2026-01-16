@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# Tinkerer Agent CLI
+# Kapso Agent CLI
 #
-# Command-line interface for the Tinkerer Agent system.
+# Command-line interface for the Kapso Agent system.
 #
 # Usage:
 #     python -m src.cli --goal "Build a web scraper..."
@@ -28,7 +28,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.tinkerer import Tinkerer, Source
+from src.kapso import Kapso, Source
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.environment.evaluators import EvaluatorFactory
 from src.environment.stop_conditions import StopConditionFactory
@@ -55,7 +55,7 @@ def list_stop_conditions() -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Tinkerer Agent - Build robust software from goals",
+        description="Kapso Agent - Build robust software from goals",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -196,10 +196,10 @@ Examples:
         sys.exit(1)
     
     # Create expert
-    tinkerer = Tinkerer()
+    kapso = Kapso()
     
     # Build solution
-    solution = tinkerer.evolve(
+    solution = kapso.evolve(
         goal=goal,
         output_path=args.output,
         max_iterations=args.iterations,
@@ -220,7 +220,7 @@ Examples:
     print(f"Cost: {solution.metadata.get('cost', 'N/A')}")
     
     # Optionally learn from the solution for future runs
-    # tinkerer.learn(Source.Solution(solution), wiki_dir="data/wikis")
+    # kapso.learn(Source.Solution(solution), wiki_dir="data/wikis")
 
 
 if __name__ == "__main__":

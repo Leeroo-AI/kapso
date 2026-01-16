@@ -5,7 +5,7 @@
 #
 # Requirements:
 #   - Weaviate and Neo4j must be running (./scripts/start_infra.sh)
-#   - Run with: conda activate tinkerer_conda && pytest tests/test_kg_index_integration.py -v
+#   - Run with: conda activate kapso_conda && pytest tests/test_kg_index_integration.py -v
 #
 # Data:
 #   - kg_graph_search: data/wikis_llm_finetuning/ (Unsloth fine-tuning wiki pages)
@@ -124,13 +124,13 @@ class TestKGGraphSearchIntegration:
         - Contains expected metadata
         - Backend has data after indexing
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
-        # Create Tinkerer and index
-        tinkerer = Tinkerer(config_path=config_path)
-        result_path = tinkerer.index_kg(
+        # Create Kapso and index
+        kapso = Kapso(config_path=config_path)
+        result_path = kapso.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
         )
@@ -150,10 +150,10 @@ class TestKGGraphSearchIntegration:
         assert "weaviate_collection" in index_data["backend_refs"]
         
         # Verify backend has data
-        assert tinkerer.knowledge_search.validate_backend_data()
+        assert kapso.knowledge_search.validate_backend_data()
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
     
     def test_load_existing_index(self, wiki_dir, temp_index_dir, config_path):
         """
@@ -164,30 +164,30 @@ class TestKGGraphSearchIntegration:
         - Knowledge search is enabled
         - Can perform searches
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
         # First: Create the index
-        tinkerer1 = Tinkerer(config_path=config_path)
-        tinkerer1.index_kg(
+        kapso1 = Kapso(config_path=config_path)
+        kapso1.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
         )
-        tinkerer1.knowledge_search.close()
+        kapso1.knowledge_search.close()
         
         # Second: Load from index (should not re-index)
-        tinkerer2 = Tinkerer(
+        kapso2 = Kapso(
             config_path=config_path,
             kg_index=str(index_path),
         )
         
         # Verify knowledge search is enabled
-        assert tinkerer2.knowledge_search.is_enabled()
-        assert tinkerer2.knowledge_search.validate_backend_data()
+        assert kapso2.knowledge_search.is_enabled()
+        assert kapso2.knowledge_search.validate_backend_data()
         
         # Cleanup
-        tinkerer2.knowledge_search.close()
+        kapso2.knowledge_search.close()
     
     def test_search_after_index(self, wiki_dir, temp_index_dir, config_path):
         """
@@ -198,20 +198,20 @@ class TestKGGraphSearchIntegration:
         - Results are relevant to query
         - QLoRA-related pages are found
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         from src.knowledge.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
         # Index and load
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
         )
         
         # Search for QLoRA fine-tuning
-        result = tinkerer.knowledge_search.search(
+        result = kapso.knowledge_search.search(
             query="How to fine-tune LLM with QLoRA and limited GPU memory?",
             filters=KGSearchFilters(top_k=5),
         )
@@ -234,39 +234,39 @@ class TestKGGraphSearchIntegration:
         assert has_relevant, f"Results should include QLoRA-related pages. Got: {titles}"
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
     
     def test_force_reindex(self, wiki_dir, temp_index_dir, config_path):
         """
         Test force=True clears and re-indexes.
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
         # First index
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
         )
         
-        initial_count = tinkerer.knowledge_search.get_indexed_count()
+        initial_count = kapso.knowledge_search.get_indexed_count()
         
         # Force re-index
-        tinkerer.index_kg(
+        kapso.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
             force=True,
         )
         
-        reindex_count = tinkerer.knowledge_search.get_indexed_count()
+        reindex_count = kapso.knowledge_search.get_indexed_count()
         
         # Counts should be the same (same data)
         assert reindex_count == initial_count
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
 
 
 # =============================================================================
@@ -290,13 +290,13 @@ class TestKGLLMNavigationIntegration:
         - Contains expected metadata
         - Backend has data after indexing
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
-        # Create Tinkerer and index with explicit search_type
-        tinkerer = Tinkerer(config_path=config_path)
-        result_path = tinkerer.index_kg(
+        # Create Kapso and index with explicit search_type
+        kapso = Kapso(config_path=config_path)
+        result_path = kapso.index_kg(
             data_path=str(kg_json_path),
             save_to=str(index_path),
             search_type="kg_llm_navigation",
@@ -317,40 +317,40 @@ class TestKGLLMNavigationIntegration:
         assert index_data["backend_refs"]["node_label"] == "Node"
         
         # Verify backend has data
-        assert tinkerer.knowledge_search.validate_backend_data()
+        assert kapso.knowledge_search.validate_backend_data()
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
     
     def test_load_existing_json_index(self, kg_json_path, temp_index_dir, config_path):
         """
         Test loading from existing .index file for JSON KG.
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
         # First: Create the index
-        tinkerer1 = Tinkerer(config_path=config_path)
-        tinkerer1.index_kg(
+        kapso1 = Kapso(config_path=config_path)
+        kapso1.index_kg(
             data_path=str(kg_json_path),
             save_to=str(index_path),
             search_type="kg_llm_navigation",
         )
-        tinkerer1.knowledge_search.close()
+        kapso1.knowledge_search.close()
         
         # Second: Load from index
-        tinkerer2 = Tinkerer(
+        kapso2 = Kapso(
             config_path=config_path,
             kg_index=str(index_path),
         )
         
         # Verify knowledge search is enabled and has data
-        assert tinkerer2.knowledge_search.is_enabled()
-        assert tinkerer2.knowledge_search.validate_backend_data()
+        assert kapso2.knowledge_search.is_enabled()
+        assert kapso2.knowledge_search.validate_backend_data()
         
         # Cleanup
-        tinkerer2.knowledge_search.close()
+        kapso2.knowledge_search.close()
     
     def test_search_tabular_approaches(self, kg_json_path, temp_index_dir, config_path):
         """
@@ -359,21 +359,21 @@ class TestKGLLMNavigationIntegration:
         The kg_data.json contains nodes about tabular classification,
         XGBoost, CatBoost, etc.
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         from src.knowledge.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
         # Index
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             data_path=str(kg_json_path),
             save_to=str(index_path),
             search_type="kg_llm_navigation",
         )
         
         # Search for tabular approaches
-        result = tinkerer.knowledge_search.search(
+        result = kapso.knowledge_search.search(
             query="Best approaches for tabular classification with XGBoost and CatBoost",
             filters=KGSearchFilters(top_k=5),
         )
@@ -395,7 +395,7 @@ class TestKGLLMNavigationIntegration:
         assert has_relevant, f"Results should include tabular ML content"
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
     
     def test_search_text_classification(self, kg_json_path, temp_index_dir, config_path):
         """
@@ -404,21 +404,21 @@ class TestKGLLMNavigationIntegration:
         The kg_data.json contains nodes about transformer fine-tuning,
         TF-IDF, DeBERTa, etc.
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         from src.knowledge.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
         # Index
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             data_path=str(kg_json_path),
             save_to=str(index_path),
             search_type="kg_llm_navigation",
         )
         
         # Search for text classification
-        result = tinkerer.knowledge_search.search(
+        result = kapso.knowledge_search.search(
             query="Text classification with transformers and TF-IDF",
             filters=KGSearchFilters(top_k=5),
         )
@@ -427,7 +427,7 @@ class TestKGLLMNavigationIntegration:
         assert len(result.results) > 0, "Should return search results"
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
 
 
 # =============================================================================
@@ -439,31 +439,31 @@ class TestKGIndexErrorHandling:
     
     def test_missing_index_file_raises_error(self, config_path):
         """Test that loading non-existent index file raises FileNotFoundError."""
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         with pytest.raises(FileNotFoundError):
-            Tinkerer(
+            Kapso(
                 config_path=config_path,
                 kg_index="/nonexistent/path/to/index.index",
             )
     
     def test_index_without_save_to_raises_error(self, wiki_dir, config_path):
         """Test that index_kg without save_to raises ValueError."""
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
-        tinkerer = Tinkerer(config_path=config_path)
+        kapso = Kapso(config_path=config_path)
         
         with pytest.raises(ValueError, match="save_to is required"):
-            tinkerer.index_kg(wiki_dir=str(wiki_dir))
+            kapso.index_kg(wiki_dir=str(wiki_dir))
     
     def test_index_without_data_raises_error(self, temp_index_dir, config_path):
         """Test that index_kg without wiki_dir or data_path raises ValueError."""
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
-        tinkerer = Tinkerer(config_path=config_path)
+        kapso = Kapso(config_path=config_path)
         
         with pytest.raises(ValueError, match="Must provide either"):
-            tinkerer.index_kg(save_to=str(temp_index_dir / "test.index"))
+            kapso.index_kg(save_to=str(temp_index_dir / "test.index"))
 
 
 # =============================================================================
@@ -496,27 +496,27 @@ class TestEvolveWithKGGraphSearch:
         Note: May fail due to RepoMemory validation (unrelated to KG).
         The key assertion is that KG search is active during evolve.
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         output_path = temp_index_dir / "evolve_output"
         
         # Index the wiki
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
         )
         
         # Verify KG is active
-        assert tinkerer.knowledge_search.is_enabled()
-        assert tinkerer.knowledge_search.validate_backend_data()
+        assert kapso.knowledge_search.is_enabled()
+        assert kapso.knowledge_search.validate_backend_data()
         
         # Run evolve with a goal related to the indexed knowledge
         # Use max_iterations=1 to keep test fast
         # Note: RepoMemory validation may fail - that's unrelated to KG feature
         try:
-            solution = tinkerer.evolve(
+            solution = kapso.evolve(
                 goal="Write a Python script that prints 'Hello QLoRA' to demonstrate fine-tuning awareness",
                 output_path=str(output_path),
                 max_iterations=1,
@@ -538,40 +538,40 @@ class TestEvolveWithKGGraphSearch:
                 raise
         finally:
             # Cleanup
-            tinkerer.knowledge_search.close()
+            kapso.knowledge_search.close()
     
     def test_evolve_kg_provides_context(self, wiki_dir, temp_index_dir, config_path):
         """
         Test that KG search results are passed to the orchestrator.
         
-        This test verifies the integration between Tinkerer.knowledge_search
+        This test verifies the integration between Kapso.knowledge_search
         and the OrchestratorAgent by checking that is_kg_active=True when
         KG is loaded.
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
         # Create and index
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             wiki_dir=str(wiki_dir),
             save_to=str(index_path),
         )
         
         # Verify the knowledge_search is enabled and will be passed to orchestrator
-        assert tinkerer.knowledge_search.is_enabled(), "KG should be enabled after indexing"
+        assert kapso.knowledge_search.is_enabled(), "KG should be enabled after indexing"
         
         # Search should return results (proving KG has data for evolve to use)
         from src.knowledge.search.base import KGSearchFilters
-        result = tinkerer.knowledge_search.search(
+        result = kapso.knowledge_search.search(
             query="QLoRA fine-tuning with limited GPU memory",
             filters=KGSearchFilters(top_k=3),
         )
         assert len(result.results) > 0, "KG should have relevant content for evolve"
         
         # Cleanup
-        tinkerer.knowledge_search.close()
+        kapso.knowledge_search.close()
 
 
 class TestEvolveWithKGLLMNavigation:
@@ -594,27 +594,27 @@ class TestEvolveWithKGLLMNavigation:
         2. Runs evolve() with a tabular ML goal
         3. Verifies the solution is created with KG context available
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         output_path = temp_index_dir / "evolve_output"
         
         # Index the Kaggle KG
-        tinkerer = Tinkerer(config_path=config_path)
-        tinkerer.index_kg(
+        kapso = Kapso(config_path=config_path)
+        kapso.index_kg(
             data_path=str(kg_json_path),
             save_to=str(index_path),
             search_type="kg_llm_navigation",
         )
         
         # Verify KG is active
-        assert tinkerer.knowledge_search.is_enabled()
-        assert tinkerer.knowledge_search.validate_backend_data()
+        assert kapso.knowledge_search.is_enabled()
+        assert kapso.knowledge_search.validate_backend_data()
         
         # Run evolve with a Kaggle-style goal
         # Note: RepoMemory validation may fail - that's unrelated to KG feature
         try:
-            solution = tinkerer.evolve(
+            solution = kapso.evolve(
                 goal="Write a Python script that prints 'XGBoost ensemble ready' for tabular classification",
                 output_path=str(output_path),
                 max_iterations=1,
@@ -634,7 +634,7 @@ class TestEvolveWithKGLLMNavigation:
                 raise
         finally:
             # Cleanup
-            tinkerer.knowledge_search.close()
+            kapso.knowledge_search.close()
     
     def test_evolve_with_loaded_index(self, kg_json_path, temp_index_dir, config_path):
         """
@@ -644,33 +644,33 @@ class TestEvolveWithKGLLMNavigation:
         1. Index once (setup)
         2. Load index and evolve (normal usage)
         """
-        from src.tinkerer import Tinkerer
+        from src.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         output_path = temp_index_dir / "evolve_output"
         
         # Step 1: Index (one-time setup)
-        tinkerer1 = Tinkerer(config_path=config_path)
-        tinkerer1.index_kg(
+        kapso1 = Kapso(config_path=config_path)
+        kapso1.index_kg(
             data_path=str(kg_json_path),
             save_to=str(index_path),
             search_type="kg_llm_navigation",
         )
-        tinkerer1.knowledge_search.close()
+        kapso1.knowledge_search.close()
         
         # Step 2: Load from index and evolve (normal usage)
-        tinkerer2 = Tinkerer(
+        kapso2 = Kapso(
             config_path=config_path,
             kg_index=str(index_path),
         )
         
         # Verify KG loaded correctly
-        assert tinkerer2.knowledge_search.is_enabled()
+        assert kapso2.knowledge_search.is_enabled()
         
         # Run evolve
         # Note: RepoMemory validation may fail - that's unrelated to KG feature
         try:
-            solution = tinkerer2.evolve(
+            solution = kapso2.evolve(
                 goal="Print 'Tabular ML pipeline ready' using best practices",
                 output_path=str(output_path),
                 max_iterations=1,
@@ -689,7 +689,7 @@ class TestEvolveWithKGLLMNavigation:
                 raise
         finally:
             # Cleanup
-            tinkerer2.knowledge_search.close()
+            kapso2.knowledge_search.close()
 
 
 # =============================================================================
@@ -701,7 +701,7 @@ if __name__ == "__main__":
     Run tests manually for debugging.
     
     Usage:
-        conda activate tinkerer_conda
+        conda activate kapso_conda
         python tests/test_kg_index_integration.py
     """
     print("=" * 60)

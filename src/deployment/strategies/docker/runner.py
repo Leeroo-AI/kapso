@@ -63,8 +63,8 @@ class DockerRunner(Runner):
         self.timeout = timeout
         self.headers = headers or {}
         self.code_path = code_path
-        self.container_name = container_name or "tinkerer-app"
-        self.image_name = image_name or "tinkerer-solution"
+        self.container_name = container_name or "kapso-app"
+        self.image_name = image_name or "kapso-solution"
         self.port = port
         self._container = None
         self._docker_client = None

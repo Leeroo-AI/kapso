@@ -1,7 +1,7 @@
 """
 E2E Test - Unsloth QLoRA Fine-Tuning
 
-Tests that Tinkerer.evolve() can fine-tune LLMs using QLoRA with Unsloth,
+Tests that Kapso.evolve() can fine-tune LLMs using QLoRA with Unsloth,
 retrieving Workflow:Unslothai_Unsloth_QLoRA_Finetuning from the KG.
 
 Uses Claude Code via AWS Bedrock for code generation.
@@ -115,12 +115,12 @@ def patch_claude_code_for_bedrock():
 # =============================================================================
 
 def run_test():
-    """Run Unsloth QLoRA test using Tinkerer.evolve()."""
-    from src.tinkerer import Tinkerer
+    """Run Unsloth QLoRA test using Kapso.evolve()."""
+    from src.kapso import Kapso
     from src.knowledge.search import KnowledgeSearchFactory
     
     logger.info("=" * 60)
-    logger.info("UNSLOTH QLORA TEST (Tinkerer.evolve + Bedrock)")
+    logger.info("UNSLOTH QLORA TEST (Kapso.evolve + Bedrock)")
     logger.info("=" * 60)
     
     # Patch claude_code to use Bedrock
@@ -130,14 +130,14 @@ def run_test():
     logger.info(f"Output: {output_dir}")
     
     try:
-        # Initialize Tinkerer with KG
-        tinkerer = Tinkerer()
-        tinkerer.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
-        logger.info(f"KG enabled: {tinkerer.knowledge_search.is_enabled()}")
+        # Initialize Kapso with KG
+        kapso = Kapso()
+        kapso.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
+        logger.info(f"KG enabled: {kapso.knowledge_search.is_enabled()}")
         
-        # Run Tinkerer.evolve()
-        logger.info("Running Tinkerer.evolve()...")
-        solution = tinkerer.evolve(
+        # Run Kapso.evolve()
+        logger.info("Running Kapso.evolve()...")
+        solution = kapso.evolve(
             goal=TEST_CONFIG["goal"],
             output_path=output_dir,
             max_iterations=TEST_CONFIG["max_iterations"],
@@ -183,8 +183,8 @@ def run_test():
         return False
     
     finally:
-        if tinkerer.knowledge_search.is_enabled():
-            tinkerer.knowledge_search.close()
+        if kapso.knowledge_search.is_enabled():
+            kapso.knowledge_search.close()
 
 
 def main():

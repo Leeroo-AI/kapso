@@ -14,7 +14,7 @@ from src.knowledge.search.base import WikiPage
 
 # Avoid circular import
 if TYPE_CHECKING:
-    from src.tinkerer import SolutionResult
+    from src.kapso import SolutionResult
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,7 @@ class ExperimentIngestor(Ingestor):
     - Final solution patterns
     - Error patterns to avoid
     
-    This ingestor is key for the "reinforcement" step where the Tinkerer
+    This ingestor is key for the "reinforcement" step where the Kapso
     learns from its own experiments to improve future builds.
     
     Input formats:

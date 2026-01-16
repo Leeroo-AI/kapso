@@ -58,18 +58,18 @@ Or manually add to `~/.config/claude-code/settings.json`:
     "kg-graph-search": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/home/ubuntu/tinkerer",
+      "cwd": "/home/ubuntu/kapso",
       "env": {
-        "PYTHONPATH": "/home/ubuntu/tinkerer",
+        "PYTHONPATH": "/home/ubuntu/kapso",
         "KG_SEARCH_BACKEND": "kg_graph_search"
       }
     },
     "kg-llm-navigation": {
       "command": "python",
       "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
-      "cwd": "/home/ubuntu/tinkerer",
+      "cwd": "/home/ubuntu/kapso",
       "env": {
-        "PYTHONPATH": "/home/ubuntu/tinkerer",
+        "PYTHONPATH": "/home/ubuntu/kapso",
         "KG_SEARCH_BACKEND": "kg_llm_navigation"
       }
     }

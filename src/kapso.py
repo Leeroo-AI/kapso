@@ -1,20 +1,20 @@
-# Tinkerer Agent - Main Entry Point
+# Kapso Agent - Main Entry Point
 #
-# The primary user-facing API for the Tinkerer Agent system.
+# The primary user-facing API for the Kapso Agent system.
 # Provides a clean interface for the "Brain to Binary" workflow:
-#   Tinkerer.index_kg() -> Tinkerer.evolve() -> Tinkerer.deploy() -> Software.run()
+#   Kapso.index_kg() -> Kapso.evolve() -> Kapso.deploy() -> Software.run()
 #
 # Usage:
-#     from src.tinkerer import Tinkerer, Source, DeployStrategy
+#     from src.kapso import Kapso, Source, DeployStrategy
 #     
 #     # One-time setup: Index knowledge graph
-#     tinkerer = Tinkerer(config_path="./config.yaml")
-#     tinkerer.index_kg(wiki_dir="data/wikis/ml_knowledge", save_to="data/indexes/ml.index")
+#     kapso = Kapso(config_path="./config.yaml")
+#     kapso.index_kg(wiki_dir="data/wikis/ml_knowledge", save_to="data/indexes/ml.index")
 #     
 #     # Normal usage: Load existing index
-#     tinkerer = Tinkerer(config_path="./config.yaml", kg_index="data/indexes/ml.index")
-#     solution = tinkerer.evolve(goal="Create a triage agent")
-#     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+#     kapso = Kapso(config_path="./config.yaml", kg_index="data/indexes/ml.index")
+#     solution = kapso.evolve(goal="Create a triage agent")
+#     software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
 import json
@@ -62,41 +62,41 @@ class KGIndexError(Exception):
 
 
 # =============================================================================
-# TINKERER AGENT
+# KAPSO AGENT
 # =============================================================================
 
 # Path to default configuration
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 
-class Tinkerer:
+class Kapso:
     """
-    The main Tinkerer Agent class.
+    The main Kapso Agent class.
     
-    A Tinkerer is an intelligent agent that can:
+    A Kapso is an intelligent agent that can:
     1. Index knowledge from wiki pages or JSON knowledge graphs
     2. Evolve software to solve goals using experimentation
     3. Deploy solutions as running software
     
     Knowledge Graph Workflow:
         # ONE-TIME SETUP: Index your knowledge
-        tinkerer = Tinkerer(config_path="./config.yaml")
-        tinkerer.index_kg(
+        kapso = Kapso(config_path="./config.yaml")
+        kapso.index_kg(
             wiki_dir="data/wikis/ml_knowledge",
             save_to="data/indexes/ml.index",
         )
         
         # EVERY TIME: Load existing index
-        tinkerer = Tinkerer(
+        kapso = Kapso(
             config_path="./config.yaml",
             kg_index="data/indexes/ml.index",
         )
-        solution = tinkerer.evolve(goal="Create a momentum trading bot")
-        software = tinkerer.deploy(solution)
+        solution = kapso.evolve(goal="Create a momentum trading bot")
+        software = kapso.deploy(solution)
         result = software.run({"ticker": "AAPL"})
         
     Advanced usage with evaluator and stop condition:
-        solution = tinkerer.evolve(
+        solution = kapso.evolve(
             goal="Build a classifier with 95% accuracy",
             evaluator="regex_pattern",
             evaluator_params={"pattern": r"Accuracy: ([\\d.]+)"},
@@ -117,7 +117,7 @@ class Tinkerer:
         kg_index: Optional[str] = None,
     ):
         """
-        Initialize a Tinkerer agent.
+        Initialize a Kapso agent.
         
         Args:
             config_path: Path to configuration file (uses default if not provided)
@@ -141,9 +141,9 @@ class Tinkerer:
         
         # Print initialization status
         if kg_index:
-            print(f"Initialized Tinkerer")
+            print(f"Initialized Kapso")
         else:
-            print(f"Initialized Tinkerer (Knowledge Graph: disabled)")
+            print(f"Initialized Kapso (Knowledge Graph: disabled)")
 
         # Lazy-initialized web researcher (created on first `.research()` call).
         self._web_researcher: Optional[DeepWebResearch] = None
@@ -193,7 +193,7 @@ class Tinkerer:
         if not self.knowledge_search.validate_backend_data():
             raise KGIndexError(
                 f"Index file exists but backend data not found.\n"
-                f"Re-index with: tinkerer.index_kg("
+                f"Re-index with: kapso.index_kg("
                 f"wiki_dir='{metadata.data_source}', save_to='{index_path}')"
             )
         
@@ -232,13 +232,13 @@ class Tinkerer:
             
         Example:
             # Index wiki pages (kg_graph_search)
-            tinkerer.index_kg(
+            kapso.index_kg(
                 wiki_dir="data/wikis/ml_knowledge",
                 save_to="data/indexes/ml.index",
             )
             
             # Index JSON knowledge graph (kg_llm_navigation)
-            tinkerer.index_kg(
+            kapso.index_kg(
                 data_path="benchmarks/mle/data/kg_data.json",
                 save_to="data/indexes/kaggle.index",
                 search_type="kg_llm_navigation",
@@ -363,7 +363,7 @@ class Tinkerer:
         Supported sources (MVP):
         - `Source.Repo(...)`
         - `Source.Solution(...)`
-        - `Source.Research(...)` (output of `Tinkerer.research(...)`)
+        - `Source.Research(...)` (output of `Kapso.research(...)`)
         
         Args:
             *sources: One or more Source objects.
@@ -378,9 +378,9 @@ class Tinkerer:
             
         Example:
             # Learn from repo + web research and merge into local KG
-            tinkerer.learn(
+            kapso.learn(
                 Source.Repo("https://github.com/user/repo"),
-                tinkerer.research("How to pick LoRA rank?", mode="idea"),
+                kapso.research("How to pick LoRA rank?", mode="idea"),
                 wiki_dir="data/wikis",
             )
         """
@@ -446,7 +446,7 @@ class Tinkerer:
         """
         Evolve a solution for the given goal.
         
-        Uses the Tinkerer's knowledge (KG) and online experimentation to
+        Uses the Kapso's knowledge (KG) and online experimentation to
         generate robust software.
         
         Args:
@@ -455,7 +455,7 @@ class Tinkerer:
             constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
             starting_repo_path: Optional local path to an existing repository to improve.
-                If provided, Tinkerer will clone/copy it into the experiment workspace and
+                If provided, Kapso will clone/copy it into the experiment workspace and
                 run the experiment loop on top of that baseline.
             max_iterations: Maximum experiment iterations (default: 10)
             
@@ -536,7 +536,7 @@ class Tinkerer:
             # - Many callers (CLI + E2E tests) pass `output_path` expecting the final repo to live there.
             # - The orchestration layer owns the experiment workspace (a git repo with branches).
             # - Therefore, when `output_path` is provided, we must use it as the workspace directory
-            #   so `solution.code_path` points at a real git repo (with `.tinkerer/repo_memory.json`).
+            #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
             starting_repo_path=starting_repo_path,
         )
@@ -617,8 +617,8 @@ class Tinkerer:
             - .is_healthy() -> health check
             
         Example:
-            solution = tinkerer.evolve(goal="Create a trading bot")
-            software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+            solution = kapso.evolve(goal="Create a trading bot")
+            software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
             result = software.run({"ticker": "AAPL"})
             software.stop()
         """
@@ -659,7 +659,7 @@ class Tinkerer:
         
         # For MVP, just concatenate recent chunks
         recent = self._learned_chunks[-5:]  # Last 5 chunks
-        context_parts = ["# Knowledge from Tinkerer's Brain"]
+        context_parts = ["# Knowledge from Kapso's Brain"]
         for chunk in recent:
             context_parts.append(f"- [{chunk.chunk_type}] {chunk.content[:200]}...")
         
@@ -685,7 +685,7 @@ class Tinkerer:
 # =============================================================================
 
 __all__ = [
-    "Tinkerer",
+    "Kapso",
     "KGIndexError",
     "Source",
     "SolutionResult",

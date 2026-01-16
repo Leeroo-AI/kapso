@@ -1,5 +1,5 @@
 # =============================================================================
-# Objective - Complete Problem Specification for Tinkerer Agent
+# Objective - Complete Problem Specification for Kapso Agent
 # =============================================================================
 #
 # An Objective captures EVERYTHING needed to solve a problem:
@@ -82,7 +82,7 @@ class DataFile:
 @dataclass
 class Objective:
     """
-    Complete problem specification for the Tinkerer agent.
+    Complete problem specification for the Kapso agent.
     
     This is NOT just a goal string - it's the full context:
     - What to achieve

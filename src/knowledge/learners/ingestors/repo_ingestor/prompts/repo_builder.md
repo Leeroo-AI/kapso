@@ -351,8 +351,8 @@ if __name__ == "__main__":
 
 1. **Create files** in a temporary directory:
    ```bash
-   mkdir -p /tmp/tinkerer_workflow_{workflow_name}
-   cd /tmp/tinkerer_workflow_{workflow_name}
+   mkdir -p /tmp/kapso_workflow_{workflow_name}
+   cd /tmp/kapso_workflow_{workflow_name}
    # Write all files...
    ```
 

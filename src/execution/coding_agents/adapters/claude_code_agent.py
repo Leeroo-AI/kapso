@@ -434,7 +434,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             raise
         finally:
             # Always close pipes so Python doesn't warn about unclosed file objects.
-            # This also helps prevent leaking file descriptors in long Tinkerer runs.
+            # This also helps prevent leaking file descriptors in long Kapso runs.
             try:
                 if process.stdout:
                     process.stdout.close()

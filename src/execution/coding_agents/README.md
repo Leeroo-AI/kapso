@@ -1,6 +1,6 @@
 # Pluggable Coding Agents
 
-This module provides a **plug-and-play architecture** for integrating different coding agents into the ML Tinkerer system. The orchestrator can seamlessly switch between agents like Aider, Gemini, Claude Code, and OpenHands.
+This module provides a **plug-and-play architecture** for integrating different coding agents into the ML Kapso system. The orchestrator can seamlessly switch between agents like Aider, Gemini, Claude Code, and OpenHands.
 
 ## Quick Start
 

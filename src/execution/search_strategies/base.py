@@ -112,7 +112,7 @@ class SearchStrategy(ABC):
         #   ideation and implementation can be grounded in the repo's actual design.
         # - For empty workspaces: create a lightweight skeleton (RepoMap only).
         #
-        # RepoMemory is committed into the workspace's "main" branch under `.tinkerer/`,
+        # RepoMemory is committed into the workspace's "main" branch under `.kapso/`,
         # so all experiment branches inherit it automatically.
         if not import_from_checkpoint:
             # Build baseline RepoMemory and commit it to the workspace's main branch.
@@ -130,7 +130,7 @@ class SearchStrategy(ABC):
             # Commit baseline memory file if it is new/updated.
             self.workspace.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
             if self.workspace.repo.is_dirty(untracked_files=True):
-                self.workspace.repo.git.commit("-m", "chore(tinkerer): add baseline repo memory")
+                self.workspace.repo.git.commit("-m", "chore(kapso): add baseline repo memory")
 
         if import_from_checkpoint:
             self.import_checkpoint()
@@ -208,7 +208,7 @@ class SearchStrategy(ABC):
         Returns:
             ProblemRunResult with score and error info
         """
-        # RepoMemory is committed inside branches under `.tinkerer/`.
+        # RepoMemory is committed inside branches under `.kapso/`.
         # This means when we start from a parent branch, we also inherit the memory
         # corresponding to that code state. We still render a short briefing here
         # so coding agents don't need to rediscover basic repo structure every time.
@@ -224,12 +224,12 @@ class SearchStrategy(ABC):
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
                 "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
                 "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
-                "Fallback: open `.tinkerer/repo_memory.json` and read `book.sections[section_id]`."
+                "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
             )
         else:
             repo_memory_detail_access_instructions = (
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "read: `.tinkerer/repo_memory.json` and look up by section ID from the TOC."
+                "read: `.kapso/repo_memory.json` and look up by section ID from the TOC."
             )
 
         template = load_prompt("execution/prompts/coding_agent_implement.md")
@@ -284,12 +284,12 @@ class SearchStrategy(ABC):
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
                 "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
                 "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
-                "Fallback: open `.tinkerer/repo_memory.json` and read `book.sections[section_id]`."
+                "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
             )
         else:
             repo_memory_detail_access_instructions = (
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "read: `.tinkerer/repo_memory.json` and look up by section ID from the TOC."
+                "read: `.kapso/repo_memory.json` and look up by section ID from the TOC."
             )
 
         template = load_prompt("execution/prompts/coding_agent_debug.md")

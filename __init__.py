@@ -1,5 +1,5 @@
 """
-Tinkerer Agent - A machine learning tinkerer agent for automated ML experimentation.
+Kapso Agent - A machine learning kapso agent for automated ML experimentation.
 
 This package provides agents for:
 - Orchestrating ML experiments

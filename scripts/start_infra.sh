@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# Tinkerer Infrastructure Startup Script
+# Kapso Infrastructure Startup Script
 # - Starts Weaviate, Neo4j, MediaWiki containers
 # - Optionally imports wiki pages to MediaWiki (for browsing)
 #
-# Note: For KG indexing, use Tinkerer.index_kg() in Python:
-#   tinkerer = Tinkerer(config_path="src/config.yaml")
-#   tinkerer.index_kg(wiki_dir="data/wikis_llm_finetuning", save_to="data/indexes/my.index")
+# Note: For KG indexing, use Kapso.index_kg() in Python:
+#   kapso = Kapso(config_path="src/config.yaml")
+#   kapso.index_kg(wiki_dir="data/wikis_llm_finetuning", save_to="data/indexes/my.index")
 # =============================================================================
 
 set -e
@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo -e "${BLUE}=========================================="
-echo "  Tinkerer Infrastructure Startup"
+echo "  Kapso Infrastructure Startup"
 echo -e "==========================================${NC}"
 
 # Check prerequisites
@@ -211,7 +211,7 @@ if [[ "$SKIP_INDEX" == "false" ]] && [[ -n "$WIKI_DIR" ]]; then
     echo ""
 fi
 
-echo "  Index KG:     tinkerer.index_kg(wiki_dir='...', save_to='...')"
+echo "  Index KG:     kapso.index_kg(wiki_dir='...', save_to='...')"
 echo ""
 echo "  Stop:         ./scripts/stop_infra.sh"
 echo "  Stop + wipe:  ./scripts/stop_infra.sh --volumes"

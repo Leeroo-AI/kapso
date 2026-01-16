@@ -78,12 +78,12 @@ modes:
         summary_model: "gpt-4o-mini"
     
     # Knowledge search configuration
-    # Use index_kg() to index data, then pass kg_index to Tinkerer
+    # Use index_kg() to index data, then pass kg_index to Kapso
     knowledge_search:
       type: "kg_graph_search"
       enabled: true
       params:
-        weaviate_collection: "TinkererKG"
+        weaviate_collection: "KapsoKG"
         embedding_model: "text-embedding-3-large"
         use_llm_reranker: true
         reranker_model: "gpt-4.1-mini"

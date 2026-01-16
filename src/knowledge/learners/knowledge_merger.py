@@ -139,7 +139,7 @@ class KnowledgeMerger:
             agent_config: Configuration for Claude Code agent
         """
         self._agent_config = agent_config or {}
-        # Optional path to a Tinkerer `.index` file.
+        # Optional path to a Kapso `.index` file.
         #
         # When provided, we pass it down to the Claude Code subprocess as
         # KG_INDEX_PATH so the spawned MCP server can initialize the correct
@@ -243,7 +243,7 @@ class KnowledgeMerger:
         We intentionally treat an explicitly provided `.index` path as the signal
         that an index exists. This avoids probing backend state (Neo4j/Weaviate)
         and keeps the control flow simple and deterministic:
-        - If the caller provided `kg_index_path` (propagated from `Tinkerer.learn(kg_index=...)`),
+        - If the caller provided `kg_index_path` (propagated from `Kapso.learn(kg_index=...)`),
           we assume an index exists and route to the agent path.
         - Otherwise, we assume no index exists and route to the "create all pages"
           path (write to wiki_dir + best-effort indexing).

@@ -2,8 +2,8 @@
 Test RepoMemoryManager with the real Unsloth repository.
 
 Usage:
-    cd /home/ubuntu/tinkerer
-    conda activate tinkerer_conda
+    cd /home/ubuntu/kapso
+    conda activate kapso_conda
     python tests/test_repo_memory_unsloth.py
 """
 

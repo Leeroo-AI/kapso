@@ -1,10 +1,10 @@
 """
-Full E2E Test - Tinkerer with Real Coding Agent + LLM Judge Evaluator
+Full E2E Test - Kapso with Real Coding Agent + LLM Judge Evaluator
 
 This test demonstrates the COGNITIVE MEMORY SYSTEM with KG-structured context:
 
 WHAT THIS TESTS:
-1. Uses Tinkerer.evolve() - the main user-facing API
+1. Uses Kapso.evolve() - the main user-facing API
 2. Creates a REAL code repository
 3. Uses a REAL coding agent (Gemini by default, fast and cheap)
 4. Evaluates with LLM-as-Judge
@@ -39,11 +39,11 @@ Prerequisites:
     export OPENAI_API_KEY=...     # For LLM Judge + embeddings
 
 To run:
-    PYTHONPATH=. python tests/test_tinkerer_full_e2e.py
+    PYTHONPATH=. python tests/test_kapso_full_e2e.py
 
 Output:
-    - Generated code in /tmp/tinkerer_e2e_*/
-    - Logs in /home/ubuntu/tinkerer/logs/tinkerer_e2e_*.log
+    - Generated code in /tmp/kapso_e2e_*/
+    - Logs in /home/ubuntu/kapso/logs/kapso_e2e_*.log
 """
 
 import os
@@ -63,9 +63,9 @@ load_dotenv()
 # Enhanced Logging Setup - Cognitive Memory Focused
 # =============================================================================
 
-LOG_DIR = Path("/home/ubuntu/tinkerer/logs")
+LOG_DIR = Path("/home/ubuntu/kapso/logs")
 LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / f"tinkerer_e2e_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+LOG_FILE = LOG_DIR / f"kapso_e2e_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
 
 class CognitiveLogFormatter(logging.Formatter):
@@ -308,7 +308,7 @@ def get_test_config(scenario_name: str = None) -> dict:
         # Goal from scenario
         "goal": scenario["goal"],
     
-    # Tinkerer configuration
+    # Kapso configuration
         "max_iterations": scenario.get("max_iterations", 5),
         "coding_agent": "claude_code",  # Using claude_code as it's available
     "language": "python",
@@ -529,9 +529,9 @@ def check_prerequisites():
 # Main Test - With Cognitive Memory Flow Logging
 # =============================================================================
 
-def run_tinkerer_test():
+def run_kapso_test():
     """
-    Run full Tinkerer E2E test with detailed cognitive memory logging.
+    Run full Kapso E2E test with detailed cognitive memory logging.
     
     This test logs:
     1. KG workflow retrieval (TIER 1/2/3)
@@ -540,7 +540,7 @@ def run_tinkerer_test():
     4. LLM decision making (ADVANCE/RETRY/SKIP/PIVOT)
     5. Episodic memory updates
     """
-    from src.tinkerer import Tinkerer
+    from src.kapso import Kapso
     
     logger.info("")
     logger.info("╔" + "═"*68 + "╗")
@@ -557,7 +557,7 @@ def run_tinkerer_test():
     logger.info("")
     
     # Create output directory
-    output_dir = tempfile.mkdtemp(prefix="tinkerer_e2e_")
+    output_dir = tempfile.mkdtemp(prefix="kapso_e2e_")
     logger.info(f"Output directory: {output_dir}")
     
     # Reference to cognitive controller for state logging
@@ -565,28 +565,28 @@ def run_tinkerer_test():
     
     try:
         # =====================================================================
-        # PHASE 1: Initialize Tinkerer
+        # PHASE 1: Initialize Kapso
         # =====================================================================
         logger.info("")
         logger.info("┌" + "─"*68 + "┐")
         logger.info("│" + " PHASE 1: EXPERT INITIALIZATION ".center(68) + "│")
         logger.info("└" + "─"*68 + "┘")
         
-        tinkerer = Tinkerer()
-        logger.info("Tinkerer created")
+        kapso = Kapso()
+        logger.info("Kapso created")
         
         # Enable KG for cognitive mode
         from src.knowledge.search import KnowledgeSearchFactory
-        tinkerer.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
-        logger.info(f"KG enabled: {tinkerer.knowledge_search.is_enabled()}")
+        kapso.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
+        logger.info(f"KG enabled: {kapso.knowledge_search.is_enabled()}")
         
-        if tinkerer.knowledge_search.is_enabled():
+        if kapso.knowledge_search.is_enabled():
             logger.info("  ✓ Neo4j connected")
             logger.info("  ✓ Weaviate connected")
             logger.info("  → KG will be used for workflow retrieval")
         
         # =====================================================================
-        # PHASE 2: Run Tinkerer.evolve() with Cognitive Context
+        # PHASE 2: Run Kapso.evolve() with Cognitive Context
         # =====================================================================
         logger.info("")
         logger.info("┌" + "─"*68 + "┐")
@@ -600,7 +600,7 @@ def run_tinkerer_test():
         logger.info("  🧠 LLM DECISION - ADVANCE/RETRY/SKIP/PIVOT decision")
         logger.info("")
         
-        solution = tinkerer.evolve(
+        solution = kapso.evolve(
             goal=TEST_CONFIG["goal"],
             output_path=output_dir,
             max_iterations=TEST_CONFIG["max_iterations"],
@@ -626,7 +626,7 @@ def run_tinkerer_test():
         # Try to get cognitive controller from orchestrator for detailed analysis.
         try:
             # Access cognitive controller through context manager
-            orchestrator = tinkerer._last_orchestrator if hasattr(tinkerer, '_last_orchestrator') else None
+            orchestrator = kapso._last_orchestrator if hasattr(kapso, '_last_orchestrator') else None
             if orchestrator and hasattr(orchestrator, 'context_manager'):
                 cm = orchestrator.context_manager
                 if hasattr(cm, 'controller'):
@@ -637,11 +637,11 @@ def run_tinkerer_test():
             logger.debug(f"Could not access cognitive controller: {e}")
 
         # Explicitly validate retrieval quality independent of whether the coding
-        # agent succeeded early. This keeps the test close to real Tinkerer runs
+        # agent succeeded early. This keeps the test close to real Kapso runs
         # while still exercising Tier 2 and Tier 3 deterministically.
         try:
             from src.memory.knowledge_retriever import KnowledgeRetriever
-            retriever = KnowledgeRetriever(knowledge_search=tinkerer.knowledge_search)
+            retriever = KnowledgeRetriever(knowledge_search=kapso.knowledge_search)
 
             logger.info("")
             logger.info("RETRIEVAL QUALITY CHECKS")
@@ -770,7 +770,7 @@ def run_tinkerer_test():
                 "changes.log missing 'RepoMemory sections consulted:' line"
             )
 
-            memory_path = Path(solution.code_path) / ".tinkerer" / "repo_memory.json"
+            memory_path = Path(solution.code_path) / ".kapso" / "repo_memory.json"
             assert memory_path.exists(), f"missing repo memory file: {memory_path}"
             doc = json.loads(memory_path.read_text())
 
@@ -779,7 +779,7 @@ def run_tinkerer_test():
 
             files = repo_map.get("files", []) or []
             assert "changes.log" not in files, "repo_map.files unexpectedly contains changes.log"
-            assert not any(p.startswith(".tinkerer/") for p in files), "repo_map.files contains .tinkerer/*"
+            assert not any(p.startswith(".kapso/") for p in files), "repo_map.files contains .kapso/*"
             assert not any(p.startswith("sessions/") for p in files), "repo_map.files contains sessions/*"
 
             # If RepoMemory captured a section-consultation list, it must match the committed changes.log.
@@ -837,7 +837,7 @@ def run_tinkerer_test():
             "log_file": str(LOG_FILE),
             "cognitive_mode": TEST_CONFIG["mode"],
         }
-        results_file = LOG_DIR / f"tinkerer_e2e_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        results_file = LOG_DIR / f"kapso_e2e_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(results_file, 'w') as f:
             json.dump(results, f, indent=2, default=str)
         
@@ -848,8 +848,8 @@ def run_tinkerer_test():
         logger.info(f"  💻 Generated code: {output_dir}")
         
         # Close KG connection
-        if tinkerer.knowledge_search.is_enabled():
-            tinkerer.knowledge_search.close()
+        if kapso.knowledge_search.is_enabled():
+            kapso.knowledge_search.close()
 
 
 # =============================================================================
@@ -858,17 +858,17 @@ def run_tinkerer_test():
 
 def main():
     """
-    Run the Tinkerer E2E test.
+    Run the Kapso E2E test.
     
     Usage:
         # Run default scenario (tier1_exact_workflow)
-        python tests/test_tinkerer_full_e2e.py
+        python tests/test_kapso_full_e2e.py
         
         # Run specific scenario
-        python tests/test_tinkerer_full_e2e.py tier2_synthesized_workflow
+        python tests/test_kapso_full_e2e.py tier2_synthesized_workflow
         
         # List available scenarios
-        python tests/test_tinkerer_full_e2e.py --list
+        python tests/test_kapso_full_e2e.py --list
     """
     import sys
     
@@ -887,7 +887,7 @@ def main():
                 print(f"    Expected mode: {scenario.get('expected_retrieval_mode', '?')}")
             print("\n" + "=" * 60)
             print(f"Default: {DEFAULT_TEST_SCENARIO}")
-            print("\nUsage: python tests/test_tinkerer_full_e2e.py <scenario_name>")
+            print("\nUsage: python tests/test_kapso_full_e2e.py <scenario_name>")
             return True
         
         # Run specific scenario
@@ -918,7 +918,7 @@ def main():
         return False
     
     # Run test
-    return run_tinkerer_test()
+    return run_kapso_test()
 
 
 if __name__ == "__main__":

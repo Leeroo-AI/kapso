@@ -5,7 +5,7 @@ RepoMemory manager
 This class owns persistence + update logic for repository memory.
 
 Key guarantee:
-- If a Tinkerer experiment continues from a branch, the memory file committed
+- If a Kapso experiment continues from a branch, the memory file committed
   in that branch is the memory of the code it starts from.
 """
 
@@ -36,14 +36,14 @@ class RepoMemoryManager:
     # v1 stored semantic memory in a flat `repo_model` with `claims[]`.
     # v2 adds a "Book" view (`book.summary`, `book.toc`, `book.sections`) so prompts
     # can stay bounded (Summary + TOC only) while agents can read full details
-    # directly from `.tinkerer/repo_memory.json`.
+    # directly from `.kapso/repo_memory.json`.
     #
     # IMPORTANT: We keep `repo_model` for backward compatibility and for existing
     # consumers/tests that still read `repo_model.summary/claims/...`.
     SCHEMA_VERSION = 2
-    TINKERER_DIR = ".tinkerer"
+    KAPSO_DIR = ".kapso"
     MEMORY_FILE = "repo_memory.json"
-    MEMORY_REL_PATH = os.path.join(TINKERER_DIR, MEMORY_FILE)
+    MEMORY_REL_PATH = os.path.join(KAPSO_DIR, MEMORY_FILE)
 
     # Default model for repo-model inference.
     DEFAULT_REPO_MODEL_LLM = "gpt-4o-mini"
@@ -111,7 +111,7 @@ class RepoMemoryManager:
 
     @classmethod
     def _ensure_dir(cls, repo_root: str) -> None:
-        os.makedirs(os.path.join(repo_root, cls.TINKERER_DIR), exist_ok=True)
+        os.makedirs(os.path.join(repo_root, cls.KAPSO_DIR), exist_ok=True)
 
     @classmethod
     def _count_claims_in_book_sections(cls, sections: Dict[str, Any]) -> int:
@@ -393,7 +393,7 @@ class RepoMemoryManager:
         # If the memory file exists, load it and *persist* any v1→v2 migration.
         #
         # Why persist?
-        # - Coding agents read `.tinkerer/repo_memory.json` from disk.
+        # - Coding agents read `.kapso/repo_memory.json` from disk.
         # - If we only migrate in-memory, agents won't see the Book/TOC structure.
         # - Persisting keeps branches consistent and auditable.
         path = cls._memory_abs_path(repo_root)
@@ -452,7 +452,7 @@ class RepoMemoryManager:
 
     @classmethod
     def load_from_git_branch(cls, repo: git.Repo, branch_name: str) -> Optional[Dict[str, Any]]:
-        """Read `.tinkerer/repo_memory.json` from a given branch (no checkout)."""
+        """Read `.kapso/repo_memory.json` from a given branch (no checkout)."""
         try:
             raw = repo.git.show(f"{branch_name}:{cls.MEMORY_REL_PATH}")
         except git.GitCommandError:
@@ -473,7 +473,7 @@ class RepoMemoryManager:
         Render Summary + TOC (bounded) for prompt injection.
         
         This is the v2 replacement for injecting large `render_brief()` blobs.
-        Coding agents can read `.tinkerer/repo_memory.json` directly for details.
+        Coding agents can read `.kapso/repo_memory.json` directly for details.
         """
         doc = cls.migrate_v1_to_v2(doc or {})
         book = doc.get("book", {}) or {}
@@ -501,7 +501,7 @@ GeneratedAt: {doc.get('generated_at')}
 {os.linesep.join(toc_lines) or '(no sections)'}
 
 ## How to read details
-- Open `.tinkerer/repo_memory.json`
+- Open `.kapso/repo_memory.json`
 - Find `book.sections[section_id]` from the TOC above
 """
         if len(text) > max_chars:
@@ -721,7 +721,7 @@ GeneratedAt: {doc.get('generated_at')}
         llm_model: Optional[str] = None,
     ) -> None:
         """
-        Update `.tinkerer/repo_memory.json` for the current repo state.
+        Update `.kapso/repo_memory.json` for the current repo state.
         
         Intended to be called at the end of a branch-level experiment, before the
         ExperimentSession is closed (so the file is committed into that branch).

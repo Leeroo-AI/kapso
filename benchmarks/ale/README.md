@@ -6,7 +6,7 @@ This module provides integration with [ALE-Bench](https://github.com/SakanaAI/AL
 
 Before installing ALE-Bench, ensure you have:
 
-1. **Core Tinkerer Agent installed** (from repository root):
+1. **Core Kapso Agent installed** (from repository root):
    ```bash
    pip install -r requirements.txt
    ```

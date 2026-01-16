@@ -1,18 +1,18 @@
 # Knowledge Sources
 #
 # Typed wrappers for knowledge inputs.
-# These define what can be passed to Tinkerer.learn() and Learner.learn().
+# These define what can be passed to Kapso.learn() and Learner.learn().
 #
 # Usage:
 #     from src.knowledge.learners import Source
 #     
-#     tinkerer.learn(
+#     kapso.learn(
 #         Source.Repo("https://github.com/user/repo"),
 #         wiki_dir="data/wikis",
 #     )
 #
 #     # Public web research (deep search)
-#     research = tinkerer.research("How to pick LoRA rank?", mode="idea")
+#     research = kapso.research("How to pick LoRA rank?", mode="idea")
 #     pipeline.run(research)
 
 from dataclasses import dataclass
@@ -20,19 +20,19 @@ from typing import Any, Dict, TYPE_CHECKING
 
 # Avoid circular import
 if TYPE_CHECKING:
-    from src.tinkerer import SolutionResult
+    from src.kapso import SolutionResult
 
 
 class Source:
     """
     Namespace for knowledge source types.
     
-    Each source type is a typed wrapper that tells Tinkerer.learn() 
+    Each source type is a typed wrapper that tells Kapso.learn() 
     how to process the input. The type determines which Learner
     is used to extract knowledge.
     
     Usage:
-        tinkerer.learn(
+        kapso.learn(
             Source.Repo("https://github.com/user/repo"),
             wiki_dir="data/wikis",
         )
@@ -70,7 +70,7 @@ class Source:
         """
         Source from public web research.
         
-        Produced by: Tinkerer.research()
+        Produced by: Kapso.research()
         Consumed by: KnowledgePipeline.run(...) via ResearchIngestor
         
         Notes:

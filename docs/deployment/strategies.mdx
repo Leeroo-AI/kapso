@@ -20,7 +20,7 @@ The deployment system supports multiple strategies, each optimized for different
 All strategies support full lifecycle management with `start()` and `stop()` methods:
 
 ```python
-software = tinkerer.deploy(solution, strategy=DeployStrategy.DOCKER)
+software = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
 
 # Run
 result = software.run(inputs)

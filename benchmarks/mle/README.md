@@ -6,7 +6,7 @@ This module provides integration with [MLE-Bench](https://github.com/openai/mle-
 
 Before installing MLE-Bench, ensure you have:
 
-1. **Core Tinkerer Agent installed** (from repository root):
+1. **Core Kapso Agent installed** (from repository root):
    ```bash
    pip install -r requirements.txt
    ```

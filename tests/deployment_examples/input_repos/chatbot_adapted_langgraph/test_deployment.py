@@ -6,7 +6,7 @@ This is an **optional** test:
 - It will be skipped unless you explicitly opt in.
 
 Enable with:
-  TINKERER_RUN_DEPLOYMENT_TESTS=1 PYTHONPATH=. pytest -q <this_file>
+  KAPSO_RUN_DEPLOYMENT_TESTS=1 PYTHONPATH=. pytest -q <this_file>
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ import pytest
 import requests
 
 
-RUN_DEPLOYMENT_TESTS = os.getenv("TINKERER_RUN_DEPLOYMENT_TESTS") == "1"
-BASE_URL = os.getenv("TINKERER_LANGGRAPH_BASE_URL", "http://127.0.0.1:8123").rstrip("/")
+RUN_DEPLOYMENT_TESTS = os.getenv("KAPSO_RUN_DEPLOYMENT_TESTS") == "1"
+BASE_URL = os.getenv("KAPSO_LANGGRAPH_BASE_URL", "http://127.0.0.1:8123").rstrip("/")
 
 
-@pytest.mark.skipif(not RUN_DEPLOYMENT_TESTS, reason="Set TINKERER_RUN_DEPLOYMENT_TESTS=1 to enable deployment smoke tests.")
+@pytest.mark.skipif(not RUN_DEPLOYMENT_TESTS, reason="Set KAPSO_RUN_DEPLOYMENT_TESTS=1 to enable deployment smoke tests.")
 def test_langgraph_deployment_smoke() -> None:
     # Create a thread
     try:

@@ -20,7 +20,7 @@ from src.knowledge.learners.sources import Source
 
 logger = logging.getLogger(__name__)
 
-# Public type for call sites (Tinkerer, tests, etc.)
+# Public type for call sites (Kapso, tests, etc.)
 ResearchMode = Literal["idea", "implementation", "both"]
 ResearchDepth = Literal["light", "deep"]
 

@@ -32,7 +32,7 @@ def clone_repo(url: str, branch: str = "main") -> Path:
         RuntimeError: If git clone fails
     """
     # Create temp directory with recognizable prefix
-    temp_dir = tempfile.mkdtemp(prefix="tinkerer_repo_")
+    temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
     
     logger.info(f"Cloning {url} (branch: {branch}) to {temp_dir}")
     
@@ -50,7 +50,7 @@ def clone_repo(url: str, branch: str = "main") -> Path:
             
             # Clean up failed attempt
             shutil.rmtree(temp_dir, ignore_errors=True)
-            temp_dir = tempfile.mkdtemp(prefix="tinkerer_repo_")
+            temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
             
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, temp_dir],

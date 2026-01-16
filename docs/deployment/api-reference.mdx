@@ -208,7 +208,7 @@ class DeployConfig:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `solution` | `SolutionResult` | Required | The built solution from `Tinkerer.evolve()` |
+| `solution` | `SolutionResult` | Required | The built solution from `Kapso.evolve()` |
 | `env_vars` | `Dict[str, str]` | `{}` | Environment variables |
 | `timeout` | `int` | `300` | Execution timeout in seconds |
 | `coding_agent` | `str` | `"claude_code"` | Coding agent for adaptation |
@@ -821,15 +821,15 @@ class Runner(ABC):
 ## Complete Usage Example
 
 ```python
-from src.tinkerer import Tinkerer
+from src.kapso import Kapso
 from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
 
 # 1. Build a solution
-tinkerer = Tinkerer()
-solution = tinkerer.evolve("Create a text embedding API using sentence-transformers")
+kapso = Kapso()
+solution = kapso.evolve("Create a text embedding API using sentence-transformers")
 
 # 2. Deploy with auto-selection
-software = tinkerer.deploy(solution)
+software = kapso.deploy(solution)
 print(f"Deployed using: {software.name}")
 print(f"Endpoint: {software.get_endpoint()}")
 

@@ -163,7 +163,7 @@ class ExperimentWorkspace:
             shutil.copytree(seed_repo_path, self.workspace_dir, dirs_exist_ok=True)
             repo = git.Repo.init(self.workspace_dir)
             repo.git.add(".")
-            repo.git.commit("-m", "chore(tinkerer): seed workspace from directory")
+            repo.git.commit("-m", "chore(kapso): seed workspace from directory")
 
         return repo
 
@@ -216,14 +216,14 @@ class ExperimentWorkspace:
         with open(gitignore_path, "a") as f:
             if existing and not existing.endswith("\n"):
                 f.write("\n")
-            f.write("\n# Tinkerer experimentation engine\n")
+            f.write("\n# Kapso experimentation engine\n")
             for line in to_add:
                 f.write(line + "\n")
 
         # Commit the ignore change so all experiment branches inherit it.
         self.repo.git.add([".gitignore"])
         try:
-            self.repo.git.commit("-m", "chore(tinkerer): ignore experiment sessions")
+            self.repo.git.commit("-m", "chore(kapso): ignore experiment sessions")
         except git.GitCommandError:
             # Nothing to commit (rare). Keep silent.
             pass

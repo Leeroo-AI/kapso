@@ -1,11 +1,11 @@
 # Solution Result
 #
-# The artifact produced by Tinkerer.evolve() / OrchestratorAgent.solve().
+# The artifact produced by Kapso.evolve() / OrchestratorAgent.solve().
 # Contains the generated code, experiment logs, and metadata.
 #
 # Usage:
-#     solution = tinkerer.evolve(goal="Create a trading bot")
-#     software = tinkerer.deploy(solution, strategy=DeployStrategy.LOCAL)
+#     solution = kapso.evolve(goal="Create a trading bot")
+#     software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"ticker": "AAPL"})
 #     software.stop()
 
@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 @dataclass
 class SolutionResult:
     """
-    The artifact produced by Tinkerer.evolve().
+    The artifact produced by Kapso.evolve().
     
     Contains the generated code, experiment logs, and metadata.
     This is not just code - it captures the entire problem-solving attempt.

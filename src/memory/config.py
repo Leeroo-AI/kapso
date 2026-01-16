@@ -34,7 +34,7 @@ class ControllerConfig:
     """Configuration for CognitiveController."""
     llm_model: str = "gpt-4o-mini"
     fallback_models: list = field(default_factory=lambda: ["gpt-4.1-mini"])
-    state_file_path: str = ".tinkerer_state.md"
+    state_file_path: str = ".kapso_state.md"
     max_error_length: int = 1000
     max_fact_length: int = 200
 

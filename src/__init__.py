@@ -1,13 +1,13 @@
-# Tinkerer Agent
+# Kapso Agent
 #
 # Build robust software from knowledge and experimentation.
 #
 # Usage:
-#     from src import Tinkerer, Source, DeployStrategy
+#     from src import Kapso, Source, DeployStrategy
 #     
-#     tinkerer = Tinkerer()
-#     tinkerer.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
-#     solution = tinkerer.evolve(goal="Create a triage agent")
+#     kapso = Kapso()
+#     kapso.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
+#     solution = kapso.evolve(goal="Create a triage agent")
 #     software = solution.deploy()
 #     result = software.run({"symptoms": "headache"})
 #
@@ -24,16 +24,16 @@ from src.deployment import (
     DeploymentFactory,
 )
 
-# Lazy load Tinkerer to avoid loading OrchestratorAgent (which has heavy deps)
+# Lazy load Kapso to avoid loading OrchestratorAgent (which has heavy deps)
 def __getattr__(name):
-    if name == "Tinkerer":
-        from src.tinkerer import Tinkerer
-        return Tinkerer
+    if name == "Kapso":
+        from src.kapso import Kapso
+        return Kapso
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Core API
-    "Tinkerer",
+    "Kapso",
     "Source",
     "SolutionResult",
     # Deployment

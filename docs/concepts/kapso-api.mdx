@@ -1,15 +1,15 @@
 ---
-title: Tinkerer API
-description: The high-level Tinkerer Agent API for building robust software from knowledge
+title: Kapso API
+description: The high-level Kapso Agent API for building robust software from knowledge
 ---
 
-# Tinkerer API
+# Kapso API
 
-The Tinkerer API provides a clean interface for the "Brain to Binary" workflow.
+The Kapso API provides a clean interface for the "Brain to Binary" workflow.
 
 ## Philosophy: From Brain to Binary
 
-The goal is to bridge the gap between **Abstract Knowledge** (what a tinkerer knows) and **Robust Software** (what an engineer builds).
+The goal is to bridge the gap between **Abstract Knowledge** (what a kapso knows) and **Robust Software** (what an engineer builds).
 
 The system operationalizes the scientific method for software generation:
 
@@ -19,27 +19,27 @@ The system operationalizes the scientific method for software generation:
 
 The user journey follows a strict lifecycle that separates **Creation** (expensive, intelligent) from **Execution** (cheap, fast).
 
-1. **Knowledge (The "Brain")**: The Tinkerer ingests knowledge from various sources (Repos, Papers, Heuristics) to build the Knowledge Graph (KG).
+1. **Knowledge (The "Brain")**: The Kapso ingests knowledge from various sources (Repos, Papers, Heuristics) to build the Knowledge Graph (KG).
 
-2. **Fabrication (The "Build")**: The User defines a Goal and Context. The Tinkerer runs experiments to find the best implementation. Output: A `Solution` object.
+2. **Fabrication (The "Build")**: The User defines a Goal and Context. The Kapso runs experiments to find the best implementation. Output: A `Solution` object.
 
-3. **Reinforcement (The "Loop")**: The Tinkerer learns from the `Solution`. This updates the KG for future builds.
+3. **Reinforcement (The "Loop")**: The Kapso learns from the `Solution`. This updates the KG for future builds.
 
 4. **Deployment (The "Live")**: The `Solution` is deployed as `Software` (Local, Docker, or Cloud) with a universal `.run()` interface.
 
 ## Quick Start
 
 ```python
-from src.tinkerer import Tinkerer, Source, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
 # 1. Initialize
-tinkerer = Tinkerer()
+kapso = Kapso()
 
 # 2. Learn
-tinkerer.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
+kapso.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
 
 # 3. Build
-solution = tinkerer.evolve(goal="Create a triage agent")
+solution = kapso.evolve(goal="Create a triage agent")
 
 # 4. Deploy & Run
 software = solution.deploy(strategy=DeployStrategy.LOCAL)
@@ -48,12 +48,12 @@ result = software.run({"symptoms": "headache"})
 
 ## Core Abstractions
 
-### Tinkerer
+### Kapso
 
 The central intelligence. It holds the KG and manages the build process.
 
 ```python
-tinkerer = Tinkerer(
+kapso = Kapso(
     kg_location="./my_brain",  # Path to persist KG
 )
 ```
@@ -76,7 +76,7 @@ The artifact produced by `.evolve()`. Contains:
 - **Context**: The original goal and constraints
 
 ```python
-solution = tinkerer.evolve(
+solution = kapso.evolve(
     goal="Momentum trading bot",
     constraints=["latency < 50ms"],
     max_iterations=10,
@@ -107,9 +107,9 @@ The running instance of a deployed Solution. Supports full lifecycle management.
 
 ## Implementation
 
-The Tinkerer API is implemented in:
+The Kapso API is implemented in:
 
-- `src/tinkerer.py`: Main entry point with `Tinkerer`, `Source`, `SolutionResult`
+- `src/kapso.py`: Main entry point with `Kapso`, `Source`, `SolutionResult`
 - `src/knowledge/learners/`: Knowledge learning pipeline
   - `knowledge_learner_pipeline.py`: Main `KnowledgePipeline` orchestrator
   - `knowledge_merger.py`: Stage 2 merger for integrating pages into KG
@@ -122,10 +122,10 @@ The Tinkerer API is implemented in:
 ## Example: Full Flow
 
 ```python
-from src.tinkerer import Tinkerer, Source, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
-# Initialize tinkerer
-quant = Tinkerer()
+# Initialize kapso
+quant = Kapso()
 
 # Learn from various sources
 quant.learn(
@@ -154,5 +154,5 @@ result = software.run({"ticker": "MSFT", "price": 400.0})
 software.stop()
 ```
 
-See `examples/tinkerer_demo.py` for a runnable demonstration.
+See `examples/kapso_demo.py` for a runnable demonstration.
 
