@@ -204,3 +204,6 @@ paper/
 
 # Data directory (local data files)
 data/
+
+# Developer docs (internal documentation)
+developer_docs/
