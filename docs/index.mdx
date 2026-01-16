@@ -1,6 +1,6 @@
 ---
 title: "Tinkerer"
-description: "A framework for autonomous program discovery and optimization"
+description: "A knowledge-grounded framework for autonomous program synthesis and optimization"
 ---
 
 Tinkerer combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover code improvements. 
@@ -40,11 +40,12 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 
 | Component | Description |
 |-----------|-------------|
-| **OrchestratorAgent** | Coordinates the solve loop, manages budget (time, cost, iterations) |
-| **Search Strategy** | Tree search for solution exploration (expand, select, prune) |
-| **Experiment Workspace** | Git-based workspace with branch per experiment |
-| **Coding Agents** | Pluggable code generators (Aider, Gemini, Claude Code, OpenHands) |
-| **Knowledge Search** | Neo4j-based domain knowledge retrieval |
+| **OrchestratorAgent** | Runs the main experimentation loop. Stops when score threshold is reached, budget is exhausted, or LLM decides the task is complete. |
+| **Search Strategy** | Explores solutions via tree search — expands promising nodes, selects best candidates, and prunes underperformers. Runs experiments in parallel. |
+| **Experiment Workspace** | Git-based isolation for experiments. Each experiment runs on its own branch, enabling tree-based exploration and easy rollback. |
+| **Coding Agents** | Pluggable code generators: Aider (diff-based editing), Gemini, Claude Code, OpenHands. Agents generate code; git is handled separately. |
+| **Knowledge Pipeline** | Two-stage learning: (1) Ingestors extract WikiPages from repos, solutions, or research; (2) Merger intelligently creates or merges pages into the KG. |
+| **Knowledge Search** | Hybrid retrieval using Weaviate (semantic embeddings) + Neo4j (graph structure). Supports LLM reranking and connected-page enrichment. |
 
 ## Quick Links
 
