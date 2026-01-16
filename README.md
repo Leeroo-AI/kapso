@@ -595,9 +595,6 @@ To run the Mintlify documentation locally:
 # Install Mintlify CLI (if not already installed)
 npm i -g mintlify
 
-# Navigate to the docs directory
-cd docs
-
 # Start the local development server
 mintlify dev
 ```

@@ -1,0 +1,8 @@
+# Ignore all markdown files except the docs folder
+paper/
+data/
+tests/
+src/
+benchmarks/
+*.md
+!docs/
