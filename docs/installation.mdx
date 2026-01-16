@@ -9,7 +9,7 @@ description: "Complete installation guide for Kapso and benchmarks"
   <Step title="Clone the repository">
     ```bash
     git clone <repository-url>
-    cd mle_expert_coding
+    cd kapso
     ```
   </Step>
   <Step title="Install core dependencies">
@@ -86,99 +86,174 @@ description: "Complete installation guide for Kapso and benchmarks"
   </Tab>
 </Tabs>
 
-## Optional: Knowledge Search
+## Infrastructure Setup
 
-The knowledge search provides ML domain expertise using semantic search (Weaviate) and graph structure (Neo4j).
+Kapso uses Docker containers for its infrastructure: Weaviate (vector DB), Neo4j (graph DB), and MediaWiki (knowledge browser).
+
+### Quick Start (Recommended)
+
+Use the provided scripts to start all services at once:
+
+```bash
+# Start all infrastructure (Weaviate, Neo4j, MediaWiki)
+./scripts/start_infra.sh
+
+# Stop infrastructure (data preserved)
+./scripts/stop_infra.sh
+
+# Stop and wipe all data
+./scripts/stop_infra.sh --volumes
+```
+
+The start script will:
+1. Start Docker containers for Weaviate, Neo4j, and MediaWiki
+2. Wait for services to be ready
+3. Optionally import wiki pages to MediaWiki for browsing
+
+**Default Credentials:**
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| MediaWiki | http://localhost:8090 | `admin` / `adminpass123` |
+| Neo4j | http://localhost:7474 | `neo4j` / `password` |
+| Weaviate | http://localhost:8080 | Anonymous (no auth) |
+
+### Manual Setup
+
+If you prefer to start services individually:
 
 <Tabs>
-  <Tab title="KG Graph Search (Recommended)">
-    Uses Weaviate for embeddings + Neo4j for graph connections.
+  <Tab title="All Services (Docker Compose)">
+    Start the full stack using Docker Compose:
 
-    <Steps>
-      <Step title="Start Weaviate">
-        ```bash
-        docker run -d --name weaviate \
-            -p 8081:8080 -p 50051:50051 \
-            -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-            -e PERSISTENCE_DATA_PATH='/var/lib/weaviate' \
-            semitechnologies/weaviate:latest
-        ```
-      </Step>
-      <Step title="Start Neo4j">
-        ```bash
-        docker run -d --name neo4j \
-            --restart unless-stopped \
-            -p 7474:7474 -p 7687:7687 \
-            -e NEO4J_AUTH=neo4j/password123 \
-            neo4j:latest
-        ```
-      </Step>
-      <Step title="Configure connection">
-        Add to `.env`:
-        ```bash
-        # Required for embeddings
-        OPENAI_API_KEY=your-openai-api-key
-
-        # Neo4j (graph structure)
-        NEO4J_URI=bolt://localhost:7687
-        NEO4J_USER=neo4j
-        NEO4J_PASSWORD=password123
-
-        # Weaviate (embeddings)
-        WEAVIATE_URL=http://localhost:8081
-        ```
-      </Step>
-      <Step title="Index wiki pages">
-        ```bash
-        PYTHONPATH=. python -c "
-        from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
-        search = KnowledgeSearchFactory.create('kg_graph_search', enabled=True)
-        search.index(KGIndexInput(
-            wiki_dir='data/wikis',
-            persist_path='data/indexes/wikis.json',
-        ))
-        print('Wiki pages indexed')
-        "
-        ```
-      </Step>
-    </Steps>
-  </Tab>
-  <Tab title="KG LLM Navigation (Legacy)">
-    Uses Neo4j with LLM-guided graph traversal.
-
-<Steps>
-  <Step title="Start Neo4j">
     ```bash
-        docker run -d --name neo4j \
+    docker compose -f services/infrastructure/docker-compose.yml up -d
+    ```
+
+    This starts:
+    - **Weaviate** (port 8080) - Vector database for embeddings
+    - **Neo4j** (ports 7474, 7687) - Graph database for relationships
+    - **MediaWiki** (port 8090) - Web UI for browsing wiki pages
+    - **MariaDB** - Backend database for MediaWiki
+  </Tab>
+  <Tab title="Individual Containers">
+    Start only the services you need:
+
+    **Weaviate (vector DB):**
+    ```bash
+    docker run -d --name weaviate \
+        -p 8080:8080 -p 50051:50051 \
+        -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+        -e PERSISTENCE_DATA_PATH='/var/lib/weaviate' \
+        semitechnologies/weaviate:1.27.0
+    ```
+
+    **Neo4j (graph DB):**
+    ```bash
+    docker run -d --name neo4j \
         --restart unless-stopped \
         -p 7474:7474 -p 7687:7687 \
         -e NEO4J_AUTH=neo4j/password \
-        neo4j:latest
+        neo4j:5.18.0
     ```
-  </Step>
-  <Step title="Configure connection">
-    Add to `.env`:
-    ```bash
-    NEO4J_URI=bolt://localhost:7687
-    NEO4J_USER=neo4j
-    NEO4J_PASSWORD=password
-    ```
-  </Step>
-  <Step title="Load knowledge data">
-    ```bash
-    PYTHONPATH=. python -c "
-    from src.knowledge.search.kg_llm_navigation_search import KGLLMNavigationSearch
-    import json
-    search = KGLLMNavigationSearch()
-    with open('benchmarks/mle/data/kg_data.json') as f:
-        search.index(json.load(f))
-    print('Knowledge graph loaded')
-    "
-    ```
-  </Step>
-</Steps>
   </Tab>
 </Tabs>
+
+### Configure Environment
+
+Add infrastructure settings to your `.env`:
+
+```bash
+# Required for embeddings
+OPENAI_API_KEY=your-openai-api-key
+
+# Neo4j connection
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
+
+# Weaviate connection
+WEAVIATE_URL=http://localhost:8080
+```
+
+## Knowledge Graph Indexing
+
+After infrastructure is running, index your wiki pages into the knowledge graph.
+
+### Using Kapso API (Recommended)
+
+```python
+from src.kapso import Kapso
+
+# Initialize Kapso
+kapso = Kapso(config_path="src/config.yaml")
+
+# Index wiki pages (one-time operation)
+kapso.index_kg(
+    wiki_dir="data/wikis",
+    save_to="data/indexes/my_knowledge.index",
+)
+
+# Load existing index on subsequent runs
+kapso = Kapso(
+    config_path="src/config.yaml",
+    kg_index="data/indexes/my_knowledge.index",
+)
+```
+
+### Using CLI
+
+```bash
+PYTHONPATH=. python -c "
+from src.kapso import Kapso
+kapso = Kapso(config_path='src/config.yaml')
+kapso.index_kg(wiki_dir='data/wikis', save_to='data/indexes/wikis.index')
+print('Knowledge graph indexed')
+"
+```
+
+## MediaWiki (Knowledge Browser)
+
+MediaWiki provides a web interface to browse and edit wiki pages.
+
+### Import Wiki Pages
+
+Import `.md` files from `data/wikis/` into MediaWiki:
+
+```bash
+# Auto-import during infrastructure start
+./scripts/start_infra.sh --wiki-dir data/wikis
+
+# Or import manually
+python services/wiki_service/tools/import_wiki_pages.py \
+    --wiki-dir data/wikis \
+    --base http://localhost:8090
+
+# Force reimport (overwrite existing)
+python services/wiki_service/tools/import_wiki_pages.py \
+    --wiki-dir data/wikis \
+    --base http://localhost:8090 \
+    --force
+```
+
+### Export Wiki Edits
+
+Sync edits made in MediaWiki back to `data/wikis/`:
+
+```bash
+python services/wiki_service/tools/export_wikis.py \
+    --base http://localhost:8090 \
+    --user agent \
+    --password agentpass123 \
+    --output data/wikis
+```
+
+### MediaWiki Users
+
+| User | Password | Purpose |
+|------|----------|---------|
+| `admin` | `adminpass123` | Full admin access |
+| `agent` | `agentpass123` | API access for scripts |
 
 ## Environment Variables
 
@@ -191,7 +266,10 @@ The knowledge search provides ML domain expertise using semantic search (Weaviat
 | `NEO4J_URI` | No | `bolt://localhost:7687` | Neo4j connection URI |
 | `NEO4J_USER` | No | `neo4j` | Neo4j username |
 | `NEO4J_PASSWORD` | No | `password` | Neo4j password |
-| `WEAVIATE_URL` | No | `http://localhost:8081` | Weaviate server URL |
+| `WEAVIATE_URL` | No | `http://localhost:8080` | Weaviate server URL |
+| `MW_BASE` | No | `http://localhost:8090` | MediaWiki base URL |
+| `MW_USER` | No | `admin` | MediaWiki username |
+| `MW_PASS` | No | `adminpass123` | MediaWiki password |
 
 ## Verify Installation
 
@@ -205,13 +283,40 @@ python -c "import mlebench; print('MLE-Bench OK')"
 # Check ALE-Bench
 python -c "import ale_bench; print('ALE-Bench OK')"
 
-# Check Neo4j
+# Check Neo4j driver
 python -c "from neo4j import GraphDatabase; print('Neo4j driver OK')"
 
-# Check Weaviate
+# Check Weaviate client
 python -c "import weaviate; print('Weaviate client OK')"
 
 # Check Knowledge Search
 python -c "from src.knowledge.search import KGGraphSearch; print('Knowledge Search OK')"
+
+# Check Kapso main class
+python -c "from src.kapso import Kapso; print('Kapso OK')"
 ```
 
+## Troubleshooting
+
+### Services won't start
+```bash
+# Check Docker logs
+docker compose -f services/infrastructure/docker-compose.yml logs
+
+# Check individual service
+docker logs weaviate
+docker logs neo4j
+```
+
+### MediaWiki issues
+```bash
+# View MediaWiki logs
+docker compose -f services/infrastructure/docker-compose.yml logs wiki
+
+# Full reset (deletes all data)
+./scripts/stop_infra.sh --volumes
+./scripts/start_infra.sh
+```
+
+### Port conflicts
+If default ports are in use, modify `services/infrastructure/docker-compose.yml` or use different port mappings.

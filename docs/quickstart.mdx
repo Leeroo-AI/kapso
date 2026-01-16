@@ -5,8 +5,8 @@ description: "Get Kapso running in 5 minutes"
 
 ## Prerequisites
 
-- Python 3.10+
-- Git
+- Python 3.12+
+- Git with Git LFS
 - API keys for OpenAI and/or Google (Gemini)
 
 ## Installation
@@ -15,12 +15,22 @@ description: "Get Kapso running in 5 minutes"
   <Step title="Clone the repository">
     ```bash
     git clone <repository-url>
-    cd mle_expert_coding
+    cd kapso
+
+    # Pull Git LFS files (wiki knowledge data)
+    git lfs install
+    git lfs pull
     ```
   </Step>
-  <Step title="Install dependencies">
+  <Step title="Create conda environment (recommended)">
     ```bash
-    pip install -r requirements.txt
+    conda create -n kapso_conda python=3.12
+    conda activate kapso_conda
+    ```
+  </Step>
+  <Step title="Install the package">
+    ```bash
+    pip install -e .
     ```
   </Step>
   <Step title="Set up API keys">
@@ -34,52 +44,112 @@ description: "Get Kapso running in 5 minutes"
 
 ## Run Your First Experiment
 
-### Option 1: MLE-Bench (Kaggle)
+### Option 1: Python API (Recommended)
+
+```python
+from src.kapso import Kapso, DeployStrategy
+
+# Initialize Kapso
+kapso = Kapso()
+
+# Build a solution — Kapso runs experiments automatically
+solution = kapso.evolve(
+    goal="Build a random forest classifier for the Iris dataset with accuracy > 0.9",
+    output_path="./models/iris_v1",
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"Accuracy: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.9},
+)
+
+# Deploy and run
+software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = software.run({"data_path": "./test.csv"})
+
+# Cleanup
+software.stop()
+```
+
+### Option 2: CLI
+
+```bash
+# Basic usage
+PYTHONPATH=. python -m src.cli --goal "Build a random forest classifier for the Iris dataset"
+
+# With options
+PYTHONPATH=. python -m src.cli \
+    --goal "Build a feature engineering pipeline for tabular data" \
+    --iterations 10 \
+    --coding-agent aider \
+    --evaluator regex_pattern \
+    --stop-condition threshold
+
+# List available options
+PYTHONPATH=. python -m src.cli --list-agents
+PYTHONPATH=. python -m src.cli --list-evaluators
+PYTHONPATH=. python -m src.cli --list-stops
+```
+
+### Option 3: MLE-Bench (Kaggle)
 
 Requires MLE-Bench installation (see [Installation](/docs/installation)):
 
 ```bash
-PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-2021 -i 5
-```
-
-This runs 5 iterations on a tabular classification competition.
-
-### Option 2: Generic Problem
-
-No extra installation needed:
-
-```bash
-PYTHONPATH=. python -m src.runner -p "Create a Python script that calculates the first 100 prime numbers"
+PYTHONPATH=. python -m benchmarks.mle.runner
 ```
 
 ## Expected Output
 
 ```
 ============================================================
-Solving: tabular-playground-series-dec-2021
+Kapso Evolve
 ============================================================
+  Goal: Build a random forest classifier for the Iris dataset
   Max iterations: 5
-  Config mode: MLE_CONFIGS
-  Coding agent: from config
-  Knowledge graph: enabled
+  Coding agent: aider
+  Evaluator: regex_pattern
 
 Experiment 1 completed with cumulative cost: $0.125
 ####################################
-Experiment with final score 0.847 :
-# Solution : Use XGBoost with feature engineering...
+Experiment with final score 0.92:
+# Solution: Random forest with GridSearchCV hyperparameter tuning...
 ####################################
 ```
 
 The system creates git branches for each experiment and outputs the best solution path.
 
+## With Knowledge Graph (Optional)
+
+For domain-specific context, index a knowledge graph first:
+
+```python
+from src.kapso import Kapso
+
+# 1. Start infrastructure (Weaviate + Neo4j)
+# Run in terminal: ./scripts/start_infra.sh
+
+# 2. Index wiki pages (one-time setup)
+kapso = Kapso()
+kapso.index_kg(
+    wiki_dir="data/wikis_llm_finetuning",
+    save_to="data/indexes/llm_finetuning.index",
+)
+
+# 3. Use the indexed KG
+kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
+solution = kapso.evolve(
+    goal="Fine-tune Llama-3.1-8B with QLoRA, target loss < 0.5",
+    output_path="./models/qlora_v1",
+)
+```
+
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card title="Full Installation" icon="download" href="/docs/installation">
-    Set up MLE-Bench, ALE-Bench, and Neo4j
+    Set up MLE-Bench, ALE-Bench, and infrastructure
   </Card>
   <Card title="Configuration" icon="gear" href="/docs/guides/configuration">
     Customize modes and parameters
   </Card>
 </CardGroup>
-
