@@ -13,7 +13,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.knowledge.learners import KnowledgeMerger, MergeInput
+from src.knowledge.learners import KnowledgeMerger
 from src.knowledge.search.kg_graph_search import parse_wiki_directory
 
 # Enable logging
@@ -202,15 +202,7 @@ def main():
     for page_type, pages in sorted(by_type.items()):
         print(f"  {page_type}: {len(pages)}")
     
-    # Create merge input
-    merge_input = MergeInput(
-        proposed_pages=proposed_pages,
-        main_kg_path=main_kg_path,
-    )
-    
-    print(f"\nMain KG path: {merge_input.main_kg_path}")
-    print(f"Neo4j URI: {merge_input.neo4j_uri}")
-    print(f"Weaviate collection: {merge_input.weaviate_collection}")
+    print(f"\nWiki dir: {main_kg_path}")
     
     # Run merge
     print("\n" + "-" * 60)
@@ -218,7 +210,7 @@ def main():
     print("-" * 60)
     
     merger = KnowledgeMerger()
-    result = merger.merge(merge_input)
+    result = merger.merge(proposed_pages, wiki_dir=main_kg_path)
     
     # Print results
     print("\n" + "=" * 60)

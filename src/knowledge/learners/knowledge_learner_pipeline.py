@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Union
 from src.knowledge.learners.ingestors.factory import IngestorFactory
 from src.knowledge.learners.knowledge_merger import (
     KnowledgeMerger,
-    MergeInput,
     MergeResult,
 )
 from src.knowledge.search.base import WikiPage, DEFAULT_WIKI_DIR
@@ -220,22 +219,8 @@ class KnowledgePipeline:
         
         # Stage 2: Merge into KG
         try:
-            # Build source context string
-            if len(source_urls) == 1:
-                source_context = source_urls[0]
-            else:
-                source_context = f"multiple sources ({len(source_urls)})"
-            
-            # Create merge input
-            merge_input = MergeInput(
-                proposed_pages=all_pages,
-                main_kg_path=self.wiki_dir,
-                weaviate_collection=self.weaviate_collection,
-                source_context=source_context,
-            )
-            
-            # Run merge
-            merge_result = self._merger.merge(merge_input)
+            # Run merge (Stage 2)
+            merge_result = self._merger.merge(all_pages, wiki_dir=self.wiki_dir)
             result.merge_result = merge_result
             
             # Add merge errors to result
@@ -273,7 +258,6 @@ class KnowledgePipeline:
     def merge_pages(
         self,
         pages: List[WikiPage],
-        source_context: str = "manual",
     ) -> MergeResult:
         """
         Run only Stage 2: merge existing WikiPages into KG.
@@ -283,19 +267,11 @@ class KnowledgePipeline:
         
         Args:
             pages: List of WikiPage objects to merge
-            source_context: Context string for the source (shown in logs)
             
         Returns:
             MergeResult with statistics
         """
-        merge_input = MergeInput(
-            proposed_pages=pages,
-            main_kg_path=self.wiki_dir,
-            weaviate_collection=self.weaviate_collection,
-            source_context=source_context,
-        )
-        
-        return self._merger.merge(merge_input)
+        return self._merger.merge(pages, wiki_dir=self.wiki_dir)
     
     def close(self) -> None:
         """Clean up resources."""

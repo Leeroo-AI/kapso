@@ -28,7 +28,7 @@ from pathlib import Path
 REPO_URLS_FILE = "data/llm_finetuning.json"
 
 # Default number of repos to process (top N from the JSON file)
-DEFAULT_REPO_LIMIT = 1
+DEFAULT_REPO_LIMIT = 2
 
 # Ingestor settings (AWS Bedrock mode)
 INGESTOR_PARAMS = {
@@ -38,8 +38,8 @@ INGESTOR_PARAMS = {
 }
 
 # Output directories
-WIKI_DIR = "data/wikis_llm_finetuning_test"
-LOG_DIR = "logs/llm_finetuning_test"
+WIKI_DIR = "data/wikis_llm_finetuning_merge_test"
+LOG_DIR = "logs/llm_finetuning_merge_test"
 
 # Default number of parallel workers
 DEFAULT_WORKERS = 5  # Run 5 repos in parallel by default

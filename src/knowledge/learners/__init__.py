@@ -35,7 +35,6 @@ from src.knowledge.learners.knowledge_learner_pipeline import (
 # Knowledge merger (Stage 2)
 from src.knowledge.learners.knowledge_merger import (
     KnowledgeMerger,
-    MergeInput,
     MergeResult,
 )
 
@@ -67,7 +66,6 @@ __all__ = [
     "Source",
     # Merger (Stage 2)
     "KnowledgeMerger",
-    "MergeInput",
     "MergeResult",
     # Merge handlers
     "MergeHandler",

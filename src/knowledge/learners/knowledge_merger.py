@@ -15,13 +15,10 @@
 # 4. Agent searches for related pages, decides merge/create, executes
 #
 # Usage:
-#     from src.knowledge.learners import KnowledgeMerger, MergeInput
+#     from src.knowledge.learners import KnowledgeMerger
 #     
 #     merger = KnowledgeMerger()
-#     result = merger.merge(MergeInput(
-#         proposed_pages=pages,
-#         main_kg_path=Path("data/wikis"),
-#     ))
+#     result = merger.merge(pages, wiki_dir=Path("data/wikis"))
 
 import json
 import logging
@@ -40,6 +37,7 @@ from src.knowledge.learners.merge_handlers import (
     HeuristicMergeHandler,
 )
 from src.knowledge.search.base import WikiPage, KGIndexInput
+from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.search.factory import KnowledgeSearchFactory
 
 # Load merger prompt template
@@ -54,42 +52,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Data Structures
 # =============================================================================
-
-@dataclass
-class MergeInput:
-    """
-    Input to the knowledge merger.
-    
-    Attributes:
-        proposed_pages: Pages to merge (from ingestor/staging)
-        main_kg_path: Source files directory (ground truth .md files)
-        weaviate_collection: Weaviate collection for embeddings
-        source_context: Context for logging (e.g., repo URL)
-        neo4j_uri: Neo4j connection URI (default: from NEO4J_URI env var)
-        neo4j_user: Neo4j username (default: from NEO4J_USER env var)
-        neo4j_password: Neo4j password (default: from NEO4J_PASSWORD env var)
-    """
-    proposed_pages: List[WikiPage]
-    main_kg_path: Path
-    weaviate_collection: str = "KGWikiPages"
-    source_context: str = ""
-    neo4j_uri: Optional[str] = None
-    neo4j_user: Optional[str] = None
-    neo4j_password: Optional[str] = None
-    
-    def __post_init__(self):
-        """Ensure path is Path object and set Neo4j defaults from env."""
-        if isinstance(self.main_kg_path, str):
-            self.main_kg_path = Path(self.main_kg_path)
-        
-        # Default to environment variables if not provided
-        if self.neo4j_uri is None:
-            self.neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        if self.neo4j_user is None:
-            self.neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-        if self.neo4j_password is None:
-            self.neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
-
 
 @dataclass
 class MergeResult:
@@ -153,7 +115,7 @@ class KnowledgeMerger:
     Each page type has its own MergeHandler with type-specific instructions.
     
     Example:
-        from src.knowledge.learners import KnowledgeMerger, MergeInput
+        from src.knowledge.learners import KnowledgeMerger
         from src.knowledge.search.base import WikiPage
         
         # Prepare pages to merge
@@ -161,10 +123,7 @@ class KnowledgeMerger:
         
         # Run merge
         merger = KnowledgeMerger()
-        result = merger.merge(MergeInput(
-            proposed_pages=pages,
-            main_kg_path=Path("data/wikis"),
-        ))
+        result = merger.merge(pages, wiki_dir=Path("data/wikis"))
         
         print(f"Created: {len(result.created)}, Merged: {len(result.merged)}")
     """
@@ -188,6 +147,9 @@ class KnowledgeMerger:
         self._kg_index_path: Optional[str] = self._agent_config.get("kg_index_path")
         self._agent = None
         self._search_backend = None
+        # Best-effort value used only for agent prompts (display/logging).
+        # The actual backend configuration is enforced via KG_INDEX_PATH in the MCP server.
+        self._weaviate_collection_for_prompt: str = "KGWikiPages"
         
         # Load handlers from merge_handlers module
         self.handlers = self._load_handlers()
@@ -206,41 +168,43 @@ class KnowledgeMerger:
     # Main Merge Entry Point
     # =========================================================================
     
-    def merge(self, input: MergeInput) -> MergeResult:
+    def merge(self, proposed_pages: List[WikiPage], wiki_dir: Path) -> MergeResult:
         """
         Main merge entry point.
         
         Process:
-        1. Try to initialize search backend (Neo4j + Weaviate)
-        2. If no index exists, create all pages as new (no merge needed)
-        3. If index exists, use agent to decide merge vs create for each page
+        1. Decide whether we should use merge mode (agent + MCP tools).
+        2. If no index exists, create all pages as new (write to wiki_dir; best-effort indexing).
+        3. If index exists, use agent to decide merge vs create for each page.
         
         Args:
-            input: MergeInput with proposed pages and configuration
+            proposed_pages: Proposed pages to add/merge into the KG.
+            wiki_dir: Persistent wiki directory on disk (KG source-of-truth).
             
         Returns:
             MergeResult with created, merged, and error counts
         """
-        result = MergeResult(total_proposed=len(input.proposed_pages))
+        wiki_dir = (Path(wiki_dir) if isinstance(wiki_dir, str) else wiki_dir).expanduser().resolve()
+        result = MergeResult(total_proposed=len(proposed_pages))
         
-        if not input.proposed_pages:
+        if not proposed_pages:
             logger.warning("No proposed pages to merge")
             return result
         
         try:
             # Step 1: Check if index is available
-            has_index = self._try_initialize_index(input)
+            has_index = self._try_initialize_index()
             
             if not has_index:
                 # No index available - create all pages as new
                 logger.info("No existing index. Creating all pages as new...")
-                return self._create_all_pages(input, result)
+                return self._create_all_pages(proposed_pages, wiki_dir, result)
             
             # Step 2: Initialize agent with wiki MCP tools
-            self._initialize_agent(input.main_kg_path)
+            self._initialize_agent(wiki_dir)
             
             # Step 3: Group pages by type
-            by_type = self._group_by_type(input.proposed_pages)
+            by_type = self._group_by_type(proposed_pages)
             
             # Step 4: Process each type with merge logic
             for page_type, pages in by_type.items():
@@ -253,7 +217,7 @@ class KnowledgeMerger:
                 # Process each page with type-specific handler
                 for page in pages:
                     try:
-                        action_result = self._process_page(page, handler, input)
+                        action_result = self._process_page(page, handler, wiki_dir)
                         self._record_action(action_result, result)
                         
                     except Exception as e:
@@ -272,21 +236,62 @@ class KnowledgeMerger:
             result.errors.append(str(e))
             return result
     
-    def _try_initialize_index(self, input: MergeInput) -> bool:
+    def _try_initialize_index(self) -> bool:
         """
-        Try to initialize search backend and check if index exists.
+        Decide whether we should use "merge mode" (agent + MCP tools).
+
+        We intentionally treat an explicitly provided `.index` path as the signal
+        that an index exists. This avoids probing backend state (Neo4j/Weaviate)
+        and keeps the control flow simple and deterministic:
+        - If the caller provided `kg_index_path` (propagated from `Tinkerer.learn(kg_index=...)`),
+          we assume an index exists and route to the agent path.
+        - Otherwise, we assume no index exists and route to the "create all pages"
+          path (write to wiki_dir + best-effort indexing).
         
         Returns:
-            True if index is available and has pages, False otherwise
+            True if we should use merge mode, False otherwise
         """
-        try:
-            self._initialize_search_backend(input)
-            return self._is_kg_indexed()
-        except Exception as e:
-            logger.warning(f"Could not initialize index: {e}")
+        if not self._kg_index_path:
             return False
+
+        # We currently only support merge operations against the wiki-backed
+        # graph search backend. Other backends (e.g., kg_llm_navigation) use a
+        # different data model and do not support wiki-style create/edit semantics.
+        try:
+            index_path = Path(self._kg_index_path).expanduser().resolve()
+            if not index_path.exists():
+                raise FileNotFoundError(f"Index file not found: {index_path}")
+            index_data = json.loads(index_path.read_text(encoding="utf-8"))
+            metadata = KGIndexMetadata.from_dict(index_data)
+        except Exception as e:
+            raise RuntimeError(f"Invalid kg_index_path={self._kg_index_path!r}: {e}") from e
+
+        backend = (metadata.search_backend or "").strip()
+        if backend.lower() != "kg_graph_search":
+            raise NotImplementedError(
+                "KnowledgeMerger only supports merge operations for "
+                f"search_backend='kg_graph_search'. Got: {backend!r} "
+                f"(from kg_index_path={str(index_path)!r})."
+            )
+
+        # For prompt-only display.
+        try:
+            refs = metadata.backend_refs or {}
+            wc = refs.get("weaviate_collection")
+            if isinstance(wc, str) and wc.strip():
+                self._weaviate_collection_for_prompt = wc.strip()
+        except Exception:
+            # Never fail merge-mode selection due to prompt cosmetics.
+            pass
+
+        return True
     
-    def _create_all_pages(self, input: MergeInput, result: MergeResult) -> MergeResult:
+    def _create_all_pages(
+        self,
+        proposed_pages: List[WikiPage],
+        wiki_dir: Path,
+        result: MergeResult,
+    ) -> MergeResult:
         """
         Create all proposed pages as new (no merge).
         
@@ -294,11 +299,10 @@ class KnowledgeMerger:
         1. Writes pages to wiki directory organized by type
         2. Indexes pages via search backend (Neo4j + Weaviate if available)
         """
-        wiki_dir = input.main_kg_path
         wiki_dir.mkdir(parents=True, exist_ok=True)
         
         # Step 1: Write pages to wiki directory
-        for page in input.proposed_pages:
+        for page in proposed_pages:
             try:
                 self._write_page_to_wiki(page, wiki_dir)
                 result.created.append(page.id)
@@ -315,15 +319,15 @@ class KnowledgeMerger:
         try:
             # Initialize search backend if not already done
             if not self._search_backend:
-                self._initialize_search_backend(input)
+                self._initialize_search_backend()
             
             # Index the pages (will gracefully skip if Neo4j/Weaviate unavailable)
             index_input = KGIndexInput(
-                pages=input.proposed_pages,
+                pages=proposed_pages,
                 wiki_dir=wiki_dir,
             )
             self._search_backend.index(index_input)
-            logger.info(f"Indexed {len(input.proposed_pages)} pages to search backend")
+            logger.info(f"Indexed {len(proposed_pages)} pages to search backend")
             
         except Exception as e:
             logger.warning(f"Could not index pages to search backend: {e}")
@@ -366,18 +370,31 @@ class KnowledgeMerger:
     # Search Backend Management
     # =========================================================================
     
-    def _initialize_search_backend(self, input: MergeInput) -> None:
-        """Initialize the search backend for KG operations."""
+    def _initialize_search_backend(self) -> None:
+        """
+        Initialize the search backend for best-effort indexing (no-merge mode).
+
+        Notes:
+        - Merge mode uses MCP tools + KG_INDEX_PATH, so this backend is only used
+          when no `.index` is provided and we fall back to `_create_all_pages(...)`.
+        - Connection details default to environment variables for Neo4j.
+        """
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
+
         self._search_backend = KnowledgeSearchFactory.create(
             "kg_graph_search",
             params={
-                "weaviate_collection": input.weaviate_collection,
-                "neo4j_uri": input.neo4j_uri,
-                "neo4j_user": input.neo4j_user,
-                "neo4j_password": input.neo4j_password,
+                "weaviate_collection": self._weaviate_collection_for_prompt,
+                "neo4j_uri": neo4j_uri,
+                "neo4j_user": neo4j_user,
+                "neo4j_password": neo4j_password,
             },
         )
-        logger.info(f"Initialized search backend with collection: {input.weaviate_collection}")
+        logger.info(
+            f"Initialized search backend with collection: {self._weaviate_collection_for_prompt}"
+        )
     
     def _is_kg_indexed(self) -> bool:
         """
@@ -492,7 +509,7 @@ class KnowledgeMerger:
         self,
         page: WikiPage,
         handler: MergeHandler,
-        input: MergeInput,
+        wiki_dir: Path,
     ) -> Dict[str, Any]:
         """
         Process a single page using Claude Code agent.
@@ -507,7 +524,7 @@ class KnowledgeMerger:
         Args:
             page: Proposed page to merge
             handler: Type-specific merge handler
-            input: Merge input configuration
+            wiki_dir: Persistent wiki directory on disk (KG source-of-truth).
             
         Returns:
             Dict with action ("created" or "merged") and details
@@ -516,7 +533,7 @@ class KnowledgeMerger:
             raise RuntimeError("Agent not initialized")
         
         # Build prompt
-        prompt = self._build_agent_prompt(page, handler, input)
+        prompt = self._build_agent_prompt(page, handler, wiki_dir)
         
         logger.info(f"Processing {page.id} with {handler.page_type} handler...")
         
@@ -533,7 +550,7 @@ class KnowledgeMerger:
         self,
         page: WikiPage,
         handler: MergeHandler,
-        input: MergeInput,
+        wiki_dir: Path,
     ) -> str:
         """
         Build prompt for Claude Code agent.
@@ -541,7 +558,7 @@ class KnowledgeMerger:
         Args:
             page: Proposed page to merge
             handler: Type-specific merge handler
-            input: Merge input configuration
+            wiki_dir: Persistent wiki directory on disk (KG source-of-truth).
             
         Returns:
             Complete prompt string
@@ -560,8 +577,8 @@ class KnowledgeMerger:
         
         # Format prompt from template
         prompt = MERGE_PROMPT_TEMPLATE.format(
-            main_kg_path=input.main_kg_path,
-            weaviate_collection=input.weaviate_collection,
+            main_kg_path=wiki_dir,
+            weaviate_collection=self._weaviate_collection_for_prompt,
             page_id=page.id,
             page_type=page.page_type,
             page_title=page.page_title,
@@ -692,12 +709,7 @@ if __name__ == "__main__":
     print(f"\nTest with {len(test_pages)} proposed pages")
     print("-" * 60)
     
-    input_data = MergeInput(
-        proposed_pages=test_pages,
-        main_kg_path=Path("data/wikis"),
-    )
-    
-    result = merger.merge(input_data)
+    result = merger.merge(test_pages, wiki_dir=Path("data/wikis"))
     
     print(f"\nResult: {result}")
     print(f"  Created: {len(result.created)}")
