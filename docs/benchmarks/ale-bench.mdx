@@ -3,7 +3,11 @@ title: "ALE-Bench"
 description: "Solving AtCoder algorithmic optimization problems"
 ---
 
-ALE-Bench provides AtCoder Heuristic Contest problems. Kapso Agent generates C++ solutions evaluated in Docker containers.
+ALE-Bench provides AtCoder Heuristic Contest problems for evaluating algorithmic optimization agents. Kapso achieved **#1 on ALE-Bench**.
+
+<Frame>
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/ale_benchmark.png" alt="ALE-Bench Results" />
+</Frame>
 
 ## Usage
 
@@ -39,18 +43,7 @@ PYTHONPATH=. python -m benchmarks.ale.runner \
 
 ## Available Problems
 
-| Problem | Contestants | Scoring |
-|---------|-------------|---------|
-| ahc008 | 824 | Maximize |
-| ahc011 | 926 | Maximize |
-| ahc015 | 779 | Maximize |
-| ahc016 | 1047 | Maximize |
-| ahc024 | 664 | Maximize |
-| ahc025 | 879 | Minimize |
-| ahc026 | 740 | Maximize |
-| ahc027 | 999 | Minimize |
-| ahc039 | 683 | Maximize |
-| ahc046 | 939 | Maximize |
+`ahc008`, `ahc011`, `ahc015`, `ahc016`, `ahc024`, `ahc025`, `ahc026`, `ahc027`, `ahc039`, `ahc046`
 
 ## Output Structure
 
@@ -66,24 +59,24 @@ experiment_workspace/{uuid}/
 ## Evaluation
 
 ```mermaid
-sequenceDiagram
-    participant R as Runner
-    participant H as AleBench
-    participant D as Docker
-    
-    R->>H: run(code_path)
-    H->>H: Read main.cpp
-    H->>D: public_eval(code)
-    D->>D: Compile & run tests
-    D-->>H: CaseResults
-    
-    alt All tests pass
-        H->>H: Run 4x for stable score
-        H-->>R: Average score
-    else Some tests fail
-        H-->>R: Error details
-    end
+flowchart LR
+    A[main.cpp] --> B[Docker Container]
+    B --> C[Compile]
+    C --> D[Run Tests]
+    D --> E{All Pass?}
+    E -->|Yes| F[Run 4x]
+    F --> G[Average Score]
+    E -->|No| H[Error Details]
 ```
+
+The evaluation process works as follows:
+
+1. **Code Submission**: The `main.cpp` file is read from the experiment workspace
+2. **Docker Evaluation**: Code is sent to `ale_bench.public_eval()` which compiles and runs in an isolated Docker container
+3. **Test Execution**: Solution runs against all test cases with strict time limits
+4. **Validation**: Each test case must return `ACCEPTED` with a non-zero score
+5. **Score Stabilization**: If all tests pass, the solution runs **4 additional times** and scores are averaged for stability
+6. **Final Ranking**: Private evaluation compares against original contest participants
 
 ## Code Requirements
 
@@ -115,15 +108,3 @@ The handler includes tips for common algorithms:
 - Consider average and std of scores
 - Balance greedy vs long-horizon moves
 </Accordion>
-
-## Key Differences from MLE-Bench
-
-| Aspect | MLE-Bench | ALE-Bench |
-|--------|-----------|-----------|
-| Language | Python | C++ (cpp23) |
-| Main file | `main.py` | `main.cpp` |
-| Debug mode | `--debug` flag | N/A |
-| Evaluation | CSV grading | Docker tests |
-| Stop condition | Medal achieved | Never (fixed iterations) |
-| Knowledge graph | Recommended | Disabled by default |
-
