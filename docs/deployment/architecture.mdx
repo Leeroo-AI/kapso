@@ -1,5 +1,5 @@
 ---
-title: "Deployment Architecture"
+title: "Architecture"
 description: "Deep dive into modules, data flow, and component relationships"
 ---
 
@@ -8,42 +8,25 @@ description: "Deep dive into modules, data flow, and component relationships"
 The deployment system uses a **plugin-based architecture** where strategies are self-contained packages that can be added without modifying core code.
 
 ```mermaid
-flowchart TB
-    subgraph User["User Layer"]
-        EXP["Kapso.deploy()"]
-        FAC["DeploymentFactory"]
-    end
-
-    subgraph Core["Core Components"]
-        SEL["SelectorAgent"]
-        ADP["AdapterAgent"]
-        REG["StrategyRegistry"]
-    end
-
-    subgraph Strategies["Strategy Plugins"]
-        direction LR
-        LOC["local/"]
-        DOC["docker/"]
-        MOD["modal/"]
-        BEN["bentoml/"]
-        LAN["langgraph/"]
-    end
-
-    subgraph Runtime["Runtime Layer"]
-        RUN["Runner"]
-        SW["DeployedSoftware"]
-    end
-
-    EXP --> FAC
-    FAC --> SEL
-    FAC --> ADP
-    SEL --> REG
+flowchart LR
+    K[Kapso.deploy] --> F[DeploymentFactory]
+    F --> SEL[SelectorAgent]
+    F --> ADP[AdapterAgent]
+    SEL --> REG[StrategyRegistry]
     ADP --> REG
-    REG --> Strategies
-    FAC --> RUN
-    RUN --> SW
-    SW --> |"run(), stop()"| User
+    F --> RUN[Runner]
+    RUN --> SW[DeployedSoftware]
+    SW --> K
 ```
+
+| Component | Module | Role |
+|-----------|--------|------|
+| **DeploymentFactory** | `factory.py` | Orchestrates selection, adaptation, and runner creation |
+| **SelectorAgent** | `selector/agent.py` | LLM-based strategy selection |
+| **AdapterAgent** | `adapter/agent.py` | Code transformation for target platform |
+| **StrategyRegistry** | `strategies/base.py` | Auto-discovery of strategy plugins |
+| **Runner** | `strategies/*/runner.py` | Infrastructure-specific execution |
+| **DeployedSoftware** | `software.py` | Unified wrapper for user interaction |
 
 ## Module Breakdown
 
@@ -77,7 +60,7 @@ src/deployment/
 
 ## Core Components
 
-### 1. DeploymentFactory (`factory.py`)
+### DeploymentFactory (`factory.py`)
 
 The **orchestrator** that manages the full deployment pipeline.
 
@@ -85,14 +68,6 @@ The **orchestrator** that manages the full deployment pipeline.
 - Coordinate selection, adaptation, and runner creation
 - Handle strategy validation
 - Create unified Software instances
-
-**Input/Output:**
-
-| Method | Input | Output |
-|--------|-------|--------|
-| `create()` | `DeployStrategy`, `DeployConfig`, optional `strategies` list | `Software` |
-| `list_strategies()` | None | `List[str]` |
-| `explain_strategy()` | `strategy: str` | `str` description |
 
 **Flow:**
 
@@ -115,7 +90,7 @@ return DeployedSoftware(config=config, runner=runner, info=info)
 
 ---
 
-### 2. SelectorAgent (`selector/agent.py`)
+### SelectorAgent (`selector/agent.py`)
 
 **LLM-based strategy selection** that analyzes code and chooses the optimal deployment target.
 
@@ -124,44 +99,14 @@ return DeployedSoftware(config=config, runner=runner, info=info)
 - Query coding agent to analyze repository
 - Return `DeploymentSetting` with chosen strategy
 
-**Input/Output:**
-
 | Method | Input | Output |
 |--------|-------|--------|
-| `select()` | `SolutionResult`, optional `allowed_strategies`, optional `resources` | `DeploymentSetting` |
+| `select()` | `SolutionResult`, optional `allowed_strategies` | `DeploymentSetting` |
 | `explain()` | `SolutionResult` | `str` human-readable explanation |
-
-**Flow:**
-
-```mermaid
-flowchart LR
-    A[SolutionResult] --> B[Load selector_instruction.md from all strategies]
-    B --> C[Build prompt with goal + strategy descriptions]
-    C --> D[Query Coding Agent]
-    D --> E[Parse JSON response]
-    E --> F[Create DeploymentSetting]
-```
-
-**Example Prompt:**
-
-```markdown
-# Strategy Selection Task
-
-## Goal
-Create a sentiment analysis API
-
-## Available Strategies
-[Contents of local/selector_instruction.md]
-[Contents of docker/selector_instruction.md]
-...
-
-## Output Format
-Return JSON: {"strategy": "...", "reasoning": "...", "resources": {...}}
-```
 
 ---
 
-### 3. AdapterAgent (`adapter/agent.py`)
+### AdapterAgent (`adapter/agent.py`)
 
 **Code transformation and deployment** using coding agents.
 
@@ -170,44 +115,23 @@ Return JSON: {"strategy": "...", "reasoning": "...", "resources": {...}}
 - Load adapter instructions for target strategy
 - Run coding agent to transform code
 - Extract endpoint URL and run interface from output
-- Return `AdaptationResult`
-
-**Input/Output:**
 
 | Method | Input | Output |
 |--------|-------|--------|
-| `adapt()` | `SolutionResult`, `DeploymentSetting`, optional `allowed_strategies` | `AdaptationResult` |
-
-**Flow:**
-
-```mermaid
-flowchart TB
-    A[SolutionResult + DeploymentSetting] --> B[Create adapted workspace copy]
-    B --> C[Load adapter_instruction.md for strategy]
-    C --> D[Build adaptation prompt]
-    D --> E[Run Coding Agent]
-    E --> F{Success?}
-    F -->|Yes| G[Extract run_interface from output]
-    F -->|No| H[Try fallback agent]
-    G --> I[Return AdaptationResult]
-    H --> I
-```
+| `adapt()` | `SolutionResult`, `DeploymentSetting` | `AdaptationResult` |
 
 **Key Output Extraction:**
 
 The adapter looks for special XML tags in the coding agent's output:
 
 ```xml
-<!-- Run interface configuration -->
 <run_interface>{"type": "function", "module": "main", "callable": "predict"}</run_interface>
-
-<!-- Deployment endpoint (for HTTP strategies) -->
 <endpoint_url>https://my-app.modal.run</endpoint_url>
 ```
 
 ---
 
-### 4. StrategyRegistry (`strategies/base.py`)
+### StrategyRegistry (`strategies/base.py`)
 
 **Auto-discovery system** for deployment strategies.
 
@@ -216,70 +140,32 @@ The adapter looks for special XML tags in the coding agent's output:
 - Load configuration and instructions for each strategy
 - Provide access to strategy metadata and runner classes
 
-**Input/Output:**
-
 | Method | Input | Output |
 |--------|-------|--------|
 | `list_strategies()` | optional `allowed: List[str]` | `List[str]` |
 | `get_strategy()` | `name: str` | `DeployStrategyConfig` |
-| `get_selector_instruction()` | `name: str` | `str` markdown content |
-| `get_adapter_instruction()` | `name: str` | `str` markdown content |
 | `get_runner_class()` | `name: str` | `type` (Runner subclass) |
-| `get_default_run_interface()` | `name: str` | `Dict[str, Any]` |
-
-**Discovery Process:**
-
-```python
-def _discover(self) -> None:
-    strategies_dir = Path(__file__).parent
-    
-    for path in sorted(strategies_dir.iterdir()):
-        # Skip non-directories, hidden, __pycache__
-        if not path.is_dir() or path.name.startswith("_"):
-            continue
-        
-        # Must have both instruction files
-        if (path / "selector_instruction.md").exists() and \
-           (path / "adapter_instruction.md").exists():
-            self._strategies[path.name] = DeployStrategyConfig(...)
-```
 
 ---
 
-### 5. Runner (Abstract Base Class)
+### Runner (Abstract Base Class)
 
 **Infrastructure-specific execution** handler.
-
-**Responsibilities:**
-- Execute code (via import, subprocess, HTTP, etc.)
-- Health checking
-- Resource cleanup
-
-**Interface:**
 
 ```python
 class Runner(ABC):
     @abstractmethod
     def run(self, inputs: Union[Dict, str, bytes]) -> Any:
         """Execute with inputs and return result."""
-        pass
     
     @abstractmethod
     def stop(self) -> None:
         """Stop and cleanup resources."""
-        pass
     
     @abstractmethod
     def is_healthy(self) -> bool:
         """Check if runner is healthy and ready."""
-        pass
-    
-    def get_logs(self) -> str:
-        """Get runner-specific logs (default: empty)."""
-        return ""
 ```
-
-**Runner Types:**
 
 | Runner | Strategy | Execution Method |
 |--------|----------|------------------|
@@ -291,16 +177,9 @@ class Runner(ABC):
 
 ---
 
-### 6. DeployedSoftware (`software.py`)
+### DeployedSoftware (`software.py`)
 
 **Unified wrapper** that users interact with.
-
-**Responsibilities:**
-- Wrap any runner with consistent interface
-- Normalize all responses to `{"status": "...", "output": ...}`
-- Provide convenience methods
-
-**Interface:**
 
 ```python
 class DeployedSoftware(Software):
@@ -315,13 +194,6 @@ class DeployedSoftware(Software):
         
     def is_healthy(self) -> bool:
         """Check if software is running."""
-        
-    # Metadata access
-    def get_adapted_path(self) -> str
-    def get_endpoint(self) -> Optional[str]
-    def get_deployment_info(self) -> Dict[str, Any]
-    def get_strategy(self) -> str
-    def get_provider(self) -> Optional[str]
 ```
 
 ---
@@ -329,8 +201,6 @@ class DeployedSoftware(Software):
 ## Data Models
 
 ### DeployConfig
-
-Configuration for deploying software.
 
 ```python
 @dataclass
@@ -342,8 +212,6 @@ class DeployConfig:
 ```
 
 ### DeploymentSetting
-
-Result of strategy selection.
 
 ```python
 @dataclass
@@ -357,8 +225,6 @@ class DeploymentSetting:
 
 ### AdaptationResult
 
-Result of code adaptation.
-
 ```python
 @dataclass
 class AdaptationResult:
@@ -369,72 +235,11 @@ class AdaptationResult:
     error: Optional[str]
 ```
 
-### DeploymentInfo
-
-Metadata about the deployment.
-
-```python
-@dataclass
-class DeploymentInfo:
-    strategy: str
-    provider: Optional[str]
-    endpoint: Optional[str]     # HTTP endpoint if applicable
-    adapted_path: str
-    adapted_files: List[str]
-    resources: Dict[str, Any]
-```
-
----
-
-## Complete Data Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Factory as DeploymentFactory
-    participant Selector as SelectorAgent
-    participant Registry as StrategyRegistry
-    participant Adapter as AdapterAgent
-    participant Agent as CodingAgent
-    participant Runner
-    participant Software as DeployedSoftware
-
-    User->>Factory: create(AUTO, config)
-    
-    Factory->>Selector: select(solution)
-    Selector->>Registry: get_all_selector_instructions()
-    Registry-->>Selector: {strategy: instruction_md}
-    Selector->>Agent: Query with prompt
-    Agent-->>Selector: {"strategy": "modal", ...}
-    Selector-->>Factory: DeploymentSetting
-    
-    Factory->>Adapter: adapt(solution, setting)
-    Adapter->>Adapter: Copy solution to adapted workspace
-    Adapter->>Registry: get_adapter_instruction("modal")
-    Registry-->>Adapter: adapter_instruction.md
-    Adapter->>Agent: Generate code + deploy
-    Agent-->>Adapter: Output with <run_interface> and <endpoint_url>
-    Adapter-->>Factory: AdaptationResult
-    
-    Factory->>Registry: get_runner_class("modal")
-    Registry-->>Factory: ModalRunner class
-    Factory->>Runner: Create with run_interface params
-    
-    Factory->>Software: Create wrapper
-    Factory-->>User: DeployedSoftware
-    
-    User->>Software: run({"text": "hello"})
-    Software->>Runner: run(inputs)
-    Runner-->>Software: raw result
-    Software->>Software: Normalize response
-    Software-->>User: {"status": "success", "output": ...}
-```
-
 ---
 
 ## Strategy Plugin Architecture
 
-Each strategy is a self-contained directory with:
+Each strategy is a self-contained directory:
 
 ```
 strategies/{name}/
@@ -448,20 +253,16 @@ strategies/{name}/
 ### config.yaml Structure
 
 ```yaml
-# Strategy identification
 name: modal
 provider: modal
-interface: function  # or "http"
+interface: function
 
-# Runner class name (must exist in runner.py)
 runner_class: ModalRunner
 
-# Default resource requirements
 default_resources:
   gpu: T4
   memory: 16Gi
 
-# Default run interface (passed to runner constructor)
 run_interface:
   type: modal
   function_name: predict
@@ -469,12 +270,11 @@ run_interface:
 
 ### How Strategies Are Discovered
 
-1. On import, `StrategyRegistry.get()` scans `strategies/` directory
+1. On import, `StrategyRegistry` scans `strategies/` directory
 2. Each subdirectory with `selector_instruction.md` AND `adapter_instruction.md` is registered
-3. `DeployStrategy` enum is dynamically created from discovered strategies
-4. Runner classes are lazy-loaded from `runner.py` when needed
+3. Runner classes are lazy-loaded from `runner.py` when needed
 
-This means **adding a new strategy is just adding a directory** - no code changes required in the core system.
+**Adding a new strategy is just adding a directory** - no code changes required in the core system.
 
 ---
 
@@ -488,4 +288,3 @@ This means **adding a new strategy is just adding a directory** - no code change
     Step-by-step guide to add your own deployment targets
   </Card>
 </CardGroup>
-

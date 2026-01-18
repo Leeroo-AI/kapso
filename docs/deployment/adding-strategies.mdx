@@ -274,20 +274,6 @@ def test_runner_lifecycle():
     assert not runner.is_healthy()
 ```
 
-## Best Practices
-
-<Tip>
-**Follow the LOCAL strategy** as a template. It's the simplest implementation.
-</Tip>
-
-<Note>
-**Keep runner stateless** when possible. State should be in the deployed code, not the runner.
-</Note>
-
-<Warning>
-**Handle cleanup properly** in `stop()`. Resource leaks can cause issues.
-</Warning>
-
 ## Example: HTTP Strategy
 
 A strategy that deploys as an HTTP server:

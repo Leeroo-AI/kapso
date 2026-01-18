@@ -78,25 +78,12 @@
               "docs/deployment/adding-strategies",
               "docs/deployment/api-reference"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Guides",
-        "groups": [
-          {
-            "group": "Configuration",
-            "pages": [
-              "docs/guides/configuration",
-              "docs/guides/setup-neo4j"
-            ]
           },
           {
             "group": "Benchmarks",
             "pages": [
               "docs/benchmarks/mle-bench",
-              "docs/benchmarks/ale-bench",
-              "docs/benchmarks/generic-problems"
+              "docs/benchmarks/ale-bench"
             ]
           }
         ]
