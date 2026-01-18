@@ -155,6 +155,10 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 | **MLE-Bench** | Kaggle ML competitions — tabular, image, text, audio problems |
 | **ALE-Bench** | AtCoder algorithmic optimization — C++ solution generation |
 
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
+
 ## ⚖️ License
 
 MIT — see the [LICENSE](LICENSE) file for details.
