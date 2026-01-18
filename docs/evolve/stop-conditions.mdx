@@ -311,20 +311,6 @@ stop_condition:
 PYTHONPATH=. python -m src.cli --list-stop-conditions
 ```
 
-## Best Practices
-
-<Tip>
-**Use composite** to combine threshold with a fallback like max_iterations.
-</Tip>
-
-<Note>
-**Plateau is useful** when you don't know the achievable score in advance.
-</Note>
-
-<Warning>
-**never is risky** for expensive experiments. Always set a budget fallback.
-</Warning>
-
 ## Common Patterns
 
 ### Production Setup

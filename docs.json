@@ -30,38 +30,43 @@
             ]
           },
           {
-            "group": "Core Concepts",
+            "group": "Evolve System",
             "pages": [
-              "docs/concepts/architecture",
-              "docs/concepts/execution-flow",
-              "docs/concepts/tree-search",
-              "docs/concepts/experiment-lifecycle"
+              "docs/evolve/overview",
+              "docs/evolve/architecture",
+              "docs/evolve/execution-flow",
+              {
+                "group": "Components",
+                "pages": [
+                  "docs/evolve/orchestrator",
+                  "docs/evolve/search-strategies",
+                  "docs/evolve/coding-agents",
+                  "docs/evolve/evaluators",
+                  "docs/evolve/stop-conditions",
+                  "docs/evolve/experiment-lifecycle",
+                  {
+                    "group": "Memory",
+                    "pages": [
+                      "docs/evolve/repo-memory",
+                      "docs/evolve/cognitive-memory"
+                    ]
+                  }
+                ]
+              }
             ]
           },
           {
-            "group": "Knowledge System",
+            "group": "Knowledge System & Learning",
             "pages": [
               "docs/knowledge/overview",
               "docs/knowledge/learning-pipeline",
-              "docs/knowledge/search-backends",
-              "docs/knowledge/wiki-structure"
+              "docs/knowledge/search-backends"
             ]
           },
           {
-            "group": "Components",
+            "group": "Research",
             "pages": [
-              "docs/components/orchestrator",
-              "docs/components/search-strategies",
-              "docs/components/coding-agents",
-              "docs/components/evaluators",
-              "docs/components/stop-conditions"
-            ]
-          },
-          {
-            "group": "Memory Systems",
-            "pages": [
-              "docs/memory/repo-memory",
-              "docs/memory/cognitive-memory"
+              "docs/research/overview"
             ]
           },
           {

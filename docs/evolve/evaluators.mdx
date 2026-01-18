@@ -292,17 +292,3 @@ evaluator:
 ```bash
 PYTHONPATH=. python -m src.cli --list-evaluators
 ```
-
-## Best Practices
-
-<Tip>
-**regex_pattern is fastest** and works well when output format is predictable.
-</Tip>
-
-<Note>
-**llm_judge is flexible** but adds latency and cost. Use for subjective criteria.
-</Note>
-
-<Warning>
-**Normalize scores** to 0-1 for consistent stop condition behavior.
-</Warning>

@@ -1,41 +1,11 @@
 ---
-title: "Knowledge System Overview"
+title: "Overview"
 description: "How domain knowledge is acquired, stored, and used"
 ---
 
 ## Overview
 
-The knowledge system provides domain-specific guidance during problem-solving. It helps the agent recommend proven approaches and avoid common pitfalls by learning from repositories, research, and past experiments.
-
-```mermaid
-flowchart TB
-    subgraph Acquisition["Knowledge Learning"]
-        Sources["Sources\n(Repos, Research, Experiments)"]
-        Ingestors["Ingestors\n(Stage 1)"]
-        Merger["Knowledge Merger\n(Stage 2)"]
-        Sources --> Ingestors
-        Ingestors --> Merger
-    end
-
-    subgraph KG["Knowledge Graph"]
-        WORK["Workflows"]
-        PRINC["Principles"]
-        IMPL["Implementations"]
-        ENV["Environments"]
-        HEUR["Heuristics"]
-        WORK --> PRINC --> IMPL
-        IMPL --> ENV
-        WORK --> HEUR
-    end
-
-    Merger --> KG
-
-    subgraph Search["Knowledge Search"]
-        NAV["Hybrid Search\n(Semantic + Graph)"]
-        KG --> NAV
-        NAV --> CTX["Context Enrichment"]
-    end
-```
+The Knowledge System provides domain-specific guidance during problem-solving. It helps the agent recommend proven approaches and avoid common pitfalls by learning from repositories, research, and past experiments.
 
 ## Key Concepts
 
@@ -43,24 +13,24 @@ flowchart TB
 
 The KG stores domain knowledge in a structured format:
 
-- **Storage**: Weaviate (vector embeddings) + Neo4j (graph structure)
-- **Schema**: 5 page types organized as a directed acyclic graph (DAG)
-- **Content**: Wiki pages with overviews, content, and connections
+- **Vector Storage**: Weaviate for semantic embeddings and similarity search
+- **Graph Storage**: Neo4j for relationships and graph traversal
+- **Content**: Wiki pages with overviews, detailed content, and connections
 
-### Knowledge Pipeline
+### Learning Pipeline
 
-A two-stage process for learning from sources:
+A two-stage process for acquiring knowledge from sources:
 
-1. **Stage 1 (Ingestors)**: Extract WikiPages from sources
-2. **Stage 2 (Merger)**: Intelligently merge into the KG
+1. **Stage 1 (Ingestors)**: Extract structured wiki pages from sources
+2. **Stage 2 (Merger)**: Intelligently merge new pages into the existing KG
 
 ### Knowledge Search
 
-Hybrid retrieval that combines:
+Hybrid retrieval that combines multiple approaches:
 
 - **Semantic search**: Vector similarity in Weaviate
 - **Graph traversal**: Connected pages from Neo4j
-- **LLM reranking**: Relevance scoring
+- **LLM reranking**: Relevance scoring for better results
 
 ## Using Knowledge in Kapso
 
@@ -120,30 +90,6 @@ solution = kapso.evolve(
 )
 ```
 
-## Wiki Page Types
-
-The KG uses 5 page types organized as a **Top-Down DAG**:
-
-| Type | Role | Example |
-|------|------|---------|
-| **Workflow** | The Recipe - ordered sequence of steps | "QLoRA Fine-tuning" |
-| **Principle** | The Theory - library-agnostic concepts | "Low Rank Adaptation" |
-| **Implementation** | The Code - concrete API reference | "TRL_SFTTrainer" |
-| **Environment** | The Context - hardware/dependencies | "CUDA_11_Environment" |
-| **Heuristic** | The Wisdom - tips and optimizations | "Learning_Rate_Tuning" |
-
-### Connection Schema
-
-```mermaid
-flowchart TD
-    W["Workflow"] -->|step| P["Principle"]
-    W -->|uses_heuristic| H["Heuristic"]
-    P -->|implemented_by| I["Implementation"]
-    P -->|uses_heuristic| H
-    I -->|requires_env| E["Environment"]
-    I -->|uses_heuristic| H
-```
-
 ## Search Backends
 
 | Backend | Data Format | Storage | Use Case |
@@ -172,10 +118,10 @@ Both backends require database infrastructure:
   <Card title="Search Backends" icon="magnifying-glass" href="/docs/knowledge/search-backends">
     Hybrid search implementation
   </Card>
-  <Card title="Wiki Structure" icon="book" href="/docs/knowledge/wiki-structure">
-    Page types and connection schema
-  </Card>
   <Card title="Configuration" icon="gear" href="/docs/guides/configuration">
     YAML config for knowledge search
+  </Card>
+  <Card title="Research" icon="globe" href="/docs/research/overview">
+    Web research for knowledge acquisition
   </Card>
 </CardGroup>

@@ -20,12 +20,12 @@ The primary backend for wiki-based knowledge. Combines vector embeddings with gr
 
 ```mermaid
 flowchart LR
-    Q["Query"] --> E["Embedding"]
-    E --> W["Weaviate\n(Vector Search)"]
-    W --> R["Top-K Results"]
-    R --> L["LLM Reranker"]
-    L --> N["Neo4j\n(Graph Enrichment)"]
-    N --> O["KGOutput"]
+    Q[Query] --> E[Embedding]
+    E --> W[Weaviate]
+    W --> R[Top-K Results]
+    R --> L[LLM Reranker]
+    L --> N[Neo4j]
+    N --> O[KGOutput]
 ```
 
 ### Features
@@ -53,14 +53,13 @@ result = search.search(
     query="How to fine-tune LLM with limited GPU memory?",
     filters=KGSearchFilters(
         top_k=5,
-        page_types=["Workflow", "Heuristic"],
         domains=["LLMs", "PEFT"],
     )
 )
 
 # Use results
 for item in result:
-    print(f"{item.page_title} ({item.page_type}): {item.score:.2f}")
+    print(f"{item.page_title}: {item.score:.2f}")
 
 # Get formatted context for LLM
 context = result.to_context_string(max_results=3)
@@ -88,10 +87,10 @@ Alternative backend for JSON-based knowledge graphs with LLM-guided navigation.
 
 ```mermaid
 flowchart LR
-    Q["Query"] --> L["LLM Navigator"]
-    L --> N["Neo4j\n(Graph DB)"]
+    Q[Query] --> L[LLM Navigator]
+    L --> N[Neo4j]
     N --> L
-    L --> O["KGOutput"]
+    L --> O[KGOutput]
 ```
 
 ### Features
@@ -273,17 +272,3 @@ class MyCustomSearch(KnowledgeSearch):
         # Edit existing page
         pass
 ```
-
-## Best Practices
-
-<Tip>
-**Use filters** to narrow results. Searching for "Workflow" and "Heuristic" pages often gives the most actionable guidance.
-</Tip>
-
-<Note>
-**LLM reranking** improves relevance but adds latency and cost. Disable for faster searches.
-</Note>
-
-<Warning>
-**Index once, load many times**. The `.index` file lets you skip re-indexing on subsequent runs.
-</Warning>

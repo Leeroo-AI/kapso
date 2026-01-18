@@ -7,21 +7,6 @@ description: "The central coordinator for the experimentation loop"
 
 The `OrchestratorAgent` is the central coordinator that manages the experimentation loop. It connects all components and runs iterations until a stop condition is met.
 
-```mermaid
-flowchart TB
-    ORCH["OrchestratorAgent"]
-    STRAT["SearchStrategy"]
-    CTX["ContextManager"]
-    KS["KnowledgeSearch"]
-    HAND["ProblemHandler"]
-
-    ORCH --> STRAT
-    ORCH --> CTX
-    ORCH --> KS
-    CTX --> HAND
-    STRAT --> HAND
-```
-
 ## Responsibilities
 
 1. **Budget Tracking**: Monitor time, iterations, and cost
@@ -268,16 +253,16 @@ modes:
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Search Strategies" icon="sitemap" href="/docs/components/search-strategies">
+  <Card title="Search Strategies" icon="sitemap" href="/docs/evolve/search-strategies">
     Explore solution space algorithms
   </Card>
-  <Card title="Coding Agents" icon="code" href="/docs/components/coding-agents">
+  <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
     Pluggable code generators
   </Card>
-  <Card title="Evaluators" icon="scale-balanced" href="/docs/components/evaluators">
+  <Card title="Evaluators" icon="scale-balanced" href="/docs/evolve/evaluators">
     Score solutions
   </Card>
-  <Card title="Stop Conditions" icon="stop" href="/docs/components/stop-conditions">
+  <Card title="Stop Conditions" icon="stop" href="/docs/evolve/stop-conditions">
     Control when to stop
   </Card>
 </CardGroup>

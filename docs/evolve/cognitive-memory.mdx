@@ -9,22 +9,35 @@ The Cognitive Memory system enables Kapso to learn from past experiments and pro
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Controller[CognitiveController]
+        direction TB
+        R[Reflect] --> GQ[Generate Query]
+        GQ --> RT[Retrieve]
+        RT --> S[Synthesize]
+        S --> D{Decision}
+        D --> RETRY[Retry]
+        D --> PIVOT[Pivot]
+        D --> COMPLETE[Complete]
+    end
+
+    subgraph Storage[Memory Backends]
+        ES[EpisodicStore]
+        KG[KnowledgeSearch]
+        CTX[Context State]
+    end
+
+    Controller --> ES
+    Controller --> KG
+    Controller --> CTX
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    CognitiveController                       │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Meta-Cognition Loop                      │   │
-│  │   Reflect → Generate Query → Retrieve → Synthesize   │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                           │                                  │
-│           ┌───────────────┼───────────────┐                 │
-│           ▼               ▼               ▼                 │
-│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │
-│   │ EpisodicStore│ │  KG Search   │ │   Context    │       │
-│   │  (Weaviate)  │ │(Neo4j+Weav.) │ │   (State)    │       │
-│   └──────────────┘ └──────────────┘ └──────────────┘       │
-└─────────────────────────────────────────────────────────────┘
-```
+
+| Component | Backend | Purpose |
+|-----------|---------|---------|
+| **EpisodicStore** | Weaviate | Stores learned insights from past experiments |
+| **KnowledgeSearch** | Neo4j + Weaviate | Retrieves domain knowledge and code patterns |
+| **Context State** | In-memory | Tracks current goal, iteration, and working memory |
 
 ## Components
 
@@ -256,16 +269,4 @@ context_manager:
   type: "cognitive"
 ```
 
-## Best Practices
 
-<Tip>
-**Start with token_efficient** for simple problems. Use cognitive for complex, multi-iteration tasks.
-</Tip>
-
-<Note>
-**Insights accumulate** across experiments. The system learns from failures.
-</Note>
-
-<Warning>
-**Requires infrastructure** (Weaviate) for full functionality. Falls back to JSON without it.
-</Warning>

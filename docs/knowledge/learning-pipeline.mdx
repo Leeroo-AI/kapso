@@ -9,14 +9,14 @@ The Knowledge Learning Pipeline is a two-stage process that transforms raw sourc
 
 ```mermaid
 flowchart LR
-    subgraph Stage1["Stage 1: Ingestion"]
-        S1["Source"] --> I1["Ingestor"]
-        I1 --> P1["WikiPages"]
+    subgraph Stage1[Stage 1: Ingestion]
+        S1[Source] --> I1[Ingestor]
+        I1 --> P1[WikiPages]
     end
 
-    subgraph Stage2["Stage 2: Merging"]
-        P1 --> M1["Merger"]
-        M1 --> KG["Knowledge Graph"]
+    subgraph Stage2[Stage 2: Merging]
+        P1 --> M1[Merger]
+        M1 --> KG[Knowledge Graph]
     end
 ```
 
@@ -66,9 +66,9 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 
 | Source Type | Description | Status |
 |-------------|-------------|--------|
-| `Source.Repo(url, branch="main")` | Git repository | ✅ Implemented |
-| `Source.Solution(solution)` | Completed experiment | ⚠️ Basic |
-| `Source.Research(...)` | Web research result | ✅ Implemented |
+| `Source.Repo(url, branch="main")` | Git repository | Implemented |
+| `Source.Solution(solution)` | Completed experiment | Basic |
+| `Source.Research(...)` | Web research result | Implemented |
 
 ```python
 from src.knowledge.learners import Source
@@ -107,25 +107,12 @@ IngestorFactory.list_ingestors()  # ["repo", "solution", "research"]
 
 ### RepoIngestor
 
-The most sophisticated ingestor, using a 7-phase two-branch pipeline:
+The most sophisticated ingestor, using a multi-phase pipeline:
 
-**Phase 0: Repository Understanding**
-- Generates AST scaffold with file structure
-- Agent fills in understanding for each file
-- Verification ensures all files are explored
-
-**Branch 1: Workflow-Based Extraction**
-1. **Anchoring** - Find workflows from README/examples → Workflow pages
-2. **Excavation+Synthesis** - Trace imports → Implementation-Principle pairs
-3. **Enrichment** - Mine constraints/tips → Environment/Heuristic pages
-4. **Audit** - Validate graph integrity, fix broken links
-
-**Branch 2: Orphan Mining**
-- **5a. Triage** - Filter into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
-- **5b. Review** - Agent evaluates MANUAL_REVIEW files
-- **5c. Create** - Agent creates pages for approved files
-- **5d. Verify** - Verify all approved files have pages
-- **6. Orphan Audit** - Validate orphan nodes
+1. **Repository Understanding** - Generates AST scaffold, agent explores file structure
+2. **Knowledge Extraction** - Extracts concepts, patterns, and implementation details
+3. **Page Generation** - Creates structured wiki pages from extracted knowledge
+4. **Validation** - Ensures graph integrity and fixes broken links
 
 ### ResearchIngestor
 
@@ -133,7 +120,6 @@ Converts web research results into WikiPages:
 
 ```python
 research = kapso.research("QLoRA best practices", mode="idea")
-# Research contains structured findings
 
 # Ingest into WikiPages
 ingestor = IngestorFactory.create("research")
@@ -185,13 +171,13 @@ class MergeResult:
 ```python
 @dataclass
 class WikiPage:
-    id: str                 # "Workflow/QLoRA_Finetuning"
-    page_title: str         # "QLoRA Fine-tuning"
-    page_type: str          # "Workflow", "Principle", etc.
+    id: str                 # Unique page identifier
+    page_title: str         # Human-readable title
+    page_type: str          # Page category
     overview: str           # Brief summary (for embedding)
     content: str            # Full page content
-    domains: List[str]      # ["LLMs", "Fine_Tuning"]
-    sources: List[Dict]     # [{"type": "repo", "url": "..."}]
+    domains: List[str]      # Topic domains
+    sources: List[Dict]     # Source references
     outgoing_links: List[Dict]  # Graph connections
 ```
 
@@ -242,17 +228,3 @@ class PipelineResult:
     @property
     def success(self) -> bool
 ```
-
-## Best Practices
-
-<Tip>
-**Start with extract-only** to preview what would be extracted before committing to a merge.
-</Tip>
-
-<Warning>
-**Large repositories** may take significant time and API costs. Consider extracting specific branches or directories.
-</Warning>
-
-<Note>
-**Quality over quantity** - The merger is designed to skip low-quality or duplicate content. Don't worry about over-extracting.
-</Note>

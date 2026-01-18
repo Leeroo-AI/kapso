@@ -14,7 +14,7 @@ RepoMemory is a structured representation of a repository's architecture, patter
 - **Bounded prompts**: Summary + TOC keeps context manageable
 - **Section-based access**: Agents can read specific sections on demand
 
-## Schema (v2)
+## Schema
 
 ```json
 {
@@ -167,10 +167,10 @@ When experiments branch from a parent:
 
 ```mermaid
 flowchart TD
-    M["main\n(baseline memory)"]
-    E1["experiment_1\n(inherited + updated)"]
-    E2["experiment_2\n(inherited from main)"]
-    E3["experiment_3\n(inherited from E1)"]
+    M[main: baseline memory]
+    E1[experiment_1: inherited + updated]
+    E2[experiment_2: inherited from main]
+    E3[experiment_3: inherited from E1]
 
     M --> E1
     M --> E2
@@ -244,17 +244,3 @@ doc["quality"] = {
     "claim_count": 15,         # Total claims across sections
 }
 ```
-
-## Best Practices
-
-<Tip>
-**Keep summaries concise**. The summary is injected into every prompt.
-</Tip>
-
-<Note>
-**Evidence is required**. Claims without evidence are rejected during validation.
-</Note>
-
-<Warning>
-**Don't edit manually** unless you understand the schema. Use the API instead.
-</Warning>
