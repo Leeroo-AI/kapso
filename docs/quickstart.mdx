@@ -133,14 +133,14 @@ For domain-specific context, index a knowledge graph first:
     ```
   </Step>
   <Step title="Index wiki pages (one-time setup)">
-    ```python
-    from src.kapso import Kapso
+```python
+from src.kapso import Kapso
 
-    kapso = Kapso()
-    kapso.index_kg(
-        wiki_dir="data/wikis_llm_finetuning",
-        save_to="data/indexes/llm_finetuning.index",
-    )
+kapso = Kapso()
+kapso.index_kg(
+    wiki_dir="data/wikis_llm_finetuning",
+    save_to="data/indexes/llm_finetuning.index",
+)
     ```
   </Step>
   <Step title="Use the indexed KG">
@@ -148,12 +148,12 @@ For domain-specific context, index a knowledge graph first:
     from src.kapso import Kapso
 
     # Load from existing index
-    kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
+kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
 
-    solution = kapso.evolve(
-        goal="Fine-tune Llama-3.1-8B with QLoRA, target loss < 0.5",
-        output_path="./models/qlora_v1",
-    )
+solution = kapso.evolve(
+    goal="Fine-tune Llama-3.1-8B with QLoRA, target loss < 0.5",
+    output_path="./models/qlora_v1",
+)
     ```
   </Step>
 </Steps>

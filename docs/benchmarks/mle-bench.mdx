@@ -3,7 +3,15 @@ title: "MLE-Bench"
 description: "Solving Kaggle ML competitions"
 ---
 
-MLE-Bench provides Kaggle competition problems for evaluating ML agents. Kapso Agent generates Python solutions that produce submission files.
+MLE-Bench is a benchmark for evaluating ML engineering agents on Kaggle competitions. Kapso achieved **#1 among open-source systems** on this benchmark.
+
+<Frame>
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/mle_benchmark.png" alt="MLE-Bench Results" />
+</Frame>
+
+<Note>
+These results were submitted as an [official submission to MLE-Bench](https://github.com/openai/mle-bench/pull/107).
+</Note>
 
 ## Usage
 
@@ -97,33 +105,6 @@ experiment_workspace/{uuid}/
 └── sessions/                  # Experiment branches
 ```
 
-## Execution Flow
-
-```mermaid
-sequenceDiagram
-    participant R as Runner
-    participant H as MleBenchHandler
-    participant O as Orchestrator
-    participant E as Evaluator
-    
-    R->>H: Initialize(competition_id)
-    H->>H: Prepare data, generate context
-    R->>O: solve(max_iterations)
-    
-    loop Each Iteration
-        O->>H: get_problem_context(budget)
-        O->>O: Generate & implement solution
-        O->>H: run(code_path)
-        H->>H: Run debug mode
-        H->>H: Run full mode
-        H->>E: grade_csv(submission)
-        E-->>O: score
-    end
-    
-    R->>H: final_evaluate(best_path)
-    H->>E: Grade on private test
-```
-
 ## Code Requirements
 
 Generated code must:
@@ -148,4 +129,3 @@ Generated code must:
 |----------|---------|-------------|
 | `CUDA_DEVICE` | `0` | GPU device ID |
 | `MLE_SEED` | `1` | Random seed |
-
