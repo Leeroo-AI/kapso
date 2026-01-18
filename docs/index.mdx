@@ -29,8 +29,10 @@ research_findings  = kapso.research(
 
 # Learn: Ingest knowledge from repositories
 kapso.learn(
-    Source.Repo("https://github.com/scikit-learn/scikit-learn"),
-    research_findings,
+    sources=[
+        Source.Repo("https://github.com/scikit-learn/scikit-learn"),
+        *research_findings.repos(top_k=10),
+    ],
     wiki_dir="data/wikis",
 )
 
@@ -43,8 +45,8 @@ solution = kapso.evolve(
     stop_condition="threshold",
     stop_condition_params={"threshold": 0.85},
     context=[
-        findings.ideas(top_k=20),
-        findings.papers(top_k=10),
+        research_findings.ideas(top_k=20),
+        research_findings.papers(top_k=10),
     ],
 )
 
