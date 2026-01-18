@@ -2,6 +2,10 @@
 
 This module provides integration with [ALE-Bench](https://github.com/SakanaAI/ALE-Bench), a benchmark for evaluating AI agents on AtCoder Heuristic Contests (algorithmic optimization problems).
 
+Kapso achieved **#1 on ALE-Bench**.
+
+![ALE-Bench Results](https://api.leeroo.com/storage/v1/object/public/opensource/ale_benchmark.png)
+
 ## Prerequisites
 
 Before installing ALE-Bench, ensure you have:
@@ -44,7 +48,7 @@ cd ALE-Bench
 pip install .
 pip install ".[eval]"
 
-# Return to expert agent directory
+# Return to Kapso directory
 cd ..
 ```
 
@@ -60,39 +64,71 @@ cd ..
 
 ## Usage
 
-### Run ALE-Bench
-
 ```bash
-cd /path/to/mle_expert_coding
-PYTHONPATH=. python -m benchmarks.ale.runner
+# List available problems
+PYTHONPATH=. python -m benchmarks.ale.runner --list
+
+# List lite benchmark problems
+PYTHONPATH=. python -m benchmarks.ale.runner --lite
+
+# Solve a problem
+PYTHONPATH=. python -m benchmarks.ale.runner -p ahc039
+
+# With options
+PYTHONPATH=. python -m benchmarks.ale.runner \
+    -p ahc039 \
+    -i 14 \
+    -m ALE_CONFIGS \
+    -d aider
 ```
 
-### Configure Problem
+## CLI Options
 
-Edit `benchmarks/ale/runner.py` to select which problem to run:
-
-```python
-problems_list = ["ahc039"]  # AtCoder Heuristic Contest problem
-```
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --problem` | Problem ID (e.g., `ahc039`) | Required |
+| `-i, --iterations` | Max experiment iterations | 14 |
+| `-m, --mode` | Config mode | `ALE_CONFIGS` |
+| `-d, --coding-agent` | Coding agent | From config |
+| `--list` | List all problems | - |
+| `--lite` | List lite problems | - |
+| `--list-agents` | List coding agents | - |
 
 ## Available Problems
 
-The lite version includes these AtCoder Heuristic Contest problems:
-
-| Problem ID | Contestants | Scoring | Description |
-|------------|-------------|---------|-------------|
-| ahc008 | 824 | Maximize | - |
-| ahc011 | 926 | Maximize | - |
-| ahc015 | 779 | Maximize | - |
-| ahc016 | 1047 | Maximize | - |
-| ahc024 | 664 | Maximize | - |
-| ahc025 | 879 | Minimize | - |
-| ahc026 | 740 | Maximize | - |
-| ahc027 | 999 | Minimize | - |
-| ahc039 | 683 | Maximize | - |
-| ahc046 | 939 | Maximize | - |
+`ahc008`, `ahc011`, `ahc015`, `ahc016`, `ahc024`, `ahc025`, `ahc026`, `ahc027`, `ahc039`, `ahc046`
 
 Use `ale_bench.list_problem_ids()` for all available problems.
+
+## Output Structure
+
+The agent generates:
+
+```
+experiment_workspace/{uuid}/
+├── main.cpp          # C++ solution
+├── pre_run.cpp       # Optional precomputation (max 1 min)
+└── sessions/         # Experiment branches
+```
+
+## Evaluation
+
+The evaluation process works as follows:
+
+1. **Code Submission**: The `main.cpp` file is read from the experiment workspace
+2. **Docker Evaluation**: Code is sent to `ale_bench.public_eval()` which compiles and runs in an isolated Docker container
+3. **Test Execution**: Solution runs against all test cases with strict time limits
+4. **Validation**: Each test case must return `ACCEPTED` with a non-zero score
+5. **Score Stabilization**: If all tests pass, the solution runs **4 additional times** and scores are averaged for stability
+6. **Final Ranking**: Private evaluation compares against original contest participants
+
+## Code Requirements
+
+Generated C++ must:
+- Be time-aware (limit: time_limit - 100ms for I/O)
+- Handle all input constraints
+- Use efficient algorithms and data structures
+- Include compiler optimization pragmas if helpful
 
 ## Environment Variables
 
@@ -101,18 +137,12 @@ Use `ale_bench.list_problem_ids()` for all available problems.
 | `OPENAI_API_KEY` | OpenAI API key (required) | - |
 | `GOOGLE_API_KEY` | Google API key for Gemini (required) | - |
 
-## Output
-
-The agent generates C++ solutions (`main.cpp`) which are evaluated in Docker containers against test cases. Final rankings are computed based on the score achieved.
-
 ## Domain Knowledge
 
 This benchmark includes built-in domain knowledge for common algorithmic optimization techniques:
 
-- **Simulated Annealing** - State representation, neighborhood design, temperature scheduling
-- **Beam Search** - Beam width, evaluation functions, diversity
-- **Monte Carlo Tree Search (MCTS)** - Exploration vs exploitation
-- **Random Simulation** - Heuristic scoring, depth control
-- **Dynamic Programming** - Memoization, state space reduction
+- **Simulated Annealing** - Design good state representation, balance small and large moves, avoid recomputation in legality checks, keep regret mechanism for constrained problems
+- **Beam / Random Search** - Balance diversity and quality in beams, fast-stop bad solutions, use strong heuristic scoring
+- **Random Simulation** - Define strong heuristic scoring, consider average and std of scores, balance greedy vs long-horizon moves
 
 See `benchmarks/ale/handler.py:_get_domain_knowledge()` for details.

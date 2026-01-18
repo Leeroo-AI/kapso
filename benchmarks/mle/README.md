@@ -2,6 +2,10 @@
 
 This module provides integration with [MLE-Bench](https://github.com/openai/mle-bench), OpenAI's benchmark for evaluating ML agents on Kaggle competitions.
 
+Kapso achieved **#1 among open-source systems** on this benchmark. These results were submitted as an [official submission to MLE-Bench](https://github.com/openai/mle-bench/pull/107).
+
+![MLE-Bench Results](https://api.leeroo.com/storage/v1/object/public/opensource/mle_benchmark.png)
+
 ## Prerequisites
 
 Before installing MLE-Bench, ensure you have:
@@ -43,7 +47,7 @@ git lfs pull
 # Install the package
 pip install -e .
 
-# Return to expert agent directory
+# Return to Kapso directory
 cd ..
 ```
 
@@ -72,33 +76,77 @@ PYTHONPATH=. python src/agents/wiki_agent/kg_agent/kg_agent.py
 
 ## Usage
 
-### Run MLE-Bench
-
 ```bash
-cd /path/to/mle_expert_coding
-PYTHONPATH=. python -m benchmarks.mle.runner
+# List available competitions
+PYTHONPATH=. python -m benchmarks.mle.runner --list
+
+# List lite benchmark competitions
+PYTHONPATH=. python -m benchmarks.mle.runner --lite
+
+# Solve a competition
+PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-2021
+
+# With options
+PYTHONPATH=. python -m benchmarks.mle.runner \
+    -c tabular-playground-series-dec-2021 \
+    -i 20 \
+    -m MLE_CONFIGS \
+    -d aider
 ```
 
-### Configure Competition
+## CLI Options
 
-Edit `benchmarks/mle/runner.py` to select which competition to run:
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-c, --competition` | Competition ID | Required |
+| `-i, --iterations` | Max experiment iterations | 20 |
+| `-m, --mode` | Config mode | `MLE_CONFIGS` |
+| `-d, --coding-agent` | Coding agent | From config |
+| `--no-kg` | Disable knowledge graph | Enabled |
+| `--list` | List all competitions | - |
+| `--lite` | List lite competitions | - |
+| `--list-agents` | List coding agents | - |
 
-```python
-problems_list = [
-    'spooky-author-identification',  # Text classification (small)
-    'leaf-classification',            # Image classification
-    # ... more competitions
-]
+## Stages
+
+The handler automatically adjusts strategy based on budget progress:
+
+| Stage | Budget | Behavior |
+|-------|--------|----------|
+| **MINI TRAINING** | 0-35% | Sample training data (for datasets >30GB) |
+| **FULL TRAINING** | 35-80% | Train on complete dataset |
+| **FINAL ENSEMBLING** | 80-100% | Ensemble best models from history |
+
+## Output Structure
+
+The agent generates:
+
+```
+experiment_workspace/{uuid}/
+├── main.py                    # Entry point
+├── output_data_{branch}/
+│   ├── final_submission.csv   # Kaggle submission file
+│   └── checkpoints/           # Model checkpoints
+└── sessions/                  # Experiment branches
 ```
 
-## Available Competitions
+## Code Requirements
 
-MLE-Bench includes competitions across various ML domains:
+Generated code must:
+- Support `--debug` flag for fast testing
+- Write `final_submission.csv` in the output directory
+- Print progress and metrics
+- Handle GPU efficiently (batch size, device selection)
+- Use early stopping and learning rate scheduling
 
-- **Tabular**: `tabular-playground-series-*`
-- **Image**: `dogs-vs-cats-*`, `plant-pathology-*`, `cassava-*`
-- **Text**: `spooky-author-identification`, `jigsaw-toxic-*`
-- **Audio**: `mlsp-2013-birds`
+## Competition Types
+
+| Type | Examples |
+|------|----------|
+| Tabular | `tabular-playground-series-*` |
+| Image | `dogs-vs-cats-*`, `plant-pathology-*` |
+| Text | `spooky-author-identification`, `jigsaw-toxic-*` |
+| Audio | `mlsp-2013-birds` |
 
 Use `mlebench.registry.registry.get_lite_competition_ids()` for the lightweight benchmark.
 
@@ -113,7 +161,3 @@ Use `mlebench.registry.registry.get_lite_competition_ids()` for the lightweight 
 | `NEO4J_URI` | Neo4j connection URI | `bolt://localhost:7687` |
 | `NEO4J_USER` | Neo4j username | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password | `password` |
-
-## Output
-
-The agent generates Python solutions that produce `final_submission.csv` files, which are graded against the competition's private test set.
