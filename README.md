@@ -1,6 +1,6 @@
 <h1 align="center">Kapso</h1>
 
-<h4 align="center">A framework where AI Learns, Experiments, Builds, and Ships</h4>
+<h4 align="center">A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization</h4>
 
 <p align="center">
   <a href="https://docs.leeroo.com">Learn more</a> ·
@@ -22,24 +22,27 @@
 
 ---
 
-## Introduction
+## What is Kapso?
 
-Kapso lets domain experts (quant, healthcare, data engineering, etc.) turn their knowledge into executable software — without deep engineering expertise. The system automates the cycle of **designing**, **testing**, and **refining** algorithms, eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
+Kapso combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover code improvements.
 
-### Key Features
+It automates the cycle of **designing**, **testing**, and **refining** algorithms, eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
+
+### The Four Pillars
+
+| Pillar | Method | Description |
+|--------|--------|-------------|
+| **Evolve** | `.evolve()` | Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions. |
+| **Learn** | `.learn()` | Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph. |
+| **Research** | `.research()` | Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions. |
+| **Deploy** | `.deploy()` | Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal. |
+
+### Why Kapso?
 
 - **Knowledge-Grounded**: Solutions are informed by domain knowledge, not just LLM priors
 - **Iterative Refinement**: Tree search explores multiple approaches, learns from failures
 - **Pluggable Components**: Swap coding agents, evaluators, and search strategies
 - **Full Lifecycle**: From research to deployment in a single framework
-- **Evidence-Backed Memory**: RepoMemory tracks code understanding with file-level evidence
-
-### Use Cases
-
-- **ML Competitions**: Automated Kaggle solution development with knowledge-guided experimentation
-- **LLM Fine-Tuning**: Build QLoRA/LoRA training pipelines with best practices from your knowledge base
-- **Data Engineering**: Create ETL pipelines that meet throughput and quality requirements
-- **General Software**: Any problem that benefits from iterative experimentation and domain knowledge
 
 ## 🚀 Quickstart
 
