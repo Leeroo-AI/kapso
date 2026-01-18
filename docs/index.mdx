@@ -5,9 +5,9 @@ description: "A Knowledge-grounded framework for Autonomous Program Synthesis an
 
 ## What is Kapso?
 
-Kapso combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover code improvements. 
+Kapso combines **iterative experimentation** with a **knowledge base** of best practices, domain knowledge, and implementation patterns to discover and validate code improvements. 
 
-It automates the cycle of **designing**, **testing**, and **refining** algorithms,  eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
+It automates the cycle of **designing**, **running**, evaluating, and **refining** solutions,  eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
 
 <Frame>
   <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" />
@@ -22,7 +22,7 @@ from src.kapso import Kapso, Source, DeployStrategy
 kapso = Kapso(kg_index="data/indexes/kaggle.index")
 
 # Research: Gather ideas from the web
-research = kapso.research(
+research_findings = kapso.research(
     "XGBoost best practices for tabular datasets",
     mode="idea",
     depth="deep",
@@ -31,7 +31,7 @@ research = kapso.research(
 # Learn: Ingest knowledge from repositories
 kapso.learn(
     Source.Repo("https://github.com/scikit-learn/scikit-learn"),
-    research,
+    research_findings,
     wiki_dir="data/wikis",
 )
 
@@ -54,16 +54,16 @@ result = software.run({"data_path": "./test.csv"})
 
 <CardGroup cols={2}>
   <Card title="Evolve" icon="dna">
-    **`.evolve()`** : Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions.
+    **`.evolve()`** : Run iterative evaluation grounded experiments to build the optimum solution for a goal. Uses tree search, coding agents, and KG context to generate ideas and refine solutions.
   </Card>
   <Card title="Learn" icon="brain">
-    **`.learn()`** : Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph.
+    **`.learn()`** : Ingest knowledge from repositories, past solutions, or written knowledge. Extracts patterns and best practices into the Knowledge Graph.
   </Card>
   <Card title="Research" icon="magnifying-glass">
-    **`.research()`** : Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions.
+    **`.research()`** : Run deep web research to gather ideas, implementation references and releveant repositories. Returns structured findings you can pass to learning or use as context for evolving solutions.
   </Card>
   <Card title="Deploy" icon="rocket">
-    **`.deploy()`** :  Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal.
+    **`.deploy()`** :  Turn a solution into running app. Supports local execution, Docker containers, or cloud platforms like Modal.
   </Card>
 </CardGroup>
 
