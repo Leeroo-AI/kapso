@@ -22,9 +22,8 @@ from src.kapso import Kapso, Source, DeployStrategy
 kapso = Kapso(kg_index="data/indexes/kaggle.index")
 
 # Research: Gather ideas from the web
-research_findings = kapso.research(
+research_findings  = kapso.research(
     "XGBoost best practices for tabular datasets",
-    mode="idea",
     depth="deep",
 )
 
@@ -43,6 +42,10 @@ solution = kapso.evolve(
     evaluator_params={"pattern": r"AUC: ([\d.]+)"},
     stop_condition="threshold",
     stop_condition_params={"threshold": 0.85},
+    context=[
+        findings.ideas(top_k=20),
+        findings.papers(top_k=10),
+    ],
 )
 
 # Deploy: Turn solution into running software
