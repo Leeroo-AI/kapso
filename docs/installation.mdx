@@ -343,14 +343,6 @@ python -c "import weaviate; print('Weaviate client OK')"
   ```
 </Accordion>
 
-<Accordion title="Dependency conflicts with aider-chat">
-  `aider-chat` has strict pinned dependencies that conflict with some packages:
-  - `openhands` requires `litellm>=1.80.7`, but aider pins `litellm==1.75.0`
-  - `browser-use` requires `openai>=2.7.2`, but aider pins `openai==1.99.1`
-
-  **Solution**: Use separate conda environments for conflicting packages.
-</Accordion>
-
 <Accordion title="MediaWiki issues">
   ```bash
   # View MediaWiki logs
@@ -364,12 +356,4 @@ python -c "import weaviate; print('Weaviate client OK')"
 
 <Accordion title="Port conflicts">
   If default ports are in use, modify `services/infrastructure/docker-compose.yml` or use different port mappings.
-</Accordion>
-
-<Accordion title="Git LFS files not downloaded">
-  ```bash
-  git lfs install
-  git lfs fetch --all
-  git lfs pull
-  ```
 </Accordion>
