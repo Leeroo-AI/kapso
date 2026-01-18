@@ -17,6 +17,10 @@
 </p>
 
 <p align="center">
+  If you like this project, please support us by giving it a star ⭐
+</p>
+
+<p align="center">
   <img src="assets/framework.png" alt="Kapso Framework Architecture" width="800">
 </p>
 
@@ -155,8 +159,8 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 
 | Benchmark | Description |
 |-----------|-------------|
-| **MLE-Bench** | Kaggle ML competitions — tabular, image, text, audio problems |
-| **ALE-Bench** | AtCoder algorithmic optimization — C++ solution generation |
+| [**MLE-Bench**](benchmarks/mle/README.md) | Kaggle ML competitions — tabular, image, text, audio problems |
+| [**ALE-Bench**](benchmarks/ale/README.md) | AtCoder algorithmic optimization — C++ solution generation |
 
 ## Contributing
 
@@ -165,3 +169,16 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## ⚖️ License
 
 MIT — see the [LICENSE](LICENSE) file for details.
+
+## Citation
+
+If you use Kapso in your research, please cite:
+
+```bibtex
+@software{kapso2025,
+  title = {Kapso: A Knowledge-grounded Framework for Autonomous Program Synthesis and Optimization},
+  author = {Nadaf, Alireza and Mohammadshahi, Alireza and Yazdani, Majid and {Leeroo Coding Agent}},
+  year = {2025},
+  url = {https://github.com/leeroo-ai/kapso},
+}
+```
