@@ -1,11 +1,5 @@
 """
-Kapso Agent - A machine learning kapso agent for automated ML experimentation.
-
-This package provides agents for:
-- Orchestrating ML experiments
-- Developing and testing ML code
-- Searching optimal ML configurations
-- Managing experiment context and knowledge
+Kapso Agent - A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization.
 """
 
 __version__ = "0.1.0"

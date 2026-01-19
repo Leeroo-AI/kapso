@@ -3,13 +3,13 @@ requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "expert_agent"
+name = "kapso"
 version = "0.1.0"
-description = "A machine learning expert agent for automated ML experimentation"
+description = "A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [
-    {name = "Expert Agent Team"}
+    {name = "Leeroo Team"}
 ]
 license = {text = "MIT"}
 
