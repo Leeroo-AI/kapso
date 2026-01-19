@@ -29,11 +29,11 @@
 - **Technical Report**: Our technical report is now available! [Read the paper](publication/tech_report.pdf)
 - **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
 
-  ![MLE-Bench Results](https://api.leeroo.com/storage/v1/object/public/opensource/mle_benchmark.png)
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/mle_benchmark.png" alt="MLE-Bench Results" width="600">
 
 - **#1 on [ALE-Bench](benchmarks/ale/README.md)**: KAPSO achieved top ranking on long-horizon algorithmic discovery problems (ALE Benchmark).
 
-  ![ALE-Bench Results](https://api.leeroo.com/storage/v1/object/public/opensource/ale_benchmark.png)
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/ale_benchmark.png" alt="ALE-Bench Results" width="600">
 
 ## What is KAPSO?
 
