@@ -92,24 +92,42 @@ ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
 ### Basic Usage
 
 ```python
-from src.kapso import Kapso, DeployStrategy
+from src.kapso import Kapso, Source, DeployStrategy
 
-# Initialize Kapso
-kapso = Kapso()
+# Initialize Kapso with legal domain knowledge
+kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
-# Build a solution — Kapso runs experiments automatically
-solution = kapso.evolve(
-    goal="Build a random forest classifier for the Iris dataset with accuracy > 0.9",
-    output_path="./models/iris_v1",
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"Accuracy: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.9},
+# Research: Gather domain-specific alignment techniques
+research_findings = kapso.research(
+    "RLHF and DPO fine-tuning for legal contract analysis",
+    depth="deep",
 )
 
-# Deploy and run
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = deployed_program.run({"data_path": "./test.csv"})
+# Learn: Ingest knowledge from repositories
+kapso.learn(
+    sources=[
+        Source.Repo("https://github.com/huggingface/trl"),
+        *research_findings.repos(top_k=10),
+    ],
+    wiki_dir="data/wikis",
+)
+
+# Evolve: Build a solution through experimentation
+solution = kapso.evolve(
+    goal="Fine-tune Llama-3.1-8B for legal contract risk classification using DPO alignment, target F1 > 0.85 on high-risk clause detection",
+    output_path="./models/legal_risk_v1",
+    evaluator="regex_pattern",
+    evaluator_params={"pattern": r"F1: ([\d.]+)"},
+    stop_condition="threshold",
+    stop_condition_params={"threshold": 0.85},
+    context=[
+        research_findings.ideas(top_k=20)
+    ],
+)
+
+# Deploy: Turn solution into running deployed_program
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
+result = deployed_program.run({"contract_path": "./contracts/sample.pdf"})
 
 # Cleanup
 deployed_program.stop()
