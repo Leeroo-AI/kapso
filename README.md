@@ -211,3 +211,7 @@ If you use Kapso in your research, please cite:
   url = {https://github.com/leeroo-ai/kapso},
 }
 ```
+
+---
+
+> **Note**: Some functionalities of the `.learn()` and `.research()` operations are on our roadmap and will be updated in upcoming releases.
