@@ -246,14 +246,14 @@ def deploy(
 #### Example
 
 ```python
-software = kapso.deploy(
+deployed_program = kapso.deploy(
     solution,
     strategy=DeployStrategy.LOCAL,
     env_vars={"API_KEY": "..."},
 )
 
-result = software.run({"data_path": "./test.csv"})
-software.stop()
+result = deployed_program.run({"data_path": "./test.csv"})
+deployed_program.stop()
 ```
 
 ### index_kg()
@@ -388,11 +388,11 @@ solution = kapso.evolve(
 )
 
 # Deploy
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"data_path": "./test.csv"})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = deployed_program.run({"data_path": "./test.csv"})
 
 # Cleanup
-software.stop()
+deployed_program.stop()
 
 # Learn from experience
 kapso.learn(Source.Solution(solution))

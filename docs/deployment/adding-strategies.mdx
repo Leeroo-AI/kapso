@@ -239,13 +239,13 @@ from src.kapso import Kapso
 from src.deployment import DeployStrategy
 
 # Add to DeployStrategy enum (or use string)
-software = kapso.deploy(solution, strategy="my_strategy")
+deployed_program = kapso.deploy(solution, strategy="my_strategy")
 
 # Or via factory
 from src.deployment import DeploymentFactory, DeployConfig
 
 config = DeployConfig(solution=solution)
-software = DeploymentFactory.create("my_strategy", config)
+deployed_program = DeploymentFactory.create("my_strategy", config)
 ```
 
 ## Testing Your Strategy

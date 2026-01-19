@@ -20,8 +20,8 @@ Run as a local Python process. Fastest for development and testing.
 ### Usage
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"data_path": "./data.csv"})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = deployed_program.run({"data_path": "./data.csv"})
 ```
 
 ### How It Works
@@ -56,8 +56,8 @@ Run in an isolated Docker container.
 ### Usage
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
-result = software.run({"data_path": "/data/input.csv"})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
+result = deployed_program.run({"data_path": "/data/input.csv"})
 ```
 
 ### How It Works
@@ -99,8 +99,8 @@ modal token new
 ### Usage
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-result = software.run({"prompt": "Hello, world!"})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
+result = deployed_program.run({"prompt": "Hello, world!"})
 ```
 
 ### How It Works
@@ -142,8 +142,8 @@ pip install bentoml
 ### Usage
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.BENTOML)
-result = software.run({"features": [1, 2, 3]})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.BENTOML)
+result = deployed_program.run({"features": [1, 2, 3]})
 ```
 
 ### How It Works
@@ -184,8 +184,8 @@ pip install langgraph
 ### Usage
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.LANGGRAPH)
-result = software.run({"query": "What is 2+2?"})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LANGGRAPH)
+result = deployed_program.run({"query": "What is 2+2?"})
 ```
 
 ### How It Works
@@ -199,7 +199,7 @@ result = software.run({"query": "What is 2+2?"})
 When `DeployStrategy.AUTO` is used, the selector analyzes the code:
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.AUTO)
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.AUTO)
 # System chooses based on:
 # - Code complexity
 # - Resource requirements (GPU, memory)
@@ -246,7 +246,7 @@ run_interface = {
 Pass environment variables to deployments:
 
 ```python
-software = kapso.deploy(
+deployed_program = kapso.deploy(
     solution,
     strategy=DeployStrategy.DOCKER,
     env_vars={

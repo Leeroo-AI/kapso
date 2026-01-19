@@ -31,16 +31,16 @@ kapso = Kapso()
 solution = kapso.evolve(goal="Build a classifier")
 
 # Deploy with explicit strategy
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 
 # Run inference
-result = software.run({"data_path": "./test.csv"})
+result = deployed_program.run({"data_path": "./test.csv"})
 print(result)  # {"status": "success", "output": ...}
 
 # Lifecycle management
-software.stop()
-software.start()
-software.stop()
+deployed_program.stop()
+deployed_program.start()
+deployed_program.stop()
 ```
 
 ## Deployment Strategies
@@ -114,7 +114,7 @@ config = DeployConfig(
     coding_agent="claude_code",
 )
 
-software = DeploymentFactory.create(DeployStrategy.LOCAL, config)
+deployed_program = DeploymentFactory.create(DeployStrategy.LOCAL, config)
 ```
 
 ## Deployment Info
@@ -123,7 +123,7 @@ Get details about the deployment:
 
 ```python
 # Get deployment metadata
-info = software.get_deployment_info()
+info = deployed_program.get_deployment_info()
 print(info)
 # {
 #     "strategy": "local",
@@ -135,44 +135,44 @@ print(info)
 # }
 
 # Individual accessors
-software.get_strategy()      # "local"
-software.get_adapted_path()  # Path to adapted code
-software.get_endpoint()      # HTTP endpoint (if applicable)
+deployed_program.get_strategy()      # "local"
+deployed_program.get_adapted_path()  # Path to adapted code
+deployed_program.get_endpoint()      # HTTP endpoint (if applicable)
 ```
 
 ## Lifecycle Management
 
 ```python
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 
 # Initial run
-result = software.run({"data": "..."})
+result = deployed_program.run({"data": "..."})
 
 # Check health
-if software.is_healthy():
+if deployed_program.is_healthy():
     print("Service is running")
 
 # Stop (cleanup resources)
-software.stop()
+deployed_program.stop()
 
 # Restart
-software.start()
+deployed_program.start()
 
 # Run again
-result = software.run({"data": "..."})
+result = deployed_program.run({"data": "..."})
 
 # Final cleanup
-software.stop()
+deployed_program.stop()
 ```
 
 ## Error Handling
 
 ```python
-result = software.run({"data": "..."})
+result = deployed_program.run({"data": "..."})
 
 if result["status"] == "error":
     print(f"Error: {result['error']}")
-    print(f"Logs: {software.logs()}")
+    print(f"Logs: {deployed_program.logs()}")
 ```
 
 ## Next Steps

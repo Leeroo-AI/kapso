@@ -72,13 +72,13 @@ config = DeployConfig(
 )
 
 # Auto-select best strategy
-software = DeploymentFactory.create(DeployStrategy.AUTO, config)
+deployed_program = DeploymentFactory.create(DeployStrategy.AUTO, config)
 
 # Force specific strategy
-software = DeploymentFactory.create(DeployStrategy.MODAL, config)
+deployed_program = DeploymentFactory.create(DeployStrategy.MODAL, config)
 
 # Restrict to certain strategies
-software = DeploymentFactory.create(
+deployed_program = DeploymentFactory.create(
     DeployStrategy.AUTO, 
     config,
     strategies=["local", "docker"]
@@ -283,7 +283,7 @@ def run(self, inputs: Union[Dict, str, bytes]) -> Dict[str, Any]
 **Example:**
 
 ```python
-result = software.run({"text": "hello"})
+result = deployed_program.run({"text": "hello"})
 
 if result["status"] == "success":
     print(result["output"])
@@ -315,8 +315,8 @@ def stop(self) -> None
 **Example:**
 
 ```python
-software.stop()
-print(software.is_healthy())  # False
+deployed_program.stop()
+print(deployed_program.is_healthy())  # False
 ```
 
 ---
@@ -344,15 +344,15 @@ def start(self) -> None
 
 ```python
 # After stop()
-software.stop()
-print(software.is_healthy())  # False
+deployed_program.stop()
+print(deployed_program.is_healthy())  # False
 
 # Restart
-software.start()
-print(software.is_healthy())  # True
+deployed_program.start()
+print(deployed_program.is_healthy())  # True
 
 # Can run again
-result = software.run({"text": "hello again"})
+result = deployed_program.run({"text": "hello again"})
 ```
 
 ---
@@ -371,7 +371,7 @@ def logs(self) -> str
 **Example:**
 
 ```python
-print(software.logs())
+print(deployed_program.logs())
 # Initialized local deployment
 # run() called with: {"text": "hello"}
 # run() completed: status=success
@@ -393,8 +393,8 @@ def is_healthy(self) -> bool
 **Example:**
 
 ```python
-if software.is_healthy():
-    result = software.run(inputs)
+if deployed_program.is_healthy():
+    result = deployed_program.run(inputs)
 else:
     print("Software not healthy!")
 ```
@@ -414,7 +414,7 @@ def name(self) -> str
 **Example:**
 
 ```python
-print(software.name)  # "modal"
+print(deployed_program.name)  # "modal"
 ```
 
 ---
@@ -427,8 +427,8 @@ Shorthand for `run()`.
 
 ```python
 # These are equivalent
-result = software.run(inputs)
-result = software(inputs)
+result = deployed_program.run(inputs)
+result = deployed_program(inputs)
 ```
 
 ---
@@ -444,7 +444,7 @@ def run_batch(self, inputs_list: List[Any]) -> List[Dict[str, Any]]
 **Example:**
 
 ```python
-results = software.run_batch([
+results = deployed_program.run_batch([
     {"text": "hello"},
     {"text": "world"},
     {"text": "test"},
@@ -459,9 +459,9 @@ for result in results:
 #### Context Manager Support
 
 ```python
-with DeploymentFactory.create(strategy, config) as software:
-    result = software.run(inputs)
-# software.stop() called automatically
+with DeploymentFactory.create(strategy, config) as deployed_program:
+    result = deployed_program.run(inputs)
+# deployed_program.stop() called automatically
 ```
 
 ---
@@ -483,7 +483,7 @@ def get_adapted_path(self) -> str
 **Example:**
 
 ```python
-path = software.get_adapted_path()
+path = deployed_program.get_adapted_path()
 print(path)  # "/path/to/solution_adapted_modal"
 ```
 
@@ -502,7 +502,7 @@ def get_endpoint(self) -> Optional[str]
 **Example:**
 
 ```python
-endpoint = software.get_endpoint()
+endpoint = deployed_program.get_endpoint()
 if endpoint:
     print(f"API available at: {endpoint}")
 ```
@@ -829,44 +829,44 @@ kapso = Kapso()
 solution = kapso.evolve("Create a text embedding API using sentence-transformers")
 
 # 2. Deploy with auto-selection
-software = kapso.deploy(solution)
-print(f"Deployed using: {software.name}")
-print(f"Endpoint: {software.get_endpoint()}")
+deployed_program = kapso.deploy(solution)
+print(f"Deployed using: {deployed_program.name}")
+print(f"Endpoint: {deployed_program.get_endpoint()}")
 
-# 3. Use the software
-result = software.run({"text": "Hello world"})
+# 3. Use the deployed_program
+result = deployed_program.run({"text": "Hello world"})
 if result["status"] == "success":
     embeddings = result["output"]["embeddings"]
     print(f"Got {len(embeddings)} dimensional embeddings")
 
 # 4. Batch processing
 texts = ["text 1", "text 2", "text 3"]
-results = software.run_batch([{"text": t} for t in texts])
+results = deployed_program.run_batch([{"text": t} for t in texts])
 
 # 5. Check health
-if software.is_healthy():
+if deployed_program.is_healthy():
     print("Service is healthy")
 
 # 6. Get logs for debugging
-print(software.logs())
+print(deployed_program.logs())
 
 # 7. Get deployment details
-info = software.get_deployment_info()
+info = deployed_program.get_deployment_info()
 print(f"Strategy: {info['strategy']}")
 print(f"Adapted path: {info['adapted_path']}")
 
 # 8. Stop and restart (full lifecycle)
-software.stop()
-print(f"Is healthy after stop: {software.is_healthy()}")  # False
+deployed_program.stop()
+print(f"Is healthy after stop: {deployed_program.is_healthy()}")  # False
 
-software.start()
-print(f"Is healthy after start: {software.is_healthy()}")  # True
+deployed_program.start()
+print(f"Is healthy after start: {deployed_program.is_healthy()}")  # True
 
 # 9. Run again after restart
-result = software.run({"text": "Working again!"})
+result = deployed_program.run({"text": "Working again!"})
 
 # 10. Final cleanup
-software.stop()
+deployed_program.stop()
 ```
 
 ---
@@ -875,8 +875,8 @@ software.stop()
 
 ```python
 try:
-    software = DeploymentFactory.create(DeployStrategy.MODAL, config)
-    result = software.run(inputs)
+    deployed_program = DeploymentFactory.create(DeployStrategy.MODAL, config)
+    result = deployed_program.run(inputs)
     
     if result["status"] == "error":
         print(f"Execution error: {result['error']}")
@@ -888,8 +888,8 @@ except RuntimeError as e:
     print(f"Deployment failed: {e}")
     
 finally:
-    if 'software' in locals():
-        software.stop()
+    if 'deployed_program' in locals():
+        deployed_program.stop()
 ```
 
 ---

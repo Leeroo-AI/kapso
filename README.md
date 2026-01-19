@@ -108,11 +108,11 @@ solution = kapso.evolve(
 )
 
 # Deploy and run
-software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = software.run({"data_path": "./test.csv"})
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = deployed_program.run({"data_path": "./test.csv"})
 
 # Cleanup
-software.stop()
+deployed_program.stop()
 ```
 
 ### With Knowledge Graph
