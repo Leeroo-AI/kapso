@@ -116,8 +116,7 @@ kapso.learn(
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B for legal contract risk classification using DPO alignment, target F1 > 0.85 on high-risk clause detection",
     output_path="./models/legal_risk_v1",
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"F1: ([\d.]+)"},
+    evaluator="f1_score",
     stop_condition="threshold",
     stop_condition_params={"threshold": 0.85},
     context=[
