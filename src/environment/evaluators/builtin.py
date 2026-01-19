@@ -8,6 +8,7 @@
 # - regex_pattern: Parse score from output using regex
 # - file_json: Read score from JSON file
 # - multi_metric: Weighted combination of multiple metrics
+# - f1_score: Extract F1 score from output (common ML metric)
 # - llm_judge: LLM-based evaluation
 # - llm_comparison: LLM comparison against expected output
 # - composite: Combine multiple evaluators
@@ -149,6 +150,170 @@ class FileJsonEvaluator(Evaluator):
                 feedback=f"Error reading score: {e}",
                 raw_output=output,
             )
+
+
+@register_evaluator("f1_score")
+class F1ScoreEvaluator(Evaluator):
+    """
+    Extract F1 score from output.
+    
+    Supports multiple common output formats:
+    - "F1: 0.85" or "F1 Score: 0.85"
+    - "f1_score: 0.85" or "f1-score: 0.85"
+    - "F1=0.85" or "f1 = 0.85"
+    - Percentage format: "F1: 85%" (auto-converts to 0.85)
+    - JSON in output: {"f1": 0.85} or {"f1_score": 0.85}
+    
+    Params:
+        default_score: Score if F1 not found (default: 0.0)
+        source: Where to look - "output", "file", or "both" (default: "both")
+        filename: JSON file to check if source includes "file" (default: "results.json")
+        json_key: Key path in JSON file (default: "f1_score", also tries "f1")
+        
+    Example:
+        # Simple usage - just pass evaluator="f1_score"
+        solution = kapso.evolve(
+            goal="Train model with F1 > 0.85",
+            evaluator="f1_score",
+            stop_condition="threshold",
+            stop_condition_params={"threshold": 0.85},
+        )
+        
+        # With custom JSON file
+        solution = kapso.evolve(
+            goal="Train model",
+            evaluator="f1_score",
+            evaluator_params={"source": "file", "filename": "metrics.json"},
+            stop_condition="threshold",
+            stop_condition_params={"threshold": 0.90},
+        )
+    """
+    
+    description = "Extract F1 score from output or file"
+    requires_llm = False
+    
+    # Common patterns for F1 score in output
+    # Ordered by specificity - more specific patterns first
+    F1_PATTERNS = [
+        # Explicit F1 patterns with various separators
+        r'f1[_\-\s]*score\s*[:=]\s*([\d.]+)\s*%?',  # f1_score: 0.85 or f1-score = 85%
+        r'f1\s*[:=]\s*([\d.]+)\s*%?',               # F1: 0.85 or f1 = 85%
+        r'f1[_\-\s]*macro\s*[:=]\s*([\d.]+)\s*%?',  # f1_macro: 0.85
+        r'f1[_\-\s]*micro\s*[:=]\s*([\d.]+)\s*%?',  # f1_micro: 0.85
+        r'f1[_\-\s]*weighted\s*[:=]\s*([\d.]+)\s*%?', # f1_weighted: 0.85
+        # JSON-like patterns in output
+        r'"f1_score"\s*:\s*([\d.]+)',               # "f1_score": 0.85
+        r'"f1"\s*:\s*([\d.]+)',                     # "f1": 0.85
+        r"'f1_score'\s*:\s*([\d.]+)",               # 'f1_score': 0.85
+        r"'f1'\s*:\s*([\d.]+)",                     # 'f1': 0.85
+    ]
+    
+    # Keys to try when reading from JSON file
+    JSON_KEYS = [
+        "f1_score", "f1", "f1-score",
+        "f1_macro", "f1_micro", "f1_weighted",
+        "metrics.f1_score", "metrics.f1",
+        "evaluation.f1_score", "evaluation.f1",
+        "results.f1_score", "results.f1",
+    ]
+    
+    def __init__(
+        self,
+        default_score: float = 0.0,
+        source: str = "both",  # "output", "file", or "both"
+        filename: str = "results.json",
+        json_key: Optional[str] = None,  # If None, tries common keys
+        **params
+    ):
+        super().__init__(**params)
+        self.default_score = default_score
+        self.source = source.lower()
+        self.filename = filename
+        self.json_key = json_key
+        
+        # Compile patterns for efficiency
+        self._compiled_patterns = [
+            re.compile(p, re.IGNORECASE) for p in self.F1_PATTERNS
+        ]
+    
+    def _extract_from_output(self, output: str) -> Optional[float]:
+        """Try to extract F1 score from stdout/stderr output."""
+        for pattern in self._compiled_patterns:
+            match = pattern.search(output)
+            if match:
+                value = float(match.group(1))
+                # Convert percentage to decimal if needed
+                if value > 1.0:
+                    value = value / 100.0
+                return value
+        return None
+    
+    def _extract_from_file(self, file_path: str) -> Optional[float]:
+        """Try to extract F1 score from JSON file."""
+        file_path_full = os.path.join(file_path, self.filename)
+        
+        if not os.path.exists(file_path_full):
+            return None
+        
+        try:
+            with open(file_path_full) as f:
+                data = json.load(f)
+            
+            # If specific key provided, use it
+            keys_to_try = [self.json_key] if self.json_key else self.JSON_KEYS
+            
+            for key in keys_to_try:
+                if key is None:
+                    continue
+                try:
+                    # Navigate dot notation (e.g., "metrics.f1")
+                    value = data
+                    for k in key.split("."):
+                        value = value[k]
+                    
+                    score = float(value)
+                    # Convert percentage to decimal if needed
+                    if score > 1.0:
+                        score = score / 100.0
+                    return score
+                except (KeyError, TypeError):
+                    continue
+                    
+        except (json.JSONDecodeError, IOError):
+            pass
+        
+        return None
+    
+    def evaluate(self, output: str, file_path: str, **context) -> EvaluationResult:
+        score = None
+        source_found = None
+        
+        # Try output first (usually more immediate feedback)
+        if self.source in ("output", "both"):
+            score = self._extract_from_output(output)
+            if score is not None:
+                source_found = "output"
+        
+        # Try file if not found in output or if source is "file"
+        if score is None and self.source in ("file", "both"):
+            score = self._extract_from_file(file_path)
+            if score is not None:
+                source_found = f"file:{self.filename}"
+        
+        # Return result
+        if score is not None:
+            return EvaluationResult(
+                score=score,
+                details={"source": source_found, "f1_score": score},
+                raw_output=output,
+            )
+        
+        return EvaluationResult(
+            score=self.default_score,
+            feedback=f"F1 score not found in {self.source}",
+            details={"source": None, "searched": self.source},
+            raw_output=output,
+        )
 
 
 @register_evaluator("multi_metric")
