@@ -24,7 +24,7 @@
 
 ---
 
-> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **Leeroopedia** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge hub with best practices and expert-level implementation patterns, written by Kapso and human experts.
+> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **Leeroopedia** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge wiki with best practices and expert-level implementation patterns, written by Kapso and human experts.
 
 ## News
 
@@ -203,10 +203,10 @@ MIT — see the [LICENSE](LICENSE) file for details.
 If you use Kapso in your research, please cite:
 
 ```bibtex
-@software{kapso2025,
+@software{kapso2026,
   title = {Kapso: A Knowledge-grounded Framework for Autonomous Program Synthesis and Optimization},
-  author = {Nadaf, Alireza and Mohammadshahi, Alireza and Yazdani, Majid and {Leeroo Coding Agent}},
-  year = {2025},
+  author = {Mohammadshahi, Alireza and Nadaf, Alireza and Yazdani, Majid and {Leeroo Coding Agent}},
+  year = {2026},
   url = {https://github.com/leeroo-ai/kapso},
 }
 ```
