@@ -24,7 +24,7 @@
 
 ---
 
-> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **Leeroopedia** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge hub with best practices and expert-level implementation patterns, written by Kapso and human experts.
+> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **Leeroopedia** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge wiki with best practices and expert-level implementation patterns, written by Kapso and human experts.
 
 ## News
 
