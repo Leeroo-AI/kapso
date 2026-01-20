@@ -203,10 +203,10 @@ MIT — see the [LICENSE](LICENSE) file for details.
 If you use Kapso in your research, please cite:
 
 ```bibtex
-@software{kapso2025,
+@software{kapso2026,
   title = {Kapso: A Knowledge-grounded Framework for Autonomous Program Synthesis and Optimization},
-  author = {Nadaf, Alireza and Mohammadshahi, Alireza and Yazdani, Majid and {Leeroo Coding Agent}},
-  year = {2025},
+  author = {Mohammadshahi, Alireza and Nadaf, Alireza and Yazdani, Majid and {Leeroo Coding Agent}},
+  year = {2026},
   url = {https://github.com/leeroo-ai/kapso},
 }
 ```
