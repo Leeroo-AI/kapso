@@ -94,16 +94,17 @@ ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
 ```python
 from src.kapso import Kapso, Source, DeployStrategy
 
-# Initialize Kapso with legal domain knowledge
+# Initialize Kapso
+# If you have a Knowledge Graph, pass kg_index; otherwise just use Kapso()
 kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
-# Research: Gather domain-specific alignment techniques
+# Research: Gather domain-specific techniques from the web
 research_findings = kapso.research(
     "RLHF and DPO fine-tuning for legal contract analysis",
     depth="deep",
 )
 
-# Learn: Ingest knowledge from repositories
+# Learn: Ingest knowledge from repositories into the KG
 kapso.learn(
     sources=[
         Source.Repo("https://github.com/huggingface/trl"),
@@ -113,52 +114,19 @@ kapso.learn(
 )
 
 # Evolve: Build a solution through experimentation
+# The agent writes evaluate.py to compute metrics and signal when target is reached
 solution = kapso.evolve(
-    goal="Fine-tune Llama-3.1-8B for legal contract risk classification using DPO alignment, target F1 > 0.85 on high-risk clause detection",
+    goal="Fine-tune Llama-3.1-8B on the CUAD dataset for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
     output_path="./models/legal_risk_v1",
-    evaluator="f1_score",
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.85},
-    context=[
-        research_findings.ideas(top_k=20)
-    ],
+    context=[research_findings.ideas(top_k=20)],
 )
 
-# Deploy: Turn solution into running deployed_program
+# Deploy: Turn solution into running software
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
 result = deployed_program.run({"contract_path": "./contracts/sample.pdf"})
 
 # Cleanup
 deployed_program.stop()
-```
-
-### With Knowledge Graph
-
-```python
-from src.kapso import Kapso, Source
-
-# Initialize with pre-indexed knowledge
-kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
-
-# Research best practices
-research = kapso.research(
-    "QLoRA fine-tuning best practices",
-    mode="implementation",
-    depth="deep",
-)
-
-# Learn from repositories
-kapso.learn(
-    Source.Repo("https://github.com/huggingface/peft"),
-    research,
-    wiki_dir="data/wikis",
-)
-
-# Build with knowledge context
-solution = kapso.evolve(
-    goal="Fine-tune Llama-3.1-8B with QLoRA, target loss < 0.5",
-    output_path="./models/qlora_v1",
-)
 ```
 
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.
