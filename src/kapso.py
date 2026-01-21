@@ -436,9 +436,9 @@ class Kapso:
         timeout: int = 300,
         data_dir: Optional[str] = None,
         # --- Evaluation options ---
-        evaluator: str = "no_score",
+        evaluator: Optional[str] = None,  # Default: "script" (agent-written evaluate.py)
         evaluator_params: Optional[Dict[str, Any]] = None,
-        stop_condition: str = "never",
+        stop_condition: Optional[str] = None,  # Default: "from_eval" (stop when evaluate.py signals)
         stop_condition_params: Optional[Dict[str, Any]] = None,
         # --- Extra context options ---
         additional_context: str = "",
@@ -467,9 +467,9 @@ class Kapso:
             timeout: Execution timeout in seconds (default: 300)
             data_dir: Path to data files needed for the evolution
             
-            evaluator: Evaluator type (no_score, regex_pattern, llm_judge, etc.)
+            evaluator: Evaluator type (default: "script" - agent writes evaluate.py)
             evaluator_params: Parameters for the evaluator
-            stop_condition: Stop condition (never, threshold, plateau, etc.)
+            stop_condition: Stop condition (default: "from_eval" - stop when evaluate.py signals)
             stop_condition_params: Parameters for stop condition
             
             additional_context: Extra context appended to the problem prompt.
@@ -486,8 +486,8 @@ class Kapso:
         print(f"  Main file: {main_file}")
         if data_dir:
             print(f"  Data dir: {data_dir}")
-        print(f"  Evaluator: {evaluator}")
-        print(f"  Stop condition: {stop_condition}")
+        print(f"  Evaluator: {evaluator or 'script (default)'}")
+        print(f"  Stop condition: {stop_condition or 'from_eval (default)'}")
         print(f"  Coding agent: {coding_agent or 'from config'}")
         if starting_repo_path:
             print(f"  Starting repo: {starting_repo_path}")

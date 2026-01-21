@@ -390,3 +390,59 @@ class CompositeStopCondition(StopCondition):
             },
         )
 
+
+# =============================================================================
+# From Eval Stop Condition (Default)
+# =============================================================================
+
+@register_stop_condition("from_eval")
+class FromEvalStopCondition(StopCondition):
+    """
+    Stop when evaluate.py outputs "STOP: true".
+    
+    This is the DEFAULT stop condition. It reads the should_stop signal
+    from the ScriptEvaluator's evaluation details.
+    
+    The agent's evaluate.py decides when to stop by printing:
+        STOP: true
+    
+    This makes stop conditions dynamic and adaptable - the agent can
+    implement any stopping logic based on the goal.
+    
+    Example evaluate.py:
+        score = compute_metric()
+        print(f"SCORE: {score}")
+        
+        # Stop when target achieved
+        if score >= 0.90:
+            print("STOP: true")
+    
+    Note: Requires 'eval_details' in context when calling check().
+    The GenericProblemHandler passes this automatically.
+    """
+    
+    description = "Stop when evaluate.py outputs STOP: true"
+    
+    def check(
+        self,
+        best_score: float,
+        current_score: float,
+        iteration: int,
+        **context
+    ) -> StopDecision:
+        # Get should_stop from last evaluation details
+        eval_details = context.get("eval_details", {})
+        should_stop = eval_details.get("should_stop", False)
+        
+        if should_stop:
+            return StopDecision(
+                should_stop=True,
+                reason=f"evaluate.py signaled STOP (score: {current_score:.4f})",
+                details={"source": "eval_script", "score": current_score},
+            )
+        
+        return StopDecision(
+            should_stop=False,
+            reason="evaluate.py did not signal STOP - continue experimenting",
+            details={"source": "eval_script", "score": current_score},
+        )

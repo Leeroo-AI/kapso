@@ -26,7 +26,7 @@ class StopConditionFactory:
     """
     
     _registry: Dict[str, Type[StopCondition]] = {}
-    _default: str = "never"
+    _default: str = "from_eval"  # Default: stop when evaluate.py signals STOP
     
     @classmethod
     def register(cls, name: str) -> Callable[[Type[StopCondition]], Type[StopCondition]]:

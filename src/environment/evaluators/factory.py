@@ -26,7 +26,7 @@ class EvaluatorFactory:
     """
     
     _registry: Dict[str, Type[Evaluator]] = {}
-    _default: str = "no_score"
+    _default: str = "script"  # Default: agent-written evaluate.py
     
     @classmethod
     def register(cls, name: str) -> Callable[[Type[Evaluator]], Type[Evaluator]]:
