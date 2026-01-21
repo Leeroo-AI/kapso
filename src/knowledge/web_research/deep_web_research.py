@@ -3,7 +3,7 @@
 # A small wrapper around OpenAI's `web_search` tool.
 #
 # Design goals:
-# - Return `Source.Research` by default so the result is KG-ingestable.
+# - Return `ResearchFindings` with fluent accessors (.repos(), .ideas()).
 # - Keep prompt templates in markdown files (per mode) for easy iteration.
 # - Keep the prompt builder as a private method on the class (requested).
 
@@ -17,6 +17,12 @@ from typing import Literal
 from openai import OpenAI
 
 from src.knowledge.learners.sources import Source
+from src.knowledge.web_research.research_findings import (
+    ResearchFindings,
+    IdeaInfo,
+    parse_repos_from_report,
+    parse_ideas_from_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +58,9 @@ class DeepWebResearch:
         *,
         mode: ResearchMode = "both",
         depth: ResearchDepth = "deep",
-    ) -> Source.Research:
+    ) -> ResearchFindings:
         """
-        Run deep web research and return a `Source.Research` artifact.
+        Run deep web research and return a `ResearchFindings` object.
         
         Args:
             objective: What we want to learn from public sources.
@@ -65,7 +71,10 @@ class DeepWebResearch:
                 - deep  -> "high"
         
         Returns:
-            Source.Research with `report_markdown` containing inline URLs.
+            ResearchFindings with fluent accessors:
+            - .repos(top_k) -> List[Source.Repo] for learn()
+            - .ideas(top_k) -> str for evolve() context
+            - .source -> Source.Research for direct KG ingestion
         """
         objective = (objective or "").strip()
         if not objective:
@@ -104,7 +113,14 @@ class DeepWebResearch:
                 "- Ensure your OpenAI account has access to a model that supports `web_search`.\n"
             )
 
-        return Source.Research(objective=objective, mode=mode, report_markdown=report)
+        # Create Source.Research for KG ingestion
+        source = Source.Research(objective=objective, mode=mode, report_markdown=report)
+        
+        # Parse structured data from report
+        repos = parse_repos_from_report(report)
+        ideas = parse_ideas_from_report(report)
+        
+        return ResearchFindings(_source=source, _repos=repos, _ideas=ideas)
 
     @staticmethod
     def _extract_research_result(text: str) -> str:

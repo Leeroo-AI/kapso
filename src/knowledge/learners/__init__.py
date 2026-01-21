@@ -23,8 +23,8 @@
 #   - KnowledgeMerger: Stage 2 - merge pages into existing KG
 #   - MergeHandlers: Type-specific merge logic (in merge_handlers/)
 
-# Source types
-from src.knowledge.learners.sources import Source
+# Source types and helpers
+from src.knowledge.learners.sources import Source, IdeaList
 
 # Main pipeline orchestrator
 from src.knowledge.learners.knowledge_learner_pipeline import (
@@ -64,6 +64,7 @@ __all__ = [
     "PipelineResult",
     # Source types
     "Source",
+    "IdeaList",
     # Merger (Stage 2)
     "KnowledgeMerger",
     "MergeResult",

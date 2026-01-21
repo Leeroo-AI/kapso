@@ -18,13 +18,13 @@
   If you like this project, please support us by giving it a star ⭐
 </p>
 
+> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **[Leeroopedia](https://leeroopedia.com)** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge wiki with best practices and expert-level implementation patterns, written by Kapso and human experts.
+
 <p align="center">
   <img src="assets/framework.png" alt="Kapso Framework Architecture" width="800">
 </p>
 
 ---
-
-> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **[Leeroopedia](https://leeroopedia.com)** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge wiki with best practices and expert-level implementation patterns, written by Kapso and human experts.
 
 ## News
 
@@ -108,7 +108,7 @@ research_findings = kapso.research(
 kapso.learn(
     sources=[
         Source.Repo("https://github.com/huggingface/trl"),
-        *research_findings.repos(top_k=10),
+        *research_findings.repos(top_k=5),
     ],
     wiki_dir="data/wikis",
 )
@@ -118,12 +118,11 @@ kapso.learn(
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B on the CUAD dataset for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
     output_path="./models/legal_risk_v1",
-    context=[research_findings.ideas(top_k=20)],
+    context=[research_findings.ideas(top_k=10)],
 )
 
-# Deploy: Turn solution into running software
+# Deploy: Turn solution into running deployed_program
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-result = deployed_program.run({"contract_path": "./contracts/sample.pdf"})
 
 # Cleanup
 deployed_program.stop()
