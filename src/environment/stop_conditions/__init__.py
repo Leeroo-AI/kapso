@@ -48,6 +48,7 @@ from src.environment.stop_conditions.builtin import (
     TimeLimitStopCondition,
     ConsecutiveErrorsStopCondition,
     CompositeStopCondition,
+    FromEvalStopCondition,
 )
 
 __all__ = [
@@ -66,5 +67,6 @@ __all__ = [
     "TimeLimitStopCondition",
     "ConsecutiveErrorsStopCondition",
     "CompositeStopCondition",
+    "FromEvalStopCondition",
 ]
 

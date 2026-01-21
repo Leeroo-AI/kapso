@@ -117,18 +117,20 @@ class GenericProblemHandler(ProblemHandler):
         self.output_file = output_file
         self.maximize_scoring = maximize_scoring
         
-        # Create evaluator - accepts instance or name
+        # Create evaluator - accepts instance or name (default: "script")
         if evaluator is None:
-            self.evaluator = EvaluatorFactory.create("no_score")
+            # Use factory default (script evaluator)
+            self.evaluator = EvaluatorFactory.create(EvaluatorFactory.get_default())
         elif isinstance(evaluator, str):
             params = evaluator_params or {}
             self.evaluator = EvaluatorFactory.create(evaluator, **params)
         else:
             self.evaluator = evaluator
         
-        # Create stop condition - accepts instance or name
+        # Create stop condition - accepts instance or name (default: "from_eval")
         if stop_condition is None:
-            self.stop_condition_obj = StopConditionFactory.create("never")
+            # Use factory default (from_eval stop condition)
+            self.stop_condition_obj = StopConditionFactory.create(StopConditionFactory.get_default())
         elif isinstance(stop_condition, str):
             params = stop_condition_params or {}
             self.stop_condition_obj = StopConditionFactory.create(stop_condition, **params)
@@ -140,6 +142,7 @@ class GenericProblemHandler(ProblemHandler):
         self.best_score: Optional[float] = None
         self.iteration_count: int = 0
         self.last_result: Optional[ProblemRunResult] = None
+        self.last_eval_details: Dict[str, Any] = {}  # Store eval details for stop condition
         
         # Build context once
         self._problem_context = self._build_problem_context()
@@ -154,8 +157,32 @@ class GenericProblemHandler(ProblemHandler):
             f"- Main file: {self.main_file}",
             f"- Language: {self.language}",
             f"- Timeout: {self.timeout} seconds",
-            f"- Final evaluation score logic: {self.evaluator.description}",
         ]
+        
+        # Add evaluation instructions based on evaluator type
+        if self.evaluator.name == "script":
+            parts.extend([
+                "",
+                "# Evaluation",
+                "You MUST create `evaluate.py` that evaluates your solution.",
+                "The script should:",
+                "1. Load your model/results and compute the evaluation metric",
+                "2. Print exactly: SCORE: <float between 0 and 1>",
+                "3. Print: STOP: true (when the goal is achieved)",
+                "",
+                "Example evaluate.py:",
+                "```python",
+                "# Load results and compute metric",
+                "score = compute_your_metric()",
+                "print(f'SCORE: {score:.4f}')",
+                "",
+                "# Signal stop when goal achieved",
+                "if score >= TARGET_THRESHOLD:",
+                "    print('STOP: true')",
+                "```",
+            ])
+        else:
+            parts.append(f"- Final evaluation score logic: {self.evaluator.description}")
         
         if self.output_file:
             parts.append(f"- Output file: {self.output_file}")
@@ -287,6 +314,7 @@ class GenericProblemHandler(ProblemHandler):
         # Evaluate using evaluator
         score = 0.0
         feedback = ""
+        eval_details = {}
         if not had_error:
             # Pass context to evaluator for richer evaluation
             eval_result = self.evaluator.evaluate(
@@ -298,6 +326,7 @@ class GenericProblemHandler(ProblemHandler):
             )
             score = eval_result.score
             feedback = eval_result.feedback
+            eval_details = eval_result.details  # Store for stop condition
             
             # Update best score
             if self.best_score is None:
@@ -306,6 +335,9 @@ class GenericProblemHandler(ProblemHandler):
                 self.best_score = max(self.best_score, score)
             else:
                 self.best_score = min(self.best_score, score)
+        
+        # Store eval details for stop condition
+        self.last_eval_details = eval_details
         
         result = ProblemRunResult(
             score=score,
@@ -340,12 +372,13 @@ class GenericProblemHandler(ProblemHandler):
         if self.best_score is None or self.last_result is None:
             return False
         
-        # Pass additional context to stop condition
+        # Pass additional context to stop condition, including eval_details
         decision = self.stop_condition_obj.check(
             best_score=self.best_score,
             current_score=self.last_result.score,
             iteration=self.iteration_count,
             had_error=self.last_result.run_had_error,
+            eval_details=self.last_eval_details,  # Pass eval details for from_eval stop condition
             **kwargs
         )
         

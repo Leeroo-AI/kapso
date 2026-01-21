@@ -45,6 +45,8 @@ from src.environment.evaluators.builtin import (
     LLMJudgeEvaluator,
     LLMComparisonEvaluator,
     CompositeEvaluator,
+    ScriptEvaluator,
+    F1ScoreEvaluator,
 )
 
 __all__ = [
@@ -62,5 +64,7 @@ __all__ = [
     "LLMJudgeEvaluator",
     "LLMComparisonEvaluator",
     "CompositeEvaluator",
+    "ScriptEvaluator",
+    "F1ScoreEvaluator",
 ]
 

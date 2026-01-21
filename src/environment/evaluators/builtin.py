@@ -672,3 +672,240 @@ class CompositeEvaluator(Evaluator):
             raw_output=output,
         )
 
+
+# =============================================================================
+# Script Evaluator (Default)
+# =============================================================================
+
+@register_evaluator("script")
+class ScriptEvaluator(Evaluator):
+    """
+    Default evaluator that runs a custom evaluation script written by the coding agent.
+    
+    The agent creates evaluate.py that:
+    1. Computes the evaluation metric
+    2. Prints "SCORE: <float>" (required)
+    3. Optionally prints "STOP: true" when goal is achieved
+    
+    The system (LLM) generates rich feedback based on the score and code.
+    
+    This is the DEFAULT evaluator - no configuration needed.
+    
+    Example agent-written evaluate.py:
+        from sklearn.metrics import accuracy_score
+        import json
+        
+        with open("results.json") as f:
+            results = json.load(f)
+        
+        score = accuracy_score(results["labels"], results["predictions"])
+        print(f"SCORE: {score:.4f}")
+        
+        if score >= 0.90:
+            print("STOP: true")
+    
+    Params:
+        script_path: Path to evaluation script (default: "evaluate.py")
+        timeout: Execution timeout in seconds (default: 120)
+        feedback_model: LLM model for feedback generation (default: "gpt-4.1")
+        generate_feedback: Whether to generate LLM feedback (default: True)
+    """
+    
+    description = "Run evaluate.py (agent-written) for score; LLM generates feedback"
+    requires_llm = True  # For feedback generation
+    
+    DEFAULT_SCRIPT_PATH = "evaluate.py"
+    DEFAULT_TIMEOUT = 120
+    
+    def __init__(
+        self,
+        script_path: str = DEFAULT_SCRIPT_PATH,
+        timeout: int = DEFAULT_TIMEOUT,
+        feedback_model: str = "gpt-4.1",
+        generate_feedback: bool = True,
+        **params
+    ):
+        super().__init__(**params)
+        self.script_path = script_path
+        self.timeout = timeout
+        self.feedback_model = feedback_model
+        self.generate_feedback = generate_feedback
+        self._llm = None  # Lazy init
+    
+    @property
+    def llm(self):
+        """Lazy-load LLM backend to avoid import issues."""
+        if self._llm is None and self.generate_feedback:
+            from src.core.llm import LLMBackend
+            self._llm = LLMBackend()
+        return self._llm
+    
+    def evaluate(self, output: str, file_path: str, **context) -> EvaluationResult:
+        """
+        Run evaluate.py and generate feedback.
+        
+        Returns EvaluationResult with:
+        - score: From evaluate.py output
+        - feedback: LLM-generated improvement suggestions
+        - details["should_stop"]: True if evaluate.py printed "STOP: true"
+        """
+        # Step 1: Run evaluate.py to get score and stop signal
+        score, should_stop, eval_output, error = self._run_eval_script(file_path)
+        
+        if error:
+            return EvaluationResult(
+                score=0.0,
+                feedback=f"Evaluation failed: {error}",
+                details={"should_stop": False, "eval_output": eval_output},
+                raw_output=output,
+            )
+        
+        # Step 2: Generate LLM feedback (system-owned, not agent-written)
+        feedback = ""
+        if self.generate_feedback and self.llm:
+            feedback = self._generate_feedback(
+                problem=context.get("problem", ""),
+                solution=context.get("solution", ""),
+                code=self._read_main_code(file_path),
+                score=score,
+                eval_output=eval_output,
+                execution_output=output,
+            )
+        
+        return EvaluationResult(
+            score=score,
+            feedback=feedback,
+            details={
+                "should_stop": should_stop,
+                "eval_output": eval_output,
+                "script_path": self.script_path,
+            },
+            raw_output=output,
+        )
+    
+    def _run_eval_script(self, file_path: str) -> tuple:
+        """
+        Run evaluate.py and parse SCORE and STOP from output.
+        
+        Returns:
+            (score, should_stop, eval_output, error)
+        """
+        import subprocess
+        
+        script_full_path = os.path.join(file_path, self.script_path)
+        
+        # Check if script exists
+        if not os.path.exists(script_full_path):
+            return None, False, "", f"Missing {self.script_path} - agent must create evaluation script"
+        
+        try:
+            result = subprocess.run(
+                ["python", self.script_path],
+                cwd=file_path,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
+            eval_output = result.stdout + result.stderr
+            
+            # Parse score (required)
+            score_match = re.search(r'SCORE:\s*([-+]?\d*\.?\d+)', eval_output, re.IGNORECASE)
+            if not score_match:
+                return None, False, eval_output, f"No SCORE found in {self.script_path} output"
+            
+            score = float(score_match.group(1))
+            
+            # Parse stop signal (optional)
+            stop_match = re.search(r'STOP:\s*(true|yes|1)', eval_output, re.IGNORECASE)
+            should_stop = bool(stop_match)
+            
+            return score, should_stop, eval_output, None
+            
+        except subprocess.TimeoutExpired:
+            return None, False, "", f"Evaluation script timed out after {self.timeout}s"
+        except Exception as e:
+            return None, False, "", str(e)
+    
+    def _generate_feedback(
+        self,
+        problem: str,
+        solution: str,
+        code: str,
+        score: float,
+        eval_output: str,
+        execution_output: str,
+    ) -> str:
+        """Generate actionable feedback using LLM."""
+        
+        system_prompt = """You are an expert code reviewer analyzing a solution's evaluation results.
+
+Provide 2-3 specific, actionable areas of improvement:
+- Focus on what would most improve the score
+- Be specific about the issue and its impact on performance
+- Do NOT provide the fix, just identify the problem clearly
+
+Format your response as:
+<feedback>
+Area 1: [specific issue and why it hurts the score]
+Area 2: [specific issue and why it hurts the score]
+Area 3: [specific issue and why it hurts the score] (optional)
+</feedback>
+
+If the score is very high (>0.95), you can acknowledge good performance and suggest minor optimizations."""
+
+        # Truncate long content to fit context limits
+        problem_truncated = problem[:2000] if problem else "Not provided"
+        solution_truncated = solution[:1000] if solution else "Not provided"
+        code_truncated = code[:3000] if code else "Not provided"
+        eval_truncated = eval_output[:1000] if eval_output else "Not provided"
+        exec_truncated = execution_output[:500] if execution_output else "Not provided"
+
+        user_prompt = f"""<problem>
+{problem_truncated}
+</problem>
+
+<solution_approach>
+{solution_truncated}
+</solution_approach>
+
+<code>
+{code_truncated}
+</code>
+
+<execution_output>
+{exec_truncated}
+</execution_output>
+
+<evaluation_output>
+{eval_truncated}
+</evaluation_output>
+
+<score>{score}</score>
+
+Analyze why the score is {score} and identify specific areas that could improve it."""
+
+        try:
+            response = self.llm.llm_completion_with_system_prompt(
+                model=self.feedback_model,
+                system_prompt=system_prompt,
+                user_message=user_prompt,
+            )
+            
+            # Extract feedback section if present
+            match = re.search(r'<feedback>(.*?)</feedback>', response, re.DOTALL)
+            return match.group(1).strip() if match else response
+            
+        except Exception as e:
+            return f"Feedback generation failed: {e}"
+    
+    def _read_main_code(self, file_path: str) -> str:
+        """Read main.py for feedback context."""
+        main_file = os.path.join(file_path, "main.py")
+        if os.path.exists(main_file):
+            try:
+                with open(main_file) as f:
+                    return f.read()
+            except Exception:
+                pass
+        return ""
