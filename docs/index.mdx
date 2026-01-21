@@ -31,7 +31,7 @@ research_findings = kapso.research(
 kapso.learn(
     sources=[
         Source.Repo("https://github.com/huggingface/trl"),
-        *research_findings.repos(top_k=10),
+        *research_findings.repos(top_k=5),
     ],
     wiki_dir="data/wikis",
 )
@@ -41,12 +41,11 @@ kapso.learn(
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B on the CUAD dataset for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
     output_path="./models/legal_risk_v1",
-    context=[research_findings.ideas(top_k=20)],
+    context=[research_findings.ideas(top_k=10)],
 )
 
 # Deploy: Turn solution into running deployed_program
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-result = deployed_program.run({"contract_path": "./contracts/sample.pdf"})
 
 # Cleanup
 deployed_program.stop()

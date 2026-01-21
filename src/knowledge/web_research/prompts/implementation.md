@@ -82,6 +82,15 @@ Example table columns:
 - Popularity / adoption signals (stars, downloads, references)
 - Maintenance signals (release/commit recency)
 
+
+### `## Recommended Repos`
+- List 3-10 GitHub repositories that are most relevant to implementing this objective
+- For each repo, include:
+  - Full GitHub URL (e.g., https://github.com/owner/repo)
+  - Star count (or "unknown")
+  - Brief description of why it's relevant
+- Prioritize repos that are: widely adopted, well-maintained, and directly applicable
+
 ### `## Recommended approach`
 - The high-level implementation plan
 - Mention the most standard/idiomatic approach first

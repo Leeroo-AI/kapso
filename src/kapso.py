@@ -29,7 +29,7 @@ from src.environment.handlers.generic import GenericProblemHandler
 from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
 from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.learners import Source, KnowledgePipeline
-from src.knowledge.web_research import DeepWebResearch, ResearchDepth, ResearchMode
+from src.knowledge.web_research import DeepWebResearch, ResearchDepth, ResearchMode, ResearchFindings
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
@@ -326,7 +326,7 @@ class Kapso:
         *,
         mode: ResearchMode = "both",
         depth: ResearchDepth = "deep",
-    ) -> Source.Research:
+    ) -> ResearchFindings:
         """
         Do deep public web research for an objective.
         
@@ -339,9 +339,10 @@ class Kapso:
                 - deep  -> "high"
         
         Returns:
-            `Source.Research` (by default) so callers can:
-            - ingest it into the KG via `KnowledgePipeline.run(research_source)`, or
-            - inject it into `.evolve()` via `research_source.to_context_string()`.
+            `ResearchFindings` with fluent accessors:
+            - .repos(top_k) -> List[Source.Repo] for learn()
+            - .ideas(top_k) -> str for evolve() context
+            - .source -> Source.Research for direct KG ingestion
         """
         if self._web_researcher is None:
             self._web_researcher = DeepWebResearch()
@@ -493,22 +494,26 @@ class Kapso:
             print(f"  Starting repo: {starting_repo_path}")
         print()
         
-        # Learn from context if provided
-        if context:
-            print(f"Learning from {len(context)} context sources...")
-            self.learn(*context)
-        
         # Build problem description
         problem = self._build_problem_description(goal, constraints)
 
-        # Combine knowledge context + caller-provided context.
+        # Build context string from context items (text, not sources)
+        # Context items are converted to strings and appended to additional_context
+        context_parts = []
+        if context:
+            for item in context:
+                # Convert each context item to string
+                context_parts.append(str(item))
+        
+        # Combine knowledge context + caller-provided context + context items
         #
         # Why:
         # - The system already uses `additional_context` to inject KG snippets.
-        # - Research should be injected the same way, without changing the orchestration flow.
+        # - Research ideas should be injected the same way.
         kg_context = (self._get_kg_context() or "").strip()
         user_context = (additional_context or "").strip()
-        combined_context = "\n\n".join([c for c in [kg_context, user_context] if c])
+        items_context = "\n\n".join(context_parts).strip()
+        combined_context = "\n\n".join([c for c in [kg_context, user_context, items_context] if c])
         
         # Create problem handler with all options
         handler = GenericProblemHandler(
@@ -693,4 +698,5 @@ __all__ = [
     "DeployStrategy",
     "DeployConfig",
     "DeploymentFactory",
+    "ResearchFindings",
 ]

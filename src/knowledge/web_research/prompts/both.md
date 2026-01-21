@@ -13,33 +13,41 @@ Do multiple searches, open multiple sources, and synthesize only what is support
 - Prefer official docs / maintainers / standards first.
 - Prefer widely adopted OSS repos and well-known organizations over small unknown repos.
 - Cross-check important claims across multiple reputable sources when possible.
-- Never guess metrics (stars, versions, dates). If unknown, write **“unknown”**.
+- Never guess metrics (stars, versions, dates). If unknown, write **"unknown"**.
 - If you cite a GitHub repo, capture and cite:
   - stars (and forks if easy)
   - recency/maintenance (recent commit/release)
   - (optional) license / release tag if easy
-  - If you cannot find a metric, write **“unknown”** (do NOT guess).
+  - If you cannot find a metric, write **"unknown"** (do NOT guess).
 
 ## Output format (both mode)
 
 Produce a single Markdown report with **two clearly separated parts**, plus a short source ranking section.
 
 ### `## Summary`
-- 5–10 bullets (mix of principle + implementation takeaways)
+- 5-10 bullets (mix of principle + implementation takeaways)
 - Include raw URLs inline for non-trivial claims
 
 ### `## Top sources (ranked)`
 - Provide a short ranked list/table of the best sources you used
-- If GitHub repos appear, include stars/maintenance signals (or “unknown” if unavailable)
+- If GitHub repos appear, include stars/maintenance signals (or "unknown" if unavailable)
 
-### Part 1 — Idea / Principles
+### `## Recommended Repos`
+- List 3-10 GitHub repositories that are most relevant to implementing this objective
+- For each repo, include:
+  - Full GitHub URL (e.g., https://github.com/owner/repo)
+  - Star count (or "unknown")
+  - Brief description of why it's relevant
+- Prioritize repos that are: widely adopted, well-maintained, and directly applicable
+
+### Part 1 - Idea / Principles
 
 Use these sections:
 - `## Core concepts`
 - `## Trade-offs`
 - `## Common pitfalls`
 
-### Part 2 — Implementation
+### Part 2 - Implementation
 
 Use these sections:
 - `## Recommended approach`
@@ -64,4 +72,3 @@ Return ONLY the final report wrapped exactly like this (no extra text before or 
 <research_result>
 ...your Markdown report...
 </research_result>
-
