@@ -38,6 +38,11 @@ class ExperimentResult:
     detailed_output: str = ""
     feedbacks: str = ""
     embedding: List[float] = None
+    # New fields for feedback generator
+    evaluation_output: str = ""  # Output from running evaluation script
+    evaluation_script_path: str = ""  # Path to evaluation script (from developer agent)
+    code_diff: str = ""  # Git diff of implementation changes
+    workspace_dir: str = ""  # Path to workspace for this experiment
     
     def __str__(self) -> str:
         if self.had_error:
@@ -203,13 +208,16 @@ class SearchStrategy(ABC):
     # =========================================================================
     
     @abstractmethod
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> None:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> Optional[ExperimentResult]:
         """
         Execute one iteration of the search strategy.
         
         Args:
             context: Problem context, KG results, experiment history
             budget_progress: 0-100 indicating budget consumed
+            
+        Returns:
+            ExperimentResult with solution, evaluation_output, code_diff, workspace_dir
         """
         pass
     

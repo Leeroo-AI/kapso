@@ -144,9 +144,22 @@ From `design.md` lines 37-53:
        LLM-based feedback generator.
        
        Validates evaluation and decides stop/continue.
+       
+       NOTE 1: The feedback generator is a coding agent that can be any of the
+       coding agents in src/execution/coding_agents/ (aider, gemini, claude_code,
+       openhands). Default is claude_code.
+       
+       NOTE 2: The feedback generator is also responsible for extracting the exact
+       value of the evaluation score (if any) from the evaluation output and
+       returning it in the FeedbackResult.
        """
        
-       def __init__(self, coding_agent_config: CodingAgentConfig):
+       def __init__(self, coding_agent_config: CodingAgentConfig = None):
+           # Default to claude_code if no config provided
+           if coding_agent_config is None:
+               coding_agent_config = CodingAgentFactory.build_config(
+                   agent_type="claude_code"
+               )
            self.agent = CodingAgentFactory.create(coding_agent_config)
        
        def generate(
@@ -161,11 +174,26 @@ From `design.md` lines 37-53:
            Generate feedback for the iteration.
            
            Returns:
-               FeedbackResult with stop flag and feedback text
+               FeedbackResult with:
+                 - stop: bool (whether to stop iteration)
+                 - evaluation_valid: bool (whether evaluation is fair/correct)
+                 - feedback: str (actionable feedback for next iteration)
+                 - score: Optional[float] (extracted evaluation score, if any)
            """
            # Use coding agent (like Claude Code) with instruction prompt
            # to analyze and generate feedback
            pass
+   ```
+
+2. **`src/execution/feedback_generator.py` - FeedbackResult dataclass**
+   ```python
+   @dataclass
+   class FeedbackResult:
+       """Result from feedback generator."""
+       stop: bool                      # Whether to stop iteration
+       evaluation_valid: bool          # Whether evaluation is fair/correct
+       feedback: str                   # Actionable feedback for next iteration
+       score: Optional[float] = None   # Extracted evaluation score (if any)
    ```
 
 2. **`src/execution/prompts/feedback_generator.md`** - NEW FILE
@@ -211,7 +239,10 @@ From `design.md` lines 37-53:
 │       - Evaluation code                                      │
 │       - Evaluation result (structured JSON)                 │
 │                                                              │
-│  2. Feedback Generator (LLM-based):                         │
+│  2. Feedback Generator (LLM-based coding agent):           │
+│     NOTE: Can be any coding agent (aider, gemini,          │
+│           claude_code, openhands). Default: claude_code    │
+│                                                              │
 │     Input:                                                   │
 │       - Goal                                                 │
 │       - Idea/solution description                           │
@@ -222,12 +253,14 @@ From `design.md` lines 37-53:
 │     Actions:                                                 │
 │       - Validate evaluation fairness                        │
 │       - Check goal completion                               │
+│       - Extract evaluation score (if any)                   │
 │       - Generate feedback                                    │
 │                                                              │
 │     Output:                                                  │
 │       - stop: bool                                          │
 │       - evaluation_valid: bool                              │
 │       - feedback: str                                       │
+│       - score: Optional[float] (extracted from eval output) │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```

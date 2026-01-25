@@ -67,7 +67,7 @@ class LinearSearch(SearchStrategy):
         self.workspace.finalize_session(session)
         self.workspace.repo.git.stash()
 
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> None:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> ExperimentResult:
         """
         Execute one iteration of linear search.
         
@@ -75,7 +75,12 @@ class LinearSearch(SearchStrategy):
         1. Generate a solution considering previous experiments
         2. Implement it
         3. Store result
+        
+        Returns:
+            ExperimentResult with solution, score, evaluation_output, evaluation_script_path, code_diff, workspace_dir
         """
+        import json
+        
         self.iteration_count += 1
         print(f"\n[LinearSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
         
@@ -98,6 +103,23 @@ class LinearSearch(SearchStrategy):
             ideation_repo_memory_sections_consulted=ideation_sections,
         )
         
+        # Get code diff for this branch
+        code_diff = self._get_code_diff(branch_name, parent_branch)
+        
+        # Read evaluation result from kapso_evaluation/result.json (written by developer agent)
+        evaluation_output = result.output
+        evaluation_script_path = ""
+        result_json_path = os.path.join(self.workspace_dir, "kapso_evaluation", "result.json")
+        if os.path.exists(result_json_path):
+            try:
+                with open(result_json_path, 'r') as f:
+                    eval_result = json.load(f)
+                evaluation_output = eval_result.get("evaluation_output", result.output)
+                evaluation_script_path = eval_result.get("evaluation_script_path", "")
+                print(f"[LinearSearch] Read evaluation result from {result_json_path}")
+            except Exception as e:
+                print(f"[LinearSearch] Warning: Could not read result.json: {e}")
+        
         # Store result
         experiment_result = ExperimentResult(
             node_id=len(self.experiment_history),
@@ -109,6 +131,10 @@ class LinearSearch(SearchStrategy):
             output=result.output,
             detailed_output=result.detailed_output,
             feedbacks=result.feedbacks,
+            evaluation_output=evaluation_output,
+            evaluation_script_path=evaluation_script_path,
+            code_diff=code_diff,
+            workspace_dir=self.workspace_dir,
         )
         self.experiment_history.append(experiment_result)
         
@@ -116,6 +142,17 @@ class LinearSearch(SearchStrategy):
             print(f"[LinearSearch] ❌ Experiment failed: {result.error_message[:100]}...")
         else:
             print(f"[LinearSearch] ✓ Experiment completed with score: {result.score}")
+        
+        return experiment_result
+    
+    def _get_code_diff(self, branch_name: str, parent_branch: str) -> str:
+        """Get git diff between branch and parent."""
+        try:
+            diff = self.workspace.repo.git.diff(parent_branch, branch_name)
+            return diff
+        except Exception as e:
+            print(f"[LinearSearch] Warning: Could not get diff: {e}")
+            return ""
 
     def _generate_solution(self, context: ContextData, budget_progress: float) -> tuple[str, list[str]]:
         """Generate a solution based on problem, workflow guidance, and previous experiments."""

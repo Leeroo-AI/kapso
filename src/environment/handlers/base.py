@@ -3,11 +3,15 @@ Problem Handler Base
 
 Abstract base class for all problem handlers.
 Each benchmark implements its own handler with specific evaluation logic.
+
+NOTE: In the new design, the developer agent is responsible for building and
+running evaluation. The handler now primarily provides problem context and
+basic execution utilities. The stop_condition is handled by the FeedbackGenerator.
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -21,6 +25,8 @@ class ProblemRunResult:
     error_details: str = ""
     feedbacks: str = ""
     continue_debugging: bool = True
+    # New fields for feedback generator
+    evaluation_script_path: str = ""  # Path to evaluation script (from developer agent)
 
 
 class ProblemHandler(ABC):
@@ -28,10 +34,12 @@ class ProblemHandler(ABC):
     Abstract base class for problem handlers.
     
     Subclasses must implement:
-    - run(): Execute code and return results
+    - run(): Execute code and return results (for legacy/benchmark compatibility)
     - final_evaluate(): Final evaluation on private test set
     - get_problem_context(): Return problem description
-    - stop_condition(): Check if search should stop early
+    
+    NOTE: stop_condition() is now optional and only used for backward compatibility
+    with existing benchmarks. The new design uses FeedbackGenerator for stop decisions.
     """
     
     def __init__(self, additional_context: str = ""):
@@ -58,7 +66,12 @@ class ProblemHandler(ABC):
         """Return problem description (may vary with budget progress)."""
         pass
     
-    @abstractmethod
     def stop_condition(self, **kwargs) -> bool:
-        """Return True if search should stop early."""
-        pass
+        """
+        Return True if search should stop early.
+        
+        NOTE: This method is optional and only used for backward compatibility
+        with existing benchmarks. The new design uses FeedbackGenerator for
+        stop decisions. Default implementation always returns False.
+        """
+        return False
