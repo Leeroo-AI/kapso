@@ -107,6 +107,8 @@ class SearchStrategyFactory:
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
         initial_repo: Optional[str] = None,
+        eval_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
     ) -> SearchStrategy:
         """
         Create a search strategy instance.
@@ -121,6 +123,8 @@ class SearchStrategyFactory:
             workspace_dir: Path to workspace directory (optional)
             start_from_checkpoint: Whether to import from checkpoint
             initial_repo: Path to initial repository to seed workspace
+            eval_dir: Path to evaluation files (copied to kapso_evaluation/)
+            data_dir: Path to data files (copied to kapso_datasets/)
         
         Returns:
             Configured SearchStrategy instance
@@ -145,6 +149,8 @@ class SearchStrategyFactory:
             coding_agent_config=coding_agent_config,
             params=resolved_params,
             initial_repo=initial_repo,
+            eval_dir=eval_dir,
+            data_dir=data_dir,
         )
         
         return cls._registry[strategy_type_lower](

@@ -431,15 +431,17 @@ class Kapso:
         # --- Configuration options ---
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
-        # --- Execution options ---
+        # --- Directory options ---
+        eval_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
+        # --- Execution options (legacy, kept for backward compatibility) ---
         language: str = "python",
         main_file: str = "main.py",
         timeout: int = 300,
-        data_dir: Optional[str] = None,
-        # --- Evaluation options ---
-        evaluator: Optional[str] = None,  # Default: "script" (agent-written evaluate.py)
+        # --- Evaluation options (legacy, kept for backward compatibility) ---
+        evaluator: Optional[str] = None,
         evaluator_params: Optional[Dict[str, Any]] = None,
-        stop_condition: Optional[str] = None,  # Default: "from_eval" (stop when evaluate.py signals)
+        stop_condition: Optional[str] = None,
         stop_condition_params: Optional[Dict[str, Any]] = None,
         # --- Extra context options ---
         additional_context: str = "",
@@ -464,15 +466,17 @@ class Kapso:
             mode: Configuration mode (GENERIC, MINIMAL, TREE_SEARCH, etc.)
             coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
             
-            language: Programming language (default: python)
-            main_file: Entry point file (default: main.py)
-            timeout: Execution timeout in seconds (default: 300)
-            data_dir: Path to data files needed for the evolution
+            eval_dir: Path to evaluation files (copied to workspace/kapso_evaluation/)
+            data_dir: Path to data files (copied to workspace/kapso_datasets/)
             
-            evaluator: Evaluator type (default: "script" - agent writes evaluate.py)
-            evaluator_params: Parameters for the evaluator
-            stop_condition: Stop condition (default: "from_eval" - stop when evaluate.py signals)
-            stop_condition_params: Parameters for stop condition
+            language: Programming language (default: python) - legacy parameter
+            main_file: Entry point file (default: main.py) - legacy parameter
+            timeout: Execution timeout in seconds (default: 300) - legacy parameter
+            
+            evaluator: Evaluator type - legacy parameter
+            evaluator_params: Parameters for the evaluator - legacy parameter
+            stop_condition: Stop condition - legacy parameter
+            stop_condition_params: Parameters for stop condition - legacy parameter
             
             additional_context: Extra context appended to the problem prompt.
                 This is the intended integration point for `Source.Research.to_context_string()`.
@@ -484,13 +488,11 @@ class Kapso:
         print(f"EVOLVING: {goal}")
         print(f"{'='*60}")
         print(f"  Max iterations: {max_iterations}")
-        print(f"  Language: {language}")
-        print(f"  Main file: {main_file}")
+        print(f"  Coding agent: {coding_agent or 'from config'}")
+        if eval_dir:
+            print(f"  Eval dir: {eval_dir}")
         if data_dir:
             print(f"  Data dir: {data_dir}")
-        print(f"  Evaluator: {evaluator or 'script (default)'}")
-        print(f"  Stop condition: {stop_condition or 'from_eval (default)'}")
-        print(f"  Coding agent: {coding_agent or 'from config'}")
         
         # Resolve initial_repo: handle URLs, local paths, or workflow search
         resolved_repo = self._resolve_initial_repo(initial_repo, goal)
@@ -547,6 +549,8 @@ class Kapso:
             #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
             initial_repo=resolved_repo,
+            eval_dir=eval_dir,
+            data_dir=data_dir,
         )
         
         # Run experimentation

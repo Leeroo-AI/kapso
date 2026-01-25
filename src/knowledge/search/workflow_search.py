@@ -219,3 +219,4 @@ class WorkflowRepoSearch:
             ))
         
         return WorkflowRepoResult(query=query, items=items)
+

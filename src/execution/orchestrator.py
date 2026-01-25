@@ -53,6 +53,8 @@ class OrchestratorAgent:
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
         initial_repo: Optional[str] = None,
+        eval_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
     ):
         self.problem_handler = problem_handler
         self.llm = LLMBackend()
@@ -60,6 +62,9 @@ class OrchestratorAgent:
         self.mode = mode
         # Optional: seed experiments from an existing local repo (copy/clone into workspace).
         self.initial_repo = initial_repo
+        # Optional: directories to copy into workspace
+        self.eval_dir = eval_dir
+        self.data_dir = data_dir
         
         # Load config once and store for reuse
         self.mode_config = load_mode_config(config_path, mode)
@@ -171,6 +176,8 @@ class OrchestratorAgent:
             workspace_dir=workspace_dir,
             start_from_checkpoint=start_from_checkpoint,
             initial_repo=self.initial_repo,
+            eval_dir=self.eval_dir,
+            data_dir=self.data_dir,
         )
 
     def _create_knowledge_search(

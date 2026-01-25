@@ -8,6 +8,7 @@
 # 3. Register with @register_strategy("your_name") decorator in factory.py
 
 import os
+import shutil
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -63,6 +64,9 @@ class SearchStrategyConfig:
     params: Dict[str, Any] = field(default_factory=dict)
     # Optional: start experiments from an existing local repo (copy/clone into workspace)
     initial_repo: Optional[str] = None
+    # Optional: directories to copy into workspace
+    eval_dir: Optional[str] = None
+    data_dir: Optional[str] = None
 
 
 class SearchStrategy(ABC):
@@ -106,6 +110,11 @@ class SearchStrategy(ABC):
             initial_repo=config.initial_repo,
         )
 
+        # Setup kapso directories (eval_dir -> kapso_evaluation/, data_dir -> kapso_datasets/)
+        # This must happen before RepoMemory is built so the directories are included.
+        if not import_from_checkpoint:
+            self._setup_kapso_directories(config.eval_dir, config.data_dir)
+
         # Ensure baseline RepoMemory exists in the workspace repo.
         #
         # - For seeded repos: build an evidence-backed RepoModel once at start so
@@ -138,6 +147,56 @@ class SearchStrategy(ABC):
         # Shared state for tracking errors
         self.previous_errors: List[str] = []
         self.recent_error_count = 10
+    
+    # =========================================================================
+    # Directory Setup
+    # =========================================================================
+    
+    def _setup_kapso_directories(
+        self, 
+        eval_dir: Optional[str], 
+        data_dir: Optional[str]
+    ) -> None:
+        """
+        Setup kapso_evaluation/ and kapso_datasets/ directories in workspace.
+        
+        Copies user-provided directories into the workspace repo so the agent
+        has access to evaluation scripts and datasets.
+        
+        Args:
+            eval_dir: Path to evaluation files (copied to kapso_evaluation/)
+            data_dir: Path to data files (copied to kapso_datasets/)
+        """
+        workspace = self.workspace.workspace_dir
+        dirs_created = []
+        
+        # Setup kapso_evaluation/
+        kapso_eval = os.path.join(workspace, "kapso_evaluation")
+        os.makedirs(kapso_eval, exist_ok=True)
+        if eval_dir and os.path.exists(eval_dir):
+            shutil.copytree(eval_dir, kapso_eval, dirs_exist_ok=True)
+            print(f"  Copied eval_dir to kapso_evaluation/")
+        dirs_created.append(kapso_eval)
+        
+        # Setup kapso_datasets/
+        kapso_data = os.path.join(workspace, "kapso_datasets")
+        os.makedirs(kapso_data, exist_ok=True)
+        if data_dir and os.path.exists(data_dir):
+            shutil.copytree(data_dir, kapso_data, dirs_exist_ok=True)
+            print(f"  Copied data_dir to kapso_datasets/")
+        dirs_created.append(kapso_data)
+        
+        # Add placeholder files to empty directories so git tracks them
+        for dir_path in dirs_created:
+            if not os.listdir(dir_path):
+                placeholder = os.path.join(dir_path, ".gitkeep")
+                with open(placeholder, "w") as f:
+                    f.write("# Placeholder to track empty directory\n")
+        
+        # Commit the directories to the workspace repo
+        self.workspace.repo.git.add(dirs_created)
+        if self.workspace.repo.is_dirty(untracked_files=True):
+            self.workspace.repo.git.commit("-m", "chore(kapso): setup evaluation and data directories")
     
     # =========================================================================
     # Abstract Methods - Must be implemented by subclasses
