@@ -219,25 +219,3 @@ class WorkflowRepoSearch:
             ))
         
         return WorkflowRepoResult(query=query, items=items)
-    
-    def find_starter_repo(
-        self,
-        problem: str,
-        context: Optional[str] = None,
-    ) -> Optional[str]:
-        """
-        Find the best starter repository URL for a given problem.
-        
-        Convenience method that returns just the GitHub URL of the top result.
-        
-        Args:
-            problem: Problem description
-            context: Additional context
-            
-        Returns:
-            GitHub URL of the best matching repo, or None if no match
-        """
-        result = self.search(problem, top_k=1, context=context)
-        if result.is_empty:
-            return None
-        return result.top_result.github_url or None

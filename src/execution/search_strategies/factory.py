@@ -106,7 +106,7 @@ class SearchStrategyFactory:
         preset: Optional[str] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
     ) -> SearchStrategy:
         """
         Create a search strategy instance.
@@ -120,6 +120,7 @@ class SearchStrategyFactory:
             preset: Preset name to use (e.g., "MINIMAL", "PRODUCTION")
             workspace_dir: Path to workspace directory (optional)
             start_from_checkpoint: Whether to import from checkpoint
+            initial_repo: Path to initial repository to seed workspace
         
         Returns:
             Configured SearchStrategy instance
@@ -143,7 +144,7 @@ class SearchStrategyFactory:
             llm=llm,
             coding_agent_config=coding_agent_config,
             params=resolved_params,
-            seed_repo_path=seed_repo_path,
+            initial_repo=initial_repo,
         )
         
         return cls._registry[strategy_type_lower](

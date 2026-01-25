@@ -383,7 +383,7 @@ class RepoMemoryManager:
     def ensure_exists_in_worktree(
         cls,
         repo_root: str,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Ensure the memory file exists. If missing, create a minimal skeleton.
@@ -417,7 +417,7 @@ class RepoMemoryManager:
             "schema_version": cls.SCHEMA_VERSION,
             "generated_at": cls._now_iso(),
             "baseline": {
-                "seed_repo_path": seed_repo_path,
+                "initial_repo": initial_repo,
             },
             "repo_map": repo_map,
             "repo_model": {
@@ -652,7 +652,7 @@ GeneratedAt: {doc.get('generated_at')}
         *,
         repo_root: str,
         llm: LLMLike,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
         llm_model: Optional[str] = None,
     ) -> None:
         """
@@ -665,7 +665,7 @@ GeneratedAt: {doc.get('generated_at')}
             ValueError: If evidence validation fails (LLM produced hallucinated claims).
         """
         repo_root = os.path.abspath(repo_root)
-        doc = cls.ensure_exists_in_worktree(repo_root, seed_repo_path=seed_repo_path)
+        doc = cls.ensure_exists_in_worktree(repo_root, initial_repo=initial_repo)
         doc["repo_map"] = build_repo_map(repo_root)
         doc["generated_at"] = cls._now_iso()
 

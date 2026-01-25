@@ -426,7 +426,7 @@ class Kapso:
         context: Optional[List[Any]] = None,
         constraints: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        starting_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
         max_iterations: int = 10,
         # --- Configuration options ---
         mode: Optional[str] = None,
@@ -455,9 +455,10 @@ class Kapso:
             context: Optional list of Source objects to learn before evolving
             constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
-            starting_repo_path: Optional local path to an existing repository to improve.
-                If provided, Kapso will clone/copy it into the experiment workspace and
-                run the experiment loop on top of that baseline.
+            initial_repo: Optional starting repository. Accepts:
+                - Local path: "/path/to/repo" or "./relative/path"
+                - GitHub URL: "https://github.com/owner/repo" (will be cloned)
+                - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
             
             mode: Configuration mode (GENERIC, MINIMAL, TREE_SEARCH, etc.)
@@ -490,8 +491,11 @@ class Kapso:
         print(f"  Evaluator: {evaluator or 'script (default)'}")
         print(f"  Stop condition: {stop_condition or 'from_eval (default)'}")
         print(f"  Coding agent: {coding_agent or 'from config'}")
-        if starting_repo_path:
-            print(f"  Starting repo: {starting_repo_path}")
+        
+        # Resolve initial_repo: handle URLs, local paths, or workflow search
+        resolved_repo = self._resolve_initial_repo(initial_repo, goal)
+        if resolved_repo:
+            print(f"  Initial repo: {resolved_repo}")
         print()
         
         # Build problem description
@@ -542,7 +546,7 @@ class Kapso:
             # - Therefore, when `output_path` is provided, we must use it as the workspace directory
             #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
-            starting_repo_path=starting_repo_path,
+            initial_repo=resolved_repo,
         )
         
         # Run experimentation
@@ -640,6 +644,105 @@ class Kapso:
         )
         
         return DeploymentFactory.create(strategy, config)
+    
+    # =========================================================================
+    # INITIAL REPO RESOLUTION HELPERS
+    # =========================================================================
+    
+    def _resolve_initial_repo(self, initial_repo: Optional[str], goal: str) -> Optional[str]:
+        """
+        Resolve initial_repo to a local path.
+        
+        Handles three cases:
+        1. GitHub URL: Clone to temp directory
+        2. Local path: Use as-is
+        3. None: Search for workflow repo in KG
+        
+        Args:
+            initial_repo: Local path, GitHub URL, or None
+            goal: The goal (used for workflow search if initial_repo is None)
+            
+        Returns:
+            Local path to repo, or None if no repo found/provided
+        """
+        if initial_repo is not None:
+            # Check if it's a GitHub URL
+            if self._is_github_url(initial_repo):
+                return self._clone_github_repo(initial_repo)
+            # Assume local path
+            return initial_repo
+        
+        # No initial_repo provided - search for workflow repo
+        return self._search_workflow_repo(goal)
+    
+    def _is_github_url(self, path: str) -> bool:
+        """Check if path is a GitHub URL."""
+        return (
+            path.startswith("https://github.com/") or 
+            path.startswith("git@github.com:") or
+            path.startswith("http://github.com/")
+        )
+    
+    def _clone_github_repo(self, url: str) -> str:
+        """
+        Clone a GitHub repository to a temporary directory.
+        
+        Args:
+            url: GitHub repository URL
+            
+        Returns:
+            Local path to cloned repository
+        """
+        import tempfile
+        import git
+        
+        # Create temp directory with meaningful prefix
+        temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
+        
+        print(f"  Cloning {url}...")
+        try:
+            git.Repo.clone_from(url, temp_dir)
+            print(f"  Cloned to: {temp_dir}")
+            return temp_dir
+        except Exception as e:
+            print(f"  Warning: Failed to clone {url}: {e}")
+            # Clean up temp dir on failure
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return None
+    
+    def _search_workflow_repo(self, goal: str) -> Optional[str]:
+        """
+        Search for a relevant workflow repository in the Knowledge Graph.
+        
+        Args:
+            goal: The goal to search for
+            
+        Returns:
+            Local path to cloned workflow repo, or None if not found
+        """
+        # Only search if KG is enabled
+        if not self.knowledge_search.is_enabled():
+            print("  No KG index - skipping workflow search")
+            return None
+        
+        try:
+            from src.knowledge.search.workflow_search import WorkflowRepoSearch
+            
+            print("  Searching for relevant workflow...")
+            workflow_search = WorkflowRepoSearch(kg_search=self.knowledge_search)
+            result = workflow_search.search(goal, top_k=1)
+            
+            if not result.is_empty and result.top_result.github_url:
+                starter_url = result.top_result.github_url
+                print(f"  Found workflow repo: {starter_url}")
+                return self._clone_github_repo(starter_url)
+            else:
+                print("  No matching workflow found")
+                return None
+        except Exception as e:
+            print(f"  Warning: Workflow search failed: {e}")
+            return None
     
     def _build_problem_description(
         self, 

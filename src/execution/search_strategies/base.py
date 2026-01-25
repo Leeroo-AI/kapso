@@ -62,7 +62,7 @@ class SearchStrategyConfig:
     # Strategy-specific params (from YAML config)
     params: Dict[str, Any] = field(default_factory=dict)
     # Optional: start experiments from an existing local repo (copy/clone into workspace)
-    seed_repo_path: Optional[str] = None
+    initial_repo: Optional[str] = None
 
 
 class SearchStrategy(ABC):
@@ -103,7 +103,7 @@ class SearchStrategy(ABC):
         self.workspace = ExperimentWorkspace(
             coding_agent_config=config.coding_agent_config,
             workspace_dir=self.workspace_dir,
-            seed_repo_path=config.seed_repo_path,
+            initial_repo=config.initial_repo,
         )
 
         # Ensure baseline RepoMemory exists in the workspace repo.
@@ -122,7 +122,7 @@ class SearchStrategy(ABC):
                 RepoMemoryManager.bootstrap_baseline_model(
                     repo_root=self.workspace_dir,
                     llm=self.llm,
-                    seed_repo_path=self.workspace.seed_repo_path,
+                    initial_repo=self.workspace.initial_repo,
                 )
             else:
                 RepoMemoryManager.ensure_exists_in_worktree(self.workspace_dir)
