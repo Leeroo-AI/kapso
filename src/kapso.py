@@ -510,10 +510,9 @@ class Kapso:
         # Why:
         # - The system already uses `additional_context` to inject KG snippets.
         # - Research ideas should be injected the same way.
-        kg_context = (self._get_kg_context() or "").strip()
         user_context = (additional_context or "").strip()
         items_context = "\n\n".join(context_parts).strip()
-        combined_context = "\n\n".join([c for c in [kg_context, user_context, items_context] if c])
+        combined_context = "\n\n".join([c for c in [user_context, items_context] if c])
         
         # Create problem handler with all options
         handler = GenericProblemHandler(
@@ -656,19 +655,6 @@ class Kapso:
                 parts.append(f"- {c}")
         
         return "\n".join(parts)
-    
-    def _get_kg_context(self) -> str:
-        """Get relevant knowledge from learned chunks."""
-        if not self._learned_chunks:
-            return ""
-        
-        # For MVP, just concatenate recent chunks
-        recent = self._learned_chunks[-5:]  # Last 5 chunks
-        context_parts = ["# Knowledge from Kapso's Brain"]
-        for chunk in recent:
-            context_parts.append(f"- [{chunk.chunk_type}] {chunk.content[:200]}...")
-        
-        return "\n".join(context_parts)
     
     def _extract_experiment_logs(self, orchestrator: OrchestratorAgent) -> List[str]:
         """Extract experiment history as string logs."""
