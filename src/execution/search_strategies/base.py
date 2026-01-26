@@ -12,7 +12,7 @@ import shutil
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from src.execution.context_manager.types import ContextData
 from src.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
@@ -24,10 +24,67 @@ from src.core.prompt_loader import load_prompt, render_prompt
 from src.repo_memory import RepoMemoryManager
 from src.repo_memory.observation import extract_repo_memory_sections_consulted
 
+# Avoid circular import - FeedbackGenerator is optional
+if TYPE_CHECKING:
+    from src.execution.feedback_generator import FeedbackGenerator
+
+
+@dataclass
+class SearchNode:
+    """
+    Unified node structure for search strategies.
+    
+    Accumulates data through the node lifecycle:
+    1. Solution generation -> solution populated
+    2. Implementation -> branch_name, code_changes_summary populated
+    3. Evaluation -> evaluation_script_path, evaluation_output populated
+    4. Feedback -> feedback, score, should_stop populated
+    """
+    node_id: int
+    parent_node_id: Optional[int] = None
+    
+    # Step 1: Solution generation
+    solution: str = ""
+    
+    # Step 2: Implementation
+    branch_name: str = ""
+    code_changes_summary: str = ""
+    agent_output: str = ""  # Raw output from developer agent
+    
+    # Step 3: Evaluation (extracted from agent output or result.json)
+    evaluation_script_path: str = ""
+    evaluation_output: str = ""
+    
+    # Step 4: Feedback
+    feedback: str = ""
+    score: Optional[float] = None
+    should_stop: bool = False
+    evaluation_valid: bool = True
+    
+    # Metadata
+    had_error: bool = False
+    error_message: str = ""
+    workspace_dir: str = ""
+    code_diff: str = ""
+    
+    def __str__(self) -> str:
+        if self.had_error:
+            return f"- Node {self.node_id} failed: {self.error_message[:100]}...\n  Solution: {self.solution[:200]}..."
+        else:
+            return (
+                f"- Node {self.node_id} (score={self.score}):\n"
+                f"  Solution: {self.solution[:200]}...\n"
+                + (f"  Feedback: {self.feedback[:200]}...\n" if self.feedback else "")
+            )
+
 
 @dataclass
 class ExperimentResult:
-    """Result of a single experiment."""
+    """
+    Result of a single experiment.
+    
+    DEPRECATED: Use SearchNode instead. Kept for backward compatibility.
+    """
     node_id: int
     solution: str
     score: float
@@ -38,11 +95,10 @@ class ExperimentResult:
     detailed_output: str = ""
     feedbacks: str = ""
     embedding: List[float] = None
-    # New fields for feedback generator
-    evaluation_output: str = ""  # Output from running evaluation script
-    evaluation_script_path: str = ""  # Path to evaluation script (from developer agent)
-    code_diff: str = ""  # Git diff of implementation changes
-    workspace_dir: str = ""  # Path to workspace for this experiment
+    evaluation_output: str = ""
+    evaluation_script_path: str = ""
+    code_diff: str = ""
+    workspace_dir: str = ""
     
     def __str__(self) -> str:
         if self.had_error:
@@ -53,10 +109,30 @@ class ExperimentResult:
                 + (f"\n\n  # Runtime output: {self.output}" if self.output else "")
                 + (f"\n\n  # Feedbacks: {self.feedbacks} \n" if self.feedbacks else "")
             )
+    
     def get_embedding(self, llm: LLMBackend) -> List[float]:
         if self.embedding is None:
             self.embedding = llm.create_embedding(self.__str__())
         return self.embedding
+    
+    @classmethod
+    def from_search_node(cls, node: SearchNode) -> "ExperimentResult":
+        """Convert SearchNode to ExperimentResult for backward compatibility."""
+        return cls(
+            node_id=node.node_id,
+            solution=node.solution,
+            score=node.score or 0.0,
+            branch_name=node.branch_name,
+            had_error=node.had_error,
+            error_message=node.error_message,
+            output=node.agent_output,
+            detailed_output=node.agent_output,
+            feedbacks=node.feedback,
+            evaluation_output=node.evaluation_output,
+            evaluation_script_path=node.evaluation_script_path,
+            code_diff=node.code_diff,
+            workspace_dir=node.workspace_dir,
+        )
 
 
 @dataclass 
@@ -72,6 +148,10 @@ class SearchStrategyConfig:
     # Optional: directories to copy into workspace
     eval_dir: Optional[str] = None
     data_dir: Optional[str] = None
+    # Optional: FeedbackGenerator for generating feedback after each experiment
+    feedback_generator: Optional["FeedbackGenerator"] = None
+    # Goal string for feedback generation
+    goal: str = ""
 
 
 class SearchStrategy(ABC):
@@ -79,15 +159,15 @@ class SearchStrategy(ABC):
     Abstract base class for experiment search strategies.
     
     Subclasses must implement:
-    - run(): Execute one iteration of the search
+    - run(): Execute one iteration of the search, returns SearchNode
     - get_experiment_history(): Return all experiments
     - get_best_experiment(): Return best experiment so far
     - checkout_to_best_experiment_branch(): Checkout to best solution
     
     Shared functionality provided:
     - implement_solution(): Generate code for a solution
-    - debug_solution(): Debug failed code
-    - _implement_n_debug(): Full implement + debug loop
+    - _implement(): Full implementation flow
+    - _generate_feedback(): Generate feedback for a node
     """
     
     WORKSPACE_FOLDER_BASE = 'tmp/search_strategy_workspace'
@@ -103,6 +183,10 @@ class SearchStrategy(ABC):
         self.problem_handler = config.problem_handler
         self.llm = config.llm
         self.params = config.params
+        
+        # Feedback generator and goal for generating feedback after experiments
+        self.feedback_generator = config.feedback_generator
+        self.goal = config.goal
         
         # Create experiment workspace with coding agent config
         if workspace_dir is None:
@@ -209,21 +293,26 @@ class SearchStrategy(ABC):
     # =========================================================================
     
     @abstractmethod
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> Optional[ExperimentResult]:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> Optional[SearchNode]:
         """
         Execute one iteration of the search strategy.
+        
+        The full node lifecycle:
+        1. Generate solution
+        2. Implement (developer agent)
+        3. Generate feedback (if feedback_generator is set)
         
         Args:
             context: Problem context, KG results, experiment history
             budget_progress: 0-100 indicating budget consumed
             
         Returns:
-            ExperimentResult with solution, evaluation_output, code_diff, workspace_dir
+            SearchNode with solution, evaluation_output, feedback, should_stop
         """
         pass
     
     @abstractmethod
-    def get_experiment_history(self, best_last: bool = False) -> List[ExperimentResult]:
+    def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """
         Get all experiment results.
         
@@ -231,12 +320,12 @@ class SearchStrategy(ABC):
             best_last: If True, sort by score (best last)
             
         Returns:
-            List of ExperimentResult
+            List of SearchNode
         """
         pass
     
     @abstractmethod
-    def get_best_experiment(self) -> Optional[ExperimentResult]:
+    def get_best_experiment(self) -> Optional[SearchNode]:
         """Get the best experiment result so far."""
         pass
     
@@ -385,3 +474,60 @@ class SearchStrategy(ABC):
         
         self.workspace.finalize_session(session)
         return agent_output
+
+    def _generate_feedback(self, node: SearchNode) -> SearchNode:
+        """
+        Generate feedback for a node using the FeedbackGenerator.
+        
+        Updates the node in-place with feedback, score, and should_stop.
+        
+        Args:
+            node: SearchNode with solution, evaluation_output, code_diff populated
+            
+        Returns:
+            The same node with feedback, score, should_stop populated
+        """
+        if self.feedback_generator is None:
+            # No feedback generator - just return the node as-is
+            print("[SearchStrategy] No feedback generator configured, skipping feedback")
+            return node
+        
+        if not self.goal:
+            print("[SearchStrategy] Warning: No goal set, skipping feedback generation")
+            return node
+        
+        print(f"[SearchStrategy] Generating feedback for node {node.node_id}...")
+        
+        try:
+            feedback_result = self.feedback_generator.generate(
+                goal=self.goal,
+                idea=node.solution,
+                code_diff=node.code_diff,
+                evaluation_script_path=node.evaluation_script_path,
+                evaluation_result=node.evaluation_output,
+                workspace_dir=node.workspace_dir,
+            )
+            
+            # Update node with feedback results
+            node.feedback = feedback_result.feedback
+            node.score = feedback_result.score
+            node.should_stop = feedback_result.stop
+            node.evaluation_valid = feedback_result.evaluation_valid
+            
+            print(f"[SearchStrategy] Feedback generated: stop={node.should_stop}, score={node.score}")
+            
+        except Exception as e:
+            print(f"[SearchStrategy] Error generating feedback: {e}")
+            node.feedback = f"Error generating feedback: {e}"
+            node.should_stop = False
+        
+        return node
+
+    def _get_code_diff(self, branch_name: str, parent_branch: str) -> str:
+        """Get git diff between branch and parent."""
+        try:
+            diff = self.workspace.repo.git.diff(parent_branch, branch_name)
+            return diff
+        except Exception as e:
+            print(f"[SearchStrategy] Warning: Could not get diff: {e}")
+            return ""

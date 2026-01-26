@@ -4,6 +4,7 @@
 # implement it, and keep track of the best result.
 # No tree structure - just iterate and improve.
 
+import json
 import os
 import pickle
 from typing import List, Optional
@@ -12,6 +13,7 @@ from src.execution.context_manager.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
+    SearchNode,
     ExperimentResult,
 )
 from src.execution.search_strategies.factory import register_strategy
@@ -25,8 +27,9 @@ class LinearSearch(SearchStrategy):
     
     Each iteration:
     1. Generate a solution based on problem + previous results
-    2. Implement and debug the solution
-    3. Store result and continue
+    2. Implement and evaluate the solution (developer agent)
+    3. Generate feedback
+    4. Store result and continue
     
     Config params:
         - idea_generation_model: Model for solution generation (default: gpt-4.1-mini)
@@ -41,11 +44,12 @@ class LinearSearch(SearchStrategy):
         
         # State
         if not import_from_checkpoint: 
-            self.experiment_history: List[ExperimentResult] = []
+            self.node_history: List[SearchNode] = []
         self.iteration_count = 0
 
         print(f"[LinearSearch] Initialized:")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
+        print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
         # Initialize workspace with empty main file only for empty workspaces.
         # If the workspace is seeded from an existing repo, we must not overwrite it.
@@ -64,29 +68,35 @@ class LinearSearch(SearchStrategy):
         self.workspace.finalize_session(session)
         self.workspace.repo.git.stash()
 
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> ExperimentResult:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> SearchNode:
         """
         Execute one iteration of linear search.
         
-        Simple approach:
-        1. Generate a solution considering previous experiments
-        2. Implement it (developer agent handles implementation + evaluation)
-        3. Store result
+        Node lifecycle:
+        1. Generate solution
+        2. Implement (developer agent handles implementation + evaluation)
+        3. Generate feedback
         
         Returns:
-            ExperimentResult with solution, evaluation_output, code_diff, workspace_dir
+            SearchNode with solution, evaluation_output, feedback, should_stop
         """
-        import json
-        
         self.iteration_count += 1
         print(f"\n[LinearSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
         
-        # Generate solution
+        # Step 1: Generate solution
         solution, ideation_sections = self._generate_solution(context, budget_progress)
         print(f"[LinearSearch] Generated solution ({len(solution)} chars)")
         
-        # Implement - developer agent handles everything
-        branch_name = f"linear_exp_{len(self.experiment_history)}"
+        # Create node
+        node = SearchNode(
+            node_id=len(self.node_history),
+            parent_node_id=self._get_best_node_id(),
+            solution=solution,
+            workspace_dir=self.workspace_dir,
+        )
+        
+        # Step 2: Implement - developer agent handles everything
+        branch_name = f"linear_exp_{node.node_id}"
         parent_branch = self._get_best_branch()
         
         print(f"[LinearSearch] Implementing on branch: {branch_name} (from {parent_branch})")
@@ -99,58 +109,36 @@ class LinearSearch(SearchStrategy):
             ideation_repo_memory_sections_consulted=ideation_sections,
         )
         
-        # Get code diff for this branch
-        code_diff = self._get_code_diff(branch_name, parent_branch)
+        # Update node with implementation results
+        node.branch_name = branch_name
+        node.agent_output = agent_output
+        node.code_diff = self._get_code_diff(branch_name, parent_branch)
         
         # Read evaluation result from kapso_evaluation/result.json (written by developer agent)
-        evaluation_output = agent_output
-        evaluation_script_path = ""
-        score = 0.0
-        had_error = False
-        error_message = ""
-        
         result_json_path = os.path.join(self.workspace_dir, "kapso_evaluation", "result.json")
         if os.path.exists(result_json_path):
             try:
                 with open(result_json_path, 'r') as f:
                     eval_result = json.load(f)
-                evaluation_output = eval_result.get("evaluation_output", agent_output)
-                evaluation_script_path = eval_result.get("evaluation_script_path", "")
-                score = float(eval_result.get("score", 0.0))
+                node.evaluation_output = eval_result.get("evaluation_output", agent_output)
+                node.evaluation_script_path = eval_result.get("evaluation_script_path", "")
+                node.score = float(eval_result.get("score", 0.0))
                 print(f"[LinearSearch] Read evaluation result from {result_json_path}")
             except Exception as e:
                 print(f"[LinearSearch] Warning: Could not read result.json: {e}")
+                node.evaluation_output = agent_output
+        else:
+            node.evaluation_output = agent_output
         
-        # Store result
-        experiment_result = ExperimentResult(
-            node_id=len(self.experiment_history),
-            solution=solution,
-            score=score,
-            branch_name=branch_name,
-            had_error=had_error,
-            error_message=error_message,
-            output=agent_output,
-            detailed_output=agent_output,
-            feedbacks="",
-            evaluation_output=evaluation_output,
-            evaluation_script_path=evaluation_script_path,
-            code_diff=code_diff,
-            workspace_dir=self.workspace_dir,
-        )
-        self.experiment_history.append(experiment_result)
+        # Step 3: Generate feedback
+        node = self._generate_feedback(node)
         
-        print(f"[LinearSearch] ✓ Experiment completed with score: {score}")
+        # Store node
+        self.node_history.append(node)
         
-        return experiment_result
-    
-    def _get_code_diff(self, branch_name: str, parent_branch: str) -> str:
-        """Get git diff between branch and parent."""
-        try:
-            diff = self.workspace.repo.git.diff(parent_branch, branch_name)
-            return diff
-        except Exception as e:
-            print(f"[LinearSearch] Warning: Could not get diff: {e}")
-            return ""
+        print(f"[LinearSearch] ✓ Node {node.node_id} completed: score={node.score}, should_stop={node.should_stop}")
+        
+        return node
 
     def _generate_solution(self, context: ContextData, budget_progress: float) -> tuple[str, list[str]]:
         """Generate a solution based on problem, workflow guidance, and previous experiments."""
@@ -158,14 +146,16 @@ class LinearSearch(SearchStrategy):
         
         # Build prompt with history
         history_summary = ""
-        if self.experiment_history:
+        if self.node_history:
             best = self.get_best_experiment()
-            recent = self.experiment_history[-3:]  # Last 3 experiments
+            recent = self.node_history[-3:]  # Last 3 nodes
             
             history_summary = "\n\nPrevious experiments:\n"
-            for exp in recent:
-                status = f"score={exp.score}" if not exp.had_error else "FAILED"
-                history_summary += f"- {status}: {exp.solution[:200]}...\n"
+            for node in recent:
+                status = f"score={node.score}" if not node.had_error else "FAILED"
+                history_summary += f"- {status}: {node.solution[:200]}...\n"
+                if node.feedback:
+                    history_summary += f"  Feedback: {node.feedback[:150]}...\n"
             
             if best:
                 history_summary += f"\nBest so far (score={best.score}): {best.solution[:300]}..."
@@ -214,36 +204,43 @@ Follow the steps and tips provided.
         return solution, sections
 
     def _get_best_branch(self) -> str:
-        """Get the branch of the best experiment, or main if none."""
+        """Get the branch of the best node, or main if none."""
         best = self.get_best_experiment()
         if best:
             return best.branch_name
         return "main"
+    
+    def _get_best_node_id(self) -> Optional[int]:
+        """Get the node_id of the best node, or None if none."""
+        best = self.get_best_experiment()
+        if best:
+            return best.node_id
+        return None
 
-    def get_experiment_history(self, best_last: bool = False) -> List[ExperimentResult]:
-        """Return all experiments, optionally sorted by score."""
+    def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
+        """Return all nodes, optionally sorted by score."""
         if best_last:
             return sorted(
-                self.experiment_history,
-                key=lambda exp: (
-                    not exp.had_error,
-                    exp.score if self.problem_handler.maximize_scoring else -exp.score
+                self.node_history,
+                key=lambda node: (
+                    not node.had_error,
+                    (node.score or 0) if self.problem_handler.maximize_scoring else -(node.score or 0)
                 )
             )
-        return self.experiment_history
+        return self.node_history
     
-    def get_best_experiment(self) -> Optional[ExperimentResult]:
-        """Return the best successful experiment."""
-        valid = [exp for exp in self.experiment_history if not exp.had_error]
+    def get_best_experiment(self) -> Optional[SearchNode]:
+        """Return the best successful node."""
+        valid = [node for node in self.node_history if not node.had_error]
         if not valid:
             return None
         return max(
             valid,
-            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
+            key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
     def checkout_to_best_experiment_branch(self) -> None:
-        """Checkout to the best experiment's branch."""
+        """Checkout to the best node's branch."""
         best = self.get_best_experiment()
         if best:
             print(f"[LinearSearch] Checking out to best branch: {best.branch_name} (score={best.score})")
@@ -253,12 +250,12 @@ Follow the steps and tips provided.
 
     def export_checkpoint(self) -> None:
         with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
-            pickle.dump(self.experiment_history, f)
+            pickle.dump(self.node_history, f)
 
     def import_checkpoint(self) -> None:
         try:
             with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
-                self.experiment_history = pickle.load(f)
+                self.node_history = pickle.load(f)
         except FileNotFoundError:
             print("[LinearSearch] No checkpoint found")
             raise FileNotFoundError(f"[LinearSearch] No checkpoint found in {self.workspace_dir}")

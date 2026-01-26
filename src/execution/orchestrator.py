@@ -247,6 +247,8 @@ class OrchestratorAgent:
             initial_repo=self.initial_repo,
             eval_dir=self.eval_dir,
             data_dir=self.data_dir,
+            feedback_generator=self.feedback_generator,
+            goal=self.goal,
         )
 
     def _create_knowledge_search(
@@ -409,50 +411,44 @@ class OrchestratorAgent:
                     )
                 
                 # Run one iteration of search strategy
-                # Developer agent implements solution and runs evaluation
-                # Returns ExperimentResult with all needed data
-                experiment_result = self.search_strategy.run(
+                # Search strategy handles: solution generation, implementation, feedback
+                # Returns SearchNode with all data including should_stop
+                node = self.search_strategy.run(
                     experiment_context, 
                     budget_progress=budget_progress
                 )
                 
-                # Skip feedback if no result (shouldn't happen but be safe)
-                if experiment_result is None:
+                # Skip if no result (shouldn't happen but be safe)
+                if node is None:
                     print(f"[Orchestrator] Warning: No result from iteration {i+1}")
                     continue
                 
-                # Get workspace and evaluation script path from ExperimentResult
-                workspace_dir = experiment_result.workspace_dir or self.search_strategy.workspace.workspace_dir
-                eval_script_path = experiment_result.evaluation_script_path
-                
-                # Run feedback generator with clean data from ExperimentResult
-                feedback_result = self.feedback_generator.generate(
-                    goal=self.goal,
-                    idea=experiment_result.solution,
-                    code_diff=experiment_result.code_diff,
-                    evaluation_script_path=eval_script_path,
-                    evaluation_result=experiment_result.evaluation_output,
-                    workspace_dir=workspace_dir,
-                )
-                
-                self.last_feedback_result = feedback_result
-                
-                # Log feedback result
-                print(f"[Orchestrator] Iteration {i+1} feedback:")
-                print(f"  - Stop: {feedback_result.stop}")
-                print(f"  - Evaluation valid: {feedback_result.evaluation_valid}")
-                print(f"  - Score: {feedback_result.score}")
-                feedback_preview = feedback_result.feedback[:200] if feedback_result.feedback else ""
+                # Log result
+                print(f"[Orchestrator] Iteration {i+1} result:")
+                print(f"  - Score: {node.score}")
+                print(f"  - Should stop: {node.should_stop}")
+                print(f"  - Evaluation valid: {node.evaluation_valid}")
+                feedback_preview = node.feedback[:200] if node.feedback else ""
                 print(f"  - Feedback: {feedback_preview}...")
                 
-                # Check if feedback generator says stop
-                if feedback_result.stop:
-                    print(f"[Orchestrator] Stopping: goal achieved (feedback generator)")
+                # Store feedback result for return value
+                if node.feedback:
+                    from src.execution.feedback_generator import FeedbackResult
+                    self.last_feedback_result = FeedbackResult(
+                        stop=node.should_stop,
+                        evaluation_valid=node.evaluation_valid,
+                        feedback=node.feedback,
+                        score=node.score,
+                    )
+                
+                # Check if search strategy says stop
+                if node.should_stop:
+                    print(f"[Orchestrator] Stopping: goal achieved")
                     stopped_reason = "goal_achieved"
                     break
                 
                 # Store feedback for next iteration
-                self.current_feedback = feedback_result.feedback
+                self.current_feedback = node.feedback
 
                 print(
                     f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
