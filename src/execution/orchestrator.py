@@ -9,7 +9,8 @@
 # - FeedbackGenerator decides when to stop
 
 import time
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple
 
 from src.execution.context_manager import (
     ContextManager,
@@ -28,6 +29,17 @@ from src.execution.feedback_generator import FeedbackGenerator, FeedbackResult
 from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 from src.core.config import load_mode_config
+from src.execution.search_strategies.base import ExperimentResult
+
+
+@dataclass
+class SolveResult:
+    """Result from orchestrator.solve()."""
+    best_experiment: Optional[ExperimentResult]
+    final_feedback: Optional[FeedbackResult]
+    stopped_reason: str  # "goal_achieved", "max_iterations", "budget_exhausted", "legacy_stop"
+    iterations_run: int
+    total_cost: float
 
 
 class OrchestratorAgent:
@@ -328,7 +340,7 @@ class OrchestratorAgent:
         experiment_max_iter: int = 20, 
         time_budget_minutes: int = 24*60, 
         cost_budget: float = 300
-    ):
+    ) -> SolveResult:
         """
         Run the main experimentation loop.
         
@@ -348,14 +360,18 @@ class OrchestratorAgent:
             cost_budget: Maximum cost in dollars
             
         Returns:
-            Best experiment result
+            SolveResult with best_experiment, final_feedback, stopped_reason
         """
         import os
         
         start_time = time.time()
+        stopped_reason = "max_iterations"  # default
+        iterations_run = 0
         
         try:
             for i in range(experiment_max_iter):
+                iterations_run = i + 1
+                
                 # Calculate budget progress (0-100)
                 budget_progress = max(
                     (time.time() - start_time) / (time_budget_minutes * 60),
@@ -366,11 +382,13 @@ class OrchestratorAgent:
                 # Check budget exhaustion
                 if budget_progress >= 100:
                     print(f"[Orchestrator] Stopping: budget exhausted")
+                    stopped_reason = "budget_exhausted"
                     break
                 
                 # Check legacy stop condition (for backward compatibility)
                 if self.problem_handler.stop_condition():
                     print(f"[Orchestrator] Stopping: legacy stop condition triggered")
+                    stopped_reason = "legacy_stop"
                     break
                 
                 # Get context (decision happens inside for cognitive context manager)
@@ -386,6 +404,7 @@ class OrchestratorAgent:
                 # Check if LLM decided COMPLETE (legacy)
                 if self.context_manager.should_stop():
                     print(f"[Orchestrator] Stopping: LLM decided COMPLETE")
+                    stopped_reason = "legacy_stop"
                     break
                 
                 # Run one iteration of search strategy
@@ -428,6 +447,7 @@ class OrchestratorAgent:
                 # Check if feedback generator says stop
                 if feedback_result.stop:
                     print(f"[Orchestrator] Stopping: goal achieved (feedback generator)")
+                    stopped_reason = "goal_achieved"
                     break
                 
                 # Store feedback for next iteration
@@ -458,7 +478,13 @@ class OrchestratorAgent:
                 except Exception:
                     pass
 
-        return self.search_strategy.get_best_experiment()
+        return SolveResult(
+            best_experiment=self.search_strategy.get_best_experiment(),
+            final_feedback=self.last_feedback_result,
+            stopped_reason=stopped_reason,
+            iterations_run=iterations_run,
+            total_cost=self.get_cumulative_cost(),
+        )
     
     def _add_feedback_to_context(self, context: str, feedback: str) -> str:
         """Add feedback from previous iteration to context."""

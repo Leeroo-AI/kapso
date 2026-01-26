@@ -95,13 +95,12 @@ class Kapso:
         software = kapso.deploy(solution)
         result = software.run({"ticker": "AAPL"})
         
-    Advanced usage with evaluator and stop condition:
+    Advanced usage with evaluation and data directories:
         solution = kapso.evolve(
             goal="Build a classifier with 95% accuracy",
-            evaluator="regex_pattern",
-            evaluator_params={"pattern": r"Accuracy: ([\\d.]+)"},
-            stop_condition="threshold",
-            stop_condition_params={"threshold": 0.95},
+            eval_dir="./evaluation/",
+            data_dir="./datasets/",
+            initial_repo="https://github.com/owner/starter-repo",
         )
     """
     
@@ -434,15 +433,10 @@ class Kapso:
         # --- Directory options ---
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
-        # --- Execution options (legacy, kept for backward compatibility) ---
+        # --- Execution options ---
         language: str = "python",
         main_file: str = "main.py",
         timeout: int = 300,
-        # --- Evaluation options (legacy, kept for backward compatibility) ---
-        evaluator: Optional[str] = None,
-        evaluator_params: Optional[Dict[str, Any]] = None,
-        stop_condition: Optional[str] = None,
-        stop_condition_params: Optional[Dict[str, Any]] = None,
         # --- Extra context options ---
         additional_context: str = "",
     ) -> SolutionResult:
@@ -469,14 +463,9 @@ class Kapso:
             eval_dir: Path to evaluation files (copied to workspace/kapso_evaluation/)
             data_dir: Path to data files (copied to workspace/kapso_datasets/)
             
-            language: Programming language (default: python) - legacy parameter
-            main_file: Entry point file (default: main.py) - legacy parameter
-            timeout: Execution timeout in seconds (default: 300) - legacy parameter
-            
-            evaluator: Evaluator type - legacy parameter
-            evaluator_params: Parameters for the evaluator - legacy parameter
-            stop_condition: Stop condition - legacy parameter
-            stop_condition_params: Parameters for stop condition - legacy parameter
+            language: Programming language (default: python)
+            main_file: Entry point file (default: main.py)
+            timeout: Execution timeout in seconds (default: 300)
             
             additional_context: Extra context appended to the problem prompt.
                 This is the intended integration point for `Source.Research.to_context_string()`.
@@ -527,10 +516,6 @@ class Kapso:
             language=language,
             timeout=timeout,
             data_dir=data_dir,
-            evaluator=evaluator,
-            evaluator_params=evaluator_params or {},
-            stop_condition=stop_condition,
-            stop_condition_params=stop_condition_params or {},
             additional_context=combined_context,
         )
         
@@ -551,11 +536,12 @@ class Kapso:
             initial_repo=resolved_repo,
             eval_dir=eval_dir,
             data_dir=data_dir,
+            goal=goal,
         )
         
         # Run experimentation
         print("Running experiments...")
-        orchestrator.solve(experiment_max_iter=max_iterations)
+        solve_result = orchestrator.solve(experiment_max_iter=max_iterations)
         
         # Collect results
         experiment_logs = self._extract_experiment_logs(orchestrator)
@@ -564,25 +550,21 @@ class Kapso:
         # Checkout to best solution
         orchestrator.search_strategy.checkout_to_best_experiment_branch()
         
-        # Final evaluation
-        final_result = handler.final_evaluate(workspace_path)
-        
         # Use custom output path if provided
         code_path = output_path or workspace_path
-        cost = orchestrator.get_cumulative_cost()
         
-        # Create solution result
+        # Create solution result with final feedback
         solution = SolutionResult(
             goal=goal,
             code_path=code_path,
             experiment_logs=experiment_logs,
+            final_feedback=solve_result.final_feedback,
             metadata={
                 "constraints": constraints or [],
-                "iterations": max_iterations,
-                "cost": f"${cost:.3f}",
+                "iterations": solve_result.iterations_run,
+                "cost": f"${solve_result.total_cost:.3f}",
+                "stopped_reason": solve_result.stopped_reason,
                 "language": language,
-                "evaluator": evaluator,
-                "final_evaluation": final_result,
             }
         )
         
@@ -590,8 +572,12 @@ class Kapso:
         print("Evolution Complete")
         print(f"{'='*60}")
         print(f"Solution at: {code_path}")
-        print(f"Experiments run: {len(experiment_logs)}")
-        print(f"Total cost: ${cost:.3f}")
+        print(f"Experiments run: {solve_result.iterations_run}")
+        print(f"Total cost: ${solve_result.total_cost:.3f}")
+        print(f"Stopped reason: {solve_result.stopped_reason}")
+        print(f"Goal achieved: {solution.succeeded}")
+        if solution.final_score is not None:
+            print(f"Final score: {solution.final_score}")
         
         return solution
     

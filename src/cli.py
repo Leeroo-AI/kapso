@@ -6,7 +6,7 @@
 # Usage:
 #     python -m src.cli --goal "Build a web scraper..."
 #     python -m src.cli --goal-file problem.txt
-#     python -m src.cli --goal "Build a classifier" --evaluator regex_pattern --iterations 20
+#     python -m src.cli --goal "Build a classifier" --iterations 20
 #
 # Options:
 #     --goal, -g              Goal/problem description (inline)
@@ -17,9 +17,10 @@
 #     --main-file             Entry point file (default: main.py)
 #     --language              Programming language (default: python)
 #     --timeout               Execution timeout in seconds (default: 300)
-#     --evaluator             Evaluator type: no_score, regex_pattern, llm_judge
-#     --stop-condition        Stop condition: never, threshold, plateau
 #     --output                Output directory for the solution
+#     --eval-dir              Directory with evaluation files
+#     --data-dir              Directory with data files
+#     --initial-repo          Initial repository (local path or GitHub URL)
 
 import argparse
 import sys
@@ -30,8 +31,6 @@ load_dotenv()
 
 from src.kapso import Kapso, Source
 from src.execution.coding_agents.factory import CodingAgentFactory
-from src.environment.evaluators import EvaluatorFactory
-from src.environment.stop_conditions import StopConditionFactory
 
 
 # Available coding agents
@@ -43,16 +42,6 @@ def list_agents() -> None:
     CodingAgentFactory.print_agents_info()
 
 
-def list_evaluators() -> None:
-    """List available evaluators."""
-    EvaluatorFactory.print_evaluators_info()
-
-
-def list_stop_conditions() -> None:
-    """List available stop conditions."""
-    StopConditionFactory.print_conditions_info()
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Kapso Agent - Build robust software from goals",
@@ -62,16 +51,16 @@ Examples:
   # Simple usage
   python -m src.cli --goal "Build a web scraper for news articles"
   
-  # With evaluation
+  # With data and evaluation directories
   python -m src.cli --goal "Build a classifier" \\
-      --evaluator regex_pattern \\
-      --stop-condition threshold
+      --eval-dir ./eval/ \\
+      --data-dir ./data/
   
   # Full options
   python -m src.cli --goal-file problem.txt \\
       --iterations 20 \\
-      --coding-agent gemini \\
-      --evaluator llm_judge \\
+      --coding-agent claude_code \\
+      --initial-repo https://github.com/owner/repo \\
       --output ./my_solution
 """
     )
@@ -93,8 +82,8 @@ Examples:
     parser.add_argument(
         "-i", "--iterations",
         type=int,
-        default=1,
-        help="Maximum experiment iterations (default: 1)"
+        default=10,
+        help="Maximum experiment iterations (default: 10)"
     )
     parser.add_argument(
         "-o", "--output",
@@ -118,6 +107,26 @@ Examples:
         help="Coding agent to use"
     )
     
+    # Directory options (new design)
+    parser.add_argument(
+        "--eval-dir",
+        type=str,
+        default=None,
+        help="Directory with evaluation files (copied to kapso_evaluation/)"
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=None,
+        help="Directory with data files (copied to kapso_datasets/)"
+    )
+    parser.add_argument(
+        "--initial-repo",
+        type=str,
+        default=None,
+        help="Initial repository (local path or GitHub URL)"
+    )
+    
     # Execution options
     parser.add_argument(
         "--main-file",
@@ -138,35 +147,11 @@ Examples:
         help="Execution timeout in seconds (default: 300)"
     )
     
-    # Evaluation options
-    parser.add_argument(
-        "--evaluator",
-        type=str,
-        default="no_score",
-        help="Evaluator type (default: no_score). Use --list-evaluators for options"
-    )
-    parser.add_argument(
-        "--stop-condition",
-        type=str,
-        default="never",
-        help="Stop condition (default: never). Use --list-stop-conditions for options"
-    )
-    
     # List commands
     parser.add_argument(
         "--list-agents",
         action="store_true",
         help="List available coding agents"
-    )
-    parser.add_argument(
-        "--list-evaluators",
-        action="store_true",
-        help="List available evaluators"
-    )
-    parser.add_argument(
-        "--list-stop-conditions",
-        action="store_true",
-        help="List available stop conditions"
     )
     
     args = parser.parse_args()
@@ -174,14 +159,6 @@ Examples:
     # Handle list commands
     if args.list_agents:
         list_agents()
-        return
-    
-    if args.list_evaluators:
-        list_evaluators()
-        return
-    
-    if args.list_stop_conditions:
-        list_stop_conditions()
         return
     
     # Get goal text
@@ -205,11 +182,12 @@ Examples:
         max_iterations=args.iterations,
         mode=args.mode,
         coding_agent=args.coding_agent,
+        eval_dir=args.eval_dir,
+        data_dir=args.data_dir,
+        initial_repo=args.initial_repo,
         language=args.language,
         main_file=args.main_file,
         timeout=args.timeout,
-        evaluator=args.evaluator,
-        stop_condition=args.stop_condition,
     )
     
     # Print summary
@@ -217,10 +195,11 @@ Examples:
     print("COMPLETED")
     print("=" * 60)
     print(f"Solution: {solution.code_path}")
+    print(f"Goal achieved: {solution.succeeded}")
+    if solution.final_score is not None:
+        print(f"Final score: {solution.final_score}")
     print(f"Cost: {solution.metadata.get('cost', 'N/A')}")
-    
-    # Optionally learn from the solution for future runs
-    # kapso.learn(Source.Solution(solution), wiki_dir="data/wikis")
+    print(f"Stopped reason: {solution.metadata.get('stopped_reason', 'N/A')}")
 
 
 if __name__ == "__main__":
