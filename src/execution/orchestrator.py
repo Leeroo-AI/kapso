@@ -398,12 +398,6 @@ class OrchestratorAgent:
                     stopped_reason = "budget_exhausted"
                     break
                 
-                # Check legacy stop condition (for backward compatibility)
-                if self.problem_handler.stop_condition():
-                    print(f"[Orchestrator] Stopping: legacy stop condition triggered")
-                    stopped_reason = "legacy_stop"
-                    break
-                
                 # Get context (decision happens inside for cognitive context manager)
                 experiment_context = self.context_manager.get_context(budget_progress=budget_progress)
                 
@@ -413,12 +407,6 @@ class OrchestratorAgent:
                         experiment_context, 
                         self.current_feedback
                     )
-                
-                # Check if LLM decided COMPLETE (legacy)
-                if self.context_manager.should_stop():
-                    print(f"[Orchestrator] Stopping: LLM decided COMPLETE")
-                    stopped_reason = "legacy_stop"
-                    break
                 
                 # Run one iteration of search strategy
                 # Developer agent implements solution and runs evaluation
@@ -499,7 +487,7 @@ class OrchestratorAgent:
             total_cost=self.get_cumulative_cost(),
         )
     
-    def _add_feedback_to_context(self, context: str, feedback: str) -> str:
+    def _add_feedback_to_context(self, context: "ContextData", feedback: str) -> "ContextData":
         """Add feedback from previous iteration to context."""
         feedback_section = f"""
 ## Feedback from Previous Iteration
@@ -508,4 +496,6 @@ class OrchestratorAgent:
 
 Please address the above feedback in this iteration.
 """
-        return context + "\n" + feedback_section
+        # Append feedback to the additional_info field of ContextData
+        context.additional_info = (context.additional_info or "") + "\n" + feedback_section
+        return context

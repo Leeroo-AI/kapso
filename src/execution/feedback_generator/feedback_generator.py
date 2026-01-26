@@ -147,12 +147,14 @@ class FeedbackGenerator:
         template = load_prompt(self.PROMPT_PATH)
         return render_prompt(
             template,
-            goal=goal,
-            idea=idea,
-            code_diff=code_diff,
-            evaluation_script_path=evaluation_script_path,
-            evaluation_result=evaluation_result,
-            workspace_dir=workspace_dir,
+            {
+                "goal": goal,
+                "idea": idea,
+                "code_diff": code_diff,
+                "evaluation_script_path": evaluation_script_path,
+                "evaluation_result": evaluation_result,
+                "workspace_dir": workspace_dir,
+            }
         )
     
     def _parse_response(self, response: str) -> FeedbackResult:
