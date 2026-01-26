@@ -132,16 +132,29 @@ class OrchestratorAgent:
         """
         # Get coding agent config from mode config
         mode_config = self.mode_config
+        # Check for dedicated feedback_generator config first, fall back to coding_agent
+        feedback_config = mode_config.get('feedback_generator', {}) if mode_config else {}
         coding_config = mode_config.get('coding_agent', {}) if mode_config else {}
         
-        # Use specified agent or default to claude_code for feedback
-        agent_type = coding_agent or coding_config.get('type', 'claude_code')
-        agent_model = coding_config.get('model')
+        # Use feedback_generator config if available, otherwise fall back to coding_agent config
+        if feedback_config:
+            agent_type = feedback_config.get('type', 'claude_code')
+            agent_model = feedback_config.get('model')
+            agent_debug_model = feedback_config.get('debug_model')
+            agent_specific = feedback_config.get('agent_specific', {})
+        else:
+            # Fall back to coding_agent config
+            agent_type = coding_agent or coding_config.get('type', 'claude_code')
+            agent_model = coding_config.get('model')
+            agent_debug_model = coding_config.get('debug_model')
+            agent_specific = coding_config.get('agent_specific', {})
         
         # Build config for feedback generator
         feedback_agent_config = CodingAgentFactory.build_config(
             agent_type=agent_type,
             model=agent_model,
+            debug_model=agent_debug_model,
+            agent_specific=agent_specific,
         )
         
         return FeedbackGenerator(

@@ -181,7 +181,7 @@ class SearchStrategy(ABC):
         if eval_dir and os.path.exists(eval_dir):
             shutil.copytree(eval_dir, kapso_eval, dirs_exist_ok=True)
             print(f"  Copied eval_dir to kapso_evaluation/")
-        dirs_created.append(kapso_eval)
+        dirs_created.append("kapso_evaluation")
         
         # Setup kapso_datasets/
         kapso_data = os.path.join(workspace, "kapso_datasets")
@@ -189,16 +189,17 @@ class SearchStrategy(ABC):
         if data_dir and os.path.exists(data_dir):
             shutil.copytree(data_dir, kapso_data, dirs_exist_ok=True)
             print(f"  Copied data_dir to kapso_datasets/")
-        dirs_created.append(kapso_data)
+        dirs_created.append("kapso_datasets")
         
         # Add placeholder files to empty directories so git tracks them
-        for dir_path in dirs_created:
+        for dir_name in dirs_created:
+            dir_path = os.path.join(workspace, dir_name)
             if not os.listdir(dir_path):
                 placeholder = os.path.join(dir_path, ".gitkeep")
                 with open(placeholder, "w") as f:
                     f.write("# Placeholder to track empty directory\n")
         
-        # Commit the directories to the workspace repo
+        # Commit the directories to the workspace repo (use relative paths)
         self.workspace.repo.git.add(dirs_created)
         if self.workspace.repo.is_dirty(untracked_files=True):
             self.workspace.repo.git.commit("-m", "chore(kapso): setup evaluation and data directories")

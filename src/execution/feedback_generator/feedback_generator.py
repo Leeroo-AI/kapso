@@ -56,7 +56,7 @@ class FeedbackGenerator:
     """
     
     # Default prompt path
-    PROMPT_PATH = "src/execution/feedback_generator/prompts/feedback_generator.md"
+    PROMPT_PATH = "execution/feedback_generator/prompts/feedback_generator.md"
     
     def __init__(
         self,

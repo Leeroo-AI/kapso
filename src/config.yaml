@@ -111,9 +111,25 @@ modes:
         idea_generation_model: "gpt-4o-mini"
     
     coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    # Feedback generator uses a coding agent to analyze results and decide when to stop
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
     
     context_manager:
       type: "token_efficient"
@@ -124,14 +140,6 @@ modes:
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
-    
-    evaluator:
-      type: "no_score"
-      params: {}
-    
-    stop_condition:
-      type: "never"
-      params: {}
 
   # Tree search for more complex problems
   TREE_SEARCH:
@@ -165,14 +173,6 @@ modes:
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
-    
-    evaluator:
-      type: "no_score"
-      params: {}
-    
-    stop_condition:
-      type: "never"
-      params: {}
 
   # ===========================================
   # Scored Mode - with regex pattern evaluator
@@ -198,20 +198,3 @@ modes:
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
-    
-    # Evaluator that parses SCORE: X from output
-    evaluator:
-      type: "regex_pattern"
-      params:
-        pattern: 'SCORE:\s*([-+]?\d*\.?\d+)'
-        default_score: 0.0
-    
-    # Stop when score reaches 0.95 or after 50 iterations
-    stop_condition:
-      type: "composite"
-      params:
-        conditions:
-          - ["threshold", {"threshold": 0.95}]
-          - ["max_iterations", {"max_iter": 50}]
-        mode: "any"
-

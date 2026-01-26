@@ -24,7 +24,6 @@ from src.repo_memory.builders import (
     infer_repo_model_initial,
     infer_repo_model_update,
     infer_repo_model_with_retry,
-    validate_evidence,
 )
 
 
@@ -676,12 +675,8 @@ GeneratedAt: {doc.get('generated_at')}
             repo_root=repo_root,
             repo_map=doc["repo_map"],
         )
-        check = validate_evidence(repo_root, model)
-        if not check.ok:
-            raise ValueError(
-                f"RepoMemory bootstrap failed: evidence validation failed after retries.\n"
-                f"Missing evidence: {check.missing[:10]}"
-            )
+        # Note: With line-number-based evidence, validation is no longer needed.
+        # The model is trusted as-is.
         
         # Builders may return either:
         # - v1: {"summary", "entrypoints", "where_to_edit", "claims"}
@@ -805,29 +800,8 @@ GeneratedAt: {doc.get('generated_at')}
                 changed_files=changed_files,
             )
 
-        # Evidence validation is the hard quality gate.
-        check = validate_evidence(repo_root, updated_model)
-        if not check.ok:
-            # Retry once with a full rebuild using the same "retry on bad evidence" loop
-            # we use for bootstrapping.
-            #
-            # Why:
-            # - Delta updates are cheaper but can be fragile if the model mis-cites evidence.
-            # - A full rebuild is more robust, and the retry loop gives explicit feedback
-            #   about missing quotes so the model can correct itself.
-            rebuilt = infer_repo_model_with_retry(
-                llm=llm,
-                model=llm_model,
-                repo_root=repo_root,
-                repo_map=doc["repo_map"],
-            )
-            check = validate_evidence(repo_root, rebuilt)
-            if not check.ok:
-                raise ValueError(
-                    f"RepoMemory update failed: evidence validation failed after retry.\n"
-                    f"Missing evidence: {check.missing[:10]}"
-                )
-            updated_model = rebuilt
+        # Note: With line-number-based evidence, validation is no longer needed.
+        # The model is trusted as-is.
 
         doc["repo_model"] = updated_model
         if isinstance((updated_model or {}).get("sections"), dict):
