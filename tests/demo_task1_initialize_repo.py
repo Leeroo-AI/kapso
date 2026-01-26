@@ -62,7 +62,7 @@ kapso = Kapso(kg_index=index_path)
 solution = kapso.evolve(
     goal=goal,
     max_iterations=5,  # Single iteration for demo
-    mode="MINIMAL"
+    mode="MINIMAL_TREE"
 )
 
 # =============================================================================

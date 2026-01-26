@@ -44,19 +44,15 @@ class TreeSearchNode(SearchNode):
     ideation_repo_memory_sections_consulted: List[str] = field(default_factory=list)
     
     def __post_init__(self):
-        """Set is_root based on parent_node."""
+        """Set is_root and parent_node_id based on parent_node."""
         self.is_root = self.parent_node is None
+        # Update parent_node_id from parent_node reference
+        if self.parent_node is not None:
+            self.parent_node_id = self.parent_node.node_id
     
     @property
     def is_leaf(self) -> bool:
         return len(self.children) == 0
-    
-    @property
-    def parent_node_id(self) -> Optional[int]:
-        """Override to get parent_node_id from parent_node."""
-        if self.parent_node is not None:
-            return self.parent_node.node_id
-        return None
 
 
 @register_strategy("llm_tree_search")
