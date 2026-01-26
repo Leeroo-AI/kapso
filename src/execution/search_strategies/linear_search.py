@@ -4,7 +4,6 @@
 # implement it, and keep track of the best result.
 # No tree structure - just iterate and improve.
 
-import json
 import os
 import pickle
 from typing import List, Optional
@@ -14,7 +13,6 @@ from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
     SearchNode,
-    ExperimentResult,
 )
 from src.execution.search_strategies.factory import register_strategy
 from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
@@ -75,7 +73,8 @@ class LinearSearch(SearchStrategy):
         Node lifecycle:
         1. Generate solution
         2. Implement (developer agent handles implementation + evaluation)
-        3. Generate feedback
+        3. Extract results from agent output
+        4. Generate feedback
         
         Returns:
             SearchNode with solution, evaluation_output, feedback, should_stop
@@ -114,24 +113,24 @@ class LinearSearch(SearchStrategy):
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(branch_name, parent_branch)
         
-        # Read evaluation result from kapso_evaluation/result.json (written by developer agent)
-        result_json_path = os.path.join(self.workspace_dir, "kapso_evaluation", "result.json")
-        if os.path.exists(result_json_path):
-            try:
-                with open(result_json_path, 'r') as f:
-                    eval_result = json.load(f)
-                node.evaluation_output = eval_result.get("evaluation_output", agent_output)
-                node.evaluation_script_path = eval_result.get("evaluation_script_path", "")
-                node.score = float(eval_result.get("score", 0.0))
-                print(f"[LinearSearch] Read evaluation result from {result_json_path}")
-            except Exception as e:
-                print(f"[LinearSearch] Warning: Could not read result.json: {e}")
-                node.evaluation_output = agent_output
-        else:
-            node.evaluation_output = agent_output
+        # Step 3: Extract results from agent output JSON
+        agent_result = self._extract_agent_result(agent_output)
         
-        # Step 3: Generate feedback
-        node = self._generate_feedback(node)
+        if agent_result:
+            node.code_changes_summary = agent_result.get("code_changes_summary", "")
+            node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
+            node.evaluation_output = agent_result.get("evaluation_output", agent_output)
+            # Score from agent result (may be overridden by feedback generator)
+            if agent_result.get("score") is not None:
+                node.score = float(agent_result.get("score", 0.0))
+            print(f"[LinearSearch] Extracted result from agent JSON")
+        else:
+            # Fallback: use raw agent output
+            node.evaluation_output = agent_output
+            print(f"[LinearSearch] Warning: No JSON result from agent, using raw output")
+        
+        # Step 4: Generate feedback
+        self._generate_feedback(node)
         
         # Store node
         self.node_history.append(node)

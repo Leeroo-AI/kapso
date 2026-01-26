@@ -91,19 +91,19 @@ class OrchestratorAgent:
         # Load config once and store for reuse
         self.mode_config = load_mode_config(config_path, mode)
         
-        # Create search strategy 
-        self.search_strategy = self._create_search_strategy(
-            coding_agent=coding_agent,
-            workspace_dir=workspace_dir,
-            start_from_checkpoint=start_from_checkpoint,
-        )
-        
-        # Create feedback generator
+        # Create feedback generator FIRST (needed by search strategy)
         self.feedback_generator = self._create_feedback_generator(coding_agent)
         
         # Track feedback for next iteration
         self.current_feedback: Optional[str] = None
         self.last_feedback_result: Optional[FeedbackResult] = None
+        
+        # Create search strategy (uses feedback_generator)
+        self.search_strategy = self._create_search_strategy(
+            coding_agent=coding_agent,
+            workspace_dir=workspace_dir,
+            start_from_checkpoint=start_from_checkpoint,
+        )
         
         # Create knowledge search backend (or use provided instance).
         # This allows Kapso.evolve() to inject a concrete backend (e.g., kg_graph_search)
@@ -346,8 +346,7 @@ class OrchestratorAgent:
         """Get total cost from all components."""
         return (
             self.llm.get_cumulative_cost() 
-            + self.search_strategy.workspace.get_cumulative_cost() 
-            + self.problem_handler.llm.get_cumulative_cost()
+            + self.search_strategy.workspace.get_cumulative_cost()
         )
 
     def solve(

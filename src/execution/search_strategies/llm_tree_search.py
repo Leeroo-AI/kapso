@@ -438,20 +438,21 @@ class LlmSteeredTreeSearch(SearchStrategy):
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(branch_name, self._get_closest_experimented_parent(node).branch_name)
 
-        # Read evaluation result from kapso_evaluation/result.json
-        result_json_path = os.path.join(self.workspace_dir, "kapso_evaluation", "result.json")
-        if os.path.exists(result_json_path):
-            try:
-                with open(result_json_path, 'r') as f:
-                    eval_result = json.load(f)
-                node.evaluation_output = eval_result.get("evaluation_output", agent_output)
-                node.evaluation_script_path = eval_result.get("evaluation_script_path", "")
-                node.score = float(eval_result.get("score", 0.0))
-            except Exception as e:
-                print(f"[LlmTreeSearch] Warning: Could not read result.json: {e}")
-                node.evaluation_output = agent_output
+        # Extract results from agent output JSON
+        agent_result = self._extract_agent_result(agent_output)
+        
+        if agent_result:
+            node.code_changes_summary = agent_result.get("code_changes_summary", "")
+            node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
+            node.evaluation_output = agent_result.get("evaluation_output", agent_output)
+            # Score from agent result (may be overridden by feedback generator)
+            if agent_result.get("score") is not None:
+                node.score = float(agent_result.get("score", 0.0))
+            print(f"[LlmTreeSearch] Extracted result from agent JSON")
         else:
+            # Fallback: use raw agent output
             node.evaluation_output = agent_output
+            print(f"[LlmTreeSearch] Warning: No JSON result from agent, using raw output")
         
         # Generate feedback (updates node in-place)
         self._generate_feedback(node)

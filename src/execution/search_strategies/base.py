@@ -531,3 +531,60 @@ class SearchStrategy(ABC):
         except Exception as e:
             print(f"[SearchStrategy] Warning: Could not get diff: {e}")
             return ""
+
+    def _extract_agent_result(self, agent_output: str) -> dict:
+        """
+        Extract structured JSON result from agent output.
+        
+        The agent is instructed to return a JSON block at the end of its response:
+        ```json
+        {
+            "code_changes_summary": "...",
+            "evaluation_script_path": "...",
+            "evaluation_output": "...",
+            "score": 0.95
+        }
+        ```
+        
+        Args:
+            agent_output: Raw output from the developer agent
+            
+        Returns:
+            dict with keys: code_changes_summary, evaluation_script_path, evaluation_output, score
+            Returns empty dict if extraction fails
+        """
+        import re
+        import json
+        
+        # Look for JSON in code blocks (```json ... ```)
+        json_pattern = r'```json\s*(\{.*?\})\s*```'
+        matches = re.findall(json_pattern, agent_output, re.DOTALL)
+        
+        if matches:
+            # Take the last JSON block (final result)
+            for json_str in reversed(matches):
+                try:
+                    result = json.loads(json_str)
+                    # Validate it has expected keys
+                    if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
+                        print(f"[SearchStrategy] Extracted agent result from JSON block")
+                        return result
+                except json.JSONDecodeError:
+                    continue
+        
+        # Fallback: try to find raw JSON object at the end
+        try:
+            # Find last occurrence of {...}
+            start = agent_output.rfind('{')
+            end = agent_output.rfind('}') + 1
+            if start != -1 and end > start:
+                json_str = agent_output[start:end]
+                result = json.loads(json_str)
+                if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
+                    print(f"[SearchStrategy] Extracted agent result from raw JSON")
+                    return result
+        except json.JSONDecodeError:
+            pass
+        
+        print(f"[SearchStrategy] Warning: Could not extract JSON result from agent output")
+        return {}

@@ -49,5 +49,25 @@ If the error is in the evaluation code (`kapso_evaluation/`):
 - Ensure evaluation still tests what it claims to test
 - Re-run evaluation after fixing
 
-Do not ask any questions. Fix the error and re-run if needed.
+## CRITICAL: Final Output Format
 
+When you have fixed the error and re-run evaluation, you MUST return a JSON object as the LAST thing in your response. This JSON MUST be wrapped in ```json code blocks.
+
+```json
+{
+    "code_changes_summary": "Brief description of what you fixed (2-5 sentences)",
+    "evaluation_script_path": "kapso_evaluation/evaluate.py",
+    "evaluation_output": "Full stdout/stderr output from running the evaluation script",
+    "score": 0.95
+}
+```
+
+**Requirements for the JSON:**
+- `code_changes_summary`: 2-5 sentences describing what you fixed
+- `evaluation_script_path`: Relative path to the evaluation script
+- `evaluation_output`: Complete stdout/stderr from running the evaluation
+- `score`: Numeric score from evaluation (use 0 if no score available, or null if evaluation failed)
+
+**This JSON is MANDATORY. The system extracts results from this JSON.**
+
+Do not ask any questions. Fix the error and re-run if needed.
