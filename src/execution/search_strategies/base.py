@@ -18,7 +18,7 @@ from src.execution.context_manager.types import ContextData
 from src.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
 from src.execution.experiment_workspace.experiment_session import ExperimentSession
 from src.execution.coding_agents.base import CodingAgentConfig
-from src.environment.handlers.base import ProblemHandler, ProblemRunResult
+from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 from src.core.prompt_loader import load_prompt, render_prompt
 from src.repo_memory import RepoMemoryManager
@@ -264,9 +264,15 @@ class SearchStrategy(ABC):
         solution: str, 
         context: ContextData, 
         session: ExperimentSession
-    ) -> ProblemRunResult:
+    ) -> str:
         """
-        Generate code for a solution and run it.
+        Have the developer agent implement a solution.
+        
+        The developer agent is responsible for:
+        - Implementing the solution
+        - Building evaluation in kapso_evaluation/
+        - Running the evaluation
+        - Handling any errors/retries internally
         
         Args:
             solution: The solution description to implement
@@ -274,7 +280,7 @@ class SearchStrategy(ABC):
             session: Experiment session with coding agent
             
         Returns:
-            ProblemRunResult with score and error info
+            The agent's output (contains implementation results)
         """
         # RepoMemory is committed inside branches under `.kapso/`.
         # This means when we start from a parent branch, we also inherit the memory
@@ -316,111 +322,46 @@ class SearchStrategy(ABC):
             },
         )
 
-        session.generate_code(developer_prompt)
+        # Run the developer agent - it handles implementation, evaluation, and retries
+        result = session.generate_code(developer_prompt)
+        return result.output if hasattr(result, 'output') else str(result)
 
-        return self.problem_handler.run(
-            session.session_folder,
-            run_data_dir=session.run_dir,
-            solution=solution,
-        )
-
-    def debug_solution(
+    def _implement(
         self, 
         solution: str, 
         context: ContextData, 
-        error: str, 
-        session: ExperimentSession
-    ) -> ProblemRunResult:
-        """
-        Debug a failed solution.
-        
-        Args:
-            solution: The solution description
-            context: Problem context
-            error: Error message from failed run
-            session: Experiment session
-            
-        Returns:
-            ProblemRunResult after debug attempt
-        """
-        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
-        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
-
-        agent_type = getattr(getattr(self.workspace, "coding_agent_config", None), "agent_type", "")
-        if agent_type == "claude_code":
-            repo_memory_detail_access_instructions = (
-                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
-                "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
-                "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
-            )
-        else:
-            repo_memory_detail_access_instructions = (
-                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "read: `.kapso/repo_memory.json` and look up by section ID from the TOC."
-            )
-
-        template = load_prompt("execution/prompts/coding_agent_debug.md")
-        developer_prompt = render_prompt(
-            template,
-            {
-                "repo_memory_brief": repo_memory_brief,
-                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
-                "problem": str(getattr(context, "problem", "")),
-                "solution": str(solution or ""),
-                "error_details": str(error or ""),
-            },
-        )
-        session.generate_code(developer_prompt, debug_mode=True)
-        return self.problem_handler.run(
-            session.session_folder,
-            run_data_dir=session.run_dir,
-            solution=solution,
-            debug=True,
-        )
-
-    def _implement_n_debug(
-        self, 
-        solution: str, 
-        context: ContextData, 
-        code_debug_tries: int, 
         branch_name: str, 
         parent_branch_name: str = "main",
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
-    ) -> ProblemRunResult:
+    ) -> str:
         """
-        Full implementation + debugging loop.
+        Full implementation flow.
+        
+        Creates a session, runs the developer agent, and finalizes.
+        The developer agent handles everything: implementation, evaluation, retries.
         
         Args:
             solution: Solution description to implement
             context: Problem context
-            code_debug_tries: Max debug attempts
             branch_name: Git branch for this experiment
             parent_branch_name: Parent branch to inherit code from
+            ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
             
         Returns:
-            Final ProblemRunResult
+            The agent's output string
         """
         session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
-        result = self.implement_solution(solution, context, session)
-        
-        for i in range(code_debug_tries):
-            if result.run_had_error and result.continue_debugging:
-                print("Run had error, error details: ", result.error_details)
-                result = self.debug_solution(solution, context, result.error_details, session)
-            else:
-                break
+        agent_output = self.implement_solution(solution, context, session)
 
         # Update RepoMemory for this experiment branch.
         # This makes memory correct across the experiment tree: child experiments inherit
         # the memory file from the parent branch they start from.
         run_result_payload = {
-            "score": getattr(result, "score", 0),
-            "run_had_error": getattr(result, "run_had_error", False),
-            "error_message": getattr(result, "error_message", "")[:5000],
-            "error_details": getattr(result, "error_details", "")[:10000],
-            "feedbacks": getattr(result, "feedbacks", "")[:10000],
-            # Observability: which RepoMemory sections were consulted during ideation (engine-mediated).
+            "score": 0,  # Score will be extracted by feedback generator
+            "run_had_error": False,
+            "error_message": "",
+            "error_details": "",
+            "feedbacks": "",
             "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted or [],
         }
 
@@ -437,12 +378,10 @@ class SearchStrategy(ABC):
         run_result_payload["repo_memory_sections_consulted"] = sections_consulted
 
         # Schedule RepoMemory update for session close.
-        # This ensures the update runs AFTER final commits (run data + remaining changes),
-        # and BEFORE push/cleanup (latest-commit semantics).
         session.schedule_repo_memory_update(
             solution_spec=solution,
             run_result=run_result_payload,
         )
         
         self.workspace.finalize_session(session)
-        return result
+        return agent_output

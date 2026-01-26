@@ -384,6 +384,9 @@ class LlmSteeredTreeSearch(SearchStrategy):
         budget_progress: float = 0.0
     ) -> None:
         """Run experiment for a single node."""
+        import json
+        import os
+        
         print(
             f"Budget progress: {budget_progress}\n" + "#" * 100 + "\n" 
             + f"Initiating experiment at node {node.node_id} "
@@ -395,36 +398,52 @@ class LlmSteeredTreeSearch(SearchStrategy):
         node.node_event_history.append([self.experimentation_count, "experiment"])
         node.branch_name = branch_name
         
-        result = self._implement_n_debug(
+        agent_output = self._implement(
             node.solution,
             context,
-            code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
             parent_branch_name=self._get_closest_experimented_parent(node).branch_name,
             ideation_repo_memory_sections_consulted=getattr(node, "ideation_repo_memory_sections_consulted", []),
         )
 
-        if result.run_had_error:
-            node.is_terminated = True
-            node.node_event_history.append([self.experimentation_count, "terminate"])
+        # Read evaluation result from kapso_evaluation/result.json
+        evaluation_output = agent_output
+        evaluation_script_path = ""
+        score = 0.0
+        had_error = False
+        
+        result_json_path = os.path.join(self.workspace_dir, "kapso_evaluation", "result.json")
+        if os.path.exists(result_json_path):
+            try:
+                with open(result_json_path, 'r') as f:
+                    eval_result = json.load(f)
+                evaluation_output = eval_result.get("evaluation_output", agent_output)
+                evaluation_script_path = eval_result.get("evaluation_script_path", "")
+                score = float(eval_result.get("score", 0.0))
+            except Exception as e:
+                print(f"[LlmTreeSearch] Warning: Could not read result.json: {e}")
 
         experiment_result = ExperimentResult(
             solution=node.solution,
-            score=result.score,
+            score=score,
             branch_name=branch_name,
             node_id=node.node_id,
-            had_error=result.run_had_error,
-            error_message=result.error_message,
-            output=result.output,
-            detailed_output=result.detailed_output,
-            feedbacks=result.feedbacks
+            had_error=had_error,
+            error_message="",
+            output=agent_output,
+            detailed_output=agent_output,
+            feedbacks="",
+            evaluation_output=evaluation_output,
+            evaluation_script_path=evaluation_script_path,
+            code_diff="",
+            workspace_dir=self.workspace_dir,
         )
         
         with self.experiment_history_lock:
             node.experiment_result = experiment_result
             self.experiment_history.append(experiment_result)
         
-        print(f"Experiment at branch {branch_name} ended with score: {experiment_result.score}, error: {experiment_result.had_error}")
+        print(f"Experiment at branch {branch_name} ended with score: {experiment_result.score}")
 
     def _get_closest_experimented_parent(self, node: Node) -> Node:
         """Find the closest ancestor with an experiment result."""

@@ -1,6 +1,6 @@
 # Environment Module - Problem Environment
 #
-# Handles problem definition and code execution.
+# Handles problem definition.
 #
 # In the new design:
 # - Developer agent builds evaluation in kapso_evaluation/
@@ -13,13 +13,13 @@
 # Handlers
 from src.environment.handlers import (
     ProblemHandler,
-    ProblemRunResult,
+    ProblemRunResult,  # Deprecated, kept for benchmark compatibility
     GenericProblemHandler,
 )
 
 __all__ = [
     # Handlers
     "ProblemHandler",
-    "ProblemRunResult",
+    "ProblemRunResult",  # Deprecated
     "GenericProblemHandler",
 ]

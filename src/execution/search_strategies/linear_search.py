@@ -29,7 +29,6 @@ class LinearSearch(SearchStrategy):
     3. Store result and continue
     
     Config params:
-        - code_debug_tries: Max debug attempts (default: 3)
         - idea_generation_model: Model for solution generation (default: gpt-4.1-mini)
     """
     
@@ -38,7 +37,6 @@ class LinearSearch(SearchStrategy):
         super().__init__(config, workspace_dir, import_from_checkpoint)
         
         # Config params
-        self.code_debug_tries = self.params.get("code_debug_tries", 3)
         self.idea_generation_model = self.params.get("idea_generation_model", "gpt-4.1-mini")
         
         # State
@@ -47,7 +45,6 @@ class LinearSearch(SearchStrategy):
         self.iteration_count = 0
 
         print(f"[LinearSearch] Initialized:")
-        print(f"  - code_debug_tries: {self.code_debug_tries}")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
         
         # Initialize workspace with empty main file only for empty workspaces.
@@ -73,11 +70,11 @@ class LinearSearch(SearchStrategy):
         
         Simple approach:
         1. Generate a solution considering previous experiments
-        2. Implement it
+        2. Implement it (developer agent handles implementation + evaluation)
         3. Store result
         
         Returns:
-            ExperimentResult with solution, score, evaluation_output, evaluation_script_path, code_diff, workspace_dir
+            ExperimentResult with solution, evaluation_output, code_diff, workspace_dir
         """
         import json
         
@@ -88,16 +85,15 @@ class LinearSearch(SearchStrategy):
         solution, ideation_sections = self._generate_solution(context, budget_progress)
         print(f"[LinearSearch] Generated solution ({len(solution)} chars)")
         
-        # Implement and run
+        # Implement - developer agent handles everything
         branch_name = f"linear_exp_{len(self.experiment_history)}"
         parent_branch = self._get_best_branch()
         
         print(f"[LinearSearch] Implementing on branch: {branch_name} (from {parent_branch})")
         
-        result = self._implement_n_debug(
+        agent_output = self._implement(
             solution=solution,
             context=context,
-            code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
             parent_branch_name=parent_branch,
             ideation_repo_memory_sections_consulted=ideation_sections,
@@ -107,15 +103,20 @@ class LinearSearch(SearchStrategy):
         code_diff = self._get_code_diff(branch_name, parent_branch)
         
         # Read evaluation result from kapso_evaluation/result.json (written by developer agent)
-        evaluation_output = result.output
+        evaluation_output = agent_output
         evaluation_script_path = ""
+        score = 0.0
+        had_error = False
+        error_message = ""
+        
         result_json_path = os.path.join(self.workspace_dir, "kapso_evaluation", "result.json")
         if os.path.exists(result_json_path):
             try:
                 with open(result_json_path, 'r') as f:
                     eval_result = json.load(f)
-                evaluation_output = eval_result.get("evaluation_output", result.output)
+                evaluation_output = eval_result.get("evaluation_output", agent_output)
                 evaluation_script_path = eval_result.get("evaluation_script_path", "")
+                score = float(eval_result.get("score", 0.0))
                 print(f"[LinearSearch] Read evaluation result from {result_json_path}")
             except Exception as e:
                 print(f"[LinearSearch] Warning: Could not read result.json: {e}")
@@ -124,13 +125,13 @@ class LinearSearch(SearchStrategy):
         experiment_result = ExperimentResult(
             node_id=len(self.experiment_history),
             solution=solution,
-            score=result.score,
+            score=score,
             branch_name=branch_name,
-            had_error=result.run_had_error,
-            error_message=result.error_message,
-            output=result.output,
-            detailed_output=result.detailed_output,
-            feedbacks=result.feedbacks,
+            had_error=had_error,
+            error_message=error_message,
+            output=agent_output,
+            detailed_output=agent_output,
+            feedbacks="",
             evaluation_output=evaluation_output,
             evaluation_script_path=evaluation_script_path,
             code_diff=code_diff,
@@ -138,10 +139,7 @@ class LinearSearch(SearchStrategy):
         )
         self.experiment_history.append(experiment_result)
         
-        if result.run_had_error:
-            print(f"[LinearSearch] ❌ Experiment failed: {result.error_message[:100]}...")
-        else:
-            print(f"[LinearSearch] ✓ Experiment completed with score: {result.score}")
+        print(f"[LinearSearch] ✓ Experiment completed with score: {score}")
         
         return experiment_result
     
