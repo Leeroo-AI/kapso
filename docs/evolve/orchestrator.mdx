@@ -5,14 +5,14 @@ description: "The central coordinator for the experimentation loop"
 
 ## Overview
 
-The `OrchestratorAgent` is the central coordinator that manages the experimentation loop. It connects all components and runs iterations until a stop condition is met.
+The `OrchestratorAgent` is the central coordinator that manages the experimentation loop. It connects all components and runs iterations until the feedback generator decides the goal is achieved.
 
 ## Responsibilities
 
 1. **Budget Tracking**: Monitor time, iterations, and cost
-2. **Stop Condition Checking**: Determine when to stop
-3. **Context Gathering**: Assemble problem + KG + history
-4. **Search Coordination**: Run search strategy iterations
+2. **Context Gathering**: Assemble problem + KG + history
+3. **Search Coordination**: Run search strategy iterations
+4. **Stop Checking**: Check if feedback generator decided to stop
 5. **Resource Cleanup**: Close connections when done
 
 ## Usage
@@ -24,9 +24,13 @@ from src.kapso import Kapso
 
 kapso = Kapso()
 solution = kapso.evolve(
-    goal="Build a classifier",
+    goal="Build a classifier with accuracy > 0.9",
     max_iterations=10,
 )
+
+# Check if goal was achieved
+if solution.succeeded:
+    print(f"Goal achieved with score: {solution.final_score}")
 ```
 
 ### Direct Usage
@@ -37,9 +41,7 @@ from src.environment.handlers.generic import GenericProblemHandler
 
 # Create problem handler
 handler = GenericProblemHandler(
-    problem_description="Build a classifier",
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"Accuracy: ([\d.]+)"},
+    problem_description="Build a classifier with accuracy > 0.9",
 )
 
 # Create orchestrator
@@ -48,6 +50,7 @@ orchestrator = OrchestratorAgent(
     config_path="src/config.yaml",
     mode="GENERIC",
     coding_agent="aider",
+    use_feedback_generator=True,  # Enable feedback generator
 )
 
 # Run experimentation
@@ -75,21 +78,20 @@ def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
             self.get_cumulative_cost() / cost_budget
         ) * 100
 
-        # Check stopping conditions
-        if self.problem_handler.stop_condition() or budget_progress >= 100:
-            print("[Orchestrator] Stopping: score threshold or budget reached")
+        if budget_progress >= 100:
+            print("[Orchestrator] Stopping: budget exhausted")
             break
 
         # Get enriched context
         context = self.context_manager.get_context(budget_progress)
 
-        # Check if LLM decided COMPLETE (cognitive context manager)
-        if self.context_manager.should_stop():
-            print("[Orchestrator] Stopping: LLM decided COMPLETE")
-            break
+        # Run one search iteration (includes feedback generation)
+        node = self.search_strategy.run(context, budget_progress)
 
-        # Run one search iteration
-        self.search_strategy.run(context, budget_progress)
+        # Check if feedback generator decided to stop
+        if node and node.should_stop:
+            print("[Orchestrator] Stopping: Goal achieved")
+            break
 
         # Log progress
         print(f"Experiment {i+1} completed with cost: ${self.get_cumulative_cost():.3f}")
@@ -241,14 +243,15 @@ modes:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `problem_handler` | `ProblemHandler` | Handles problem context and evaluation |
+| `problem_handler` | `ProblemHandler` | Handles problem context |
 | `config_path` | `str` | Path to config.yaml |
 | `mode` | `str` | Configuration mode (GENERIC, MINIMAL, etc.) |
 | `coding_agent` | `str` | Override coding agent type |
 | `is_kg_active` | `bool` | Whether to enable knowledge graph |
 | `knowledge_search` | `KnowledgeSearch` | Pre-configured search instance |
 | `workspace_dir` | `str` | Custom workspace directory |
-| `starting_repo_path` | `str` | Seed experiments from existing repo |
+| `initial_repo` | `str` | Starting repo (local path or GitHub URL) |
+| `use_feedback_generator` | `bool` | Enable feedback generator (default: True for evolve) |
 
 ## Next Steps
 
@@ -259,10 +262,10 @@ modes:
   <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
     Pluggable code generators
   </Card>
-  <Card title="Evaluators" icon="scale-balanced" href="/docs/evolve/evaluators">
-    Score solutions
+  <Card title="Feedback Generator" icon="comments" href="/docs/evolve/feedback-generator">
+    How evaluation is validated
   </Card>
-  <Card title="Stop Conditions" icon="stop" href="/docs/evolve/stop-conditions">
-    Control when to stop
+  <Card title="Execution Flow" icon="diagram-project" href="/docs/evolve/execution-flow">
+    Step-by-step execution process
   </Card>
 </CardGroup>

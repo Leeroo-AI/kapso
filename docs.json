@@ -41,8 +41,7 @@
                   "docs/evolve/orchestrator",
                   "docs/evolve/search-strategies",
                   "docs/evolve/coding-agents",
-                  "docs/evolve/evaluators",
-                  "docs/evolve/stop-conditions",
+                  "docs/evolve/feedback-generator",
                   "docs/evolve/experiment-lifecycle",
                   {
                     "group": "Memory",

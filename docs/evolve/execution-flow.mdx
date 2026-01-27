@@ -5,16 +5,16 @@ description: "How Kapso executes experiments from goal to solution"
 
 ## The Big Picture
 
-When you call `kapso.evolve()`, the **OrchestratorAgent** runs an experiment loop that generates, tests, and refines solutions until one meets your criteria.
+When you call `kapso.evolve()`, the **OrchestratorAgent** runs an experiment loop that generates, tests, and refines solutions until the feedback generator decides the goal is achieved.
 
 ```mermaid
 flowchart LR
     A[Goal] --> B[SearchStrategy]
     B --> C[CodingAgent]
-    C --> D[ProblemHandler]
-    D --> E{StopCondition}
-    E -->|Yes| G[SolutionResult]
-    E -->|No| F[Debug / New Idea]
+    C --> D[Agent Evaluation]
+    D --> E[FeedbackGenerator]
+    E -->|Stop| G[SolutionResult]
+    E -->|Continue| F[Next Iteration]
     F --> B
 ```
 
@@ -27,20 +27,20 @@ When `evolve()` is called, **Kapso** creates the execution stack:
 ```python
 solution = kapso.evolve(
     goal="Build a classifier with 95% accuracy",
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"Accuracy: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.95},
+    eval_dir="./evaluation/",  # Optional: user-provided evaluation
+    data_dir="./data/",        # Optional: user-provided data
+    max_iterations=10,
 )
 ```
 
 | Component | Module | Role |
 |-----------|--------|------|
-| **ProblemHandler** | `src.environment.handlers` | Wraps goal + evaluator + stop condition |
+| **ProblemHandler** | `src.environment.handlers` | Wraps goal and problem context |
 | **OrchestratorAgent** | `src.execution.orchestrator` | Runs the solve loop |
 | **SearchStrategy** | `src.execution.search_strategies` | Generates and selects solutions |
 | **ExperimentWorkspace** | `src.execution.experiment_workspace` | Manages Git branches |
-| **CodingAgent** | `src.execution.coding_agents` | Writes code (Aider, Claude, etc.) |
+| **CodingAgent** | `src.execution.coding_agents` | Writes code and runs evaluation |
+| **FeedbackGenerator** | `src.execution.feedback_generator` | Validates results and decides stop |
 | **KnowledgeSearch** | `src.knowledge.search` | Retrieves KG context |
 
 ### Step 2: Gather Context
@@ -79,15 +79,21 @@ def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
         # Calculate budget progress (0-100%)
         budget_progress = max(time_pct, iter_pct, cost_pct) * 100
 
-        # Check stopping conditions
-        if self.problem_handler.stop_condition() or budget_progress >= 100:
-            break
-
         # Get enriched context
         context = self.context_manager.get_context(budget_progress)
 
-        # Run one search iteration
-        self.search_strategy.run(context, budget_progress)
+        # Run one search iteration (includes feedback generation)
+        node = self.search_strategy.run(context, budget_progress)
+
+        # Check if feedback generator decided to stop
+        if node and node.should_stop:
+            print("[Orchestrator] Stopping: Goal achieved")
+            break
+
+        # Log progress
+        print(f"Experiment {i+1} completed with cost: ${self.get_cumulative_cost():.3f}")
+
+    return self.search_strategy.get_best_experiment()
 ```
 
 ### Step 4: Generate Solution Ideas
@@ -116,7 +122,7 @@ def run(self, context, budget_progress):
             executor.submit(self._run_for_node, node, context)
 ```
 
-### Step 5: Write Code
+### Step 5: Write Code and Run Evaluation
 
 **ExperimentSession** coordinates code generation:
 
@@ -134,9 +140,19 @@ def implement_solution(self, solution, context, session):
         "kg_code_results": context.kg_code_results,
     })
 
+    # Agent implements solution AND runs evaluation
+    # Returns structured JSON with results
     session.generate_code(prompt)
-    return self.problem_handler.run(session.session_folder)
+    
+    # Extract results from agent's structured JSON output
+    return self._extract_agent_result(session.output)
 ```
+
+The developer agent is responsible for:
+1. Implementing the solution code
+2. Building evaluation in `kapso_evaluation/`
+3. Running the evaluation
+4. Returning structured JSON with results
 
 Each experiment gets its own **Git branch** via `ExperimentWorkspace`:
 
@@ -147,79 +163,61 @@ main
 └── kapso/exp-003  (Score: 0.96, best)
 ```
 
-### Step 6: Run and Evaluate
+### Step 6: Agent Returns Structured JSON
 
-**ProblemHandler.run()** executes code and scores it:
+The developer agent returns a structured JSON with evaluation results:
+
+```json
+{
+    "code_changes_summary": "Implemented random forest classifier with GridSearchCV",
+    "evaluation_script_path": "kapso_evaluation/evaluate.py",
+    "evaluation_output": "Loading data...\nTraining model...\nAccuracy: 0.95\nAll tests passed."
+}
+```
+
+This JSON is extracted from the agent's output and used by the feedback generator.
+
+### Step 7: Feedback Generation
+
+The **FeedbackGenerator** validates the evaluation and decides whether to continue:
 
 ```python
-class GenericProblemHandler(ProblemHandler):
-    def run(self, file_path, solution, debug=False):
-        # Execute the code
-        output = subprocess.run(
-            ["python", self.main_file],
-            cwd=file_path,
-            capture_output=True
+class FeedbackGenerator:
+    def generate(self, goal, idea, implementation, evaluation_result):
+        # Use coding agent to analyze results
+        feedback_result = self.agent.analyze(
+            goal=goal,
+            idea=idea,
+            implementation=implementation,
+            evaluation_result=evaluation_result,
         )
-
-        # Score with configured Evaluator
-        eval_result = self.evaluator.evaluate(
-            output=output.stdout,
-            problem=self.problem_description,
-        )
-
-        return ProblemRunResult(
-            score=eval_result.score,
-            output=output.stdout,
-            feedbacks=eval_result.feedback,
+        
+        return FeedbackResult(
+            stop=feedback_result.goal_achieved,
+            evaluation_valid=feedback_result.is_valid,
+            feedback=feedback_result.suggestions,
+            score=feedback_result.extracted_score,
         )
 ```
 
-### Step 7: Debug Loop
+The feedback generator:
+1. **Validates evaluation**: Checks if the agent-built evaluation is fair and correct
+2. **Extracts score**: Parses the evaluation output to get numeric scores
+3. **Checks goal**: Determines if the goal has been achieved
+4. **Generates feedback**: Provides actionable suggestions for the next iteration
 
-If code fails, **_implement_n_debug()** retries:
+### Step 8: Check Feedback Result
 
-```python
-def _implement_n_debug(self, solution, context, code_debug_tries, branch_name):
-    session = self.workspace.create_experiment_session(branch_name)
-    result = self.implement_solution(solution, context, session)
-
-    for i in range(code_debug_tries):
-        if result.run_had_error and result.continue_debugging:
-            result = self.debug_solution(
-                solution, context, result.error_details, session
-            )
-        else:
-            break
-
-    # Update RepoMemory with learnings
-    session.schedule_repo_memory_update(
-        solution_spec=solution, 
-        run_result=result
-    )
-    self.workspace.finalize_session(session)
-    return result
-```
-
-### Step 8: Check Stop Condition
-
-**StopCondition.check()** determines if we're done:
+The search strategy checks the feedback result:
 
 ```python
-def stop_condition(self):
-    decision = self._stop_condition.check(
-        best_score=self.best_score,
-        current_score=self.current_score,
-        iteration=self.iteration,
-    )
-    return decision.should_stop
-```
+if feedback_result.stop:
+    node.should_stop = True
+    return node  # Goal achieved, stop iteration
 
-| Condition | Module | Triggers When |
-|-----------|--------|---------------|
-| `threshold` | `builtin.ThresholdStopCondition` | Score >= target |
-| `plateau` | `builtin.PlateauStopCondition` | No improvement for N iterations |
-| `cost_limit` | `builtin.CostLimitStopCondition` | API cost exceeds budget |
-| `composite` | `builtin.CompositeStopCondition` | Any/all conditions met |
+# Continue with feedback for next iteration
+node.feedback = feedback_result.feedback
+```
 
 ### Step 9: Return Result
 
@@ -232,13 +230,18 @@ orchestrator.search_strategy.checkout_to_best_experiment_branch()
 # Create result
 solution = SolutionResult(
     goal=goal,
-    code_path=output_path,
+    code_path=workspace_path,
     experiment_logs=experiment_logs,
+    final_feedback=final_feedback,  # FeedbackResult from last iteration
     metadata={
         "cost": f"${cost:.3f}",
         "iterations": iteration_count,
     }
 )
+
+# Check if goal was achieved
+if solution.succeeded:
+    print(f"Goal achieved with score: {solution.final_score}")
 ```
 
 ---
@@ -267,18 +270,23 @@ The loop stops when **any** budget hits 100% OR the stop condition is met.
 
 ## Error Handling
 
-Errors are captured in **ProblemRunResult**:
+Errors are captured in **SearchNode**:
 
 ```python
 @dataclass
-class ProblemRunResult:
-    score: float = 0
-    output: str = ""
-    run_had_error: bool = False
+class SearchNode:
+    node_id: int
+    solution: str = ""
+    branch_name: str = ""
+    code_changes_summary: str = ""
+    evaluation_script_path: str = ""
+    evaluation_output: str = ""
+    feedback: str = ""
+    score: Optional[float] = None
+    should_stop: bool = False
+    evaluation_valid: bool = True
+    had_error: bool = False
     error_message: str = ""
-    error_details: str = ""      # Full traceback
-    feedbacks: str = ""
-    continue_debugging: bool = True  # False if unrecoverable
 ```
 
 The debug prompt includes error context:
@@ -304,10 +312,10 @@ def debug_solution(self, solution, context, error, session):
   <Card title="Orchestrator" icon="gears" href="/docs/evolve/orchestrator">
     Deep dive into OrchestratorAgent
   </Card>
-  <Card title="Evaluators" icon="scale-balanced" href="/docs/evolve/evaluators">
-    How solutions are scored
+  <Card title="Feedback Generator" icon="comments" href="/docs/evolve/feedback-generator">
+    How evaluation is validated
   </Card>
-  <Card title="Stop Conditions" icon="flag-checkered" href="/docs/evolve/stop-conditions">
-    When to stop experimenting
+  <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
+    Pluggable code generators
   </Card>
 </CardGroup>

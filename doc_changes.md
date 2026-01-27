@@ -9,12 +9,14 @@ This document outlines all documentation changes needed to align with the new de
 Based on `design.md` and tasks 01-09, the key architectural changes are:
 
 1. **New API**: `kapso.evolve()` now uses `initial_repo`, `eval_dir`, `data_dir` parameters
-2. **Agent-Built Evaluation**: Developer agent builds evaluation dynamically in `kapso_evaluation/`
-3. **Feedback Generator**: Replaces predefined evaluators and stop conditions
-4. **Removed Components**: `src/environment/evaluators/` and `src/environment/stop_conditions/` deleted
-5. **Structured JSON Output**: Developer agent returns structured JSON with results
-6. **Feedback in Search Strategy**: Feedback generation moved from orchestrator to search strategy
-7. **Benchmark Backward Compatibility**: New `benchmark_tree_search` strategy for MLE/ALE benchmarks
+2. **Initialize Repo with Workflow Search**: When `initial_repo=None`, system searches for relevant workflow repos via `workflow_search()` (Task 01)
+3. **`initial_repo` accepts GitHub URLs**: Can be local path OR GitHub URL (auto-cloned)
+4. **Agent-Built Evaluation**: Developer agent builds evaluation dynamically in `kapso_evaluation/`
+5. **Feedback Generator**: Replaces predefined evaluators and stop conditions
+6. **Removed Components**: `src/environment/evaluators/` and `src/environment/stop_conditions/` deleted
+7. **Structured JSON Output**: Developer agent returns structured JSON with results
+8. **Feedback in Search Strategy**: Feedback generation moved from orchestrator to search strategy
+9. **Benchmark Backward Compatibility**: New `benchmark_tree_search` strategy for MLE/ALE benchmarks
 
 ---
 
@@ -55,6 +57,12 @@ Based on `design.md` and tasks 01-09, the key architectural changes are:
       max_iterations=10,
   )
   ```
+- [ ] Add section explaining `initial_repo` behavior (from Task 01):
+  - If `initial_repo` is a local path: use as starting point
+  - If `initial_repo` is a GitHub URL: clone and use as starting point
+  - If `initial_repo` is None: search for relevant workflow via `workflow_search(goal)`
+    - If workflow found: clone workflow's GitHub repo
+    - If no workflow found: create empty repo
 - [ ] Update "The Experimentation Loop" section to reflect new flow:
   1. Select → Choose which solution candidates to explore
   2. Expand → Generate new variations using the coding agent
@@ -284,7 +292,11 @@ Based on `design.md` and tasks 01-09, the key architectural changes are:
   - Add `eval_dir` parameter
   - Update `data_dir` description (now copied to workspace)
   - Rename `starting_repo_path` to `initial_repo`
-  - Add note that `initial_repo` accepts GitHub URLs
+  - Add note that `initial_repo` accepts GitHub URLs (auto-cloned)
+  - Add note about workflow search when `initial_repo=None`:
+    - System searches KG for relevant workflow repos
+    - If found, clones and uses as starting point
+    - If not found, creates empty repo
   - Remove `language`, `main_file`, `timeout` parameters
   - Remove `evaluator`, `evaluator_params` parameters
   - Remove `stop_condition`, `stop_condition_params` parameters

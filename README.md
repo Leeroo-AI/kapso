@@ -114,7 +114,8 @@ kapso.learn(
 )
 
 # Evolve: Build a solution through experimentation
-# The agent writes evaluate.py to compute metrics and signal when target is reached
+# The agent builds an evaluation protocol based on your objective
+# Optionally, pass your own evaluation script with eval_dir parameter
 
 # Download dataset first (e.g., from HuggingFace)
 # from datasets import load_dataset

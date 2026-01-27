@@ -5,42 +5,12 @@
 #   python -m src.runner -p "Your problem..." -m GENERIC
 #   python -m src.runner -f problem.txt -m MINIMAL
 #
-# Evaluators (--list-evaluators for all options):
-#   - no_score: No scoring, always returns 0
-#   - regex_pattern: Parse score from output using regex
-#   - file_json: Read score from JSON file
-#   - llm_judge: LLM-based evaluation
-#
-# Stop Conditions (--list-stop-conditions for all options):
-#   - never: Never stop early
-#   - threshold: Stop when score reaches threshold
-#   - plateau: Stop if no improvement for N iterations
-#   - composite: Combine multiple conditions
-#
 # Knowledge Search Backends (via KnowledgeSearchFactory):
 #   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
 #   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
 
 # Default mode to use
 default_mode: GENERIC
-
-# =============================================================================
-# Default Evaluator Configuration
-# =============================================================================
-# Available: no_score, regex_pattern, file_json, multi_metric, 
-#            llm_judge, llm_comparison, composite
-evaluator:
-  type: "no_score"
-  params: {}
-
-# =============================================================================
-# Default Stop Condition Configuration
-# =============================================================================
-# Available: never, threshold, max_iterations, plateau, 
-#            cost_limit, time_limit, consecutive_errors, composite
-stop_condition:
-  type: "never"
-  params: {}
 
 # =============================================================================
 # Available configuration modes
@@ -87,16 +57,6 @@ modes:
         embedding_model: "text-embedding-3-large"
         use_llm_reranker: true
         reranker_model: "gpt-4.1-mini"
-    
-    # Evaluator for this mode (overrides default)
-    evaluator:
-      type: "no_score"
-      params: {}
-    
-    # Stop condition for this mode (overrides default)
-    stop_condition:
-      type: "never"
-      params: {}
 
   # ===========================================
   # Testing Modes
@@ -205,31 +165,6 @@ modes:
         idea_generation_model: "gpt-4o-mini"
         idea_generation_ensemble_models:
           - "gpt-4o-mini"
-    
-    coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
-    
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
-
-  # ===========================================
-  # Scored Mode - with regex pattern evaluator
-  # ===========================================
-  SCORED:
-    search_strategy:
-      type: "linear_search"
-      params:
-        code_debug_tries: 5
-        idea_generation_model: "gpt-4o-mini"
     
     coding_agent:
       type: "aider"

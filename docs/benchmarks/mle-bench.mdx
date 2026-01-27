@@ -48,12 +48,16 @@ PYTHONPATH=. python -m benchmarks.mle.runner \
 
 ## Configuration Modes
 
+<Note>
+MLE-Bench uses `benchmark_tree_search` strategy which uses the handler's built-in evaluation via `handler.run()`. This is different from `kapso.evolve()` which uses agent-built evaluation.
+</Note>
+
 <Tabs>
   <Tab title="MLE_CONFIGS">
     Production configuration with full features.
     ```yaml
     search_strategy:
-      type: "llm_tree_search"
+      type: "benchmark_tree_search"
       params:
         reasoning_effort: "high"
         code_debug_tries: 15
@@ -69,7 +73,7 @@ PYTHONPATH=. python -m benchmarks.mle.runner \
     Fast configuration for testing.
     ```yaml
     search_strategy:
-      type: "llm_tree_search"
+      type: "benchmark_tree_search"
       params:
         reasoning_effort: "medium"
         code_debug_tries: 2

@@ -45,6 +45,10 @@ PYTHONPATH=. python -m benchmarks.ale.runner \
 
 `ahc008`, `ahc011`, `ahc015`, `ahc016`, `ahc024`, `ahc025`, `ahc026`, `ahc027`, `ahc039`, `ahc046`
 
+<Note>
+ALE-Bench uses `benchmark_tree_search` strategy which uses the handler's built-in evaluation via `handler.run()`. This is different from `kapso.evolve()` which uses agent-built evaluation.
+</Note>
+
 ## Output Structure
 
 The agent generates:
