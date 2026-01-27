@@ -144,26 +144,13 @@ Evolve a solution through experimentation.
 def evolve(
     self,
     goal: str,
-    context: Optional[List[Any]] = None,
-    constraints: Optional[List[str]] = None,
-    output_path: Optional[str] = None,
-    starting_repo_path: Optional[str] = None,
+    eval_dir: Optional[str] = None,
+    data_dir: Optional[str] = None,
+    initial_repo: Optional[str] = None,
     max_iterations: int = 10,
     # Configuration
     mode: Optional[str] = None,
     coding_agent: Optional[str] = None,
-    # Execution
-    language: str = "python",
-    main_file: str = "main.py",
-    timeout: int = 300,
-    data_dir: Optional[str] = None,
-    # Evaluation
-    evaluator: str = "no_score",
-    evaluator_params: Optional[Dict[str, Any]] = None,
-    stop_condition: str = "never",
-    stop_condition_params: Optional[Dict[str, Any]] = None,
-    # Extra context
-    additional_context: str = "",
 ) -> SolutionResult
 ```
 
@@ -171,23 +158,23 @@ def evolve(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `goal` | `str` | - | High-level objective |
-| `context` | `List` | `None` | Sources to learn before evolving |
-| `constraints` | `List[str]` | `None` | Constraints (e.g., "latency < 50ms") |
-| `output_path` | `str` | `None` | Where to save generated code |
-| `starting_repo_path` | `str` | `None` | Existing repo to improve |
+| `goal` | `str` | - | High-level objective (include success criteria) |
+| `eval_dir` | `str` | `None` | Path to user-provided evaluation files (copied to `kapso_evaluation/`) |
+| `data_dir` | `str` | `None` | Path to data files (copied to `kapso_datasets/`) |
+| `initial_repo` | `str` | `None` | Starting repository - see below for options |
 | `max_iterations` | `int` | `10` | Maximum experiment iterations |
 | `mode` | `str` | `None` | Config mode (GENERIC, MINIMAL, etc.) |
 | `coding_agent` | `str` | `None` | Coding agent override |
-| `language` | `str` | `"python"` | Programming language |
-| `main_file` | `str` | `"main.py"` | Entry point file |
-| `timeout` | `int` | `300` | Execution timeout (seconds) |
-| `data_dir` | `str` | `None` | Path to data files |
-| `evaluator` | `str` | `"no_score"` | Evaluator type |
-| `evaluator_params` | `Dict` | `None` | Evaluator parameters |
-| `stop_condition` | `str` | `"never"` | Stop condition type |
-| `stop_condition_params` | `Dict` | `None` | Stop condition parameters |
-| `additional_context` | `str` | `""` | Extra context for prompts |
+
+#### `initial_repo` Options
+
+The `initial_repo` parameter accepts three types of values:
+
+| Value | Behavior |
+|-------|----------|
+| **Local path** (`"/path/to/repo"`) | Use existing local repository as starting point |
+| **GitHub URL** (`"https://github.com/org/repo"`) | Clone the repository and use as starting point |
+| **None** (default) | Search for relevant workflow via `workflow_search(goal)`. If found, clone workflow's repo. If not found, create empty repo. |
 
 #### Returns
 
@@ -195,20 +182,30 @@ def evolve(
 - `goal`: Original goal
 - `code_path`: Path to generated code
 - `experiment_logs`: List of experiment summaries
+- `final_feedback`: `FeedbackResult` with stop decision and score
 - `metadata`: Cost, iterations, final evaluation
 
 #### Example
 
 ```python
+# Basic usage - agent builds evaluation dynamically
 solution = kapso.evolve(
     goal="Build XGBoost classifier with AUC > 0.85",
-    output_path="./models/v1",
     max_iterations=10,
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"AUC: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.85},
 )
+
+# With user-provided evaluation and data
+solution = kapso.evolve(
+    goal="Optimize the model for inference speed",
+    eval_dir="./my_evaluation/",
+    data_dir="./my_data/",
+    initial_repo="https://github.com/org/starter-repo",
+)
+
+# Check results
+if solution.succeeded:
+    print(f"Goal achieved with score: {solution.final_score}")
+print(f"Code at: {solution.code_path}")
 ```
 
 ### deploy()
@@ -313,7 +310,29 @@ class SolutionResult:
     goal: str
     code_path: str
     experiment_logs: List[str]
+    final_feedback: Optional[FeedbackResult]
     metadata: Dict[str, Any]
+    
+    @property
+    def succeeded(self) -> bool:
+        """True if goal was achieved."""
+        return self.final_feedback and self.final_feedback.stop
+    
+    @property
+    def final_score(self) -> Optional[float]:
+        """Final evaluation score if available."""
+        return self.final_feedback.score if self.final_feedback else None
+```
+
+### FeedbackResult
+
+```python
+@dataclass
+class FeedbackResult:
+    stop: bool                      # Whether to stop iteration
+    evaluation_valid: bool          # Whether evaluation is fair/correct
+    feedback: str                   # Actionable feedback for next iteration
+    score: Optional[float] = None   # Extracted evaluation score
 ```
 
 ### Source Types
@@ -376,16 +395,17 @@ kapso.learn(
     research,
 )
 
-# Evolve
+# Evolve - agent builds evaluation dynamically
+# Feedback generator validates and decides when goal is achieved
 solution = kapso.evolve(
     goal="XGBoost classifier with AUC > 0.9",
-    output_path="./models/xgb_v1",
     max_iterations=10,
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"AUC: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.9},
 )
+
+# Check if goal was achieved
+if solution.succeeded:
+    print(f"Goal achieved with score: {solution.final_score}")
+    print(f"Feedback: {solution.final_feedback.feedback}")
 
 # Deploy
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)

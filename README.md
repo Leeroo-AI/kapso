@@ -114,9 +114,17 @@ kapso.learn(
 )
 
 # Evolve: Build a solution through experimentation
-# The agent writes evaluate.py to compute metrics and signal when target is reached
+# The agent builds an evaluation protocol based on your objective
+# Optionally, pass your own evaluation script with eval_dir parameter
+
+# Download dataset first (e.g., from HuggingFace)
+# from datasets import load_dataset
+# dataset = load_dataset("theatticusproject/cuad")
+# dataset.save_to_disk("./data/cuad_dataset")
+
 solution = kapso.evolve(
-    goal="Fine-tune Llama-3.1-8B on the CUAD dataset (https://huggingface.co/datasets/theatticusproject/cuad) for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
+    goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
+    data_dir="./data/cuad_dataset",  # Dataset available in kapso_datasets/
     output_path="./models/legal_risk_v1",
     context=[research_findings.ideas(top_k=10)],
 )

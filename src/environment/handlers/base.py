@@ -2,7 +2,11 @@
 Problem Handler Base
 
 Abstract base class for all problem handlers.
-Each benchmark implements its own handler with specific evaluation logic.
+Provides problem context to the developer agent.
+
+NOTE: In the new design, the developer agent is responsible for building and
+running evaluation. The handler primarily provides problem context.
+The FeedbackGenerator handles stop decisions.
 """
 
 from abc import ABC, abstractmethod
@@ -12,7 +16,13 @@ from typing import Any, Dict
 
 @dataclass
 class ProblemRunResult:
-    """Result of running code on a problem."""
+    """
+    Result of running code on a problem.
+    
+    DEPRECATED: This class is kept for backward compatibility with benchmarks.
+    In the new design, the developer agent handles evaluation and returns
+    results via kapso_evaluation/result.json.
+    """
     score: float = 0
     output: str = ""
     detailed_output: str = ""
@@ -28,11 +38,14 @@ class ProblemHandler(ABC):
     Abstract base class for problem handlers.
     
     Subclasses must implement:
-    - run(): Execute code and return results
-    - final_evaluate(): Final evaluation on private test set
     - get_problem_context(): Return problem description
-    - stop_condition(): Check if search should stop early
+    
+    Optional methods:
+    - final_evaluate(): Final evaluation on private test set (for benchmarks)
     """
+    
+    # Whether higher scores are better (used by search strategies)
+    maximize_scoring: bool = True
     
     def __init__(self, additional_context: str = ""):
         """
@@ -42,23 +55,17 @@ class ProblemHandler(ABC):
             additional_context: Extra context to include (tips, domain knowledge, etc.)
         """
         self.additional_context = additional_context
-    
-    @abstractmethod
-    def run(self, file_path: str, debug: bool = False, **kwargs) -> ProblemRunResult:
-        """Execute code and return results."""
-        pass
-        
-    @abstractmethod
-    def final_evaluate(self, file_path: str, **kwargs) -> Dict[str, Any]:
-        """Final evaluation on private/held-out test set."""
-        pass
 
     @abstractmethod
     def get_problem_context(self, budget_progress: float = 0, **kwargs) -> str:
         """Return problem description (may vary with budget progress)."""
         pass
     
-    @abstractmethod
-    def stop_condition(self, **kwargs) -> bool:
-        """Return True if search should stop early."""
-        pass
+    def final_evaluate(self, file_path: str, **kwargs) -> Dict[str, Any]:
+        """
+        Final evaluation on private/held-out test set.
+        
+        Override this for benchmarks that have a separate test set.
+        Default implementation returns empty dict.
+        """
+        return {}

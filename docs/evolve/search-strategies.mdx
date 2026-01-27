@@ -150,33 +150,52 @@ flowchart LR
     Exploration -->|"budget > 30%"| Exploitation
 ```
 
-## Node Structure
-
-```python
-class Node:
-    node_id: int              # Unique identifier
-    parent_node: Node         # Parent reference
-    solution: str             # Solution description
-    branch_name: str          # Git branch
-    is_terminated: bool       # Pruned or failed
-    experiment_result: ExperimentResult
-    children: List[Node]
-```
-
-## Experiment Result
+## Node Structure (SearchNode)
 
 ```python
 @dataclass
-class ExperimentResult:
+class SearchNode:
     node_id: int
-    solution: str
-    score: float
-    branch_name: str
-    had_error: bool
+    parent_node_id: Optional[int] = None
+    
+    # Step 1: Solution generation
+    solution: str = ""
+    
+    # Step 2: Implementation
+    branch_name: str = ""
+    code_changes_summary: str = ""
+    
+    # Step 3: Evaluation
+    evaluation_script_path: str = ""
+    evaluation_output: str = ""
+    
+    # Step 4: Feedback
+    feedback: str = ""
+    score: Optional[float] = None
+    should_stop: bool = False
+    evaluation_valid: bool = True
+    
+    # Metadata
+    had_error: bool = False
     error_message: str = ""
-    output: str = ""
-    feedbacks: str = ""
+    workspace_dir: str = ""
 ```
+
+## Benchmark Tree Search
+
+For benchmarks (MLE-Bench, ALE-Bench), use `benchmark_tree_search` which uses the handler's built-in evaluation:
+
+```yaml
+# benchmarks/mle/config.yaml
+search_strategy:
+  type: "benchmark_tree_search"  # Uses handler.run() for evaluation
+```
+
+| Strategy | Evaluation | Stop Decision | Use Case |
+|----------|------------|---------------|----------|
+| `llm_tree_search` | Agent-built | Feedback generator | `kapso.evolve()` |
+| `linear_search` | Agent-built | Feedback generator | Simple problems |
+| `benchmark_tree_search` | Handler's `run()` | Handler's `stop_condition()` | MLE/ALE benchmarks |
 
 ## Creating Custom Strategies
 
@@ -233,8 +252,42 @@ def implement_solution(self, solution, context, session):
         "kg_code_results": context.kg_code_results,
     })
 
+    # Agent implements AND runs evaluation
     session.generate_code(prompt)
-    return self.problem_handler.run(session.session_folder)
+    
+    # Extract structured JSON from agent output
+    return self._extract_agent_result(session.output)
+```
+
+### _extract_agent_result
+
+```python
+def _extract_agent_result(self, agent_output: str) -> dict:
+    """
+    Extract structured JSON result from agent output.
+    
+    Looks for JSON block at the end of the output:
+    ```json
+    {"code_changes_summary": "...", ...}
+    ```
+    """
+    # Find and parse JSON from agent output
+    ...
+```
+
+### _generate_feedback
+
+```python
+def _generate_feedback(self, node: SearchNode) -> FeedbackResult:
+    """
+    Generate feedback for the node using FeedbackGenerator.
+    """
+    return self.feedback_generator.generate(
+        goal=self.goal,
+        idea=node.solution,
+        implementation=node.code_changes_summary,
+        evaluation_result=node.evaluation_output,
+    )
 ```
 
 ### debug_solution
@@ -248,7 +301,6 @@ def debug_solution(self, solution, context, error, session):
     })
 
     session.generate_code(prompt, debug_mode=True)
-    return self.problem_handler.run(session.session_folder)
 ```
 
 ### _implement_n_debug
@@ -256,17 +308,23 @@ def debug_solution(self, solution, context, error, session):
 ```python
 def _implement_n_debug(self, solution, context, code_debug_tries, branch_name):
     session = self.workspace.create_experiment_session(branch_name)
-    result = self.implement_solution(solution, context, session)
+    node = self.implement_solution(solution, context, session)
 
     for i in range(code_debug_tries):
-        if result.run_had_error and result.continue_debugging:
-            result = self.debug_solution(solution, context, result.error_details, session)
+        if node.had_error:
+            node = self.debug_solution(solution, context, node.error_message, session)
         else:
             break
 
+    # Generate feedback
+    feedback_result = self._generate_feedback(node)
+    node.feedback = feedback_result.feedback
+    node.score = feedback_result.score
+    node.should_stop = feedback_result.stop
+
     # Update RepoMemory
-    session.schedule_repo_memory_update(solution_spec=solution, run_result=result)
+    session.schedule_repo_memory_update(solution_spec=solution, run_result=node)
     self.workspace.finalize_session(session)
 
-    return result
+    return node
 ```

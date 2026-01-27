@@ -27,7 +27,7 @@ modes:
   MLE_CONFIGS:
     # Search strategy configuration
     search_strategy:
-      type: "llm_tree_search"
+      type: "benchmark_tree_search"
       params:
         reasoning_effort: "medium"
         code_debug_tries: 15
@@ -71,7 +71,7 @@ modes:
   # Heavy experimentation - many parallel experiments
   HEAVY_EXPERIMENTATION:
     search_strategy:
-      type: "llm_tree_search"
+      type: "benchmark_tree_search"
       params:
         reasoning_effort: "high"
         code_debug_tries: 3
@@ -142,7 +142,7 @@ modes:
   # Minimal configuration for quick testing (tree search)
   MINIMAL:
     search_strategy:
-      type: "llm_tree_search"
+      type: "benchmark_tree_search"
       params:
         reasoning_effort: "medium"
         code_debug_tries: 2

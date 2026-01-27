@@ -5,42 +5,12 @@
 #   python -m src.runner -p "Your problem..." -m GENERIC
 #   python -m src.runner -f problem.txt -m MINIMAL
 #
-# Evaluators (--list-evaluators for all options):
-#   - no_score: No scoring, always returns 0
-#   - regex_pattern: Parse score from output using regex
-#   - file_json: Read score from JSON file
-#   - llm_judge: LLM-based evaluation
-#
-# Stop Conditions (--list-stop-conditions for all options):
-#   - never: Never stop early
-#   - threshold: Stop when score reaches threshold
-#   - plateau: Stop if no improvement for N iterations
-#   - composite: Combine multiple conditions
-#
 # Knowledge Search Backends (via KnowledgeSearchFactory):
 #   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
 #   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
 
 # Default mode to use
 default_mode: GENERIC
-
-# =============================================================================
-# Default Evaluator Configuration
-# =============================================================================
-# Available: no_score, regex_pattern, file_json, multi_metric, 
-#            llm_judge, llm_comparison, composite
-evaluator:
-  type: "no_score"
-  params: {}
-
-# =============================================================================
-# Default Stop Condition Configuration
-# =============================================================================
-# Available: never, threshold, max_iterations, plateau, 
-#            cost_limit, time_limit, consecutive_errors, composite
-stop_condition:
-  type: "never"
-  params: {}
 
 # =============================================================================
 # Available configuration modes
@@ -87,16 +57,6 @@ modes:
         embedding_model: "text-embedding-3-large"
         use_llm_reranker: true
         reranker_model: "gpt-4.1-mini"
-    
-    # Evaluator for this mode (overrides default)
-    evaluator:
-      type: "no_score"
-      params: {}
-    
-    # Stop condition for this mode (overrides default)
-    stop_condition:
-      type: "never"
-      params: {}
 
   # ===========================================
   # Testing Modes
@@ -111,9 +71,25 @@ modes:
         idea_generation_model: "gpt-4o-mini"
     
     coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    # Feedback generator uses a coding agent to analyze results and decide when to stop
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
     
     context_manager:
       type: "token_efficient"
@@ -124,14 +100,53 @@ modes:
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
+
+  # Minimal tree search with Claude Code on Bedrock
+  MINIMAL_TREE:
+    search_strategy:
+      type: "llm_tree_search"
+      params:
+        node_expansion_limit: 2
+        node_expansion_new_childs_count: 3
+        idea_generation_steps: 1
+        first_experiment_factor: 1
+        experimentation_per_run: 1
+        per_step_maximum_solution_count: 5
+        exploration_budget_percent: 40
+        idea_generation_model: "gpt-4o-mini"
+        idea_generation_ensemble_models:
+          - "gpt-4o-mini"
     
-    evaluator:
-      type: "no_score"
-      params: {}
+    coding_agent:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
     
-    stop_condition:
-      type: "never"
-      params: {}
+    # Feedback generator uses a coding agent to analyze results and decide when to stop
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    context_manager:
+      type: "token_efficient"
+      params:
+        max_experiment_history_count: 3
+        max_recent_experiment_count: 3
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
 
   # Tree search for more complex problems
   TREE_SEARCH:
@@ -165,53 +180,3 @@ modes:
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
-    
-    evaluator:
-      type: "no_score"
-      params: {}
-    
-    stop_condition:
-      type: "never"
-      params: {}
-
-  # ===========================================
-  # Scored Mode - with regex pattern evaluator
-  # ===========================================
-  SCORED:
-    search_strategy:
-      type: "linear_search"
-      params:
-        code_debug_tries: 5
-        idea_generation_model: "gpt-4o-mini"
-    
-    coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
-    
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
-    
-    # Evaluator that parses SCORE: X from output
-    evaluator:
-      type: "regex_pattern"
-      params:
-        pattern: 'SCORE:\s*([-+]?\d*\.?\d+)'
-        default_score: 0.0
-    
-    # Stop when score reaches 0.95 or after 50 iterations
-    stop_condition:
-      type: "composite"
-      params:
-        conditions:
-          - ["threshold", {"threshold": 0.95}]
-          - ["max_iterations", {"max_iter": 50}]
-        mode: "any"
-

@@ -15,10 +15,10 @@ flowchart TB
         G[Goal] --> O[Orchestrator]
         O --> SS[Search Strategy]
         SS --> CA[Coding Agent]
-        CA --> E[Evaluator]
-        E --> SC{Stop Condition}
-        SC -->|No| SS
-        SC -->|Yes| S[Solution]
+        CA --> AE[Agent Evaluation]
+        AE --> FG[Feedback Generator]
+        FG -->|Continue| SS
+        FG -->|Stop| S[Solution]
     end
     
     KG[Knowledge Graph] --> O
@@ -27,11 +27,12 @@ flowchart TB
 
 The system works by:
 
-1. **Receiving a goal** : What you want to build
-2. **Gathering context** : From Knowledge Graph and Repo Memory
-3. **Generating solutions** : Via pluggable coding agents
-4. **Evaluating results** : With configurable evaluators
-5. **Iterating** : Until stop conditions are met
+1. **Receiving a goal** : What you want to build (include success criteria in the goal)
+2. **Initializing repo** : From `initial_repo`, workflow search, or empty
+3. **Gathering context** : From Knowledge Graph and Repo Memory
+4. **Generating solutions** : Via pluggable coding agents
+5. **Running evaluation** : Agent builds and runs evaluation in `kapso_evaluation/`
+6. **Generating feedback** : Feedback generator validates results and decides stop/continue
 
 ## Key Components
 
@@ -45,11 +46,8 @@ The system works by:
   <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
     Pluggable code generators: Aider, Gemini, Claude Code, OpenHands
   </Card>
-  <Card title="Evaluators" icon="check-double" href="/docs/evolve/evaluators">
-    Score solutions: regex patterns, JSON files, LLM judges
-  </Card>
-  <Card title="Stop Conditions" icon="flag-checkered" href="/docs/evolve/stop-conditions">
-    Control when to stop: threshold, plateau, cost/time limits
+  <Card title="Feedback Generator" icon="comments" href="/docs/evolve/feedback-generator">
+    Validates evaluation results and decides when to stop
   </Card>
   <Card title="Repo Memory" icon="brain" href="/docs/evolve/repo-memory">
     Tracks code understanding with file-level evidence
@@ -63,20 +61,35 @@ from src.kapso import Kapso, DeployStrategy
 
 kapso = Kapso()
 
-# Build a solution
+# Build a solution - agent builds evaluation dynamically
+# Include success criteria in the goal
 solution = kapso.evolve(
     goal="Build a random forest classifier for Iris with accuracy > 0.9",
-    output_path="./models/iris_v1",
-    evaluator="regex_pattern",
-    evaluator_params={"pattern": r"Accuracy: ([\d.]+)"},
-    stop_condition="threshold",
-    stop_condition_params={"threshold": 0.9},
+    max_iterations=10,
+)
+
+# With user-provided evaluation and data
+solution = kapso.evolve(
+    goal="Optimize model inference speed to < 10ms",
+    eval_dir="./my_evaluation/",   # Copied to kapso_evaluation/
+    data_dir="./my_data/",         # Copied to kapso_datasets/
+    initial_repo="https://github.com/org/starter",  # Or local path
 )
 
 # Deploy and run
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = deployed_program.run({"data_path": "./test.csv"})
 ```
+
+## Repository Initialization
+
+When `evolve()` is called, the system initializes the workspace:
+
+| `initial_repo` Value | Behavior |
+|---------------------|----------|
+| Local path | Use existing repository as starting point |
+| GitHub URL | Clone repository and use as starting point |
+| `None` (default) | Search for relevant workflow via Knowledge Graph. If found, clone workflow's repo. Otherwise, create empty repo. |
 
 ## Configuration Modes
 
@@ -103,10 +116,10 @@ Each iteration of the evolve loop:
 
 1. **Select** — Choose which solution candidates to explore
 2. **Expand** — Generate new variations using the coding agent
-3. **Execute** — Run the generated code
-4. **Evaluate** — Score the results
-5. **Prune** — Remove unpromising branches (tree search only)
-6. **Check** — Evaluate stop conditions
+3. **Implement** — Agent implements solution code
+4. **Evaluate** — Agent builds and runs evaluation in `kapso_evaluation/`
+5. **Feedback** — Feedback generator validates results and provides guidance
+6. **Check** — If feedback says stop (goal achieved), return solution
 
 ### Git Branch Model
 
@@ -125,6 +138,20 @@ This provides:
 - **Isolation** — Experiments don't interfere with each other
 - **History** — Full Git history of all attempts
 - **Recovery** — Easy to checkout and examine any experiment
+
+### Workspace Structure
+
+After setup, the workspace looks like:
+
+```
+workspace/
+├── kapso_evaluation/     # Agent builds evaluation here
+│   └── evaluate.py       # Evaluation script
+├── kapso_datasets/       # Data files (from data_dir)
+├── .kapso/
+│   └── repo_memory.json  # Codebase understanding
+└── (solution code)       # From initial_repo or agent-built
+```
 
 ## Memory Systems
 
@@ -154,15 +181,7 @@ cost = orchestrator.get_cumulative_cost()
 print(f"Total cost: ${cost:.2f}")
 ```
 
-Use cost-based stop conditions to control spending:
-
-```python
-solution = kapso.evolve(
-    goal="...",
-    stop_condition="cost_limit",
-    stop_condition_params={"max_cost": 10.0},  # Stop at $10
-)
-```
+Budget limits can be set via `max_iterations` or time/cost budgets in configuration.
 
 ## Next Steps
 

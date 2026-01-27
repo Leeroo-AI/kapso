@@ -27,12 +27,11 @@ flowchart TB
         SESS["ExperimentSession"]
         AGENT["CodingAgent"]
         REPO["RepoMemory"]
+        FG["FeedbackGenerator"]
     end
 
     subgraph Env["Environment"]
         HAND["ProblemHandler"]
-        EVAL["Evaluator"]
-        STOP["StopCondition"]
     end
 
     subgraph Deploy["Deployment"]
@@ -51,14 +50,13 @@ flowchart TB
     ORCH --> KS
 
     STRAT --> WS
+    STRAT --> FG
     WS --> SESS
     SESS --> AGENT
     SESS --> REPO
 
     CTX --> HAND
     STRAT --> HAND
-    HAND --> EVAL
-    HAND --> STOP
 
     API --> SEL
     SEL --> ADAPT
@@ -112,12 +110,11 @@ All major components are created via factories and can be swapped via configurat
 
 | Component | Factory | Registered Types |
 |-----------|---------|------------------|
-| Search Strategy | `SearchStrategyFactory` | `llm_tree_search`, `linear_search` |
+| Search Strategy | `SearchStrategyFactory` | `llm_tree_search`, `linear_search`, `benchmark_tree_search` |
 | Context Manager | `ContextManagerFactory` | `token_efficient`, `kg_enriched`, `cognitive` |
 | Knowledge Search | `KnowledgeSearchFactory` | `kg_graph_search`, `kg_llm_navigation` |
 | Coding Agent | `CodingAgentFactory` | `aider`, `gemini`, `claude_code`, `openhands` |
-| Evaluator | `EvaluatorFactory` | `no_score`, `regex_pattern`, `llm_judge`, ... |
-| Stop Condition | `StopConditionFactory` | `never`, `threshold`, `plateau`, ... |
+| Feedback Generator | Uses `CodingAgentFactory` | Same as coding agents (default: `claude_code`) |
 
 ### Configuration Flow
 
@@ -128,26 +125,23 @@ flowchart LR
     MODE --> CA["coding_agent"]
     MODE --> CM["context_manager"]
     MODE --> KS["knowledge_search"]
-    MODE --> EV["evaluator"]
-    MODE --> SC["stop_condition"]
 
     SS --> SSF["SearchStrategyFactory.create()"]
     CA --> CAF["CodingAgentFactory.build_config()"]
     CM --> CMF["ContextManagerFactory.create()"]
     KS --> KSF["KnowledgeSearchFactory.create()"]
-    EV --> EVF["EvaluatorFactory.create()"]
-    SC --> SCF["StopConditionFactory.create()"]
 ```
 
 ## Data Flow
 
-1. **Problem Handler** provides problem context and evaluation
+1. **Problem Handler** provides problem context
 2. **Context Manager** gathers problem + history + knowledge
 3. **Search Strategy** generates and selects solutions
 4. **Experiment Workspace** manages git branches
-5. **Coding Agent** generates code from solutions
-6. **Problem Handler** evaluates code and returns scores
-7. **RepoMemory** tracks code understanding across experiments
+5. **Coding Agent** generates code and runs evaluation
+6. **Developer Agent** returns structured JSON with evaluation results
+7. **Feedback Generator** validates evaluation and decides stop/continue
+8. **RepoMemory** tracks code understanding across experiments
 
 ## Directory Structure
 
@@ -163,27 +157,25 @@ src/
 │   └── prompt_loader.py     # Prompt template loading
 │
 ├── environment/             # Problem environment
-│   ├── handlers/            # Problem handlers
-│   │   ├── base.py          # ProblemHandler ABC
-│   │   └── generic.py       # GenericProblemHandler
-│   ├── evaluators/          # Score evaluation
-│   │   ├── base.py          # Evaluator ABC
-│   │   ├── builtin.py       # Built-in evaluators
-│   │   └── factory.py       # EvaluatorFactory
-│   └── stop_conditions/     # Early stopping
-│       ├── base.py          # StopCondition ABC
-│       ├── builtin.py       # Built-in conditions
-│       └── factory.py       # StopConditionFactory
+│   └── handlers/            # Problem handlers
+│       ├── base.py          # ProblemHandler ABC
+│       └── generic.py       # GenericProblemHandler
 │
 ├── execution/               # Execution layer
 │   ├── orchestrator.py      # OrchestratorAgent
 │   ├── solution.py          # SolutionResult dataclass
 │   │
+│   ├── feedback_generator/  # Feedback generation
+│   │   ├── feedback_generator.py
+│   │   └── prompts/
+│   │       └── feedback_generator.md
+│   │
 │   ├── search_strategies/   # Solution exploration
 │   │   ├── base.py          # SearchStrategy ABC
 │   │   ├── factory.py       # SearchStrategyFactory
 │   │   ├── llm_tree_search.py
-│   │   └── linear_search.py
+│   │   ├── linear_search.py
+│   │   └── benchmark_tree_search.py  # For MLE/ALE benchmarks
 │   │
 │   ├── context_manager/     # Context gathering
 │   │   ├── base.py          # ContextManager ABC
@@ -215,7 +207,8 @@ src/
 │   │   ├── base.py          # KnowledgeSearch ABC
 │   │   ├── factory.py       # KnowledgeSearchFactory
 │   │   ├── kg_graph_search.py
-│   │   └── kg_llm_navigation_search.py
+│   │   ├── kg_llm_navigation_search.py
+│   │   └── workflow_search.py  # Find starter repos
 │   │
 │   ├── learners/            # Knowledge learning pipeline
 │   │   ├── knowledge_learner_pipeline.py
@@ -314,8 +307,8 @@ Each experiment runs on its own git branch, enabling:
   <Card title="Execution Flow" icon="diagram-project" href="/docs/evolve/execution-flow">
     Step-by-step execution process
   </Card>
-  <Card title="Tree Search" icon="sitemap" href="/docs/evolve/tree-search">
-    LLM-guided solution exploration
+  <Card title="Feedback Generator" icon="comments" href="/docs/evolve/feedback-generator">
+    How evaluation is validated and feedback generated
   </Card>
   <Card title="Knowledge System" icon="brain" href="/docs/knowledge/overview">
     How knowledge is acquired and used

@@ -9,6 +9,7 @@ import pickle
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,29 +17,39 @@ from src.execution.context_manager.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
-    ExperimentResult,
+    SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
 from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
 
 
-class Node:
-    """Node in the solution search tree."""
+@dataclass
+class TreeSearchNode(SearchNode):
+    """
+    Node in the solution search tree.
     
-    def __init__(self, node_id: int, parent_node=None, solution: str = "", branch_name: str = None):
-        self.parent_node = parent_node
-        self.solution = solution
-        self.node_id = node_id
-        self.children: List['Node'] = []
-        self.branch_name = branch_name
-        self.is_terminated = False
-        self.experiment_result: Optional[ExperimentResult] = None
-        self.node_event_history: List = []
-        self.is_root = parent_node is None
-        # Observability: which RepoMemory sections were consulted during ideation
-        # when this node's solution text was generated.
-        self.ideation_repo_memory_sections_consulted: List[str] = []
-
+    Extends SearchNode with tree-specific fields for parent/child relationships
+    and tree search state.
+    """
+    # Tree structure (not using dataclass default for mutable - set in __post_init__)
+    parent_node: Optional["TreeSearchNode"] = None
+    children: List["TreeSearchNode"] = field(default_factory=list)
+    
+    # Tree search state
+    is_terminated: bool = False
+    is_root: bool = False
+    node_event_history: List = field(default_factory=list)
+    
+    # Observability: which RepoMemory sections were consulted during ideation
+    ideation_repo_memory_sections_consulted: List[str] = field(default_factory=list)
+    
+    def __post_init__(self):
+        """Set is_root and parent_node_id based on parent_node."""
+        self.is_root = self.parent_node is None
+        # Update parent_node_id from parent_node reference
+        if self.parent_node is not None:
+            self.parent_node_id = self.parent_node.node_id
+    
     @property
     def is_leaf(self) -> bool:
         return len(self.children) == 0
@@ -91,21 +102,25 @@ class LlmSteeredTreeSearch(SearchStrategy):
 
         print(f"[LlmSteeredTreeSearch] Initialized with params:")
         print(f"  - node_expansion_limit: {self.node_expansion_limit}")
-        print(f"  - code_debug_tries: {self.code_debug_tries}")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
+        print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
 
         # Tree state
         self.experimentation_count = 0
 
         if not import_from_checkpoint:
-            self.experiment_history: List[ExperimentResult] = []
-            self.nodes: List[Node] = []
+            self.node_history: List[TreeSearchNode] = []  # All experimented nodes
+            self.nodes: List[TreeSearchNode] = []  # All tree nodes (including unexperimented)
             # Initialize root nodes
             for i in range(self.node_expansion_limit * 4):
-                self.nodes.append(Node(node_id=i, branch_name=self.workspace.get_current_branch(), solution="Root node to be expanded for new and diverse ideas."))
+                self.nodes.append(TreeSearchNode(
+                    node_id=i, 
+                    branch_name=self.workspace.get_current_branch(), 
+                    solution="Root node to be expanded for new and diverse ideas."
+                ))
         
         # Thread locks
-        self.experiment_history_lock = threading.Lock()
+        self.node_history_lock = threading.Lock()
         self.nodes_lock = threading.Lock()
 
         # Initialize with an empty main file ONLY when starting from an empty workspace.
@@ -130,7 +145,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
     # Abstract Method Implementations
     # =========================================================================
 
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> None:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> Optional[SearchNode]:
         """
         Execute one iteration of tree search.
         
@@ -139,6 +154,10 @@ class LlmSteeredTreeSearch(SearchStrategy):
         2. Expand promising nodes with new solutions
         3. Select best nodes to experiment
         4. Run experiments in parallel
+        5. Generate feedback for each node
+        
+        Returns:
+            The best SearchNode from this iteration (with should_stop set)
         """
         self.experimentation_count += 1
         
@@ -151,7 +170,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         
         # Select and run experiments
         experiments_count = self.experimentation_per_run
-        if len(self.experiment_history) == 0:
+        if len(self.node_history) == 0:
             experiments_count *= self.first_experiment_factor
         
         best_nodes = self.select(
@@ -160,8 +179,8 @@ class LlmSteeredTreeSearch(SearchStrategy):
             exclude_experimented_nodes=True
         )
         
-        with self.experiment_history_lock:
-            base_experiment_count = len(self.experiment_history)
+        with self.node_history_lock:
+            base_experiment_count = len(self.node_history)
         
         branch_names = [f'experiment_{base_experiment_count + i}' for i in range(len(best_nodes))]
 
@@ -175,38 +194,41 @@ class LlmSteeredTreeSearch(SearchStrategy):
                 for node, branch_name in zip(best_nodes, branch_names)
             ]
             self._run_futures(executor, futures)
+        
+        # Return the best node from this iteration (for orchestrator to check should_stop)
+        return self.get_best_experiment()
 
-    def get_experiment_history(self, best_last: bool = False) -> List[ExperimentResult]:
+    def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Get all experiment results, optionally sorted by score."""
         if best_last:
             return sorted(
-                self.experiment_history,
-                key=lambda exp: (
-                    (not exp.had_error, exp.score) 
+                self.node_history,
+                key=lambda node: (
+                    (not node.had_error, node.score or 0) 
                     if self.problem_handler.maximize_scoring 
-                    else (not exp.had_error, -exp.score)
+                    else (not node.had_error, -(node.score or 0))
                 )
             )
-        return self.experiment_history
+        return self.node_history
     
-    def get_best_experiment(self) -> Optional[ExperimentResult]:
+    def get_best_experiment(self) -> Optional[SearchNode]:
         """Get the best experiment result."""
-        valid_experiments = [exp for exp in self.experiment_history if not exp.had_error]
-        if not valid_experiments:
+        valid_nodes = [node for node in self.node_history if not node.had_error]
+        if not valid_nodes:
             return None
         return max(
-            valid_experiments, 
-            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
+            valid_nodes, 
+            key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
     def checkout_to_best_experiment_branch(self) -> None:
         """Checkout git to the best experiment's branch."""
-        best_experiment = self.get_best_experiment()
-        if best_experiment:
+        best_node = self.get_best_experiment()
+        if best_node:
             print("#" * 100)
-            print(f"Checking out to the best experiment branch: {best_experiment.branch_name}")
+            print(f"Checking out to the best experiment branch: {best_node.branch_name}")
             print("#" * 100)
-            self.workspace.switch_branch(best_experiment.branch_name)
+            self.workspace.switch_branch(best_node.branch_name)
 
     # =========================================================================
     # Tree Operations
@@ -214,12 +236,12 @@ class LlmSteeredTreeSearch(SearchStrategy):
 
     def expand(self, context: ContextData, budget_progress: float) -> None:
         """Expand selected nodes with new solution candidates."""
-        top_experiments = self.get_experiment_history(best_last=True)[-self.node_expansion_limit:]
+        top_nodes = self.get_experiment_history(best_last=True)[-self.node_expansion_limit:]
         
         if budget_progress >= self.exploration_budget_percent:
             print("Expanding top Nodes for exploitation.")
-            selected_nodes = [self.nodes[exp.node_id] for exp in top_experiments]
-        elif len(self.experiment_history) == 0:
+            selected_nodes = [self.nodes[node.node_id] for node in top_nodes]
+        elif len(self.node_history) == 0:
             print("Expanding first iteration")
             selected_nodes = self.nodes[:self.node_expansion_limit]
         else:
@@ -238,10 +260,10 @@ class LlmSteeredTreeSearch(SearchStrategy):
             ]
             self._run_futures(executor, futures)
 
-    def _expand_node(self, context: ContextData, node: Node, budget_progress: float) -> None:
+    def _expand_node(self, context: ContextData, node: TreeSearchNode, budget_progress: float) -> None:
         """Generate new child solutions for a node."""
         expansion_count = self.node_expansion_new_childs_count
-        if len(self.experiment_history) == 0:
+        if len(self.node_history) == 0:
             expansion_count *= self.first_experiment_factor
 
         # Ground ideation in the closest experimented parent branch memory.
@@ -259,7 +281,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         
         for new_solution in new_solutions:
             with self.nodes_lock:
-                new_node = Node(
+                new_node = TreeSearchNode(
                     node_id=len(self.nodes), 
                     parent_node=node, 
                     solution=new_solution
@@ -279,12 +301,12 @@ class LlmSteeredTreeSearch(SearchStrategy):
         selection_criteria: str = "Best expected score, speed, and diversity.",
         exclude_experimented_nodes: bool = False,
         exclude_root_nodes: bool = True,
-    ) -> List[Node]:
+    ) -> List[TreeSearchNode]:
         """Select best nodes using LLM guidance."""
         leaf_nodes = [node for node in self.nodes if node.is_leaf and not node.is_terminated]
         
         if exclude_experimented_nodes:
-            leaf_nodes = [node for node in leaf_nodes if node.experiment_result is None]
+            leaf_nodes = [node for node in leaf_nodes if node.score is None]
         if exclude_root_nodes:
             leaf_nodes = [node for node in leaf_nodes if not node.is_root]
 
@@ -328,7 +350,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         """Remove unpromising solutions using LLM guidance."""
         leaf_nodes = [
             node for node in self.nodes 
-            if node.is_leaf and not node.is_terminated and node.experiment_result is None
+            if node.is_leaf and not node.is_terminated and node.score is None
         ]
         
         if len(leaf_nodes) <= 1:
@@ -378,12 +400,16 @@ class LlmSteeredTreeSearch(SearchStrategy):
 
     def _run_for_node(
         self, 
-        node: Node, 
+        node: TreeSearchNode, 
         context: ContextData, 
         branch_name: str, 
         budget_progress: float = 0.0
     ) -> None:
-        """Run experiment for a single node."""
+        """
+        Run experiment for a single node.
+        
+        Updates the TreeSearchNode in-place with implementation results and feedback.
+        """
         print(
             f"Budget progress: {budget_progress}\n" + "#" * 100 + "\n" 
             + f"Initiating experiment at node {node.node_id} "
@@ -394,41 +420,47 @@ class LlmSteeredTreeSearch(SearchStrategy):
 
         node.node_event_history.append([self.experimentation_count, "experiment"])
         node.branch_name = branch_name
+        node.workspace_dir = self.workspace_dir
         
-        result = self._implement_n_debug(
+        # Implement
+        agent_output = self._implement(
             node.solution,
             context,
-            code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
             parent_branch_name=self._get_closest_experimented_parent(node).branch_name,
-            ideation_repo_memory_sections_consulted=getattr(node, "ideation_repo_memory_sections_consulted", []),
-        )
-
-        if result.run_had_error:
-            node.is_terminated = True
-            node.node_event_history.append([self.experimentation_count, "terminate"])
-
-        experiment_result = ExperimentResult(
-            solution=node.solution,
-            score=result.score,
-            branch_name=branch_name,
-            node_id=node.node_id,
-            had_error=result.run_had_error,
-            error_message=result.error_message,
-            output=result.output,
-            detailed_output=result.detailed_output,
-            feedbacks=result.feedbacks
+            ideation_repo_memory_sections_consulted=node.ideation_repo_memory_sections_consulted,
         )
         
-        with self.experiment_history_lock:
-            node.experiment_result = experiment_result
-            self.experiment_history.append(experiment_result)
-        
-        print(f"Experiment at branch {branch_name} ended with score: {experiment_result.score}, error: {experiment_result.had_error}")
+        node.agent_output = agent_output
+        node.code_diff = self._get_code_diff(branch_name, self._get_closest_experimented_parent(node).branch_name)
 
-    def _get_closest_experimented_parent(self, node: Node) -> Node:
-        """Find the closest ancestor with an experiment result."""
-        while node.parent_node is not None and node.experiment_result is None:
+        # Extract results from agent output JSON
+        agent_result = self._extract_agent_result(agent_output)
+        
+        if agent_result:
+            node.code_changes_summary = agent_result.get("code_changes_summary", "")
+            node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
+            node.evaluation_output = agent_result.get("evaluation_output", agent_output)
+            # Score from agent result (may be overridden by feedback generator)
+            if agent_result.get("score") is not None:
+                node.score = float(agent_result.get("score", 0.0))
+            print(f"[LlmTreeSearch] Extracted result from agent JSON")
+        else:
+            # Fallback: use raw agent output
+            node.evaluation_output = agent_output
+            print(f"[LlmTreeSearch] Warning: No JSON result from agent, using raw output")
+        
+        # Generate feedback (updates node in-place)
+        self._generate_feedback(node)
+        
+        with self.node_history_lock:
+            self.node_history.append(node)
+        
+        print(f"Experiment at branch {branch_name} ended: score={node.score}, should_stop={node.should_stop}")
+
+    def _get_closest_experimented_parent(self, node: TreeSearchNode) -> TreeSearchNode:
+        """Find the closest ancestor that has been experimented (has score)."""
+        while node.parent_node is not None and node.score is None:
             node = node.parent_node
         return node
 
@@ -559,10 +591,8 @@ class LlmSteeredTreeSearch(SearchStrategy):
             "node_id": node.node_id,
             "solution": node.solution,
             "is_terminated": node.is_terminated,
-            "experiment_result": {
-                "score": node.experiment_result.score,
-                "had_error": node.experiment_result.had_error,
-            } if node.experiment_result else None,
+            "score": node.score,
+            "had_error": node.had_error,
             "node_event_history": node.node_event_history,
             "children_ids": [child.node_id for child in node.children]
         } for node in self.nodes]
@@ -573,7 +603,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
     def export_checkpoint(self) -> None:
         with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
             pickle.dump({
-                "experiment_history": self.experiment_history,
+                "node_history": self.node_history,
                 "nodes": self.nodes,
             }, f)
 
@@ -581,12 +611,12 @@ class LlmSteeredTreeSearch(SearchStrategy):
         try:
             with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
                 checkpoint = pickle.load(f)
-            self.experiment_history = checkpoint["experiment_history"]
+            self.node_history = checkpoint["node_history"]
             self.nodes = checkpoint["nodes"]
             print(f"[LlmSteeredTreeSearch] Checkpoint imported successfully from {self.workspace_dir}")
-            print(f"[LlmSteeredTreeSearch] Experiment history: {len(self.experiment_history)}")
+            print(f"[LlmSteeredTreeSearch] Node history: {len(self.node_history)}")
             print(f"[LlmSteeredTreeSearch] Nodes: {len(self.nodes)}")
-            print( f"[LlmSteeredTreeSearch] last Node: {self.nodes[-1]}")
+            print(f"[LlmSteeredTreeSearch] last Node: {self.nodes[-1]}")
         except FileNotFoundError:
             print("[LlmSteeredTreeSearch] No checkpoint found")
             raise FileNotFoundError(f"[LlmSteeredTreeSearch] No checkpoint found in {self.workspace_dir}")

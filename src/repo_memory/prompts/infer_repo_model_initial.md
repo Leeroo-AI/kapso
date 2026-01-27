@@ -2,29 +2,19 @@ You are inferring repository memory for an automated coding system.
 
 Return ONLY valid JSON in the **Book** format below. Every claim MUST include evidence.
 
-CRITICAL: Evidence quotes must be EXACT VERBATIM substrings that appear in the file.
-- Copy quotes character-for-character from the file content below
-- Do NOT paraphrase, summarize, or modify quotes in any way
-- The quote must exist as a continuous substring in the file
-- Shorter quotes (e.g., function signatures, class names) are safer than long ones
+Evidence format: Use LINE NUMBERS to reference code.
+- Each evidence item needs: `path` (file path) and `line` (line number)
+- Optionally include `description` to briefly describe what the line shows
+- Line numbers are shown as "N| content" in the file contents below
+- Use the exact file path shown in the FILE header (e.g., `=== FILE: main.py ===` -> path is `main.py`)
 
-Evidence rules (to avoid validation failures):
-- For each evidence item: `path` MUST be the file that contains the `quote`.
-- Use the exact file path shown in the FILE header (e.g., `=== FILE: main.py ===` -> path is `main.py`).
-- NEVER include the `=== FILE: ... ===` header in the quote.
-- Prefer single-line, short quotes (no newlines; ideally <120 chars).
-- IMPORTANT: Do NOT "rewrite" a quote to make it single-line.
-  - Instead, choose a shorter substring that already exists in the file.
-  - Example: prefer quoting `Accuracy as a float in [0, 1]` (verbatim) rather than inventing `Returns accuracy as a float in [0, 1]`.
-- IMPORTANT: Do NOT invent pseudo-code as evidence.
-  - Bad (usually not present verbatim): `if not data: return []`
-  - Good: quote an actual line like `if not os.path.exists(filepath):` or `return []` that exists exactly.
-- If you cannot find an exact quote that supports a claim, REMOVE the claim.
-  It is OK for sections (including core.gotchas) to be empty.
-- For multi-line code (common in configs / function calls), do NOT collapse it into a fake one-liner quote.
-  - Instead, include MULTIPLE evidence items, each quoting a real single line.
-  - Example for a LoRA config:
-    - evidence: [{"path":"main.py","quote":"r=8,"},{"path":"main.py","quote":"lora_alpha=8,"}]
+Example evidence:
+```json
+"evidence": [
+  {"path": "utils.py", "line": 65, "description": "Model size validation"},
+  {"path": "utils.py", "line": 72, "description": "Downloads files if missing"}
+]
+```
 
 Required JSON schema (RepoMemory V2 format):
 {
@@ -38,7 +28,7 @@ Required JSON schema (RepoMemory V2 format):
           "kind": "algorithm|architecture|contract|deployment|other",
           "statement": "...",
           "confidence": 0.0,
-          "evidence": [{"path": "path/in/repo.py", "quote": "EXACT verbatim substring from file"}]
+          "evidence": [{"path": "path/in/repo.py", "line": 42, "description": "brief description"}]
         }
       ]
     },
@@ -112,6 +102,5 @@ Section definitions (avoid misplacing claims):
 RepoMap key files: {{repo_map_key_files_json}}
 RepoMap entrypoints: {{repo_map_entrypoints_json}}
 
-FILE CONTENTS (authoritative - copy quotes EXACTLY from here):
+FILE CONTENTS (with line numbers - reference by line number in evidence):
 {{files_payload}}
-

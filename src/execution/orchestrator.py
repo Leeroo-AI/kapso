@@ -2,9 +2,15 @@
 #
 # Main orchestrator that coordinates the experimentation loop.
 # Uses pluggable search strategies, context managers, and knowledge retrievers.
+#
+# In the new design:
+# - Developer agent builds evaluation in kapso_evaluation/
+# - Developer agent runs evaluation and reports results
+# - FeedbackGenerator decides when to stop
 
 import time
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Tuple
 
 from src.execution.context_manager import (
     ContextManager,
@@ -19,9 +25,21 @@ from src.execution.search_strategies import (
     SearchStrategyFactory,
 )
 from src.execution.coding_agents.factory import CodingAgentFactory
+from src.execution.feedback_generator import FeedbackGenerator, FeedbackResult
 from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 from src.core.config import load_mode_config
+from src.execution.search_strategies.base import ExperimentResult
+
+
+@dataclass
+class SolveResult:
+    """Result from orchestrator.solve()."""
+    best_experiment: Optional[ExperimentResult]
+    final_feedback: Optional[FeedbackResult]
+    stopped_reason: str  # "goal_achieved", "max_iterations", "budget_exhausted", "legacy_stop"
+    iterations_run: int
+    total_cost: float
 
 
 class OrchestratorAgent:
@@ -33,6 +51,7 @@ class OrchestratorAgent:
     - Context managers (registered via @register_context_manager decorator)
     - Knowledge search backends (registered via @register_knowledge_search decorator)
     - Coding agents (Aider, Gemini, Claude Code, OpenHands)
+    - Feedback generator (LLM-based, decides when to stop)
     
     Args:
         problem_handler: Handler for the problem being solved
@@ -40,6 +59,7 @@ class OrchestratorAgent:
         mode: Configuration mode to use (if None, uses default_mode from config)
         coding_agent: Coding agent to use (overrides config if specified)
         is_kg_active: Whether to use the knowledge graph
+        goal: The goal/objective for the evolve process
     """
     
     def __init__(
@@ -52,19 +72,33 @@ class OrchestratorAgent:
         knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
-        starting_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
+        eval_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
+        goal: Optional[str] = None,
     ):
         self.problem_handler = problem_handler
         self.llm = LLMBackend()
         self.config_path = config_path
         self.mode = mode
+        self.goal = goal or ""
         # Optional: seed experiments from an existing local repo (copy/clone into workspace).
-        self.starting_repo_path = starting_repo_path
+        self.initial_repo = initial_repo
+        # Optional: directories to copy into workspace
+        self.eval_dir = eval_dir
+        self.data_dir = data_dir
         
         # Load config once and store for reuse
         self.mode_config = load_mode_config(config_path, mode)
         
-        # Create search strategy 
+        # Create feedback generator FIRST (needed by search strategy)
+        self.feedback_generator = self._create_feedback_generator(coding_agent)
+        
+        # Track feedback for next iteration
+        self.current_feedback: Optional[str] = None
+        self.last_feedback_result: Optional[FeedbackResult] = None
+        
+        # Create search strategy (uses feedback_generator)
         self.search_strategy = self._create_search_strategy(
             coding_agent=coding_agent,
             workspace_dir=workspace_dir,
@@ -86,6 +120,46 @@ class OrchestratorAgent:
         
         # Create context manager with injected search backend
         self.context_manager = self._create_context_manager()
+    
+    def _create_feedback_generator(
+        self,
+        coding_agent: Optional[str] = None,
+    ) -> FeedbackGenerator:
+        """
+        Create feedback generator.
+        
+        Uses the same coding agent type as the developer agent by default.
+        """
+        # Get coding agent config from mode config
+        mode_config = self.mode_config
+        # Check for dedicated feedback_generator config first, fall back to coding_agent
+        feedback_config = mode_config.get('feedback_generator', {}) if mode_config else {}
+        coding_config = mode_config.get('coding_agent', {}) if mode_config else {}
+        
+        # Use feedback_generator config if available, otherwise fall back to coding_agent config
+        if feedback_config:
+            agent_type = feedback_config.get('type', 'claude_code')
+            agent_model = feedback_config.get('model')
+            agent_debug_model = feedback_config.get('debug_model')
+            agent_specific = feedback_config.get('agent_specific', {})
+        else:
+            # Fall back to coding_agent config
+            agent_type = coding_agent or coding_config.get('type', 'claude_code')
+            agent_model = coding_config.get('model')
+            agent_debug_model = coding_config.get('debug_model')
+            agent_specific = coding_config.get('agent_specific', {})
+        
+        # Build config for feedback generator
+        feedback_agent_config = CodingAgentFactory.build_config(
+            agent_type=agent_type,
+            model=agent_model,
+            debug_model=agent_debug_model,
+            agent_specific=agent_specific,
+        )
+        
+        return FeedbackGenerator(
+            coding_agent_config=feedback_agent_config,
+        )
 
     def _create_search_strategy(
         self,
@@ -170,7 +244,11 @@ class OrchestratorAgent:
             params=strategy_params,
             workspace_dir=workspace_dir,
             start_from_checkpoint=start_from_checkpoint,
-            seed_repo_path=self.starting_repo_path,
+            initial_repo=self.initial_repo,
+            eval_dir=self.eval_dir,
+            data_dir=self.data_dir,
+            feedback_generator=self.feedback_generator,
+            goal=self.goal,
         )
 
     def _create_knowledge_search(
@@ -268,8 +346,7 @@ class OrchestratorAgent:
         """Get total cost from all components."""
         return (
             self.llm.get_cumulative_cost() 
-            + self.search_strategy.workspace.get_cumulative_cost() 
-            + self.problem_handler.llm.get_cumulative_cost()
+            + self.search_strategy.workspace.get_cumulative_cost()
         )
 
     def solve(
@@ -277,14 +354,19 @@ class OrchestratorAgent:
         experiment_max_iter: int = 20, 
         time_budget_minutes: int = 24*60, 
         cost_budget: float = 300
-    ):
+    ) -> SolveResult:
         """
         Run the main experimentation loop.
         
+        In the new design:
+        1. Developer agent implements solution and runs evaluation
+        2. Feedback generator validates evaluation and decides stop/continue
+        3. Loop continues until goal reached or budget exhausted
+        
         Stops when ANY of these conditions is met:
-        1. LLM decision says COMPLETE (context_manager.should_stop())
-        2. Score threshold reached (problem_handler.stop_condition())
-        3. Budget exhausted (time/cost/iterations)
+        1. Feedback generator says STOP (goal achieved)
+        2. Budget exhausted (time/cost/iterations)
+        3. Legacy: problem_handler.stop_condition() (for backward compatibility)
         
         Args:
             experiment_max_iter: Maximum number of experiment iterations
@@ -292,12 +374,18 @@ class OrchestratorAgent:
             cost_budget: Maximum cost in dollars
             
         Returns:
-            Best experiment result
+            SolveResult with best_experiment, final_feedback, stopped_reason
         """
+        import os
+        
         start_time = time.time()
+        stopped_reason = "max_iterations"  # default
+        iterations_run = 0
         
         try:
             for i in range(experiment_max_iter):
+                iterations_run = i + 1
+                
                 # Calculate budget progress (0-100)
                 budget_progress = max(
                     (time.time() - start_time) / (time_budget_minutes * 60),
@@ -305,21 +393,61 @@ class OrchestratorAgent:
                     self.get_cumulative_cost() / cost_budget
                 ) * 100
                 
-                # Check stopping conditions (score threshold or budget)
-                if self.problem_handler.stop_condition() or budget_progress >= 100:
-                    print(f"[Orchestrator] Stopping: score threshold or budget reached")
+                # Check budget exhaustion
+                if budget_progress >= 100:
+                    print(f"[Orchestrator] Stopping: budget exhausted")
+                    stopped_reason = "budget_exhausted"
                     break
                 
                 # Get context (decision happens inside for cognitive context manager)
                 experiment_context = self.context_manager.get_context(budget_progress=budget_progress)
                 
-                # Check if LLM decided COMPLETE
-                if self.context_manager.should_stop():
-                    print(f"[Orchestrator] Stopping: LLM decided COMPLETE")
-                    break
+                # Add feedback from previous iteration if available
+                if self.current_feedback:
+                    experiment_context = self._add_feedback_to_context(
+                        experiment_context, 
+                        self.current_feedback
+                    )
                 
                 # Run one iteration of search strategy
-                self.search_strategy.run(experiment_context, budget_progress=budget_progress)
+                # Search strategy handles: solution generation, implementation, feedback
+                # Returns SearchNode with all data including should_stop
+                node = self.search_strategy.run(
+                    experiment_context, 
+                    budget_progress=budget_progress
+                )
+                
+                # Skip if no result (shouldn't happen but be safe)
+                if node is None:
+                    print(f"[Orchestrator] Warning: No result from iteration {i+1}")
+                    continue
+                
+                # Log result
+                print(f"[Orchestrator] Iteration {i+1} result:")
+                print(f"  - Score: {node.score}")
+                print(f"  - Should stop: {node.should_stop}")
+                print(f"  - Evaluation valid: {node.evaluation_valid}")
+                feedback_preview = node.feedback[:200] if node.feedback else ""
+                print(f"  - Feedback: {feedback_preview}...")
+                
+                # Store feedback result for return value
+                if node.feedback:
+                    from src.execution.feedback_generator import FeedbackResult
+                    self.last_feedback_result = FeedbackResult(
+                        stop=node.should_stop,
+                        evaluation_valid=node.evaluation_valid,
+                        feedback=node.feedback,
+                        score=node.score,
+                    )
+                
+                # Check if search strategy says stop
+                if node.should_stop:
+                    print(f"[Orchestrator] Stopping: goal achieved")
+                    stopped_reason = "goal_achieved"
+                    break
+                
+                # Store feedback for next iteration
+                self.current_feedback = node.feedback
 
                 print(
                     f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
@@ -346,4 +474,23 @@ class OrchestratorAgent:
                 except Exception:
                     pass
 
-        return self.search_strategy.get_best_experiment()
+        return SolveResult(
+            best_experiment=self.search_strategy.get_best_experiment(),
+            final_feedback=self.last_feedback_result,
+            stopped_reason=stopped_reason,
+            iterations_run=iterations_run,
+            total_cost=self.get_cumulative_cost(),
+        )
+    
+    def _add_feedback_to_context(self, context: "ContextData", feedback: str) -> "ContextData":
+        """Add feedback from previous iteration to context."""
+        feedback_section = f"""
+## Feedback from Previous Iteration
+
+{feedback}
+
+Please address the above feedback in this iteration.
+"""
+        # Append feedback to the additional_info field of ContextData
+        context.additional_info = (context.additional_info or "") + "\n" + feedback_section
+        return context

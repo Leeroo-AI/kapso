@@ -35,7 +35,7 @@ class ExperimentWorkspace:
         self,
         coding_agent_config: CodingAgentConfig,
         workspace_dir: str,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
     ):
         """
         Initialize the Experiment Workspace.
@@ -43,14 +43,14 @@ class ExperimentWorkspace:
         Args:
             coding_agent_config: Configuration for the coding agent (required)
             workspace_dir: Path to the workspace directory (required)
-            seed_repo_path: Optional local filesystem path to a repository to COPY/CLONE
+            initial_repo: Optional local filesystem path to a repository to COPY/CLONE
                 into this workspace. This enables "improve an existing repo" workflows.
         """
         
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
-        self.seed_repo_path = os.path.abspath(seed_repo_path) if seed_repo_path else None
-        self.is_seeded = self.seed_repo_path is not None
+        self.initial_repo = os.path.abspath(initial_repo) if initial_repo else None
+        self.is_seeded = self.initial_repo is not None
         
         # Initialize git repository.
         #
@@ -59,7 +59,7 @@ class ExperimentWorkspace:
         # - Seeded workspace: start from an existing local repo (copy/clone) so experiments
         #   mutate an input codebase rather than creating everything from scratch.
         if self.is_seeded:
-            self.repo = self._init_from_seed_repo(self.seed_repo_path)
+            self.repo = self._init_from_seed_repo(self.initial_repo)
         else:
             self.repo = git.Repo.init(self.workspace_dir)
 
@@ -91,7 +91,7 @@ class ExperimentWorkspace:
     def with_default_config(
         cls,
         workspace_dir: Optional[str] = None,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
     ) -> 'ExperimentWorkspace':
         """
         Create ExperimentWorkspace with default coding agent from agents.yaml.
@@ -103,7 +103,7 @@ class ExperimentWorkspace:
         # Keep this helper usable in standalone scripts.
         # If workspace_dir is not provided, create a unique temp path.
         workspace_dir = workspace_dir or os.path.join("tmp", "experiment_workspace", str(uuid.uuid4()))
-        return cls(coding_agent_config=config, workspace_dir=workspace_dir, seed_repo_path=seed_repo_path)
+        return cls(coding_agent_config=config, workspace_dir=workspace_dir, initial_repo=initial_repo)
 
     def get_current_branch(self) -> str:
         """Get the current active branch name."""
@@ -131,7 +131,7 @@ class ExperimentWorkspace:
     # Seeding / bootstrap helpers
     # =========================================================================
 
-    def _init_from_seed_repo(self, seed_repo_path: str) -> git.Repo:
+    def _init_from_seed_repo(self, initial_repo: str) -> git.Repo:
         """
         Initialize this workspace from an existing local repository path.
         
@@ -140,13 +140,13 @@ class ExperimentWorkspace:
         - We clone/copy it into this workspace directory so we can diff "evolved"
           branches against the baseline without touching the original.
         """
-        if not os.path.exists(seed_repo_path):
-            raise FileNotFoundError(f"Seed repo path does not exist: {seed_repo_path}")
+        if not os.path.exists(initial_repo):
+            raise FileNotFoundError(f"Initial repo path does not exist: {initial_repo}")
 
         # If seed is a git repo, do a proper git clone to preserve history.
         # Otherwise, copy the directory and initialize a new git repo.
         try:
-            _ = git.Repo(seed_repo_path)
+            _ = git.Repo(initial_repo)
             is_git_repo = True
         except Exception:
             is_git_repo = False
@@ -158,9 +158,9 @@ class ExperimentWorkspace:
             )
 
         if is_git_repo:
-            repo = git.Repo.clone_from(seed_repo_path, self.workspace_dir)
+            repo = git.Repo.clone_from(initial_repo, self.workspace_dir)
         else:
-            shutil.copytree(seed_repo_path, self.workspace_dir, dirs_exist_ok=True)
+            shutil.copytree(initial_repo, self.workspace_dir, dirs_exist_ok=True)
             repo = git.Repo.init(self.workspace_dir)
             repo.git.add(".")
             repo.git.commit("-m", "chore(kapso): seed workspace from directory")

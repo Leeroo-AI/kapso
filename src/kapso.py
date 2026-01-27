@@ -95,13 +95,12 @@ class Kapso:
         software = kapso.deploy(solution)
         result = software.run({"ticker": "AAPL"})
         
-    Advanced usage with evaluator and stop condition:
+    Advanced usage with evaluation and data directories:
         solution = kapso.evolve(
             goal="Build a classifier with 95% accuracy",
-            evaluator="regex_pattern",
-            evaluator_params={"pattern": r"Accuracy: ([\\d.]+)"},
-            stop_condition="threshold",
-            stop_condition_params={"threshold": 0.95},
+            eval_dir="./evaluation/",
+            data_dir="./datasets/",
+            initial_repo="https://github.com/owner/starter-repo",
         )
     """
     
@@ -426,21 +425,18 @@ class Kapso:
         context: Optional[List[Any]] = None,
         constraints: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        starting_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
         max_iterations: int = 10,
         # --- Configuration options ---
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
+        # --- Directory options ---
+        eval_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
         # --- Execution options ---
         language: str = "python",
         main_file: str = "main.py",
         timeout: int = 300,
-        data_dir: Optional[str] = None,
-        # --- Evaluation options ---
-        evaluator: Optional[str] = None,  # Default: "script" (agent-written evaluate.py)
-        evaluator_params: Optional[Dict[str, Any]] = None,
-        stop_condition: Optional[str] = None,  # Default: "from_eval" (stop when evaluate.py signals)
-        stop_condition_params: Optional[Dict[str, Any]] = None,
         # --- Extra context options ---
         additional_context: str = "",
     ) -> SolutionResult:
@@ -455,23 +451,21 @@ class Kapso:
             context: Optional list of Source objects to learn before evolving
             constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
-            starting_repo_path: Optional local path to an existing repository to improve.
-                If provided, Kapso will clone/copy it into the experiment workspace and
-                run the experiment loop on top of that baseline.
+            initial_repo: Optional starting repository. Accepts:
+                - Local path: "/path/to/repo" or "./relative/path"
+                - GitHub URL: "https://github.com/owner/repo" (will be cloned)
+                - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
             
             mode: Configuration mode (GENERIC, MINIMAL, TREE_SEARCH, etc.)
             coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
             
+            eval_dir: Path to evaluation files (copied to workspace/kapso_evaluation/)
+            data_dir: Path to data files (copied to workspace/kapso_datasets/)
+            
             language: Programming language (default: python)
             main_file: Entry point file (default: main.py)
             timeout: Execution timeout in seconds (default: 300)
-            data_dir: Path to data files needed for the evolution
-            
-            evaluator: Evaluator type (default: "script" - agent writes evaluate.py)
-            evaluator_params: Parameters for the evaluator
-            stop_condition: Stop condition (default: "from_eval" - stop when evaluate.py signals)
-            stop_condition_params: Parameters for stop condition
             
             additional_context: Extra context appended to the problem prompt.
                 This is the intended integration point for `Source.Research.to_context_string()`.
@@ -483,15 +477,16 @@ class Kapso:
         print(f"EVOLVING: {goal}")
         print(f"{'='*60}")
         print(f"  Max iterations: {max_iterations}")
-        print(f"  Language: {language}")
-        print(f"  Main file: {main_file}")
+        print(f"  Coding agent: {coding_agent or 'from config'}")
+        if eval_dir:
+            print(f"  Eval dir: {eval_dir}")
         if data_dir:
             print(f"  Data dir: {data_dir}")
-        print(f"  Evaluator: {evaluator or 'script (default)'}")
-        print(f"  Stop condition: {stop_condition or 'from_eval (default)'}")
-        print(f"  Coding agent: {coding_agent or 'from config'}")
-        if starting_repo_path:
-            print(f"  Starting repo: {starting_repo_path}")
+        
+        # Resolve initial_repo: handle URLs, local paths, or workflow search
+        resolved_repo = self._resolve_initial_repo(initial_repo, goal)
+        if resolved_repo:
+            print(f"  Initial repo: {resolved_repo}")
         print()
         
         # Build problem description
@@ -521,10 +516,6 @@ class Kapso:
             language=language,
             timeout=timeout,
             data_dir=data_dir,
-            evaluator=evaluator,
-            evaluator_params=evaluator_params or {},
-            stop_condition=stop_condition,
-            stop_condition_params=stop_condition_params or {},
             additional_context=combined_context,
         )
         
@@ -542,12 +533,15 @@ class Kapso:
             # - Therefore, when `output_path` is provided, we must use it as the workspace directory
             #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
-            starting_repo_path=starting_repo_path,
+            initial_repo=resolved_repo,
+            eval_dir=eval_dir,
+            data_dir=data_dir,
+            goal=goal,
         )
         
         # Run experimentation
         print("Running experiments...")
-        orchestrator.solve(experiment_max_iter=max_iterations)
+        solve_result = orchestrator.solve(experiment_max_iter=max_iterations)
         
         # Collect results
         experiment_logs = self._extract_experiment_logs(orchestrator)
@@ -556,25 +550,21 @@ class Kapso:
         # Checkout to best solution
         orchestrator.search_strategy.checkout_to_best_experiment_branch()
         
-        # Final evaluation
-        final_result = handler.final_evaluate(workspace_path)
-        
         # Use custom output path if provided
         code_path = output_path or workspace_path
-        cost = orchestrator.get_cumulative_cost()
         
-        # Create solution result
+        # Create solution result with final feedback
         solution = SolutionResult(
             goal=goal,
             code_path=code_path,
             experiment_logs=experiment_logs,
+            final_feedback=solve_result.final_feedback,
             metadata={
                 "constraints": constraints or [],
-                "iterations": max_iterations,
-                "cost": f"${cost:.3f}",
+                "iterations": solve_result.iterations_run,
+                "cost": f"${solve_result.total_cost:.3f}",
+                "stopped_reason": solve_result.stopped_reason,
                 "language": language,
-                "evaluator": evaluator,
-                "final_evaluation": final_result,
             }
         )
         
@@ -582,8 +572,12 @@ class Kapso:
         print("Evolution Complete")
         print(f"{'='*60}")
         print(f"Solution at: {code_path}")
-        print(f"Experiments run: {len(experiment_logs)}")
-        print(f"Total cost: ${cost:.3f}")
+        print(f"Experiments run: {solve_result.iterations_run}")
+        print(f"Total cost: ${solve_result.total_cost:.3f}")
+        print(f"Stopped reason: {solve_result.stopped_reason}")
+        print(f"Goal achieved: {solution.succeeded}")
+        if solution.final_score is not None:
+            print(f"Final score: {solution.final_score}")
         
         return solution
     
@@ -640,6 +634,105 @@ class Kapso:
         )
         
         return DeploymentFactory.create(strategy, config)
+    
+    # =========================================================================
+    # INITIAL REPO RESOLUTION HELPERS
+    # =========================================================================
+    
+    def _resolve_initial_repo(self, initial_repo: Optional[str], goal: str) -> Optional[str]:
+        """
+        Resolve initial_repo to a local path.
+        
+        Handles three cases:
+        1. GitHub URL: Clone to temp directory
+        2. Local path: Use as-is
+        3. None: Search for workflow repo in KG
+        
+        Args:
+            initial_repo: Local path, GitHub URL, or None
+            goal: The goal (used for workflow search if initial_repo is None)
+            
+        Returns:
+            Local path to repo, or None if no repo found/provided
+        """
+        if initial_repo is not None:
+            # Check if it's a GitHub URL
+            if self._is_github_url(initial_repo):
+                return self._clone_github_repo(initial_repo)
+            # Assume local path
+            return initial_repo
+        
+        # No initial_repo provided - search for workflow repo
+        return self._search_workflow_repo(goal)
+    
+    def _is_github_url(self, path: str) -> bool:
+        """Check if path is a GitHub URL."""
+        return (
+            path.startswith("https://github.com/") or 
+            path.startswith("git@github.com:") or
+            path.startswith("http://github.com/")
+        )
+    
+    def _clone_github_repo(self, url: str) -> str:
+        """
+        Clone a GitHub repository to a temporary directory.
+        
+        Args:
+            url: GitHub repository URL
+            
+        Returns:
+            Local path to cloned repository
+        """
+        import tempfile
+        import git
+        
+        # Create temp directory with meaningful prefix
+        temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
+        
+        print(f"  Cloning {url}...")
+        try:
+            git.Repo.clone_from(url, temp_dir)
+            print(f"  Cloned to: {temp_dir}")
+            return temp_dir
+        except Exception as e:
+            print(f"  Warning: Failed to clone {url}: {e}")
+            # Clean up temp dir on failure
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return None
+    
+    def _search_workflow_repo(self, goal: str) -> Optional[str]:
+        """
+        Search for a relevant workflow repository in the Knowledge Graph.
+        
+        Args:
+            goal: The goal to search for
+            
+        Returns:
+            Local path to cloned workflow repo, or None if not found
+        """
+        # Only search if KG is enabled
+        if not self.knowledge_search.is_enabled():
+            print("  No KG index - skipping workflow search")
+            return None
+        
+        try:
+            from src.knowledge.search.workflow_search import WorkflowRepoSearch
+            
+            print("  Searching for relevant workflow...")
+            workflow_search = WorkflowRepoSearch(kg_search=self.knowledge_search)
+            result = workflow_search.search(goal, top_k=1)
+            
+            if not result.is_empty and result.top_result.github_url:
+                starter_url = result.top_result.github_url
+                print(f"  Found workflow repo: {starter_url}")
+                return self._clone_github_repo(starter_url)
+            else:
+                print("  No matching workflow found")
+                return None
+        except Exception as e:
+            print(f"  Warning: Workflow search failed: {e}")
+            return None
     
     def _build_problem_description(
         self, 

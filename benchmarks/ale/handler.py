@@ -213,6 +213,10 @@ class AleBench(ProblemHandler):
             Area of improvement 3: ...
             </feedbacks>
         """
+        # Build test cases string outside f-string (backslashes not allowed in f-string expressions)
+        test_cases_str = '\n'.join(
+            [f"Test case {i+1}: input: {test_case.input_str[:500]} \n\n output: {test_case.output_str[:500]} \n\n score: {test_case.absolute_score}" for i, test_case in enumerate(test_cases)]
+        )
         user_prompt = f"""
             <problem> 
                {self.get_problem_context()}
@@ -224,11 +228,7 @@ class AleBench(ProblemHandler):
                {code}
             </code>
             <test cases> 
-                {
-                    '\n'.join(
-                        [f"Test case {i+1}: input: {test_case.input_str[:500]} \n\n output: {test_case.output_str[:500]} \n\n score: {test_case.absolute_score}" for i, test_case in enumerate(test_cases)]
-                    )
-                }
+                {test_cases_str}
             </test cases>
         """
         raw_feedbacks = self.llm.llm_completion_with_system_prompt(

@@ -191,6 +191,60 @@ class CodingResult:
     metadata: Dict[str, Any]  # Agent-specific data
 ```
 
+## Structured JSON Output
+
+When used with `kapso.evolve()`, the developer agent must return a structured JSON at the end of its response:
+
+```json
+{
+    "code_changes_summary": "Brief description of changes made",
+    "evaluation_script_path": "kapso_evaluation/evaluate.py",
+    "evaluation_output": "Full output from running evaluation"
+}
+```
+
+This JSON is extracted by the search strategy and used by the feedback generator to validate results and decide whether to continue.
+
+### Example Agent Output
+
+```
+I've implemented the random forest classifier. Here's what I did:
+
+1. Created main.py with the classifier implementation
+2. Added data loading and preprocessing
+3. Created kapso_evaluation/evaluate.py to test accuracy
+
+Running evaluation...
+Loading data...
+Training model...
+Accuracy: 0.92
+
+```json
+{
+    "code_changes_summary": "Implemented random forest classifier with GridSearchCV for hyperparameter tuning. Added cross-validation and accuracy reporting.",
+    "evaluation_script_path": "kapso_evaluation/evaluate.py",
+    "evaluation_output": "Loading data...\nTraining model...\nAccuracy: 0.92"
+}
+```
+```
+
+## Feedback Generator Role
+
+Coding agents also power the feedback generator. The default feedback generator uses `claude_code`, but any agent can be used:
+
+```python
+from src.execution.feedback_generator import FeedbackGenerator
+from src.execution.coding_agents.factory import CodingAgentFactory
+
+# Use gemini for feedback generation
+config = CodingAgentFactory.build_config(
+    agent_type="gemini",
+    model="gemini-2.0-flash",
+)
+
+feedback_gen = FeedbackGenerator(coding_agent_config=config)
+```
+
 ## CodingAgentConfig
 
 Configuration passed to agents:

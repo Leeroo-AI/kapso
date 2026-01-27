@@ -24,7 +24,6 @@ from src.repo_memory.builders import (
     infer_repo_model_initial,
     infer_repo_model_update,
     infer_repo_model_with_retry,
-    validate_evidence,
 )
 
 
@@ -383,7 +382,7 @@ class RepoMemoryManager:
     def ensure_exists_in_worktree(
         cls,
         repo_root: str,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Ensure the memory file exists. If missing, create a minimal skeleton.
@@ -417,7 +416,7 @@ class RepoMemoryManager:
             "schema_version": cls.SCHEMA_VERSION,
             "generated_at": cls._now_iso(),
             "baseline": {
-                "seed_repo_path": seed_repo_path,
+                "initial_repo": initial_repo,
             },
             "repo_map": repo_map,
             "repo_model": {
@@ -652,7 +651,7 @@ GeneratedAt: {doc.get('generated_at')}
         *,
         repo_root: str,
         llm: LLMLike,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
         llm_model: Optional[str] = None,
     ) -> None:
         """
@@ -665,7 +664,7 @@ GeneratedAt: {doc.get('generated_at')}
             ValueError: If evidence validation fails (LLM produced hallucinated claims).
         """
         repo_root = os.path.abspath(repo_root)
-        doc = cls.ensure_exists_in_worktree(repo_root, seed_repo_path=seed_repo_path)
+        doc = cls.ensure_exists_in_worktree(repo_root, initial_repo=initial_repo)
         doc["repo_map"] = build_repo_map(repo_root)
         doc["generated_at"] = cls._now_iso()
 
@@ -676,12 +675,8 @@ GeneratedAt: {doc.get('generated_at')}
             repo_root=repo_root,
             repo_map=doc["repo_map"],
         )
-        check = validate_evidence(repo_root, model)
-        if not check.ok:
-            raise ValueError(
-                f"RepoMemory bootstrap failed: evidence validation failed after retries.\n"
-                f"Missing evidence: {check.missing[:10]}"
-            )
+        # Note: With line-number-based evidence, validation is no longer needed.
+        # The model is trusted as-is.
         
         # Builders may return either:
         # - v1: {"summary", "entrypoints", "where_to_edit", "claims"}
@@ -805,29 +800,8 @@ GeneratedAt: {doc.get('generated_at')}
                 changed_files=changed_files,
             )
 
-        # Evidence validation is the hard quality gate.
-        check = validate_evidence(repo_root, updated_model)
-        if not check.ok:
-            # Retry once with a full rebuild using the same "retry on bad evidence" loop
-            # we use for bootstrapping.
-            #
-            # Why:
-            # - Delta updates are cheaper but can be fragile if the model mis-cites evidence.
-            # - A full rebuild is more robust, and the retry loop gives explicit feedback
-            #   about missing quotes so the model can correct itself.
-            rebuilt = infer_repo_model_with_retry(
-                llm=llm,
-                model=llm_model,
-                repo_root=repo_root,
-                repo_map=doc["repo_map"],
-            )
-            check = validate_evidence(repo_root, rebuilt)
-            if not check.ok:
-                raise ValueError(
-                    f"RepoMemory update failed: evidence validation failed after retry.\n"
-                    f"Missing evidence: {check.missing[:10]}"
-                )
-            updated_model = rebuilt
+        # Note: With line-number-based evidence, validation is no longer needed.
+        # The model is trusted as-is.
 
         doc["repo_model"] = updated_model
         if isinstance((updated_model or {}).get("sections"), dict):

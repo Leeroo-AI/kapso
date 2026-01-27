@@ -4,7 +4,7 @@
 
 import importlib
 from pathlib import Path
-from typing import Dict, Type, Any, Optional, List
+from typing import Dict, Type, Any, Optional, List, TYPE_CHECKING
 import yaml
 
 from src.execution.search_strategies.base import (
@@ -14,6 +14,9 @@ from src.execution.search_strategies.base import (
 from src.execution.coding_agents.base import CodingAgentConfig
 from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
+
+if TYPE_CHECKING:
+    from src.execution.feedback_generator import FeedbackGenerator
 
 
 class SearchStrategyFactory:
@@ -106,7 +109,11 @@ class SearchStrategyFactory:
         preset: Optional[str] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
-        seed_repo_path: Optional[str] = None,
+        initial_repo: Optional[str] = None,
+        eval_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
+        feedback_generator: Optional["FeedbackGenerator"] = None,
+        goal: str = "",
     ) -> SearchStrategy:
         """
         Create a search strategy instance.
@@ -120,6 +127,11 @@ class SearchStrategyFactory:
             preset: Preset name to use (e.g., "MINIMAL", "PRODUCTION")
             workspace_dir: Path to workspace directory (optional)
             start_from_checkpoint: Whether to import from checkpoint
+            initial_repo: Path to initial repository to seed workspace
+            eval_dir: Path to evaluation files (copied to kapso_evaluation/)
+            data_dir: Path to data files (copied to kapso_datasets/)
+            feedback_generator: FeedbackGenerator for generating feedback after experiments
+            goal: Goal string for feedback generation
         
         Returns:
             Configured SearchStrategy instance
@@ -143,7 +155,11 @@ class SearchStrategyFactory:
             llm=llm,
             coding_agent_config=coding_agent_config,
             params=resolved_params,
-            seed_repo_path=seed_repo_path,
+            initial_repo=initial_repo,
+            eval_dir=eval_dir,
+            data_dir=data_dir,
+            feedback_generator=feedback_generator,
+            goal=goal,
         )
         
         return cls._registry[strategy_type_lower](

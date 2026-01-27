@@ -12,7 +12,7 @@ from src.execution.context_manager.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
-    ExperimentResult,
+    SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
 from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
@@ -25,11 +25,11 @@ class LinearSearch(SearchStrategy):
     
     Each iteration:
     1. Generate a solution based on problem + previous results
-    2. Implement and debug the solution
-    3. Store result and continue
+    2. Implement and evaluate the solution (developer agent)
+    3. Generate feedback
+    4. Store result and continue
     
     Config params:
-        - code_debug_tries: Max debug attempts (default: 3)
         - idea_generation_model: Model for solution generation (default: gpt-4.1-mini)
     """
     
@@ -38,17 +38,16 @@ class LinearSearch(SearchStrategy):
         super().__init__(config, workspace_dir, import_from_checkpoint)
         
         # Config params
-        self.code_debug_tries = self.params.get("code_debug_tries", 3)
         self.idea_generation_model = self.params.get("idea_generation_model", "gpt-4.1-mini")
         
         # State
         if not import_from_checkpoint: 
-            self.experiment_history: List[ExperimentResult] = []
+            self.node_history: List[SearchNode] = []
         self.iteration_count = 0
 
         print(f"[LinearSearch] Initialized:")
-        print(f"  - code_debug_tries: {self.code_debug_tries}")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
+        print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
         # Initialize workspace with empty main file only for empty workspaces.
         # If the workspace is seeded from an existing repo, we must not overwrite it.
@@ -67,55 +66,78 @@ class LinearSearch(SearchStrategy):
         self.workspace.finalize_session(session)
         self.workspace.repo.git.stash()
 
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> None:
+    def run(self, context: ContextData, budget_progress: float = 0.0) -> SearchNode:
         """
         Execute one iteration of linear search.
         
-        Simple approach:
-        1. Generate a solution considering previous experiments
-        2. Implement it
-        3. Store result
+        Node lifecycle:
+        1. Generate solution
+        2. Implement (developer agent handles implementation + evaluation)
+        3. Extract results from agent output
+        4. Generate feedback
+        
+        Returns:
+            SearchNode with solution, evaluation_output, feedback, should_stop
         """
         self.iteration_count += 1
         print(f"\n[LinearSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
         
-        # Generate solution
+        # Step 1: Generate solution
         solution, ideation_sections = self._generate_solution(context, budget_progress)
         print(f"[LinearSearch] Generated solution ({len(solution)} chars)")
         
-        # Implement and run
-        branch_name = f"linear_exp_{len(self.experiment_history)}"
+        # Create node
+        node = SearchNode(
+            node_id=len(self.node_history),
+            parent_node_id=self._get_best_node_id(),
+            solution=solution,
+            workspace_dir=self.workspace_dir,
+        )
+        
+        # Step 2: Implement - developer agent handles everything
+        branch_name = f"linear_exp_{node.node_id}"
         parent_branch = self._get_best_branch()
         
         print(f"[LinearSearch] Implementing on branch: {branch_name} (from {parent_branch})")
         
-        result = self._implement_n_debug(
+        agent_output = self._implement(
             solution=solution,
             context=context,
-            code_debug_tries=self.code_debug_tries,
             branch_name=branch_name,
             parent_branch_name=parent_branch,
             ideation_repo_memory_sections_consulted=ideation_sections,
         )
         
-        # Store result
-        experiment_result = ExperimentResult(
-            node_id=len(self.experiment_history),
-            solution=solution,
-            score=result.score,
-            branch_name=branch_name,
-            had_error=result.run_had_error,
-            error_message=result.error_message,
-            output=result.output,
-            detailed_output=result.detailed_output,
-            feedbacks=result.feedbacks,
-        )
-        self.experiment_history.append(experiment_result)
+        # Update node with implementation results
+        node.branch_name = branch_name
+        node.agent_output = agent_output
+        node.code_diff = self._get_code_diff(branch_name, parent_branch)
         
-        if result.run_had_error:
-            print(f"[LinearSearch] ❌ Experiment failed: {result.error_message[:100]}...")
+        # Step 3: Extract results from agent output JSON
+        agent_result = self._extract_agent_result(agent_output)
+        
+        if agent_result:
+            node.code_changes_summary = agent_result.get("code_changes_summary", "")
+            node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
+            node.evaluation_output = agent_result.get("evaluation_output", agent_output)
+            # Score from agent result (may be overridden by feedback generator)
+            if agent_result.get("score") is not None:
+                node.score = float(agent_result.get("score", 0.0))
+            print(f"[LinearSearch] Extracted result from agent JSON")
         else:
-            print(f"[LinearSearch] ✓ Experiment completed with score: {result.score}")
+            # Fallback: use raw agent output
+            node.evaluation_output = agent_output
+            print(f"[LinearSearch] Warning: No JSON result from agent, using raw output")
+        
+        # Step 4: Generate feedback
+        self._generate_feedback(node)
+        
+        # Store node
+        self.node_history.append(node)
+        
+        print(f"[LinearSearch] ✓ Node {node.node_id} completed: score={node.score}, should_stop={node.should_stop}")
+        
+        return node
 
     def _generate_solution(self, context: ContextData, budget_progress: float) -> tuple[str, list[str]]:
         """Generate a solution based on problem, workflow guidance, and previous experiments."""
@@ -123,14 +145,16 @@ class LinearSearch(SearchStrategy):
         
         # Build prompt with history
         history_summary = ""
-        if self.experiment_history:
+        if self.node_history:
             best = self.get_best_experiment()
-            recent = self.experiment_history[-3:]  # Last 3 experiments
+            recent = self.node_history[-3:]  # Last 3 nodes
             
             history_summary = "\n\nPrevious experiments:\n"
-            for exp in recent:
-                status = f"score={exp.score}" if not exp.had_error else "FAILED"
-                history_summary += f"- {status}: {exp.solution[:200]}...\n"
+            for node in recent:
+                status = f"score={node.score}" if not node.had_error else "FAILED"
+                history_summary += f"- {status}: {node.solution[:200]}...\n"
+                if node.feedback:
+                    history_summary += f"  Feedback: {node.feedback[:150]}...\n"
             
             if best:
                 history_summary += f"\nBest so far (score={best.score}): {best.solution[:300]}..."
@@ -179,36 +203,43 @@ Follow the steps and tips provided.
         return solution, sections
 
     def _get_best_branch(self) -> str:
-        """Get the branch of the best experiment, or main if none."""
+        """Get the branch of the best node, or main if none."""
         best = self.get_best_experiment()
         if best:
             return best.branch_name
         return "main"
+    
+    def _get_best_node_id(self) -> Optional[int]:
+        """Get the node_id of the best node, or None if none."""
+        best = self.get_best_experiment()
+        if best:
+            return best.node_id
+        return None
 
-    def get_experiment_history(self, best_last: bool = False) -> List[ExperimentResult]:
-        """Return all experiments, optionally sorted by score."""
+    def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
+        """Return all nodes, optionally sorted by score."""
         if best_last:
             return sorted(
-                self.experiment_history,
-                key=lambda exp: (
-                    not exp.had_error,
-                    exp.score if self.problem_handler.maximize_scoring else -exp.score
+                self.node_history,
+                key=lambda node: (
+                    not node.had_error,
+                    (node.score or 0) if self.problem_handler.maximize_scoring else -(node.score or 0)
                 )
             )
-        return self.experiment_history
+        return self.node_history
     
-    def get_best_experiment(self) -> Optional[ExperimentResult]:
-        """Return the best successful experiment."""
-        valid = [exp for exp in self.experiment_history if not exp.had_error]
+    def get_best_experiment(self) -> Optional[SearchNode]:
+        """Return the best successful node."""
+        valid = [node for node in self.node_history if not node.had_error]
         if not valid:
             return None
         return max(
             valid,
-            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
+            key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
     def checkout_to_best_experiment_branch(self) -> None:
-        """Checkout to the best experiment's branch."""
+        """Checkout to the best node's branch."""
         best = self.get_best_experiment()
         if best:
             print(f"[LinearSearch] Checking out to best branch: {best.branch_name} (score={best.score})")
@@ -218,12 +249,12 @@ Follow the steps and tips provided.
 
     def export_checkpoint(self) -> None:
         with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
-            pickle.dump(self.experiment_history, f)
+            pickle.dump(self.node_history, f)
 
     def import_checkpoint(self) -> None:
         try:
             with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
-                self.experiment_history = pickle.load(f)
+                self.node_history = pickle.load(f)
         except FileNotFoundError:
             print("[LinearSearch] No checkpoint found")
             raise FileNotFoundError(f"[LinearSearch] No checkpoint found in {self.workspace_dir}")
