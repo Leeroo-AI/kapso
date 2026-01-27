@@ -16,10 +16,12 @@ from src.knowledge.learners.ingestors.factory import IngestorFactory, register_i
 from src.knowledge.learners.ingestors.repo_ingestor import RepoIngestor
 from src.knowledge.learners.ingestors.experiment_ingestor import ExperimentIngestor
 
-# Research output ingestors
-from src.knowledge.learners.ingestors.idea_ingestor import IdeaIngestor
-from src.knowledge.learners.ingestors.implementation_ingestor import ImplementationIngestor
-from src.knowledge.learners.ingestors.research_report_ingestor import ResearchReportIngestor
+# Research output ingestors (agentic, from research_ingestor package)
+from src.knowledge.learners.ingestors.research_ingestor import (
+    IdeaIngestor,
+    ImplementationIngestor,
+    ResearchReportIngestor,
+)
 
 __all__ = [
     # Base classes
