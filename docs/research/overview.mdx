@@ -16,6 +16,7 @@ The research system uses OpenAI's `web_search` tool with reasoning capabilities 
    - `List[Idea]` for idea mode
    - `List[Implementation]` for implementation mode
    - `ResearchReport` for study mode
+   - `ResearchFindings` for multiple modes (e.g., `["idea", "implementation"]`)
 
 ```mermaid
 flowchart LR
@@ -45,6 +46,7 @@ The research system supports three modes, each optimized for different use cases
 | `idea` | Conceptual understanding, principles, trade-offs | `List[Idea]` | Learning new domains, understanding best practices |
 | `implementation` | Code examples, APIs, libraries, configuration | `List[Implementation]` | Building features, finding working code |
 | `study` | Comprehensive research report (academic style) | `ResearchReport` | Deep understanding, literature review |
+| `["idea", "implementation"]` | Multiple modes in one call | `ResearchFindings` | Getting both ideas and code in one request |
 
 ## Research Depth
 
@@ -120,6 +122,31 @@ print(report.content)    # Full academic-style report
 print(report.to_string())  # Formatted for LLM context
 ```
 
+### Multiple Modes
+
+```python
+from src.kapso import Kapso
+
+kapso = Kapso()
+
+# Research with multiple modes - returns ResearchFindings
+findings = kapso.research(
+    "QLoRA fine-tuning best practices",
+    mode=["idea", "implementation"],
+    top_k=5,
+)
+
+# Access results
+for idea in findings.ideas:
+    print(idea.to_string())
+
+for impl in findings.implementations:
+    print(impl.to_string())
+
+# Use combined results as context
+print(findings.to_string())
+```
+
 ## Research → Evolve (Add Context)
 
 Use research results to provide additional context during solution building:
@@ -129,18 +156,17 @@ from src.kapso import Kapso
 
 kapso = Kapso()
 
-# Research implementation details
-implementations = kapso.research(
+# Research with multiple modes
+findings = kapso.research(
     "unsloth FastLanguageModel example",
-    mode="implementation",
+    mode=["idea", "implementation"],
     top_k=5,
-    depth="deep",
 )
 
 # Use research as context for evolve
 solution = kapso.evolve(
     goal="Fine-tune a model with Unsloth + LoRA",
-    context=[impl.to_string() for impl in implementations],
+    context=[findings.to_string()],
     output_path="./models/unsloth_v1",
 )
 ```
@@ -154,23 +180,24 @@ from src.kapso import Kapso
 
 kapso = Kapso()
 
-# Research ideas - returns List[Idea]
-ideas = kapso.research(
+# Research with multiple modes
+findings = kapso.research(
     "LoRA rank selection best practices",
-    mode="idea",
-    top_k=10,
-    depth="deep",
+    mode=["idea", "implementation"],
+    top_k=5,
 )
 
-# Ingest each idea into Knowledge Graph
-for idea in ideas:
-    kapso.learn(idea, wiki_dir="data/wikis")
+# Ingest all results into Knowledge Graph
+kapso.learn(
+    *findings.ideas,
+    *findings.implementations,
+    wiki_dir="data/wikis",
+)
 
 # Or learn from a study report
 report = kapso.research(
     "LoRA rank selection best practices",
     mode="study",
-    depth="deep",
 )
 kapso.learn(report, wiki_dir="data/wikis")
 ```
@@ -251,19 +278,18 @@ def research(
     self,
     query: str,
     *,
-    mode: Literal["idea", "implementation", "study"],  # Required
+    mode: Union[str, List[str]],  # Required - single mode or list
     top_k: int = 5,  # For idea/implementation modes
     depth: Literal["light", "deep"] = "deep",
-) -> Union[List[Idea], List[Implementation], ResearchReport]:
+) -> Union[List[Idea], List[Implementation], ResearchReport, ResearchFindings]:
     """
     Perform deep public web research.
     
     Args:
         query: What to research (be specific)
-        mode: Research mode (required):
-            - "idea": Returns List[Idea]
-            - "implementation": Returns List[Implementation]
-            - "study": Returns ResearchReport
+        mode: Research mode (required). Can be:
+            - Single mode: "idea", "implementation", or "study"
+            - List of modes: ["idea", "implementation"]
         top_k: Max results for idea/implementation modes
         depth: How thorough - light (faster) or deep (more comprehensive)
     
@@ -271,6 +297,7 @@ def research(
         - List[Idea] if mode="idea"
         - List[Implementation] if mode="implementation"
         - ResearchReport if mode="study"
+        - ResearchFindings if mode is a list
     """
 ```
 
@@ -308,6 +335,19 @@ class ResearchReport:
     
     def to_string(self) -> str:
         """Format for use as context in evolve()"""
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+
+@dataclass
+class ResearchFindings:
+    query: str                              # Original research query
+    ideas: List[Idea]                       # Ideas (if idea mode was run)
+    implementations: List[Implementation]   # Implementations (if implementation mode was run)
+    report: Optional[ResearchReport]        # Report (if study mode was run)
+    
+    def to_string(self) -> str:
+        """Format all findings for use as context in evolve()"""
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""

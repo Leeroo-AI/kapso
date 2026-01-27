@@ -55,10 +55,10 @@ def research(
     self,
     query: str,
     *,
-    mode: Literal["idea", "implementation", "study"],  # Required
+    mode: Union[str, List[str]],  # Required - single mode or list
     top_k: int = 5,
     depth: str = "deep",
-) -> Union[List[Idea], List[Implementation], ResearchReport]
+) -> Union[List[Idea], List[Implementation], ResearchReport, ResearchFindings]
 ```
 
 #### Parameters
@@ -66,7 +66,7 @@ def research(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `query` | `str` | - | What to research |
-| `mode` | `str` | - | `"idea"`, `"implementation"`, or `"study"` (required) |
+| `mode` | `str` or `List[str]` | - | Single mode or list of modes (required) |
 | `top_k` | `int` | `5` | Max results for idea/implementation modes |
 | `depth` | `str` | `"deep"` | `"light"` or `"deep"` |
 
@@ -76,27 +76,33 @@ Returns based on mode:
 - `List[Idea]` if mode="idea"
 - `List[Implementation]` if mode="implementation"
 - `ResearchReport` if mode="study"
+- `ResearchFindings` if mode is a list (e.g., `["idea", "implementation"]`)
 
 #### Example
 
 ```python
-# Research ideas
+# Single mode - returns List[Idea]
 ideas = kapso.research(
     "QLoRA best practices for fine-tuning",
     mode="idea",
     top_k=10,
-    depth="deep",
+)
+
+# Multiple modes - returns ResearchFindings
+findings = kapso.research(
+    "QLoRA best practices for fine-tuning",
+    mode=["idea", "implementation"],
+    top_k=5,
 )
 
 # Use as context
 solution = kapso.evolve(
     goal="Fine-tune LLaMA",
-    context=[idea.to_string() for idea in ideas],
+    context=[findings.to_string()],
 )
 
 # Or learn into KG
-for idea in ideas:
-    kapso.learn(idea, wiki_dir="data/wikis")
+kapso.learn(*findings.ideas, *findings.implementations, wiki_dir="data/wikis")
 ```
 
 ### learn()
@@ -141,9 +147,8 @@ result = kapso.learn(
 print(f"Created: {result.created}, Merged: {result.merged}")
 
 # Learn from research results
-ideas = kapso.research("LoRA best practices", mode="idea", top_k=5)
-for idea in ideas:
-    kapso.learn(idea, wiki_dir="data/wikis")
+findings = kapso.research("LoRA best practices", mode=["idea", "implementation"], top_k=5)
+kapso.learn(*findings.ideas, *findings.implementations, wiki_dir="data/wikis")
 ```
 
 ### evolve()
@@ -349,7 +354,7 @@ class FeedbackResult:
 
 ```python
 from src.kapso import Source
-from src.knowledge.researcher import Idea, Implementation, ResearchReport
+from src.knowledge.researcher import Idea, Implementation, ResearchReport, ResearchFindings
 
 # Repository
 Source.Repo(url: str, branch: str = "main")
@@ -358,9 +363,10 @@ Source.Repo(url: str, branch: str = "main")
 Source.Solution(solution: SolutionResult)
 
 # Research outputs (from research)
-Idea       # Returned by kapso.research(mode="idea")
+Idea            # Returned by kapso.research(mode="idea")
 Implementation  # Returned by kapso.research(mode="implementation")
 ResearchReport  # Returned by kapso.research(mode="study")
+ResearchFindings  # Returned by kapso.research(mode=["idea", "implementation"])
 ```
 
 ### DeployStrategy
@@ -399,32 +405,35 @@ from src.kapso import Kapso, Source, DeployStrategy
 # Initialize with KG
 kapso = Kapso(kg_index="data/indexes/ml.index")
 
-# Research
-ideas = kapso.research("XGBoost best practices", mode="idea", top_k=10)
+# Research with multiple modes
+findings = kapso.research(
+    "XGBoost best practices",
+    mode=["idea", "implementation"],
+    top_k=5,
+)
 
 # Learn from repo and research
 kapso.learn(
     Source.Repo("https://github.com/dmlc/xgboost"),
-    *ideas,  # Each idea is a valid source
+    *findings.ideas,
+    *findings.implementations,
+    wiki_dir="data/wikis",
 )
 
 # Evolve with research context
 solution = kapso.evolve(
     goal="XGBoost classifier with AUC > 0.9",
-    context=[idea.to_string() for idea in ideas],
+    context=[findings.to_string()],
     max_iterations=10,
 )
 
 # Check if goal was achieved
 if solution.succeeded:
     print(f"Goal achieved with score: {solution.final_score}")
-    print(f"Feedback: {solution.final_feedback.feedback}")
 
 # Deploy
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = deployed_program.run({"data_path": "./test.csv"})
-
-# Cleanup
 deployed_program.stop()
 
 # Learn from experience
