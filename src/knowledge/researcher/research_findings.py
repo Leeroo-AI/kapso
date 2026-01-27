@@ -1,212 +1,282 @@
 # Research Findings
 #
-# Rich wrapper around research results with fluent accessors.
+# Data structures and parsing for research results.
 #
-# This class provides a clean API for accessing research results:
-# - .repos(top_k) -> List[Source.Repo] for learn()
-# - .ideas(top_k) -> IdeaList (List[Source.Idea] with to_context_string())
-# - .source -> Source.Research for direct KG ingestion
+# This module provides:
+# - IdeaResult: Single idea from research (source + content)
+# - ImplementationResult: Single implementation from research (source + content)
+# - ResearchReport: Study mode research report
+# - ResearchFindings: Wrapper for all research outputs
 #
 # Usage:
-#     findings = kapso.research("How to fine-tune LLMs", depth="deep")
+#     findings = researcher.research("How to fine-tune LLMs", top_k=5)
 #     
-#     # Get repos for learning
-#     kapso.learn(sources=[*findings.repos(top_k=5)])
+#     # Access ideas (from idea mode)
+#     for idea in findings.ideas:
+#         print(idea.content, idea.source)
 #     
-#     # Get ideas for evolve context (IdeaList has to_context_string())
-#     solution = kapso.evolve(goal="...", context=[findings.ideas(top_k=20)])
+#     # Access implementations (from implementation mode)
+#     for impl in findings.implementations:
+#         print(impl.content)
+#     
+#     # Access report (from study mode)
+#     print(findings.report.content)
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from src.knowledge.learners.sources import Source, IdeaList
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Result Data Classes
+# =============================================================================
+
+@dataclass
+class IdeaResult:
+    """
+    Single idea result from research.
+    
+    Used in 'idea' mode. Each result represents a conceptual idea or approach.
+    """
+    source: str  # URL where this was found
+    content: str  # Description of the idea/approach
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {"source": self.source, "content": self.content}
+    
+    def to_context_string(self) -> str:
+        return f"- {self.content} ({self.source})"
+    
+    def __str__(self) -> str:
+        return self.to_context_string()
 
 
 @dataclass
-class RepoInfo:
-    """Parsed repository information from research report."""
-    url: str
-    name: str = ""
-    stars: Optional[int] = None
-    description: str = ""
+class ImplementationResult:
+    """
+    Single implementation result from research.
+    
+    Used in 'implementation' mode. Each result includes working code.
+    Content is freeform and includes description, code snippet, and dependencies.
+    """
+    source: str  # URL where this was found
+    content: str  # Freeform: description + code snippet + dependencies
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {"source": self.source, "content": self.content}
+    
+    def to_context_string(self) -> str:
+        return f"**Source:** {self.source}\n\n{self.content}"
+    
+    def __str__(self) -> str:
+        return self.to_context_string()
 
 
 @dataclass
-class IdeaInfo:
-    """Parsed idea/insight from research report."""
-    content: str
-    source_url: str = ""
+class ResearchReport:
+    """
+    Research report (academic paper style).
+    
+    Used in 'study' mode. Contains a full markdown report with sections:
+    Key Takeaways, Abstract, Introduction, Background, Literature Review,
+    Methodology Comparison, Implementation Guide, Evaluation, Limitations,
+    Conclusion, References.
+    """
+    content: str  # Full markdown with all sections
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {"content": self.content}
+    
+    def to_context_string(self) -> str:
+        return self.content
+    
+    def __str__(self) -> str:
+        return self.content
+
+
+# =============================================================================
+# Research Findings Wrapper
+# =============================================================================
+
+# Type alias for research modes
+ResearchMode = Literal["idea", "implementation", "study"]
 
 
 @dataclass
 class ResearchFindings:
     """
-    Rich wrapper around research results.
+    Wrapper for all research outputs.
     
-    Provides fluent accessors for different use cases:
-    - .repos(top_k) -> List[Source.Repo] for learn()
-    - .ideas(top_k) -> IdeaList (List[Source.Idea] with to_context_string())
-    - .source -> Source.Research for direct KG ingestion
+    Supports multiple modes in a single call. When multiple modes are requested,
+    the researcher runs each mode sequentially and merges results.
+    
+    Attributes:
+        query: The original research query
+        modes: List of modes that were run
+        top_k: Maximum number of results requested per mode
+        ideas: List of IdeaResult (populated if 'idea' mode was run)
+        implementations: List of ImplementationResult (populated if 'implementation' mode was run)
+        report: ResearchReport (populated if 'study' mode was run)
     """
-    _source: Source.Research
-    _repos: List[RepoInfo] = field(default_factory=list)
-    _ideas: List[IdeaInfo] = field(default_factory=list)
+    query: str
+    modes: List[ResearchMode] = field(default_factory=list)
+    top_k: int = 5
     
-    def repos(self, top_k: int = 10) -> List[Source.Repo]:
-        """
-        Return top-k repos as Source.Repo objects.
-        
-        These can be passed directly to kapso.learn().
-        
-        Args:
-            top_k: Maximum number of repos to return (default: 10)
-            
-        Returns:
-            List of Source.Repo objects ready for learn()
-        """
-        return [Source.Repo(url=r.url) for r in self._repos[:top_k]]
+    # Populated based on mode(s):
+    ideas: List[IdeaResult] = field(default_factory=list)
+    implementations: List[ImplementationResult] = field(default_factory=list)
+    report: Optional[ResearchReport] = None
     
-    def ideas(self, top_k: int = 20) -> IdeaList:
-        """
-        Return top-k ideas as IdeaList (List[Source.Idea] with to_context_string()).
-        
-        The returned IdeaList can be:
-        - Iterated as a list of Source.Idea objects
-        - Converted to string via to_context_string() or str()
-        - Passed to kapso.evolve(context=[...])
-        
-        Args:
-            top_k: Maximum number of ideas to return (default: 20)
-            
-        Returns:
-            IdeaList with Source.Idea objects
-        """
-        if not self._ideas:
-            # Fallback: create a single idea from the full report
-            fallback_idea = Source.Idea(
-                content=self._source.to_context_string(),
-                source_url=""
-            )
-            return IdeaList([fallback_idea], objective=self._source.objective)
-        
-        # Convert IdeaInfo to Source.Idea
-        selected = self._ideas[:top_k]
-        idea_objects = [
-            Source.Idea(content=info.content, source_url=info.source_url)
-            for info in selected
-        ]
-        return IdeaList(idea_objects, objective=self._source.objective)
-    
-    @property
-    def source(self) -> Source.Research:
-        """Access raw Source.Research for direct KG ingestion."""
-        return self._source
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "query": self.query,
+            "modes": self.modes,
+            "top_k": self.top_k,
+            "ideas": [i.to_dict() for i in self.ideas],
+            "implementations": [i.to_dict() for i in self.implementations],
+            "report": self.report.to_dict() if self.report else None,
+        }
     
     def to_context_string(self) -> str:
-        """Delegate to underlying source for full context."""
-        return self._source.to_context_string()
+        """Convert to a string suitable for LLM context."""
+        parts = [f"# Research: {self.query}\n"]
+        
+        if self.ideas:
+            parts.append("## Ideas\n")
+            for idea in self.ideas:
+                parts.append(idea.to_context_string())
+            parts.append("")
+        
+        if self.implementations:
+            parts.append("## Implementations\n")
+            for impl in self.implementations:
+                parts.append(impl.to_context_string())
+                parts.append("---")
+            parts.append("")
+        
+        if self.report:
+            parts.append("## Research Report\n")
+            parts.append(self.report.content)
+        
+        return "\n".join(parts)
     
     def __str__(self) -> str:
-        """String representation uses to_context_string()."""
         return self.to_context_string()
 
 
-def parse_repos_from_report(report: str) -> List[RepoInfo]:
+# =============================================================================
+# Parsing Functions
+# =============================================================================
+
+def _extract_tag(text: str, tag: str) -> Optional[str]:
     """
-    Extract GitHub repos from the research report.
-    
-    Looks for URLs matching github.com pattern.
+    Extract content from a single XML tag.
     
     Args:
-        report: The markdown research report
+        text: The text to search in
+        tag: The tag name (without angle brackets)
         
     Returns:
-        List of RepoInfo objects (deduplicated by URL)
+        The content inside the tag, or None if not found
     """
-    repos = []
-    
-    # Pattern: github.com/owner/repo (captures owner and repo name)
-    github_pattern = r'https?://github\.com/([^/\s\)\]]+)/([^/\s\)\]\#]+)'
-    
-    for match in re.finditer(github_pattern, report):
-        url = f"https://github.com/{match.group(1)}/{match.group(2)}"
-        # Clean up trailing punctuation
-        url = url.rstrip('.,;:')
-        name = f"{match.group(1)}/{match.group(2)}"
-        repos.append(RepoInfo(url=url, name=name))
-    
-    # Deduplicate by URL
-    seen = set()
-    unique = []
-    for r in repos:
-        if r.url not in seen:
-            seen.add(r.url)
-            unique.append(r)
-    
-    return unique
+    # Use non-greedy match to handle nested content
+    match = re.search(rf'<{tag}>(.*?)</{tag}>', text, re.DOTALL)
+    return match.group(1).strip() if match else None
 
 
-def parse_ideas_from_report(report: str) -> List[IdeaInfo]:
+def parse_research_result(
+    raw_output: str,
+    mode: ResearchMode,
+    query: str,
+    top_k: int,
+) -> ResearchFindings:
     """
-    Extract key ideas/takeaways from the research report.
-    
-    Looks for bullet points in Summary section and other key sections.
+    Parse LLM output into ResearchFindings for a single mode.
     
     Args:
-        report: The markdown research report
+        raw_output: The raw LLM output text
+        mode: The research mode that was used
+        query: The original query
+        top_k: The requested number of results
         
     Returns:
-        List of IdeaInfo objects
+        ResearchFindings with parsed results
     """
-    ideas = []
+    # Extract content between <research_result>...</research_result>
+    # First try with closing tag
+    match = re.search(r'<research_result>(.*?)</research_result>', raw_output, re.DOTALL)
     
-    # Extract from ## Summary section (primary source of ideas)
-    summary_match = re.search(
-        r'##\s*Summary\s*\n(.*?)(?=\n##|\Z)', 
-        report, 
-        re.DOTALL | re.IGNORECASE
-    )
-    if summary_match:
-        summary_text = summary_match.group(1)
-        # Extract bullet points (- or *)
-        bullets = re.findall(r'^\s*[-*]\s*(.+)$', summary_text, re.MULTILINE)
-        for bullet in bullets:
-            ideas.append(IdeaInfo(content=bullet.strip()))
+    # If no closing tag found, try to extract everything after opening tag
+    # (handles case where output was truncated)
+    if not match:
+        match = re.search(r'<research_result>(.*)', raw_output, re.DOTALL)
+        if match:
+            logger.warning("Missing </research_result> closing tag; output may have been truncated")
     
-    # Also extract from ## Core concepts if Summary is sparse
-    if len(ideas) < 5:
-        concepts_match = re.search(
-            r'##\s*Core\s+concepts?\s*\n(.*?)(?=\n##|\Z)', 
-            report, 
-            re.DOTALL | re.IGNORECASE
+    if not match:
+        logger.warning("Missing <research_result> tags in output; returning empty findings")
+        return ResearchFindings(query=query, modes=[mode], top_k=top_k)
+    
+    content = match.group(1).strip()
+    
+    # Freeform/study mode: content is the full report
+    if mode == "study":
+        return ResearchFindings(
+            query=query,
+            modes=[mode],
+            top_k=top_k,
+            report=ResearchReport(content=content),
         )
-        if concepts_match:
-            concepts_text = concepts_match.group(1)
-            bullets = re.findall(r'^\s*[-*]\s*(.+)$', concepts_text, re.MULTILINE)
-            for bullet in bullets:
-                ideas.append(IdeaInfo(content=bullet.strip()))
     
-    # Extract from ## Trade-offs section
-    tradeoffs_match = re.search(
-        r'##\s*Trade-?offs?\s*\n(.*?)(?=\n##|\Z)', 
-        report, 
-        re.DOTALL | re.IGNORECASE
-    )
-    if tradeoffs_match:
-        tradeoffs_text = tradeoffs_match.group(1)
-        bullets = re.findall(r'^\s*[-*]\s*(.+)$', tradeoffs_text, re.MULTILINE)
-        for bullet in bullets:
-            ideas.append(IdeaInfo(content=bullet.strip()))
+    # Idea/Implementation modes: parse <research_item> tags
+    items = re.findall(r'<research_item>(.*?)</research_item>', content, re.DOTALL)
     
-    # Deduplicate while preserving order
-    seen = set()
-    unique = []
-    for idea in ideas:
-        if idea.content and idea.content not in seen:
-            seen.add(idea.content)
-            unique.append(idea)
+    results = []
+    for item in items:
+        source = _extract_tag(item, "source")
+        content_text = _extract_tag(item, "content")
+        
+        if source and content_text:
+            if mode == "idea":
+                results.append(IdeaResult(source=source, content=content_text))
+            else:  # implementation
+                results.append(ImplementationResult(source=source, content=content_text))
+        else:
+            logger.warning(f"Skipping research_item with missing source or content")
     
-    return unique
+    if mode == "idea":
+        return ResearchFindings(query=query, modes=[mode], top_k=top_k, ideas=results)
+    else:
+        return ResearchFindings(query=query, modes=[mode], top_k=top_k, implementations=results)
+
+
+def merge_findings(findings_list: List[ResearchFindings], query: str, top_k: int) -> ResearchFindings:
+    """
+    Merge multiple ResearchFindings into one.
+    
+    Used when running multiple modes sequentially.
+    
+    Args:
+        findings_list: List of ResearchFindings from different modes
+        query: The original query
+        top_k: The requested number of results
+        
+    Returns:
+        Single merged ResearchFindings
+    """
+    merged = ResearchFindings(query=query, modes=[], top_k=top_k)
+    
+    for findings in findings_list:
+        merged.modes.extend(findings.modes)
+        merged.ideas.extend(findings.ideas)
+        merged.implementations.extend(findings.implementations)
+        if findings.report and not merged.report:
+            merged.report = findings.report
+    
+    return merged

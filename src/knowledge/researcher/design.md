@@ -10,7 +10,7 @@ The researcher performs deep public web research using OpenAI's `web_search` too
 |------|---------|--------|
 | `idea` | Conceptual understanding, inspiration | List of `IdeaResult` |
 | `implementation` | Working code snippets to solve a problem | List of `ImplementationResult` |
-| `freeform` | Comprehensive research report | `ResearchReport` |
+| `study` | Comprehensive research report | `ResearchReport` |
 
 ## API
 
@@ -22,24 +22,23 @@ researcher = Researcher()
 # Idea mode only - get top 5 ideas
 findings = researcher.research("How to implement RAG?", mode="idea", top_k=5)
 for idea in findings.ideas:
-    print(idea.description, idea.source)
+    print(idea.source, idea.content)
 
 # Implementation mode only - get top 3 code snippets
 findings = researcher.research("How to stream OpenAI responses?", mode="implementation", top_k=3)
 for impl in findings.implementations:
-    print(impl.description)
-    print(impl.code_snippet)
-    print(impl.dependencies)
+    print(impl.source)
+    print(impl.content)  # Contains description, code snippet, and dependencies
 
-# Freeform mode only - get research report
-findings = researcher.research("Compare LoRA vs QLoRA for fine-tuning", mode="freeform")
+# Study mode only - get research report
+findings = researcher.research("Compare LoRA vs QLoRA for fine-tuning", mode="study")
 print(findings.report.content)
 
 # Default: all three modes
 findings = researcher.research("How to fine-tune LLMs?", top_k=5)
 print(findings.ideas)           # From idea mode
 print(findings.implementations) # From implementation mode
-print(findings.report.content)  # From freeform mode
+print(findings.report.content)  # From study mode
 
 # Explicit subset of modes
 findings = researcher.research("RAG architectures", mode=["idea", "implementation"], top_k=3)
@@ -88,7 +87,7 @@ class ImplementationResult:
 
 ### ResearchReport
 
-Used in `freeform` mode. Contains a full research report.
+Used in `study` mode. Contains a full research report.
 
 ```python
 @dataclass
@@ -112,7 +111,7 @@ Wrapper that holds the research output. Supports multiple modes in a single call
 class ResearchFindings:
     """Wrapper for all research outputs."""
     query: str
-    modes: List[Literal["idea", "implementation", "freeform"]]  # Can be multiple
+    modes: List[Literal["idea", "implementation", "study"]]  # Can be multiple
     top_k: int
     
     # Populated based on mode(s) - multiple can be filled if multiple modes requested:
@@ -151,7 +150,7 @@ Dependencies: pip install torch
 </research_result>
 ```
 
-### Freeform Mode
+### Study Mode
 
 The LLM outputs the full report inside the tags:
 
@@ -203,6 +202,7 @@ Top K: {top_k}
 
 You are helping a user who wants conceptual understanding or inspiration.
 Search for ideas, approaches, and insights related to their query.
+Provide comprehensive, actionable information for each idea.
 
 ## Source quality rules
 
@@ -223,6 +223,8 @@ Rank them by a combination of:
 - Relevance to the query
 - Popularity/authority of the source
 
+For each idea, provide comprehensive information across multiple sections.
+
 ## Output format (MANDATORY)
 
 First, write free-form analysis and reasoning about what you found.
@@ -233,12 +235,47 @@ Then, at the end, output the structured results wrapped exactly like this:
 <research_item>
 <source>https://exact-url-where-you-found-this</source>
 <content>
-Clear, concise description of the idea or approach.
+## Description
+Clear, concise description of the idea or approach. What is it? What problem does it solve?
+
+## How to Apply
+Concrete steps to apply this idea:
+1. Step one...
+2. Step two...
+3. Step three...
+
+## When to Use
+- Scenario 1: When you need X...
+- Scenario 2: When dealing with Y...
+- Avoid when: Z...
+
+## Why Related
+Explicit explanation of how this idea connects to the user's query. Why is this relevant to what they're trying to achieve?
+
+## Trade-offs
+**Pros:**
+- Advantage 1
+- Advantage 2
+
+**Cons:**
+- Limitation 1
+- Limitation 2
+
+## Examples
+Real-world examples or case studies where this idea has been applied successfully:
+- Example 1: Brief description of how company/project X used this...
+- Example 2: Brief description of another application...
+
+## Prerequisites
+What you need to know or have before applying this:
+- Prerequisite 1
+- Prerequisite 2
+
+## Related Concepts
+Other ideas/techniques that complement this approach:
+- Related concept 1
+- Related concept 2
 </content>
-</research_item>
-<research_item>
-<source>...</source>
-<content>...</content>
 </research_item>
 <!-- Repeat for up to {top_k} items, ranked best first -->
 </research_result>
@@ -246,10 +283,11 @@ Clear, concise description of the idea or approach.
 Rules:
 - Each <research_item> must have exactly one <source> and one <content>
 - <source> must be a real, valid URL (not invented)
-- <content> is the description of the idea/approach
+- <content> must include ALL sections: Description, How to Apply, When to Use, Why Related, Trade-offs, Examples, Prerequisites, Related Concepts
 - Order items by relevance + popularity (best first)
-- Do NOT include code snippets in idea mode
+- Do NOT include code snippets in idea mode (save those for implementation mode)
 - If you cannot find {top_k} quality results, return fewer
+- Be comprehensive but concise in each section
 ```
 
 ### Implementation Mode (`implementation.md`)
@@ -259,6 +297,7 @@ Rules:
 
 You are helping a user who is stuck implementing something.
 They need working code snippets they can apply to their problem.
+Provide comprehensive, production-ready implementations with full context.
 
 ## Source quality rules
 
@@ -282,6 +321,8 @@ Rank them by a combination of:
 - Popularity/authority of the source
 - Code quality and completeness
 
+For each implementation, provide comprehensive information across multiple sections.
+
 ## Output format (MANDATORY)
 
 First, write free-form analysis and reasoning about what you found.
@@ -292,8 +333,18 @@ Then, at the end, output the structured results wrapped exactly like this:
 <research_item>
 <source>https://exact-url-where-you-found-this</source>
 <content>
-What this implementation does and when to use it.
+## Description
+What this implementation does and what problem it solves.
 
+## Why Related
+How this directly addresses the query. Why is this relevant to what the user is trying to achieve?
+
+## When to Use
+- Use when: scenario 1...
+- Use when: scenario 2...
+- Avoid when: scenario where this isn't ideal...
+
+## Code Snippet
 ```python
 # Complete, runnable code example
 # Include imports and a minimal working example
@@ -302,12 +353,30 @@ def example():
     ...
 ```
 
-Dependencies: pip install package1 package2 (or "none" if no dependencies)
+## Dependencies
+pip install package1 package2 (or "none" if no dependencies)
+
+## Configuration Options
+Key parameters and what they control:
+- `param1`: What it does, default value, when to change it
+- `param2`: What it does, default value, when to change it
+
+## Trade-offs
+**Pros:**
+- Advantage 1
+- Advantage 2
+
+**Cons:**
+- Limitation 1
+- Limitation 2
+
+## Common Pitfalls
+- Pitfall 1: Description and how to avoid/fix
+- Pitfall 2: Description and how to avoid/fix
+
+## Performance Notes
+Expected throughput, memory usage, scaling characteristics, benchmarks if available.
 </content>
-</research_item>
-<research_item>
-<source>...</source>
-<content>...</content>
 </research_item>
 <!-- Repeat for up to {top_k} items, ranked best first -->
 </research_result>
@@ -315,18 +384,21 @@ Dependencies: pip install package1 package2 (or "none" if no dependencies)
 Rules:
 - Each <research_item> must have <source> and <content>
 - <source> must be a real, valid URL (not invented)
-- <content> must include: description, code snippet (complete and runnable), and dependencies
+- <content> must include ALL sections: Description, Why Related, When to Use, Code Snippet, Dependencies, Configuration Options, Trade-offs, Common Pitfalls, Performance Notes
+- Code snippets must be complete and runnable (include imports, show usage)
 - Order items by relevance + popularity + code quality (best first)
 - If you cannot find {top_k} quality results, return fewer
+- Be comprehensive but concise in each section
 ```
 
-### Freeform Mode (`freeform.md`)
+### Study Mode (`study.md`)
 
 ```markdown
-## Research mindset (freeform mode)
+## Research mindset (study mode)
 
-You are writing a research report about the query.
-Think like an academic researcher producing a comprehensive literature review.
+You are writing a comprehensive research report about the query.
+Think like an academic researcher producing a thorough literature review and practical guide.
+The goal is to provide knowledge-grounded, actionable insights.
 
 ## Source quality rules
 
@@ -342,6 +414,7 @@ Cross-check important claims across multiple sources when possible.
 
 Write a comprehensive research report structured like an academic paper.
 Include inline citations (URLs in parentheses) for all non-trivial claims.
+Be thorough, analytical, and practical.
 
 ## Output format (MANDATORY)
 
@@ -350,43 +423,75 @@ First, you may include brief notes about your search process.
 Then, output the full report wrapped exactly like this:
 
 <research_result>
-## Abstract
+## Key Takeaways
+A numbered list of 5-7 most important insights for busy readers:
+1. Key insight 1
+2. Key insight 2
+3. ...
 
-3-5 sentences summarizing the key findings and conclusions.
+## Abstract
+3-5 sentences summarizing the key findings, methodology, and conclusions.
 
 ## Introduction
+- **Problem Statement**: What is the problem/topic being addressed?
+- **Motivation**: Why does this matter? What's the impact?
+- **Research Questions**: What specific questions does this report answer?
+- **Scope**: What is covered and what is explicitly out of scope?
 
-- What is the problem/topic?
-- Why does it matter?
-- What is the scope of this report?
+## Background
+- Key concepts and definitions
+- Historical context / evolution of the field
+- Prerequisites for understanding this topic
 
 ## Literature Review
+Systematic review of prior work, organized by theme or approach:
+- Categories of approaches with descriptions and citations
+- Comparison table of key approaches
+- Gaps in existing solutions
 
-- What prior work exists?
-- Key papers, tools, and approaches
-- Include inline URLs for citations: "Smith et al. proposed X (https://...)"
+## Methodology Comparison
+Detailed analysis of different approaches:
+- How each approach works
+- When to use each
+- Trade-offs matrix
 
-## Methodology
+## Implementation Guide
+Practical steps to implement:
+- Prerequisites
+- Step-by-step guide
+- Code examples
+- Configuration recommendations
+- Best practices
 
-- What approaches/techniques are used to solve this problem?
-- Compare different methodologies
-- Trade-offs between approaches
+## Evaluation & Benchmarks
+- Performance comparisons from literature
+- Metrics to consider
+- Real-world results
 
-## Implementations
+## Limitations
+- What this report doesn't cover
+- Caveats and assumptions
+- Areas where evidence is limited
 
-- Concrete ways to implement the methodologies
-- Key libraries, frameworks, tools
-- Configuration considerations
-- Include code examples where helpful
+## Conclusion
+- Summary of main findings
+- Practical recommendations (numbered list)
+- Open questions
+
+## References
+Complete list of all cited sources with URLs
 
 </research_result>
 
 Rules:
-- The content inside <research_result> is freeform markdown
+- The content inside <research_result> is study markdown
 - Include inline URLs (in parentheses) for all significant claims
 - Do NOT invent citations - if you cannot find a source, say so
 - Be comprehensive but concise
-- Focus on actionable insights
+- Focus on actionable, practical insights
+- Use tables for comparisons where appropriate
+- Include code examples where they add value
+- All sections are required
 ```
 
 ## Parsing Logic
@@ -399,14 +504,23 @@ def parse_research_result(raw_output: str, mode: str, query: str, top_k: int) ->
     """Parse LLM output into ResearchFindings."""
     
     # Extract content between <research_result>...</research_result>
+    # First try with closing tag
     match = re.search(r'<research_result>(.*?)</research_result>', raw_output, re.DOTALL)
+    
+    # If no closing tag found, try to extract everything after opening tag
+    # (handles case where output was truncated)
+    if not match:
+        match = re.search(r'<research_result>(.*)', raw_output, re.DOTALL)
+        if match:
+            logger.warning("Missing </research_result> closing tag; output may have been truncated")
+    
     if not match:
         # Fallback: return empty findings
         return ResearchFindings(query=query, modes=[mode], top_k=top_k)
     
     content = match.group(1).strip()
     
-    if mode == "freeform":
+    if mode == "study":
         return ResearchFindings(
             query=query,
             modes=[mode],
@@ -451,7 +565,7 @@ def _extract_tag(text: str, tag: str) -> Optional[str]:
 
 ### 2. `src/knowledge/researcher/researcher.py`
 
-- Update `ResearchMode` type: `Literal["idea", "implementation", "freeform"]`
+- Update `ResearchMode` type: `Literal["idea", "implementation", "study"]`
 - Add `ResearchModeInput` type: `Union[ResearchMode, List[ResearchMode]]`
 - Add `top_k` parameter to `research()` method (default: 5)
 - Update `research()` to accept list of modes and run each sequentially
@@ -464,7 +578,7 @@ def _extract_tag(text: str, tag: str) -> Optional[str]:
 - Delete `both.md` (no longer needed)
 - Rewrite `idea.md` with new format
 - Rewrite `implementation.md` with new format
-- Create `freeform.md` with new format
+- Create `study.md` with new format
 - Update `research_envelope.md` to include `top_k`
 
 ### 4. `src/knowledge/researcher/__init__.py`
@@ -478,27 +592,33 @@ def _extract_tag(text: str, tag: str) -> Optional[str]:
 
 ### 6. `src/knowledge/learners/ingestors/research_ingestor.py`
 
-- Update `_ALLOWED_MODES` to include `freeform`
+- Update `_ALLOWED_MODES` to include `study`
 - Update ingestion logic to handle new output structures
 
 ## Migration Notes
 
-- The `both` mode is removed. Users should use `freeform` for comprehensive reports.
+- The `both` mode is removed. Users should use `study` for comprehensive reports.
 - The output format changes from markdown-based parsing to XML-based parsing.
 - `top_k` is a new required concept (with default of 5).
 - The `depth` parameter remains unchanged (`light` or `deep`).
 
+## Configuration
+
+- **Model**: `gpt-5.2` (default)
+- **Max output tokens**: 32000
+- **Reasoning effort**: Only applied for o1/o3 models
+
 ## Multi-Mode Behavior
 
 When `mode` is a list, the researcher runs each mode sequentially and merges results.
-**Default is all three modes** (`["idea", "implementation", "freeform"]`).
+**Default is all three modes** (`["idea", "implementation", "study"]`).
 
 ```python
 # Default: all three modes
 findings = researcher.research("query")
 # findings.ideas populated from idea mode
 # findings.implementations populated from implementation mode
-# findings.report populated from freeform mode
+# findings.report populated from study mode
 
 # Single mode (string)
 findings = researcher.research("query", mode="idea")
@@ -507,11 +627,11 @@ findings = researcher.research("query", mode="idea")
 # Subset of modes (list)
 findings = researcher.research("query", mode=["idea", "implementation"])
 # findings.ideas and findings.implementations populated
-# findings.report is None (freeform not requested)
+# findings.report is None (study not requested)
 ```
 
 Implementation approach:
-1. Default `mode` to `["idea", "implementation", "freeform"]`
+1. Default `mode` to `["idea", "implementation", "study"]`
 2. Normalize `mode` to a list (if string, wrap in list)
 3. For each mode in the list, run the research and parse results
 4. Merge into a single `ResearchFindings` object
