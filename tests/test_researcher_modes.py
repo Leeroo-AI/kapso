@@ -7,6 +7,9 @@
 # for topics about LLM post-training.
 
 from src.knowledge.researcher import Researcher, ResearchMode
+from load_dotenv import load_dotenv
+
+load_dotenv()
 
 def main():
     researcher = Researcher()
