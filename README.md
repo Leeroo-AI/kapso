@@ -99,40 +99,37 @@ from src.kapso import Kapso, Source, DeployStrategy
 kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
 # Research: Gather domain-specific techniques from the web
-research_findings = kapso.research(
+# mode can be a single mode or list of modes:
+# - "idea" returns List[Idea]
+# - "implementation" returns List[Implementation]  
+# - "study" returns ResearchReport
+# - ["idea", "implementation"] returns ResearchFindings with .ideas and .implementations
+
+findings = kapso.research(
     "RLHF and DPO fine-tuning for legal contract analysis",
-    depth="deep",
+    mode=["idea", "implementation"],
+    top_k=5,
 )
 
-# Learn: Ingest knowledge from repositories into the KG
+# Learn: Ingest knowledge from repositories and research into the KG
 kapso.learn(
-    sources=[
-        Source.Repo("https://github.com/huggingface/trl"),
-        *research_findings.repos(top_k=5),
-    ],
+    Source.Repo("https://github.com/huggingface/trl"),
+    *findings.ideas,           # List[Idea]
+    *findings.implementations, # List[Implementation]
     wiki_dir="data/wikis",
 )
 
 # Evolve: Build a solution through experimentation
-# The agent builds an evaluation protocol based on your objective
-# Optionally, pass your own evaluation script with eval_dir parameter
-
-# Download dataset first (e.g., from HuggingFace)
-# from datasets import load_dataset
-# dataset = load_dataset("theatticusproject/cuad")
-# dataset.save_to_disk("./data/cuad_dataset")
-
+# Use research results as context via to_string()
 solution = kapso.evolve(
-    goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
+    goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85",
     data_dir="./data/cuad_dataset", 
     output_path="./models/legal_risk_v1",
-    context=[research_findings.ideas(top_k=10)],
+    context=[findings.to_string()],
 )
 
 # Deploy: Turn solution into running deployed_program
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-
-# Cleanup
 deployed_program.stop()
 ```
 

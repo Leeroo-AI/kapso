@@ -1,36 +1,36 @@
 # Public Web Research (Knowledge)
 #
-# This package provides deep public web research utilities that return
-# `ResearchFindings` objects with structured results.
+# This package provides deep public web research utilities.
 #
 # Exports:
 # - Researcher: main entry point (OpenAI Responses API + web_search tool)
-# - ResearchFindings: wrapper with .ideas, .implementations, .report
-# - IdeaResult: single idea from research
-# - ImplementationResult: single implementation from research
-# - ResearchReport: freeform research report
-# - ResearchMode: "idea" | "implementation" | "freeform"
+# - Idea: single idea from research
+# - Implementation: single implementation from research
+# - ResearchReport: study mode research report
+# - ResearchFindings: wrapper for multi-mode results
+# - ResearchMode: "idea" | "implementation" | "study"
+# - ResearchModeInput: single mode or list of modes
 # - ResearchDepth: "light" | "deep"
 
 from src.knowledge.researcher.researcher import (
     Researcher,
     ResearchDepth,
-    ResearchMode,
-    ResearchModeInput,
 )
 from src.knowledge.researcher.research_findings import (
-    ResearchFindings,
-    IdeaResult,
-    ImplementationResult,
+    Idea,
+    Implementation,
     ResearchReport,
+    ResearchFindings,
+    ResearchMode,
+    ResearchModeInput,
 )
 
 __all__ = [
     "Researcher",
-    "ResearchFindings",
-    "IdeaResult",
-    "ImplementationResult",
+    "Idea",
+    "Implementation",
     "ResearchReport",
+    "ResearchFindings",
     "ResearchMode",
     "ResearchModeInput",
     "ResearchDepth",

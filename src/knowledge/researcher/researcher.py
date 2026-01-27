@@ -4,8 +4,8 @@
 #
 # Design goals:
 # - Support three modes: idea, implementation, study
-# - Accept mode as string or list (default: all three modes)
-# - Return structured ResearchFindings with parsed results
+# - Accept single mode or list of modes
+# - Return appropriate type based on input
 # - Keep prompt templates in markdown files for easy iteration
 
 from __future__ import annotations
@@ -13,28 +13,29 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Literal, Union
+from typing import List, Literal, Union, overload
 
 from openai import OpenAI
 
 from src.knowledge.researcher.research_findings import (
-    ResearchFindings,
+    Idea,
+    Implementation,
     ResearchReport,
-    IdeaResult,
-    ImplementationResult,
-    parse_research_result,
-    merge_findings,
+    ResearchFindings,
+    ResearchMode,
+    ResearchModeInput,
+    parse_idea_results,
+    parse_implementation_results,
+    parse_study_result,
 )
 
 logger = logging.getLogger(__name__)
 
 # Type definitions
-ResearchMode = Literal["idea", "implementation", "study"]
-ResearchModeInput = Union[ResearchMode, List[ResearchMode]]
 ResearchDepth = Literal["light", "deep"]
 
-# Default modes when none specified
-DEFAULT_MODES: List[ResearchMode] = ["idea", "implementation", "study"]
+# Return type for single mode
+ResearchResultSingle = Union[List[Idea], List[Implementation], ResearchReport]
 
 # Prompts directory
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -46,21 +47,22 @@ class Researcher:
     Deep public web research using OpenAI Responses API + `web_search`.
     
     Supports three research modes:
-    - idea: Conceptual understanding, returns List[IdeaResult]
-    - implementation: Working code snippets, returns List[ImplementationResult]
+    - idea: Conceptual understanding, returns List[Idea]
+    - implementation: Working code snippets, returns List[Implementation]
     - study: Comprehensive research report, returns ResearchReport
     
     Usage:
         researcher = Researcher()
         
-        # Default: all three modes
-        findings = researcher.research("How to fine-tune LLMs?", top_k=5)
+        # Single mode - returns List[Idea]
+        ideas = researcher.research("How to fine-tune LLMs?", mode="idea", top_k=5)
         
-        # Single mode
-        findings = researcher.research("RAG", mode="idea", top_k=3)
-        
-        # Multiple modes
-        findings = researcher.research("RAG", mode=["idea", "implementation"])
+        # Multiple modes - returns ResearchFindings
+        findings = researcher.research("LLM fine-tuning", mode=["idea", "implementation"], top_k=5)
+        for idea in findings.ideas:
+            print(idea.to_string())
+        for impl in findings.implementations:
+            print(impl.to_string())
     """
 
     # Model choice (internal, not exposed in public API)
@@ -74,30 +76,26 @@ class Researcher:
         self,
         query: str,
         *,
-        mode: ResearchModeInput = None,
+        mode: ResearchModeInput,
         top_k: int = 5,
         depth: ResearchDepth = "deep",
-    ) -> ResearchFindings:
+    ) -> Union[List[Idea], List[Implementation], ResearchReport, ResearchFindings]:
         """
-        Run deep web research and return a ResearchFindings object.
+        Run deep web research.
         
         Args:
             query: What we want to learn from public sources.
-            mode: Research mode(s). Can be:
+            mode: Research mode (required). Can be:
                 - Single mode: "idea", "implementation", or "study"
                 - List of modes: ["idea", "implementation"]
-                - None (default): runs all three modes
-            top_k: Maximum number of results per mode (default: 5).
-                   Only applies to idea and implementation modes.
-            depth: Research depth. Maps to OpenAI reasoning effort:
-                - "light" -> "medium"
-                - "deep" -> "high"
+            top_k: Maximum number of results (for idea/implementation modes).
+            depth: Research depth ("light" or "deep").
         
         Returns:
-            ResearchFindings with:
-            - .ideas: List[IdeaResult] (if idea mode was run)
-            - .implementations: List[ImplementationResult] (if implementation mode was run)
-            - .report: ResearchReport (if study mode was run)
+            - List[Idea] if mode="idea"
+            - List[Implementation] if mode="implementation"
+            - ResearchReport if mode="study"
+            - ResearchFindings if mode is a list
         """
         # Validate query
         query = (query or "").strip()
@@ -110,37 +108,40 @@ class Researcher:
         # Map depth to reasoning effort
         reasoning_effort = self._get_reasoning_effort(depth)
         
-        # Run each mode and collect results
-        findings_list = []
+        # Single mode - return direct type
+        if len(modes) == 1:
+            logger.info(f"Running research in '{modes[0]}' mode for: {query[:50]}...")
+            return self._run_single_mode(
+                query=query,
+                mode=modes[0],
+                top_k=top_k,
+                reasoning_effort=reasoning_effort,
+            )
+        
+        # Multiple modes - return ResearchFindings
+        findings = ResearchFindings(query=query)
+        
         for m in modes:
             logger.info(f"Running research in '{m}' mode for: {query[:50]}...")
-            findings = self._run_single_mode(
+            result = self._run_single_mode(
                 query=query,
                 mode=m,
                 top_k=top_k,
                 reasoning_effort=reasoning_effort,
             )
-            findings_list.append(findings)
+            
+            if m == "idea":
+                findings.ideas = result
+            elif m == "implementation":
+                findings.implementations = result
+            else:  # study
+                findings.report = result
         
-        # Merge results if multiple modes
-        if len(findings_list) == 1:
-            return findings_list[0]
-        else:
-            return merge_findings(findings_list, query=query, top_k=top_k)
+        return findings
 
     def _normalize_modes(self, mode: ResearchModeInput) -> List[ResearchMode]:
-        """
-        Normalize mode input to a list of modes.
-        
-        Args:
-            mode: Single mode, list of modes, or None
-            
-        Returns:
-            List of modes to run
-        """
-        if mode is None:
-            return DEFAULT_MODES.copy()
-        elif isinstance(mode, str):
+        """Normalize mode input to a list of modes."""
+        if isinstance(mode, str):
             if mode not in ("idea", "implementation", "study"):
                 raise ValueError(f"Invalid mode: {mode}. Must be 'idea', 'implementation', or 'study'")
             return [mode]
@@ -150,7 +151,7 @@ class Researcher:
                     raise ValueError(f"Invalid mode: {m}. Must be 'idea', 'implementation', or 'study'")
             return mode
         else:
-            raise ValueError(f"mode must be a string, list, or None (got {type(mode)})")
+            raise ValueError(f"mode must be a string or list (got {type(mode)})")
 
     def _get_reasoning_effort(self, depth: ResearchDepth) -> str:
         """Map depth to OpenAI reasoning effort."""
@@ -167,7 +168,7 @@ class Researcher:
         mode: ResearchMode,
         top_k: int,
         reasoning_effort: str,
-    ) -> ResearchFindings:
+    ) -> ResearchResultSingle:
         """
         Run research for a single mode.
         
@@ -178,7 +179,7 @@ class Researcher:
             reasoning_effort: OpenAI reasoning effort level
             
         Returns:
-            ResearchFindings for this mode
+            List[Idea], List[Implementation], or ResearchReport based on mode
         """
         # Build prompt
         prompt = self._build_research_prompt(query=query, mode=mode, top_k=top_k)
@@ -186,7 +187,6 @@ class Researcher:
         try:
             # Build request params
             # Note: reasoning.effort is only supported by certain models (e.g., o1, o3)
-            # For other models, we skip it
             request_params = {
                 "model": self.model,
                 "tools": [{"type": "web_search"}],
@@ -202,16 +202,21 @@ class Researcher:
             raw_text = response.output_text or ""
         except Exception as e:
             logger.exception(f"Research failed for mode '{mode}': {e}")
-            # Return empty findings on error
-            return ResearchFindings(query=query, modes=[mode], top_k=top_k)
+            # Return empty results on error
+            if mode == "idea":
+                return []
+            elif mode == "implementation":
+                return []
+            else:  # study
+                return ResearchReport(query=query, content="")
         
-        # Parse the output
-        return parse_research_result(
-            raw_output=raw_text,
-            mode=mode,
-            query=query,
-            top_k=top_k,
-        )
+        # Parse based on mode
+        if mode == "idea":
+            return parse_idea_results(raw_text, query)
+        elif mode == "implementation":
+            return parse_implementation_results(raw_text, query)
+        else:  # study
+            return parse_study_result(raw_text, query)
 
     def _build_research_prompt(
         self,
