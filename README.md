@@ -124,7 +124,7 @@ kapso.learn(
 
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
-    data_dir="./data/cuad_dataset",  # Dataset available in kapso_datasets/
+    data_dir="./data/cuad_dataset", 
     output_path="./models/legal_risk_v1",
     context=[research_findings.ideas(top_k=10)],
 )
