@@ -123,9 +123,9 @@ class ResearchIngestorBase(Ingestor):
         if self._use_bedrock:
             agent_specific["use_bedrock"] = True
             agent_specific["aws_region"] = self._aws_region
-            # Default Bedrock model if not specified (Claude Sonnet 4)
+            # Default Bedrock model if not specified (Claude Opus 4.5)
             if not model:
-                model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+                model = "us.anthropic.claude-opus-4-5-20251101-v1:0"
         else:
             # Direct Anthropic API
             if not model:
@@ -250,13 +250,11 @@ class ResearchIngestorBase(Ingestor):
         
         Creates wiki pages based on the plan.
         """
-        plan_path = self._staging_dir / "_plan.md"
         return self._run_phase(
             "writing",
             query=query,
             source_url=source_url,
             content=content,
-            plan_path=str(plan_path),
         )
     
     def _run_auditing_phase(self) -> bool:

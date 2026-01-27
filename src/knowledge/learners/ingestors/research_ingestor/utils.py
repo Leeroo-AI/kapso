@@ -211,14 +211,13 @@ def build_page_filename(page_type: str, slug: str) -> str:
     
     Args:
         page_type: Type of page (principle, implementation, etc.)
-        slug: Slugified page name
+        slug: Slugified page name (should be descriptive of content)
         
     Returns:
-        Filename like "Research_Web_QLoRA_Best_Practices.md"
+        Filename like "QLoRA_Best_Practices.md" (no namespace prefix)
     """
-    namespace = get_research_namespace()
     sanitized_slug = sanitize_wiki_title(slug)
-    return f"{namespace}_{sanitized_slug}.md"
+    return f"{sanitized_slug}.md"
 
 
 def get_page_subdirectory(page_type: str) -> str:

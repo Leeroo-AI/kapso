@@ -230,14 +230,13 @@ def main():
     print("Research Ingestor End-to-End Tests")
     print("=" * 60)
     print("\nEnvironment: praxium_conda")
-    print("Using AWS Bedrock with Claude Sonnet 4")
     
     # Run tests one at a time to avoid rate limits
     # Uncomment the tests you want to run:
     
-    test_idea_ingestor_e2e()
+    # test_idea_ingestor_e2e()
     # test_implementation_ingestor_e2e()
-    # test_research_report_ingestor_e2e()
+    test_research_report_ingestor_e2e()
     # test_full_pipeline_with_learn()
     
     print("\n" + "=" * 60)

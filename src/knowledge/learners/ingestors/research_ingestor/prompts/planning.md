@@ -49,7 +49,7 @@ Match content to page types based on these criteria:
 
 ## Output: Write Plan File
 
-Write a plan file to: `{wiki_dir}/_plan.md`
+Write a plan file to: `./_plan.md` (in the current working directory)
 
 The plan file should contain:
 
@@ -68,7 +68,7 @@ The plan file should contain:
 
 ### Page 1: [Page Type] - [Page Name]
 - **Type:** Principle / Implementation / Environment / Heuristic
-- **Filename:** Research_Web_[Slug].md
+- **Filename:** [Descriptive_Name].md (NO "Research_Web" prefix!)
 - **Directory:** [principles/implementations/environments/heuristics]
 - **Reasoning:** [Why this page type was chosen]
 - **Content Mapping:**
@@ -93,5 +93,12 @@ The plan file should contain:
 - Don't create empty or stub pages
 - Each page must have enough content to fill required sections
 - Follow WikiMedia naming conventions (underscores, no forbidden chars)
+
+**IMPORTANT: Page Naming Rules**
+- Page titles should describe the CONTENT, not the source
+- DO NOT include "Research", "Web", "Research_Web" or similar prefixes
+- Choose descriptive names based on what the page is about
+- Good examples: `LoRA_Fine_Tuning.md`, `LangChain_RAG_Agent.md`, `PyTorch_GPU_Setup.md`
+- Bad examples: `Research_Web_LoRA.md`, `Web_LangChain.md`, `Research_PyTorch.md`
 
 Now analyze the content and write the plan file.
