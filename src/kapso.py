@@ -29,7 +29,7 @@ from src.environment.handlers.generic import GenericProblemHandler
 from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
 from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.learners import Source, KnowledgePipeline
-from src.knowledge.web_research import DeepWebResearch, ResearchDepth, ResearchMode, ResearchFindings
+from src.knowledge.web_research import Researcher, ResearchDepth, ResearchMode, ResearchFindings
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
@@ -145,7 +145,7 @@ class Kapso:
             print(f"Initialized Kapso (Knowledge Graph: disabled)")
 
         # Lazy-initialized web researcher (created on first `.research()` call).
-        self._web_researcher: Optional[DeepWebResearch] = None
+        self._web_researcher: Optional[Researcher] = None
     
     # =========================================================================
     # Knowledge Graph Indexing
@@ -344,7 +344,7 @@ class Kapso:
             - .source -> Source.Research for direct KG ingestion
         """
         if self._web_researcher is None:
-            self._web_researcher = DeepWebResearch()
+            self._web_researcher = Researcher()
 
         return self._web_researcher.research(objective, mode=mode, depth=depth)
     
