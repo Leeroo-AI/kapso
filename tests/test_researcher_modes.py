@@ -108,9 +108,9 @@ def main():
     # Run tests one at a time to avoid rate limits
     # Uncomment the test you want to run:
     
-    test_idea_mode()
-    # test_implementation_mode()
-    # test_study_mode()
+    #test_idea_mode()
+    #test_implementation_mode()
+    test_study_mode()
 
 
 if __name__ == "__main__":

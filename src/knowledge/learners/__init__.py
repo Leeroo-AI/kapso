@@ -18,13 +18,13 @@
 #
 # Components:
 #   - KnowledgePipeline: Main orchestrator
-#   - Source: Typed wrappers for knowledge sources (Repo, Paper, Doc, etc.)
+#   - Source: Typed wrappers for knowledge sources (Repo, Solution)
 #   - Ingestors: Stage 1 - extract WikiPages from sources (in ingestors/)
 #   - KnowledgeMerger: Stage 2 - merge pages into existing KG
 #   - MergeHandlers: Type-specific merge logic (in merge_handlers/)
 
-# Source types and helpers
-from src.knowledge.learners.sources import Source, IdeaList
+# Source types
+from src.knowledge.learners.sources import Source
 
 # Main pipeline orchestrator
 from src.knowledge.learners.knowledge_learner_pipeline import (
@@ -55,7 +55,9 @@ from src.knowledge.learners.ingestors import (
     register_ingestor,
     RepoIngestor,
     ExperimentIngestor,
-    ResearchIngestor,
+    IdeaIngestor,
+    ImplementationIngestor,
+    ResearchReportIngestor,
 )
 
 __all__ = [
@@ -64,7 +66,6 @@ __all__ = [
     "PipelineResult",
     # Source types
     "Source",
-    "IdeaList",
     # Merger (Stage 2)
     "KnowledgeMerger",
     "MergeResult",
@@ -81,7 +82,9 @@ __all__ = [
     "register_ingestor",
     "RepoIngestor",
     "ExperimentIngestor",
-    "ResearchIngestor",
+    "IdeaIngestor",
+    "ImplementationIngestor",
+    "ResearchReportIngestor",
 ]
 
 # Episodic Learner - learns from experiment history
