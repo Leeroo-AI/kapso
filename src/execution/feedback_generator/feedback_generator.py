@@ -161,9 +161,56 @@ class FeedbackGenerator:
         """
         Parse the agent's response into a FeedbackResult.
         
-        Expects strict JSON format from the agent.
+        Expects XML tags format from the agent:
+        <stop>true/false</stop>
+        <evaluation_valid>true/false</evaluation_valid>
+        <score>numeric or null</score>
+        <feedback>...</feedback>
         """
-        # Try to extract JSON from the response
+        import re
+        
+        # Extract values from XML tags
+        def extract_tag(tag: str, text: str) -> Optional[str]:
+            pattern = rf'<{tag}>\s*(.*?)\s*</{tag}>'
+            match = re.search(pattern, text, re.DOTALL)
+            return match.group(1).strip() if match else None
+        
+        stop_str = extract_tag("stop", response)
+        eval_valid_str = extract_tag("evaluation_valid", response)
+        score_str = extract_tag("score", response)
+        feedback_str = extract_tag("feedback", response)
+        
+        # If we found at least some tags, use them
+        if any([stop_str, eval_valid_str, score_str, feedback_str]):
+            # Parse boolean values
+            stop = stop_str.lower() == "true" if stop_str else False
+            evaluation_valid = eval_valid_str.lower() != "false" if eval_valid_str else True
+            
+            # Parse score
+            score = None
+            if score_str and score_str.lower() != "null":
+                try:
+                    score = float(score_str)
+                except ValueError:
+                    pass
+            
+            feedback = feedback_str or ""
+            
+            print(f"[FeedbackGenerator] Extracted from XML tags: stop={stop}, score={score}")
+            return FeedbackResult(
+                stop=stop,
+                evaluation_valid=evaluation_valid,
+                feedback=feedback,
+                score=score,
+            )
+        
+        # Fallback: try JSON parsing for backward compatibility
+        return self._parse_response_json_fallback(response)
+    
+    def _parse_response_json_fallback(self, response: str) -> FeedbackResult:
+        """
+        Fallback JSON parsing for backward compatibility.
+        """
         try:
             # Look for JSON block in markdown code fence
             if "```json" in response:
@@ -179,6 +226,7 @@ class FeedbackGenerator:
             
             data = json.loads(json_str)
             
+            print(f"[FeedbackGenerator] Extracted from JSON (fallback)")
             return FeedbackResult(
                 stop=data.get("stop", False),
                 evaluation_valid=data.get("evaluation_valid", True),
@@ -187,7 +235,7 @@ class FeedbackGenerator:
             )
         except (json.JSONDecodeError, KeyError) as e:
             # If parsing fails, return a default result with the raw response as feedback
-            print(f"[FeedbackGenerator] Warning: Failed to parse JSON response: {e}")
+            print(f"[FeedbackGenerator] Warning: Failed to parse response: {e}")
             return FeedbackResult(
                 stop=False,
                 evaluation_valid=True,

@@ -532,19 +532,88 @@ class SearchStrategy(ABC):
             print(f"[SearchStrategy] Warning: Could not get diff: {e}")
             return ""
 
+    # =========================================================================
+    # Benchmark Compatibility Methods
+    # =========================================================================
+
+    def _evaluate_with_handler(self, node: SearchNode, solution: str) -> SearchNode:
+        """
+        Evaluate using handler.run() for benchmark compatibility.
+        
+        This method is used by benchmark search strategies that need to use
+        the handler's built-in evaluation logic (e.g., MLE-Bench, ALE-Bench)
+        instead of agent-based evaluation.
+        
+        Maps ProblemRunResult fields to SearchNode:
+        - result.score -> node.score
+        - result.output -> node.evaluation_output
+        - result.run_had_error -> node.had_error
+        - result.error_message -> node.error_message
+        - result.feedbacks -> node.feedback
+        
+        Args:
+            node: SearchNode to populate with evaluation results
+            solution: Solution string to pass to handler
+            
+        Returns:
+            Updated SearchNode with score, evaluation_output, etc.
+        """
+        from src.environment.handlers.base import ProblemRunResult
+        
+        # Check if handler has run() method
+        if not hasattr(self.problem_handler, 'run') or not callable(self.problem_handler.run):
+            print(f"[SearchStrategy] Warning: handler has no run() method, skipping handler evaluation")
+            return node
+        
+        # Prepare run directory
+        run_data_dir = os.path.join(self.workspace_dir, "kapso_evaluation")
+        os.makedirs(run_data_dir, exist_ok=True)
+        
+        # Call handler's run()
+        try:
+            print(f"[SearchStrategy] Calling handler.run() for evaluation...")
+            result: ProblemRunResult = self.problem_handler.run(
+                file_path=self.workspace_dir,
+                run_data_dir=run_data_dir,
+                solution=solution,
+            )
+            
+            # Map ProblemRunResult fields to SearchNode
+            node.score = result.score
+            node.evaluation_output = result.output or result.detailed_output
+            node.had_error = result.run_had_error
+            node.error_message = result.error_message or result.error_details
+            node.feedback = result.feedbacks
+            
+            print(f"[SearchStrategy] Handler evaluation: score={node.score}, had_error={node.had_error}")
+            
+        except Exception as e:
+            print(f"[SearchStrategy] Handler evaluation failed: {e}")
+            node.had_error = True
+            node.error_message = str(e)
+        
+        return node
+
+    def _check_handler_stop_condition(self) -> bool:
+        """
+        Check handler's stop_condition() for benchmark compatibility.
+        
+        Returns:
+            True if handler says to stop, False otherwise
+        """
+        if hasattr(self.problem_handler, 'stop_condition') and callable(self.problem_handler.stop_condition):
+            return self.problem_handler.stop_condition()
+        return False
+
     def _extract_agent_result(self, agent_output: str) -> dict:
         """
-        Extract structured JSON result from agent output.
+        Extract structured result from agent output using XML tags.
         
-        The agent is instructed to return a JSON block at the end of its response:
-        ```json
-        {
-            "code_changes_summary": "...",
-            "evaluation_script_path": "...",
-            "evaluation_output": "...",
-            "score": 0.95
-        }
-        ```
+        The agent is instructed to return results in XML tags:
+        <code_changes_summary>...</code_changes_summary>
+        <evaluation_script_path>...</evaluation_script_path>
+        <evaluation_output>...</evaluation_output>
+        <score>...</score>
         
         Args:
             agent_output: Raw output from the developer agent
@@ -552,6 +621,41 @@ class SearchStrategy(ABC):
         Returns:
             dict with keys: code_changes_summary, evaluation_script_path, evaluation_output, score
             Returns empty dict if extraction fails
+        """
+        import re
+        
+        result = {}
+        
+        # Extract each tag
+        tags = ["code_changes_summary", "evaluation_script_path", "evaluation_output", "score"]
+        
+        for tag in tags:
+            pattern = rf'<{tag}>\s*(.*?)\s*</{tag}>'
+            match = re.search(pattern, agent_output, re.DOTALL)
+            if match:
+                value = match.group(1).strip()
+                # Handle score specially - convert to float
+                if tag == "score":
+                    try:
+                        if value.lower() == "null" or value == "":
+                            result[tag] = None
+                        else:
+                            result[tag] = float(value)
+                    except ValueError:
+                        result[tag] = None
+                else:
+                    result[tag] = value
+        
+        if result:
+            print(f"[SearchStrategy] Extracted agent result from XML tags: {list(result.keys())}")
+            return result
+        
+        # Fallback: try JSON extraction for backward compatibility
+        return self._extract_agent_result_json_fallback(agent_output)
+    
+    def _extract_agent_result_json_fallback(self, agent_output: str) -> dict:
+        """
+        Fallback JSON extraction for backward compatibility.
         """
         import re
         import json
@@ -567,7 +671,7 @@ class SearchStrategy(ABC):
                     result = json.loads(json_str)
                     # Validate it has expected keys
                     if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
-                        print(f"[SearchStrategy] Extracted agent result from JSON block")
+                        print(f"[SearchStrategy] Extracted agent result from JSON block (fallback)")
                         return result
                 except json.JSONDecodeError:
                     continue
@@ -581,10 +685,10 @@ class SearchStrategy(ABC):
                 json_str = agent_output[start:end]
                 result = json.loads(json_str)
                 if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
-                    print(f"[SearchStrategy] Extracted agent result from raw JSON")
+                    print(f"[SearchStrategy] Extracted agent result from raw JSON (fallback)")
                     return result
         except json.JSONDecodeError:
             pass
         
-        print(f"[SearchStrategy] Warning: Could not extract JSON result from agent output")
+        print(f"[SearchStrategy] Warning: Could not extract result from agent output")
         return {}

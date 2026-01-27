@@ -36,16 +36,15 @@ You can read this file in the workspace to see the full evaluation code.
 
 ## Required Output Format
 
-You MUST respond with ONLY a JSON object in this exact format:
+You MUST respond with your results using these XML tags:
 
-```json
-{
-    "stop": true or false,
-    "evaluation_valid": true or false,
-    "score": numeric value or null,
-    "feedback": "your feedback message"
-}
-```
+<stop>true or false</stop>
+
+<evaluation_valid>true or false</evaluation_valid>
+
+<score>numeric value or null</score>
+
+<feedback>your feedback message</feedback>
 
 ### Field Definitions:
 
@@ -56,6 +55,5 @@ You MUST respond with ONLY a JSON object in this exact format:
 
 ## Important
 
-- Respond with ONLY the JSON object, no other text
-- Do not include markdown code fences around the JSON
-- Ensure the JSON is valid and parseable
+- Respond with ONLY the XML tags, no other text
+- Ensure all four tags are present in your response

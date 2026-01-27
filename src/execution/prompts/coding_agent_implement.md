@@ -79,24 +79,31 @@ OBSERVABILITY REQUIREMENT (do not skip):
 
 ## CRITICAL: Final Output Format
 
-When you have completed the implementation and evaluation, you MUST return a JSON object as the LAST thing in your response. This JSON MUST be wrapped in ```json code blocks.
+When you have completed the implementation and evaluation, you MUST return your results using these XML tags as the LAST thing in your response:
 
-```json
-{
-    "code_changes_summary": "Brief description of what you implemented/changed (2-5 sentences)",
-    "evaluation_script_path": "kapso_evaluation/evaluate.py",
-    "evaluation_output": "Full stdout/stderr output from running the evaluation script",
-    "score": 0.95
-}
-```
+<code_changes_summary>
+Brief description of what you implemented/changed (2-5 sentences)
+</code_changes_summary>
 
-**Requirements for the JSON:**
-- `code_changes_summary`: 2-5 sentences describing what you implemented
-- `evaluation_script_path`: Relative path to the evaluation script you created
-- `evaluation_output`: Complete stdout/stderr from running the evaluation
-- `score`: Numeric score from evaluation (use 0 if no score available, or null if evaluation failed)
+<evaluation_script_path>
+kapso_evaluation/evaluate.py
+</evaluation_script_path>
 
-**This JSON is MANDATORY. The system extracts results from this JSON.**
+<evaluation_output>
+Full stdout/stderr output from running the evaluation script
+</evaluation_output>
+
+<score>
+0.95
+</score>
+
+**Requirements:**
+- `<code_changes_summary>`: 2-5 sentences describing what you implemented
+- `<evaluation_script_path>`: Relative path to the evaluation script you created
+- `<evaluation_output>`: Complete stdout/stderr from running the evaluation
+- `<score>`: Numeric score from evaluation (use 0 if no score available, or "null" if evaluation failed)
+
+**These tags are MANDATORY. The system extracts results from these tags.**
 
 ## Final Checklist
 
@@ -104,9 +111,9 @@ Before completing this iteration:
 1. Solution implemented as specified
 2. Evaluation code created in `kapso_evaluation/`
 3. Evaluation executed and results captured
-4. **JSON result returned as the LAST thing in your response**
+4. **XML result tags returned as the LAST thing in your response**
 5. `changes.log` updated with summary and repo memory sections consulted
 
-CRITICAL: You are an AI code editor. Your ONLY job is to edit code files and run evaluation. Do NOT write any conversational text, explanations, or descriptions outside of the final JSON.
+CRITICAL: You are an AI code editor. Your ONLY job is to edit code files and run evaluation. Do NOT write any conversational text, explanations, or descriptions outside of the final XML tags.
 
 Do not ask any questions. Implement everything as specified and run the evaluation.

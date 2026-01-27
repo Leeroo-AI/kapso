@@ -40,6 +40,9 @@ git clone https://github.com/openai/mle-bench.git
 cd mle-bench
 
 # Initialize Git LFS and fetch large files (datasets)
+# First install git-lfs if not already installed:
+#   Ubuntu/Debian: sudo apt-get install git-lfs
+#   macOS: brew install git-lfs
 git lfs install
 git lfs fetch --all
 git lfs pull
@@ -54,7 +57,7 @@ cd ..
 ### Step 2: Install MLE-specific Dependencies
 
 ```bash
-pip install -r benchmarks/mle/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Step 3: (Optional) Setup Neo4j Knowledge Graph
