@@ -21,7 +21,7 @@
 > **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **[Leeroopedia](https://leeroopedia.com)** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge wiki with best practices and expert-level implementation patterns, written by Kapso and human experts.
 
 <p align="center">
-  <img src="assets/framework.png" alt="Kapso Framework Architecture" width="800">
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" width="800">
 </p>
 
 ---
