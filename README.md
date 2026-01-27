@@ -121,6 +121,10 @@ kapso.learn(
 
 # Evolve: Build a solution through experimentation
 # Use research results as context via to_string()
+# Download dataset first (e.g., from HuggingFace)
+# from datasets import load_dataset
+# dataset = load_dataset("theatticusproject/cuad")
+# dataset.save_to_disk("./data/cuad_dataset")
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85",
     data_dir="./data/cuad_dataset", 

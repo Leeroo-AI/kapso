@@ -176,6 +176,10 @@ findings = kapso.research(
 )
 
 # Use research as context for evolving
+# Download dataset first (e.g., from HuggingFace)
+# from datasets import load_dataset
+# dataset = load_dataset("theatticusproject/cuad")
+# dataset.save_to_disk("./data/cuad_dataset")
 solution = kapso.evolve(
     goal="Fine-tune a model with Unsloth + LoRA",
     context=[findings.to_string()],
