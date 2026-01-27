@@ -15,7 +15,11 @@ from src.knowledge.learners.ingestors.factory import IngestorFactory, register_i
 # Import all ingestor implementations to register them
 from src.knowledge.learners.ingestors.repo_ingestor import RepoIngestor
 from src.knowledge.learners.ingestors.experiment_ingestor import ExperimentIngestor
-from src.knowledge.learners.ingestors.research_ingestor import ResearchIngestor
+
+# Research output ingestors
+from src.knowledge.learners.ingestors.idea_ingestor import IdeaIngestor
+from src.knowledge.learners.ingestors.implementation_ingestor import ImplementationIngestor
+from src.knowledge.learners.ingestors.research_report_ingestor import ResearchReportIngestor
 
 __all__ = [
     # Base classes
@@ -26,6 +30,8 @@ __all__ = [
     # Implementations
     "RepoIngestor",
     "ExperimentIngestor",
-    "ResearchIngestor",
+    # Research output ingestors
+    "IdeaIngestor",
+    "ImplementationIngestor",
+    "ResearchReportIngestor",
 ]
-

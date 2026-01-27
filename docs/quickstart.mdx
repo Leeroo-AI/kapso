@@ -162,17 +162,23 @@ from src.kapso import Kapso
 
 kapso = Kapso()
 
-# Research best practices
-research = kapso.research(
+# Research with multiple modes - returns ResearchFindings
+# mode can be a single mode or list of modes:
+# - "idea" returns List[Idea]
+# - "implementation" returns List[Implementation]
+# - "study" returns ResearchReport
+# - ["idea", "implementation"] returns ResearchFindings
+
+findings = kapso.research(
     "unsloth FastLanguageModel example",
-    mode="implementation",  # "idea" | "implementation" | "both"
-    depth="deep",           # "light" | "deep"
+    mode=["idea", "implementation"],
+    top_k=5,
 )
 
 # Use research as context for evolving
 solution = kapso.evolve(
     goal="Fine-tune a model with Unsloth + LoRA",
-    additional_context=research.to_context_string(),
+    context=[findings.to_string()],
     output_path="./models/unsloth_v1",
 )
 ```

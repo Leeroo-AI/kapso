@@ -1,36 +1,43 @@
 # Researcher
 #
-# A small wrapper around OpenAI's `web_search` tool.
+# A wrapper around OpenAI's `web_search` tool for deep public web research.
 #
 # Design goals:
-# - Return `ResearchFindings` with fluent accessors (.repos(), .ideas()).
-# - Keep prompt templates in markdown files (per mode) for easy iteration.
-# - Keep the prompt builder as a private method on the class (requested).
+# - Support three modes: idea, implementation, study
+# - Accept single mode or list of modes
+# - Return appropriate type based on input
+# - Keep prompt templates in markdown files for easy iteration
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import List, Literal, Union, overload
 
 from openai import OpenAI
 
-from src.knowledge.learners.sources import Source
 from src.knowledge.researcher.research_findings import (
+    Idea,
+    Implementation,
+    ResearchReport,
     ResearchFindings,
-    IdeaInfo,
-    parse_repos_from_report,
-    parse_ideas_from_report,
+    ResearchMode,
+    ResearchModeInput,
+    parse_idea_results,
+    parse_implementation_results,
+    parse_study_result,
 )
 
 logger = logging.getLogger(__name__)
 
-# Public type for call sites (Kapso, tests, etc.)
-ResearchMode = Literal["idea", "implementation", "both"]
+# Type definitions
 ResearchDepth = Literal["light", "deep"]
 
+# Return type for single mode
+ResearchResultSingle = Union[List[Idea], List[Implementation], ResearchReport]
 
+# Prompts directory
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
@@ -39,167 +46,212 @@ class Researcher:
     """
     Deep public web research using OpenAI Responses API + `web_search`.
     
-    Notes:
-    - MVP uses a single Responses call. The model can invoke `web_search` multiple times internally.
-    - Output is a markdown report with inline URLs (citations).
+    Supports three research modes:
+    - idea: Conceptual understanding, returns List[Idea]
+    - implementation: Working code snippets, returns List[Implementation]
+    - study: Comprehensive research report, returns ResearchReport
+    
+    Usage:
+        researcher = Researcher()
+        
+        # Single mode - returns List[Idea]
+        ideas = researcher.research("How to fine-tune LLMs?", mode="idea", top_k=5)
+        
+        # Multiple modes - returns ResearchFindings
+        findings = researcher.research("LLM fine-tuning", mode=["idea", "implementation"], top_k=5)
+        for idea in findings.ideas:
+            print(idea.to_string())
+        for impl in findings.implementations:
+            print(impl.to_string())
     """
 
-    # Keep model choice internal for now. The public API does not expose it.
-    # Default chosen by the user for production usage.
+    # Model choice (internal, not exposed in public API)
     model: str = "gpt-5.2"
 
     def __post_init__(self) -> None:
-        # Create client once per instance.
+        # Create client once per instance
         self._client = OpenAI()
 
     def research(
         self,
-        objective: str,
+        query: str,
         *,
-        mode: ResearchMode = "both",
+        mode: ResearchModeInput,
+        top_k: int = 5,
         depth: ResearchDepth = "deep",
-    ) -> ResearchFindings:
+    ) -> Union[List[Idea], List[Implementation], ResearchReport, ResearchFindings]:
         """
-        Run deep web research and return a `ResearchFindings` object.
+        Run deep web research.
         
         Args:
-            objective: What we want to learn from public sources.
-            mode: "idea" | "implementation" | "both"
-            depth: "light" | "deep"
-                Maps to OpenAI `reasoning.effort`:
-                - light -> "medium"
-                - deep  -> "high"
+            query: What we want to learn from public sources.
+            mode: Research mode (required). Can be:
+                - Single mode: "idea", "implementation", or "study"
+                - List of modes: ["idea", "implementation"]
+            top_k: Maximum number of results (for idea/implementation modes).
+            depth: Research depth ("light" or "deep").
         
         Returns:
-            ResearchFindings with fluent accessors:
-            - .repos(top_k) -> List[Source.Repo] for learn()
-            - .ideas(top_k) -> str for evolve() context
-            - .source -> Source.Research for direct KG ingestion
+            - List[Idea] if mode="idea"
+            - List[Implementation] if mode="implementation"
+            - ResearchReport if mode="study"
+            - ResearchFindings if mode is a list
         """
-        objective = (objective or "").strip()
-        if not objective:
-            raise ValueError("objective must be a non-empty string")
+        # Validate query
+        query = (query or "").strip()
+        if not query:
+            raise ValueError("query must be a non-empty string")
+        
+        # Normalize mode to list
+        modes = self._normalize_modes(mode)
+        
+        # Map depth to reasoning effort
+        reasoning_effort = self._get_reasoning_effort(depth)
+        
+        # Single mode - return direct type
+        if len(modes) == 1:
+            logger.info(f"Running research in '{modes[0]}' mode for: {query[:50]}...")
+            return self._run_single_mode(
+                query=query,
+                mode=modes[0],
+                top_k=top_k,
+                reasoning_effort=reasoning_effort,
+            )
+        
+        # Multiple modes - return ResearchFindings
+        findings = ResearchFindings(query=query)
+        
+        for m in modes:
+            logger.info(f"Running research in '{m}' mode for: {query[:50]}...")
+            result = self._run_single_mode(
+                query=query,
+                mode=m,
+                top_k=top_k,
+                reasoning_effort=reasoning_effort,
+            )
+            
+            if m == "idea":
+                findings.ideas = result
+            elif m == "implementation":
+                findings.implementations = result
+            else:  # study
+                findings.report = result
+        
+        return findings
 
-        prompt = self._build_research_prompt(objective=objective, mode=mode)
+    def _normalize_modes(self, mode: ResearchModeInput) -> List[ResearchMode]:
+        """Normalize mode input to a list of modes."""
+        if isinstance(mode, str):
+            if mode not in ("idea", "implementation", "study"):
+                raise ValueError(f"Invalid mode: {mode}. Must be 'idea', 'implementation', or 'study'")
+            return [mode]
+        elif isinstance(mode, list):
+            for m in mode:
+                if m not in ("idea", "implementation", "study"):
+                    raise ValueError(f"Invalid mode: {m}. Must be 'idea', 'implementation', or 'study'")
+            return mode
+        else:
+            raise ValueError(f"mode must be a string or list (got {type(mode)})")
+
+    def _get_reasoning_effort(self, depth: ResearchDepth) -> str:
+        """Map depth to OpenAI reasoning effort."""
         if depth == "light":
-            reasoning_effort = "medium"
+            return "medium"
         elif depth == "deep":
-            reasoning_effort = "high"
+            return "high"
         else:
             raise ValueError(f"depth must be 'light' or 'deep' (got {depth!r})")
 
+    def _run_single_mode(
+        self,
+        query: str,
+        mode: ResearchMode,
+        top_k: int,
+        reasoning_effort: str,
+    ) -> ResearchResultSingle:
+        """
+        Run research for a single mode.
+        
+        Args:
+            query: The research query
+            mode: The mode to run
+            top_k: Max results (for idea/implementation modes)
+            reasoning_effort: OpenAI reasoning effort level
+            
+        Returns:
+            List[Idea], List[Implementation], or ResearchReport based on mode
+        """
+        # Build prompt
+        prompt = self._build_research_prompt(query=query, mode=mode, top_k=top_k)
+        
         try:
-            response = self._client.responses.create(
-                model=self.model,
-                tools=[{"type": "web_search"}],
-                input=prompt,
-                reasoning={"effort": reasoning_effort},
-            )
+            # Build request params
+            # Note: reasoning.effort is only supported by certain models (e.g., o1, o3)
+            request_params = {
+                "model": self.model,
+                "tools": [{"type": "web_search"}],
+                "input": prompt,
+                "max_output_tokens": 32000,
+            }
+            
+            # Only add reasoning for models that support it
+            if self.model.startswith("o1") or self.model.startswith("o3"):
+                request_params["reasoning"] = {"effort": reasoning_effort}
+            
+            response = self._client.responses.create(**request_params)
             raw_text = response.output_text or ""
-            report = self._extract_research_result(raw_text)
         except Exception as e:
-            # Keep the failure visible to downstream callers while still returning a valid artifact.
-            #
-            # Why:
-            # - The caller may choose to ingest this into the KG for debugging.
-            # - The caller may choose to show it in logs.
-            logger.exception("Researcher failed: %s", e)
-            report = (
-                "## Web research failed\n\n"
-                f"**Objective**: {objective}\n\n"
-                f"**Error**: {e}\n\n"
-                "### Troubleshooting\n"
-                "- Ensure `OPENAI_API_KEY` is set (typically via `.env`).\n"
-                "- Ensure your OpenAI account has access to a model that supports `web_search`.\n"
-            )
-
-        # Create Source.Research for KG ingestion
-        source = Source.Research(objective=objective, mode=mode, report_markdown=report)
+            logger.exception(f"Research failed for mode '{mode}': {e}")
+            # Return empty results on error
+            if mode == "idea":
+                return []
+            elif mode == "implementation":
+                return []
+            else:  # study
+                return ResearchReport(query=query, content="")
         
-        # Parse structured data from report
-        repos = parse_repos_from_report(report)
-        ideas = parse_ideas_from_report(report)
-        
-        return ResearchFindings(_source=source, _repos=repos, _ideas=ideas)
+        # Parse based on mode
+        if mode == "idea":
+            return parse_idea_results(raw_text, query)
+        elif mode == "implementation":
+            return parse_implementation_results(raw_text, query)
+        else:  # study
+            return parse_study_result(raw_text, query)
 
-    @staticmethod
-    def _extract_research_result(text: str) -> str:
+    def _build_research_prompt(
+        self,
+        *,
+        query: str,
+        mode: ResearchMode,
+        top_k: int,
+    ) -> str:
         """
-        Extract the report from <research_result>...</research_result> tags.
+        Build the full prompt for a research request.
         
-        Why:
-        - We want a stable, machine-parseable output boundary.
-        - The prompt templates instruct the model to wrap the final report in these tags.
-        
-        Behavior:
-        - If the tags are present, return ONLY the inner content (trimmed).
-        - If tags are missing or malformed, fall back to the whole output (trimmed),
-          and log a warning so we can improve prompts over time.
+        Combines the envelope template with mode-specific instructions.
         """
-        start_tag = "<research_result>"
-        end_tag = "</research_result>"
-
-        if not text:
-            return ""
-
-        start = text.find(start_tag)
-        if start == -1:
-            logger.warning("Missing <research_result> tags in web research output; returning raw output.")
-            return text.strip()
-
-        start_content = start + len(start_tag)
-        end = text.find(end_tag, start_content)
-        if end == -1:
-            logger.warning("Missing </research_result> end tag in web research output; returning raw output.")
-            return text.strip()
-
-        extracted = text[start_content:end].strip()
-        if not extracted:
-            logger.warning("Empty <research_result> block in web research output; returning raw output.")
-            return text.strip()
-
-        # Optional sanity check: warn if there is non-whitespace outside the tag block.
-        prefix = text[:start].strip()
-        suffix = text[end + len(end_tag) :].strip()
-        if prefix or suffix:
-            logger.warning(
-                "Found extra text outside <research_result> block; ignoring it (prefix=%s, suffix=%s).",
-                bool(prefix),
-                bool(suffix),
-            )
-
-        return extracted
-
-    def _build_research_prompt(self, *, objective: str, mode: ResearchMode) -> str:
-        """
-        Build a single prompt that encourages multi-search behavior.
-        
-        This method:
-        - loads the mode-specific instruction block from markdown, and
-        - wraps it in a stable prompt envelope (citations + output format).
-        """
+        # Load mode-specific instructions
         mode_instructions = self._load_mode_instructions(mode)
-
-        # Load the envelope template from file. Can be edited without code changes.
+        
+        # Load envelope template
         envelope_path = _PROMPTS_DIR / "research_envelope.md"
         if not envelope_path.exists():
             raise FileNotFoundError(f"Missing research envelope prompt file: {envelope_path}")
         envelope_template = envelope_path.read_text(encoding="utf-8")
-
+        
+        # Format the prompt
         return envelope_template.format(
-            objective=objective,
+            query=query,
             mode=mode,
+            top_k=top_k,
             mode_instructions=mode_instructions,
         )
 
     def _load_mode_instructions(self, mode: ResearchMode) -> str:
         """
-        Load the mode-specific instruction block from markdown.
-        
-        We keep mode prompts as files so they can be iterated on quickly.
+        Load mode-specific instruction block from markdown file.
         """
         path = _PROMPTS_DIR / f"{mode}.md"
         if not path.exists():
-            raise FileNotFoundError(f"Missing web research prompt file for mode '{mode}': {path}")
+            raise FileNotFoundError(f"Missing prompt file for mode '{mode}': {path}")
         return path.read_text(encoding="utf-8").strip()
-
