@@ -17,8 +17,8 @@ The research system uses OpenAI's `web_search` tool with reasoning capabilities 
 ```mermaid
 flowchart LR
     subgraph Research["Web Research"]
-        O[Objective] --> DWR[DeepWebResearch]
-        DWR --> WS[web_search tool]
+        O[Objective] --> R[Researcher]
+        R --> WS[web_search tool]
         WS --> S1[Source 1]
         WS --> S2[Source 2]
         WS --> S3[Source N]

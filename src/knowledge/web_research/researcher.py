@@ -1,4 +1,4 @@
-# Deep Web Research
+# Researcher
 #
 # A small wrapper around OpenAI's `web_search` tool.
 #
@@ -35,7 +35,7 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 @dataclass
-class DeepWebResearch:
+class Researcher:
     """
     Deep public web research using OpenAI Responses API + `web_search`.
     
@@ -46,7 +46,7 @@ class DeepWebResearch:
 
     # Keep model choice internal for now. The public API does not expose it.
     # Default chosen by the user for production usage.
-    model: str = "gpt-5"
+    model: str = "gpt-5.2"
 
     def __post_init__(self) -> None:
         # Create client once per instance.
@@ -103,7 +103,7 @@ class DeepWebResearch:
             # Why:
             # - The caller may choose to ingest this into the KG for debugging.
             # - The caller may choose to show it in logs.
-            logger.exception("DeepWebResearch failed: %s", e)
+            logger.exception("Researcher failed: %s", e)
             report = (
                 "## Web research failed\n\n"
                 f"**Objective**: {objective}\n\n"
@@ -180,32 +180,17 @@ class DeepWebResearch:
         """
         mode_instructions = self._load_mode_instructions(mode)
 
-        # Keep the envelope stable. The mode instruction file can be edited without code changes.
-        return f"""You are a senior engineer-researcher.
+        # Load the envelope template from file. Can be edited without code changes.
+        envelope_path = _PROMPTS_DIR / "research_envelope.md"
+        if not envelope_path.exists():
+            raise FileNotFoundError(f"Missing research envelope prompt file: {envelope_path}")
+        envelope_template = envelope_path.read_text(encoding="utf-8")
 
-Task: Do deep public web research for the following objective:
-
-OBJECTIVE: {objective}
-
-Use the web_search tool. Perform multiple searches and read multiple sources.
-Prioritize authoritative sources (official docs, standards, major vendors, reputable blogs, papers).
-
-Output: a single Markdown report (see mode instructions for the exact structure).
-
-Final output formatting (MANDATORY):
-- Wrap the entire report in `<research_result>` and `</research_result>` tags.
-- Do NOT include any text outside those tags.
-
-Citation rules (CRITICAL):
-- For any non-trivial claim, include an inline URL in parentheses right after the claim.
-- Use FULL raw URLs like `(https://example.com/...)`. Do not use placeholder links like `[source](#cite)` or footnote-only citations.
-- If you use Markdown links, also include the raw URL somewhere obvious (preferably in parentheses).
-- Do NOT invent citations. If you cannot find a good source, say so explicitly.
-
-Mode: {mode}
-
-{mode_instructions}
-"""
+        return envelope_template.format(
+            objective=objective,
+            mode=mode,
+            mode_instructions=mode_instructions,
+        )
 
     def _load_mode_instructions(self, mode: ResearchMode) -> str:
         """
