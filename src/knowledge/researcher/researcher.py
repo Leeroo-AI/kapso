@@ -17,7 +17,7 @@ from typing import Literal
 from openai import OpenAI
 
 from src.knowledge.learners.sources import Source
-from src.knowledge.web_research.research_findings import (
+from src.knowledge.researcher.research_findings import (
     ResearchFindings,
     IdeaInfo,
     parse_repos_from_report,

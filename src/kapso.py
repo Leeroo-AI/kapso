@@ -29,7 +29,7 @@ from src.environment.handlers.generic import GenericProblemHandler
 from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
 from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.learners import Source, KnowledgePipeline
-from src.knowledge.web_research import Researcher, ResearchDepth, ResearchMode, ResearchFindings
+from src.knowledge.researcher import Researcher, ResearchDepth, ResearchMode, ResearchFindings
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning

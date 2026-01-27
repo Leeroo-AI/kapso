@@ -9,8 +9,8 @@
 # - ResearchMode: "idea" | "implementation" | "both"
 # - ResearchDepth: "light" | "deep"
 
-from src.knowledge.web_research.researcher import Researcher, ResearchDepth, ResearchMode
-from src.knowledge.web_research.research_findings import ResearchFindings
+from src.knowledge.researcher.researcher import Researcher, ResearchDepth, ResearchMode
+from src.knowledge.researcher.research_findings import ResearchFindings
 
 __all__ = ["Researcher", "ResearchFindings", "ResearchDepth", "ResearchMode"]
 

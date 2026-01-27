@@ -3,7 +3,7 @@ Live Smoke Test: Web research prompt quality
 
 This script is meant to be run manually (it makes real OpenAI API calls).
 
-It checks that the prompt instructions in `src/knowledge/web_research/prompts/`
+It checks that the prompt instructions in `src/knowledge/researcher/prompts/`
 are being followed at a basic structural level:
 - Required sections exist
 - Raw URL citations appear
