@@ -189,4 +189,4 @@ If you use Kapso in your research, please cite:
 
 ---
 
-> **Note**: Some functionalities of the `.learn()` and `.research()` operations are on our roadmap and will be updated in upcoming releases.
+> **Note**: Some functionalities of the `.learn()` operation are on our roadmap and will be updated in upcoming releases.
