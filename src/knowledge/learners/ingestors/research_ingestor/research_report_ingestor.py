@@ -1,14 +1,14 @@
 # Research Report Ingestor
 #
-# Agentic ingestor for `ResearchReport` objects from the researcher module.
+# Agentic ingestor for `Source.ResearchReport` objects.
 # Uses Claude Code to analyze content and create appropriate wiki pages.
 #
 # Usage:
 #     from src.knowledge.learners.ingestors import ResearchReportIngestor
-#     from src.knowledge.researcher import ResearchReport
+#     from src.knowledge.types import Source
 #     
 #     ingestor = ResearchReportIngestor()
-#     pages = ingestor.ingest(report)
+#     pages = ingestor.ingest(report)  # report is Source.ResearchReport
 
 from src.knowledge.learners.ingestors.factory import register_ingestor
 from src.knowledge.learners.ingestors.research_ingestor.base import ResearchIngestorBase

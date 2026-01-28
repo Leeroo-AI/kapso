@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.knowledge.researcher import Researcher, Idea, Implementation, ResearchReport
+from src.knowledge.types import Source
+from src.knowledge.researcher import Researcher
 from src.knowledge.learners.ingestors import IdeaIngestor, ImplementationIngestor, ResearchReportIngestor
 from src.knowledge.search.base import WikiPage
 
@@ -143,7 +144,7 @@ def test_research_report_ingestor_e2e():
     )
     
     print(f"Research returned report with {len(report.content)} chars")
-    assert isinstance(report, ResearchReport), f"Expected ResearchReport, got {type(report)}"
+    assert isinstance(report, Source.ResearchReport), f"Expected Source.ResearchReport, got {type(report)}"
     
     # Step 2: Ingest the report
     ingestor = ResearchReportIngestor(params={

@@ -5,25 +5,15 @@
 # Architecture:
 #   Source → Ingestor → WikiPages → Merger → Updated KG
 #
-# The KG is stored in:
-#   - Neo4j: Graph structure (nodes + edges) - THE INDEX
-#   - Weaviate: Embeddings for semantic search
-#   - Source files: Ground truth .md files
-#
 # Main Usage:
-#     from src.knowledge.learners import KnowledgePipeline, Source
+#     from src.knowledge.learners import KnowledgePipeline
+#     from src.knowledge.types import Source
 #     
 #     pipeline = KnowledgePipeline()
 #     result = pipeline.run(Source.Repo("https://github.com/user/repo"))
-#
-# Components:
-#   - KnowledgePipeline: Main orchestrator
-#   - Source: Typed wrappers for knowledge sources (Repo, Solution)
-#   - Ingestors: Stage 1 - extract WikiPages from sources (in ingestors/)
-#   - KnowledgeMerger: Stage 2 - merge pages into existing KG
-#   - MergeHandlers: Type-specific merge logic (in merge_handlers/)
+#     result = pipeline.run(Source.Idea(query="...", source="...", content="..."))
 
-# Source types
+# Source types (from unified types module)
 from src.knowledge.learners.sources import Source
 
 # Main pipeline orchestrator
