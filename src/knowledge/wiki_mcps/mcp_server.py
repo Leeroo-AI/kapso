@@ -322,20 +322,32 @@ experiment or problem to get more relevant results.""",
                 description="""Index wiki pages into the knowledge graph.
 
 Use this to add new knowledge pages to the search backend. Supports two modes:
-1. Directory mode: Index all .md files from a wiki directory
-2. Single page mode: Index a single page with provided data
 
-The indexing updates both Weaviate (embeddings) and Neo4j (graph structure).""",
+1. **Directory mode**: Index all .md files from a wiki directory
+   - Provide wiki_dir path
+   - All .md files are parsed and indexed
+
+2. **Single page mode**: Add or update a single page
+   - Provide page_data with page content
+   - If page exists: updates it (like kg_edit)
+   - If page is new: creates source file + indexes to all layers
+   - wiki_dir is used to determine where to write the source file
+
+The indexing updates:
+- Source .md file (created in wiki_dir/{type_subdir}/)
+- Weaviate (embeddings)
+- Neo4j (graph structure)
+- Persist JSON cache (if persist_path provided)""",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "wiki_dir": {
                             "type": "string",
-                            "description": "Path to directory containing wiki pages (.md files)",
+                            "description": "Path to wiki directory. For directory mode: indexes all .md files. For single page mode: where to write the source file.",
                         },
                         "page_data": {
                             "type": "object",
-                            "description": "Single page to index (alternative to wiki_dir)",
+                            "description": "Single page to add/update. If page exists, updates it. If new, creates it.",
                             "properties": {
                                 "page_title": {
                                     "type": "string",
@@ -352,19 +364,43 @@ The indexing updates both Weaviate (embeddings) and Neo4j (graph structure).""",
                                 },
                                 "content": {
                                     "type": "string",
-                                    "description": "Full page content in MediaWiki format",
+                                    "description": "Full page content in Markdown format",
                                 },
                                 "domains": {
                                     "type": "array",
                                     "items": {"type": "string"},
                                     "description": "Domain tags (e.g., ['LLMs', 'Fine_Tuning'])",
                                 },
+                                "sources": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {"type": "string"},
+                                            "title": {"type": "string"},
+                                            "url": {"type": "string"},
+                                        },
+                                    },
+                                    "description": "Knowledge sources/references",
+                                },
+                                "outgoing_links": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "edge_type": {"type": "string"},
+                                            "target_type": {"type": "string"},
+                                            "target_id": {"type": "string"},
+                                        },
+                                    },
+                                    "description": "Graph connections to other pages",
+                                },
                             },
                             "required": ["page_title", "page_type", "overview", "content"],
                         },
                         "persist_path": {
                             "type": "string",
-                            "description": "Path to save parsed pages JSON (for caching)",
+                            "description": "Path to JSON cache file (for caching parsed pages)",
                         },
                         "clear_existing": {
                             "type": "boolean",
@@ -642,6 +678,11 @@ async def _handle_index(arguments: Dict[str, Any]) -> List[TextContent]:
     Handle kg_index tool call.
     
     Index wiki pages into the knowledge graph from directory or single page.
+    
+    For single page mode:
+    - If page already exists: updates it using edit()
+    - If page is new: creates it using add_page()
+    - Requires wiki_dir to write source files
     """
     try:
         search = get_search_backend()
@@ -657,7 +698,7 @@ async def _handle_index(arguments: Dict[str, Any]) -> List[TextContent]:
             search.clear()
         
         # Mode 1: Index from directory
-        if wiki_dir:
+        if wiki_dir and not page_data:
             wiki_path = Path(wiki_dir)
             if not wiki_path.exists():
                 return [TextContent(
@@ -678,13 +719,15 @@ async def _handle_index(arguments: Dict[str, Any]) -> List[TextContent]:
                 text=f"Successfully indexed pages from: {wiki_dir}\n\nBackend: {get_backend_type()}",
             )]
         
-        # Mode 2: Index single page
+        # Mode 2: Index single page (add or update)
         elif page_data:
             page_title = page_data.get("page_title", "")
             page_type = page_data.get("page_type", "")
             overview = page_data.get("overview", "")
             content = page_data.get("content", "")
             domains = page_data.get("domains", [])
+            sources = page_data.get("sources", [])
+            outgoing_links = page_data.get("outgoing_links", [])
             
             if not all([page_title, page_type, overview, content]):
                 return [TextContent(
@@ -692,27 +735,86 @@ async def _handle_index(arguments: Dict[str, Any]) -> List[TextContent]:
                     text="Error: page_data requires page_title, page_type, overview, and content",
                 )]
             
+            # Determine wiki_dir - required for single page mode
+            # Try from arguments, then from index metadata, then default
+            if not wiki_dir:
+                if _index_data_source:
+                    wiki_dir = _index_data_source
+                else:
+                    wiki_dir = "data/wikis"
+            
+            wiki_path = Path(wiki_dir)
+            
             # Create WikiPage object
+            page_id = f"{page_type}/{page_title}"
             page = WikiPage(
-                id=f"{page_type}/{page_title}",
+                id=page_id,
                 page_title=page_title,
                 page_type=page_type,
                 overview=overview,
                 content=content,
                 domains=domains,
-                sources=[],
-                outgoing_links=[],
+                sources=sources,
+                outgoing_links=outgoing_links,
             )
             
-            logger.info(f"Indexing single page: {page.id}")
+            # Check if page already exists
+            page_exists = False
+            if hasattr(search, 'page_exists'):
+                page_exists = search.page_exists(page_id)
             
-            index_input = KGIndexInput(pages=[page])
-            search.index(index_input)
-            
-            return [TextContent(
-                type="text",
-                text=f"Successfully indexed page: {page.id}\n\nType: {page_type}\nDomains: {', '.join(domains) if domains else 'None'}\nBackend: {get_backend_type()}",
-            )]
+            if page_exists:
+                # Update existing page using edit()
+                logger.info(f"Page exists, updating: {page_id}")
+                
+                edit_input = KGEditInput(
+                    page_id=page_id,
+                    overview=overview,
+                    content=content,
+                    domains=domains,
+                    sources=sources if sources else None,
+                    outgoing_links=outgoing_links if outgoing_links else None,
+                    wiki_dir=wiki_path,
+                    persist_path=Path(persist_path) if persist_path else None,
+                )
+                
+                success = search.edit(edit_input)
+                
+                if success:
+                    return [TextContent(
+                        type="text",
+                        text=f"Successfully updated existing page: {page_id}\n\nType: {page_type}\nDomains: {', '.join(domains) if domains else 'None'}\nBackend: {get_backend_type()}",
+                    )]
+                else:
+                    return [TextContent(
+                        type="text",
+                        text=f"Failed to update page: {page_id}",
+                    )]
+            else:
+                # Add new page using add_page()
+                logger.info(f"Adding new page: {page_id}")
+                
+                # Determine persist_path
+                persist = Path(persist_path) if persist_path else None
+                
+                if hasattr(search, 'add_page'):
+                    success = search.add_page(page, wiki_path, persist)
+                else:
+                    # Fallback to old behavior if add_page not available
+                    index_input = KGIndexInput(pages=[page])
+                    search.index(index_input)
+                    success = True
+                
+                if success:
+                    return [TextContent(
+                        type="text",
+                        text=f"Successfully added new page: {page_id}\n\nType: {page_type}\nDomains: {', '.join(domains) if domains else 'None'}\nWiki dir: {wiki_dir}\nBackend: {get_backend_type()}",
+                    )]
+                else:
+                    return [TextContent(
+                        type="text",
+                        text=f"Failed to add page: {page_id}",
+                    )]
         
         else:
             return [TextContent(

@@ -706,6 +706,61 @@ class KnowledgeSearch(ABC):
         """
         pass
     
+    def add_page(
+        self,
+        page: "WikiPage",
+        wiki_dir: Path,
+        persist_path: Optional[Path] = None,
+    ) -> bool:
+        """
+        Add a new page to all storage layers.
+        
+        Creates (in order):
+        1. Raw source file (.md) in wiki_dir
+        2. Persist JSON cache entry (if persist_path provided)
+        3. Weaviate (embeddings + properties)
+        4. Neo4j (node + edges)
+        5. Internal memory cache
+        
+        Args:
+            page: WikiPage object to add
+            wiki_dir: Directory to write the source .md file
+            persist_path: Optional path to JSON cache file
+            
+        Returns:
+            True if successful, False on failure
+            
+        Notes:
+            - Use this for NEW pages only
+            - For existing pages, use edit() instead
+            - Subclasses should override this method
+        
+        Example:
+            page = WikiPage(
+                id="Principle/My_New_Concept",
+                page_title="My New Concept",
+                page_type="Principle",
+                overview="A brief overview...",
+                content="Full content...",
+            )
+            success = search.add_page(page, Path("data/wikis"))
+        """
+        # Default implementation - subclasses should override
+        raise NotImplementedError("add_page not implemented for this backend")
+    
+    def page_exists(self, page_id: str) -> bool:
+        """
+        Check if a page exists in the knowledge graph.
+        
+        Args:
+            page_id: Page ID to check (e.g., "Principle/My_Concept")
+            
+        Returns:
+            True if page exists, False otherwise
+        """
+        # Default implementation - subclasses should override
+        return False
+    
     def clear(self) -> None:
         """
         Clear all indexed data.
@@ -794,4 +849,17 @@ class NullKnowledgeSearch(KnowledgeSearch):
     
     def edit(self, data: KGEditInput) -> bool:
         """No-op edit - always returns False."""
+        return False
+    
+    def add_page(
+        self,
+        page: WikiPage,
+        wiki_dir: Path,
+        persist_path: Optional[Path] = None,
+    ) -> bool:
+        """No-op add_page - always returns False."""
+        return False
+    
+    def page_exists(self, page_id: str) -> bool:
+        """No pages exist in null search."""
         return False
