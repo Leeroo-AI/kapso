@@ -31,7 +31,7 @@ pipeline = KnowledgePipeline(wiki_dir="data/wikis")
 
 # Full pipeline: ingest + merge
 result = pipeline.run(Source.Repo("https://github.com/user/repo"))
-print(f"Created: {result.created}, Merged: {result.merged}")
+print(f"Created: {result.created}, Edited: {result.edited}")
 ```
 
 ### Via Kapso API
@@ -68,7 +68,9 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 |-------------|-------------|--------|
 | `Source.Repo(url, branch="main")` | Git repository | Implemented |
 | `Source.Solution(solution)` | Completed experiment | Basic |
-| `Source.Research(...)` | Web research result | Implemented |
+| `Source.Idea(query, source, content)` | Research idea | Implemented |
+| `Source.Implementation(query, source, content)` | Code implementation | Implemented |
+| `Source.ResearchReport(query, content)` | Research report | Implemented |
 
 ```python
 from src.knowledge.learners import Source
@@ -80,9 +82,10 @@ repo = Source.Repo("https://github.com/user/repo", branch="main")
 solution = kapso.evolve(goal="...")
 sol_source = Source.Solution(solution)
 
-# Research source (from research())
-research = kapso.research("topic", mode="idea")
-# research is already a Source.Research
+# Research sources (from research())
+findings = kapso.research("topic", mode=["idea", "implementation"])
+# findings.ideas is List[Source.Idea]
+# findings.implementations is List[Source.Implementation]
 ```
 
 ## Stage 1: Ingestors
@@ -107,12 +110,27 @@ IngestorFactory.list_ingestors()  # ["repo", "solution", "research"]
 
 ### RepoIngestor
 
-The most sophisticated ingestor, using a multi-phase pipeline:
+The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 
-1. **Repository Understanding** - Generates AST scaffold, agent explores file structure
-2. **Knowledge Extraction** - Extracts concepts, patterns, and implementation details
-3. **Page Generation** - Creates structured wiki pages from extracted knowledge
-4. **Validation** - Ensures graph integrity and fixes broken links
+**Phase 0: Repository Understanding (pre-phase)**
+- Parse repo structure, generate `_RepoMap.md` with AST info
+- Agent fills in natural language understanding for each file
+- Subsequent phases read this file instead of re-exploring
+
+**Branch 1: Workflow-Based Extraction**
+- **Phase 1a: Anchoring** - Find workflows from README/examples, write Workflow pages + rough WorkflowIndex
+- **Phase 1b: Anchoring Context** - Enrich WorkflowIndex with detailed implementation context
+- **Phase 2: Excavation+Synthesis** - Trace imports, write Implementation-Principle pairs together
+- **Phase 3: Enrichment** - Mine constraints/tips, write Environment/Heuristic pages
+- **Phase 4: Audit** - Validate graph integrity, fix broken links
+- **Phase 4b: Repo Builder** - Create GitHub repositories for workflows
+
+**Branch 2: Orphan Mining (runs after Branch 1)**
+- **Phase 5a: Triage (code)** - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+- **Phase 5b: Review (agent)** - Agent evaluates MANUAL_REVIEW files
+- **Phase 5c: Create (agent)** - Agent creates wiki pages for approved files
+- **Phase 5d: Verify (code)** - Verify all approved files have pages
+- **Phase 6: Orphan Audit** - Validate orphan nodes
 
 ### ResearchIngestor
 
@@ -128,15 +146,24 @@ pages = ingestor.ingest(research)
 
 ## Stage 2: Knowledge Merger
 
-The merger uses an LLM agent to analyze proposed pages against the existing KG.
+The merger uses a **hierarchical sub-graph-aware algorithm** with a single Claude Code agent call. It processes connected pages as units, respecting the Knowledge Graph DAG structure.
+
+### Merge Algorithm
+
+The merger executes a 5-phase process:
+
+1. **Sub-Graph Detection** - Groups connected pages into sub-graphs
+2. **Planning** - Top-down merge decisions (root to leaves)
+3. **Execution** - Bottom-up page creation/editing (leaves to root)
+4. **Audit** - Verifies nodes and edges after each sub-graph
+5. **Finalize** - Collects results and generates summary
 
 ### Merge Actions
 
 | Action | Description |
 |--------|-------------|
-| `create_new` | New page for novel knowledge |
-| `update_existing` | Improve existing page |
-| `add_links` | Add new connections |
+| `CREATE_NEW` | New page for novel knowledge |
+| `MERGE_INTO` | Update existing page with new content |
 | `skip` | Duplicate or low-quality |
 
 ### Using the Merger
@@ -151,8 +178,8 @@ result = merger.merge(
 )
 
 print(f"Created: {len(result.created)}")
-print(f"Merged: {len(result.merged)}")
-print(f"Skipped: {len(result.skipped)}")
+print(f"Edited: {len(result.edited)}")
+print(f"Failed: {len(result.failed)}")
 ```
 
 ### Merge Result
@@ -160,10 +187,13 @@ print(f"Skipped: {len(result.skipped)}")
 ```python
 @dataclass
 class MergeResult:
-    created: List[str]      # New page IDs created
-    merged: List[str]       # Existing pages updated
-    skipped: List[str]      # Pages not added
-    errors: List[str]       # Error messages
+    total_proposed: int       # Pages proposed for merge
+    subgraphs_processed: int  # Sub-graphs detected and processed
+    created: List[str]        # New page IDs created
+    edited: List[str]         # Existing pages updated
+    failed: List[str]         # Pages that failed to process
+    errors: List[str]         # Error messages
+    plan_path: Optional[Path] # Path to merge plan file
 ```
 
 ## WikiPage Structure
@@ -224,7 +254,7 @@ class PipelineResult:
     @property
     def created(self) -> int
     @property
-    def merged(self) -> int
+    def edited(self) -> int
     @property
     def success(self) -> bool
 ```

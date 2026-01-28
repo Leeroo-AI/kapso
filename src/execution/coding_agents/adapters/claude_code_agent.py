@@ -25,9 +25,10 @@ import select
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,16 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - streaming: True (default) - stream output live to terminal for visibility
     - use_bedrock: False (default) - use AWS Bedrock instead of direct Anthropic API
     - aws_region: AWS region for Bedrock (required if use_bedrock=True, default: "us-east-1")
+    - mcp_servers: Dict of MCP server configurations (optional)
+      Example:
+        {
+            "kg-graph-search": {
+                "command": "python",
+                "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+                "cwd": "/path/to/project",
+                "env": {"KG_INDEX_PATH": "/path/to/.index"}
+            }
+        }
     
     Environment (Direct Anthropic mode - default):
     - ANTHROPIC_API_KEY: Required for authentication
@@ -115,6 +126,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         self._use_bedrock = config.agent_specific.get("use_bedrock", False)
         # aws_region: AWS region for Bedrock (required if use_bedrock=True)
         self._aws_region = config.agent_specific.get("aws_region", "us-east-1")
+        
+        # MCP server configuration
+        # mcp_servers: Dict of MCP server configs to enable for this agent
+        # Format: {"server-name": {"command": "...", "args": [...], "cwd": "...", "env": {...}}}
+        self._mcp_servers: Optional[Dict[str, Any]] = config.agent_specific.get("mcp_servers")
+        self._mcp_config_path: Optional[Path] = None  # Set during initialize()
         
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
@@ -190,6 +207,33 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             target = Path(workspace) / "CLAUDE.md"
             if not target.exists():
                 shutil.copy(self._claude_md_path, target)
+        
+        # Write MCP config file if MCP servers are configured
+        if self._mcp_servers:
+            self._mcp_config_path = self._write_mcp_config()
+            logger.info(f"MCP config written to: {self._mcp_config_path}")
+    
+    def _write_mcp_config(self) -> Path:
+        """
+        Write MCP server configuration to a temporary JSON file.
+        
+        The file is used by Claude Code CLI via --mcp-config flag.
+        
+        Returns:
+            Path to the temporary config file
+        """
+        mcp_config = {"mcpServers": self._mcp_servers}
+        
+        # Create temp file that persists until cleanup()
+        # Use workspace-based path for easier debugging
+        config_dir = Path(self.workspace) / ".claude_mcp"
+        config_dir.mkdir(exist_ok=True)
+        config_path = config_dir / "mcp_config.json"
+        
+        config_path.write_text(json.dumps(mcp_config, indent=2))
+        logger.debug(f"MCP config: {json.dumps(mcp_config, indent=2)}")
+        
+        return config_path
     
     def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
         """
@@ -542,6 +586,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         if self._allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self._allowed_tools)])
         
+        # Add MCP config if available
+        if self._mcp_config_path and self._mcp_config_path.exists():
+            cmd.extend(["--mcp-config", str(self._mcp_config_path)])
+        
         return cmd
     
     def _get_env(self) -> Dict[str, str]:
@@ -622,6 +670,17 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     
     def cleanup(self) -> None:
         """Clean up Claude Code resources."""
+        # Clean up MCP config directory if it exists
+        if self._mcp_config_path and self._mcp_config_path.exists():
+            try:
+                config_dir = self._mcp_config_path.parent
+                if config_dir.name == ".claude_mcp":
+                    shutil.rmtree(config_dir)
+                    logger.debug(f"Cleaned up MCP config: {config_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up MCP config: {e}")
+        
+        self._mcp_config_path = None
         self.workspace = None
     
     def supports_native_git(self) -> bool:
@@ -637,5 +696,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "cost_tracking": True,
             "streaming": self._streaming,  # Now supports live output streaming
             "bedrock": self._use_bedrock,  # Using AWS Bedrock for API calls
+            "mcp": bool(self._mcp_servers),  # MCP server integration enabled
         }
 

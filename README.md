@@ -153,7 +153,7 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 | **OrchestratorAgent** | Runs the experimentation loop with budget tracking |
 | **Search Strategy** | Explores solutions via tree search or linear search |
 | **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
-| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
+| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG (hierarchical sub-graph-aware) |
 | **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
 | **Evaluators** | Score solutions: regex patterns, JSON files, LLM judges |
 | **Stop Conditions** | Control when to stop: threshold, plateau, cost/time limits |
@@ -188,5 +188,3 @@ If you use Kapso in your research, please cite:
 ```
 
 ---
-
-> **Note**: Some functionalities of the `.learn()` operation are on our roadmap and will be updated in upcoming releases.

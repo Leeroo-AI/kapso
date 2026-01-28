@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from src.knowledge.learners.ingestors.factory import IngestorFactory
-from src.knowledge.learners.knowledge_merger import (
+from src.knowledge.learners.merger import (
     KnowledgeMerger,
     MergeResult,
 )
@@ -55,9 +55,9 @@ class PipelineResult:
         return len(self.merge_result.created) if self.merge_result else 0
     
     @property
-    def merged(self) -> int:
-        """Number of pages merged with existing."""
-        return len(self.merge_result.merged) if self.merge_result else 0
+    def edited(self) -> int:
+        """Number of pages edited/merged with existing."""
+        return len(self.merge_result.edited) if self.merge_result else 0
     
     @property
     def success(self) -> bool:
@@ -70,7 +70,7 @@ class PipelineResult:
             "sources_processed": self.sources_processed,
             "total_pages_extracted": self.total_pages_extracted,
             "created": self.created,
-            "merged": self.merged,
+            "edited": self.edited,
             "merge_result": self.merge_result.to_dict() if self.merge_result else None,
             "errors": self.errors,
         }
@@ -79,7 +79,7 @@ class PipelineResult:
         return (
             f"PipelineResult(sources={self.sources_processed}, "
             f"extracted={self.total_pages_extracted}, "
-            f"created={self.created}, merged={self.merged})"
+            f"created={self.created}, edited={self.edited})"
         )
 
 
@@ -107,7 +107,7 @@ class KnowledgePipeline:
         
         # Single source - full pipeline
         result = pipeline.run(Source.Repo("https://github.com/user/repo"))
-        print(f"Created: {result.created}, Merged: {result.merged}")
+        print(f"Created: {result.created}, Edited: {result.edited}")
         
         # Multiple sources
         result = pipeline.run(
@@ -229,7 +229,7 @@ class KnowledgePipeline:
             
             logger.info(
                 f"Pipeline complete: {result.created} created, "
-                f"{result.merged} merged"
+                f"{result.edited} edited"
             )
             
         except Exception as e:
@@ -392,7 +392,7 @@ Examples:
     
     if result.merge_result:
         print(f"  Pages created:        {result.created}")
-        print(f"  Pages merged:         {result.merged}")
+        print(f"  Pages edited:         {result.edited}")
     
     if result.errors:
         print(f"\n  Errors ({len(result.errors)}):")

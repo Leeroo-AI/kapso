@@ -134,7 +134,7 @@ def learn(
 - `sources_processed`: Number of sources processed
 - `total_pages_extracted`: Pages extracted
 - `created`: New pages created
-- `merged`: Pages merged with existing
+- `edited`: Pages merged/edited with existing
 - `errors`: List of errors
 
 #### Example
@@ -144,7 +144,7 @@ result = kapso.learn(
     Source.Repo("https://github.com/huggingface/transformers"),
     wiki_dir="data/wikis",
 )
-print(f"Created: {result.created}, Merged: {result.merged}")
+print(f"Created: {result.created}, Edited: {result.edited}")
 
 # Learn from research results
 findings = kapso.research("LoRA best practices", mode=["idea", "implementation"], top_k=5)

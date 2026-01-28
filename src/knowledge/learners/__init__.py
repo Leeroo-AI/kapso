@@ -22,20 +22,10 @@ from src.knowledge.learners.knowledge_learner_pipeline import (
     PipelineResult,
 )
 
-# Knowledge merger (Stage 2)
-from src.knowledge.learners.knowledge_merger import (
+# Knowledge merger (Stage 2) - hierarchical sub-graph-aware merger
+from src.knowledge.learners.merger import (
     KnowledgeMerger,
     MergeResult,
-)
-
-# Merge handlers
-from src.knowledge.learners.merge_handlers import (
-    MergeHandler,
-    WorkflowMergeHandler,
-    PrincipleMergeHandler,
-    ImplementationMergeHandler,
-    EnvironmentMergeHandler,
-    HeuristicMergeHandler,
 )
 
 # Ingestors (Stage 1) - import for registration
@@ -59,13 +49,6 @@ __all__ = [
     # Merger (Stage 2)
     "KnowledgeMerger",
     "MergeResult",
-    # Merge handlers
-    "MergeHandler",
-    "WorkflowMergeHandler",
-    "PrincipleMergeHandler",
-    "ImplementationMergeHandler",
-    "EnvironmentMergeHandler",
-    "HeuristicMergeHandler",
     # Ingestors (Stage 1)
     "Ingestor",
     "IngestorFactory",

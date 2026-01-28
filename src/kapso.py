@@ -29,7 +29,8 @@ from src.environment.handlers.generic import GenericProblemHandler
 from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
 from src.knowledge.search.base import KGIndexMetadata
 from src.knowledge.learners import Source, KnowledgePipeline
-from src.knowledge.researcher import Researcher, ResearchDepth, ResearchMode, ResearchFindings
+from src.knowledge.researcher import Researcher, ResearchDepth, ResearchMode
+from src.knowledge.types import ResearchFindings
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
@@ -341,7 +342,7 @@ class Kapso:
             `ResearchFindings` with fluent accessors:
             - .repos(top_k) -> List[Source.Repo] for learn()
             - .ideas(top_k) -> str for evolve() context
-            - .source -> Source.Research for direct KG ingestion
+            - .source -> ResearchFindings for direct KG ingestion
         """
         if self._web_researcher is None:
             self._web_researcher = Researcher()
@@ -350,7 +351,7 @@ class Kapso:
     
     def learn(
         self, 
-        *sources: Union[Source.Repo, Source.Solution, Source.Research],
+        *sources: Union[Source.Repo, Source.Solution, Source.Idea, Source.Implementation, Source.ResearchReport, ResearchFindings],
         wiki_dir: str = "data/wikis",
         skip_merge: bool = False,
         kg_index: Optional[str] = None,
@@ -363,7 +364,8 @@ class Kapso:
         Supported sources (MVP):
         - `Source.Repo(...)`
         - `Source.Solution(...)`
-        - `Source.Research(...)` (output of `Kapso.research(...)`)
+        - `Source.Idea(...)`, `Source.Implementation(...)`, `Source.ResearchReport(...)`
+        - `ResearchFindings` (output of `Kapso.research(...)`)
         
         Args:
             *sources: One or more Source objects.
@@ -413,7 +415,7 @@ class Kapso:
         print(
             f"Learn complete: sources={result.sources_processed}, "
             f"extracted_pages={result.total_pages_extracted}, "
-            f"created={result.created}, merged={result.merged}, "
+            f"created={result.created}, edited={result.edited}, "
             f"errors={len(result.errors)}"
         )
 
@@ -468,7 +470,7 @@ class Kapso:
             timeout: Execution timeout in seconds (default: 300)
             
             additional_context: Extra context appended to the problem prompt.
-                This is the intended integration point for `Source.Research.to_context_string()`.
+                This is the intended integration point for research context.
             
         Returns:
             SolutionResult with code_path, experiment_logs, and metadata

@@ -1553,6 +1553,372 @@ Only include pages that would actually help answer the query.
         return success
     
     # =========================================================================
+    # Add Page Method (for new pages)
+    # =========================================================================
+    
+    def add_page(
+        self,
+        page: WikiPage,
+        wiki_dir: Path,
+        persist_path: Optional[Path] = None,
+    ) -> bool:
+        """
+        Add a new page to ALL storage layers.
+        
+        Creates (in order):
+        1. Raw source file (.md) in wiki_dir
+        2. Persist JSON cache entry (if persist_path provided)
+        3. Weaviate (embeddings + properties)
+        4. Neo4j (node + edges)
+        5. Internal memory cache
+        
+        Args:
+            page: WikiPage object to add
+            wiki_dir: Directory to write the source .md file
+            persist_path: Optional path to JSON cache file
+            
+        Returns:
+            True if successful, False on failure
+            
+        Example:
+            page = WikiPage(
+                id="Principle/My_New_Concept",
+                page_title="My New Concept",
+                page_type="Principle",
+                overview="A brief overview...",
+                content="Full content...",
+            )
+            success = search.add_page(page, Path("data/wikis"))
+        """
+        results = {
+            "source_file": None,
+            "persist_cache": None,
+            "weaviate": None,
+            "neo4j": None,
+        }
+        
+        # =====================================================================
+        # 1. Create Source File
+        # =====================================================================
+        try:
+            results["source_file"] = self._create_source_file(page, wiki_dir)
+        except Exception as e:
+            logger.error(f"Failed to create source file for {page.id}: {e}")
+            results["source_file"] = False
+        
+        # =====================================================================
+        # 2. Update Persist JSON Cache
+        # =====================================================================
+        if persist_path:
+            try:
+                results["persist_cache"] = self._add_to_persist_cache(page, persist_path)
+            except Exception as e:
+                logger.error(f"Failed to update persist cache for {page.id}: {e}")
+                results["persist_cache"] = False
+        
+        # =====================================================================
+        # 3. Index to Weaviate
+        # =====================================================================
+        if self._weaviate_client:
+            try:
+                results["weaviate"] = self._index_single_page_to_weaviate(page)
+            except Exception as e:
+                logger.error(f"Failed to index {page.id} to Weaviate: {e}")
+                results["weaviate"] = False
+        
+        # =====================================================================
+        # 4. Index to Neo4j
+        # =====================================================================
+        if self._neo4j_driver:
+            try:
+                results["neo4j"] = self._index_single_page_to_neo4j(page)
+            except Exception as e:
+                logger.error(f"Failed to index {page.id} to Neo4j: {e}")
+                results["neo4j"] = False
+        
+        # =====================================================================
+        # 5. Update Internal Cache
+        # =====================================================================
+        if self._pages is None:
+            self._pages = []
+        self._pages.append(page)
+        
+        # Determine overall success
+        success = any(v is True for v in results.values())
+        
+        if success:
+            created_layers = [k for k, v in results.items() if v is True]
+            logger.info(f"Added page {page.id} to: {created_layers}")
+        else:
+            logger.warning(f"Add page failed for {page.id}: {results}")
+        
+        return success
+    
+    def _create_source_file(self, page: WikiPage, wiki_dir: Path) -> bool:
+        """
+        Create a new source .md file for a WikiPage.
+        
+        Creates the file in the appropriate type subdirectory:
+        wiki_dir/{type_subdir}/{Title}.md
+        
+        The page.content is written directly as it should already be in the
+        correct MediaWiki format (following sections_definition.md structure).
+        
+        Args:
+            page: WikiPage to write
+            wiki_dir: Root wiki directory
+            
+        Returns:
+            True if file was created successfully
+        """
+        # Get subdirectory for this page type
+        subdir = _TYPE_TO_SUBDIR.get(page.page_type)
+        if not subdir:
+            logger.warning(f"Unknown page type: {page.page_type}")
+            # Fall back to using page_type as subdir name
+            subdir = page.page_type.lower() + "s"
+        
+        # Create directory if needed
+        target_dir = wiki_dir / subdir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine filename from page title (use spaces, not underscores)
+        filename = page.page_title.replace("_", " ") + ".md"
+        file_path = target_dir / filename
+        
+        # Write content directly - it should already be in proper MediaWiki format
+        # (following the sections_definition.md structure for this page type)
+        file_path.write_text(page.content, encoding="utf-8")
+        logger.info(f"Created source file: {file_path}")
+        
+        return True
+    
+    def _format_page_as_markdown(self, page: WikiPage) -> str:
+        """
+        Format a WikiPage as markdown content for source file.
+        
+        DEPRECATED: This method is no longer used. Pages should be written
+        with their content directly, as it should already be in the correct
+        MediaWiki format (following sections_definition.md structure).
+        
+        This method is kept for potential edge cases where structured data
+        needs to be converted to a file format, but the preferred approach
+        is to have ingestors produce properly formatted content.
+        
+        Creates a structured markdown file with metadata table,
+        overview section, and main content.
+        """
+        parts = []
+        
+        # Title
+        parts.append(f"# {page.page_title}")
+        parts.append("")
+        
+        # Metadata table
+        parts.append("| Property | Value |")
+        parts.append("|----------|-------|")
+        parts.append(f"| **Type** | {page.page_type} |")
+        
+        if page.domains:
+            domain_links = ", ".join(f"[[domain::{d}]]" for d in page.domains)
+            parts.append(f"| **Domains** | {domain_links} |")
+        
+        if page.last_updated:
+            parts.append(f"| **Last Updated** | [[last_updated::{page.last_updated}]] |")
+        
+        parts.append("")
+        
+        # Sources section (if any)
+        if page.sources:
+            parts.append("## Knowledge Sources")
+            for src in page.sources:
+                src_type = src.get("type", "Doc")
+                src_title = src.get("title", "")
+                src_url = src.get("url", "")
+                parts.append(f"* [[source::{src_type}|{src_title}|{src_url}]]")
+            parts.append("")
+        
+        # Overview section
+        parts.append("## Overview")
+        parts.append(page.overview)
+        parts.append("")
+        
+        # Main content
+        parts.append("## Content")
+        parts.append(page.content)
+        parts.append("")
+        
+        # Outgoing links section (if any)
+        if page.outgoing_links:
+            parts.append("## Related Pages")
+            for link in page.outgoing_links:
+                edge_type = link.get("edge_type", "related")
+                target_type = link.get("target_type", "")
+                target_id = link.get("target_id", "")
+                parts.append(f"* [[{edge_type}::{target_type}:{target_id}]]")
+            parts.append("")
+        
+        return "\n".join(parts)
+    
+    def _add_to_persist_cache(self, page: WikiPage, persist_path: Path) -> bool:
+        """
+        Add a page to the persist JSON cache.
+        
+        Loads existing cache, appends the new page, and saves back.
+        
+        Args:
+            page: WikiPage to add
+            persist_path: Path to JSON cache file
+            
+        Returns:
+            True if successful
+        """
+        # Load existing cache or create new
+        if persist_path.exists():
+            with open(persist_path, 'r') as f:
+                data = json.load(f)
+        else:
+            persist_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "pages": [],
+                "metadata": {
+                    "collection": self.weaviate_collection,
+                    "embedding_model": self.embedding_model,
+                },
+            }
+        
+        # Check if page already exists (by id)
+        existing_ids = {p.get("id") for p in data.get("pages", [])}
+        if page.id in existing_ids:
+            # Update existing entry
+            data["pages"] = [
+                page.to_dict() if p.get("id") == page.id else p
+                for p in data["pages"]
+            ]
+            logger.debug(f"Updated existing page in cache: {page.id}")
+        else:
+            # Append new page
+            data["pages"].append(page.to_dict())
+            logger.debug(f"Added new page to cache: {page.id}")
+        
+        # Save back
+        with open(persist_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        return True
+    
+    def _index_single_page_to_weaviate(self, page: WikiPage) -> bool:
+        """
+        Index a single page to Weaviate.
+        
+        Generates embedding and inserts to collection.
+        
+        Args:
+            page: WikiPage to index
+            
+        Returns:
+            True if successful
+        """
+        if not self._weaviate_client or not self._openai_client:
+            return False
+        
+        # Ensure collection exists
+        self._ensure_weaviate_collection()
+        
+        # Generate embedding from overview
+        embedding = self._generate_embedding(page.overview)
+        if not embedding:
+            logger.warning(f"Failed to generate embedding for {page.id}")
+            return False
+        
+        # Prepare properties
+        properties = {
+            "page_id": page.id,
+            "page_title": page.page_title,
+            "page_type": page.page_type,
+            "overview": page.overview,
+            "content": page.content,
+            "domains": page.domains,
+        }
+        
+        # Get collection
+        collection = self._weaviate_client.collections.get(self.weaviate_collection)
+        
+        # Insert with named vector
+        collection.data.insert(
+            properties=properties,
+            vector={"default": embedding},
+        )
+        
+        logger.debug(f"Indexed page to Weaviate: {page.id}")
+        return True
+    
+    def _index_single_page_to_neo4j(self, page: WikiPage) -> bool:
+        """
+        Index a single page to Neo4j.
+        
+        Creates/merges node and creates edges.
+        
+        Args:
+            page: WikiPage to index
+            
+        Returns:
+            True if successful
+        """
+        if not self._neo4j_driver:
+            return False
+        
+        with self._neo4j_driver.session() as session:
+            # Create/merge node
+            self._create_neo4j_node(session, page)
+            
+            # Create edges
+            self._create_neo4j_edges(session, page)
+        
+        logger.debug(f"Indexed page to Neo4j: {page.id}")
+        return True
+    
+    def page_exists(self, page_id: str) -> bool:
+        """
+        Check if a page exists in the knowledge graph.
+        
+        Checks Weaviate first (faster), falls back to Neo4j.
+        
+        Args:
+            page_id: Page ID to check (e.g., "Principle/My_Concept")
+            
+        Returns:
+            True if page exists
+        """
+        # Check Weaviate first
+        if self._weaviate_client:
+            try:
+                collection = self._weaviate_client.collections.get(self.weaviate_collection)
+                response = collection.query.fetch_objects(
+                    filters=wvc.query.Filter.by_property("page_id").equal(page_id),
+                    limit=1,
+                )
+                if response.objects:
+                    return True
+            except Exception:
+                pass
+        
+        # Fall back to Neo4j
+        if self._neo4j_driver:
+            try:
+                with self._neo4j_driver.session() as session:
+                    result = session.run(
+                        "MATCH (p:WikiPage {id: $id}) RETURN p LIMIT 1",
+                        id=page_id,
+                    )
+                    if result.single():
+                        return True
+            except Exception:
+                pass
+        
+        return False
+    
+    # =========================================================================
     # Source File Update Methods
     # =========================================================================
     
@@ -1603,6 +1969,10 @@ Only include pages that would actually help answer the query.
         
         Page ID format: "{PageType}/{filename}" or "{repo_id}/{name}"
         
+        Note: Files may be created with spaces in filename (e.g., "RAG Chain Pattern.md")
+        but page_id uses underscores (e.g., "Principle/RAG_Chain_Pattern").
+        This method tries both formats.
+        
         Returns:
             Path to source file, or None if not found
         """
@@ -1620,8 +1990,18 @@ Only include pages that would actually help answer the query.
             if not subdir:
                 return None
             
+            # Try with underscores first (page_id format)
             file_path = wiki_dir / subdir / f"{filename}.md"
-            return file_path if file_path.exists() else None
+            if file_path.exists():
+                return file_path
+            
+            # Try with spaces (how _create_source_file creates them)
+            filename_with_spaces = filename.replace("_", " ")
+            file_path = wiki_dir / subdir / f"{filename_with_spaces}.md"
+            if file_path.exists():
+                return file_path
+            
+            return None
         
         else:
             # Flat structure: page_id = "repo_id/Name" -> "Type_Name.mediawiki"
@@ -1974,8 +2354,10 @@ Only include pages that would actually help answer the query.
         # Clear Weaviate collection
         if self._weaviate_client:
             try:
-                self._weaviate_client.collections.delete(self.weaviate_collection)
-                logger.info(f"Deleted Weaviate collection '{self.weaviate_collection}'")
+                # Use default collection name if not set
+                collection_name = self.weaviate_collection or "KGWikiPages"
+                self._weaviate_client.collections.delete(collection_name)
+                logger.info(f"Deleted Weaviate collection '{collection_name}'")
             except Exception as e:
                 logger.warning(f"Could not delete Weaviate collection: {e}")
         
