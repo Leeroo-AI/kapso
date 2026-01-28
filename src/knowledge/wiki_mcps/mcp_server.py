@@ -411,6 +411,40 @@ The indexing updates:
                 },
             ),
             
+            # Get page structure definition
+            Tool(
+                name="get_page_structure",
+                description="""Get the section structure definition for a specific page type.
+
+Returns the sections_definition.md content that defines the required sections,
+formatting rules, and structure for pages of the given type.
+
+IMPORTANT: Use this BEFORE creating or editing a page to ensure you follow
+the correct structure. Each page type has specific required sections and
+formatting rules that must be followed.
+
+Args:
+    page_type: The type of page (principle, implementation, environment, heuristic, workflow)
+
+Returns:
+    The sections_definition.md content for that page type, including:
+    - Required sections and their order
+    - Formatting rules (MediaWiki syntax)
+    - Examples of correct structure
+    - Connection types and constraints""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "page_type": {
+                            "type": "string",
+                            "description": "Page type: principle, implementation, environment, heuristic, or workflow",
+                            "enum": ["principle", "implementation", "environment", "heuristic", "workflow"],
+                        },
+                    },
+                    "required": ["page_type"],
+                },
+            ),
+            
             # Edit an existing wiki page
             Tool(
                 name="kg_edit",
@@ -420,6 +454,9 @@ Updates the page across all storage layers:
 1. Source file (.md) - if wiki_dir provided
 2. Weaviate (embeddings + properties)
 3. Neo4j (graph nodes/edges)
+
+IMPORTANT: Before editing, use get_page_structure to understand the required
+section structure for this page type. Preserve the existing section format.
 
 Only include fields you want to update - others remain unchanged.""",
                 inputSchema={
@@ -509,10 +546,13 @@ Only include fields you want to update - others remain unchanged.""",
         elif name == "kg_edit":
             return await _handle_edit(arguments)
         
+        elif name == "get_page_structure":
+            return await _handle_get_page_structure(arguments)
+        
         else:
             return [TextContent(
                 type="text",
-                text=f"Unknown tool: {name}. Available tools: search_knowledge, get_wiki_page, list_page_types, search_with_context, kg_index, kg_edit",
+                text=f"Unknown tool: {name}. Available tools: search_knowledge, get_wiki_page, list_page_types, search_with_context, kg_index, kg_edit, get_page_structure",
             )]
 
 
@@ -890,6 +930,50 @@ async def _handle_edit(arguments: Dict[str, Any]) -> List[TextContent]:
         return [TextContent(
             type="text",
             text=f"Edit error: {str(e)}",
+        )]
+
+
+async def _handle_get_page_structure(arguments: Dict[str, Any]) -> List[TextContent]:
+    """
+    Handle get_page_structure tool call.
+    
+    Returns the sections_definition.md content for a given page type.
+    This helps agents understand the required structure when creating or editing pages.
+    """
+    try:
+        page_type = arguments.get("page_type", "").lower()
+        valid_types = ["principle", "implementation", "environment", "heuristic", "workflow"]
+        
+        if page_type not in valid_types:
+            return [TextContent(
+                type="text",
+                text=f"Invalid page type: '{page_type}'. Must be one of: {', '.join(valid_types)}",
+            )]
+        
+        # Path to wiki_structure directory (relative to this file)
+        wiki_structure_dir = Path(__file__).parent.parent / "wiki_structure"
+        sections_file = wiki_structure_dir / f"{page_type}_page" / "sections_definition.md"
+        
+        if not sections_file.exists():
+            return [TextContent(
+                type="text",
+                text=f"Sections definition not found for page type: {page_type}\nExpected path: {sections_file}",
+            )]
+        
+        content = sections_file.read_text(encoding="utf-8")
+        
+        logger.info(f"Retrieved page structure for: {page_type}")
+        
+        return [TextContent(
+            type="text",
+            text=f"# Page Structure Definition: {page_type.title()}\n\n{content}",
+        )]
+        
+    except Exception as e:
+        logger.error(f"Get page structure failed: {e}", exc_info=True)
+        return [TextContent(
+            type="text",
+            text=f"Error retrieving page structure: {str(e)}",
         )]
 
 

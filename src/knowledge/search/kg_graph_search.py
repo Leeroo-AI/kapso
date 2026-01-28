@@ -1661,6 +1661,9 @@ Only include pages that would actually help answer the query.
         Creates the file in the appropriate type subdirectory:
         wiki_dir/{type_subdir}/{Title}.md
         
+        The page.content is written directly as it should already be in the
+        correct MediaWiki format (following sections_definition.md structure).
+        
         Args:
             page: WikiPage to write
             wiki_dir: Root wiki directory
@@ -1683,11 +1686,9 @@ Only include pages that would actually help answer the query.
         filename = page.page_title.replace("_", " ") + ".md"
         file_path = target_dir / filename
         
-        # Format content with metadata
-        content = self._format_page_as_markdown(page)
-        
-        # Write file
-        file_path.write_text(content, encoding="utf-8")
+        # Write content directly - it should already be in proper MediaWiki format
+        # (following the sections_definition.md structure for this page type)
+        file_path.write_text(page.content, encoding="utf-8")
         logger.info(f"Created source file: {file_path}")
         
         return True
@@ -1695,6 +1696,14 @@ Only include pages that would actually help answer the query.
     def _format_page_as_markdown(self, page: WikiPage) -> str:
         """
         Format a WikiPage as markdown content for source file.
+        
+        DEPRECATED: This method is no longer used. Pages should be written
+        with their content directly, as it should already be in the correct
+        MediaWiki format (following sections_definition.md structure).
+        
+        This method is kept for potential edge cases where structured data
+        needs to be converted to a file format, but the preferred approach
+        is to have ingestors produce properly formatted content.
         
         Creates a structured markdown file with metadata table,
         overview section, and main content.
@@ -1960,6 +1969,10 @@ Only include pages that would actually help answer the query.
         
         Page ID format: "{PageType}/{filename}" or "{repo_id}/{name}"
         
+        Note: Files may be created with spaces in filename (e.g., "RAG Chain Pattern.md")
+        but page_id uses underscores (e.g., "Principle/RAG_Chain_Pattern").
+        This method tries both formats.
+        
         Returns:
             Path to source file, or None if not found
         """
@@ -1977,8 +1990,18 @@ Only include pages that would actually help answer the query.
             if not subdir:
                 return None
             
+            # Try with underscores first (page_id format)
             file_path = wiki_dir / subdir / f"{filename}.md"
-            return file_path if file_path.exists() else None
+            if file_path.exists():
+                return file_path
+            
+            # Try with spaces (how _create_source_file creates them)
+            filename_with_spaces = filename.replace("_", " ")
+            file_path = wiki_dir / subdir / f"{filename_with_spaces}.md"
+            if file_path.exists():
+                return file_path
+            
+            return None
         
         else:
             # Flat structure: page_id = "repo_id/Name" -> "Type_Name.mediawiki"

@@ -405,6 +405,7 @@ class KnowledgeMerger:
                 "Write",
                 "mcp__kg-graph-search__search_knowledge",
                 "mcp__kg-graph-search__get_wiki_page",
+                "mcp__kg-graph-search__get_page_structure",
                 "mcp__kg-graph-search__kg_index",
                 "mcp__kg-graph-search__kg_edit",
             ],
