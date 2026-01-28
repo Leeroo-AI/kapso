@@ -100,9 +100,9 @@ kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
 # Research: Gather domain-specific techniques from the web
 # mode can be a single mode or list of modes:
-# - "idea" returns List[Idea]
-# - "implementation" returns List[Implementation]  
-# - "study" returns ResearchReport
+# - "idea" returns List[Source.Idea]
+# - "implementation" returns List[Source.Implementation]  
+# - "study" returns Source.ResearchReport
 # - ["idea", "implementation"] returns ResearchFindings with .ideas and .implementations
 
 findings = kapso.research(
@@ -114,8 +114,8 @@ findings = kapso.research(
 # Learn: Ingest knowledge from repositories and research into the KG
 kapso.learn(
     Source.Repo("https://github.com/huggingface/trl"),
-    *findings.ideas,           # List[Idea]
-    *findings.implementations, # List[Implementation]
+    *findings.ideas,           # List[Source.Idea]
+    *findings.implementations, # List[Source.Implementation]
     wiki_dir="data/wikis",
 )
 

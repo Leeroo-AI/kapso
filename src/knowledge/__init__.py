@@ -3,8 +3,12 @@
 # Handles knowledge learning (ingestion) and search (retrieval).
 #
 # Submodules:
+#   - types: Unified source types (Source.Repo, Source.Idea, etc.)
 #   - search: Unified search backends (KG LLM Navigation, RAG, etc.)
-#   - learners: Modular knowledge ingestion pipeline (Repo, Paper, Experiment)
+#   - learners: Modular knowledge ingestion pipeline
+#   - researcher: Web research utilities
+
+from src.knowledge.types import Source, ResearchFindings
 
 from src.knowledge.search import (
     KnowledgeSearch,
@@ -23,7 +27,6 @@ from src.knowledge.learners import (
     # Main pipeline
     KnowledgePipeline,
     PipelineResult,
-    Source,
     # Merger
     KnowledgeMerger,
     MergeResult,
@@ -34,6 +37,9 @@ from src.knowledge.learners import (
 )
 
 __all__ = [
+    # Types
+    "Source",
+    "ResearchFindings",
     # Search
     "KnowledgeSearch",
     "WikiPage",
@@ -48,7 +54,6 @@ __all__ = [
     # Learners - Pipeline
     "KnowledgePipeline",
     "PipelineResult",
-    "Source",
     # Learners - Merger
     "KnowledgeMerger",
     "MergeResult",

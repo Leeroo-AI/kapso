@@ -1,14 +1,14 @@
 # Implementation Ingestor
 #
-# Agentic ingestor for `Implementation` objects from the researcher module.
+# Agentic ingestor for `Source.Implementation` objects.
 # Uses Claude Code to analyze content and create appropriate wiki pages.
 #
 # Usage:
 #     from src.knowledge.learners.ingestors import ImplementationIngestor
-#     from src.knowledge.researcher import Implementation
+#     from src.knowledge.types import Source
 #     
 #     ingestor = ImplementationIngestor()
-#     pages = ingestor.ingest(impl)
+#     pages = ingestor.ingest(impl)  # impl is Source.Implementation
 
 from src.knowledge.learners.ingestors.factory import register_ingestor
 from src.knowledge.learners.ingestors.research_ingestor.base import ResearchIngestorBase

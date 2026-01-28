@@ -1,14 +1,14 @@
 # Idea Ingestor
 #
-# Agentic ingestor for `Idea` objects from the researcher module.
+# Agentic ingestor for `Source.Idea` objects.
 # Uses Claude Code to analyze content and create appropriate wiki pages.
 #
 # Usage:
 #     from src.knowledge.learners.ingestors import IdeaIngestor
-#     from src.knowledge.researcher import Idea
+#     from src.knowledge.types import Source
 #     
 #     ingestor = IdeaIngestor()
-#     pages = ingestor.ingest(idea)
+#     pages = ingestor.ingest(idea)  # idea is Source.Idea
 
 from src.knowledge.learners.ingestors.factory import register_ingestor
 from src.knowledge.learners.ingestors.research_ingestor.base import ResearchIngestorBase

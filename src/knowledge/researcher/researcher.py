@@ -17,11 +17,8 @@ from typing import List, Literal, Union, overload
 
 from openai import OpenAI
 
+from src.knowledge.types import Source, ResearchFindings
 from src.knowledge.researcher.research_findings import (
-    Idea,
-    Implementation,
-    ResearchReport,
-    ResearchFindings,
     ResearchMode,
     ResearchModeInput,
     parse_idea_results,
@@ -35,7 +32,7 @@ logger = logging.getLogger(__name__)
 ResearchDepth = Literal["light", "deep"]
 
 # Return type for single mode
-ResearchResultSingle = Union[List[Idea], List[Implementation], ResearchReport]
+ResearchResultSingle = Union[List[Source.Idea], List[Source.Implementation], Source.ResearchReport]
 
 # Prompts directory
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -47,14 +44,14 @@ class Researcher:
     Deep public web research using OpenAI Responses API + `web_search`.
     
     Supports three research modes:
-    - idea: Conceptual understanding, returns List[Idea]
-    - implementation: Working code snippets, returns List[Implementation]
-    - study: Comprehensive research report, returns ResearchReport
+    - idea: Conceptual understanding, returns List[Source.Idea]
+    - implementation: Working code snippets, returns List[Source.Implementation]
+    - study: Comprehensive research report, returns Source.ResearchReport
     
     Usage:
         researcher = Researcher()
         
-        # Single mode - returns List[Idea]
+        # Single mode - returns List[Source.Idea]
         ideas = researcher.research("How to fine-tune LLMs?", mode="idea", top_k=5)
         
         # Multiple modes - returns ResearchFindings
@@ -79,7 +76,7 @@ class Researcher:
         mode: ResearchModeInput,
         top_k: int = 5,
         depth: ResearchDepth = "deep",
-    ) -> Union[List[Idea], List[Implementation], ResearchReport, ResearchFindings]:
+    ) -> Union[List[Source.Idea], List[Source.Implementation], Source.ResearchReport, ResearchFindings]:
         """
         Run deep web research.
         
@@ -92,9 +89,9 @@ class Researcher:
             depth: Research depth ("light" or "deep").
         
         Returns:
-            - List[Idea] if mode="idea"
-            - List[Implementation] if mode="implementation"
-            - ResearchReport if mode="study"
+            - List[Source.Idea] if mode="idea"
+            - List[Source.Implementation] if mode="implementation"
+            - Source.ResearchReport if mode="study"
             - ResearchFindings if mode is a list
         """
         # Validate query
@@ -179,7 +176,7 @@ class Researcher:
             reasoning_effort: OpenAI reasoning effort level
             
         Returns:
-            List[Idea], List[Implementation], or ResearchReport based on mode
+            List[Source.Idea], List[Source.Implementation], or Source.ResearchReport based on mode
         """
         # Build prompt
         prompt = self._build_research_prompt(query=query, mode=mode, top_k=top_k)

@@ -5,26 +5,22 @@
 #   python -m tests.test_researcher_modes
 #
 # This script tests the Researcher class with the new API:
-# - mode="idea" returns List[Idea]
-# - mode="implementation" returns List[Implementation]
-# - mode="study" returns ResearchReport
+# - mode="idea" returns List[Source.Idea]
+# - mode="implementation" returns List[Source.Implementation]
+# - mode="study" returns Source.ResearchReport
 
 from typing import List
 
 from dotenv import load_dotenv
 
-from src.knowledge.researcher import (
-    Researcher,
-    Idea,
-    Implementation,
-    ResearchReport,
-)
+from src.knowledge.types import Source
+from src.knowledge.researcher import Researcher
 
 load_dotenv()
 
 
 def test_idea_mode():
-    """Test idea mode: returns List[Idea]."""
+    """Test idea mode: returns List[Source.Idea]."""
     print("\n" + "=" * 60)
     print("Test: Idea mode")
     print("=" * 60 + "\n")
@@ -32,7 +28,7 @@ def test_idea_mode():
     researcher = Researcher()
     query = "Best practices for LLM fine-tuning"
     
-    ideas: List[Idea] = researcher.research(
+    ideas: List[Source.Idea] = researcher.research(
         query=query,
         mode="idea",
         top_k=5,
@@ -44,7 +40,7 @@ def test_idea_mode():
     print(f"Results: {len(ideas)} ideas")
     
     for i, idea in enumerate(ideas, 1):
-        assert isinstance(idea, Idea), f"Expected Idea, got {type(idea)}"
+        assert isinstance(idea, Source.Idea), f"Expected Source.Idea, got {type(idea)}"
         assert idea.query == query, f"Expected query '{query}', got '{idea.query}'"
         print(f"\n{i}. Source: {idea.source}")
         print(f"   Content: {idea.content[:200]}...")
@@ -52,7 +48,7 @@ def test_idea_mode():
 
 
 def test_implementation_mode():
-    """Test implementation mode: returns List[Implementation]."""
+    """Test implementation mode: returns List[Source.Implementation]."""
     print("\n" + "=" * 60)
     print("Test: Implementation mode")
     print("=" * 60 + "\n")
@@ -60,7 +56,7 @@ def test_implementation_mode():
     researcher = Researcher()
     query = "How to implement RAG with LangChain"
     
-    impls: List[Implementation] = researcher.research(
+    impls: List[Source.Implementation] = researcher.research(
         query=query,
         mode="implementation",
         top_k=3,
@@ -72,7 +68,7 @@ def test_implementation_mode():
     print(f"Results: {len(impls)} implementations")
     
     for i, impl in enumerate(impls, 1):
-        assert isinstance(impl, Implementation), f"Expected Implementation, got {type(impl)}"
+        assert isinstance(impl, Source.Implementation), f"Expected Source.Implementation, got {type(impl)}"
         assert impl.query == query, f"Expected query '{query}', got '{impl.query}'"
         print(f"\n{i}. Source: {impl.source}")
         print(f"   Content: {impl.content[:200]}...")
@@ -80,7 +76,7 @@ def test_implementation_mode():
 
 
 def test_study_mode():
-    """Test study mode: returns ResearchReport."""
+    """Test study mode: returns Source.ResearchReport."""
     print("\n" + "=" * 60)
     print("Test: Study mode")
     print("=" * 60 + "\n")
@@ -88,13 +84,13 @@ def test_study_mode():
     researcher = Researcher()
     query = "How to improve DPO LLM post-training with unsloth"
     
-    report: ResearchReport = researcher.research(
+    report: Source.ResearchReport = researcher.research(
         query=query,
         mode="study",
         depth="deep",
     )
     
-    assert isinstance(report, ResearchReport), f"Expected ResearchReport, got {type(report)}"
+    assert isinstance(report, Source.ResearchReport), f"Expected Source.ResearchReport, got {type(report)}"
     assert report.query == query, f"Expected query '{query}', got '{report.query}'"
     
     print(f"Query: {query}")

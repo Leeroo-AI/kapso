@@ -1,6 +1,6 @@
 # Research Ingestors
 
-Agentic ingestors for converting research outputs (`Idea`, `Implementation`, `ResearchReport`) into properly structured wiki pages.
+Agentic ingestors for converting research outputs (`Source.Idea`, `Source.Implementation`, `Source.ResearchReport`) into properly structured wiki pages.
 
 ## Overview
 
@@ -32,6 +32,7 @@ All ingestors share a common three-phase pipeline:
 
 ```python
 from src.knowledge.learners.ingestors import IdeaIngestor
+from src.knowledge.types import Source
 from src.knowledge.researcher import Researcher
 
 # Research
