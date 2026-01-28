@@ -2331,8 +2331,10 @@ Only include pages that would actually help answer the query.
         # Clear Weaviate collection
         if self._weaviate_client:
             try:
-                self._weaviate_client.collections.delete(self.weaviate_collection)
-                logger.info(f"Deleted Weaviate collection '{self.weaviate_collection}'")
+                # Use default collection name if not set
+                collection_name = self.weaviate_collection or "KGWikiPages"
+                self._weaviate_client.collections.delete(collection_name)
+                logger.info(f"Deleted Weaviate collection '{collection_name}'")
             except Exception as e:
                 logger.warning(f"Could not delete Weaviate collection: {e}")
         

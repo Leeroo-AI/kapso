@@ -108,6 +108,18 @@ def run_merge_test(staging_subdir: str, merger: KnowledgeMerger) -> MergeResult:
     return result
 
 
+def clear_databases():
+    """Clear Neo4j and Weaviate databases for a clean test start."""
+    from src.knowledge.search.kg_graph_search import KGGraphSearch
+    
+    try:
+        search = KGGraphSearch()
+        search.clear()
+        print("Cleared Neo4j and Weaviate databases")
+    except Exception as e:
+        print(f"Warning: Could not clear databases: {e}")
+
+
 def main():
     """Main test runner."""
     print("="*60)
@@ -120,6 +132,9 @@ def main():
     # Clean start - remove existing wiki_dir
     clean_wiki_dir(WIKI_DIR)
     WIKI_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Also clear Neo4j and Weaviate databases to avoid stale data
+    clear_databases()
     
     # Track overall results
     all_results = []
