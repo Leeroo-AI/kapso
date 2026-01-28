@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from src.knowledge.learners.ingestors.factory import IngestorFactory
-from src.knowledge.learners.knowledge_merger import (
+from src.knowledge.learners.merger import (
     KnowledgeMerger,
     MergeResult,
 )
