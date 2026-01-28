@@ -31,7 +31,7 @@ pipeline = KnowledgePipeline(wiki_dir="data/wikis")
 
 # Full pipeline: ingest + merge
 result = pipeline.run(Source.Repo("https://github.com/user/repo"))
-print(f"Created: {result.created}, Merged: {result.merged}")
+print(f"Created: {result.created}, Edited: {result.edited}")
 ```
 
 ### Via Kapso API
@@ -110,12 +110,27 @@ IngestorFactory.list_ingestors()  # ["repo", "solution", "research"]
 
 ### RepoIngestor
 
-The most sophisticated ingestor, using a multi-phase pipeline:
+The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 
-1. **Repository Understanding** - Generates AST scaffold, agent explores file structure
-2. **Knowledge Extraction** - Extracts concepts, patterns, and implementation details
-3. **Page Generation** - Creates structured wiki pages from extracted knowledge
-4. **Validation** - Ensures graph integrity and fixes broken links
+**Phase 0: Repository Understanding (pre-phase)**
+- Parse repo structure, generate `_RepoMap.md` with AST info
+- Agent fills in natural language understanding for each file
+- Subsequent phases read this file instead of re-exploring
+
+**Branch 1: Workflow-Based Extraction**
+- **Phase 1a: Anchoring** - Find workflows from README/examples, write Workflow pages + rough WorkflowIndex
+- **Phase 1b: Anchoring Context** - Enrich WorkflowIndex with detailed implementation context
+- **Phase 2: Excavation+Synthesis** - Trace imports, write Implementation-Principle pairs together
+- **Phase 3: Enrichment** - Mine constraints/tips, write Environment/Heuristic pages
+- **Phase 4: Audit** - Validate graph integrity, fix broken links
+- **Phase 4b: Repo Builder** - Create GitHub repositories for workflows
+
+**Branch 2: Orphan Mining (runs after Branch 1)**
+- **Phase 5a: Triage (code)** - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
+- **Phase 5b: Review (agent)** - Agent evaluates MANUAL_REVIEW files
+- **Phase 5c: Create (agent)** - Agent creates wiki pages for approved files
+- **Phase 5d: Verify (code)** - Verify all approved files have pages
+- **Phase 6: Orphan Audit** - Validate orphan nodes
 
 ### ResearchIngestor
 

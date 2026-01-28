@@ -110,12 +110,23 @@ def run_merge_test(staging_subdir: str, merger: KnowledgeMerger) -> MergeResult:
 
 def clear_databases():
     """Clear Neo4j and Weaviate databases for a clean test start."""
+    import json
     from src.knowledge.search.kg_graph_search import KGGraphSearch
     
+    # Try to read collection name from existing index file
+    weaviate_collection = "KGWikiPages"  # default
+    if INDEX_FILE.exists():
+        try:
+            with open(INDEX_FILE, 'r') as f:
+                index_data = json.load(f)
+            weaviate_collection = index_data.get("backend_refs", {}).get("weaviate_collection", weaviate_collection)
+        except Exception:
+            pass
+    
     try:
-        search = KGGraphSearch()
+        search = KGGraphSearch(params={"weaviate_collection": weaviate_collection})
         search.clear()
-        print("Cleared Neo4j and Weaviate databases")
+        print(f"Cleared Neo4j and Weaviate databases (collection: {weaviate_collection})")
     except Exception as e:
         print(f"Warning: Could not clear databases: {e}")
 
@@ -129,12 +140,13 @@ def main():
     print(f"Wiki dir: {WIKI_DIR}")
     print(f"Index file: {INDEX_FILE}")
     
-    # Clean start - remove existing wiki_dir
+    # Clear Neo4j and Weaviate databases FIRST (before deleting .index file)
+    # This reads the collection name from .index if it exists
+    clear_databases()
+    
+    # Then clean the wiki directory (which deletes .index)
     clean_wiki_dir(WIKI_DIR)
     WIKI_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Also clear Neo4j and Weaviate databases to avoid stale data
-    clear_databases()
     
     # Track overall results
     all_results = []

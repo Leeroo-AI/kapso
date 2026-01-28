@@ -212,14 +212,14 @@ src/
 │   │
 │   ├── learners/            # Knowledge learning pipeline
 │   │   ├── knowledge_learner_pipeline.py
-│   │   ├── knowledge_merger.py
+│   │   ├── merger/          # Stage 2: WikiPages → KG
+│   │   │   └── knowledge_merger.py
 │   │   ├── sources.py       # Source type wrappers
 │   │   └── ingestors/       # Stage 1: source → WikiPages
 │   │       ├── base.py
 │   │       ├── factory.py
 │   │       ├── repo_ingestor/
-│   │       ├── experiment_ingestor.py
-│   │       └── research_ingestor.py
+│   │       └── research_ingestor/
 │   │
 │   ├── researcher/           # Deep web research
 │   │   ├── researcher.py
