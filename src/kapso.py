@@ -415,7 +415,7 @@ class Kapso:
         print(
             f"Learn complete: sources={result.sources_processed}, "
             f"extracted_pages={result.total_pages_extracted}, "
-            f"created={result.created}, merged={result.merged}, "
+            f"created={result.created}, edited={result.edited}, "
             f"errors={len(result.errors)}"
         )
 

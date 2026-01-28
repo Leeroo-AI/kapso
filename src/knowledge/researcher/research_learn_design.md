@@ -187,7 +187,7 @@ pipeline = KnowledgePipeline()
 ideas = researcher.research("LoRA fine-tuning", mode="idea", top_k=5)
 for idea in ideas:
     result = pipeline.run(idea)
-    print(f"Created: {result.created}, Merged: {result.merged}")
+    print(f"Created: {result.created}, Edited: {result.edited}")
 
 # Learn from implementations
 impls = researcher.research("FastAPI streaming", mode="implementation", top_k=3)

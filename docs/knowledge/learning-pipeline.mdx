@@ -68,7 +68,9 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 |-------------|-------------|--------|
 | `Source.Repo(url, branch="main")` | Git repository | Implemented |
 | `Source.Solution(solution)` | Completed experiment | Basic |
-| `Source.Research(...)` | Web research result | Implemented |
+| `Source.Idea(query, source, content)` | Research idea | Implemented |
+| `Source.Implementation(query, source, content)` | Code implementation | Implemented |
+| `Source.ResearchReport(query, content)` | Research report | Implemented |
 
 ```python
 from src.knowledge.learners import Source
@@ -80,9 +82,10 @@ repo = Source.Repo("https://github.com/user/repo", branch="main")
 solution = kapso.evolve(goal="...")
 sol_source = Source.Solution(solution)
 
-# Research source (from research())
-research = kapso.research("topic", mode="idea")
-# research is already a Source.Research
+# Research sources (from research())
+findings = kapso.research("topic", mode=["idea", "implementation"])
+# findings.ideas is List[Source.Idea]
+# findings.implementations is List[Source.Implementation]
 ```
 
 ## Stage 1: Ingestors
@@ -128,15 +131,24 @@ pages = ingestor.ingest(research)
 
 ## Stage 2: Knowledge Merger
 
-The merger uses an LLM agent to analyze proposed pages against the existing KG.
+The merger uses a **hierarchical sub-graph-aware algorithm** with a single Claude Code agent call. It processes connected pages as units, respecting the Knowledge Graph DAG structure.
+
+### Merge Algorithm
+
+The merger executes a 5-phase process:
+
+1. **Sub-Graph Detection** - Groups connected pages into sub-graphs
+2. **Planning** - Top-down merge decisions (root to leaves)
+3. **Execution** - Bottom-up page creation/editing (leaves to root)
+4. **Audit** - Verifies nodes and edges after each sub-graph
+5. **Finalize** - Collects results and generates summary
 
 ### Merge Actions
 
 | Action | Description |
 |--------|-------------|
-| `create_new` | New page for novel knowledge |
-| `update_existing` | Improve existing page |
-| `add_links` | Add new connections |
+| `CREATE_NEW` | New page for novel knowledge |
+| `MERGE_INTO` | Update existing page with new content |
 | `skip` | Duplicate or low-quality |
 
 ### Using the Merger
@@ -151,8 +163,8 @@ result = merger.merge(
 )
 
 print(f"Created: {len(result.created)}")
-print(f"Merged: {len(result.merged)}")
-print(f"Skipped: {len(result.skipped)}")
+print(f"Edited: {len(result.edited)}")
+print(f"Failed: {len(result.failed)}")
 ```
 
 ### Merge Result
@@ -160,10 +172,13 @@ print(f"Skipped: {len(result.skipped)}")
 ```python
 @dataclass
 class MergeResult:
-    created: List[str]      # New page IDs created
-    merged: List[str]       # Existing pages updated
-    skipped: List[str]      # Pages not added
-    errors: List[str]       # Error messages
+    total_proposed: int       # Pages proposed for merge
+    subgraphs_processed: int  # Sub-graphs detected and processed
+    created: List[str]        # New page IDs created
+    edited: List[str]         # Existing pages updated
+    failed: List[str]         # Pages that failed to process
+    errors: List[str]         # Error messages
+    plan_path: Optional[Path] # Path to merge plan file
 ```
 
 ## WikiPage Structure
@@ -224,7 +239,7 @@ class PipelineResult:
     @property
     def created(self) -> int
     @property
-    def merged(self) -> int
+    def edited(self) -> int
     @property
     def success(self) -> bool
 ```
