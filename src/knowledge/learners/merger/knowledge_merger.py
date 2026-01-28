@@ -340,7 +340,15 @@ class KnowledgeMerger:
         logger.info(f"Running hierarchical merge for {len(pages)} pages...")
         
         # Single agent call
-        agent_result = self._agent.generate_code(prompt)
+        try:
+            agent_result = self._agent.generate_code(prompt)
+        except Exception as e:
+            logger.error(f"Agent execution failed: {e}")
+            import traceback
+            traceback.print_exc()
+            result = MergeResult(total_proposed=len(pages))
+            result.errors.append(f"Agent execution failed: {e}")
+            return result
         
         if not agent_result.success:
             result = MergeResult(total_proposed=len(pages))
@@ -363,7 +371,34 @@ class KnowledgeMerger:
         Initialize Claude Code agent with wiki MCP tools.
         
         Defaults to AWS Bedrock with Claude Opus 4.5 if no config provided.
+        
+        MCP Server Configuration:
+        - Configures the kg-graph-search MCP server for knowledge operations
+        - Passes KG_INDEX_PATH to the MCP server via environment
         """
+        # Get project root for MCP server paths
+        # The MCP server module is at src.knowledge.wiki_mcps.mcp_server
+        project_root = Path(__file__).parent.parent.parent.parent.parent
+        
+        # Build MCP server configuration
+        mcp_env = {
+            "PYTHONPATH": str(project_root),
+            "KG_SEARCH_BACKEND": "kg_graph_search",
+        }
+        
+        # Pass KG index path to MCP server if available
+        if self._kg_index_path:
+            mcp_env["KG_INDEX_PATH"] = str(self._kg_index_path)
+        
+        mcp_servers = {
+            "kg-graph-search": {
+                "command": "python",
+                "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+                "cwd": str(project_root),
+                "env": mcp_env,
+            }
+        }
+        
         agent_specific = {
             "allowed_tools": [
                 "Read",
@@ -375,6 +410,7 @@ class KnowledgeMerger:
             ],
             "timeout": self._agent_config.get("timeout", 3600),
             "planning_mode": True,
+            "mcp_servers": mcp_servers,
         }
         
         # Model configuration
@@ -390,12 +426,6 @@ class KnowledgeMerger:
             if not model:
                 model = "us.anthropic.claude-opus-4-5-20251101-v1:0"
         
-        # Pass KG index path to MCP server
-        if self._kg_index_path:
-            agent_specific["env_overrides"] = {
-                "KG_INDEX_PATH": str(self._kg_index_path)
-            }
-        
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",
             model=model,
@@ -405,7 +435,7 @@ class KnowledgeMerger:
         
         self._agent = CodingAgentFactory.create(config)
         self._agent.initialize(str(workspace))
-        logger.info(f"Initialized Claude Code agent (bedrock={use_bedrock})")
+        logger.info(f"Initialized Claude Code agent (bedrock={use_bedrock}, mcp=True)")
     
     def _build_merge_prompt(self, pages: List[WikiPage], wiki_dir: Path) -> str:
         """Build the comprehensive merge instruction prompt."""

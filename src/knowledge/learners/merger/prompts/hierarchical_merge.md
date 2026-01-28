@@ -64,13 +64,13 @@ Generated: {timestamp}
 
 ## Phase 1: Sub-Graph Detection
 
-Total proposed pages: {count}
+Total proposed pages: <count>
 
 ### SubGraph 1
-- **Root**: {page_id} ({page_type})
+- **Root**: <page_id> (<page_type>)
 - **Nodes**: 
-  - {page_id_1} ({type})
-  - {page_id_2} ({type})
+  - <page_id_1> (<type>)
+  - <page_id_2> (<type>)
   - ...
 
 ### SubGraph 2
@@ -127,26 +127,26 @@ For each node, record which parent should add an edge to it after processing.
 ```markdown
 ## Phase 2: Planning
 
-### SubGraph 1: {subgraph_id}
+### SubGraph 1: <subgraph_id>
 
 #### Root Decision
-- **Page**: {page_id}
-- **Type**: {page_type}
+- **Page**: <page_id>
+- **Type**: <page_type>
 - **Decision**: MERGE | CREATE_NEW
-- **Target**: {target_page_id or "N/A"}
-- **Reason**: {brief explanation}
+- **Target**: <target_page_id or "N/A">
+- **Reason**: <brief explanation>
 
 #### Execution Order
-1. {page_id} ({type}) → {decision} with {target}
-2. {page_id} ({type}) → {decision} with {target}
+1. <page_id> (<type>) → <decision> with <target>
+2. <page_id> (<type>) → <decision> with <target>
 ...
 
 #### Node Plans
 
 | Node | Type | Decision | Target | Parent | Deferred Edge | Status |
 |------|------|----------|--------|--------|---------------|--------|
-| {id} | {type} | MERGE | {target} | {parent_id} | {edge_type} | PENDING |
-| {id} | {type} | CREATE_NEW | N/A | {parent_id} | {edge_type} | PENDING |
+| <id> | <type> | MERGE | <target> | <parent_id> | <edge_type> | PENDING |
+| <id> | <type> | CREATE_NEW | N/A | <parent_id> | <edge_type> | PENDING |
 ...
 ```
 
@@ -190,7 +190,7 @@ Execute the plan for each sub-graph, processing nodes in the computed order:
 **Update plan.md after each node:**
 
 ```markdown
-| {id} | {type} | MERGE | {target} | {parent_id} | {edge_type} | COMPLETED |
+| <id> | <type> | MERGE | <target> | <parent_id> | <edge_type> | COMPLETED |
 ```
 
 ---
@@ -231,7 +231,7 @@ If audit fails:
 - **Status**: PASSED | FAILED
 - **Retry Count**: 0
 - **Issues**: (if any)
-  - {issue description}
+  - <issue description>
 ```
 
 ---
@@ -250,23 +250,23 @@ Collect and report final results:
 ## Phase 5: Final Result
 
 ### Created Pages
-- {page_id_1}
-- {page_id_2}
+- <page_id_1>
+- <page_id_2>
 
 ### Edited Pages
-- {page_id_1}
-- {page_id_2}
+- <page_id_1>
+- <page_id_2>
 
 ### Failed Pages
-- {page_id} - {reason}
+- <page_id> - <reason>
 
 ### Status: SUCCESS | PARTIAL | FAILED
 
 ### Summary
-- Total proposed: {count}
-- Created: {count}
-- Edited: {count}
-- Failed: {count}
+- Total proposed: <count>
+- Created: <count>
+- Edited: <count>
+- Failed: <count>
 ```
 
 ---

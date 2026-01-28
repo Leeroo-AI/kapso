@@ -25,6 +25,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
+
 from src.knowledge.learners.merger import KnowledgeMerger, MergeResult
 from src.knowledge.search.kg_graph_search import parse_wiki_directory
 
