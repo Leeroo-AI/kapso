@@ -27,7 +27,6 @@
 
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -36,8 +35,7 @@ from typing import Any, Dict, List, Optional
 
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.knowledge.learners.merger.prompts import load_prompt
-from src.knowledge.search.base import WikiPage, KGIndexInput, KGIndexMetadata
-from src.knowledge.search.factory import KnowledgeSearchFactory
+from src.knowledge.search.base import WikiPage, KGIndexMetadata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -154,7 +152,6 @@ class KnowledgeMerger:
         self._agent_config = agent_config or {}
         self._kg_index_path: Optional[str] = self._agent_config.get("kg_index_path")
         self._agent = None
-        self._search_backend = None
     
     # =========================================================================
     # Main Merge Entry Point
@@ -165,7 +162,7 @@ class KnowledgeMerger:
         Main merge entry point using hierarchical sub-graph-aware algorithm.
         
         Process:
-        1. Check if KG index exists
+        1. Check if KG index exists (explicit path or auto-detect in wiki_dir)
         2. If no index: create all pages as new (write to wiki_dir)
         3. If index exists: run agentic hierarchical merge
         
@@ -184,8 +181,8 @@ class KnowledgeMerger:
             return result
         
         try:
-            # Step 1: Check if index is available
-            has_index = self._try_initialize_index()
+            # Step 1: Check if index is available (explicit or auto-detect)
+            has_index = self._try_initialize_index(wiki_dir)
             
             if not has_index:
                 # No index available - create all pages as new
@@ -200,18 +197,36 @@ class KnowledgeMerger:
             result.errors.append(str(e))
             return result
     
-    def _try_initialize_index(self) -> bool:
+    def _try_initialize_index(self, wiki_dir: Path) -> bool:
         """
         Check if we should use merge mode (agent + MCP tools).
+        
+        Checks in order:
+        1. Explicit kg_index_path from agent_config
+        2. Auto-detect .index file in wiki_dir
+        
+        Args:
+            wiki_dir: Wiki directory to check for .index file
         
         Returns:
             True if index exists and merge mode should be used
         """
-        if not self._kg_index_path:
+        # Priority 1: Explicit path from config
+        index_path_to_check = self._kg_index_path
+        
+        # Priority 2: Auto-detect in wiki_dir
+        if not index_path_to_check:
+            auto_index = wiki_dir / ".index"
+            if auto_index.exists():
+                logger.info(f"Auto-detected index file: {auto_index}")
+                index_path_to_check = str(auto_index)
+                self._kg_index_path = index_path_to_check
+        
+        if not index_path_to_check:
             return False
         
         try:
-            index_path = Path(self._kg_index_path).expanduser().resolve()
+            index_path = Path(index_path_to_check).expanduser().resolve()
             if not index_path.exists():
                 raise FileNotFoundError(f"Index file not found: {index_path}")
             
@@ -225,10 +240,11 @@ class KnowledgeMerger:
                     f"Got: {backend!r}"
                 )
             
+            logger.info(f"Using index: {index_path} ({metadata.page_count} pages)")
             return True
             
         except Exception as e:
-            raise RuntimeError(f"Invalid kg_index_path={self._kg_index_path!r}: {e}") from e
+            raise RuntimeError(f"Invalid kg_index_path={index_path_to_check!r}: {e}") from e
     
     # =========================================================================
     # Create All Pages (No Index Mode)
@@ -262,17 +278,21 @@ class KnowledgeMerger:
         
         logger.info(f"Created {len(result.created)} new pages")
         
-        # Best-effort indexing
+        # Index pages using Kapso.index_kg() - creates .index file in wiki_dir
+        # This enables auto-detection for subsequent merge calls
         try:
-            if not self._search_backend:
-                self._initialize_search_backend()
+            from src.kapso import Kapso
             
-            index_input = KGIndexInput(pages=proposed_pages, wiki_dir=wiki_dir)
-            self._search_backend.index(index_input)
-            logger.info(f"Indexed {len(proposed_pages)} pages to search backend")
+            index_path = wiki_dir / ".index"
+            kapso = Kapso()
+            kapso.index_kg(
+                wiki_dir=str(wiki_dir),
+                save_to=str(index_path),
+            )
+            logger.info(f"Created index file: {index_path}")
             
         except Exception as e:
-            logger.warning(f"Could not index pages to search backend: {e}")
+            logger.warning(f"Could not create index file: {e}")
         
         return result
     
@@ -516,34 +536,11 @@ class KnowledgeMerger:
         return result
     
     # =========================================================================
-    # Search Backend Management
-    # =========================================================================
-    
-    def _initialize_search_backend(self) -> None:
-        """Initialize the search backend for best-effort indexing."""
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_user = os.getenv("NEO4J_USER", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
-        
-        self._search_backend = KnowledgeSearchFactory.create(
-            "kg_graph_search",
-            params={
-                "neo4j_uri": neo4j_uri,
-                "neo4j_user": neo4j_user,
-                "neo4j_password": neo4j_password,
-            },
-        )
-        logger.info("Initialized search backend")
-    
-    # =========================================================================
     # Cleanup
     # =========================================================================
     
     def close(self) -> None:
         """Clean up resources."""
-        if self._search_backend:
-            self._search_backend.close()
-            self._search_backend = None
         self._agent = None
     
     def __enter__(self):

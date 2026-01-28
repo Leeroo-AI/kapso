@@ -12,8 +12,12 @@
 #     2. implementation_How_to_implement_RAG_with_Lang_4284e5484393/
 #     3. researchreport_Comparison_of_LoRA_QLoRA_and_f_6f518d536006/
 #
-# Each run adds one directory's pages to the wiki_dir.
+# Flow:
+#     Round 1: No index exists -> creates all pages as new
+#              KnowledgeMerger automatically creates .index file in wiki_dir
+#     Round 2+: Index auto-detected in wiki_dir -> runs agentic hierarchical merge
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -35,6 +39,9 @@ STAGING_DIR = project_root / "data" / "wikis_test_research" / "_staging"
 # Target wiki directory for merge tests
 WIKI_DIR = project_root / "data" / "wiki_merge_test"
 
+# Index file path (inside wiki_dir for auto-detection)
+INDEX_FILE = WIKI_DIR / ".index"
+
 # Test directories in order of complexity
 TEST_DIRS = [
     "idea_Best_practices_for_LLM_fine_tu_32be8ec18368",
@@ -44,8 +51,15 @@ TEST_DIRS = [
 
 
 # =============================================================================
-# Test Functions
+# Helper Functions
 # =============================================================================
+
+def clean_wiki_dir(wiki_dir: Path) -> None:
+    """Remove wiki directory to start fresh."""
+    if wiki_dir.exists():
+        shutil.rmtree(wiki_dir)
+        print(f"Cleaned wiki directory: {wiki_dir}")
+
 
 def load_pages_from_staging(staging_subdir: str):
     """Load WikiPage objects from a staging subdirectory."""
@@ -56,6 +70,10 @@ def load_pages_from_staging(staging_subdir: str):
     pages = parse_wiki_directory(source_dir)
     return pages
 
+
+# =============================================================================
+# Test Functions
+# =============================================================================
 
 def run_merge_test(staging_subdir: str, merger: KnowledgeMerger) -> MergeResult:
     """Run merge test for a single staging directory."""
@@ -93,16 +111,17 @@ def main():
     print("="*60)
     print(f"Staging dir: {STAGING_DIR}")
     print(f"Wiki dir: {WIKI_DIR}")
+    print(f"Index file: {INDEX_FILE}")
     
-    # Ensure wiki_dir exists
+    # Clean start - remove existing wiki_dir
+    clean_wiki_dir(WIKI_DIR)
     WIKI_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Create merger (no kg_index_path = create all as new)
-    # To test with merge mode, provide kg_index_path pointing to a .index file
-    merger = KnowledgeMerger()
     
     # Track overall results
     all_results = []
+    
+    # Create a single merger instance - it will auto-detect index after round 1
+    merger = KnowledgeMerger()
     
     # Process each test directory
     for i, test_dir in enumerate(TEST_DIRS, 1):
@@ -110,11 +129,20 @@ def main():
         print(f"# Round {i}/{len(TEST_DIRS)}")
         print(f"{'#'*60}")
         
+        # Check if index exists
+        if INDEX_FILE.exists():
+            print(f"Mode: AGENTIC MERGE (index auto-detected at {INDEX_FILE})")
+        else:
+            print("Mode: CREATE ALL (no index yet)")
+        
         try:
             result = run_merge_test(test_dir, merger)
             all_results.append((test_dir, result))
+                
         except Exception as e:
             print(f"\nERROR: {e}")
+            import traceback
+            traceback.print_exc()
             all_results.append((test_dir, None))
     
     # Summary
@@ -143,6 +171,7 @@ def main():
     print(f"  Failed: {total_failed}")
     
     print(f"\nWiki directory: {WIKI_DIR}")
+    print(f"Index file: {INDEX_FILE}")
     print("="*60)
 
 
