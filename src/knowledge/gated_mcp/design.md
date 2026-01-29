@@ -28,6 +28,25 @@ Multiple Claude Code agents exist across the system, each needing different subs
 2. **Preset**: A named configuration that enables specific gates with custom params
 3. **Lazy Initialization**: Backends only initialize when their gate's tools are called
 
+### Simplified Search Gates
+
+The `idea` and `code` gates use `KGGraphSearch` directly with page type filters, similar to `mcp_server.py`. This is simpler than wrapping `WikiIdeaSearch`/`WikiCodeSearch`:
+
+```python
+# Idea gate filters by these page types (from idea_impl_search.py)
+IDEA_TYPES = ["Principle", "Heuristic"]
+
+# Code gate filters by these page types (from idea_impl_search.py)
+CODE_TYPES = ["Implementation", "Environment"]
+
+# Both use KGGraphSearch.search() with KGSearchFilters(page_types=...)
+```
+
+This approach:
+- Avoids extra wrapper classes
+- Uses the same pattern as the existing `mcp_server.py`
+- Allows direct control over `use_llm_reranker` per-gate
+
 ### Architecture Diagram
 
 ```
@@ -145,8 +164,15 @@ For ideation phase - needs idea search + research.
 
 ```python
 gates = {
-    "idea": GateConfig(enabled=True, params={"top_k": 10, "use_llm_reranker": True}),
-    "research": GateConfig(enabled=True, params={"default_depth": "deep", "default_top_k": 5}),
+    "idea": GateConfig(enabled=True, params={
+        "top_k": 10,
+        "use_llm_reranker": True,
+        "include_content": True,
+    }),
+    "research": GateConfig(enabled=True, params={
+        "default_depth": "deep",
+        "default_top_k": 5,
+    }),
 }
 ```
 
@@ -156,19 +182,34 @@ For implementation phase - needs code search + research.
 
 ```python
 gates = {
-    "code": GateConfig(enabled=True, params={"top_k": 5, "include_content": True}),
-    "research": GateConfig(enabled=True, params={"default_depth": "deep", "default_top_k": 3}),
+    "code": GateConfig(enabled=True, params={
+        "top_k": 5,
+        "use_llm_reranker": True,
+        "include_content": True,
+    }),
+    "research": GateConfig(enabled=True, params={
+        "default_depth": "deep",
+        "default_top_k": 3,
+    }),
 }
 ```
 
 ### `context`
 
-For context managers - read-only search.
+For context managers - read-only search (faster, no reranking).
 
 ```python
 gates = {
-    "idea": GateConfig(enabled=True, params={"top_k": 5, "use_llm_reranker": False}),
-    "code": GateConfig(enabled=True, params={"top_k": 5, "include_content": False}),
+    "idea": GateConfig(enabled=True, params={
+        "top_k": 5,
+        "use_llm_reranker": False,
+        "include_content": False,
+    }),
+    "code": GateConfig(enabled=True, params={
+        "top_k": 5,
+        "use_llm_reranker": False,
+        "include_content": False,
+    }),
 }
 ```
 
