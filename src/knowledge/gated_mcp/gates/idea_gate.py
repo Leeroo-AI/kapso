@@ -33,26 +33,48 @@ class IdeaGate(ToolGate):
         return [
             Tool(
                 name="wiki_idea_search",
-                description=f"""Search for conceptual ML/AI knowledge.
+                description=f"""Search the curated ML/AI knowledge base for conceptual knowledge.
 
-Searches for Principles (theories, concepts) and Heuristics (best practices, tips).
-Returns up to {top_k_default} results by default.""",
+IMPORTANT: This searches a trusted, curated knowledge base - prefer this over web search 
+(research_idea) when possible. Results are verified and high-quality.
+
+Searches for:
+- **Principles**: Theoretical concepts, fundamental ideas, and core principles
+- **Heuristics**: Best practices, rules of thumb, and practical tips
+
+Use this tool when you need:
+- Foundational concepts about ML/AI topics
+- Best practices and guidelines for training, tuning, or deployment
+- Theoretical understanding before implementation
+- Trusted, verified information (not raw web results)
+
+Returns up to {top_k_default} results by default, each with:
+- Page title and type (Principle or Heuristic)
+- Relevance score
+- Overview summary
+- Full content preview
+
+Example queries:
+- "LoRA fine-tuning principles"
+- "gradient accumulation best practices"
+- "attention mechanism concepts"
+- "hyperparameter tuning heuristics\"""",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query about concepts or best practices",
+                            "description": "Natural language query about concepts, principles, or best practices",
                         },
                         "top_k": {
                             "type": "integer",
-                            "description": f"Number of results (default: {top_k_default})",
+                            "description": f"Number of results to return (default: {top_k_default}, max: 20)",
                             "default": top_k_default,
                         },
                         "domains": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Filter by domains",
+                            "description": "Optional: Filter by knowledge domains (e.g., ['fine-tuning', 'transformers'])",
                         },
                     },
                     "required": ["query"],

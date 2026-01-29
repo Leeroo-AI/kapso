@@ -5,25 +5,23 @@ This module provides a configurable MCP server that exposes different
 tool sets based on gate selection.
 
 Usage:
-    from src.knowledge.gated_mcp import get_allowed_tools_for_gates
+    from src.knowledge.gated_mcp import get_mcp_config
     
-    # Get allowed tools for Claude Code config
-    tools = get_allowed_tools_for_gates(["idea", "research"], "gated-knowledge")
+    # Get MCP config and allowed tools in one call
+    mcp_servers, allowed_tools = get_mcp_config(["idea", "research"])
     
-    # Configure MCP server
-    mcp_servers = {
-        "gated-knowledge": {
-            "command": "python",
-            "args": ["-m", "src.knowledge.gated_mcp.server"],
-            "env": {"MCP_ENABLED_GATES": "idea,research"},
-        }
-    }
+    # Use in Claude Code config
+    config = CodingAgentConfig(agent_specific={
+        "mcp_servers": mcp_servers,
+        "allowed_tools": allowed_tools,
+    })
 """
 
 from src.knowledge.gated_mcp.presets import (
     GATES,
     GateDefinition,
     get_allowed_tools_for_gates,
+    get_mcp_config,
     list_gates,
     get_gate_config,
 )
@@ -34,6 +32,7 @@ __all__ = [
     "GATES",
     "GateDefinition",
     "get_allowed_tools_for_gates",
+    "get_mcp_config",
     "list_gates",
     "get_gate_config",
     # Server

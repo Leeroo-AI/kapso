@@ -16,7 +16,6 @@ Environment:
 import os
 import shutil
 import tempfile
-from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
@@ -42,47 +41,25 @@ def run_idea_search_test() -> bool:
     """
     from src.execution.coding_agents.base import CodingAgentConfig
     from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from src.knowledge.gated_mcp import get_allowed_tools_for_gates
+    from src.knowledge.gated_mcp import get_mcp_config
     
     print("=" * 60)
     print("Gated MCP Idea Search Test")
     print("=" * 60)
     
-    # Get project root
-    project_root = Path(__file__).parent.parent
-    
     # Create temp workspace
     workspace = tempfile.mkdtemp(prefix="gated_mcp_idea_test_")
     print(f"Workspace: {workspace}")
     
-    # Define which gates to enable
-    gates = ["idea", "research"]
+    # Get MCP config for idea and research gates
+    mcp_servers, allowed_tools = get_mcp_config(["idea", "code", "research"])
     
-    # MCP server configuration
-    mcp_env = {
-        "PYTHONPATH": str(project_root),
-        "MCP_ENABLED_GATES": ",".join(gates),
-    }
+    print(f"Gates: idea, research")
+    print(f"Allowed tools: {allowed_tools}")
     
-    # Add KG_INDEX_PATH if available
     kg_index_path = os.environ.get("KG_INDEX_PATH")
     if kg_index_path:
-        mcp_env["KG_INDEX_PATH"] = kg_index_path
         print(f"KG Index: {kg_index_path}")
-    
-    mcp_servers = {
-        "gated-knowledge": {
-            "command": "python",
-            "args": ["-m", "src.knowledge.gated_mcp.server"],
-            "cwd": str(project_root),
-            "env": mcp_env,
-        }
-    }
-    
-    # Get allowed tools for the gates
-    allowed_tools = get_allowed_tools_for_gates(gates, "gated-knowledge")
-    print(f"Gates: {gates}")
-    print(f"Allowed tools: {allowed_tools}")
     
     # Configure agent with Bedrock
     config = CodingAgentConfig(
@@ -112,9 +89,7 @@ def run_idea_search_test() -> bool:
     print("-" * 60)
     
     result = agent.generate_code(
-        "Search for principles about LoRA fine-tuning. "
-        "First try wiki_idea_search, and if no results are found, use research_idea to search the web. "
-        "Report what you find in a brief summary."
+        "what is the best open-source for post-training LLMs on legal documents?"
     )
     
     print("-" * 60)

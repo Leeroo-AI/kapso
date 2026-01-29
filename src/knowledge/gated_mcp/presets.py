@@ -4,8 +4,10 @@ Gate definitions and configuration for the Gated MCP Server.
 Each gate groups related tools with default configuration parameters.
 """
 
+import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -100,6 +102,73 @@ def get_allowed_tools_for_gates(
                 tools.append(mcp_tool)
     
     return tools
+
+
+def get_mcp_config(
+    gates: List[str],
+    server_name: str = "gated-knowledge",
+    project_root: Optional[Path] = None,
+    kg_index_path: Optional[str] = None,
+    include_base_tools: bool = True,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Get MCP server config and allowed tools for the given gates.
+    
+    Args:
+        gates: List of gate names (e.g., ["idea", "research"])
+        server_name: MCP server name (default: "gated-knowledge")
+        project_root: Project root path (defaults to 2 levels up from this file)
+        kg_index_path: Path to .index file. Required if "kg", "idea", or "code" 
+                       gates are enabled. Falls back to KG_INDEX_PATH env var.
+        include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
+    
+    Returns:
+        Tuple of (mcp_servers dict, allowed_tools list)
+        
+    Example:
+        >>> mcp_servers, allowed_tools = get_mcp_config(["idea", "research"])
+        >>> # Use in Claude Code config:
+        >>> config = CodingAgentConfig(agent_specific={
+        ...     "mcp_servers": mcp_servers,
+        ...     "allowed_tools": allowed_tools,
+        ... })
+    """
+    # Resolve project root
+    if project_root is None:
+        # Default: 3 levels up from this file (src/knowledge/gated_mcp -> project root)
+        project_root = Path(__file__).parent.parent.parent.parent
+    
+    # Build environment for MCP server
+    mcp_env: Dict[str, str] = {
+        "PYTHONPATH": str(project_root),
+        "MCP_ENABLED_GATES": ",".join(gates),
+    }
+    
+    # Resolve kg_index_path (needed for kg, idea, code gates)
+    kg_gates = {"kg", "idea", "code"}
+    needs_kg = bool(kg_gates & set(gates))
+    
+    if needs_kg:
+        resolved_kg_path = kg_index_path or os.environ.get("KG_INDEX_PATH")
+        if resolved_kg_path:
+            mcp_env["KG_INDEX_PATH"] = resolved_kg_path
+    
+    # Build MCP servers config
+    mcp_servers = {
+        server_name: {
+            "command": "python",
+            "args": ["-m", "src.knowledge.gated_mcp.server"],
+            "cwd": str(project_root),
+            "env": mcp_env,
+        }
+    }
+    
+    # Get allowed tools
+    allowed_tools = get_allowed_tools_for_gates(
+        gates, server_name, include_base_tools=include_base_tools
+    )
+    
+    return mcp_servers, allowed_tools
 
 
 def list_gates() -> List[str]:

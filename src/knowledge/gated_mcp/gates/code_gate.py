@@ -33,26 +33,48 @@ class CodeGate(ToolGate):
         return [
             Tool(
                 name="wiki_code_search",
-                description=f"""Search for code-related ML/AI knowledge.
+                description=f"""Search the curated ML/AI knowledge base for code and implementation knowledge.
 
-Searches for Implementations (code patterns, APIs) and Environments (setup guides).
-Returns up to {top_k_default} results by default.""",
+IMPORTANT: This searches a trusted, curated knowledge base - prefer this over web search 
+(research_implementation) when possible. Results are verified and high-quality.
+
+Searches for:
+- **Implementations**: Code patterns, API usage, algorithms, and working examples
+- **Environments**: Setup guides, configuration, dependencies, and infrastructure
+
+Use this tool when you need:
+- Working code examples and patterns
+- API documentation and usage guides
+- Environment setup and configuration instructions
+- Trusted, verified implementations (not raw web results)
+
+Returns up to {top_k_default} results by default, each with:
+- Page title and type (Implementation or Environment)
+- Relevance score
+- Overview summary
+- Full content preview with code
+
+Example queries:
+- "PyTorch LoRA implementation"
+- "HuggingFace trainer configuration"
+- "CUDA environment setup"
+- "distributed training code example\"""",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query about code, APIs, or setup",
+                            "description": "Natural language query about code, implementations, APIs, or setup",
                         },
                         "top_k": {
                             "type": "integer",
-                            "description": f"Number of results (default: {top_k_default})",
+                            "description": f"Number of results to return (default: {top_k_default}, max: 20)",
                             "default": top_k_default,
                         },
                         "domains": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Filter by domains",
+                            "description": "Optional: Filter by knowledge domains (e.g., ['pytorch', 'huggingface'])",
                         },
                     },
                     "required": ["query"],
