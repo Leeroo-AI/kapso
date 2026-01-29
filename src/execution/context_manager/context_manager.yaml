@@ -73,6 +73,33 @@ context_managers:
     default_preset: "LEGACY"
 
   # =========================================================================
+  # Basic Context Manager (No KG)
+  # =========================================================================
+  basic:
+    description: "Simple context manager without KG retrieval"
+    
+    presets:
+      # Default preset
+      DEFAULT:
+        params:
+          max_experiment_history_count: 5
+          max_recent_experiment_count: 5
+      
+      # Deep context - more history
+      DEEP_CONTEXT:
+        params:
+          max_experiment_history_count: 10
+          max_recent_experiment_count: 10
+      
+      # Minimal - for testing
+      MINIMAL:
+        params:
+          max_experiment_history_count: 3
+          max_recent_experiment_count: 3
+    
+    default_preset: "DEFAULT"
+
+  # =========================================================================
   # Token Efficient Context Manager
   # =========================================================================
   token_efficient:
