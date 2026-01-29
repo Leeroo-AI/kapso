@@ -64,6 +64,8 @@ Use the `kapso` conda environment which has PyTorch, CUDA, and Triton pre-instal
         initial_repo=initial_repo_dir,
         # Output the optimized solution
         output_path="./examples/cuda_optimization/cuda_optimized",
+        # Use basic linear search with Claude Code ideation
+        mode="BASIC_LINEAR",
         # Optional context from research
         # context=context,
     )

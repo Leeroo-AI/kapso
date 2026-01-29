@@ -226,7 +226,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         
         # Create temp file that persists until cleanup()
         # Use workspace-based path for easier debugging
-        config_dir = Path(self.workspace) / ".claude_mcp"
+        # IMPORTANT: Use absolute path to avoid path duplication when Claude Code
+        # runs with cwd=workspace and looks for the config relative to that directory
+        config_dir = Path(self.workspace).resolve() / ".claude_mcp"
         config_dir.mkdir(exist_ok=True)
         config_path = config_dir / "mcp_config.json"
         
@@ -534,13 +536,21 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 elif block.get("type") == "tool_use":
                     tool_name = block.get("name", "unknown")
                     tool_input = block.get("input", {})
-                    # Show tool call summary
+                    # Show tool call summary with arguments
                     if tool_name in ("Read", "Edit", "Write"):
                         path = tool_input.get("file_path", tool_input.get("path", "?"))
                         print(f"{c['blue']}  [tool:{tool_name}] {path}{c['reset']}", flush=True)
                     elif tool_name == "Bash":
                         cmd = tool_input.get("command", "")[:80]
                         print(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
+                    elif tool_name.startswith("mcp__"):
+                        # MCP tool - show the arguments
+                        import json
+                        args_str = json.dumps(tool_input, ensure_ascii=False)
+                        # Truncate if too long
+                        if len(args_str) > 200:
+                            args_str = args_str[:200] + "..."
+                        print(f"{c['blue']}  [tool:{tool_name}] {args_str}{c['reset']}", flush=True)
                     else:
                         print(f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True)
         
@@ -552,7 +562,15 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     tool_use_id = block.get("tool_use_id", "")[:8]
                     is_error = block.get("is_error", False)
                     status = "error" if is_error else "ok"
-                    print(f"{c['dim']}  [result:{status}] ...{c['reset']}", flush=True)
+                    # Show truncated result content
+                    result_content = block.get("content", "")
+                    if isinstance(result_content, str):
+                        result_preview = result_content[:150].replace('\n', ' ')
+                        if len(result_content) > 150:
+                            result_preview += "..."
+                    else:
+                        result_preview = "..."
+                    print(f"{c['dim']}  [result:{status}] {result_preview}{c['reset']}", flush=True)
         
         elif event_type == "result":
             # Final result - show summary

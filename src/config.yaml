@@ -148,6 +148,50 @@ modes:
       type: "kg_llm_navigation"
       enabled: false
 
+  # Basic linear search with Claude Code ideation and MCP gates
+  BASIC_LINEAR:
+    search_strategy:
+      type: "basic_linear_search"
+      params:
+        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        use_bedrock: true
+        aws_region: "us-east-1"
+        ideation_timeout: 300
+        implementation_timeout: 600
+        ideation_gates: ["idea", "code", "research"]
+        implementation_gates: ["code", "research"]
+    
+    coding_agent:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 600
+    
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    context_manager:
+      type: "basic"
+      params:
+        max_experiment_history_count: 5
+        max_recent_experiment_count: 5
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
+
   # Tree search for more complex problems
   TREE_SEARCH:
     search_strategy:
