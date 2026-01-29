@@ -105,7 +105,7 @@ pages = ingestor.ingest(Source.Repo("..."))
 ingestor = IngestorFactory.for_source(source)
 
 # List available ingestors
-IngestorFactory.list_ingestors()  # ["repo", "solution", "research"]
+IngestorFactory.list_ingestors()  # ["repo", "solution", "idea", "implementation", "researchreport"]
 ```
 
 ### RepoIngestor
@@ -132,39 +132,134 @@ The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 - **Phase 5d: Verify (code)** - Verify all approved files have pages
 - **Phase 6: Orphan Audit** - Validate orphan nodes
 
-### ResearchIngestor
+### Research Ingestors
 
-Converts web research results into WikiPages:
+Research ingestors convert web research results into WikiPages using a three-phase agentic pipeline:
+
+**Phase 1: Planning**
+- Analyzes content and decides what pages to create
+- Writes `_plan.md` with page decisions
+
+**Phase 2: Writing**
+- Creates wiki pages following section definitions
+- Writes pages to staging directory
+
+**Phase 3: Auditing**
+- Validates pages and fixes issues
+- Ensures graph integrity
+
+There are three specialized research ingestors:
+
+| Ingestor | Source Type | Description |
+|----------|-------------|-------------|
+| `IdeaIngestor` | `idea` | Extracts principles from research ideas |
+| `ImplementationIngestor` | `implementation` | Extracts implementations from code examples |
+| `ResearchReportIngestor` | `researchreport` | Extracts comprehensive knowledge from reports |
 
 ```python
 research = kapso.research("QLoRA best practices", mode="idea")
 
-# Ingest into WikiPages
-ingestor = IngestorFactory.create("research")
-pages = ingestor.ingest(research)
+# Ingest into WikiPages (auto-detects ingestor type)
+ingestor = IngestorFactory.for_source(research.ideas[0])
+pages = ingestor.ingest(research.ideas[0])
+
+# Or create by type
+ingestor = IngestorFactory.create("idea")
+pages = ingestor.ingest(Source.Idea(query="...", source="...", content="..."))
 ```
 
 ## Stage 2: Knowledge Merger
 
 The merger uses a **hierarchical sub-graph-aware algorithm** with a single Claude Code agent call. It processes connected pages as units, respecting the Knowledge Graph DAG structure.
 
+### Wiki Hierarchy
+
+The Knowledge Graph follows a top-down DAG structure:
+
+```
+Principle (Core Node - The Theory)
+├── implemented_by → Implementation (MANDATORY 1+)
+└── uses_heuristic → Heuristic (optional)
+
+Implementation (The Code)
+├── requires_env → Environment (optional)
+└── uses_heuristic → Heuristic (optional)
+
+Environment (Leaf - Target Only)
+Heuristic (Leaf - Target Only)
+```
+
 ### Merge Algorithm
 
 The merger executes a 5-phase process:
 
-1. **Sub-Graph Detection** - Groups connected pages into sub-graphs
-2. **Planning** - Top-down merge decisions (root to leaves)
-3. **Execution** - Bottom-up page creation/editing (leaves to root)
-4. **Audit** - Verifies nodes and edges after each sub-graph
-5. **Finalize** - Collects results and generates summary
+**Phase 1: Sub-Graph Detection**
+- Parses `outgoing_links` to build an adjacency list
+- Finds root nodes (no incoming edges from proposed pages)
+- Groups connected components into sub-graphs
+
+**Phase 2: Planning (Top-Down)**
+- For each sub-graph, makes merge decisions starting from root:
+  - **Root decision**: Search for similar pages of same type → `MERGE` or `CREATE_NEW`
+  - **Children decisions** (recursive):
+    - If parent = `CREATE_NEW` → child inherits `CREATE_NEW` (no search needed)
+    - If parent = `MERGE` → search only among target's children → `MERGE` or `CREATE_NEW`
+  - **Special case**: Heuristics with multiple parents use lowest parent for scoped search
+- Computes execution order (bottom-up): Environment → Heuristic → Implementation → Principle
+- Records deferred edges (which parent adds edge after processing)
+
+**Phase 3: Execution (Bottom-Up)**
+- Processes nodes in computed order
+- For `CREATE_NEW`: Get page structure, prepare content, call `kg_index`
+- For `MERGE`: Get page structure, fetch target, merge content intelligently, call `kg_edit`
+- Updates `outgoing_links` to point to processed children's `result_page_id`
+
+**Phase 4: Audit**
+- Verifies nodes exist (`CREATE_NEW`/`MERGE`)
+- Verifies edges (parent has edge to child's `result_page_id`)
+- Handles failures with retries (max 3)
+
+**Phase 5: Finalize**
+- Collects all `result_page_id` values
+- Categorizes as created (`CREATE_NEW`) or edited (`MERGE`)
+- Writes final summary to `_merge_plan.md`
 
 ### Merge Actions
 
 | Action | Description |
 |--------|-------------|
 | `CREATE_NEW` | New page for novel knowledge |
-| `MERGE_INTO` | Update existing page with new content |
-| `skip` | Duplicate or low-quality |
+| `MERGE` | Update existing page with new content |
+
+### Edge Types
+
+| From | Edge Type | To |
+|------|-----------|-----|
+| Principle | `implemented_by` | Implementation |
+| Principle | `uses_heuristic` | Heuristic |
+| Implementation | `requires_env` | Environment |
+| Implementation | `uses_heuristic` | Heuristic |
+
+### Important Rules
+
+1. **Same-type search only**: Principles search among Principles, Implementations among Implementations, etc.
+2. **Scoped search**: When parent is `MERGE`, children search only among the target's children
+3. **Inherited CREATE_NEW**: If parent is `CREATE_NEW`, all descendants are `CREATE_NEW` (no search)
+4. **Additive edges**: When merging, keep existing edges and add new ones
+5. **Bottom-up execution**: Process leaves (Environment, Heuristic) before parents
+6. **No cross-type merges**: Never merge a Principle with an Implementation, etc.
+
+### MCP Tools Used
+
+The merger uses these MCP tools via the `kg-graph-search` server:
+
+| Tool | Purpose |
+|------|---------|
+| `search_knowledge` | Find similar pages in the graph |
+| `get_wiki_page` | Read existing page content by title |
+| `get_page_structure` | Get sections definition for a page type |
+| `kg_index` | Create new page in the graph |
+| `kg_edit` | Update existing page in the graph |
 
 ### Using the Merger
 
@@ -182,6 +277,17 @@ print(f"Edited: {len(result.edited)}")
 print(f"Failed: {len(result.failed)}")
 ```
 
+### Merge Modes
+
+The merger operates in two modes based on whether a KG index exists:
+
+1. **No Index Mode**: Creates all pages as new, writes to wiki directory, then creates index
+2. **Merge Mode**: Runs agentic hierarchical merge using MCP tools
+
+Index detection order:
+1. Explicit `kg_index_path` from config
+2. Auto-detect `.index` file in wiki directory
+
 ### Merge Result
 
 ```python
@@ -194,6 +300,12 @@ class MergeResult:
     failed: List[str]         # Pages that failed to process
     errors: List[str]         # Error messages
     plan_path: Optional[Path] # Path to merge plan file
+    
+    @property
+    def success(self) -> bool  # True if no errors and no failures
+    
+    @property
+    def total_processed(self) -> int  # created + edited count
 ```
 
 ## WikiPage Structure
