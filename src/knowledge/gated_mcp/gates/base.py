@@ -8,6 +8,7 @@ Each gate defines its tools and handles tool calls.
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 # MCP types (imported conditionally)
@@ -19,9 +20,14 @@ except ImportError:
     Tool = None
     TextContent = None
 
-from src.knowledge.gated_mcp.presets import GateConfig
-
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GateConfig:
+    """Configuration for a single gate instance."""
+    enabled: bool = True
+    params: Dict[str, Any] = field(default_factory=dict)
 
 
 class ToolGate(ABC):

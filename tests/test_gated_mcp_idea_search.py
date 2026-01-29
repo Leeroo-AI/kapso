@@ -2,14 +2,13 @@
 Test gated MCP idea search with Claude Code + Bedrock.
 
 This standalone script tests the idea search gate by:
-1. Starting the gated MCP server with ideation preset
+1. Starting the gated MCP server with idea and research gates
 2. Connecting Claude Code with Bedrock
 3. Running a simple idea search task
 
 Run: python tests/test_gated_mcp_idea_search.py
 
 Environment:
-    KAPSO_RUN_BEDROCK_TESTS=1  - Enable this test
     KG_INDEX_PATH              - Path to .index file (optional)
     AWS_REGION                 - AWS region (default: us-east-1)
 """
@@ -23,9 +22,6 @@ import pytest
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Check if test should run
-RUN_BEDROCK_TESTS = os.getenv("KAPSO_RUN_BEDROCK_TESTS") == "1"
 
 
 def _has_bedrock_creds() -> bool:
@@ -46,7 +42,7 @@ def run_idea_search_test() -> bool:
     """
     from src.execution.coding_agents.base import CodingAgentConfig
     from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from src.knowledge.gated_mcp.presets import get_allowed_tools_for_preset
+    from src.knowledge.gated_mcp import get_allowed_tools_for_gates
     
     print("=" * 60)
     print("Gated MCP Idea Search Test")
@@ -59,10 +55,13 @@ def run_idea_search_test() -> bool:
     workspace = tempfile.mkdtemp(prefix="gated_mcp_idea_test_")
     print(f"Workspace: {workspace}")
     
+    # Define which gates to enable
+    gates = ["idea", "research"]
+    
     # MCP server configuration
     mcp_env = {
         "PYTHONPATH": str(project_root),
-        "MCP_PRESET": "ideation",
+        "MCP_ENABLED_GATES": ",".join(gates),
     }
     
     # Add KG_INDEX_PATH if available
@@ -80,8 +79,9 @@ def run_idea_search_test() -> bool:
         }
     }
     
-    # Get allowed tools for ideation preset
-    allowed_tools = get_allowed_tools_for_preset("ideation", "gated-knowledge")
+    # Get allowed tools for the gates
+    allowed_tools = get_allowed_tools_for_gates(gates, "gated-knowledge")
+    print(f"Gates: {gates}")
     print(f"Allowed tools: {allowed_tools}")
     
     # Configure agent with Bedrock
@@ -112,7 +112,8 @@ def run_idea_search_test() -> bool:
     print("-" * 60)
     
     result = agent.generate_code(
-        "Use the wiki_idea_search tool to search for principles about LoRA fine-tuning. "
+        "Search for principles about LoRA fine-tuning. "
+        "First try wiki_idea_search, and if no results are found, use research_idea to search the web. "
         "Report what you find in a brief summary."
     )
     
@@ -142,9 +143,7 @@ def run_idea_search_test() -> bool:
 
 
 def test_gated_mcp_idea_search():
-    """Pytest entrypoint (skipped unless explicitly enabled)."""
-    if not RUN_BEDROCK_TESTS:
-        pytest.skip("Bedrock test disabled (set KAPSO_RUN_BEDROCK_TESTS=1 to enable)")
+    """Pytest entrypoint."""
     if shutil.which("claude") is None:
         pytest.skip("Claude Code CLI not installed")
     if not _has_bedrock_creds():

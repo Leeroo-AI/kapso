@@ -2,25 +2,20 @@
 """
 Gated MCP Server
 
-A configurable MCP server that exposes different tool sets based on presets.
-Each preset enables specific gates with custom parameters.
+A configurable MCP server that exposes different tool sets based on gate selection.
 
 Usage:
-    # With preset
-    MCP_PRESET=ideation python -m src.knowledge.gated_mcp.server
-    
-    # With custom gates
-    MCP_ENABLED_GATES=idea,code python -m src.knowledge.gated_mcp.server
+    # With gate list
+    MCP_ENABLED_GATES=idea,research python -m src.knowledge.gated_mcp.server
 
 Environment Variables:
-    MCP_PRESET: Preset name (merger, ideation, implementation, context, full)
-    MCP_ENABLED_GATES: Comma-separated gate names (fallback if no preset)
+    MCP_ENABLED_GATES: Comma-separated gate names (e.g., "idea,research")
     KG_INDEX_PATH: Path to .index file for KG configuration
 """
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Type
 
 try:
     from mcp.server import Server
@@ -31,11 +26,8 @@ except ImportError:
     HAS_MCP = False
     Server = None
 
-from src.knowledge.gated_mcp.presets import (
-    PRESETS,
-    GateConfig,
-    get_preset,
-)
+from src.knowledge.gated_mcp.presets import GATES
+from src.knowledge.gated_mcp.gates.base import GateConfig
 from src.knowledge.gated_mcp.gates import (
     ToolGate,
     KGGate,
@@ -60,34 +52,33 @@ def _resolve_configuration() -> Dict[str, GateConfig]:
     """
     Resolve which gates to enable and their configurations.
     
-    Priority:
-    1. MCP_PRESET env var -> use preset's gate configs
-    2. MCP_ENABLED_GATES env var -> enable listed gates with defaults
-    3. Default to "full" preset
+    Reads MCP_ENABLED_GATES env var for comma-separated gate names.
+    Falls back to all gates if not specified.
     
     Returns:
         Dict mapping gate names to their configurations
     """
-    # Check for preset
-    preset_name = os.getenv("MCP_PRESET", "").strip()
-    if preset_name:
-        try:
-            preset = get_preset(preset_name)
-            logger.info(f"Using preset: {preset_name} ({preset.description})")
-            return preset.gates
-        except ValueError as e:
-            logger.warning(f"Invalid preset '{preset_name}': {e}. Falling back.")
-    
-    # Check for explicit gate list
     enabled_gates = os.getenv("MCP_ENABLED_GATES", "").strip()
+    
     if enabled_gates:
         gate_names = [g.strip() for g in enabled_gates.split(",") if g.strip()]
-        logger.info(f"Using explicit gates: {gate_names}")
-        return {name: GateConfig(enabled=True) for name in gate_names if name in GATE_CLASSES}
+        logger.info(f"Using gates: {gate_names}")
+        
+        # Build config with default params from GATES
+        configs = {}
+        for name in gate_names:
+            if name in GATE_CLASSES:
+                default_params = GATES[name].default_params if name in GATES else {}
+                configs[name] = GateConfig(enabled=True, params=default_params.copy())
+        return configs
     
-    # Default to full preset
-    logger.info("No preset or gates specified, using 'full' preset")
-    return PRESETS["full"].gates
+    # Default to all gates
+    logger.info("No gates specified, enabling all gates")
+    configs = {}
+    for name in GATE_CLASSES:
+        default_params = GATES[name].default_params if name in GATES else {}
+        configs[name] = GateConfig(enabled=True, params=default_params.copy())
+    return configs
 
 
 def create_gated_mcp_server() -> "Server":

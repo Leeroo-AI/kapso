@@ -85,21 +85,29 @@ class ResearchGate(ToolGate):
             top_k = arguments.get("top_k", self.get_param("default_top_k", 5))
             depth = arguments.get("depth", self.get_param("default_depth", "deep"))
             
-            logger.info(f"Research idea: '{query}'")
-            ideas = await self._run_sync(researcher.research, query, mode="idea", top_k=top_k, depth=depth)
+            logger.info(f"Research idea: '{query}' (top_k={top_k}, depth={depth})")
+            ideas = await self._run_sync(
+                researcher.research,
+                query,
+                mode="idea",
+                top_k=top_k,
+                depth=depth,
+            )
             
             if not ideas:
                 return [TextContent(type="text", text=f'# Research Ideas: "{query}"\n\nNo results found.')]
             
+            # Source.Idea has: query, source (url), content
             parts = [f'# Research Ideas: "{query}"\n\nFound **{len(ideas)}** ideas:\n']
             for i, idea in enumerate(ideas, 1):
-                parts.append(f"\n---\n## [{i}] {idea.title}\n\n{idea.summary}\n")
-                if idea.url:
-                    parts.append(f"**Source:** {idea.url}\n")
+                parts.append(f"\n---\n## [{i}] Idea from: {idea.source}\n\n")
+                parts.append(f"{idea.content}\n")
             return [TextContent(type="text", text="".join(parts))]
         except Exception as e:
             logger.error(f"Research idea failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Research error: {str(e)}")]
+            import traceback
+            error_details = traceback.format_exc()
+            return [TextContent(type="text", text=f"Research error: {str(e)}\n\nDetails:\n```\n{error_details}\n```")]
     
     async def _handle_implementation(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle research_implementation."""
@@ -110,18 +118,22 @@ class ResearchGate(ToolGate):
             depth = arguments.get("depth", self.get_param("default_depth", "deep"))
             
             logger.info(f"Research implementation: '{query}'")
-            impls = await self._run_sync(researcher.research, query, mode="implementation", top_k=top_k, depth=depth)
+            impls = await self._run_sync(
+                researcher.research,
+                query,
+                mode="implementation",
+                top_k=top_k,
+                depth=depth,
+            )
             
             if not impls:
                 return [TextContent(type="text", text=f'# Research Implementations: "{query}"\n\nNo results found.')]
             
+            # Source.Implementation has: query, source (url), content
             parts = [f'# Research Implementations: "{query}"\n\nFound **{len(impls)}** implementations:\n']
             for i, impl in enumerate(impls, 1):
-                parts.append(f"\n---\n## [{i}] {impl.title}\n\n{impl.description}\n")
-                if impl.code:
-                    parts.append(f"```\n{impl.code}\n```\n")
-                if impl.url:
-                    parts.append(f"**Source:** {impl.url}\n")
+                parts.append(f"\n---\n## [{i}] Implementation from: {impl.source}\n\n")
+                parts.append(f"{impl.content}\n")
             return [TextContent(type="text", text="".join(parts))]
         except Exception as e:
             logger.error(f"Research implementation failed: {e}", exc_info=True)
