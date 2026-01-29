@@ -32,25 +32,29 @@ logger = logging.getLogger(__name__)
 @register_strategy("basic_linear_search")
 class BasicLinearSearch(SearchStrategy):
     """
-    Basic linear search strategy with Claude Code ideation.
+    Basic linear search strategy with Claude Code ideation and implementation.
     
     Each iteration:
     1. Generate a solution using Claude Code + MCP gates (idea, code, research)
-    2. Implement and evaluate the solution (developer agent)
+    2. Implement and evaluate using Claude Code + MCP gates (code, research)
     3. Generate feedback
     4. Store result and continue
     
     Key features:
     - Claude Code as ideation agent with read-only codebase access
+    - Claude Code as implementation agent with full write access
     - MCP gates for external knowledge (wiki_idea_search, wiki_code_search, research_*)
     - RepoMemory access via CLI for architecture understanding
     
     Config params:
         - idea_generation_model: Model for solution generation (default: claude-opus-4-5-20251101)
+        - implementation_model: Model for implementation (default: claude-opus-4-5-20251101)
         - use_bedrock: Use AWS Bedrock (default: True)
         - aws_region: AWS region (default: us-east-1)
         - ideation_timeout: Timeout for ideation in seconds (default: 300)
-        - ideation_gates: MCP gates to enable (default: ["idea", "code", "research"])
+        - implementation_timeout: Timeout for implementation in seconds (default: 600)
+        - ideation_gates: MCP gates for ideation (default: ["idea", "code", "research"])
+        - implementation_gates: MCP gates for implementation (default: ["code", "research"])
     """
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
@@ -67,6 +71,14 @@ class BasicLinearSearch(SearchStrategy):
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
         self.ideation_gates = self.params.get("ideation_gates", ["idea", "code", "research"])
         
+        # Config params for implementation
+        self.implementation_model = self.params.get(
+            "implementation_model",
+            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        )
+        self.implementation_timeout = self.params.get("implementation_timeout", 600)
+        self.implementation_gates = self.params.get("implementation_gates", ["code", "research"])
+        
         # State
         if not import_from_checkpoint: 
             self.node_history: List[SearchNode] = []
@@ -74,8 +86,10 @@ class BasicLinearSearch(SearchStrategy):
 
         print(f"[BasicLinearSearch] Initialized:")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
+        print(f"  - implementation_model: {self.implementation_model}")
         print(f"  - use_bedrock: {self.use_bedrock}")
         print(f"  - ideation_gates: {self.ideation_gates}")
+        print(f"  - implementation_gates: {self.implementation_gates}")
         print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
         # Initialize workspace with empty main file only for empty workspaces.
@@ -331,6 +345,158 @@ Implement a baseline solution for the given problem.
 Fallback solution due to ideation failure. Focus on correctness over optimization.
 
 Problem: {problem}"""
+
+    def _implement(
+        self,
+        solution: str,
+        context: ContextData,
+        branch_name: str,
+        parent_branch_name: str = "main",
+        ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Implementation using Claude Code with MCP gates (code, research).
+        
+        Overrides base class to use Claude Code with Bedrock and MCP gates
+        instead of the default coding agent from config.
+        
+        Args:
+            solution: Solution description to implement
+            context: Problem context
+            branch_name: Git branch for this experiment
+            parent_branch_name: Parent branch to inherit code from
+            ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
+            
+        Returns:
+            The agent's output string
+        """
+        from src.execution.coding_agents.base import CodingAgentConfig
+        from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+        from src.knowledge.gated_mcp import get_mcp_config
+        from src.repo_memory.observation import extract_repo_memory_sections_consulted
+        
+        # Create experiment session (handles git branching)
+        session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
+        
+        # 1. Load RepoMemory
+        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
+        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
+        
+        # 2. Get MCP config for code + research gates (not idea)
+        mcp_servers, mcp_tools = get_mcp_config(
+            gates=self.implementation_gates,
+            include_base_tools=False,
+        )
+        
+        # 3. Build full tool set for implementation (includes Write, Edit)
+        implementation_allowed_tools = [
+            "Read", "Write", "Edit", "Bash",
+            *[t for t in mcp_tools if t.startswith("mcp__")],
+        ]
+        
+        logger.info(f"[BasicLinearSearch] Implementation tools: {implementation_allowed_tools}")
+        
+        # 4. Configure Claude Code for implementation
+        config = CodingAgentConfig(
+            agent_type="claude_code",
+            model=self.implementation_model,
+            debug_model=self.implementation_model,
+            agent_specific={
+                "use_bedrock": self.use_bedrock,
+                "aws_region": self.aws_region,
+                "mcp_servers": mcp_servers,
+                "allowed_tools": implementation_allowed_tools,
+                "timeout": self.implementation_timeout,
+                "streaming": True,
+            }
+        )
+        
+        # 5. Build implementation prompt
+        repo_memory_detail_access_instructions = (
+            "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+            "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
+            "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
+            "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
+        )
+        
+        prompt = self._build_implementation_prompt(
+            solution=solution,
+            problem=str(getattr(context, "problem", "")),
+            branch_name=branch_name,
+            repo_memory_brief=repo_memory_brief,
+            repo_memory_detail_access_instructions=repo_memory_detail_access_instructions,
+            previous_errors="\n".join(str(e) for e in self.previous_errors[-self.recent_error_count:]),
+        )
+        
+        # 6. Run Claude Code for implementation
+        print(f"[BasicLinearSearch] Running Claude Code implementation...")
+        agent = ClaudeCodeCodingAgent(config)
+        agent.initialize(session.session_folder)
+        
+        try:
+            result = agent.generate_code(prompt)
+            agent_output = result.output if result.output else ""
+            
+            if not result.success:
+                logger.warning(f"[BasicLinearSearch] Implementation failed: {result.error}")
+                agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
+        finally:
+            agent.cleanup()
+        
+        # 7. Update RepoMemory for this experiment branch
+        run_result_payload = {
+            "score": 0,
+            "run_had_error": False,
+            "error_message": "",
+            "error_details": "",
+            "feedbacks": "",
+            "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted or [],
+        }
+        
+        # Extract sections consulted from changes.log
+        sections_consulted = []
+        try:
+            changes_log_path = os.path.join(session.session_folder, "changes.log")
+            if os.path.exists(changes_log_path):
+                with open(changes_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    sections_consulted = extract_repo_memory_sections_consulted(f.read())
+        except Exception:
+            sections_consulted = []
+        run_result_payload["repo_memory_sections_consulted"] = sections_consulted
+        
+        # Schedule RepoMemory update for session close
+        session.schedule_repo_memory_update(
+            solution_spec=solution,
+            run_result=run_result_payload,
+        )
+        
+        # 8. Finalize session (commits changes)
+        self.workspace.finalize_session(session)
+        
+        return agent_output
+    
+    def _build_implementation_prompt(
+        self,
+        solution: str,
+        problem: str,
+        branch_name: str,
+        repo_memory_brief: str,
+        repo_memory_detail_access_instructions: str,
+        previous_errors: str,
+    ) -> str:
+        """Build the implementation prompt for Claude Code."""
+        template = load_prompt("execution/prompts/implementation_claude_code.md")
+        return render_prompt(
+            template,
+            {
+                "solution": solution or "(No solution provided)",
+                "problem": problem or "(No problem description provided)",
+                "branch_name": branch_name,
+                "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
+                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
+                "previous_errors": previous_errors or "(No previous errors)",
+            },
+        )
 
     def _get_best_branch(self) -> str:
         """Get the branch of the best node, or main if none."""
