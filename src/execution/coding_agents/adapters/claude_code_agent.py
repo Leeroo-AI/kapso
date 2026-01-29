@@ -545,7 +545,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         print(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
                     elif tool_name.startswith("mcp__"):
                         # MCP tool - show the arguments
-                        import json
                         args_str = json.dumps(tool_input, ensure_ascii=False)
                         # Truncate if too long
                         if len(args_str) > 200:
