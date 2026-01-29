@@ -23,6 +23,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+# Load environment variables from .env file (if present)
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.execution.orchestrator import OrchestratorAgent
 from src.execution.solution import SolutionResult
 from src.environment.handlers.generic import GenericProblemHandler

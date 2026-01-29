@@ -39,6 +39,10 @@ Run: python evaluate.py --path module.py
 ## Success Criteria
 - Numerical correctness: max diff < 1e-5
 - Performance: speedup > 1.0x (higher score = better)
+
+## Environment
+Use the `kapso` conda environment which has PyTorch, CUDA, and Triton pre-installed:
+  conda activate kapso
 """
 
     # Optional: Research CUDA optimization techniques first
@@ -56,8 +60,8 @@ Run: python evaluate.py --path module.py
     # Run evolve to optimize the CUDA kernel
     solution = kapso.evolve(
         goal=goal,
-        # Seed from the initial repo
-        seed_repo=initial_repo_dir,
+        # Start from the initial repo
+        initial_repo=initial_repo_dir,
         # Output the optimized solution
         output_path="./examples/cuda_optimization/cuda_optimized",
         # Optional context from research
