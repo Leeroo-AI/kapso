@@ -110,8 +110,7 @@ All major components are created via factories and can be swapped via configurat
 
 | Component | Factory | Registered Types |
 |-----------|---------|------------------|
-| Search Strategy | `SearchStrategyFactory` | `llm_tree_search`, `linear_search`, `benchmark_tree_search` |
-| Context Manager | `ContextManagerFactory` | `token_efficient`, `kg_enriched`, `cognitive` |
+| Search Strategy | `SearchStrategyFactory` | `generic`, `benchmark_tree_search` |
 | Knowledge Search | `KnowledgeSearchFactory` | `kg_graph_search`, `kg_llm_navigation` |
 | Coding Agent | `CodingAgentFactory` | `aider`, `gemini`, `claude_code`, `openhands` |
 | Feedback Generator | Uses `CodingAgentFactory` | Same as coding agents (default: `claude_code`) |
@@ -123,19 +122,17 @@ flowchart LR
     YAML["config.yaml"] --> MODE["Mode Config"]
     MODE --> SS["search_strategy"]
     MODE --> CA["coding_agent"]
-    MODE --> CM["context_manager"]
     MODE --> KS["knowledge_search"]
 
     SS --> SSF["SearchStrategyFactory.create()"]
     CA --> CAF["CodingAgentFactory.build_config()"]
-    CM --> CMF["ContextManagerFactory.create()"]
     KS --> KSF["KnowledgeSearchFactory.create()"]
 ```
 
 ## Data Flow
 
 1. **Problem Handler** provides problem context
-2. **Context Manager** gathers problem + history + knowledge
+2. **Experiment History** accessed via MCP tools
 3. **Search Strategy** generates and selects solutions
 4. **Experiment Workspace** manages git branches
 5. **Coding Agent** generates code and runs evaluation
@@ -173,14 +170,10 @@ src/
 │   ├── search_strategies/   # Solution exploration
 │   │   ├── base.py          # SearchStrategy ABC
 │   │   ├── factory.py       # SearchStrategyFactory
-│   │   ├── llm_tree_search.py
-│   │   ├── linear_search.py
+│   │   ├── generic.py       # Claude Code + MCP gates
 │   │   └── benchmark_tree_search.py  # For MLE/ALE benchmarks
 │   │
-│   ├── context_manager/     # Context gathering
-│   │   ├── base.py          # ContextManager ABC
-│   │   ├── factory.py       # ContextManagerFactory
-│   │   └── types.py         # ContextData dataclass
+│   ├── types.py             # ContextData, ExperimentHistoryProvider
 │   │
 │   ├── experiment_workspace/ # Git workspace management
 │   │   ├── experiment_workspace.py
@@ -256,13 +249,13 @@ All pluggable components use factories with decorator-based registration:
 
 ```python
 # Registration
-@register_strategy("llm_tree_search")
-class LlmSteeredTreeSearch(SearchStrategy):
+@register_strategy("generic")
+class GenericSearch(SearchStrategy):
     ...
 
 # Creation
 strategy = SearchStrategyFactory.create(
-    strategy_type="llm_tree_search",
+    strategy_type="generic",
     problem_handler=handler,
     llm=llm,
     coding_agent_config=config,
@@ -278,7 +271,7 @@ Configuration is organized into modes that bundle related settings:
 modes:
   GENERIC:
     search_strategy:
-      type: "linear_search"
+      type: "generic"
       params: { ... }
     coding_agent:
       type: "aider"

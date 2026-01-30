@@ -195,20 +195,20 @@ class OrchestratorAgent:
         
         if not mode_config:
             # Use defaults
-            strategy_type = "llm_tree_search"
+            strategy_type = "generic"
             strategy_params = {}
-            coding_agent_type = coding_agent or "aider"
+            coding_agent_type = coding_agent or "claude_code"
             coding_agent_model = None
             coding_agent_debug_model = None
         else:
             # Extract search strategy config
             search_config = mode_config.get('search_strategy', {})
-            strategy_type = search_config.get('type', 'llm_tree_search')
+            strategy_type = search_config.get('type', 'generic')
             strategy_params = search_config.get('params', {})
             
             # If no search_strategy section, use legacy format
             if not search_config:
-                strategy_type = "llm_tree_search"
+                strategy_type = "generic"
                 strategy_params = {
                     'reasoning_effort': mode_config.get('reasoning_effort', 'medium'),
                     'code_debug_tries': mode_config.get('code_debug_tries', 5),

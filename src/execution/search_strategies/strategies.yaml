@@ -3,6 +3,10 @@
 # Default configurations for all registered search strategies.
 # Each strategy has presets (modes) that can be referenced by benchmarks.
 #
+# Available strategies:
+#   - generic: Claude Code + MCP gates for ideation and implementation
+#   - benchmark_tree_search: Tree search with handler.run() for benchmarks
+#
 # To add configs for a new strategy:
 # 1. Add a new section under 'strategies' with your strategy name
 # 2. Define presets with 'params' matching your strategy's expected parameters
@@ -10,15 +14,48 @@
 # Benchmark configs (e.g., benchmarks/mle/config.yaml) can override these defaults.
 
 # Default strategy when none specified
-default_strategy: "llm_tree_search"
+default_strategy: "generic"
 
 # Strategy configurations
 strategies:
   # =========================================================================
-  # LLM Tree Search Strategy
+  # Generic Search Strategy
   # =========================================================================
-  llm_tree_search:
-    description: "Tree-based exploration with LLM-guided solution generation and selection"
+  generic:
+    description: "Claude Code + MCP gates for ideation and implementation"
+    
+    presets:
+      # Production preset - full capabilities
+      PRODUCTION:
+        params:
+          idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+          implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+          use_bedrock: true
+          aws_region: "us-east-1"
+          ideation_timeout: 300
+          implementation_timeout: 600
+          ideation_gates: ["idea", "code", "research", "experiment_history"]
+          implementation_gates: ["code", "research"]
+      
+      # Minimal for quick testing
+      MINIMAL:
+        params:
+          idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+          implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+          use_bedrock: true
+          aws_region: "us-east-1"
+          ideation_timeout: 180
+          implementation_timeout: 300
+          ideation_gates: ["idea", "code", "research", "experiment_history"]
+          implementation_gates: ["code", "research"]
+    
+    default_preset: "PRODUCTION"
+
+  # =========================================================================
+  # Benchmark Tree Search Strategy
+  # =========================================================================
+  benchmark_tree_search:
+    description: "Tree-based exploration with handler.run() for benchmarks (MLE-Bench, ALE-Bench)"
     
     # Available presets
     presets:
@@ -94,58 +131,3 @@ strategies:
     
     # Default preset if none specified
     default_preset: "PRODUCTION"
-
-  # =========================================================================
-  # Linear Search Strategy
-  # =========================================================================
-  linear_search:
-    description: "Simple sequential search - one solution per iteration, iteratively improving"
-    
-    presets:
-      # Default preset
-      DEFAULT:
-        params:
-          code_debug_tries: 3
-          idea_generation_model: "gpt-5-mini"
-      
-      # Minimal for quick testing
-      MINIMAL:
-        params:
-          code_debug_tries: 2
-          idea_generation_model: "gpt-5-mini"
-      
-      # Production with better model
-      PRODUCTION:
-        params:
-          code_debug_tries: 5
-          idea_generation_model: "gpt-5"
-    
-    default_preset: "DEFAULT"
-
-  # =========================================================================
-  # Example: Random Search Strategy (template for future strategies)
-  # =========================================================================
-  # random_search:
-  #   description: "Simple random sampling of solutions (baseline)"
-  #   presets:
-  #     DEFAULT:
-  #       params:
-  #         samples_per_iteration: 5
-  #         code_debug_tries: 3
-  #   default_preset: "DEFAULT"
-
-  # =========================================================================
-  # Example: Evolutionary Search Strategy (template for future strategies)
-  # =========================================================================
-  # evolutionary_search:
-  #   description: "Genetic algorithm-based solution exploration"
-  #   presets:
-  #     DEFAULT:
-  #       params:
-  #         population_size: 10
-  #         mutation_rate: 0.1
-  #         crossover_rate: 0.7
-  #         generations: 5
-  #         code_debug_tries: 3
-  #   default_preset: "DEFAULT"
-

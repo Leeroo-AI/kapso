@@ -306,7 +306,7 @@ def _create_bedrock_config_file(output_dir: str) -> str:
         "modes": {
             "BEDROCK_TEST": {
                 "search_strategy": {
-                    "type": "llm_tree_search",
+                    "type": "benchmark_tree_search",
                     "params": {
                         "code_debug_tries": 2,
                         "idea_generation_model": "gpt-4o-mini",

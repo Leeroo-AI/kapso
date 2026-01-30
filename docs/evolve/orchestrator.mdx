@@ -127,7 +127,7 @@ The orchestrator creates components from configuration:
 def _create_search_strategy(self, coding_agent, workspace_dir):
     # Extract config
     search_config = self.mode_config.get('search_strategy', {})
-    strategy_type = search_config.get('type', 'llm_tree_search')
+    strategy_type = search_config.get('type', 'generic')
     strategy_params = search_config.get('params', {})
 
     # Build coding agent config
@@ -215,18 +215,15 @@ finally:
 modes:
   GENERIC:
     search_strategy:
-      type: "linear_search"
+      type: "generic"
       params:
-        code_debug_tries: 5
+        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        ideation_gates: ["idea", "code", "research", "experiment_history"]
 
     coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
 
     knowledge_search:
       type: "kg_graph_search"

@@ -7,6 +7,9 @@
 # Available agents: aider, gemini, claude_code, openhands
 # Use --list-agents to see details
 #
+# Available search strategies:
+#   - benchmark_tree_search: Tree search with handler.run() for evaluation
+#
 # Knowledge search backends are pluggable via KnowledgeSearchFactory.
 # Available: kg_llm_navigation (more can be added via @register_knowledge_search decorator)
 
@@ -44,13 +47,6 @@ modes:
       type: "aider"
       model: "gemini/gemini-2.5-pro"
       debug_model: "gemini/gemini-2.5-flash"
-    
-    # Context manager configuration
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
     
     # Knowledge search configuration
     knowledge_search:
@@ -92,13 +88,6 @@ modes:
       model: "gemini/gemini-2.5-pro"
       debug_model: "gemini/gemini-2.5-flash"
     
-    # Context manager configuration
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
-    
     # Knowledge search configuration
     knowledge_search:
       type: "kg_llm_navigation"
@@ -137,12 +126,6 @@ modes:
       model: "gpt-4.1-mini"
       debug_model: "gpt-4.1-mini"
     
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
-    
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: true
@@ -180,12 +163,6 @@ modes:
       type: "aider"
       model: "gpt-4o-mini"
       debug_model: "gpt-4o-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
     
     knowledge_search:
       type: "kg_llm_navigation"
