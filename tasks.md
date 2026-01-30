@@ -1,8 +1,10 @@
-# Search Strategy Refactoring - COMPLETED
+# Search Strategy Refactoring & Memory Archiving - COMPLETED
 
 ## Summary
 
-Successfully refactored search strategies to simplify the architecture:
+Successfully refactored search strategies and archived the cognitive memory system.
+
+## Part 1: Search Strategy Refactoring
 
 ### Changes Made
 
@@ -10,68 +12,69 @@ Successfully refactored search strategies to simplify the architecture:
    - `basic_linear_search.py` → `generic.py`
    - `BasicLinearSearch` → `GenericSearch`
    - Registration: `@register_strategy("generic")`
-   - Branch naming: `generic_exp_` prefix
 
 2. **Archived `linear_search` and `llm_tree_search`**
    - Both files moved to `/archive/`
-   - All imports and references removed from active code
 
 3. **Refactored `benchmark_tree_search`**
-   - Now self-contained with all tree logic copied from `llm_tree_search`
-   - Includes `TreeSearchNode` dataclass
-   - Includes tree operations: `expand()`, `select()`, `prune_bad_solutions()`, `solution_generation()`
-   - Inherits directly from `SearchStrategy` (not `LlmSteeredTreeSearch`)
+   - Now self-contained with all tree logic
+   - Inherits directly from `SearchStrategy`
 
 4. **Updated configurations**
-   - `src/config.yaml`: Updated to use `generic` strategy
-   - `benchmarks/ale/config.yaml`: Removed `context_manager` sections
-   - `benchmarks/mle/config.yaml`: Removed `context_manager` sections, removed LINEAR mode
-   - `src/execution/search_strategies/strategies.yaml`: Updated presets
+   - All config files updated to use new strategy names
+   - Removed `context_manager` sections
 
-5. **Updated code references**
-   - `src/execution/orchestrator.py`: Default strategy changed to `generic`
-   - `src/execution/search_strategies/factory.py`: Default strategy changed to `generic`
-   - Tests updated to use `generic` and `benchmark_tree_search`
+## Part 2: Memory Module Archiving
 
-6. **Updated documentation**
-   - `docs/evolve/search-strategies.mdx`
-   - `docs/evolve/orchestrator.mdx`
-   - `docs/evolve/architecture.mdx`
-   - `docs/evolve/execution-flow.mdx`
-   - `src/execution/search_strategies/README.md`
+### Changes Made
+
+1. **Archived `src/memory/` directory**
+   - Entire directory moved to `/archive/memory/`
+   - Includes: CognitiveController, EpisodicStore, KnowledgeRetriever, etc.
+
+2. **Archived related test files**
+   - `test_cognitive_multi_iteration.py`
+   - `test_cognitive_iteration_loop.py`
+   - `test_cognitive_e2e_dimensions.py`
+   - `test_cognitive_real_kg.py`
+   - `test_kapso_flow.py`
+   - `test_kapso_full_e2e.py`
+
+3. **Updated documentation**
+   - `docs/evolve/cognitive-memory.mdx` updated to indicate archived status
+   - Points users to new MCP-based experiment history approach
 
 ## Final Architecture
 
-### Active Strategies
+### Active Search Strategies
 
 | Strategy | Description | Use Case |
 |----------|-------------|----------|
-| `generic` | Claude Code + MCP gates for ideation and implementation | General problem solving |
-| `benchmark_tree_search` | Tree-based exploration with handler.run() | MLE-Bench, ALE-Bench |
+| `generic` | Claude Code + MCP gates | General problem solving |
+| `benchmark_tree_search` | Tree search with handler.run() | MLE-Bench, ALE-Bench |
 
-### Archived Strategies
+### Experiment History (Replacement for Cognitive Memory)
 
-- `linear_search.py` → `/archive/`
-- `llm_tree_search.py` → `/archive/`
-- `basic_linear_search.py` → `/archive/`
+- Stored in `.kapso/experiment_history.json`
+- Accessed via MCP tools: `get_top_experiments`, `get_recent_experiments`, `search_similar_experiments`
+- Optional Weaviate indexing for semantic search
 
-### File Structure
+### Archive Contents
 
 ```
-src/execution/search_strategies/
-├── __init__.py
-├── _template.py
-├── base.py
-├── benchmark_tree_search.py  # Self-contained tree search
-├── factory.py
-├── generic.py                # Main strategy (renamed from basic_linear_search)
-├── README.md
-└── strategies.yaml
+archive/
+├── memory/                    # Cognitive memory system
+│   ├── cognitive_controller.py
+│   ├── episodic.py
+│   ├── knowledge_retriever.py
+│   └── ...
+├── context_manager files      # Context manager modules
+├── search strategy files      # Old search strategies
+└── test files                 # Related tests
 ```
 
 ## Verification
 
+- No remaining imports from `src.memory` in active code
 - All Python files compile without errors
-- No remaining references to archived strategies in active code
-- Tests updated to use new strategy names
-- Documentation updated to reflect new architecture
+- Documentation updated to reflect changes

@@ -411,7 +411,7 @@ class BenchmarkTreeSearch(SearchStrategy):
     # =========================================================================
     # Experiment Execution (Handler-based)
     # =========================================================================
-
+    
     def _run_for_node(
         self, 
         node: TreeSearchNode, 
@@ -463,7 +463,7 @@ class BenchmarkTreeSearch(SearchStrategy):
             self.node_history.append(node)
         
         print(f"[Benchmark] Experiment at branch {branch_name} ended: score={node.score}, should_stop={node.should_stop}")
-
+    
     def _get_closest_experimented_parent(self, node: TreeSearchNode) -> TreeSearchNode:
         """Find the closest ancestor that has been experimented (has score)."""
         while node.parent_node is not None and node.score is None:
