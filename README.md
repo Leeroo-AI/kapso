@@ -52,13 +52,6 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 | **Research** | `.research()` | Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions. |
 | **Deploy** | `.deploy()` | Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal. |
 
-### Why Kapso?
-
-- **Knowledge-Grounded**: Solutions are informed by domain knowledge, not just LLM priors
-- **Iterative Refinement**: Tree search explores multiple approaches, learns from failures
-- **Pluggable Components**: Swap coding agents, evaluators, and search strategies
-- **Full Lifecycle**: From research to deployment in a single framework
-
 ## 🚀 Quickstart
 
 ### Installation
@@ -132,26 +125,6 @@ deployed_program.stop()
 
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.
 
-## 📚 Documentation & Support
-
-- **Full Documentation**: [docs.leeroo.com](https://docs.leeroo.com)
-- **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
-- **Website**: [leeroo.com](https://leeroo.com)
-
-## Core Components
-
-| Component | Description |
-|-----------|-------------|
-| **Kapso** | Main API — orchestrates research, learn, evolve, and deploy |
-| **OrchestratorAgent** | Runs the experimentation loop with budget tracking |
-| **Search Strategy** | Explores solutions via tree search (generic, benchmark_tree_search) |
-| **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
-| **Feedback Generator** | Validates evaluation results and decides when to stop |
-| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
-| **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
-| **Repo Memory** | Evidence-backed understanding of repository structure |
-| **Deployment** | Turn solutions into running software: Local, Docker, Modal, BentoML |
-
 ## Examples
 
 | Example | Description |
@@ -166,24 +139,30 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 | [**MLE-Bench**](benchmarks/mle/README.md) | Kaggle ML competitions — tabular, image, text, audio problems |
 | [**ALE-Bench**](benchmarks/ale/README.md) | AtCoder algorithmic optimization — C++ solution generation |
 
+## 📚 Documentation & Support
+
+- **Full Documentation**: [docs.leeroo.com](https://docs.leeroo.com)
+- **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
+- **Website**: [leeroo.com](https://leeroo.com)
+
+
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
-
-## ⚖️ License
-
-MIT — see the [LICENSE](LICENSE) file for details.
 
 ## Citation
 
 If you use Kapso in your research, please cite:
 
 ```bibtex
-@software{kapso2026,
-  title = {Kapso: A Knowledge-grounded Framework for Autonomous Program Synthesis and Optimization},
-  author = {Nadaf, Alireza and Mohammadshahi, Alireza and Yazdani, Majid and {Leeroo Coding Agent}},
-  year = {2026},
-  url = {https://github.com/leeroo-ai/kapso},
+@misc{nadaf2026kapsoknowledgegroundedframeworkautonomous,
+      title={KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization}, 
+      author={Alireza Nadaf and Alireza Mohammadshahi and Majid Yazdani},
+      year={2026},
+      eprint={2601.21526},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2601.21526}, 
 }
 ```
 
