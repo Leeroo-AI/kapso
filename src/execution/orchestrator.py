@@ -121,6 +121,7 @@ class OrchestratorAgent:
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,
             weaviate_url=os.environ.get("WEAVIATE_URL"),
+            goal=self.goal,
         )
         
         # Create knowledge search backend (or use provided instance).

@@ -1,5 +1,7 @@
 # Task: Enhance Experiment Memory with Insight Extraction
 
+## Status: COMPLETED
+
 ## Overview
 
 Add LLM-based insight extraction to experiment memory, enabling agents to learn generalized lessons from past experiments instead of raw error messages.

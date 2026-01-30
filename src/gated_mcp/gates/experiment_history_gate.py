@@ -8,6 +8,7 @@ Tools:
 - get_top_experiments: Get best experiments by score
 - get_recent_experiments: Get most recent experiments
 - search_similar_experiments: Semantic search for similar experiments
+- get_insights: Get experiments with extracted insights
 """
 
 import logging
@@ -37,10 +38,11 @@ class ExperimentHistoryGate(ToolGate):
     - get_top_experiments: Get best experiments by score
     - get_recent_experiments: Get most recent experiments
     - search_similar_experiments: Semantic search for similar experiments
+    - get_insights: Get experiments with extracted insights
     """
     
     name = "experiment_history"
-    description = "Tools for querying experiment history"
+    description = "Tools for querying experiment history and insights"
     
     def __init__(self, config: Optional[GateConfig] = None):
         """Initialize experiment history gate."""
@@ -64,7 +66,7 @@ class ExperimentHistoryGate(ToolGate):
                 name="get_top_experiments",
                 description=(
                     "Get the top k experiments by score. "
-                    "Returns experiments sorted by score (best first) with solution, score, and feedback. "
+                    "Returns experiments sorted by score (best first) with solution, score, feedback, and insights. "
                     "Use this to understand what approaches have worked best so far."
                 ),
                 inputSchema={
@@ -82,7 +84,7 @@ class ExperimentHistoryGate(ToolGate):
                 name="get_recent_experiments",
                 description=(
                     "Get the most recent k experiments. "
-                    "Returns experiments in chronological order with solution, score, and feedback. "
+                    "Returns experiments in chronological order with solution, score, feedback, and insights. "
                     "Use this to see what was tried recently and avoid repeating failures."
                 ),
                 inputSchema={
@@ -119,6 +121,29 @@ class ExperimentHistoryGate(ToolGate):
                     "required": ["query"],
                 },
             ),
+            Tool(
+                name="get_insights",
+                description=(
+                    "Get experiments with extracted insights (generalized lessons). "
+                    "Insights are LLM-extracted lessons from errors (critical_error) or successes (best_practice). "
+                    "Use this to learn from past mistakes and successful patterns."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "k": {
+                            "type": "integer",
+                            "description": "Maximum number of insights to return",
+                            "default": 10,
+                        },
+                        "insight_type": {
+                            "type": "string",
+                            "description": "Filter by insight type: 'critical_error' or 'best_practice'",
+                            "enum": ["critical_error", "best_practice"],
+                        },
+                    },
+                },
+            ),
         ]
     
     async def handle_call(
@@ -136,6 +161,8 @@ class ExperimentHistoryGate(ToolGate):
             return await self._handle_get_recent(arguments)
         elif tool_name == "search_similar_experiments":
             return await self._handle_search_similar(arguments)
+        elif tool_name == "get_insights":
+            return await self._handle_get_insights(arguments)
         
         return None
     
@@ -185,6 +212,24 @@ class ExperimentHistoryGate(ToolGate):
             logger.error(f"search_similar_experiments failed: {e}")
             return [TextContent(type="text", text=f"Error searching experiments: {e}")]
     
+    async def _handle_get_insights(self, arguments: Dict[str, Any]) -> List["TextContent"]:
+        """Handle get_insights tool call."""
+        k = arguments.get("k", 10)
+        insight_type = arguments.get("insight_type")
+        
+        try:
+            store = self._get_store()
+            experiments = await self._run_sync(
+                store.get_experiments_with_insights, 
+                k, 
+                insight_type
+            )
+            result = self._format_insights(experiments, insight_type)
+            return [TextContent(type="text", text=result)]
+        except Exception as e:
+            logger.error(f"get_insights failed: {e}")
+            return [TextContent(type="text", text=f"Error getting insights: {e}")]
+    
     def _format_experiments(self, experiments, title: str) -> str:
         """Format experiments as markdown."""
         if not experiments:
@@ -205,7 +250,43 @@ class ExperimentHistoryGate(ToolGate):
 {exp.solution[:500]}{'...' if len(exp.solution) > 500 else ''}
 
 **Feedback:**
-{exp.feedback[:300]}{'...' if len(exp.feedback) > 300 else ''}
+{exp.feedback[:300]}{'...' if len(exp.feedback) > 300 else ''}""")
+            
+            # Include insight if available
+            if exp.insight:
+                conf = exp.insight_confidence or 0
+                lines.append(f"""
+**Insight ({exp.insight_type}, confidence={conf:.2f}):**
+{exp.insight}""")
+        
+        return "\n".join(lines)
+    
+    def _format_insights(self, experiments, insight_type: Optional[str]) -> str:
+        """Format insights as markdown."""
+        type_filter = f" ({insight_type})" if insight_type else ""
+        title = f"Extracted Insights{type_filter}"
+        
+        if not experiments:
+            return f"# {title}\n\nNo insights found."
+        
+        lines = [f"# {title}\n"]
+        lines.append(f"Found {len(experiments)} experiments with insights.\n")
+        
+        for exp in experiments:
+            if not exp.insight:
+                continue
+            
+            conf = exp.insight_confidence or 0
+            exp_status = f"score={exp.score}" if not exp.had_error else "FAILED"
+            
+            lines.append(f"""
+## Insight from Experiment {exp.node_id} ({exp_status})
+
+**Type:** {exp.insight_type} | **Confidence:** {conf:.2f}
+
+{exp.insight}
+
+**Tags:** {', '.join(exp.insight_tags) if exp.insight_tags else 'none'}
 """)
         
         return "\n".join(lines)
