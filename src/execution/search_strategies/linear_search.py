@@ -15,7 +15,6 @@ from src.execution.search_strategies.base import (
     SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
-from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
 
 
 @register_strategy("linear_search")
@@ -141,8 +140,6 @@ class LinearSearch(SearchStrategy):
 
     def _generate_solution(self, context: ContextData, budget_progress: float) -> tuple[str, list[str]]:
         """Generate a solution based on problem, workflow guidance, and previous experiments."""
-        parent_branch = self._get_best_branch()
-        
         # Build prompt with history
         history_summary = ""
         if self.node_history:
@@ -189,18 +186,25 @@ Follow the steps and tips provided.
                 [Specific values to use]
 """.strip()
         
-        solution, sections = ideate_solution_with_repo_memory_react(
-            llm=self.llm,
+        # Build user message with all context
+        user_message = f"""
+Problem: {str(getattr(context, "problem", ""))}
+
+{workflow_guidance}
+
+{history_summary}
+
+Additional Knowledge: {str(context.kg_results if context.kg_results else "")}
+
+{output_requirements}
+"""
+        solution = self.llm.llm_completion_with_system_prompt(
             model=self.idea_generation_model,
-            repo=self.workspace.repo,
-            base_branch=parent_branch,
-            problem=str(getattr(context, "problem", "")),
-            workflow_guidance=workflow_guidance or "",
-            history_summary=history_summary or "",
-            additional_knowledge=str(context.kg_results if context.kg_results else ""),
-            output_requirements=output_requirements,
+            system_prompt="You are a world class problem solver generating solutions.",
+            user_message=user_message,
         )
-        return solution, sections
+        # Return empty list for sections since we no longer use RepoMemory ReAct loop
+        return solution, []
 
     def _get_best_branch(self) -> str:
         """Get the branch of the best node, or main if none."""

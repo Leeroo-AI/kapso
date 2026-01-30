@@ -20,7 +20,6 @@ from src.execution.search_strategies.base import (
     SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
-from src.execution.ideation.repo_memory_react import ideate_solution_with_repo_memory_react
 
 
 @dataclass
@@ -477,7 +476,7 @@ class LlmSteeredTreeSearch(SearchStrategy):
         parent_solution: str = "",
         base_branch_name: str = "main",
     ) -> Tuple[List[str], List[str]]:
-        """Generate new solutions using an engine-mediated RepoMemory ReAct loop."""
+        """Generate new solutions using LLM completion."""
         if final_solution_count > per_step_solution_count * len(self.idea_generation_ensemble_models):
             per_step_solution_count = final_solution_count // len(self.idea_generation_ensemble_models) + 1
         
@@ -516,26 +515,31 @@ class LlmSteeredTreeSearch(SearchStrategy):
         for i in range(step_count):
             output_requirements = (
                 solution_generation_prompt.format(per_step_solution_count=per_step_solution_count).strip()
-                + "\n\nCRITICAL: In your FINAL action, the JSON `solution` string must contain the solutions"
-                + " exactly between <solution> and </solution> tags (as shown above)."
+                + "\n\nCRITICAL: Put solutions exactly between <solution> and </solution> tags (as shown above)."
             )
             history = (
                 f"# Parent solution:\n{parent_solution}\n\n"
                 f"# Last iteration proposed solutions:\n{solutions}"
             )
 
-            solutions, sections = ideate_solution_with_repo_memory_react(
-                llm=self.llm,
+            # Build user message with all context
+            user_message = f"""
+Problem: {str(getattr(context, "problem", ""))}
+
+Workflow Guidance: {str(getattr(context, "additional_info", "") or "")}
+
+History: {history}
+
+Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
+
+{output_requirements}
+"""
+            solutions = self.llm.llm_completion_with_system_prompt(
                 model=self.idea_generation_model,
-                repo=self.workspace.repo,
-                base_branch=base_branch_name,
-                problem=str(getattr(context, "problem", "")),
-                workflow_guidance=str(getattr(context, "additional_info", "") or ""),
-                history_summary=history,
-                additional_knowledge=str(getattr(context, "kg_results", "") or ""),
-                output_requirements=output_requirements,
+                system_prompt="You are a world class problem solver generating solutions.",
+                user_message=user_message,
+                reasoning_effort=self.reasoning_effort,
             )
-            all_sections_consulted.extend(list(sections or []))
         
         solutions_list = re.findall(r'<solution>(.*?)</solution>', solutions, re.DOTALL)
 
