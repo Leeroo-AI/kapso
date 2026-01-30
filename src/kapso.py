@@ -560,7 +560,6 @@ class Kapso:
                 "iterations": solve_result.iterations_run,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
-                "language": language,
             }
         )
         

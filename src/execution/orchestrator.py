@@ -329,8 +329,8 @@ class OrchestratorAgent:
     def solve(
         self, 
         experiment_max_iter: int = 20, 
-        time_budget_minutes: int = 24*60, 
-        cost_budget: float = 300
+        time_budget_minutes: Optional[int] = None, 
+        cost_budget: Optional[float] = None
     ) -> SolveResult:
         """
         Run the main experimentation loop.
@@ -348,8 +348,8 @@ class OrchestratorAgent:
         
         Args:
             experiment_max_iter: Maximum number of experiment iterations
-            time_budget_minutes: Time budget in minutes
-            cost_budget: Maximum cost in dollars
+            time_budget_minutes: Time budget in minutes (optional, no limit if not set)
+            cost_budget: Maximum cost in dollars (optional, no limit if not set)
             
         Returns:
             SolveResult with best_experiment, final_feedback, stopped_reason
@@ -366,11 +366,13 @@ class OrchestratorAgent:
                 iterations_run = i + 1
                 
                 # Calculate budget progress (0-100)
-                budget_progress = max(
-                    (time.time() - start_time) / (time_budget_minutes * 60),
-                    i / experiment_max_iter,
-                    self.get_cumulative_cost() / cost_budget
-                ) * 100
+                # Only include time/cost if budgets are set
+                progress_factors = [i / experiment_max_iter]
+                if time_budget_minutes is not None:
+                    progress_factors.append((time.time() - start_time) / (time_budget_minutes * 60))
+                if cost_budget is not None:
+                    progress_factors.append(self.get_cumulative_cost() / cost_budget)
+                budget_progress = max(progress_factors) * 100
                 
                 # Check budget exhaustion
                 if budget_progress >= 100:

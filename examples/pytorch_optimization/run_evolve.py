@@ -63,8 +63,6 @@ Use the `kapso` conda environment which has PyTorch and CUDA pre-installed:
         initial_repo=initial_repo_dir,
         # Output the optimized solution
         output_path="./examples/pytorch_optimization/pytorch_optimized",
-        # Use basic linear search with Claude Code ideation
-        mode="BASIC_LINEAR",
     )
     
     print("\n" + "=" * 60)
