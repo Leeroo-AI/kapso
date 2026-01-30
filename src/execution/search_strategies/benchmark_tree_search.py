@@ -177,10 +177,23 @@ class BenchmarkTreeSearch(SearchStrategy):
         3. Select best nodes to experiment
         4. Run experiments in parallel
         
+        Args:
+            context: Either a ContextData object or a problem string
+            budget_progress: Budget progress percentage (0-100)
+        
         Returns:
             The best SearchNode from this iteration (with should_stop set)
         """
         self.experimentation_count += 1
+        
+        # Normalize context: support both string and ContextData
+        if isinstance(context, str):
+            context = ContextData(
+                problem=context,
+                additional_info="",
+                kg_results="",
+                kg_code_results="",
+            )
         
         # Prune after initial exploration
         if budget_progress >= 20:
