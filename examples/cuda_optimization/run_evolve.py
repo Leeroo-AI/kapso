@@ -6,8 +6,6 @@ a vanilla multi-head self-attention implementation for CUDA performance.
 
 The goal is to achieve speedup over the baseline PyTorch implementation
 while maintaining numerical correctness.
-
-Based on: https://github.com/WecoAI/weco-cli/tree/main/examples/cuda
 """
 
 import os

@@ -7,8 +7,6 @@ summation, and scaling operations.
 
 The goal is to fuse operations for maximum speedup while maintaining
 numerical correctness.
-
-Based on: https://docs.weco.ai/examples/pytorch-optimization
 """
 
 import os

@@ -2,7 +2,22 @@
 
 This example demonstrates using Kapso to optimize a simple PyTorch model that performs matrix multiplication, division, summation, and scaling operations.
 
-Based on: https://docs.weco.ai/examples/pytorch-optimization
+## Environment Setup
+
+Before running this example, install the required dependencies:
+
+```bash
+# Create and activate conda environment (recommended)
+conda create -n kapso python=3.10
+conda activate kapso
+
+# Install PyTorch with CUDA support
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Install Kapso from the project root
+cd /path/to/kapso
+pip install -e .
+```
 
 ## Goal
 

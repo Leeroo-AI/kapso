@@ -2,7 +2,25 @@
 
 This example demonstrates using Kapso's `evolve()` function to optimize a vanilla multi-head self-attention implementation for CUDA performance.
 
-Based on: https://github.com/WecoAI/weco-cli/tree/main/examples/cuda
+## Environment Setup
+
+Before running this example, install the required dependencies:
+
+```bash
+# Create and activate conda environment (recommended)
+conda create -n kapso python=3.10
+conda activate kapso
+
+# Install PyTorch with CUDA support
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Install Triton (for custom CUDA kernels)
+pip install triton
+
+# Install Kapso from the project root
+cd /path/to/kapso
+pip install -e .
+```
 
 ## Problem Description
 
