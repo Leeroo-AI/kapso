@@ -92,12 +92,12 @@ from src.kapso import Kapso, Source, DeployStrategy
 kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
 # Research: Gather domain-specific techniques from the web
-# mode: "idea" | "implementation" | "both" (default: "both")
+# mode: "idea" | "implementation" | "study" (can pass multiple as list)
 # depth: "light" | "deep" (default: "deep")
 
 findings = kapso.research(
     "RLHF and DPO fine-tuning for legal contract analysis",
-    mode="both",
+    mode=["idea", "implementation"],
     depth="deep",
 )
 

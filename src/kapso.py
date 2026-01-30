@@ -328,7 +328,7 @@ class Kapso:
         self,
         objective: str,
         *,
-        mode: ResearchMode = "both",
+        mode: ResearchMode = ["idea", "implementation"],
         depth: ResearchDepth = "deep",
     ) -> ResearchFindings:
         """
@@ -336,7 +336,7 @@ class Kapso:
         
         Args:
             objective: What you want to research on the public web.
-            mode: "idea" | "implementation" | "both"
+            mode: "idea" | "implementation" | "study" (or list of modes)
             depth: "light" | "deep"
                 Maps to OpenAI `reasoning.effort`:
                 - light -> "medium"
@@ -344,9 +344,9 @@ class Kapso:
         
         Returns:
             `ResearchFindings` with fluent accessors:
-            - .repos(top_k) -> List[Source.Repo] for learn()
-            - .ideas(top_k) -> str for evolve() context
-            - .source -> ResearchFindings for direct KG ingestion
+            - .ideas -> List[Source.Idea]
+            - .implementations -> List[Source.Implementation]
+            - .report -> Source.ResearchReport (if mode="study")
         """
         if self._web_researcher is None:
             self._web_researcher = Researcher()
