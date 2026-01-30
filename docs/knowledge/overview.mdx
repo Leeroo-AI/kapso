@@ -65,8 +65,8 @@ kapso.learn(
 )
 
 # Learn from web research
-research = kapso.research("QLoRA best practices", mode="idea")
-kapso.learn(research, wiki_dir="data/wikis")
+findings = kapso.research("QLoRA best practices", mode="idea")
+kapso.learn(*findings.ideas, wiki_dir="data/wikis")
 ```
 
 ### Option 3: Research as Context
@@ -77,7 +77,7 @@ from src.kapso import Kapso
 kapso = Kapso()
 
 # Research without persisting to KG
-research = kapso.research(
+findings = kapso.research(
     "unsloth FastLanguageModel example",
     mode="implementation",
     depth="deep",
@@ -86,7 +86,7 @@ research = kapso.research(
 # Use research as context
 solution = kapso.evolve(
     goal="Fine-tune with Unsloth + LoRA",
-    additional_context=research.to_context_string(),
+    context=[findings.to_string()],
 )
 ```
 

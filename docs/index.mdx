@@ -73,13 +73,13 @@ deployed_program.stop()
 | Component | Description |
 |-----------|-------------|
 | **Kapso** | Main API class — orchestrates research, learn, evolve, and deploy |
-| **OrchestratorAgent** | Runs the experimentation loop with budget tracking and stopping conditions |
-| **Search Strategy** | Explores solutions via tree search or linear search |
+| **OrchestratorAgent** | Runs the experimentation loop with budget tracking |
+| **Search Strategy** | Explores solutions via tree search (generic, benchmark_tree_search) |
 | **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
+| **Feedback Generator** | Validates evaluation results and decides when to stop |
 | **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
 | **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
-| **Evaluators** | Score solutions: regex patterns, JSON files, LLM judges |
-| **Stop Conditions** | Control when to stop: threshold, plateau, cost/time limits |
+| **Repo Memory** | Evidence-backed understanding of repository structure |
 | **Deployment** | Turn solutions into running software: Local, Docker, Modal, BentoML |
 
 ## Supported Benchmarks

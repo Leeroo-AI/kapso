@@ -162,15 +162,12 @@ src/
 │   ├── orchestrator.py      # OrchestratorAgent
 │   ├── solution.py          # SolutionResult dataclass
 │   │
-│   ├── feedback_generator/  # Feedback generation
-│   │   ├── feedback_generator.py
-│   │   └── prompts/
-│   │       └── feedback_generator.md
-│   │
 │   ├── search_strategies/   # Solution exploration
 │   │   ├── base.py          # SearchStrategy ABC
 │   │   ├── factory.py       # SearchStrategyFactory
-│   │   ├── generic.py       # Claude Code + MCP gates
+│   │   ├── strategies.yaml  # Strategy presets
+│   │   ├── generic/         # Claude Code + MCP gates
+│   │   │   └── strategy.py
 │   │   └── benchmark_tree_search.py  # For MLE/ALE benchmarks
 │   │
 │   ├── types.py             # ContextData, ExperimentHistoryProvider
@@ -182,17 +179,20 @@ src/
 │   ├── coding_agents/       # Code generation
 │   │   ├── base.py          # CodingAgentInterface ABC
 │   │   ├── factory.py       # CodingAgentFactory
+│   │   ├── agents.yaml      # Agent registry
 │   │   └── adapters/        # Agent implementations
 │   │       ├── aider_agent.py
 │   │       ├── gemini_agent.py
 │   │       ├── claude_code_agent.py
 │   │       └── openhands_agent.py
 │   │
-│   └── prompts/             # Prompt templates
-│       ├── coding_agent_implement.md
-│       └── coding_agent_debug.md
+│   └── memories/            # Memory systems
+│       ├── experiment_memory/  # Experiment history storage
+│       └── repo_memory/        # Repository understanding
 │
-├── knowledge/               # Knowledge system
+├── knowledge_base/          # Knowledge system
+│   ├── types.py             # Source types, ResearchFindings
+│   │
 │   ├── search/              # KG search backends
 │   │   ├── base.py          # KnowledgeSearch ABC
 │   │   ├── factory.py       # KnowledgeSearchFactory
@@ -202,30 +202,24 @@ src/
 │   │
 │   ├── learners/            # Knowledge learning pipeline
 │   │   ├── knowledge_learner_pipeline.py
+│   │   ├── sources.py       # Source type wrappers
 │   │   ├── merger/          # Stage 2: WikiPages → KG
 │   │   │   └── knowledge_merger.py
-│   │   ├── sources.py       # Source type wrappers
 │   │   └── ingestors/       # Stage 1: source → WikiPages
 │   │       ├── base.py
 │   │       ├── factory.py
-│   │       ├── repo_ingestor/
-│   │       └── research_ingestor/
-│   │
-│   ├── researcher/           # Deep web research
-│   │   ├── researcher.py
-│   │   └── prompts/
+│   │       └── repo_ingestor/
 │   │
 │   └── wiki_structure/      # Wiki page definitions
 │
-├── memory/                  # Memory systems
-│   ├── cognitive_controller.py
-│   ├── episodic.py
-│   └── types.py
+├── researcher/              # Deep web research
+│   ├── researcher.py
+│   └── prompts/
 │
-├── repo_memory/             # Repository memory
-│   ├── manager.py           # RepoMemoryManager
-│   ├── builders.py          # LLM-based model building
-│   └── observation.py       # Section extraction
+├── gated_mcp/               # MCP server with selective tool exposure
+│   ├── server.py
+│   ├── presets.py
+│   └── gates/
 │
 └── deployment/              # Deployment pipeline
     ├── base.py              # Software, DeployConfig

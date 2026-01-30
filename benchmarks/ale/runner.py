@@ -22,8 +22,13 @@ Options:
 import argparse
 import os
 import sys
+import warnings
 import yaml
 from typing import Optional
+
+# Suppress ResourceWarning from ale_bench library (unclosed image files)
+warnings.filterwarnings("ignore", category=ResourceWarning, module="ale_bench")
+warnings.filterwarnings("ignore", category=ResourceWarning, message="unclosed file")
 
 # Load environment variables first
 from dotenv import load_dotenv

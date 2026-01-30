@@ -40,8 +40,8 @@ solution = kapso.evolve(
 | **SearchStrategy** | `src.execution.search_strategies` | Generates and selects solutions |
 | **ExperimentWorkspace** | `src.execution.experiment_workspace` | Manages Git branches |
 | **CodingAgent** | `src.execution.coding_agents` | Writes code and runs evaluation |
-| **FeedbackGenerator** | `src.execution.feedback_generator` | Validates results and decides stop |
-| **KnowledgeSearch** | `src.knowledge.search` | Retrieves KG context |
+| **FeedbackGenerator** | (within search strategy) | Validates results and decides stop |
+| **KnowledgeSearch** | `src.knowledge_base.search` | Retrieves KG context |
 
 ### Step 2: Gather Context
 

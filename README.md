@@ -99,16 +99,13 @@ from src.kapso import Kapso, Source, DeployStrategy
 kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
 # Research: Gather domain-specific techniques from the web
-# mode can be a single mode or list of modes:
-# - "idea" returns List[Source.Idea]
-# - "implementation" returns List[Source.Implementation]  
-# - "study" returns Source.ResearchReport
-# - ["idea", "implementation"] returns ResearchFindings with .ideas and .implementations
+# mode: "idea" | "implementation" | "both" (default: "both")
+# depth: "light" | "deep" (default: "deep")
 
 findings = kapso.research(
     "RLHF and DPO fine-tuning for legal contract analysis",
-    mode=["idea", "implementation"],
-    top_k=5,
+    mode="both",
+    depth="deep",
 )
 
 # Learn: Ingest knowledge from repositories and research into the KG
@@ -121,10 +118,6 @@ kapso.learn(
 
 # Evolve: Build a solution through experimentation
 # Use research results as context via to_string()
-# Download dataset first (e.g., from HuggingFace)
-# from datasets import load_dataset
-# dataset = load_dataset("theatticusproject/cuad")
-# dataset.save_to_disk("./data/cuad_dataset")
 solution = kapso.evolve(
     goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85",
     data_dir="./data/cuad_dataset", 
@@ -151,13 +144,20 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 |-----------|-------------|
 | **Kapso** | Main API — orchestrates research, learn, evolve, and deploy |
 | **OrchestratorAgent** | Runs the experimentation loop with budget tracking |
-| **Search Strategy** | Explores solutions via tree search or linear search |
+| **Search Strategy** | Explores solutions via tree search (generic, benchmark_tree_search) |
 | **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
-| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG (hierarchical sub-graph-aware) |
+| **Feedback Generator** | Validates evaluation results and decides when to stop |
+| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
 | **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
-| **Evaluators** | Score solutions: regex patterns, JSON files, LLM judges |
-| **Stop Conditions** | Control when to stop: threshold, plateau, cost/time limits |
+| **Repo Memory** | Evidence-backed understanding of repository structure |
 | **Deployment** | Turn solutions into running software: Local, Docker, Modal, BentoML |
+
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| [**CUDA Optimization**](examples/cuda_optimization/README.md) | Optimize multi-head self-attention for CUDA using Flash Attention and Triton kernels |
+| [**PyTorch Optimization**](examples/pytorch_optimization/README.md) | Optimize PyTorch operations via kernel fusion, torch.compile, and custom kernels |
 
 ## Supported Benchmarks
 
