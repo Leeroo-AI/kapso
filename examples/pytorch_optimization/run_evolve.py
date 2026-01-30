@@ -1,13 +1,14 @@
 """
-CUDA Optimization Example using Kapso
+PyTorch Operation Optimization Example using Kapso
 
 This example demonstrates using Kapso's evolve() function to optimize
-a vanilla multi-head self-attention implementation for CUDA performance.
+a simple PyTorch model that performs matrix multiplication, division,
+summation, and scaling operations.
 
-The goal is to achieve speedup over the baseline PyTorch implementation
-while maintaining numerical correctness.
+The goal is to fuse operations for maximum speedup while maintaining
+numerical correctness.
 
-Based on: https://github.com/WecoAI/weco-cli/tree/main/examples/cuda
+Based on: https://docs.weco.ai/examples/pytorch-optimization
 """
 
 import os
@@ -21,63 +22,59 @@ from src.kapso import Kapso
 
 def main():
     # Initialize Kapso
-    # No KG index needed for this example - we'll use web research
     kapso = Kapso()
     
     # Define the optimization goal
     goal = """
-Optimize the multi-head self-attention implementation in `module.py` for maximum speedup on CUDA.
+Optimize the PyTorch Model in `module.py` for maximum speedup.
+
+The model performs: matrix multiplication -> division -> summation -> scaling.
 
 ## Constraints
 - Must maintain the same Model class interface (same __init__ and forward signatures)
 - Must produce numerically correct results (max float diff < 1e-5)
 - Must work on CUDA devices
 
+## Optimization Hints
+- Fuse operations in the forward method
+- Consider using torch.compile() for JIT compilation
+- Look for opportunities to reduce memory operations
+- Consider using in-place operations where safe
+
 ## Evaluation
-Run: python evaluate.py --path module.py
+Run: python evaluate.py --path module.py --device cuda
 
 ## Success Criteria
 - Numerical correctness: max diff < 1e-5
 - Performance: speedup > 1.0x (higher score = better)
 
 ## Environment
-Use the `kapso` conda environment which has PyTorch, CUDA, and Triton pre-installed:
+Use the `kapso` conda environment which has PyTorch and CUDA pre-installed:
   conda activate kapso
 """
 
-    # Optional: Research CUDA optimization techniques first
-    # Uncomment to enable web research for optimization ideas
-    # findings = kapso.research(
-    #     "Flash Attention Triton kernel optimization techniques",
-    #     mode=["idea", "implementation"],
-    #     top_k=5,
-    # )
-    # context = [findings.to_string()]
-    
     # Get the directory containing the starter code
     initial_repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "initial_repo")
     
-    # Run evolve to optimize the CUDA kernel
+    # Run evolve to optimize the PyTorch operations
     solution = kapso.evolve(
         goal=goal,
         # Start from the initial repo
         initial_repo=initial_repo_dir,
         # Output the optimized solution
-        output_path="./examples/cuda_optimization/cuda_optimized",
+        output_path="./examples/pytorch_optimization/pytorch_optimized",
         # Use basic linear search with Claude Code ideation
         mode="BASIC_LINEAR",
-        # Optional context from research
-        # context=context,
     )
     
     print("\n" + "=" * 60)
-    print("CUDA Optimization Complete!")
+    print("PyTorch Optimization Complete!")
     print("=" * 60)
     print(f"\nFinal score (speedup): {solution.final_score}")
     print(f"Goal achieved: {solution.succeeded}")
     print(f"\nTo evaluate the result:")
     print(f"  cd {solution.code_path}")
-    print(f"  python evaluate.py --path module.py")
+    print(f"  python evaluate.py --path module.py --device cuda")
 
 
 if __name__ == "__main__":
