@@ -13,15 +13,20 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.knowledge.wiki_mcps.mcp_server import _handle_get_page_structure
+from src.knowledge.gated_mcp.gates.base import GateConfig
+from src.knowledge.gated_mcp.gates.kg_gate import KGGate
 
 
 async def test_get_page_structure():
-    """Test the get_page_structure handler directly."""
+    """Test the get_page_structure handler directly via KGGate."""
     
     print("=" * 60)
-    print("Testing get_page_structure MCP tool")
+    print("Testing get_page_structure MCP tool (via KGGate)")
     print("=" * 60)
+    
+    # Create KGGate instance
+    config = GateConfig(enabled=True, params={})
+    gate = KGGate(config)
     
     # Test all valid page types
     valid_types = ["principle", "implementation", "environment", "heuristic", "workflow"]
@@ -31,7 +36,7 @@ async def test_get_page_structure():
         print(f"\n--- Testing page_type: {page_type} ---")
         
         try:
-            result = await _handle_get_page_structure({"page_type": page_type})
+            result = await gate.handle_call("get_page_structure", {"page_type": page_type})
             
             if result:
                 text_content = result[0].text if result else "No result"
@@ -40,7 +45,7 @@ async def test_get_page_structure():
                 is_error = (
                     text_content.startswith("Invalid page type:") or
                     text_content.startswith("Sections definition not found") or
-                    text_content.startswith("Error retrieving page structure:")
+                    text_content.startswith("Error:")
                 )
                 
                 if is_error:
@@ -62,7 +67,7 @@ async def test_get_page_structure():
     # Test invalid page type
     print(f"\n--- Testing invalid page_type: 'invalid' ---")
     try:
-        result = await _handle_get_page_structure({"page_type": "invalid"})
+        result = await gate.handle_call("get_page_structure", {"page_type": "invalid"})
         text_content = result[0].text if result else "No result"
         if text_content.startswith("Invalid page type:"):
             print(f"  EXPECTED ERROR (correct): {text_content[:100]}")
@@ -76,7 +81,7 @@ async def test_get_page_structure():
     # Test missing page_type
     print(f"\n--- Testing missing page_type ---")
     try:
-        result = await _handle_get_page_structure({})
+        result = await gate.handle_call("get_page_structure", {})
         text_content = result[0].text if result else "No result"
         if text_content.startswith("Invalid page type:"):
             print(f"  EXPECTED ERROR (correct): {text_content[:100]}")
@@ -104,12 +109,12 @@ def check_wiki_structure_paths():
     print("Checking wiki_structure paths")
     print("=" * 60)
     
-    # Path relative to mcp_server.py
-    mcp_server_path = Path(__file__).parent.parent / "src" / "knowledge" / "wiki_mcps" / "mcp_server.py"
-    wiki_structure_dir = mcp_server_path.parent.parent / "wiki_structure"
+    # Path relative to kg_gate.py
+    kg_gate_path = Path(__file__).parent.parent / "src" / "knowledge" / "gated_mcp" / "gates" / "kg_gate.py"
+    wiki_structure_dir = kg_gate_path.parent.parent.parent / "wiki_structure"
     
-    print(f"\nmcp_server.py location: {mcp_server_path}")
-    print(f"  Exists: {mcp_server_path.exists()}")
+    print(f"\nkg_gate.py location: {kg_gate_path}")
+    print(f"  Exists: {kg_gate_path.exists()}")
     
     print(f"\nwiki_structure_dir (computed): {wiki_structure_dir}")
     print(f"  Exists: {wiki_structure_dir.exists()}")
@@ -143,5 +148,4 @@ if __name__ == "__main__":
     passed = asyncio.run(test_get_page_structure())
     
     # Exit with appropriate code
-    import sys
     sys.exit(0 if passed else 1)

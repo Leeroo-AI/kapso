@@ -76,9 +76,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         {
             "kg-graph-search": {
                 "command": "python",
-                "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+                "args": ["-m", "src.knowledge.gated_mcp.server"],
                 "cwd": "/path/to/project",
-                "env": {"KG_INDEX_PATH": "/path/to/.index"}
+                "env": {"MCP_ENABLED_GATES": "kg", "KG_INDEX_PATH": "/path/to/.index"}
             }
         }
     

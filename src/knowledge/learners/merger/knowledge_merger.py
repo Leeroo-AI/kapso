@@ -377,13 +377,13 @@ class KnowledgeMerger:
         - Passes KG_INDEX_PATH to the MCP server via environment
         """
         # Get project root for MCP server paths
-        # The MCP server module is at src.knowledge.wiki_mcps.mcp_server
+        # The MCP server module is at src.knowledge.gated_mcp.server
         project_root = Path(__file__).parent.parent.parent.parent.parent
         
         # Build MCP server configuration
         mcp_env = {
             "PYTHONPATH": str(project_root),
-            "KG_SEARCH_BACKEND": "kg_graph_search",
+            "MCP_ENABLED_GATES": "kg",  # Only enable KG gate for merger
         }
         
         # Pass KG index path to MCP server if available
@@ -393,7 +393,7 @@ class KnowledgeMerger:
         mcp_servers = {
             "kg-graph-search": {
                 "command": "python",
-                "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+                "args": ["-m", "src.knowledge.gated_mcp.server"],
                 "cwd": str(project_root),
                 "env": mcp_env,
             }
