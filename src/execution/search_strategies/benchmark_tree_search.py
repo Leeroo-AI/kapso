@@ -23,8 +23,8 @@ from src.execution.search_strategies.base import (
     SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
-from src.repo_memory import RepoMemoryManager
-from src.repo_memory.observation import extract_repo_memory_sections_consulted
+from src.execution.memories.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
 from src.core.prompt_loader import load_prompt, render_prompt
 
 

@@ -18,7 +18,7 @@ import git
 from src.execution.coding_agents.base import CodingAgentConfig, CodingResult
 from src.execution.coding_agents.factory import CodingAgentFactory
 from src.execution.coding_agents.commit_message_generator import CommitMessageGenerator
-from src.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory import RepoMemoryManager
 
 
 class ExperimentSession:

@@ -20,7 +20,7 @@ from src.execution.experiment_workspace.experiment_workspace import ExperimentWo
 from src.execution.coding_agents.base import CodingAgentConfig
 from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
-from src.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory import RepoMemoryManager
 
 # Avoid circular import - FeedbackGenerator is optional
 if TYPE_CHECKING:

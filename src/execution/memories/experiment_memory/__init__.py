@@ -8,13 +8,13 @@
 # - Weaviate for semantic search (optional)
 #
 # Usage:
-#   from src.experiment_memory import ExperimentHistoryStore
+#   from src.execution.memories.experiment_memory import ExperimentHistoryStore
 #   
 #   store = ExperimentHistoryStore(json_path=".kapso/experiment_history.json")
 #   store.add_experiment(node)
 #   top = store.get_top_experiments(k=5)
 
-from src.experiment_memory.store import (
+from src.execution.memories.experiment_memory.store import (
     ExperimentHistoryStore,
     ExperimentRecord,
 )

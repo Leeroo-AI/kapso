@@ -13,7 +13,7 @@ from pathlib import Path
 
 import git
 
-from src.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory import RepoMemoryManager
 
 
 def test_ensure_exists_in_worktree_persists_v1_to_v2_migration(tmp_path: Path) -> None:

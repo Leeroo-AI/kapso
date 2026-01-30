@@ -18,7 +18,7 @@ from pathlib import Path
 
 import git
 
-from src.repo_memory.builders import build_repo_map
+from src.execution.memories.repo_memory.builders import build_repo_map
 
 
 def test_build_repo_map_git_filters_meta_paths(tmp_path: Path) -> None:

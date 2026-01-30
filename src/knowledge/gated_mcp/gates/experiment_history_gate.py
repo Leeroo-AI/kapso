@@ -50,7 +50,7 @@ class ExperimentHistoryGate(ToolGate):
     def _get_store(self):
         """Lazy load the experiment history store."""
         if self._store is None:
-            from src.experiment_memory.store import load_store_from_env
+            from src.execution.memories.experiment_memory.store import load_store_from_env
             self._store = load_store_from_env()
         return self._store
     

@@ -43,7 +43,7 @@ def _repo_memory_manager():
             # Some dependency stacks emit deprecation warnings at import-time.
             # These are not actionable for "get-section" usage and pollute output.
             warnings.simplefilter("ignore", category=DeprecationWarning)
-            from src.repo_memory.manager import RepoMemoryManager  # local import by design
+            from src.execution.memories.repo_memory.manager import RepoMemoryManager  # local import by design
     return RepoMemoryManager
 
 

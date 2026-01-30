@@ -29,7 +29,7 @@ from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 from src.core.config import load_mode_config
 from src.execution.search_strategies.base import ExperimentResult
-from src.experiment_memory import ExperimentHistoryStore
+from src.execution.memories.experiment_memory import ExperimentHistoryStore
 
 
 @dataclass

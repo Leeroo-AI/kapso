@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import git
 
-from src.repo_memory.builders import (
+from src.execution.memories.repo_memory.builders import (
     LLMLike,
     build_repo_map,
     infer_repo_model_initial,

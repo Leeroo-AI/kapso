@@ -15,7 +15,7 @@ This module provides "memory about the repository at hand" that is:
 The primary public entrypoint is `RepoMemoryManager`.
 """
 
-from src.repo_memory.manager import RepoMemoryManager
+from src.execution.memories.repo_memory.manager import RepoMemoryManager
 
 __all__ = ["RepoMemoryManager"]
 

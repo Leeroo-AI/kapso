@@ -23,7 +23,7 @@ from src.execution.search_strategies.base import (
     SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
-from src.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory import RepoMemoryManager
 from src.core.prompt_loader import load_prompt, render_prompt
 
 if TYPE_CHECKING:
@@ -391,7 +391,7 @@ Problem: {problem}"""
         from src.execution.coding_agents.base import CodingAgentConfig
         from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
         from src.knowledge.gated_mcp import get_mcp_config
-        from src.repo_memory.observation import extract_repo_memory_sections_consulted
+        from src.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
         
         # Create experiment session (handles git branching)
         session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
