@@ -93,6 +93,10 @@ class GenericSearch(SearchStrategy):
         if not import_from_checkpoint: 
             self.node_history: List[SearchNode] = []
         self.iteration_count = 0
+        
+        # Error tracking for implementation feedback
+        self.previous_errors: List[str] = []
+        self.recent_error_count = 3  # Number of recent errors to include in prompts
 
         print(f"[GenericSearch] Initialized:")
         print(f"  - idea_generation_model: {self.idea_generation_model}")

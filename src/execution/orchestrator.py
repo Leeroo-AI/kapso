@@ -406,8 +406,7 @@ class OrchestratorAgent:
                 print(f"  - Score: {node.score}")
                 print(f"  - Should stop: {node.should_stop}")
                 print(f"  - Evaluation valid: {node.evaluation_valid}")
-                feedback_preview = node.feedback[:200] if node.feedback else ""
-                print(f"  - Feedback: {feedback_preview}...")
+                print(f"  - Feedback: {node.feedback or ''}")
                 
                 # Store feedback result for return value
                 if node.feedback:

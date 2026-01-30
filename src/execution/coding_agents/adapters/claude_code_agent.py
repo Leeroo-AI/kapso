@@ -120,6 +120,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         }
         # Streaming: print Claude Code output live to terminal (default True for visibility)
         self._streaming = config.agent_specific.get("streaming", True)
+        # Show heartbeat messages during long operations (default False to reduce noise)
+        self._show_heartbeat = config.agent_specific.get("show_heartbeat", False)
         
         # AWS Bedrock settings
         # use_bedrock: If True, route requests through AWS Bedrock instead of direct Anthropic API
@@ -410,7 +412,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         last_heartbeat = time.time()
                 
                 # Show heartbeat if no output for a while (Claude might be thinking)
-                if not got_output and retcode is None:
+                if not got_output and retcode is None and self._show_heartbeat:
                     now = time.time()
                     if now - last_heartbeat > heartbeat_interval:
                         elapsed = now - start_time
@@ -530,9 +532,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     text = block.get("text", "")
                     if text:
                         assistant_texts.append(text)
-                        # Truncate long thinking for display
-                        display_text = text[:500] + "..." if len(text) > 500 else text
-                        print(f"{c['green']}  [thinking] {display_text}{c['reset']}", flush=True)
+                        # Show full thinking text (no truncation)
+                        print(f"{c['green']}  [thinking] {text}{c['reset']}", flush=True)
                 elif block.get("type") == "tool_use":
                     tool_name = block.get("name", "unknown")
                     tool_input = block.get("input", {})
@@ -587,6 +588,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         cmd = [
             "claude",
             "-p", prompt,  # Non-interactive mode with prompt
+            "--dangerously-skip-permissions",  # Auto-approve all tool calls
         ]
         
         # Output format: stream-json for live visibility, text for buffered
