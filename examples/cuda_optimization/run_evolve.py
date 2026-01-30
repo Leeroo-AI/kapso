@@ -11,6 +11,7 @@ Based on: https://github.com/WecoAI/weco-cli/tree/main/examples/cuda
 """
 
 import os
+import shutil
 import sys
 
 # Add project root to path
@@ -56,6 +57,12 @@ Use the `kapso` conda environment which has PyTorch, CUDA, and Triton pre-instal
     
     # Get the directory containing the starter code
     initial_repo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "initial_repo")
+    output_path = "./examples/cuda_optimization/cuda_optimized"
+    
+    # Clean up previous workspace if it exists
+    if os.path.exists(output_path):
+        print(f"Cleaning up previous workspace: {output_path}")
+        shutil.rmtree(output_path)
     
     # Run evolve to optimize the CUDA kernel
     solution = kapso.evolve(
@@ -63,9 +70,7 @@ Use the `kapso` conda environment which has PyTorch, CUDA, and Triton pre-instal
         # Start from the initial repo
         initial_repo=initial_repo_dir,
         # Output the optimized solution
-        output_path="./examples/cuda_optimization/cuda_optimized",
-        # Use basic linear search with Claude Code ideation
-        mode="BASIC_LINEAR",
+        output_path=output_path,
         # Optional context from research
         # context=context,
     )

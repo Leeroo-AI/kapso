@@ -43,7 +43,7 @@ def load_prompt(relative_path: str) -> str:
     Load a prompt file as text.
 
     Args:
-        relative_path: Path relative to `src/`, e.g. "repo_memory/prompts/infer_repo_model_initial.md"
+        relative_path: Path relative to `src/`, e.g. "execution/memories/repo_memory/prompts/infer_repo_model_initial.md"
     """
     rel = (relative_path or "").lstrip("/").strip()
     if not rel:

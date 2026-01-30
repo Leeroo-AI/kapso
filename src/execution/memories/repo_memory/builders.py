@@ -317,7 +317,7 @@ def plan_files_to_read(
     key_files = repo_map.get("key_files", [])
     entrypoints = repo_map.get("entrypoints", [])
 
-    template = load_prompt("repo_memory/prompts/plan_files_to_read.md")
+    template = load_prompt("execution/memories/repo_memory/prompts/plan_files_to_read.md")
     prompt = render_prompt(
         template,
         {
@@ -382,7 +382,7 @@ def infer_repo_model_initial(
 
     files_payload = _format_file_payload(file_blobs)
 
-    template = load_prompt("repo_memory/prompts/infer_repo_model_initial.md")
+    template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_initial.md")
     prompt = render_prompt(
         template,
         {
@@ -450,7 +450,7 @@ def infer_repo_model_update(
             changed_blobs.append((rel, _safe_read_text(abs_path, max_chars=max_file_chars)))
     changed_payload = _format_file_payload(changed_blobs)
 
-    template = load_prompt("repo_memory/prompts/infer_repo_model_update.md")
+    template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_update.md")
     prompt = render_prompt(
         template,
         {
