@@ -124,7 +124,7 @@ class TestKGGraphSearchIntegration:
         - Contains expected metadata
         - Backend has data after indexing
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
@@ -164,7 +164,7 @@ class TestKGGraphSearchIntegration:
         - Knowledge search is enabled
         - Can perform searches
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
@@ -198,8 +198,8 @@ class TestKGGraphSearchIntegration:
         - Results are relevant to query
         - QLoRA-related pages are found
         """
-        from src.kapso import Kapso
-        from src.knowledge_base.search.base import KGSearchFilters
+        from kapso.kapso import Kapso
+        from kapso.knowledge_base.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
@@ -240,7 +240,7 @@ class TestKGGraphSearchIntegration:
         """
         Test force=True clears and re-indexes.
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
@@ -290,7 +290,7 @@ class TestKGLLMNavigationIntegration:
         - Contains expected metadata
         - Backend has data after indexing
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
@@ -326,7 +326,7 @@ class TestKGLLMNavigationIntegration:
         """
         Test loading from existing .index file for JSON KG.
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
@@ -359,8 +359,8 @@ class TestKGLLMNavigationIntegration:
         The kg_data.json contains nodes about tabular classification,
         XGBoost, CatBoost, etc.
         """
-        from src.kapso import Kapso
-        from src.knowledge_base.search.base import KGSearchFilters
+        from kapso.kapso import Kapso
+        from kapso.knowledge_base.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
@@ -404,8 +404,8 @@ class TestKGLLMNavigationIntegration:
         The kg_data.json contains nodes about transformer fine-tuning,
         TF-IDF, DeBERTa, etc.
         """
-        from src.kapso import Kapso
-        from src.knowledge_base.search.base import KGSearchFilters
+        from kapso.kapso import Kapso
+        from kapso.knowledge_base.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
@@ -439,7 +439,7 @@ class TestKGIndexErrorHandling:
     
     def test_missing_index_file_raises_error(self, config_path):
         """Test that loading non-existent index file raises FileNotFoundError."""
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         with pytest.raises(FileNotFoundError):
             Kapso(
@@ -449,7 +449,7 @@ class TestKGIndexErrorHandling:
     
     def test_index_without_save_to_raises_error(self, wiki_dir, config_path):
         """Test that index_kg without save_to raises ValueError."""
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         kapso = Kapso(config_path=config_path)
         
@@ -458,7 +458,7 @@ class TestKGIndexErrorHandling:
     
     def test_index_without_data_raises_error(self, temp_index_dir, config_path):
         """Test that index_kg without wiki_dir or data_path raises ValueError."""
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         kapso = Kapso(config_path=config_path)
         
@@ -496,7 +496,7 @@ class TestEvolveWithKGGraphSearch:
         Note: May fail due to RepoMemory validation (unrelated to KG).
         The key assertion is that KG search is active during evolve.
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         output_path = temp_index_dir / "evolve_output"
@@ -548,7 +548,7 @@ class TestEvolveWithKGGraphSearch:
         and the OrchestratorAgent by checking that is_kg_active=True when
         KG is loaded.
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
@@ -563,7 +563,7 @@ class TestEvolveWithKGGraphSearch:
         assert kapso.knowledge_search.is_enabled(), "KG should be enabled after indexing"
         
         # Search should return results (proving KG has data for evolve to use)
-        from src.knowledge_base.search.base import KGSearchFilters
+        from kapso.knowledge_base.search.base import KGSearchFilters
         result = kapso.knowledge_search.search(
             query="QLoRA fine-tuning with limited GPU memory",
             filters=KGSearchFilters(top_k=3),
@@ -594,7 +594,7 @@ class TestEvolveWithKGLLMNavigation:
         2. Runs evolve() with a tabular ML goal
         3. Verifies the solution is created with KG context available
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         output_path = temp_index_dir / "evolve_output"
@@ -644,7 +644,7 @@ class TestEvolveWithKGLLMNavigation:
         1. Index once (setup)
         2. Load index and evolve (normal usage)
         """
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         
         index_path = temp_index_dir / "kaggle_kg.index"
         output_path = temp_index_dir / "evolve_output"

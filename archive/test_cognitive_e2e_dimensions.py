@@ -134,8 +134,8 @@ def test_dimension_1_workflow_quality() -> DimensionResult:
     - Do steps have titles?
     - Are heuristics attached to steps?
     """
-    from src.memory.cognitive_controller import CognitiveController
-    from src.knowledge.search import KnowledgeSearchFactory
+    from kapso.memory.cognitive_controller import CognitiveController
+    from kapso.knowledge.search import KnowledgeSearchFactory
     
     # This suite is intended to measure real cognitive behavior; use real KG.
     kg = KnowledgeSearchFactory.create("kg_graph_search")
@@ -214,11 +214,11 @@ def test_dimension_2_decision_accuracy() -> DimensionResult:
     - FIRST_FAILURE → should RETRY
     - REPEATED_FAILURE → should PIVOT or RETRY
     """
-    from src.memory.context import (
+    from kapso.memory.context import (
         CognitiveContext,
         ExperimentState, MetaState
     )
-    from src.memory.decisions import DecisionMaker, WorkflowAction
+    from kapso.memory.decisions import DecisionMaker, WorkflowAction
     
     dm = DecisionMaker()
     
@@ -328,7 +328,7 @@ def test_dimension_3_context_completeness() -> DimensionResult:
     - Last experiment result
     - Error message (if failed)
     """
-    from src.memory.context import (
+    from kapso.memory.context import (
         CognitiveContext,
         ExperimentState, MetaState
     )
@@ -418,8 +418,8 @@ def test_dimension_4_episodic_learning() -> DimensionResult:
     - Insights persist (to JSON at least)
     """
     import tempfile
-    from src.memory.episodic import EpisodicStore
-    from src.memory.types import Insight, InsightType
+    from kapso.memory.episodic import EpisodicStore
+    from kapso.memory.types import Insight, InsightType
     
     # Use temp file
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
@@ -508,7 +508,7 @@ def test_dimension_5_error_recovery() -> DimensionResult:
     - (With KG) Should trigger TIER 3 retrieval
     """
     import tempfile
-    from src.memory.cognitive_controller import CognitiveController
+    from kapso.memory.cognitive_controller import CognitiveController
     
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         store_path = f.name
@@ -517,7 +517,7 @@ def test_dimension_5_error_recovery() -> DimensionResult:
     controller = None
     try:
         # Use real KG so Tier 3 retrieval can be exercised meaningfully.
-        from src.knowledge.search import KnowledgeSearchFactory
+        from kapso.knowledge.search import KnowledgeSearchFactory
         kg = KnowledgeSearchFactory.create("kg_graph_search")
         controller = CognitiveController(
             knowledge_search=kg,
@@ -604,7 +604,7 @@ def test_dimension_6_e2e_flow() -> DimensionResult:
     5. Complete workflow → success recorded
     """
     import tempfile
-    from src.memory.cognitive_controller import CognitiveController
+    from kapso.memory.cognitive_controller import CognitiveController
     
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         store_path = f.name
@@ -612,7 +612,7 @@ def test_dimension_6_e2e_flow() -> DimensionResult:
     kg = None
     controller = None
     try:
-        from src.knowledge.search import KnowledgeSearchFactory
+        from kapso.knowledge.search import KnowledgeSearchFactory
         kg = KnowledgeSearchFactory.create("kg_graph_search")
         controller = CognitiveController(
             knowledge_search=kg,

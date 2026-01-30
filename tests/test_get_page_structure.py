@@ -13,8 +13,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.gated_mcp.gates.base import GateConfig
-from src.gated_mcp.gates.kg_gate import KGGate
+from kapso.gated_mcp.gates.base import GateConfig
+from kapso.gated_mcp.gates.kg_gate import KGGate
 
 
 async def test_get_page_structure():

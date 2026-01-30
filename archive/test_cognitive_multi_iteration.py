@@ -79,9 +79,9 @@ def test_tier2_synthesized_workflow():
     - System returns relevant Principles (Tier 2) rather than a fake workflow
     - Log shows: TIER2_RELEVANT
     """
-    from src.memory.cognitive_controller import CognitiveController
-    from src.memory.types import Goal  # Goal is in types.py
-    from src.knowledge.search import KnowledgeSearchFactory
+    from kapso.memory.cognitive_controller import CognitiveController
+    from kapso.memory.types import Goal  # Goal is in types.py
+    from kapso.knowledge.search import KnowledgeSearchFactory
     
     logger.info("")
     logger.info("=" * 60)
@@ -134,9 +134,9 @@ def test_multi_iteration_retry():
     3. Episodic memory write
     4. Second iteration
     """
-    from src.memory.cognitive_controller import CognitiveController
-    from src.memory.types import Goal  # Goal is in types.py
-    from src.knowledge.search import KnowledgeSearchFactory
+    from kapso.memory.cognitive_controller import CognitiveController
+    from kapso.memory.types import Goal  # Goal is in types.py
+    from kapso.knowledge.search import KnowledgeSearchFactory
     
     logger.info("")
     logger.info("=" * 60)
@@ -218,8 +218,8 @@ def test_episodic_memory_lifecycle():
     1. Store an insight from a simulated failure
     2. Retrieve it in a subsequent session
     """
-    from src.memory.episodic import EpisodicStore
-    from src.memory.types import Insight, InsightType
+    from kapso.memory.episodic import EpisodicStore
+    from kapso.memory.types import Insight, InsightType
     
     logger.info("")
     logger.info("=" * 60)
@@ -275,9 +275,9 @@ def test_decision_maker_pivot():
     
     PIVOT means: abandon current approach, try fundamentally different solution.
     """
-    from src.memory.cognitive_controller import CognitiveController
-    from src.memory.types import Goal  # Goal is in types.py
-    from src.knowledge.search import KnowledgeSearchFactory
+    from kapso.memory.cognitive_controller import CognitiveController
+    from kapso.memory.types import Goal  # Goal is in types.py
+    from kapso.knowledge.search import KnowledgeSearchFactory
     
     logger.info("")
     logger.info("=" * 60)

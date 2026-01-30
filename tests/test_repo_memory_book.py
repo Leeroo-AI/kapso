@@ -14,8 +14,8 @@ from typing import Dict, List
 
 import pytest
 
-from src.execution.memories.repo_memory import RepoMemoryManager
-from src.execution.memories.repo_memory.builders import validate_evidence
+from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.memories.repo_memory.builders import validate_evidence
 
 
 def test_migrate_v1_to_v2_preserves_data() -> None:

@@ -476,7 +476,7 @@ def check_prerequisites():
     # Check KG (optional but recommended)
     logger.info("[2/4] Checking Knowledge Graph...")
     try:
-        from src.knowledge.search import KnowledgeSearchFactory
+        from kapso.knowledge.search import KnowledgeSearchFactory
         kg = KnowledgeSearchFactory.create("kg_graph_search")
         if kg.is_enabled():
             logger.info("  ✓ KG connected")
@@ -488,7 +488,7 @@ def check_prerequisites():
     # Check coding agent
     logger.info("[3/4] Checking coding agent availability...")
     try:
-        from src.execution.coding_agents.factory import CodingAgentFactory
+        from kapso.execution.coding_agents.factory import CodingAgentFactory
         agents = CodingAgentFactory.list_available()
         if TEST_CONFIG["coding_agent"] in agents:
             logger.info(f"  ✓ {TEST_CONFIG['coding_agent']} agent available")
@@ -500,7 +500,7 @@ def check_prerequisites():
     # Check LLM backend
     logger.info("[4/4] Checking LLM backend...")
     try:
-        from src.core.llm import LLMBackend
+        from kapso.core.llm import LLMBackend
         llm = LLMBackend()
         response = llm.llm_completion(
             model="gpt-4o-mini",
@@ -540,7 +540,7 @@ def run_kapso_test():
     4. LLM decision making (ADVANCE/RETRY/SKIP/PIVOT)
     5. Episodic memory updates
     """
-    from src.kapso import Kapso
+    from kapso.kapso import Kapso
     
     logger.info("")
     logger.info("╔" + "═"*68 + "╗")
@@ -576,7 +576,7 @@ def run_kapso_test():
         logger.info("Kapso created")
         
         # Enable KG for cognitive mode
-        from src.knowledge.search import KnowledgeSearchFactory
+        from kapso.knowledge.search import KnowledgeSearchFactory
         kapso.knowledge_search = KnowledgeSearchFactory.create("kg_graph_search")
         logger.info(f"KG enabled: {kapso.knowledge_search.is_enabled()}")
         
@@ -637,7 +637,7 @@ def run_kapso_test():
         # agent succeeded early. This keeps the test close to real Kapso runs
         # while still exercising Tier 2 and Tier 3 deterministically.
         try:
-            from src.memory.knowledge_retriever import KnowledgeRetriever
+            from kapso.memory.knowledge_retriever import KnowledgeRetriever
             retriever = KnowledgeRetriever(knowledge_search=kapso.knowledge_search)
 
             logger.info("")
@@ -759,7 +759,7 @@ def run_kapso_test():
         # - Observability is auditable: `changes.log` is committed and matches persisted metadata
         try:
             import git
-            from src.repo_memory.observation import extract_repo_memory_sections_consulted
+            from kapso.repo_memory.observation import extract_repo_memory_sections_consulted
 
             repo = git.Repo(solution.code_path)
             changes_text = repo.git.show("HEAD:changes.log")

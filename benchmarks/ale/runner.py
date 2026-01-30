@@ -36,8 +36,8 @@ load_dotenv()
 
 import ale_bench
 
-from src.execution.orchestrator import OrchestratorAgent
-from src.execution.coding_agents.factory import CodingAgentFactory
+from kapso.execution.orchestrator import OrchestratorAgent
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 from benchmarks.ale.handler import AleBench
 
 # Path to ALE-Bench specific configuration

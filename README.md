@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/leeroo-kapso/"><img src="https://img.shields.io/pypi/v/leeroo-kapso?color=blue" alt="PyPI"></a>
   <a href="https://discord.gg/hqVbPNNEZM"><img src="https://dcbadge.limes.pink/api/server/hqVbPNNEZM?style=flat" alt="Discord"></a>
   <a href="https://github.com/leeroo-ai/kapso"><img src="https://img.shields.io/github/commit-activity/m/leeroo-ai/kapso" alt="GitHub commit activity"></a>
   <a href="https://www.ycombinator.com/companies/leeroo"><img src="https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white" alt="Y Combinator X25"></a>
@@ -56,6 +57,14 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 
 ### Installation
 
+**From PyPI (recommended)**
+
+```bash
+pip install leeroo-kapso
+```
+
+**From source (for development or to access wiki knowledge data)**
+
 ```bash
 git clone https://github.com/leeroo-ai/kapso.git
 cd kapso
@@ -68,7 +77,7 @@ git lfs pull
 conda create -n kapso python=3.12
 conda activate kapso
 
-# Install
+# Install in development mode
 pip install -e .
 ```
 
@@ -85,7 +94,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
 ### Basic Usage
 
 ```python
-from src.kapso import Kapso, Source, DeployStrategy
+from kapso import Kapso, Source, DeployStrategy
 
 # Initialize Kapso
 # If you have a Knowledge Graph, pass kg_index; otherwise just use Kapso()

@@ -42,7 +42,7 @@ logger.info(f"Logging to: {LOG_FILE}")
 def check_kg_available():
     """Check if KG infrastructure is running. FAIL if not."""
     try:
-        from src.knowledge.search import KnowledgeSearchFactory
+        from kapso.knowledge.search import KnowledgeSearchFactory
         kg = KnowledgeSearchFactory.create("kg_graph_search")
         
         if not kg.is_enabled():
@@ -67,8 +67,8 @@ def test_real_kg_workflow():
     
     NO FALLBACKS. If KG doesn't have workflows, the test fails.
     """
-    from src.memory.cognitive_controller import CognitiveController
-    from src.memory.objective import Objective, ObjectiveType, DataFile
+    from kapso.memory.cognitive_controller import CognitiveController
+    from kapso.memory.objective import Objective, ObjectiveType, DataFile
     
     logger.info("=" * 60)
     logger.info("COGNITIVE TEST - REAL KG (NO MOCKING)")

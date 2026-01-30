@@ -55,7 +55,7 @@ Control the thoroughness of research:
 ## Basic Usage
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 
@@ -114,7 +114,7 @@ for impl in findings.implementations:
 Use research results to provide additional context during solution building:
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 
@@ -138,7 +138,7 @@ solution = kapso.evolve(
 Permanently add research findings to your Knowledge Graph:
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 
@@ -235,7 +235,7 @@ def research(
 ### Data Classes
 
 ```python
-from src.knowledge_base.types import Source, ResearchFindings
+from kapso.knowledge_base.types import Source, ResearchFindings
 
 @dataclass
 class Source.Idea:

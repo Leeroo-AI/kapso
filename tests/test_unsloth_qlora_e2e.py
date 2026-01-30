@@ -93,7 +93,7 @@ def patch_claude_code_for_bedrock():
     
     This modifies the agent_specific defaults to enable Bedrock mode.
     """
-    from src.execution.coding_agents.factory import CodingAgentFactory
+    from kapso.execution.coding_agents.factory import CodingAgentFactory
     
     # Get current claude_code config
     if "claude_code" in CodingAgentFactory._agent_configs:
@@ -116,8 +116,8 @@ def patch_claude_code_for_bedrock():
 
 def run_test():
     """Run Unsloth QLoRA test using Kapso.evolve()."""
-    from src.kapso import Kapso
-    from src.knowledge_base.search import KnowledgeSearchFactory
+    from kapso.kapso import Kapso
+    from kapso.knowledge_base.search import KnowledgeSearchFactory
     
     logger.info("=" * 60)
     logger.info("UNSLOTH QLORA TEST (Kapso.evolve + Bedrock)")

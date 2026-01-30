@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Union
 
-from src.memory.types import Goal
+from kapso.memory.types import Goal
 
 
 @dataclass

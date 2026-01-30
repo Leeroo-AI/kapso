@@ -7,7 +7,7 @@
 # The goal is simple: train an iris classifier with accuracy > 0.90
 
 import pytest
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 
 @pytest.mark.skipif(True, reason="Run manually with: pytest tests/test_evolve.py -v -s")

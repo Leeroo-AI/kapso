@@ -10,7 +10,7 @@ The `Kapso` class is the main entry point for the framework. It provides methods
 ## Constructor
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso(
     config_path: Optional[str] = None,
@@ -350,8 +350,8 @@ class FeedbackResult:
 ### Source Types
 
 ```python
-from src.kapso import Source
-from src.knowledge_base.types import ResearchFindings
+from kapso.kapso import Source
+from kapso.knowledge_base.types import ResearchFindings
 
 # Repository
 Source.Repo(url: str, branch: str = "main")
@@ -371,7 +371,7 @@ ResearchFindings  # Returned by kapso.research()
 ### DeployStrategy
 
 ```python
-from src.kapso import DeployStrategy
+from kapso.kapso import DeployStrategy
 
 DeployStrategy.AUTO
 DeployStrategy.LOCAL
@@ -388,7 +388,7 @@ DeployStrategy.LANGGRAPH
 Raised when KG index is invalid or backend data is missing.
 
 ```python
-from src.kapso import KGIndexError
+from kapso.kapso import KGIndexError
 
 try:
     kapso = Kapso(kg_index="invalid.index")
@@ -399,7 +399,7 @@ except KGIndexError as e:
 ## Complete Example
 
 ```python
-from src.kapso import Kapso, Source, DeployStrategy
+from kapso.kapso import Kapso, Source, DeployStrategy
 
 # Initialize with KG
 kapso = Kapso(kg_index="data/indexes/ml.index")

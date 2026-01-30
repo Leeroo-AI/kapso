@@ -63,7 +63,7 @@ def _check_prerequisites() -> tuple[bool, str]:
     
     return True, ""
 
-from src.execution.memories.repo_memory.observation import (
+from kapso.execution.memories.repo_memory.observation import (
     extract_repo_memory_sections_consulted,
 )
 
@@ -259,7 +259,7 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
 
 def dump_branch_memory(repo, branch_name: str) -> dict:
     """Load repo memory from a specific branch without checkout."""
-    from src.execution.memories.repo_memory import RepoMemoryManager
+    from kapso.execution.memories.repo_memory import RepoMemoryManager
     
     doc = RepoMemoryManager.load_from_git_branch(repo, branch_name)
     if not doc:
@@ -352,9 +352,9 @@ def _create_bedrock_config_file(output_dir: str) -> str:
 
 def run_test():
     """Run the E2E repo memory test with Claude Code + Bedrock."""
-    from src.execution.orchestrator import OrchestratorAgent
-    from src.execution.coding_agents.factory import CodingAgentFactory
-    from src.environment.handlers.generic import GenericProblemHandler
+    from kapso.execution.orchestrator import OrchestratorAgent
+    from kapso.execution.coding_agents.factory import CodingAgentFactory
+    from kapso.environment.handlers.generic import GenericProblemHandler
     import git
     
     print("\n" + "=" * 70)

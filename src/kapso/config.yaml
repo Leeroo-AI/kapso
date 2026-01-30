@@ -1,0 +1,118 @@
+# Generic Problem Runner Configuration
+# Configuration for solving arbitrary problems
+#
+# Usage:
+#   python -m kapso.runner -p "Your problem..." -m GENERIC
+#   python -m kapso.runner -f problem.txt -m MINIMAL
+#
+# Available Search Strategies:
+#   - generic: Claude Code + MCP gates for ideation and implementation
+#   - benchmark_tree_search: Tree search with handler.run() for benchmarks
+#
+# Knowledge Search Backends (via KnowledgeSearchFactory):
+#   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
+#   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
+#
+# Experiment History:
+#   - Stored in .kapso/experiment_history.json
+#   - Accessed via MCP tools (get_top_experiments, get_recent_experiments, search_similar_experiments)
+#   - Optionally indexed in Weaviate for semantic search (set WEAVIATE_URL env var)
+
+# Default mode to use
+default_mode: GENERIC
+
+# =============================================================================
+# Available configuration modes
+# =============================================================================
+modes:
+  # ===========================================
+  # Production Mode
+  # ===========================================
+  
+  # Standard configuration for generic problems
+  # Uses Claude Code with MCP gates for ideation and implementation
+  GENERIC:
+    search_strategy:
+      type: "generic"
+      params:
+        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        use_bedrock: true
+        aws_region: "us-east-1"
+        ideation_timeout: 300
+        implementation_timeout: 600
+        ideation_gates: ["idea", "code", "research", "experiment_history", "repo_memory"]
+        implementation_gates: ["code", "research", "repo_memory"]
+    
+    coding_agent:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 600
+    
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    # Knowledge search configuration
+    # Use index_kg() to index data, then pass kg_index to Kapso
+    knowledge_search:
+      type: "kg_graph_search"
+      enabled: true
+      params:
+        weaviate_collection: "KapsoKG"
+        embedding_model: "text-embedding-3-large"
+        use_llm_reranker: true
+        reranker_model: "gpt-4.1-mini"
+
+  # ===========================================
+  # Testing Modes
+  # ===========================================
+  
+  # Minimal configuration for quick testing
+  MINIMAL:
+    search_strategy:
+      type: "generic"
+      params:
+        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        use_bedrock: true
+        aws_region: "us-east-1"
+        ideation_timeout: 180
+        implementation_timeout: 300
+        ideation_gates: ["idea", "code", "research", "experiment_history", "repo_memory"]
+        implementation_gates: ["code", "research", "repo_memory"]
+    
+    coding_agent:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
+    
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false

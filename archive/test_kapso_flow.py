@@ -105,8 +105,8 @@ def test_workflow_retrieval_quality():
     print("TEST: Workflow Retrieval Quality")
     print("="*70)
     
-    from src.knowledge.search import KnowledgeSearchFactory
-    from src.memory.knowledge_retriever import KnowledgeRetriever
+    from kapso.knowledge.search import KnowledgeSearchFactory
+    from kapso.memory.knowledge_retriever import KnowledgeRetriever
     
     kg = KnowledgeSearchFactory.create("kg_graph_search")
     retriever = KnowledgeRetriever(knowledge_search=kg)
@@ -159,11 +159,11 @@ def test_decision_maker_behavior():
     print("TEST: Decision Maker Behavior")
     print("="*70)
     
-    from src.memory.context import (
+    from kapso.memory.context import (
         CognitiveContext,
         ExperimentState, MetaState
     )
-    from src.memory.decisions import DecisionMaker, WorkflowAction
+    from kapso.memory.decisions import DecisionMaker, WorkflowAction
     
     dm = DecisionMaker()
     
@@ -264,8 +264,8 @@ def test_full_flow_simulation():
     print("TEST: Full Flow Simulation")
     print("="*70)
     
-    from src.knowledge.search import KnowledgeSearchFactory
-    from src.memory.cognitive_controller import CognitiveController
+    from kapso.knowledge.search import KnowledgeSearchFactory
+    from kapso.memory.cognitive_controller import CognitiveController
     
     # Setup
     kg = KnowledgeSearchFactory.create("kg_graph_search")
@@ -328,7 +328,7 @@ def test_context_consistency():
     print("TEST: Context Consistency")
     print("="*70)
     
-    from src.memory.context import (
+    from kapso.memory.context import (
         CognitiveContext,
         ExperimentState, MetaState
     )

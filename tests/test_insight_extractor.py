@@ -8,7 +8,7 @@ Tests the LLM-based insight extraction from errors and successes.
 import pytest
 from unittest.mock import Mock, patch
 
-from src.execution.memories.experiment_memory.insight_extractor import (
+from kapso.execution.memories.experiment_memory.insight_extractor import (
     InsightExtractor,
     ExtractedInsight,
     InsightType,
@@ -181,7 +181,7 @@ class TestExperimentHistoryStoreWithInsights:
     
     def test_store_creates_record_with_insight_fields(self, tmp_path):
         """Test that store creates records with insight fields."""
-        from src.execution.memories.experiment_memory import ExperimentHistoryStore
+        from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
         
         json_path = str(tmp_path / "experiments.json")
         store = ExperimentHistoryStore(
@@ -210,7 +210,7 @@ class TestExperimentHistoryStoreWithInsights:
     def test_store_backward_compatibility(self, tmp_path):
         """Test that store loads old records without insight fields."""
         import json
-        from src.execution.memories.experiment_memory import ExperimentHistoryStore
+        from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
         
         json_path = str(tmp_path / "experiments.json")
         
@@ -242,7 +242,7 @@ class TestExperimentHistoryStoreWithInsights:
     
     def test_get_experiments_with_insights(self, tmp_path):
         """Test filtering experiments by insights."""
-        from src.execution.memories.experiment_memory import ExperimentHistoryStore, ExperimentRecord
+        from kapso.execution.memories.experiment_memory import ExperimentHistoryStore, ExperimentRecord
         
         json_path = str(tmp_path / "experiments.json")
         store = ExperimentHistoryStore(

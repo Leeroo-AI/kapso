@@ -21,22 +21,22 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 
-from src.memory.context import (
+from kapso.memory.context import (
     CognitiveContext,
     ExperimentState, KGRetrievalState, EpisodicState, InsightSummary, MetaState
 )
-from src.memory.decisions import DecisionMaker, WorkflowAction, ActionDecision
-from src.memory.knowledge_retriever import KnowledgeRetriever
-from src.memory.kg_types import KGKnowledge, KGTier  # NEW: KGKnowledge types
-from src.memory.episodic import EpisodicStore
-from src.memory.insight_extractor import InsightExtractor, ExtractedInsight
-from src.memory.episodic_retriever import EpisodicRetriever, RankedInsight
-from src.memory.types import Insight, InsightType, Briefing, Goal, GoalType
-from src.memory.objective import Objective
+from kapso.memory.decisions import DecisionMaker, WorkflowAction, ActionDecision
+from kapso.memory.knowledge_retriever import KnowledgeRetriever
+from kapso.memory.kg_types import KGKnowledge, KGTier  # NEW: KGKnowledge types
+from kapso.memory.episodic import EpisodicStore
+from kapso.memory.insight_extractor import InsightExtractor, ExtractedInsight
+from kapso.memory.episodic_retriever import EpisodicRetriever, RankedInsight
+from kapso.memory.types import Insight, InsightType, Briefing, Goal, GoalType
+from kapso.memory.objective import Objective
 
 if TYPE_CHECKING:
-    from src.knowledge.search.base import KnowledgeSearch
-    from src.memory.config import CognitiveMemoryConfig
+    from kapso.knowledge.search.base import KnowledgeSearch
+    from kapso.memory.config import CognitiveMemoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class CognitiveController:
         
         # Load config
         if config is None:
-            from src.memory.config import CognitiveMemoryConfig
+            from kapso.memory.config import CognitiveMemoryConfig
             config = CognitiveMemoryConfig.load()
         self._config = config
         

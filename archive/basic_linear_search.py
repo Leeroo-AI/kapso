@@ -16,14 +16,14 @@ import pickle
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.execution.search_strategies.base import (
+from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
     SearchNode,
 )
-from src.execution.search_strategies.factory import register_strategy
-from src.repo_memory import RepoMemoryManager
-from src.core.prompt_loader import load_prompt, render_prompt
+from kapso.execution.search_strategies.factory import register_strategy
+from kapso.repo_memory import RepoMemoryManager
+from kapso.core.prompt_loader import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +217,9 @@ class BasicLinearSearch(SearchStrategy):
         Returns:
             Tuple of (solution_text, sections_consulted)
         """
-        from src.execution.coding_agents.base import CodingAgentConfig
-        from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from src.knowledge.gated_mcp import get_mcp_config
+        from kapso.execution.coding_agents.base import CodingAgentConfig
+        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+        from kapso.knowledge.gated_mcp import get_mcp_config
         
         # 1. Load RepoMemory (read-only)
         repo_memory_doc = RepoMemoryManager.load_from_git_branch(
@@ -383,10 +383,10 @@ Problem: {problem}"""
         Returns:
             The agent's output string
         """
-        from src.execution.coding_agents.base import CodingAgentConfig
-        from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from src.knowledge.gated_mcp import get_mcp_config
-        from src.repo_memory.observation import extract_repo_memory_sections_consulted
+        from kapso.execution.coding_agents.base import CodingAgentConfig
+        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+        from kapso.knowledge.gated_mcp import get_mcp_config
+        from kapso.repo_memory.observation import extract_repo_memory_sections_consulted
         
         # Create experiment session (handles git branching)
         session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)

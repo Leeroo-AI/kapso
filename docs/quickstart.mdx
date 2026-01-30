@@ -12,7 +12,12 @@ description: "Get Kapso running in 5 minutes"
 ## Installation
 
 <Steps>
-  <Step title="Clone the repository">
+  <Step title="Install from PyPI (recommended)">
+    ```bash
+    pip install leeroo-kapso
+    ```
+  </Step>
+  <Step title="Or install from source (for wiki knowledge data)">
     ```bash
     git clone https://github.com/leeroo-ai/kapso.git
     cd kapso
@@ -20,16 +25,12 @@ description: "Get Kapso running in 5 minutes"
     # Pull Git LFS files (wiki knowledge data)
     git lfs install
     git lfs pull
-    ```
-  </Step>
-  <Step title="Create conda environment (recommended)">
-    ```bash
+
+    # Create conda environment (recommended)
     conda create -n kapso_conda python=3.12
     conda activate kapso_conda
-    ```
-  </Step>
-  <Step title="Install the package">
-    ```bash
+
+    # Install in development mode
     pip install -e .
     ```
   </Step>
@@ -48,7 +49,7 @@ description: "Get Kapso running in 5 minutes"
 ### Option 1: Python API (Recommended)
 
 ```python
-from src.kapso import Kapso, DeployStrategy
+from kapso.kapso import Kapso, DeployStrategy
 
 # Initialize Kapso
 kapso = Kapso()
@@ -73,16 +74,16 @@ deployed_program.stop()
 
 ```bash
 # Basic usage
-PYTHONPATH=. python -m src.cli --goal "Build a random forest classifier for the Iris dataset"
+kapso evolve --goal "Build a random forest classifier for the Iris dataset"
 
 # With options
-PYTHONPATH=. python -m src.cli \
+kapso evolve \
     --goal "Build a feature engineering pipeline for tabular data" \
     --iterations 10 \
     --coding-agent aider
 
 # List available options
-PYTHONPATH=. python -m src.cli --list-agents
+kapso --list-agents
 ```
 
 ## Expected Output
@@ -129,7 +130,7 @@ For domain-specific context, index a knowledge graph first:
   </Step>
   <Step title="Index wiki pages (one-time setup)">
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 kapso.index_kg(
@@ -140,7 +141,7 @@ kapso.index_kg(
   </Step>
   <Step title="Use the indexed KG">
     ```python
-    from src.kapso import Kapso
+    from kapso.kapso import Kapso
 
     # Load from existing index
 kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
@@ -158,7 +159,7 @@ solution = kapso.evolve(
 Kapso can do deep web research before evolving:
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 

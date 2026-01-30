@@ -10,7 +10,7 @@ Kapso provides a CLI for running experiments without writing Python code.
 ## Basic Usage
 
 ```bash
-PYTHONPATH=. python -m src.cli --goal "Your problem description"
+kapso evolve --goal "Your problem description"
 ```
 
 ## Options
@@ -24,10 +24,10 @@ PYTHONPATH=. python -m src.cli --goal "Your problem description"
 
 ```bash
 # Inline goal
-python -m src.cli --goal "Build a classifier for Iris dataset"
+kapso evolve --goal "Build a classifier for Iris dataset"
 
 # From file
-python -m src.cli --goal-file problem.txt
+kapso evolve --goal-file problem.txt
 ```
 
 ### Basic Options
@@ -38,7 +38,7 @@ python -m src.cli --goal-file problem.txt
 | `--output` | `-o` | auto | Output directory for solution |
 
 ```bash
-python -m src.cli --goal "..." --iterations 10 --output ./my_solution
+kapso evolve --goal "..." --iterations 10 --output ./my_solution
 ```
 
 ### Configuration Options
@@ -49,7 +49,7 @@ python -m src.cli --goal "..." --iterations 10 --output ./my_solution
 | `--coding-agent` | `-a` | Coding agent (aider, gemini, claude_code, openhands) |
 
 ```bash
-python -m src.cli --goal "..." --mode GENERIC --coding-agent claude_code
+kapso evolve --goal "..." --mode GENERIC --coding-agent claude_code
 ```
 
 ### Directory Options
@@ -61,7 +61,7 @@ python -m src.cli --goal "..." --mode GENERIC --coding-agent claude_code
 | `--initial-repo` | `None` | Initial repository (local path or GitHub URL) |
 
 ```bash
-python -m src.cli --goal "..." \
+kapso evolve --goal "..." \
     --eval-dir ./my_evaluation/ \
     --data-dir ./my_data/ \
     --initial-repo https://github.com/owner/repo
@@ -74,7 +74,7 @@ python -m src.cli --goal "..." \
 | `--list-agents` | List available coding agents |
 
 ```bash
-python -m src.cli --list-agents
+kapso --list-agents
 ```
 
 ## Examples
@@ -82,14 +82,14 @@ python -m src.cli --list-agents
 ### Simple Usage
 
 ```bash
-PYTHONPATH=. python -m src.cli \
+kapso evolve \
     --goal "Build a random forest classifier for the Iris dataset"
 ```
 
 ### With Evaluation and Data
 
 ```bash
-PYTHONPATH=. python -m src.cli \
+kapso evolve \
     --goal "Build a classifier with accuracy > 0.9" \
     --eval-dir ./evaluation/ \
     --data-dir ./data/
@@ -98,7 +98,7 @@ PYTHONPATH=. python -m src.cli \
 ### Full Options
 
 ```bash
-PYTHONPATH=. python -m src.cli \
+kapso evolve \
     --goal-file problem.txt \
     --iterations 20 \
     --mode GENERIC \
@@ -161,7 +161,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 ## Available Coding Agents
 
 ```bash
-$ python -m src.cli --list-agents
+$ kapso --list-agents
 
 Available Coding Agents:
 ==================================================
@@ -181,12 +181,8 @@ Available Coding Agents:
 ## Tips
 
 <Tip>
-**Use `--list-agents`** to discover available coding agents.
+**Use `kapso --list-agents`** to discover available coding agents.
 </Tip>
-
-<Note>
-**Set PYTHONPATH** to the project root for imports to work correctly.
-</Note>
 
 <Warning>
 **API keys are required**. Set them in `.env` or as environment variables.

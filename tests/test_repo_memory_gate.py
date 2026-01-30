@@ -21,8 +21,8 @@ import pytest
 
 def test_repo_memory_gate_get_section(tmp_path: Path):
     """Test get_repo_memory_section tool."""
-    from src.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
-    from src.gated_mcp.gates.base import GateConfig
+    from kapso.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
+    from kapso.gated_mcp.gates.base import GateConfig
     
     repo_root = tmp_path / "repo"
     kapso_dir = repo_root / ".kapso"
@@ -68,8 +68,8 @@ def test_repo_memory_gate_get_section(tmp_path: Path):
 
 def test_repo_memory_gate_list_sections(tmp_path: Path):
     """Test list_repo_memory_sections tool."""
-    from src.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
-    from src.gated_mcp.gates.base import GateConfig
+    from kapso.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
+    from kapso.gated_mcp.gates.base import GateConfig
     
     repo_root = tmp_path / "repo"
     kapso_dir = repo_root / ".kapso"
@@ -106,8 +106,8 @@ def test_repo_memory_gate_list_sections(tmp_path: Path):
 
 def test_repo_memory_gate_get_summary(tmp_path: Path):
     """Test get_repo_memory_summary tool."""
-    from src.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
-    from src.gated_mcp.gates.base import GateConfig
+    from kapso.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
+    from kapso.gated_mcp.gates.base import GateConfig
     
     repo_root = tmp_path / "repo"
     kapso_dir = repo_root / ".kapso"

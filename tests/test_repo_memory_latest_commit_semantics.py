@@ -24,10 +24,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.core.llm import LLMBackend
-from src.execution.coding_agents.base import CodingAgentConfig
-from src.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
-from src.execution.memories.repo_memory import RepoMemoryManager
+from kapso.core.llm import LLMBackend
+from kapso.execution.coding_agents.base import CodingAgentConfig
+from kapso.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
+from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 
 def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):

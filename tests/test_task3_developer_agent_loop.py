@@ -11,7 +11,7 @@ import unittest
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.execution.feedback_generator import FeedbackGenerator, FeedbackResult
+from kapso.execution.feedback_generator import FeedbackGenerator, FeedbackResult
 
 
 class TestFeedbackResult(unittest.TestCase):
@@ -107,7 +107,7 @@ class TestExperimentResult(unittest.TestCase):
     
     def test_experiment_result_new_fields(self):
         """Test ExperimentResult has new fields."""
-        from src.execution.search_strategies.base import ExperimentResult
+        from kapso.execution.search_strategies.base import ExperimentResult
         
         result = ExperimentResult(
             node_id=1,
@@ -132,7 +132,7 @@ class TestGenericProblemHandler(unittest.TestCase):
     
     def test_handler_creation(self):
         """Test creating a GenericProblemHandler."""
-        from src.environment.handlers.generic import GenericProblemHandler
+        from kapso.environment.handlers.generic import GenericProblemHandler
         
         handler = GenericProblemHandler(
             problem_description="Test problem",
@@ -146,7 +146,7 @@ class TestGenericProblemHandler(unittest.TestCase):
     
     def test_handler_stop_condition_always_false(self):
         """Test that stop_condition always returns False in new design."""
-        from src.environment.handlers.generic import GenericProblemHandler
+        from kapso.environment.handlers.generic import GenericProblemHandler
         
         handler = GenericProblemHandler(
             problem_description="Test problem",
@@ -158,7 +158,7 @@ class TestGenericProblemHandler(unittest.TestCase):
     
     def test_handler_problem_context_includes_evaluation_instructions(self):
         """Test that problem context includes evaluation instructions."""
-        from src.environment.handlers.generic import GenericProblemHandler
+        from kapso.environment.handlers.generic import GenericProblemHandler
         
         handler = GenericProblemHandler(
             problem_description="Test problem",

@@ -15,7 +15,7 @@ import sys
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 
 def main():

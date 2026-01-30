@@ -58,7 +58,7 @@ def main() -> None:
     _require_env()
 
     # Import here so the env is loaded first.
-    from src.kapso import Kapso
+    from kapso.kapso import Kapso
 
     kapso = Kapso()
 

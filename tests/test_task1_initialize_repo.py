@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Test the helper methods directly
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 
 class TestInitialRepoResolution:
@@ -138,7 +138,7 @@ class TestWorkflowSearchExtraction:
     
     def test_extract_github_url_from_section(self):
         """Test extracting GitHub URL from == Github URL == section."""
-        from src.knowledge_base.search.workflow_search import extract_github_url
+        from kapso.knowledge_base.search.workflow_search import extract_github_url
         
         content = """
 == Overview ==
@@ -155,7 +155,7 @@ https://github.com/leeroo-coder/workflow-jaymody-picogpt-text-generation
     
     def test_extract_github_url_from_source_syntax(self):
         """Test extracting GitHub URL from [[source::Repo|name|URL]] syntax."""
-        from src.knowledge_base.search.workflow_search import extract_github_url
+        from kapso.knowledge_base.search.workflow_search import extract_github_url
         
         content = """
 {| class="wikitable"
@@ -171,7 +171,7 @@ https://github.com/leeroo-coder/workflow-jaymody-picogpt-text-generation
     
     def test_extract_github_url_raw(self):
         """Test extracting raw GitHub URL from content."""
-        from src.knowledge_base.search.workflow_search import extract_github_url
+        from kapso.knowledge_base.search.workflow_search import extract_github_url
         
         content = """
 Check out the repo at https://github.com/owner/repo for more info.
@@ -218,7 +218,7 @@ class TestWorkflowSearchWithRealKG:
     
     def test_workflow_search_finds_picogpt(self):
         """Test that workflow search finds PicoGPT for text generation queries."""
-        from src.knowledge_base.search.workflow_search import WorkflowRepoSearch
+        from kapso.knowledge_base.search.workflow_search import WorkflowRepoSearch
         
         # Use the KG search from our indexed Kapso
         search = WorkflowRepoSearch(kg_search=self.kapso_with_kg.knowledge_search)
@@ -241,7 +241,7 @@ class TestWorkflowSearchWithRealKG:
     
     def test_search_returns_github_url(self):
         """Test search result contains GitHub URL."""
-        from src.knowledge_base.search.workflow_search import WorkflowRepoSearch
+        from kapso.knowledge_base.search.workflow_search import WorkflowRepoSearch
         
         search = WorkflowRepoSearch(kg_search=self.kapso_with_kg.knowledge_search)
         

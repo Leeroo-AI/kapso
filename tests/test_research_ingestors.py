@@ -20,10 +20,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.knowledge_base_base.types import Source
-from src.researcher import Researcher
-from src.knowledge_base_base.learners.ingestors import IdeaIngestor, ImplementationIngestor, ResearchReportIngestor
-from src.knowledge_base_base.search.base import WikiPage
+from kapso.knowledge_base_base.types import Source
+from kapso.researcher import Researcher
+from kapso.knowledge_base_base.learners.ingestors import IdeaIngestor, ImplementationIngestor, ResearchReportIngestor
+from kapso.knowledge_base_base.search.base import WikiPage
 
 
 def test_idea_ingestor_e2e():
@@ -180,7 +180,7 @@ def test_full_pipeline_with_learn():
     print("Test: Full Pipeline (Research → Ingest → Learn)")
     print("=" * 60 + "\n")
     
-    from src.knowledge_base.learners import KnowledgePipeline
+    from kapso.knowledge_base.learners import KnowledgePipeline
     
     # Step 1: Research in multiple modes
     researcher = Researcher()

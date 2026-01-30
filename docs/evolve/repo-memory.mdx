@@ -70,7 +70,7 @@ RepoMemory is a structured representation of a repository's architecture, patter
 ### Ensure Memory Exists
 
 ```python
-from src.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 # Create or load memory
 doc = RepoMemoryManager.ensure_exists_in_worktree("/path/to/repo")
@@ -115,7 +115,7 @@ print(section_text)
 ### Bootstrap from Existing Repo
 
 ```python
-from src.core.llm import LLMBackend
+from kapso.core.llm import LLMBackend
 
 llm = LLMBackend()
 
@@ -182,7 +182,7 @@ flowchart TD
 Claims must have evidence that exists in the repository:
 
 ```python
-from src.execution.memories.repo_memory.builders import validate_evidence
+from kapso.execution.memories.repo_memory.builders import validate_evidence
 
 result = validate_evidence(repo_root, model)
 if not result.ok:

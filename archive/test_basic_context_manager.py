@@ -30,14 +30,14 @@ class TestBasicContextManager:
     
     def test_registration(self):
         """Test that basic context manager is registered."""
-        from src.execution.context_manager.factory import ContextManagerFactory
+        from kapso.execution.context_manager.factory import ContextManagerFactory
         
         available = ContextManagerFactory.list_available()
         assert "basic" in available, f"'basic' not in available context managers: {available}"
     
     def test_get_context_no_kg_results(self):
         """Test that get_context returns empty KG results."""
-        from src.execution.context_manager.basic_context_manager import BasicContextManager
+        from kapso.execution.context_manager.basic_context_manager import BasicContextManager
         
         # Create mocks
         problem_handler = MagicMock()
@@ -65,7 +65,7 @@ class TestBasicContextManager:
     
     def test_get_context_with_experiment_history(self):
         """Test that experiment history is included in additional_info."""
-        from src.execution.context_manager.basic_context_manager import BasicContextManager
+        from kapso.execution.context_manager.basic_context_manager import BasicContextManager
         
         # Create mocks
         problem_handler = MagicMock()
@@ -97,7 +97,7 @@ class TestBasicContextManager:
     
     def test_get_context_with_additional_context(self):
         """Test that additional_context from problem handler is included."""
-        from src.execution.context_manager.basic_context_manager import BasicContextManager
+        from kapso.execution.context_manager.basic_context_manager import BasicContextManager
         
         # Create mocks
         problem_handler = MagicMock()
@@ -121,8 +121,8 @@ class TestBasicContextManager:
     
     def test_factory_creation(self):
         """Test creating basic context manager via factory."""
-        from src.execution.context_manager.factory import ContextManagerFactory
-        from src.execution.context_manager.basic_context_manager import BasicContextManager
+        from kapso.execution.context_manager.factory import ContextManagerFactory
+        from kapso.execution.context_manager.basic_context_manager import BasicContextManager
         
         # Create mocks
         problem_handler = MagicMock()
@@ -143,7 +143,7 @@ class TestBasicContextManager:
     
     def test_should_stop_returns_false(self):
         """Test that should_stop always returns False (no decision making)."""
-        from src.execution.context_manager.basic_context_manager import BasicContextManager
+        from kapso.execution.context_manager.basic_context_manager import BasicContextManager
         
         problem_handler = MagicMock()
         problem_handler.additional_context = ""

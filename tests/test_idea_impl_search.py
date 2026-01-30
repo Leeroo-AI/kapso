@@ -13,9 +13,9 @@ load_dotenv()
 
 def main():
     """Test WikiIdeaSearch and WikiCodeSearch."""
-    from src.knowledge_base.search import KnowledgeSearchFactory
-    from src.knowledge_base.search.idea_impl_search import WikiIdeaSearch, WikiCodeSearch
-    from src.knowledge_base.search.base import KGIndexInput
+    from kapso.knowledge_base.search import KnowledgeSearchFactory
+    from kapso.knowledge_base.search.idea_impl_search import WikiIdeaSearch, WikiCodeSearch
+    from kapso.knowledge_base.search.base import KGIndexInput
     
     print("=" * 60)
     print("WikiIdeaSearch & WikiCodeSearch Test")

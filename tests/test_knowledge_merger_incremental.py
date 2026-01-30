@@ -29,8 +29,8 @@ sys.path.insert(0, str(project_root))
 from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
-from src.knowledge_base.learners.merger import KnowledgeMerger, MergeResult
-from src.knowledge_base.search.kg_graph_search import parse_wiki_directory
+from kapso.knowledge_base.learners.merger import KnowledgeMerger, MergeResult
+from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
 
 
 # =============================================================================
@@ -111,7 +111,7 @@ def run_merge_test(staging_subdir: str, merger: KnowledgeMerger) -> MergeResult:
 def clear_databases():
     """Clear Neo4j and Weaviate databases for a clean test start."""
     import json
-    from src.knowledge_base.search.kg_graph_search import KGGraphSearch
+    from kapso.knowledge_base.search.kg_graph_search import KGGraphSearch
     
     # Try to read collection name from existing index file
     weaviate_collection = "KGWikiPages"  # default
