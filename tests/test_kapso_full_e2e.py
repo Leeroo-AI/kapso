@@ -134,7 +134,7 @@ def setup_logging():
     logging.getLogger('src.memory.knowledge_retriever').setLevel(logging.INFO)
     logging.getLogger('src.memory.decisions').setLevel(logging.INFO)
     logging.getLogger('src.memory.episodic').setLevel(logging.INFO)
-    logging.getLogger('src.execution.context_manager').setLevel(logging.INFO)
+    logging.getLogger('src.experiment_memory').setLevel(logging.INFO)
     
     # Reduce noise from third-party modules (these swamp the logs with request dumps)
     for noisy in [
@@ -625,16 +625,13 @@ def run_kapso_test():
         
         # Try to get cognitive controller from orchestrator for detailed analysis.
         try:
-            # Access cognitive controller through context manager
+            # Access cognitive controller through memory module
             orchestrator = kapso._last_orchestrator if hasattr(kapso, '_last_orchestrator') else None
-            if orchestrator and hasattr(orchestrator, 'context_manager'):
-                cm = orchestrator.context_manager
-                if hasattr(cm, 'controller'):
-                    cognitive_controller = cm.controller
-                    log_cognitive_state(cognitive_controller, "FINAL STATE")
-                    log_decision_history(cognitive_controller)
+            if orchestrator and hasattr(orchestrator, 'experiment_store'):
+                store = orchestrator.experiment_store
+                logger.info(f"Experiment store has {store.get_experiment_count()} experiments")
         except Exception as e:
-            logger.debug(f"Could not access cognitive controller: {e}")
+            logger.debug(f"Could not access experiment store: {e}")
 
         # Explicitly validate retrieval quality independent of whether the coding
         # agent succeeded early. This keeps the test close to real Kapso runs

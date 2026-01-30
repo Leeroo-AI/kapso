@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.execution.context_manager.types import ContextData
+from src.execution.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,

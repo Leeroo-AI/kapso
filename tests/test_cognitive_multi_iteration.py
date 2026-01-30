@@ -51,7 +51,7 @@ def setup_logging():
     
     # Enable cognitive system DEBUG
     logging.getLogger('src.memory').setLevel(logging.DEBUG)
-    logging.getLogger('src.execution.context_manager').setLevel(logging.DEBUG)
+    logging.getLogger('src.experiment_memory').setLevel(logging.DEBUG)
     
     # Suppress noise
     for noisy in ['httpx', 'httpcore', 'urllib3', 'neo4j', 'weaviate', 'litellm', 'openai']:

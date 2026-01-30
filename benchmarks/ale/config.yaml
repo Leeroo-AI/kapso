@@ -47,14 +47,10 @@ modes:
     
     # Context manager configuration
     context_manager:
-      type: "token_efficient"
+      type: "kg_enriched"
       params:
-        state_experiments_count: 15
-        relevant_retrieval_experiments_count: 2
-        top_experiments_in_context_count: 3
-        recent_experiments_in_context_count: 0
-        summary_token_limit: 2000
-        summary_model: "gemini/gemini-2.5-pro"
+        max_experiment_history_count: 5
+        max_recent_experiment_count: 5
     
     # Knowledge search configuration
     knowledge_search:
@@ -98,14 +94,10 @@ modes:
     
     # Context manager configuration
     context_manager:
-      type: "token_efficient"
+      type: "kg_enriched"
       params:
-        state_experiments_count: 15
-        relevant_retrieval_experiments_count: 2
-        top_experiments_in_context_count: 3
-        recent_experiments_in_context_count: 0
-        summary_token_limit: 2000
-        summary_model: "gemini/gemini-2.5-pro"
+        max_experiment_history_count: 5
+        max_recent_experiment_count: 5
     
     # Knowledge search configuration
     knowledge_search:

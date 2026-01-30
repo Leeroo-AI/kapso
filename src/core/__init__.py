@@ -3,7 +3,7 @@
 # Contains configuration utilities and LLM backend.
 # Note: ContextData and ExperimentHistoryProvider moved to context_manager.types
 
-from src.execution.context_manager.types import ContextData, ExperimentHistoryProvider
+from src.execution.types import ContextData, ExperimentHistoryProvider
 from src.core.llm import LLMBackend
 from src.core.config import load_config, load_mode_config
 

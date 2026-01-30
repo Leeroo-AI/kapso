@@ -8,6 +8,11 @@
 # Knowledge Search Backends (via KnowledgeSearchFactory):
 #   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
 #   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
+#
+# Experiment History:
+#   - Stored in .kapso/experiment_history.json
+#   - Accessed via MCP tools (get_top_experiments, get_recent_experiments, search_similar_experiments)
+#   - Optionally indexed in Weaviate for semantic search (set WEAVIATE_URL env var)
 
 # Default mode to use
 default_mode: GENERIC
@@ -21,7 +26,6 @@ modes:
   # ===========================================
   
   # Standard configuration for generic problems
-  # To enable cognitive memory, change context_manager.type to "cognitive"
   GENERIC:
     # Search strategy configuration
     search_strategy:
@@ -35,17 +39,6 @@ modes:
       type: "aider"
       model: "gpt-4o-mini"
       debug_model: "gpt-4o-mini"
-    
-    # Context manager configuration
-    context_manager:
-      type: "token_efficient"
-      params:
-        state_experiments_count: 5
-        relevant_retrieval_experiments_count: 3
-        top_experiments_in_context_count: 2
-        recent_experiments_in_context_count: 2
-        summary_token_limit: 1000
-        summary_model: "gpt-4o-mini"
     
     # Knowledge search configuration
     # Use index_kg() to index data, then pass kg_index to Kapso
@@ -91,12 +84,6 @@ modes:
         streaming: true
         timeout: 120
     
-    context_manager:
-      type: "token_efficient"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
-    
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
@@ -138,17 +125,12 @@ modes:
         streaming: true
         timeout: 120
     
-    context_manager:
-      type: "token_efficient"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
-    
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
 
   # Basic linear search with Claude Code ideation and MCP gates
+  # Uses experiment_history MCP gate for accessing past experiments
   BASIC_LINEAR:
     search_strategy:
       type: "basic_linear_search"
@@ -159,7 +141,8 @@ modes:
         aws_region: "us-east-1"
         ideation_timeout: 300
         implementation_timeout: 600
-        ideation_gates: ["idea", "code", "research"]
+        # Include experiment_history gate for accessing past experiments
+        ideation_gates: ["idea", "code", "research", "experiment_history"]
         implementation_gates: ["code", "research"]
     
     coding_agent:
@@ -181,12 +164,6 @@ modes:
         aws_region: "us-east-1"
         streaming: true
         timeout: 120
-    
-    context_manager:
-      type: "basic"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
     
     knowledge_search:
       type: "kg_llm_navigation"
@@ -214,12 +191,6 @@ modes:
       type: "aider"
       model: "gpt-4o-mini"
       debug_model: "gpt-4o-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
     
     knowledge_search:
       type: "kg_llm_navigation"

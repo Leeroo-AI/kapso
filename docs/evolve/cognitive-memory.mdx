@@ -91,15 +91,17 @@ action, meta = controller.process_result(
 controller.close()
 ```
 
-### Via Configuration
+### Via Custom Integration
 
-Enable cognitive memory by setting context manager type:
+The CognitiveController can be used directly in custom implementations:
 
-```yaml
-context_manager:
-  type: "cognitive"
-  params:
-    max_episodic_insights: 5
+```python
+from src.memory import CognitiveController
+
+controller = CognitiveController(
+    knowledge_search=kg,
+    episodic_store_path=".memory_store.json"
+)
 ```
 
 ## Data Types
@@ -227,10 +229,12 @@ action, meta = controller.process_result(
 
 ## Integration
 
-### With Context Manager
+### With Custom Context Manager
+
+The CognitiveController can be integrated into custom context managers:
 
 ```python
-class CognitiveContextManager(ContextManager):
+class CustomContextManager(ContextManager):
     def __init__(self, ..., knowledge_search):
         self.controller = CognitiveController(knowledge_search=knowledge_search)
 
@@ -257,16 +261,13 @@ export COGNITIVE_MEMORY_EPISODIC_EMBEDDING_MODEL=text-embedding-3-large
 
 ## Switching Modes
 
-The cognitive system is opt-in:
+The cognitive system components (CognitiveController, EpisodicStore) can be used directly:
 
-```yaml
-# Legacy (default)
-context_manager:
-  type: "token_efficient"
+```python
+from src.memory import CognitiveController
 
-# Cognitive (new system)
-context_manager:
-  type: "cognitive"
+controller = CognitiveController(knowledge_search=kg)
+controller.initialize_goal(goal)
+briefing = controller.prepare_briefing()
 ```
-
 

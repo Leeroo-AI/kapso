@@ -6,7 +6,7 @@
 #
 # Key difference from linear_search:
 # - Uses Claude Code as the ideation agent (not engine-mediated ReAct)
-# - Connected to MCP gates (idea, code, research) for external knowledge
+# - Connected to MCP gates (idea, code, research, experiment_history) for external knowledge
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via CLI
 
@@ -16,7 +16,6 @@ import pickle
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.execution.context_manager.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
@@ -35,7 +34,7 @@ class BasicLinearSearch(SearchStrategy):
     Basic linear search strategy with Claude Code ideation and implementation.
     
     Each iteration:
-    1. Generate a solution using Claude Code + MCP gates (idea, code, research)
+    1. Generate a solution using Claude Code + MCP gates (idea, code, research, experiment_history)
     2. Implement and evaluate using Claude Code + MCP gates (code, research)
     3. Generate feedback
     4. Store result and continue
@@ -43,7 +42,7 @@ class BasicLinearSearch(SearchStrategy):
     Key features:
     - Claude Code as ideation agent with read-only codebase access
     - Claude Code as implementation agent with full write access
-    - MCP gates for external knowledge (wiki_idea_search, wiki_code_search, research_*)
+    - MCP gates for external knowledge (wiki_idea_search, wiki_code_search, research_*, experiment_history)
     - RepoMemory access via CLI for architecture understanding
     
     Config params:
@@ -53,7 +52,7 @@ class BasicLinearSearch(SearchStrategy):
         - aws_region: AWS region (default: us-east-1)
         - ideation_timeout: Timeout for ideation in seconds (default: 300)
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
-        - ideation_gates: MCP gates for ideation (default: ["idea", "code", "research"])
+        - ideation_gates: MCP gates for ideation (default: ["idea", "code", "research", "experiment_history"])
         - implementation_gates: MCP gates for implementation (default: ["code", "research"])
     """
     
@@ -69,7 +68,8 @@ class BasicLinearSearch(SearchStrategy):
         self.use_bedrock = self.params.get("use_bedrock", True)
         self.aws_region = self.params.get("aws_region", "us-east-1")
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
-        self.ideation_gates = self.params.get("ideation_gates", ["idea", "code", "research"])
+        # Include experiment_history gate by default for ideation
+        self.ideation_gates = self.params.get("ideation_gates", ["idea", "code", "research", "experiment_history"])
         
         # Config params for implementation
         self.implementation_model = self.params.get(
@@ -78,6 +78,12 @@ class BasicLinearSearch(SearchStrategy):
         )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
         self.implementation_gates = self.params.get("implementation_gates", ["code", "research"])
+        
+        # Experiment history path (set by orchestrator)
+        self.experiment_history_path = self.params.get(
+            "experiment_history_path",
+            os.path.join(self.workspace_dir, ".kapso", "experiment_history.json")
+        )
         
         # State
         if not import_from_checkpoint: 
@@ -90,6 +96,7 @@ class BasicLinearSearch(SearchStrategy):
         print(f"  - use_bedrock: {self.use_bedrock}")
         print(f"  - ideation_gates: {self.ideation_gates}")
         print(f"  - implementation_gates: {self.implementation_gates}")
+        print(f"  - experiment_history_path: {self.experiment_history_path}")
         print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
         # Initialize workspace with empty main file only for empty workspaces.
@@ -109,15 +116,19 @@ class BasicLinearSearch(SearchStrategy):
         self.workspace.finalize_session(session)
         self.workspace.repo.git.stash()
 
-    def run(self, context: ContextData, budget_progress: float = 0.0) -> SearchNode:
+    def run(self, context: Any, budget_progress: float = 0.0) -> SearchNode:
         """
         Execute one iteration of basic linear search.
         
         Node lifecycle:
-        1. Generate solution
+        1. Generate solution (agent queries experiment history via MCP)
         2. Implement (developer agent handles implementation + evaluation)
         3. Extract results from agent output
         4. Generate feedback
+        
+        Args:
+            context: Either a ContextData object (legacy) or a problem string
+            budget_progress: Budget progress percentage (0-100)
         
         Returns:
             SearchNode with solution, evaluation_output, feedback, should_stop
@@ -125,11 +136,17 @@ class BasicLinearSearch(SearchStrategy):
         self.iteration_count += 1
         print(f"\n[BasicLinearSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
         
+        # Extract problem from context (support both string and ContextData)
+        if isinstance(context, str):
+            problem = context
+        else:
+            problem = str(getattr(context, "problem", context))
+        
         # Determine parent branch once at the start
         parent_branch = self._get_best_branch()
         
-        # Step 1: Generate solution
-        solution, ideation_sections = self._generate_solution(context, parent_branch)
+        # Step 1: Generate solution (agent queries experiment history via MCP)
+        solution, ideation_sections = self._generate_solution(problem, parent_branch)
         print(f"[BasicLinearSearch] Generated solution ({len(solution)} chars)")
         
         # Create node
@@ -147,7 +164,7 @@ class BasicLinearSearch(SearchStrategy):
         
         agent_output = self._implement(
             solution=solution,
-            context=context,
+            problem=problem,
             branch_name=branch_name,
             parent_branch_name=parent_branch,
             ideation_repo_memory_sections_consulted=ideation_sections,
@@ -184,17 +201,17 @@ class BasicLinearSearch(SearchStrategy):
         
         return node
 
-    def _generate_solution(self, context: ContextData, parent_branch: str) -> Tuple[str, List[str]]:
+    def _generate_solution(self, problem: str, parent_branch: str) -> Tuple[str, List[str]]:
         """
         Generate solution using Claude Code with MCP gates.
         
         Uses Claude Code as ideation agent with:
         - Read-only access to repo (Read, Bash for repo_memory_cli.py)
         - RepoMemory via CLI
-        - Idea/Code/Research gates via MCP
+        - Idea/Code/Research/ExperimentHistory gates via MCP
         
         Args:
-            context: ContextData with problem and experiment history
+            problem: Problem description
             parent_branch: Git branch to base ideation on
             
         Returns:
@@ -212,9 +229,10 @@ class BasicLinearSearch(SearchStrategy):
             repo_memory_doc, max_chars=2500
         )
         
-        # 2. Get MCP config for idea + code + research gates
+        # 2. Get MCP config for idea + code + research + experiment_history gates
         mcp_servers, mcp_tools = get_mcp_config(
             gates=self.ideation_gates,
+            experiment_history_path=self.experiment_history_path,
             include_base_tools=False,
         )
         
@@ -246,8 +264,7 @@ class BasicLinearSearch(SearchStrategy):
         
         # 5. Build ideation prompt
         prompt = self._build_ideation_prompt(
-            problem=str(getattr(context, "problem", "")),
-            experiment_history=str(context.additional_info or ""),
+            problem=problem,
             repo_memory_brief=repo_memory_brief,
         )
         
@@ -262,7 +279,7 @@ class BasicLinearSearch(SearchStrategy):
             if not result.success:
                 logger.warning(f"[BasicLinearSearch] Ideation failed: {result.error}")
                 # Return a fallback solution
-                return self._fallback_solution(context), []
+                return self._fallback_solution(problem), []
             
             # Extract solution from output
             solution = self._extract_solution_from_output(result.output)
@@ -277,7 +294,6 @@ class BasicLinearSearch(SearchStrategy):
     def _build_ideation_prompt(
         self,
         problem: str,
-        experiment_history: str,
         repo_memory_brief: str,
     ) -> str:
         """Build the ideation prompt for Claude Code."""
@@ -288,7 +304,6 @@ class BasicLinearSearch(SearchStrategy):
             {
                 "problem": problem or "(No problem description provided)",
                 "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
-                "experiment_history": experiment_history or "(No previous experiments)",
             },
         )
     
@@ -326,9 +341,8 @@ class BasicLinearSearch(SearchStrategy):
                 result.append(s)
         return result
     
-    def _fallback_solution(self, context: ContextData) -> str:
+    def _fallback_solution(self, problem: str) -> str:
         """Generate a fallback solution when Claude Code ideation fails."""
-        problem = str(getattr(context, "problem", ""))
         return f"""# Core Idea
 Implement a baseline solution for the given problem.
 
@@ -349,7 +363,7 @@ Problem: {problem}"""
     def _implement(
         self,
         solution: str,
-        context: ContextData,
+        problem: str,
         branch_name: str,
         parent_branch_name: str = "main",
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
@@ -362,7 +376,7 @@ Problem: {problem}"""
         
         Args:
             solution: Solution description to implement
-            context: Problem context
+            problem: Problem description
             branch_name: Git branch for this experiment
             parent_branch_name: Parent branch to inherit code from
             ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
@@ -421,7 +435,7 @@ Problem: {problem}"""
         
         prompt = self._build_implementation_prompt(
             solution=solution,
-            problem=str(getattr(context, "problem", "")),
+            problem=problem,
             branch_name=branch_name,
             repo_memory_brief=repo_memory_brief,
             repo_memory_detail_access_instructions=repo_memory_detail_access_instructions,

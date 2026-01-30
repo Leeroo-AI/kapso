@@ -152,21 +152,19 @@ export COGNITIVE_MEMORY_EPISODIC_EMBEDDING_MODEL=text-embedding-3-large
 
 ## Switching Between Legacy and Cognitive Mode
 
-The cognitive system is **opt-in** - just change ONE config line.
+The cognitive system components (CognitiveController, EpisodicStore) can be used directly.
 
-### In `src/config.yaml`
+### In Python
 
-```yaml
-# Legacy (default for MLE/ALE)
-context_manager:
-  type: "token_efficient"
+```python
+from src.memory import CognitiveController
 
-# Cognitive (new system)
-context_manager:
-  type: "cognitive"
+controller = CognitiveController(knowledge_search=kg)
+controller.initialize_goal(goal)
+briefing = controller.prepare_briefing()
 ```
 
-That's it. No new mode needed. Also enable KG if you want workflow retrieval:
+Also enable KG if you want workflow retrieval:
 
 ```yaml
 knowledge_search:

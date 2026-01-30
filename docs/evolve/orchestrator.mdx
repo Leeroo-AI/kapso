@@ -175,13 +175,7 @@ def _create_context_manager(self):
             knowledge_search=self.knowledge_search,
         )
 
-    # Default: use kg_enriched if KG is active
-    if self.knowledge_search.is_enabled():
-        return ContextManagerFactory.create(
-            context_manager_type="cognitive",
-            ...
-        )
-
+    # Default: use kg_enriched context manager
     return ContextManagerFactory.create("kg_enriched", ...)
 ```
 
@@ -230,9 +224,9 @@ modes:
       model: "gpt-4o-mini"
 
     context_manager:
-      type: "token_efficient"
+      type: "kg_enriched"
       params:
-        state_experiments_count: 5
+        max_experiment_history_count: 5
 
     knowledge_search:
       type: "kg_graph_search"

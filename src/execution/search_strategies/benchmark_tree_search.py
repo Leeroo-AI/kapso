@@ -8,7 +8,7 @@
 
 from typing import Optional
 
-from src.execution.context_manager.types import ContextData
+from src.execution.types import ContextData
 from src.execution.search_strategies.base import SearchNode, SearchStrategyConfig
 from src.execution.search_strategies.llm_tree_search import LlmSteeredTreeSearch, TreeSearchNode
 from src.execution.search_strategies.factory import register_strategy

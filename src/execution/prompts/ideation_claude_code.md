@@ -20,6 +20,21 @@ Example: `python3 tools/repo_memory_cli.py get-section core.architecture`
 
 Available sections are listed in the TOC below.
 
+### Experiment History (MCP Tools)
+**IMPORTANT: You MUST check experiment history before generating a solution.**
+
+- **get_top_experiments**: Get the best-scoring experiments so far
+  - Use this to understand what approaches have worked well
+  - Example: `get_top_experiments(k=5)` returns top 5 experiments by score
+
+- **get_recent_experiments**: Get the most recent experiments
+  - Use this to see what was tried recently and avoid repeating failures
+  - Example: `get_recent_experiments(k=5)` returns last 5 experiments
+
+- **search_similar_experiments**: Search for experiments similar to your idea
+  - Use this to check if your approach was already tried
+  - Example: `search_similar_experiments(query="gradient accumulation", k=3)`
+
 ### Knowledge Search (MCP Tools)
 - **wiki_idea_search**: Search curated ML/AI knowledge base for principles and heuristics
   - Use for: foundational concepts, best practices, theoretical understanding
@@ -50,14 +65,14 @@ Your job is to propose a solution, not implement it.
 ### Repository Memory (Summary + TOC)
 {{repo_memory_brief}}
 
-### Previous Experiments
-{{experiment_history}}
-
 ## Your Process
-1. **Understand the codebase**: Read key files and RepoMemory sections (especially core.architecture, core.where_to_edit)
-2. **Review past attempts**: Analyze what has been tried before (from experiment history) and why it succeeded/failed
+1. **Check experiment history FIRST**: 
+   - Call `get_top_experiments(5)` to see what worked best
+   - Call `get_recent_experiments(5)` to see recent attempts
+   - Learn from past successes and failures
+2. **Understand the codebase**: Read key files and RepoMemory sections (especially core.architecture, core.where_to_edit)
 3. **Search for ideas**: Use wiki_idea_search first (curated, high-quality), then research tools if needed
-4. **Synthesize a solution**: Combine insights into a concrete, implementable proposal
+4. **Synthesize a solution**: Combine insights into a concrete, implementable proposal that IMPROVES on past attempts
 
 ## Output Format
 After your research, output your solution in this EXACT format:
@@ -65,6 +80,9 @@ After your research, output your solution in this EXACT format:
 <solution>
 # Core Idea
 [1-2 sentence description of the main approach]
+
+# Why This Approach
+[How this builds on or differs from previous experiments - cite specific experiment IDs if relevant]
 
 # Solution Steps
 1. [First step with specific details]
@@ -80,4 +98,4 @@ After your research, output your solution in this EXACT format:
 [Why this approach should work, citing any sources you found]
 </solution>
 
-Begin by exploring the codebase and RepoMemory, then search for ideas if needed.
+Begin by checking experiment history, then explore the codebase and search for ideas.

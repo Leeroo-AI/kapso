@@ -1,21 +1,20 @@
 # Orchestrator Agent
 #
 # Main orchestrator that coordinates the experimentation loop.
-# Uses pluggable search strategies, context managers, and knowledge retrievers.
+# Uses pluggable search strategies and knowledge retrievers.
 #
 # In the new design:
 # - Developer agent builds evaluation in kapso_evaluation/
 # - Developer agent runs evaluation and reports results
 # - FeedbackGenerator decides when to stop
+# - ExperimentHistoryStore persists experiment results for MCP access
+# - Experiment history is accessed via MCP tools (not context managers)
 
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from src.execution.context_manager import (
-    ContextManager,
-    ContextManagerFactory,
-)
 from src.knowledge.search import (
     KnowledgeSearch,
     KnowledgeSearchFactory,
@@ -30,6 +29,7 @@ from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 from src.core.config import load_mode_config
 from src.execution.search_strategies.base import ExperimentResult
+from src.experiment_memory import ExperimentHistoryStore
 
 
 @dataclass
@@ -48,10 +48,10 @@ class OrchestratorAgent:
     
     Uses pluggable components:
     - Search strategies (registered via @register_strategy decorator)
-    - Context managers (registered via @register_context_manager decorator)
     - Knowledge search backends (registered via @register_knowledge_search decorator)
     - Coding agents (Aider, Gemini, Claude Code, OpenHands)
     - Feedback generator (LLM-based, decides when to stop)
+    - Experiment history store (persists results for MCP access)
     
     Args:
         problem_handler: Handler for the problem being solved
@@ -91,6 +91,13 @@ class OrchestratorAgent:
         # Load config once and store for reuse
         self.mode_config = load_mode_config(config_path, mode)
         
+        # Determine workspace directory for experiment history
+        self._workspace_dir = workspace_dir
+        
+        # Create experiment history store
+        # Path is determined after search strategy creates workspace
+        self.experiment_store: Optional[ExperimentHistoryStore] = None
+        
         # Create feedback generator FIRST (needed by search strategy)
         self.feedback_generator = self._create_feedback_generator(coding_agent)
         
@@ -105,6 +112,17 @@ class OrchestratorAgent:
             start_from_checkpoint=start_from_checkpoint,
         )
         
+        # Now create experiment history store with the actual workspace path
+        experiment_history_path = os.path.join(
+            self.search_strategy.workspace_dir, 
+            ".kapso", 
+            "experiment_history.json"
+        )
+        self.experiment_store = ExperimentHistoryStore(
+            json_path=experiment_history_path,
+            weaviate_url=os.environ.get("WEAVIATE_URL"),
+        )
+        
         # Create knowledge search backend (or use provided instance).
         # This allows Kapso.evolve() to inject a concrete backend (e.g., kg_graph_search)
         # without relying on config defaults (which may point to a different backend).
@@ -117,9 +135,6 @@ class OrchestratorAgent:
             )
             # We created it inside the orchestrator → we should close it.
             self._owns_knowledge_search = True
-        
-        # Create context manager with injected search backend
-        self.context_manager = self._create_context_manager()
     
     def _create_feedback_generator(
         self,
@@ -303,45 +318,6 @@ class OrchestratorAgent:
         # Default: disabled
         return KnowledgeSearchFactory.create_null()
 
-    def _create_context_manager(self) -> ContextManager:
-        """
-        Create context manager with injected knowledge search backend.
-        
-        Returns:
-            Configured ContextManager instance
-        """
-        mode_config = self.mode_config
-        
-        # Check for context_manager config
-        cm_config = mode_config.get('context_manager', {})
-        
-        # If context_manager is explicitly configured, use it
-        if cm_config and cm_config.get('type'):
-            return ContextManagerFactory.create_from_config(
-                config=cm_config,
-                problem_handler=self.problem_handler,
-                search_strategy=self.search_strategy,
-                knowledge_search=self.knowledge_search,
-            )
-        
-        # If KG is active and no context_manager specified, use cognitive
-        # for full workflow support
-        if self.knowledge_search and self.knowledge_search.is_enabled():
-            return ContextManagerFactory.create(
-                context_manager_type="cognitive",
-                problem_handler=self.problem_handler,
-                search_strategy=self.search_strategy,
-                knowledge_search=self.knowledge_search,
-            )
-        
-        # Default: use kg_enriched context manager
-        return ContextManagerFactory.create(
-            context_manager_type="kg_enriched",
-            problem_handler=self.problem_handler,
-            search_strategy=self.search_strategy,
-            knowledge_search=self.knowledge_search,
-        )
-
     def get_cumulative_cost(self) -> float:
         """Get total cost from all components."""
         return (
@@ -362,6 +338,7 @@ class OrchestratorAgent:
         1. Developer agent implements solution and runs evaluation
         2. Feedback generator validates evaluation and decides stop/continue
         3. Loop continues until goal reached or budget exhausted
+        4. Experiment history is accessed via MCP tools (not context managers)
         
         Stops when ANY of these conditions is met:
         1. Feedback generator says STOP (goal achieved)
@@ -376,11 +353,12 @@ class OrchestratorAgent:
         Returns:
             SolveResult with best_experiment, final_feedback, stopped_reason
         """
-        import os
-        
         start_time = time.time()
         stopped_reason = "max_iterations"  # default
         iterations_run = 0
+        
+        # Get problem context once (experiment history is accessed via MCP)
+        problem = self.problem_handler.get_problem_context()
         
         try:
             for i in range(experiment_max_iter):
@@ -399,21 +377,17 @@ class OrchestratorAgent:
                     stopped_reason = "budget_exhausted"
                     break
                 
-                # Get context (decision happens inside for cognitive context manager)
-                experiment_context = self.context_manager.get_context(budget_progress=budget_progress)
-                
-                # Add feedback from previous iteration if available
+                # Build context with problem and feedback
+                # Experiment history is accessed via MCP tools by the agent
+                context = problem
                 if self.current_feedback:
-                    experiment_context = self._add_feedback_to_context(
-                        experiment_context, 
-                        self.current_feedback
-                    )
+                    context = f"{problem}\n\n## Feedback from Previous Iteration\n\n{self.current_feedback}\n\nPlease address the above feedback in this iteration."
                 
                 # Run one iteration of search strategy
                 # Search strategy handles: solution generation, implementation, feedback
                 # Returns SearchNode with all data including should_stop
                 node = self.search_strategy.run(
-                    experiment_context, 
+                    context, 
                     budget_progress=budget_progress
                 )
                 
@@ -421,6 +395,10 @@ class OrchestratorAgent:
                 if node is None:
                     print(f"[Orchestrator] Warning: No result from iteration {i+1}")
                     continue
+                
+                # Add experiment to history store (for MCP access)
+                if self.experiment_store:
+                    self.experiment_store.add_experiment(node)
                 
                 # Log result
                 print(f"[Orchestrator] Iteration {i+1} result:")
@@ -460,10 +438,11 @@ class OrchestratorAgent:
                 self.search_strategy.export_checkpoint()
         finally:
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
-            # Context managers are orchestrator-owned; close if implemented.
-            if hasattr(self.context_manager, "close"):
+            
+            # Close experiment history store
+            if self.experiment_store:
                 try:
-                    self.context_manager.close()
+                    self.experiment_store.close()
                 except Exception:
                     pass
             
@@ -481,16 +460,3 @@ class OrchestratorAgent:
             iterations_run=iterations_run,
             total_cost=self.get_cumulative_cost(),
         )
-    
-    def _add_feedback_to_context(self, context: "ContextData", feedback: str) -> "ContextData":
-        """Add feedback from previous iteration to context."""
-        feedback_section = f"""
-## Feedback from Previous Iteration
-
-{feedback}
-
-Please address the above feedback in this iteration.
-"""
-        # Append feedback to the additional_info field of ContextData
-        context.additional_info = (context.additional_info or "") + "\n" + feedback_section
-        return context

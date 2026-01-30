@@ -60,6 +60,18 @@ GATES: Dict[str, GateDefinition] = {
             "default_top_k": 5,
         },
     ),
+    "experiment_history": GateDefinition(
+        tools=[
+            "get_top_experiments",
+            "get_recent_experiments",
+            "search_similar_experiments",
+        ],
+        default_params={
+            "top_k": 5,
+            "recent_k": 5,
+            "similar_k": 3,
+        },
+    ),
 }
 
 
@@ -109,17 +121,22 @@ def get_mcp_config(
     server_name: str = "gated-knowledge",
     project_root: Optional[Path] = None,
     kg_index_path: Optional[str] = None,
+    experiment_history_path: Optional[str] = None,
+    weaviate_url: Optional[str] = None,
     include_base_tools: bool = True,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
     
     Args:
-        gates: List of gate names (e.g., ["idea", "research"])
+        gates: List of gate names (e.g., ["idea", "research", "experiment_history"])
         server_name: MCP server name (default: "gated-knowledge")
         project_root: Project root path (defaults to 2 levels up from this file)
         kg_index_path: Path to .index file. Required if "kg", "idea", or "code" 
                        gates are enabled. Falls back to KG_INDEX_PATH env var.
+        experiment_history_path: Path to experiment history JSON file. Required if
+                                 "experiment_history" gate is enabled.
+        weaviate_url: Weaviate URL for semantic search (optional).
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
     
     Returns:
@@ -152,6 +169,17 @@ def get_mcp_config(
         resolved_kg_path = kg_index_path or os.environ.get("KG_INDEX_PATH")
         if resolved_kg_path:
             mcp_env["KG_INDEX_PATH"] = resolved_kg_path
+    
+    # Resolve experiment_history_path (needed for experiment_history gate)
+    if "experiment_history" in gates:
+        resolved_history_path = experiment_history_path or os.environ.get("EXPERIMENT_HISTORY_PATH")
+        if resolved_history_path:
+            mcp_env["EXPERIMENT_HISTORY_PATH"] = resolved_history_path
+        
+        # Add Weaviate URL if available
+        resolved_weaviate_url = weaviate_url or os.environ.get("WEAVIATE_URL")
+        if resolved_weaviate_url:
+            mcp_env["WEAVIATE_URL"] = resolved_weaviate_url
     
     # Build MCP servers config
     mcp_servers = {

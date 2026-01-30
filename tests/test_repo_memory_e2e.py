@@ -327,13 +327,6 @@ def _create_bedrock_config_file(output_dir: str) -> str:
                     "debug_model": TEST_CONFIG["coding_agent_model"],
                     "agent_specific": TEST_CONFIG["coding_agent_params"],
                 },
-                "context_manager": {
-                    "type": "token_efficient",
-                    "params": {
-                        "max_experiment_history_count": 3,
-                        "max_recent_experiment_count": 3,
-                    }
-                },
                 "knowledge_search": {
                     "type": "kg_llm_navigation",
                     "enabled": False,

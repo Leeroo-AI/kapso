@@ -15,7 +15,7 @@ Your strategy will be auto-discovered when the module loads!
 
 from typing import Any, Dict, List, Optional
 
-from src.execution.context_manager.types import ContextData
+from src.execution.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,

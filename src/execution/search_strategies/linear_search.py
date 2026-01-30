@@ -8,7 +8,7 @@ import os
 import pickle
 from typing import List, Optional
 
-from src.execution.context_manager.types import ContextData
+from src.execution.types import ContextData
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,

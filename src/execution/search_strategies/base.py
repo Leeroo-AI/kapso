@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from src.execution.context_manager.types import ContextData
+from src.execution.types import ContextData
 from src.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
 from src.execution.experiment_workspace.experiment_session import ExperimentSession
 from src.execution.coding_agents.base import CodingAgentConfig
