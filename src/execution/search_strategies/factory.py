@@ -16,7 +16,7 @@ from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 
 if TYPE_CHECKING:
-    from src.execution.feedback_generator import FeedbackGenerator
+    from src.execution.search_strategies.generic import FeedbackGenerator
 
 
 class SearchStrategyFactory:

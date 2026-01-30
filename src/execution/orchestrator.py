@@ -24,7 +24,7 @@ from src.execution.search_strategies import (
     SearchStrategyFactory,
 )
 from src.execution.coding_agents.factory import CodingAgentFactory
-from src.execution.feedback_generator import FeedbackGenerator, FeedbackResult
+from src.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
 from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 from src.core.config import load_mode_config
@@ -410,7 +410,7 @@ class OrchestratorAgent:
                 
                 # Store feedback result for return value
                 if node.feedback:
-                    from src.execution.feedback_generator import FeedbackResult
+                    from src.execution.search_strategies.generic import FeedbackResult
                     self.last_feedback_result = FeedbackResult(
                         stop=node.should_stop,
                         evaluation_valid=node.evaluation_valid,

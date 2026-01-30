@@ -23,6 +23,9 @@ from src.execution.search_strategies.base import (
     SearchNode,
 )
 from src.execution.search_strategies.factory import register_strategy
+from src.repo_memory import RepoMemoryManager
+from src.repo_memory.observation import extract_repo_memory_sections_consulted
+from src.core.prompt_loader import load_prompt, render_prompt
 
 
 # =============================================================================
@@ -137,6 +140,10 @@ class BenchmarkTreeSearch(SearchStrategy):
         # Thread locks
         self.node_history_lock = threading.Lock()
         self.nodes_lock = threading.Lock()
+
+        # Error tracking for implementation
+        self.previous_errors: List[str] = []
+        self.recent_error_count = 10
 
         # Initialize with an empty main file ONLY when starting from an empty workspace.
         # If the workspace is seeded from an existing repo, we must not overwrite it.
@@ -469,6 +476,192 @@ class BenchmarkTreeSearch(SearchStrategy):
         while node.parent_node is not None and node.score is None:
             node = node.parent_node
         return node
+
+    # =========================================================================
+    # Implementation Methods (Benchmark-specific)
+    # =========================================================================
+
+    def implement_solution(
+        self, 
+        solution: str, 
+        context: ContextData, 
+        session
+    ) -> str:
+        """
+        Have the developer agent implement a solution.
+        
+        The developer agent is responsible for:
+        - Implementing the solution
+        - Building evaluation in kapso_evaluation/
+        - Running the evaluation
+        - Handling any errors/retries internally
+        
+        Args:
+            solution: The solution description to implement
+            context: Problem context with KG results
+            session: Experiment session with coding agent
+            
+        Returns:
+            The agent's output (contains implementation results)
+        """
+        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
+        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
+
+        # By default, agents can read the JSON file directly.
+        agent_type = getattr(getattr(self.workspace, "coding_agent_config", None), "agent_type", "")
+        if agent_type == "claude_code":
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
+                "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
+                "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
+            )
+        else:
+            repo_memory_detail_access_instructions = (
+                "For detailed section content (architecture, gotchas, invariants, etc.),\n"
+                "read: `.kapso/repo_memory.json` and look up by section ID from the TOC."
+            )
+
+        template = load_prompt("execution/prompts/coding_agent_implement.md")
+        developer_prompt = render_prompt(
+            template,
+            {
+                "previous_errors": "\n".join(
+                    str(e) for e in self.previous_errors[-self.recent_error_count:]
+                ),
+                "branch_name": session.branch_name,
+                "repo_memory_brief": repo_memory_brief,
+                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
+                "kg_code_results": str(getattr(context, "kg_code_results", "")),
+                "problem": str(getattr(context, "problem", "")),
+                "solution": str(solution or ""),
+            },
+        )
+
+        # Run the developer agent
+        result = session.generate_code(developer_prompt)
+        return result.output if hasattr(result, 'output') else str(result)
+
+    def _implement(
+        self, 
+        solution: str, 
+        context: ContextData, 
+        branch_name: str, 
+        parent_branch_name: str = "main",
+        ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Full implementation flow.
+        
+        Creates a session, runs the developer agent, and finalizes.
+        
+        Args:
+            solution: Solution description to implement
+            context: Problem context
+            branch_name: Git branch for this experiment
+            parent_branch_name: Parent branch to inherit code from
+            ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
+            
+        Returns:
+            The agent's output string
+        """
+        session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
+        agent_output = self.implement_solution(solution, context, session)
+
+        # Update RepoMemory for this experiment branch
+        run_result_payload = {
+            "score": 0,
+            "run_had_error": False,
+            "error_message": "",
+            "error_details": "",
+            "feedbacks": "",
+            "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted or [],
+        }
+
+        # Extract sections consulted from changes.log
+        sections_consulted = []
+        try:
+            changes_log_path = os.path.join(session.session_folder, "changes.log")
+            if os.path.exists(changes_log_path):
+                with open(changes_log_path, "r", encoding="utf-8", errors="replace") as f:
+                    sections_consulted = extract_repo_memory_sections_consulted(f.read())
+        except Exception:
+            sections_consulted = []
+        run_result_payload["repo_memory_sections_consulted"] = sections_consulted
+
+        # Schedule RepoMemory update for session close
+        session.schedule_repo_memory_update(
+            solution_spec=solution,
+            run_result=run_result_payload,
+        )
+        
+        self.workspace.finalize_session(session)
+        return agent_output
+
+    def _evaluate_with_handler(self, node: SearchNode, solution: str) -> SearchNode:
+        """
+        Evaluate using handler.run() for benchmark compatibility.
+        
+        Maps ProblemRunResult fields to SearchNode:
+        - result.score -> node.score
+        - result.output -> node.evaluation_output
+        - result.run_had_error -> node.had_error
+        - result.error_message -> node.error_message
+        - result.feedbacks -> node.feedback
+        
+        Args:
+            node: SearchNode to populate with evaluation results
+            solution: Solution string to pass to handler
+            
+        Returns:
+            Updated SearchNode with score, evaluation_output, etc.
+        """
+        from src.environment.handlers.base import ProblemRunResult
+        
+        # Check if handler has run() method
+        if not hasattr(self.problem_handler, 'run') or not callable(self.problem_handler.run):
+            print(f"[BenchmarkTreeSearch] Warning: handler has no run() method, skipping handler evaluation")
+            return node
+        
+        # Prepare run directory
+        run_data_dir = os.path.join(self.workspace_dir, "kapso_evaluation")
+        os.makedirs(run_data_dir, exist_ok=True)
+        
+        # Call handler's run()
+        try:
+            print(f"[BenchmarkTreeSearch] Calling handler.run() for evaluation...")
+            result: ProblemRunResult = self.problem_handler.run(
+                file_path=self.workspace_dir,
+                run_data_dir=run_data_dir,
+                solution=solution,
+            )
+            
+            # Map ProblemRunResult fields to SearchNode
+            node.score = result.score
+            node.evaluation_output = result.output or result.detailed_output
+            node.had_error = result.run_had_error
+            node.error_message = result.error_message or result.error_details
+            node.feedback = result.feedbacks
+            
+            print(f"[BenchmarkTreeSearch] Handler evaluation: score={node.score}, had_error={node.had_error}")
+            
+        except Exception as e:
+            print(f"[BenchmarkTreeSearch] Handler evaluation failed: {e}")
+            node.had_error = True
+            node.error_message = str(e)
+        
+        return node
+
+    def _check_handler_stop_condition(self) -> bool:
+        """
+        Check handler's stop_condition() for benchmark compatibility.
+        
+        Returns:
+            True if handler says to stop, False otherwise
+        """
+        if hasattr(self.problem_handler, 'stop_condition') and callable(self.problem_handler.stop_condition):
+            return self.problem_handler.stop_condition()
+        return False
 
     # =========================================================================
     # Solution Generation

@@ -12,7 +12,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from src.execution.feedback_generator import FeedbackResult
+from src.execution.search_strategies.generic import FeedbackResult
 
 
 @dataclass

@@ -10,11 +10,12 @@
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via CLI
 
+import json
 import logging
 import os
 import pickle
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from src.execution.search_strategies.base import (
     SearchStrategy,
@@ -24,6 +25,9 @@ from src.execution.search_strategies.base import (
 from src.execution.search_strategies.factory import register_strategy
 from src.repo_memory import RepoMemoryManager
 from src.core.prompt_loader import load_prompt, render_prompt
+
+if TYPE_CHECKING:
+    from src.execution.search_strategies.generic import FeedbackGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +302,7 @@ class GenericSearch(SearchStrategy):
     ) -> str:
         """Build the ideation prompt for Claude Code."""
         # Load and render the prompt template
-        template = load_prompt("execution/prompts/ideation_claude_code.md")
+        template = load_prompt("execution/search_strategies/generic/prompts/ideation_claude_code.md")
         return render_prompt(
             template,
             {
@@ -499,7 +503,7 @@ Problem: {problem}"""
         previous_errors: str,
     ) -> str:
         """Build the implementation prompt for Claude Code."""
-        template = load_prompt("execution/prompts/implementation_claude_code.md")
+        template = load_prompt("execution/search_strategies/generic/prompts/implementation_claude_code.md")
         return render_prompt(
             template,
             {
@@ -556,6 +560,144 @@ Problem: {problem}"""
             self.workspace.switch_branch(best.branch_name)
         else:
             print("[GenericSearch] No successful experiments to checkout")
+
+    # =========================================================================
+    # Feedback and Result Extraction (Generic-specific)
+    # =========================================================================
+
+    def _generate_feedback(self, node: SearchNode) -> SearchNode:
+        """
+        Generate feedback for a node using the FeedbackGenerator.
+        
+        Updates the node in-place with feedback, score, and should_stop.
+        
+        Args:
+            node: SearchNode with solution, evaluation_output, code_diff populated
+            
+        Returns:
+            The same node with feedback, score, should_stop populated
+        """
+        if self.feedback_generator is None:
+            print("[GenericSearch] No feedback generator configured, skipping feedback")
+            return node
+        
+        if not self.goal:
+            print("[GenericSearch] Warning: No goal set, skipping feedback generation")
+            return node
+        
+        print(f"[GenericSearch] Generating feedback for node {node.node_id}...")
+        
+        try:
+            feedback_result = self.feedback_generator.generate(
+                goal=self.goal,
+                idea=node.solution,
+                code_diff=node.code_diff,
+                evaluation_script_path=node.evaluation_script_path,
+                evaluation_result=node.evaluation_output,
+                workspace_dir=node.workspace_dir,
+            )
+            
+            # Update node with feedback results
+            node.feedback = feedback_result.feedback
+            node.score = feedback_result.score
+            node.should_stop = feedback_result.stop
+            node.evaluation_valid = feedback_result.evaluation_valid
+            
+            print(f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}")
+            
+        except Exception as e:
+            print(f"[GenericSearch] Error generating feedback: {e}")
+            node.feedback = f"Error generating feedback: {e}"
+            node.should_stop = False
+        
+        return node
+
+    def _extract_agent_result(self, agent_output: str) -> dict:
+        """
+        Extract structured result from agent output using XML tags.
+        
+        The agent is instructed to return results in XML tags:
+        <code_changes_summary>...</code_changes_summary>
+        <evaluation_script_path>...</evaluation_script_path>
+        <evaluation_output>...</evaluation_output>
+        <score>...</score>
+        
+        Args:
+            agent_output: Raw output from the developer agent
+            
+        Returns:
+            dict with keys: code_changes_summary, evaluation_script_path, evaluation_output, score
+            Returns empty dict if extraction fails
+        """
+        result = {}
+        
+        # Extract each tag
+        tags = ["code_changes_summary", "evaluation_script_path", "evaluation_output", "score"]
+        
+        for tag in tags:
+            pattern = rf'<{tag}>\s*(.*?)\s*</{tag}>'
+            match = re.search(pattern, agent_output, re.DOTALL)
+            if match:
+                value = match.group(1).strip()
+                # Handle score specially - convert to float
+                if tag == "score":
+                    try:
+                        if value.lower() == "null" or value == "":
+                            result[tag] = None
+                        else:
+                            result[tag] = float(value)
+                    except ValueError:
+                        result[tag] = None
+                else:
+                    result[tag] = value
+        
+        if result:
+            print(f"[GenericSearch] Extracted agent result from XML tags: {list(result.keys())}")
+            return result
+        
+        # Fallback: try JSON extraction for backward compatibility
+        return self._extract_agent_result_json_fallback(agent_output)
+    
+    def _extract_agent_result_json_fallback(self, agent_output: str) -> dict:
+        """
+        Fallback JSON extraction for backward compatibility.
+        """
+        # Look for JSON in code blocks (```json ... ```)
+        json_pattern = r'```json\s*(\{.*?\})\s*```'
+        matches = re.findall(json_pattern, agent_output, re.DOTALL)
+        
+        if matches:
+            # Take the last JSON block (final result)
+            for json_str in reversed(matches):
+                try:
+                    result = json.loads(json_str)
+                    # Validate it has expected keys
+                    if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
+                        print(f"[GenericSearch] Extracted agent result from JSON block (fallback)")
+                        return result
+                except json.JSONDecodeError:
+                    continue
+        
+        # Fallback: try to find raw JSON object at the end
+        try:
+            # Find last occurrence of {...}
+            start = agent_output.rfind('{')
+            end = agent_output.rfind('}') + 1
+            if start != -1 and end > start:
+                json_str = agent_output[start:end]
+                result = json.loads(json_str)
+                if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
+                    print(f"[GenericSearch] Extracted agent result from raw JSON (fallback)")
+                    return result
+        except json.JSONDecodeError:
+            pass
+        
+        print(f"[GenericSearch] Warning: Could not extract result from agent output")
+        return {}
+
+    # =========================================================================
+    # Checkpoint Methods
+    # =========================================================================
 
     def export_checkpoint(self) -> None:
         with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
