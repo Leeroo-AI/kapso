@@ -13,8 +13,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.knowledge.learners import KnowledgeMerger
-from src.knowledge.search.kg_graph_search import parse_wiki_directory
+from src.knowledge_base.learners import KnowledgeMerger
+from src.knowledge_base.search.kg_graph_search import parse_wiki_directory
 
 # Enable logging
 logging.basicConfig(

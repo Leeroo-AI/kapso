@@ -30,11 +30,11 @@ load_dotenv()
 from src.execution.orchestrator import OrchestratorAgent
 from src.execution.solution import SolutionResult
 from src.environment.handlers.generic import GenericProblemHandler
-from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
-from src.knowledge.search.base import KGIndexMetadata
-from src.knowledge.learners import Source, KnowledgePipeline
-from src.knowledge.researcher import Researcher, ResearchDepth, ResearchMode
-from src.knowledge.types import ResearchFindings
+from src.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
+from src.knowledge_base.search.base import KGIndexMetadata
+from src.knowledge_base.learners import Source, KnowledgePipeline
+from src.researcher import Researcher, ResearchDepth, ResearchMode
+from src.knowledge_base.types import ResearchFindings
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
@@ -713,7 +713,7 @@ class Kapso:
             return None
         
         try:
-            from src.knowledge.search.workflow_search import WorkflowRepoSearch
+            from src.knowledge_base.search.workflow_search import WorkflowRepoSearch
             
             print("  Searching for relevant workflow...")
             workflow_search = WorkflowRepoSearch(kg_search=self.knowledge_search)

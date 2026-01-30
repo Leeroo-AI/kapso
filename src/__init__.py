@@ -15,7 +15,7 @@
 #     python -m src.cli --goal "Build a web scraper"
 
 # Light imports (no heavy dependencies)
-from src.knowledge.learners import Source
+from src.knowledge_base.learners import Source
 from src.execution.solution import SolutionResult
 from src.deployment import (
     Software,

@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from src.knowledge.search import (
+from src.knowledge_base.search import (
     KnowledgeSearch,
     KnowledgeSearchFactory,
 )

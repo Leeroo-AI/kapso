@@ -117,7 +117,7 @@ def patch_claude_code_for_bedrock():
 def run_test():
     """Run Unsloth QLoRA test using Kapso.evolve()."""
     from src.kapso import Kapso
-    from src.knowledge.search import KnowledgeSearchFactory
+    from src.knowledge_base.search import KnowledgeSearchFactory
     
     logger.info("=" * 60)
     logger.info("UNSLOTH QLORA TEST (Kapso.evolve + Bedrock)")

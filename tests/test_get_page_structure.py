@@ -13,8 +13,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.knowledge.gated_mcp.gates.base import GateConfig
-from src.knowledge.gated_mcp.gates.kg_gate import KGGate
+from src.gated_mcp.gates.base import GateConfig
+from src.gated_mcp.gates.kg_gate import KGGate
 
 
 async def test_get_page_structure():
@@ -110,8 +110,8 @@ def check_wiki_structure_paths():
     print("=" * 60)
     
     # Path relative to kg_gate.py
-    kg_gate_path = Path(__file__).parent.parent / "src" / "knowledge" / "gated_mcp" / "gates" / "kg_gate.py"
-    wiki_structure_dir = kg_gate_path.parent.parent.parent / "wiki_structure"
+    kg_gate_path = Path(__file__).parent.parent / "src" / "gated_mcp" / "gates" / "kg_gate.py"
+    wiki_structure_dir = kg_gate_path.parent.parent.parent / "knowledge_base" / "wiki_structure"
     
     print(f"\nkg_gate.py location: {kg_gate_path}")
     print(f"  Exists: {kg_gate_path.exists()}")

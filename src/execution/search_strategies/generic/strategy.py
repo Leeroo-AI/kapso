@@ -223,7 +223,7 @@ class GenericSearch(SearchStrategy):
         """
         from src.execution.coding_agents.base import CodingAgentConfig
         from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from src.knowledge.gated_mcp import get_mcp_config
+        from src.gated_mcp import get_mcp_config
         
         # 1. Load RepoMemory (read-only)
         repo_memory_doc = RepoMemoryManager.load_from_git_branch(
@@ -390,7 +390,7 @@ Problem: {problem}"""
         """
         from src.execution.coding_agents.base import CodingAgentConfig
         from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from src.knowledge.gated_mcp import get_mcp_config
+        from src.gated_mcp import get_mcp_config
         from src.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
         
         # Create experiment session (handles git branching)

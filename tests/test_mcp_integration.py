@@ -65,7 +65,7 @@ def run_test():
         "mcpServers": {
             "kg-graph-search": {
                 "command": "python",
-                "args": ["-m", "src.knowledge.gated_mcp.server"],
+                "args": ["-m", "src.gated_mcp.server"],
                 "cwd": str(PROJECT_ROOT),
                 "env": {
                     "PYTHONPATH": str(PROJECT_ROOT),

@@ -13,8 +13,8 @@ from typing import List
 
 from dotenv import load_dotenv
 
-from src.knowledge.types import Source
-from src.knowledge.researcher import Researcher
+from src.knowledge_base.types import Source
+from src.researcher import Researcher
 
 load_dotenv()
 
