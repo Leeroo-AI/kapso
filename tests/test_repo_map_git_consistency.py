@@ -18,7 +18,7 @@ from pathlib import Path
 
 import git
 
-from src.execution.memories.repo_memory.builders import build_repo_map
+from kapso.execution.memories.repo_memory.builders import build_repo_map
 
 
 def test_build_repo_map_git_filters_meta_paths(tmp_path: Path) -> None:

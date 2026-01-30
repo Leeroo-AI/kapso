@@ -39,7 +39,7 @@ The Context Manager is responsible for gathering all relevant context needed for
 ### Using an Existing Context Manager
 
 ```python
-from src.agents.orchestrator_agent.context_manager import ContextManagerFactory
+from kapso.agents.orchestrator_agent.context_manager import ContextManagerFactory
 
 # Create context manager
 cm = ContextManagerFactory.create(
@@ -57,7 +57,7 @@ context = cm.get_context(budget_progress=50)
 ### List Available Context Managers
 
 ```python
-from src.agents.orchestrator_agent.context_manager import ContextManagerFactory
+from kapso.agents.orchestrator_agent.context_manager import ContextManagerFactory
 
 # List all registered context managers
 print(ContextManagerFactory.list_available())
@@ -89,11 +89,11 @@ Edit the new file:
 ```python
 from typing import Any, Dict, Optional
 
-from src.agents.orchestrator_agent.types import ContextData, ExperimentHistoryProvider
-from src.agents.orchestrator_agent.context_manager.base import ContextManager
-from src.agents.orchestrator_agent.context_manager.factory import register_context_manager
-from src.agents.orchestrator_agent.knowledge_retriever.base import KnowledgeRetriever
-from src.problem_handler.base import ProblemHandler
+from kapso.agents.orchestrator_agent.types import ContextData, ExperimentHistoryProvider
+from kapso.agents.orchestrator_agent.context_manager.base import ContextManager
+from kapso.agents.orchestrator_agent.context_manager.factory import register_context_manager
+from kapso.agents.orchestrator_agent.knowledge_retriever.base import KnowledgeRetriever
+from kapso.problem_handler.base import ProblemHandler
 
 
 @register_context_manager("my_custom")  # <- Your unique identifier

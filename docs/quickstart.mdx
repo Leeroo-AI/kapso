@@ -48,7 +48,7 @@ description: "Get Kapso running in 5 minutes"
 ### Option 1: Python API (Recommended)
 
 ```python
-from src.kapso import Kapso, DeployStrategy
+from kapso.kapso import Kapso, DeployStrategy
 
 # Initialize Kapso
 kapso = Kapso()
@@ -129,7 +129,7 @@ For domain-specific context, index a knowledge graph first:
   </Step>
   <Step title="Index wiki pages (one-time setup)">
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 kapso.index_kg(
@@ -140,7 +140,7 @@ kapso.index_kg(
   </Step>
   <Step title="Use the indexed KG">
     ```python
-    from src.kapso import Kapso
+    from kapso.kapso import Kapso
 
     # Load from existing index
 kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
@@ -158,7 +158,7 @@ solution = kapso.evolve(
 Kapso can do deep web research before evolving:
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 

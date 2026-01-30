@@ -246,7 +246,7 @@ After infrastructure is running, index your wiki pages:
 ### Using Kapso API (Recommended)
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 # Initialize Kapso
 kapso = Kapso(config_path="src/config.yaml")
@@ -309,13 +309,13 @@ The `.index` file is a JSON reference to the indexed data:
 
 ```bash
 # Check core installation
-python -c "from src.kapso import Kapso; print('Kapso OK')"
+python -c "from kapso.kapso import Kapso; print('Kapso OK')"
 
 # Check orchestrator
-python -c "from src.execution.orchestrator import OrchestratorAgent; print('Orchestrator OK')"
+python -c "from kapso.execution.orchestrator import OrchestratorAgent; print('Orchestrator OK')"
 
 # Check knowledge search
-python -c "from src.knowledge_base.search import KnowledgeSearchFactory; print('Knowledge Search OK')"
+python -c "from kapso.knowledge_base.search import KnowledgeSearchFactory; print('Knowledge Search OK')"
 
 # Check MLE-Bench (if installed)
 python -c "import mlebench; print('MLE-Bench OK')"

@@ -11,11 +11,11 @@
 
 from typing import Any, Dict, Optional
 
-from src.execution.context_manager.types import ContextData, ExperimentHistoryProvider
-from src.execution.context_manager.base import ContextManager
-from src.execution.context_manager.factory import register_context_manager
-from src.knowledge.search.base import KnowledgeSearch
-from src.environment.handlers.base import ProblemHandler
+from kapso.execution.context_manager.types import ContextData, ExperimentHistoryProvider
+from kapso.execution.context_manager.base import ContextManager
+from kapso.execution.context_manager.factory import register_context_manager
+from kapso.knowledge.search.base import KnowledgeSearch
+from kapso.environment.handlers.base import ProblemHandler
 
 
 # Uncomment and rename to activate this context manager

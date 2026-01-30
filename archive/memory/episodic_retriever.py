@@ -20,9 +20,9 @@ from dataclasses import dataclass
 from typing import Optional, List, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.memory.episodic import EpisodicStore
-    from src.memory.types import Insight
-    from src.core.llm import LLMBackend
+    from kapso.memory.episodic import EpisodicStore
+    from kapso.memory.types import Insight
+    from kapso.core.llm import LLMBackend
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class EpisodicRetriever:
     
     def _get_llm(self) -> "LLMBackend":
         if self._llm is None:
-            from src.core.llm import LLMBackend
+            from kapso.core.llm import LLMBackend
             self._llm = LLMBackend()
         return self._llm
     

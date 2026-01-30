@@ -39,9 +39,9 @@ def run_idea_search_test() -> bool:
     Returns:
         True if test passed, False otherwise
     """
-    from src.execution.coding_agents.base import CodingAgentConfig
-    from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from src.gated_mcp import get_mcp_config
+    from kapso.execution.coding_agents.base import CodingAgentConfig
+    from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+    from kapso.gated_mcp import get_mcp_config
     
     print("=" * 60)
     print("Gated MCP Idea Search Test")

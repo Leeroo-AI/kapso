@@ -38,7 +38,7 @@ flowchart LR
 ### Usage
 
 ```python
-from src.knowledge_base.search import KnowledgeSearchFactory, KGSearchFilters
+from kapso.knowledge_base.search import KnowledgeSearchFactory, KGSearchFilters
 
 # Create search instance
 search = KnowledgeSearchFactory.create("kg_graph_search", params={
@@ -102,7 +102,7 @@ flowchart LR
 ### Usage
 
 ```python
-from src.knowledge_base.search import KnowledgeSearchFactory
+from kapso.knowledge_base.search import KnowledgeSearchFactory
 
 # Create search instance
 search = KnowledgeSearchFactory.create("kg_llm_navigation")
@@ -191,7 +191,7 @@ class KGResultItem:
 ### Index Wiki Pages
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 
@@ -251,8 +251,8 @@ result = search.search("query")  # Returns empty KGOutput
 ## Creating Custom Backends
 
 ```python
-from src.knowledge_base.search.base import KnowledgeSearch
-from src.knowledge_base.search.factory import register_knowledge_search
+from kapso.knowledge_base.search.base import KnowledgeSearch
+from kapso.knowledge_base.search.factory import register_knowledge_search
 
 @register_knowledge_search("my_custom_search")
 class MyCustomSearch(KnowledgeSearch):

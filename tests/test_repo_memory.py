@@ -24,9 +24,9 @@ from dotenv import load_dotenv
 # Load environment variables (API keys) from .env file
 load_dotenv()
 
-from src.core.llm import LLMBackend
-from src.execution.memories.repo_memory import RepoMemoryManager
-from src.execution.memories.repo_memory.builders import build_repo_map, validate_evidence
+from kapso.core.llm import LLMBackend
+from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.memories.repo_memory.builders import build_repo_map, validate_evidence
 
 
 # ---------------------------------------------------------------------------

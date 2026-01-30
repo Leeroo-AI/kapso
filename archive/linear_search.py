@@ -8,13 +8,13 @@ import os
 import pickle
 from typing import List, Optional
 
-from src.execution.types import ContextData
-from src.execution.search_strategies.base import (
+from kapso.execution.types import ContextData
+from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
     SearchNode,
 )
-from src.execution.search_strategies.factory import register_strategy
+from kapso.execution.search_strategies.factory import register_strategy
 
 
 @register_strategy("linear_search")

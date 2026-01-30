@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Dict, Type, Any, Optional, List
 import yaml
 
-from src.execution.context_manager.base import ContextManager
-from src.execution.context_manager.types import ExperimentHistoryProvider
-from src.knowledge.search.base import KnowledgeSearch
-from src.environment.handlers.base import ProblemHandler
+from kapso.execution.context_manager.base import ContextManager
+from kapso.execution.context_manager.types import ExperimentHistoryProvider
+from kapso.knowledge.search.base import KnowledgeSearch
+from kapso.environment.handlers.base import ProblemHandler
 
 
 class ContextManagerFactory:

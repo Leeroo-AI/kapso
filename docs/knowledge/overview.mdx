@@ -37,7 +37,7 @@ Hybrid retrieval that combines multiple approaches:
 ### Option 1: Pre-indexed KG
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 # One-time: Index wiki pages
 kapso = Kapso()
@@ -54,7 +54,7 @@ solution = kapso.evolve(goal="Fine-tune LLaMA with QLoRA")
 ### Option 2: Learn from Sources
 
 ```python
-from src.kapso import Kapso, Source
+from kapso.kapso import Kapso, Source
 
 kapso = Kapso()
 
@@ -72,7 +72,7 @@ kapso.learn(*findings.ideas, wiki_dir="data/wikis")
 ### Option 3: Research as Context
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 

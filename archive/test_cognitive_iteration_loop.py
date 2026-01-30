@@ -68,7 +68,7 @@ def check_infrastructure() -> Tuple[bool, Optional[Any]]:
     # Check KG
     logger.info("[1/3] Checking Knowledge Graph...")
     try:
-        from src.knowledge.search import KnowledgeSearchFactory
+        from kapso.knowledge.search import KnowledgeSearchFactory
         kg = KnowledgeSearchFactory.create("kg_graph_search")
         if not kg.is_enabled():
             logger.error("KG is not enabled!")
@@ -82,7 +82,7 @@ def check_infrastructure() -> Tuple[bool, Optional[Any]]:
     # Check Episodic Store
     logger.info("[2/3] Checking Episodic Store...")
     try:
-        from src.memory.episodic import EpisodicStore
+        from kapso.memory.episodic import EpisodicStore
         episodic = EpisodicStore()
         logger.info("  ✓ Episodic store connected")
         # Close immediately (this is only a connectivity check).
@@ -94,7 +94,7 @@ def check_infrastructure() -> Tuple[bool, Optional[Any]]:
     # Check LLM
     logger.info("[3/3] Checking LLM Backend...")
     try:
-        from src.core.llm import LLMBackend
+        from kapso.core.llm import LLMBackend
         llm = LLMBackend()
         test_response = llm.llm_completion(
             model="gpt-4o-mini",
@@ -159,8 +159,8 @@ class CognitiveE2ETest:
     
     def _init_controller(self):
         """Initialize cognitive controller with real KG."""
-        from src.memory.cognitive_controller import CognitiveController
-        from src.memory.objective import Objective, ObjectiveType
+        from kapso.memory.cognitive_controller import CognitiveController
+        from kapso.memory.objective import Objective, ObjectiveType
         
         logger.info("")
         logger.info("=" * 70)
@@ -275,7 +275,7 @@ class CognitiveE2ETest:
         logger.info("TESTING TIER 3 ERROR RETRIEVAL")
         logger.info("=" * 70)
         
-        from src.memory.knowledge_retriever import KnowledgeRetriever
+        from kapso.memory.knowledge_retriever import KnowledgeRetriever
         
         retriever = KnowledgeRetriever(knowledge_search=self.kg)
         
@@ -307,7 +307,7 @@ class CognitiveE2ETest:
         logger.info("TESTING EPISODIC STORE")
         logger.info("=" * 70)
         
-        from src.memory.episodic import EpisodicStore
+        from kapso.memory.episodic import EpisodicStore
         
         store = EpisodicStore()
         try:

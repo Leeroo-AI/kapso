@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.core.llm import LLMBackend
+    from kapso.core.llm import LLMBackend
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class InsightExtractor:
     
     def _get_llm(self) -> "LLMBackend":
         if self._llm is None:
-            from src.core.llm import LLMBackend
+            from kapso.core.llm import LLMBackend
             self._llm = LLMBackend()
         return self._llm
     

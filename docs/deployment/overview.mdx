@@ -25,7 +25,7 @@ flowchart LR
 ## Quick Start
 
 ```python
-from src.kapso import Kapso, DeployStrategy
+from kapso.kapso import Kapso, DeployStrategy
 
 kapso = Kapso()
 solution = kapso.evolve(goal="Build a classifier")
@@ -57,7 +57,7 @@ deployed_program.stop()
 ## DeployStrategy Enum
 
 ```python
-from src.deployment import DeployStrategy
+from kapso.deployment import DeployStrategy
 
 DeployStrategy.AUTO      # System selects
 DeployStrategy.LOCAL     # Local process
@@ -106,7 +106,7 @@ All `run()` calls return a consistent format:
 ## Configuration
 
 ```python
-from src.deployment import DeployConfig
+from kapso.deployment import DeployConfig
 
 config = DeployConfig(
     solution=solution,

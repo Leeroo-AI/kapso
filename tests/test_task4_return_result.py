@@ -9,9 +9,9 @@ import unittest
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.execution.solution import SolutionResult
-from src.execution.feedback_generator import FeedbackResult
-from src.execution.orchestrator import SolveResult
+from kapso.execution.solution import SolutionResult
+from kapso.execution.feedback_generator import FeedbackResult
+from kapso.execution.orchestrator import SolveResult
 
 
 class TestSolutionResult(unittest.TestCase):
@@ -132,7 +132,7 @@ class TestSolveResult(unittest.TestCase):
     
     def test_solve_result_creation(self):
         """Test creating a SolveResult."""
-        from src.execution.search_strategies.base import ExperimentResult
+        from kapso.execution.search_strategies.base import ExperimentResult
         
         result = SolveResult(
             best_experiment=ExperimentResult(

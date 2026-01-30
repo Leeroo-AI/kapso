@@ -11,7 +11,7 @@ This is important because prompt tuning is a first-class requirement for RepoMem
 
 from __future__ import annotations
 
-from src.core import prompt_loader
+from kapso.core import prompt_loader
 
 
 PROMPT_PATHS = [

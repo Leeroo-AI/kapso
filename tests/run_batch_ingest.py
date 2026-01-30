@@ -118,7 +118,7 @@ def run_single_repo(args: tuple) -> dict:
     from dotenv import load_dotenv
     load_dotenv()
     
-    from src.knowledge_base.learners import KnowledgePipeline, Source
+    from kapso.knowledge_base.learners import KnowledgePipeline, Source
     
     repo_name = get_repo_name(url)
     log_file = setup_file_logging(repo_name, Path(log_dir))

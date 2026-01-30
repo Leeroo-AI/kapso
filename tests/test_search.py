@@ -6,7 +6,7 @@ Requires: Weaviate, Neo4j, OpenAI API key
 """
 
 from pathlib import Path
-from src.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput, KGEditInput, KGSearchFilters, PageType
+from kapso.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput, KGEditInput, KGSearchFilters, PageType
 from dotenv import load_dotenv
 
 load_dotenv()

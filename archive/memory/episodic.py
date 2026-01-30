@@ -34,10 +34,10 @@ except ImportError:
     openai = None
     HAS_OPENAI = False
 
-from src.memory.types import Insight, InsightType
+from kapso.memory.types import Insight, InsightType
 
 if TYPE_CHECKING:
-    from src.memory.config import EpisodicConfig
+    from kapso.memory.config import EpisodicConfig
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class EpisodicStore:
         store = EpisodicStore()
         
         # With custom config
-        from src.memory.config import CognitiveMemoryConfig
+        from kapso.memory.config import CognitiveMemoryConfig
         config = CognitiveMemoryConfig.load(preset="high_quality")
         store = EpisodicStore(config=config.episodic)
     """
@@ -78,7 +78,7 @@ class EpisodicStore:
         """
         # Load config if not provided
         if config is None:
-            from src.memory.config import CognitiveMemoryConfig
+            from kapso.memory.config import CognitiveMemoryConfig
             config = CognitiveMemoryConfig.load().episodic
         
         # Store config values

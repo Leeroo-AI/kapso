@@ -20,7 +20,7 @@ The `OrchestratorAgent` is the central coordinator that manages the experimentat
 ### Via Kapso API (Recommended)
 
 ```python
-from src.kapso import Kapso
+from kapso.kapso import Kapso
 
 kapso = Kapso()
 solution = kapso.evolve(
@@ -36,8 +36,8 @@ if solution.succeeded:
 ### Direct Usage
 
 ```python
-from src.execution.orchestrator import OrchestratorAgent
-from src.environment.handlers.generic import GenericProblemHandler
+from kapso.execution.orchestrator import OrchestratorAgent
+from kapso.environment.handlers.generic import GenericProblemHandler
 
 # Create problem handler
 handler = GenericProblemHandler(

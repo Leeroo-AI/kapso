@@ -27,11 +27,11 @@ load_dotenv()
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.execution.search_strategies.base import SearchStrategyConfig
-from src.execution.search_strategies.factory import SearchStrategyFactory
-from src.execution.coding_agents.factory import CodingAgentFactory
-from src.environment.handlers.generic import GenericProblemHandler
-from src.core.llm import LLMBackend
+from kapso.execution.search_strategies.base import SearchStrategyConfig
+from kapso.execution.search_strategies.factory import SearchStrategyFactory
+from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.environment.handlers.generic import GenericProblemHandler
+from kapso.core.llm import LLMBackend
 
 
 class TestSetupKapsoDirectories:
@@ -244,7 +244,7 @@ class TestKapsoEvolveWithDirectories:
     
     def test_evolve_accepts_eval_dir_and_data_dir(self):
         """Test that evolve() accepts the new parameters."""
-        from src.kapso import Kapso
+        from kapso.kapso import Kapso
         import inspect
         
         sig = inspect.signature(Kapso.evolve)

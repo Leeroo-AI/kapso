@@ -16,8 +16,8 @@ from mlebench.data import download_and_prepare_dataset
 from mlebench.grade import validate_submission, grade_csv
 from mlebench.registry import registry
 
-from src.environment.handlers.base import ProblemHandler, ProblemRunResult
-from src.core import llm as llm_utils
+from kapso.environment.handlers.base import ProblemHandler, ProblemRunResult
+from kapso.core import llm as llm_utils
 
 CUDA_DEVICE = int(os.getenv('CUDA_DEVICE', '0'))
 MLE_SEED = int(os.getenv('MLE_SEED', '1'))

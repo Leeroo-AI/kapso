@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.execution.coding_agents.base import CodingAgentConfig
-from src.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+from kapso.execution.coding_agents.base import CodingAgentConfig
+from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
 
 
 RUN_BEDROCK_TESTS = os.getenv("KAPSO_RUN_BEDROCK_TESTS") == "1"

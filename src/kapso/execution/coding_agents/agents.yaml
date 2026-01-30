@@ -1,0 +1,114 @@
+# Central Registry of Coding Agents
+#
+# This file defines all available coding agents and their default configurations.
+# The factory auto-discovers and registers agents from this file.
+#
+# To add a new agent:
+#   1. Create adapter in adapters/<your_agent>_agent.py
+#   2. Add entry here with default config
+#   3. Your agent will be auto-registered on startup!
+#
+# Each agent entry supports:
+#   - description: Human-readable description
+#   - adapter_class: Class name in the adapter module
+#   - adapter_module: Full Python module path to the adapter
+#   - supports_native_git: Whether agent handles its own git commits
+#   - default_model: Default model for code generation
+#   - default_debug_model: Default model for debugging
+#   - env_vars: Required environment variables
+#   - install_command: How to install dependencies
+#   - agent_specific: Default agent-specific options
+
+# Default agent when none specified
+default_agent: aider
+
+agents:
+  # ============================================================================
+  # Aider - Git-centric pair programming agent
+  # ============================================================================
+  aider:
+    description: "Git-centric pair programming agent with diff-based editing"
+    adapter_class: "AiderCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.aider_agent"
+    supports_native_git: true
+    default_model: "gpt-4.1-mini"
+    default_debug_model: "gpt-4.1-mini"
+    env_vars:
+      - "OPENAI_API_KEY"
+    install_command: "pip install aider-chat"
+    documentation_url: "https://aider.chat/docs/"
+    agent_specific:
+      # Edit format: "diff" (default), "whole", "udiff"
+      edit_format: "diff"
+      # Whether Aider auto-commits after edits
+      auto_commits: true
+
+  # ============================================================================
+  # Gemini - Google Gemini SDK for code generation
+  # ============================================================================
+  gemini:
+    description: "Google Gemini SDK for code generation with file parsing"
+    adapter_class: "GeminiCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.gemini_agent"
+    supports_native_git: false
+    default_model: "gemini-2.5-flash"
+    default_debug_model: "gemini-2.5-flash"
+    env_vars:
+      - "GOOGLE_API_KEY"
+    install_command: "pip install google-generativeai"
+    documentation_url: "https://ai.google.dev/gemini-api/docs"
+    agent_specific:
+      # Temperature for generation (0.0-1.0)
+      temperature: 0.7
+      # Maximum output tokens
+      max_output_tokens: 8192
+
+  # ============================================================================
+  # Claude Code - Anthropic Claude Code CLI
+  # ============================================================================
+  claude_code:
+    description: "Anthropic Claude Code CLI for complex refactoring and planning"
+    adapter_class: "ClaudeCodeCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.claude_code_agent"
+    supports_native_git: false
+    default_model: "claude-opus-4-5"
+    default_debug_model: "claude-opus-4-5"
+    env_vars:
+      - "ANTHROPIC_API_KEY"
+    install_command: "npm install -g @anthropic-ai/claude-code"
+    documentation_url: "https://docs.anthropic.com/en/docs/claude-code"
+    agent_specific:
+      # Enable planning mode for multi-step tasks
+      planning_mode: false
+      # Timeout in seconds (1 hour for complex deployments)
+      timeout: 3600
+      # Allowed tools for Claude Code
+      allowed_tools:
+        - "Edit"
+        - "Read"
+        - "Write"
+        - "Bash"
+      # Stream output live to terminal (set false to buffer until completion)
+      streaming: true
+
+  # ============================================================================
+  # OpenHands - Agent with sandboxed execution
+  # ============================================================================
+  openhands:
+    description: "OpenHands agent SDK with sandboxed execution environment"
+    adapter_class: "OpenHandsCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.openhands_agent"
+    supports_native_git: false
+    default_model: "gpt-4.1-mini"
+    default_debug_model: "gpt-4.1-mini"
+    env_vars:
+      - "OPENAI_API_KEY"
+    install_command: "pip install openhands-ai litellm"
+    documentation_url: "https://github.com/All-Hands-AI/OpenHands"
+    agent_specific:
+      # Agent type within OpenHands
+      agent_name: "CodeActAgent"
+      # Maximum iterations for the agent loop
+      max_iterations: 10
+      # Timeout in seconds
+      timeout: 600

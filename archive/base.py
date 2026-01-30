@@ -6,12 +6,12 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
-from src.execution.context_manager.types import ContextData, ExperimentHistoryProvider
-from src.knowledge.search.base import (
+from kapso.execution.context_manager.types import ContextData, ExperimentHistoryProvider
+from kapso.knowledge.search.base import (
     KnowledgeSearch, 
     NullKnowledgeSearch,
 )
-from src.environment.handlers.base import ProblemHandler
+from kapso.environment.handlers.base import ProblemHandler
 
 # Re-export ContextData for convenience
 __all__ = ["ContextManager", "ContextData"]

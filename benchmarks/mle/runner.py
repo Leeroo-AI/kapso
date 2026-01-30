@@ -32,8 +32,8 @@ load_dotenv()
 import mlebench
 from mlebench.registry import registry
 
-from src.execution.orchestrator import OrchestratorAgent
-from src.execution.coding_agents.factory import CodingAgentFactory
+from kapso.execution.orchestrator import OrchestratorAgent
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 from benchmarks.mle.handler import MleBenchHandler
 
 # Path to MLE-Bench specific configuration

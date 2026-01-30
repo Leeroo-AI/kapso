@@ -17,12 +17,12 @@
 from typing import Any, Dict, Optional
 import logging
 
-from src.execution.context_manager.types import ContextData, ExperimentHistoryProvider
-from src.execution.context_manager.base import ContextManager
-from src.execution.context_manager.factory import register_context_manager
-from src.knowledge.search.base import KnowledgeSearch
-from src.environment.handlers.base import ProblemHandler
-from src.memory.cognitive_controller import CognitiveController
+from kapso.execution.context_manager.types import ContextData, ExperimentHistoryProvider
+from kapso.execution.context_manager.base import ContextManager
+from kapso.execution.context_manager.factory import register_context_manager
+from kapso.knowledge.search.base import KnowledgeSearch
+from kapso.environment.handlers.base import ProblemHandler
+from kapso.memory.cognitive_controller import CognitiveController
 
 logger = logging.getLogger(__name__)
 

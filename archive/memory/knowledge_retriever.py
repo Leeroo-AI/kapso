@@ -23,22 +23,22 @@
 # =============================================================================
 
 import logging
-from src.knowledge.search.base import KGSearchFilters, KGResultItem
+from kapso.knowledge.search.base import KGSearchFilters, KGResultItem
 import re
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 # Import new KG types
-from src.memory.kg_types import (
+from kapso.memory.kg_types import (
     KGKnowledge, KGTier, Workflow, WorkflowStep,
     Principle, Implementation, Heuristic, Environment,
 )
-from src.memory.config import get_config
+from kapso.memory.config import get_config
 
 if TYPE_CHECKING:
-    from src.knowledge.search.base import KnowledgeSearch
-    from src.core.llm import LLMBackend
-    from src.memory.config import CognitiveMemoryConfig
+    from kapso.knowledge.search.base import KnowledgeSearch
+    from kapso.core.llm import LLMBackend
+    from kapso.memory.config import CognitiveMemoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ class KnowledgeRetriever:
     
     def _get_llm(self) -> "LLMBackend":
         if self._llm is None:
-            from src.core.llm import LLMBackend
+            from kapso.core.llm import LLMBackend
             self._llm = LLMBackend()
         return self._llm
     

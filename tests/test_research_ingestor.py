@@ -1,7 +1,7 @@
 import pytest
 
-from src.knowledge_base.learners import Source
-from src.knowledge_base.learners.ingestors import IngestorFactory
+from kapso.knowledge_base.learners import Source
+from kapso.knowledge_base.learners.ingestors import IngestorFactory
 
 
 def test_source_research_to_context_string_includes_objective_and_report():

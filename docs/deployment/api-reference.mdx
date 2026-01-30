@@ -6,7 +6,7 @@ description: "Complete API documentation for the deployment module"
 ## Module Exports
 
 ```python
-from src.deployment import (
+from kapso.deployment import (
     # Main factory
     DeploymentFactory,
     
@@ -63,7 +63,7 @@ def create(
 **Example:**
 
 ```python
-from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
+from kapso.deployment import DeploymentFactory, DeployStrategy, DeployConfig
 
 config = DeployConfig(
     solution=my_solution,
@@ -162,7 +162,7 @@ DeploymentFactory.print_strategies_info()
 Enum of available deployment strategies. **Auto-generated** from `strategies/` directory.
 
 ```python
-from src.deployment import DeployStrategy
+from kapso.deployment import DeployStrategy
 
 # Always available
 DeployStrategy.AUTO      # Let system choose
@@ -223,7 +223,7 @@ class DeployConfig:
 **Example:**
 
 ```python
-from src.deployment import DeployConfig
+from kapso.deployment import DeployConfig
 
 config = DeployConfig(
     solution=solution,
@@ -608,7 +608,7 @@ class DeploymentInfo:
 LLM-based strategy selection agent.
 
 ```python
-from src.deployment.selector.agent import SelectorAgent
+from kapso.deployment.selector.agent import SelectorAgent
 ```
 
 ### Methods
@@ -660,7 +660,7 @@ print(explanation)
 Code transformation and deployment agent.
 
 ```python
-from src.deployment.adapter.agent import AdapterAgent
+from kapso.deployment.adapter.agent import AdapterAgent
 ```
 
 ### Methods
@@ -687,7 +687,7 @@ def adapt(
 Auto-discovery system for deployment strategies.
 
 ```python
-from src.deployment.strategies import StrategyRegistry
+from kapso.deployment.strategies import StrategyRegistry
 ```
 
 ### Methods
@@ -768,7 +768,7 @@ def get_default_run_interface(self, name: str) -> Dict[str, Any]
 Base class for strategy-specific runners.
 
 ```python
-from src.deployment.strategies.base import Runner
+from kapso.deployment.strategies.base import Runner
 ```
 
 ### Lifecycle
@@ -821,8 +821,8 @@ class Runner(ABC):
 ## Complete Usage Example
 
 ```python
-from src.kapso import Kapso
-from src.deployment import DeploymentFactory, DeployStrategy, DeployConfig
+from kapso.kapso import Kapso
+from kapso.deployment import DeploymentFactory, DeployStrategy, DeployConfig
 
 # 1. Build a solution
 kapso = Kapso()

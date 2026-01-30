@@ -45,7 +45,7 @@ search_strategy:
 ### Usage
 
 ```python
-from src.execution.search_strategies import SearchStrategyFactory
+from kapso.execution.search_strategies import SearchStrategyFactory
 
 strategy = SearchStrategyFactory.create(
     strategy_type="generic",
@@ -208,8 +208,8 @@ class SearchNode:
 ## Creating Custom Strategies
 
 ```python
-from src.execution.search_strategies.base import SearchStrategy
-from src.execution.search_strategies.factory import register_strategy
+from kapso.execution.search_strategies.base import SearchStrategy
+from kapso.execution.search_strategies.factory import register_strategy
 
 @register_strategy("my_custom_search")
 class MyCustomSearch(SearchStrategy):

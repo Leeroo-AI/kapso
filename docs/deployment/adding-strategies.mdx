@@ -31,7 +31,7 @@ mkdir -p src/deployment/strategies/my_strategy
 Create `runner.py` with a `Runner` class:
 
 ```python
-from src.deployment.strategies.base import Runner
+from kapso.deployment.strategies.base import Runner
 from typing import Any, Dict
 
 class MyStrategyRunner(Runner):
@@ -213,7 +213,7 @@ class Runner(ABC):
 Strategies are auto-registered when discovered:
 
 ```python
-from src.deployment.strategies import StrategyRegistry
+from kapso.deployment.strategies import StrategyRegistry
 
 registry = StrategyRegistry.get()
 
@@ -235,14 +235,14 @@ adapter_inst = registry.get_adapter_instruction("my_strategy")
 ## Using Your Strategy
 
 ```python
-from src.kapso import Kapso
-from src.deployment import DeployStrategy
+from kapso.kapso import Kapso
+from kapso.deployment import DeployStrategy
 
 # Add to DeployStrategy enum (or use string)
 deployed_program = kapso.deploy(solution, strategy="my_strategy")
 
 # Or via factory
-from src.deployment import DeploymentFactory, DeployConfig
+from kapso.deployment import DeploymentFactory, DeployConfig
 
 config = DeployConfig(solution=solution)
 deployed_program = DeploymentFactory.create("my_strategy", config)
@@ -252,7 +252,7 @@ deployed_program = DeploymentFactory.create("my_strategy", config)
 
 ```python
 import pytest
-from src.deployment.strategies.my_strategy.runner import MyStrategyRunner
+from kapso.deployment.strategies.my_strategy.runner import MyStrategyRunner
 
 def test_runner_lifecycle():
     runner = MyStrategyRunner(
@@ -281,7 +281,7 @@ A strategy that deploys as an HTTP server:
 ```python
 import subprocess
 import requests
-from src.deployment.strategies.base import Runner
+from kapso.deployment.strategies.base import Runner
 
 class HttpRunner(Runner):
     def __init__(self, code_path: str, port: int = 8000, **kwargs):

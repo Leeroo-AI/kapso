@@ -65,8 +65,8 @@ YAML-based configuration with presets.
 ## Quick Start
 
 ```python
-from src.memory import CognitiveController, Goal
-from src.knowledge.search import KnowledgeSearchFactory
+from kapso.memory import CognitiveController, Goal
+from kapso.knowledge.search import KnowledgeSearchFactory
 
 # Initialize with KG search
 kg = KnowledgeSearchFactory.create("kg_graph_search")
@@ -134,7 +134,7 @@ defaults:
 | `docker` | Docker deployment (container names) |
 
 ```python
-from src.memory.config import CognitiveMemoryConfig
+from kapso.memory.config import CognitiveMemoryConfig
 
 # Load with preset
 config = CognitiveMemoryConfig.load(preset="high_quality")
@@ -157,7 +157,7 @@ The cognitive system components (CognitiveController, EpisodicStore) can be used
 ### In Python
 
 ```python
-from src.memory import CognitiveController
+from kapso.memory import CognitiveController
 
 controller = CognitiveController(knowledge_search=kg)
 controller.initialize_goal(goal)

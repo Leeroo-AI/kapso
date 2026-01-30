@@ -56,6 +56,14 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 
 ### Installation
 
+**From PyPI (recommended)**
+
+```bash
+pip install leeroo-kapso
+```
+
+**From source (for development or to access wiki knowledge data)**
+
 ```bash
 git clone https://github.com/leeroo-ai/kapso.git
 cd kapso
@@ -68,7 +76,7 @@ git lfs pull
 conda create -n kapso python=3.12
 conda activate kapso
 
-# Install
+# Install in development mode
 pip install -e .
 ```
 
@@ -85,7 +93,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
 ### Basic Usage
 
 ```python
-from src.kapso import Kapso, Source, DeployStrategy
+from kapso import Kapso, Source, DeployStrategy
 
 # Initialize Kapso
 # If you have a Knowledge Graph, pass kg_index; otherwise just use Kapso()

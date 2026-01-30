@@ -4,7 +4,7 @@ Unified Deployment Test
 
 Tests the Kapso deployment flow as shown in the README:
 
-    from src.kapso import Kapso, DeployStrategy
+    from kapso.kapso import Kapso, DeployStrategy
     
     kapso = Kapso()
     solution = kapso.evolve(goal="...", output_path="./repo")  # We create SolutionResult manually
@@ -166,8 +166,8 @@ def run_repo(repo: RepoConfig, strategy: str = "local") -> TestResult:
         result = software.run(sample_input)
         software.stop()
     """
-    from src.kapso import Kapso, DeployStrategy
-    from src.execution.solution import SolutionResult
+    from kapso.kapso import Kapso, DeployStrategy
+    from kapso.execution.solution import SolutionResult
     
     subheader(f"Testing: {repo.name}")
     
@@ -337,7 +337,7 @@ def main():
             return 1
     
     # Show available strategies
-    from src.kapso import DeployStrategy
+    from kapso.kapso import DeployStrategy
     available_strategies = [s.name.lower() for s in DeployStrategy]
     info(f"Available strategies: {available_strategies}")
     print()

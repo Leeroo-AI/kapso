@@ -60,7 +60,7 @@ coding_agent:
 ### Usage
 
 ```python
-from src.execution.coding_agents.factory import CodingAgentFactory
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 
 config = CodingAgentFactory.build_config(
     agent_type="aider",
@@ -233,8 +233,8 @@ Accuracy: 0.92
 Coding agents also power the feedback generator. The default feedback generator uses `claude_code`, but any agent can be used:
 
 ```python
-from src.execution.feedback_generator import FeedbackGenerator
-from src.execution.coding_agents.factory import CodingAgentFactory
+from kapso.execution.feedback_generator import FeedbackGenerator
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 
 # Use gemini for feedback generation
 config = CodingAgentFactory.build_config(
@@ -263,8 +263,8 @@ class CodingAgentConfig:
 ## Creating Custom Agents
 
 ```python
-from src.execution.coding_agents.base import CodingAgentInterface, CodingResult
-from src.execution.coding_agents.factory import register_agent
+from kapso.execution.coding_agents.base import CodingAgentInterface, CodingResult
+from kapso.execution.coding_agents.factory import register_agent
 
 @register_agent("my_custom_agent")
 class MyCustomAgent(CodingAgentInterface):

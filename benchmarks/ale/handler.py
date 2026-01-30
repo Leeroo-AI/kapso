@@ -6,8 +6,8 @@ from pdb import run
 
 import ale_bench
 
-from src.environment.handlers.base import ProblemHandler, ProblemRunResult
-from src.core import llm as llm_utils
+from kapso.environment.handlers.base import ProblemHandler, ProblemRunResult
+from kapso.core import llm as llm_utils
 
 LITE_VERSION_PROBLEMS_LIST = ["ahc008", "ahc011", "ahc015", "ahc016", "ahc024", "ahc025", "ahc026", "ahc027", "ahc039", "ahc046"]
 LITE_PROBLEMS_INFO = {

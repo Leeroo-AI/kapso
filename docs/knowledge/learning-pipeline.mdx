@@ -25,7 +25,7 @@ flowchart LR
 ### Full Pipeline
 
 ```python
-from src.knowledge_base.learners import KnowledgePipeline, Source
+from kapso.knowledge_base.learners import KnowledgePipeline, Source
 
 pipeline = KnowledgePipeline(wiki_dir="data/wikis")
 
@@ -37,7 +37,7 @@ print(f"Created: {result.created}, Edited: {result.edited}")
 ### Via Kapso API
 
 ```python
-from src.kapso import Kapso, Source
+from kapso.kapso import Kapso, Source
 
 kapso = Kapso()
 
@@ -74,7 +74,7 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 | `Source.ResearchReport(query, content)` | Research report | Implemented |
 
 ```python
-from src.knowledge_base.types import Source
+from kapso.knowledge_base.types import Source
 
 # Repository source
 repo = Source.Repo("https://github.com/user/repo", branch="main")
@@ -96,7 +96,7 @@ Ingestors extract WikiPages from sources. Each source type has a dedicated inges
 ### IngestorFactory
 
 ```python
-from src.knowledge_base.learners.ingestors import IngestorFactory
+from kapso.knowledge_base.learners.ingestors import IngestorFactory
 
 # Create by type
 ingestor = IngestorFactory.create("repo")
@@ -265,7 +265,7 @@ The merger uses these MCP tools via the `kg-graph-search` server:
 ### Using the Merger
 
 ```python
-from src.knowledge_base.learners import KnowledgeMerger
+from kapso.knowledge_base.learners import KnowledgeMerger
 
 merger = KnowledgeMerger()
 result = merger.merge(
