@@ -6,33 +6,31 @@ description: "Complete installation guide for Kapso and benchmarks"
 ## Core Installation
 
 <Steps>
-  <Step title="Clone the repository">
+  <Step title="Install from PyPI (recommended)">
+    ```bash
+    pip install leeroo-kapso
+    ```
+  </Step>
+  <Step title="Or install from source (for development or wiki data)">
     ```bash
     git clone https://github.com/leeroo-ai/kapso.git
     cd kapso
-    ```
-  </Step>
-  <Step title="Pull Git LFS files">
-    ```bash
-    # Install Git LFS if not already installed
+
+    # Pull Git LFS files (wiki knowledge data)
     git lfs install
     git lfs pull
+
+    # Create conda environment (recommended)
+    conda create -n kapso_conda python=3.12
+    conda activate kapso_conda
+
+    # Install in development mode
+    pip install -e .
     ```
     <Note>
       This repository uses Git LFS for large files in `data/wikis_batch_top100/`.
       If you didn't install Git LFS before cloning, run these commands to fetch the files.
     </Note>
-  </Step>
-  <Step title="Create conda environment (recommended)">
-    ```bash
-    conda create -n kapso_conda python=3.12
-    conda activate kapso_conda
-    ```
-  </Step>
-  <Step title="Install the package">
-    ```bash
-    pip install -e .
-    ```
   </Step>
   <Step title="Configure API keys">
     Create `.env` in project root:
