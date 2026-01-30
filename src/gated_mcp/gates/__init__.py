@@ -6,6 +6,7 @@ from src.gated_mcp.gates.idea_gate import IdeaGate
 from src.gated_mcp.gates.code_gate import CodeGate
 from src.gated_mcp.gates.research_gate import ResearchGate
 from src.gated_mcp.gates.experiment_history_gate import ExperimentHistoryGate
+from src.gated_mcp.gates.repo_memory_gate import RepoMemoryGate
 
 __all__ = [
     "ToolGate",
@@ -15,4 +16,5 @@ __all__ = [
     "CodeGate",
     "ResearchGate",
     "ExperimentHistoryGate",
+    "RepoMemoryGate",
 ]

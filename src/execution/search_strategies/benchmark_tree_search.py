@@ -512,8 +512,8 @@ class BenchmarkTreeSearch(SearchStrategy):
         if agent_type == "claude_code":
             repo_memory_detail_access_instructions = (
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-                "use the CLI (preferred): `python -m src.execution.memories.repo_memory.cli get-section <section_id>`\n"
-                "Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`\n"
+                "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
+                "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
                 "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
             )
         else:

@@ -73,18 +73,28 @@ def diff_book_stats(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, 
     }
 
 
-def extract_repo_memory_sections_consulted(changes_log_text: str) -> List[str]:
+def extract_repo_memory_sections_consulted(changes_log_text: str, agent_output: str = "") -> List[str]:
     """
-    Extract section IDs from a `changes.log` file.
+    Extract section IDs from a `changes.log` file and/or agent output.
     
-    Expected format (we instruct agents to write this):
+    Expected format in changes.log (we instruct agents to write this):
       RepoMemory sections consulted: core.architecture, core.where_to_edit
     Or:
       RepoMemory sections consulted: none
     
+    Also detects MCP tool calls in agent output:
+      get_repo_memory_section(section_id="core.architecture")
+    
+    Args:
+        changes_log_text: Content of changes.log file
+        agent_output: Raw agent output (optional, for detecting MCP calls)
+    
     Returns:
         Sorted unique section IDs (empty list means none or not specified).
     """
+    ids: List[str] = []
+    
+    # 1. Extract from changes.log (explicit declaration)
     text = changes_log_text or ""
     # Find the first occurrence (case-insensitive).
     #
@@ -97,23 +107,34 @@ def extract_repo_memory_sections_consulted(changes_log_text: str) -> List[str]:
         if m:
             rhs = (m.group(1) or "").strip()
             break
-    if not rhs:
-        return []
-    if rhs.lower() in ("none", "n/a", "na"):
-        return []
-
-    # Remove common wrappers: brackets, quotes.
-    rhs = rhs.strip().strip("[](){}")
-    # Split on commas or whitespace.
-    parts = re.split(r"[,\s]+", rhs)
-    ids: List[str] = []
-    for p in parts:
-        p = (p or "").strip().strip('"').strip("'")
-        if not p:
-            continue
-        if p.lower() in ("none", "n/a", "na"):
-            continue
-        if _SECTION_ID_PATTERN.match(p):
-            ids.append(p)
+    if rhs and rhs.lower() not in ("none", "n/a", "na"):
+        # Remove common wrappers: brackets, quotes.
+        rhs = rhs.strip().strip("[](){}")
+        # Split on commas or whitespace.
+        parts = re.split(r"[,\s]+", rhs)
+        for p in parts:
+            p = (p or "").strip().strip('"').strip("'")
+            if not p:
+                continue
+            if p.lower() in ("none", "n/a", "na"):
+                continue
+            if _SECTION_ID_PATTERN.match(p):
+                ids.append(p)
+    
+    # 2. Extract from agent output (MCP tool calls)
+    # Pattern: get_repo_memory_section(section_id="core.architecture")
+    # or: get_repo_memory_section(section_id='core.architecture')
+    # or: "section_id": "core.architecture"
+    output = agent_output or ""
+    mcp_patterns = [
+        r'get_repo_memory_section\s*\(\s*section_id\s*=\s*["\']([^"\']+)["\']',
+        r'"section_id"\s*:\s*["\']([^"\']+)["\']',
+    ]
+    for pattern in mcp_patterns:
+        for match in re.finditer(pattern, output, flags=re.IGNORECASE):
+            section_id = match.group(1).strip()
+            if _SECTION_ID_PATTERN.match(section_id):
+                ids.append(section_id)
+    
     return sorted(set(ids))
 

@@ -35,6 +35,7 @@ from src.gated_mcp.gates import (
     CodeGate,
     ResearchGate,
     ExperimentHistoryGate,
+    RepoMemoryGate,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +48,7 @@ GATE_CLASSES: Dict[str, Type[ToolGate]] = {
     "code": CodeGate,
     "research": ResearchGate,
     "experiment_history": ExperimentHistoryGate,
+    "repo_memory": RepoMemoryGate,
 }
 
 

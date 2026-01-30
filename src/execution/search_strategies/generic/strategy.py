@@ -6,9 +6,9 @@
 #
 # Key features:
 # - Uses Claude Code as the ideation agent with MCP gates
-# - Connected to MCP gates (idea, code, research, experiment_history) for external knowledge
+# - Connected to MCP gates (idea, code, research, experiment_history, repo_memory) for external knowledge
 # - Read-only access to codebase during ideation
-# - Full RepoMemory access via CLI
+# - Full RepoMemory access via MCP tools
 
 import json
 import logging
@@ -38,16 +38,16 @@ class GenericSearch(SearchStrategy):
     Generic search strategy with Claude Code ideation and implementation.
     
     Each iteration:
-    1. Generate a solution using Claude Code + MCP gates (idea, code, research, experiment_history)
-    2. Implement and evaluate using Claude Code + MCP gates (code, research)
+    1. Generate a solution using Claude Code + MCP gates (idea, code, research, experiment_history, repo_memory)
+    2. Implement and evaluate using Claude Code + MCP gates (code, research, repo_memory)
     3. Generate feedback
     4. Store result and continue
     
     Key features:
     - Claude Code as ideation agent with read-only codebase access
     - Claude Code as implementation agent with full write access
-    - MCP gates for external knowledge (wiki_idea_search, wiki_code_search, research_*, experiment_history)
-    - RepoMemory access via CLI for architecture understanding
+    - MCP gates for external knowledge (wiki_idea_search, wiki_code_search, research_*, experiment_history, repo_memory)
+    - RepoMemory access via MCP tools for architecture understanding
     
     Config params:
         - idea_generation_model: Model for solution generation (default: claude-opus-4-5-20251101)
@@ -56,8 +56,8 @@ class GenericSearch(SearchStrategy):
         - aws_region: AWS region (default: us-east-1)
         - ideation_timeout: Timeout for ideation in seconds (default: 300)
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
-        - ideation_gates: MCP gates for ideation (default: ["idea", "code", "research", "experiment_history"])
-        - implementation_gates: MCP gates for implementation (default: ["code", "research"])
+        - ideation_gates: MCP gates for ideation (default: ["idea", "code", "research", "experiment_history", "repo_memory"])
+        - implementation_gates: MCP gates for implementation (default: ["code", "research", "repo_memory"])
     """
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
@@ -72,8 +72,8 @@ class GenericSearch(SearchStrategy):
         self.use_bedrock = self.params.get("use_bedrock", True)
         self.aws_region = self.params.get("aws_region", "us-east-1")
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
-        # Include experiment_history gate by default for ideation
-        self.ideation_gates = self.params.get("ideation_gates", ["idea", "code", "research", "experiment_history"])
+        # Include experiment_history and repo_memory gates by default for ideation
+        self.ideation_gates = self.params.get("ideation_gates", ["idea", "code", "research", "experiment_history", "repo_memory"])
         
         # Config params for implementation
         self.implementation_model = self.params.get(
@@ -81,7 +81,7 @@ class GenericSearch(SearchStrategy):
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
-        self.implementation_gates = self.params.get("implementation_gates", ["code", "research"])
+        self.implementation_gates = self.params.get("implementation_gates", ["code", "research", "repo_memory"])
         
         # Experiment history path (set by orchestrator)
         self.experiment_history_path = self.params.get(
@@ -210,7 +210,7 @@ class GenericSearch(SearchStrategy):
         Generate solution using Claude Code with MCP gates.
         
         Uses Claude Code as ideation agent with:
-        - Read-only access to repo (Read, Bash for repo_memory cli)
+        - Read-only access to repo (Read, MCP tools for repo_memory)
         - RepoMemory via CLI
         - Idea/Code/Research/ExperimentHistory gates via MCP
         
@@ -233,18 +233,18 @@ class GenericSearch(SearchStrategy):
             repo_memory_doc, max_chars=2500
         )
         
-        # 2. Get MCP config for idea + code + research + experiment_history gates
+        # 2. Get MCP config for idea + code + research + experiment_history + repo_memory gates
         mcp_servers, mcp_tools = get_mcp_config(
             gates=self.ideation_gates,
             experiment_history_path=self.experiment_history_path,
+            repo_root=self.workspace_dir,
             include_base_tools=False,
         )
         
         # 3. Build restricted tool set (read-only for ideation)
-        # Only allow Read and Bash (for repo_memory cli), plus MCP tools
+        # Only allow Read plus MCP tools (repo_memory is now via MCP)
         ideation_allowed_tools = [
             "Read",
-            "Bash",  # For repo_memory cli
             *[t for t in mcp_tools if t.startswith("mcp__")],
         ]
         
@@ -400,13 +400,15 @@ Problem: {problem}"""
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
         repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
         
-        # 2. Get MCP config for code + research gates (not idea)
+        # 2. Get MCP config for code + research + repo_memory gates (not idea)
         mcp_servers, mcp_tools = get_mcp_config(
             gates=self.implementation_gates,
+            repo_root=session.session_folder,
             include_base_tools=False,
         )
         
         # 3. Build full tool set for implementation (includes Write, Edit)
+        # Bash is kept for running evaluation scripts, not for repo_memory access
         implementation_allowed_tools = [
             "Read", "Write", "Edit", "Bash",
             *[t for t in mcp_tools if t.startswith("mcp__")],
@@ -432,8 +434,8 @@ Problem: {problem}"""
         # 5. Build implementation prompt
         repo_memory_detail_access_instructions = (
             "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-            "use the CLI (preferred): `python -m src.execution.memories.repo_memory.cli get-section <section_id>`\n"
-            "Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`\n"
+            "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
+            "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
             "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
         )
         

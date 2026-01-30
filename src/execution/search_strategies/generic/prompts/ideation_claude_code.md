@@ -8,17 +8,21 @@ You should explore the codebase, understand its architecture, and propose improv
 
 ### Codebase Access
 - **Read**: Read any file in the repository to understand the current implementation
-- **Bash**: Run commands (primarily for repo_memory cli)
 
-### RepoMemory Access
+### RepoMemory Access (MCP Tools)
 The repository has a semantic memory that captures architecture, gotchas, and key patterns.
-To get detailed section content:
-```bash
-python -m src.execution.memories.repo_memory.cli get-section <section_id>
-```
-Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`
 
-Available sections are listed in the TOC below.
+- **get_repo_memory_summary**: Get the summary and table of contents
+  - Use this first to understand what sections are available
+  - Example: `get_repo_memory_summary()`
+
+- **get_repo_memory_section**: Get detailed content for a specific section
+  - Use this to dive deep into architecture, gotchas, etc.
+  - Example: `get_repo_memory_section(section_id="core.architecture")`
+  - Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+
+- **list_repo_memory_sections**: List all available section IDs
+  - Example: `list_repo_memory_sections()`
 
 ### Experiment History (MCP Tools)
 **IMPORTANT: You MUST check experiment history before generating a solution.**
@@ -70,7 +74,7 @@ Your job is to propose a solution, not implement it.
    - Call `get_top_experiments(5)` to see what worked best
    - Call `get_recent_experiments(5)` to see recent attempts
    - Learn from past successes and failures
-2. **Understand the codebase**: Read key files and RepoMemory sections (especially core.architecture, core.where_to_edit)
+2. **Understand the codebase**: Read key files and use RepoMemory tools (especially get_repo_memory_section for core.architecture, core.where_to_edit)
 3. **Search for ideas**: Use wiki_idea_search first (curated, high-quality), then research tools if needed
 4. **Synthesize a solution**: Combine insights into a concrete, implementable proposal that IMPROVES on past attempts
 

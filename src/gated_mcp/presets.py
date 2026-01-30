@@ -72,6 +72,14 @@ GATES: Dict[str, GateDefinition] = {
             "similar_k": 3,
         },
     ),
+    "repo_memory": GateDefinition(
+        tools=[
+            "get_repo_memory_section",
+            "list_repo_memory_sections",
+            "get_repo_memory_summary",
+        ],
+        default_params={},
+    ),
 }
 
 
@@ -123,6 +131,7 @@ def get_mcp_config(
     kg_index_path: Optional[str] = None,
     experiment_history_path: Optional[str] = None,
     weaviate_url: Optional[str] = None,
+    repo_root: Optional[str] = None,
     include_base_tools: bool = True,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
@@ -137,6 +146,8 @@ def get_mcp_config(
         experiment_history_path: Path to experiment history JSON file. Required if
                                  "experiment_history" gate is enabled.
         weaviate_url: Weaviate URL for semantic search (optional).
+        repo_root: Path to repo root for repo_memory gate. Falls back to 
+                   REPO_MEMORY_ROOT env var or CWD.
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
     
     Returns:
@@ -180,6 +191,12 @@ def get_mcp_config(
         resolved_weaviate_url = weaviate_url or os.environ.get("WEAVIATE_URL")
         if resolved_weaviate_url:
             mcp_env["WEAVIATE_URL"] = resolved_weaviate_url
+    
+    # Resolve repo_root (needed for repo_memory gate)
+    if "repo_memory" in gates:
+        resolved_repo_root = repo_root or os.environ.get("REPO_MEMORY_ROOT")
+        if resolved_repo_root:
+            mcp_env["REPO_MEMORY_ROOT"] = resolved_repo_root
     
     # Build MCP servers config
     mcp_servers = {

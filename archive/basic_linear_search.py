@@ -206,7 +206,7 @@ class BasicLinearSearch(SearchStrategy):
         Generate solution using Claude Code with MCP gates.
         
         Uses Claude Code as ideation agent with:
-        - Read-only access to repo (Read, Bash for repo_memory cli)
+        - Read-only access to repo (Read, MCP tools for repo_memory)
         - RepoMemory via CLI
         - Idea/Code/Research/ExperimentHistory gates via MCP
         
@@ -237,10 +237,9 @@ class BasicLinearSearch(SearchStrategy):
         )
         
         # 3. Build restricted tool set (read-only for ideation)
-        # Only allow Read and Bash (for repo_memory cli), plus MCP tools
+        # Only allow Read plus MCP tools (repo_memory is now via MCP)
         ideation_allowed_tools = [
             "Read",
-            "Bash",  # For repo_memory cli
             *[t for t in mcp_tools if t.startswith("mcp__")],
         ]
         
@@ -326,8 +325,8 @@ class BasicLinearSearch(SearchStrategy):
     
     def _extract_sections_consulted(self, output: str) -> List[str]:
         """Extract RepoMemory sections consulted from Claude Code output."""
-        # Look for repo_memory cli get-section calls
-        sections = re.findall(r'repo_memory\.cli\s+get-section\s+(\S+)', output)
+        # Look for repo_memory MCP tool calls
+        sections = re.findall(r'get_repo_memory_section.*section_id.*["\']([^"\']+)["\']', output)
         # Also look for direct section references in tool calls
         sections.extend(re.findall(r'get-section\s+["\']?(\S+?)["\']?\s', output))
         # Deduplicate while preserving order
@@ -428,8 +427,8 @@ Problem: {problem}"""
         # 5. Build implementation prompt
         repo_memory_detail_access_instructions = (
             "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-            "use the CLI (preferred): `python -m src.execution.memories.repo_memory.cli get-section <section_id>`\n"
-            "Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`\n"
+            "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
+            "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
             "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
         )
         

@@ -15,12 +15,16 @@ You are a world class developer and programmer. Your task is to implement the pr
 - **Edit**: Make targeted edits to existing files
 - **Bash**: Run shell commands
 
-### RepoMemory Access
-To get detailed section content about the codebase:
-```bash
-python -m src.execution.memories.repo_memory.cli get-section <section_id>
-```
-Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`
+### RepoMemory Access (MCP Tools)
+- **get_repo_memory_section**: Get detailed content for a specific section
+  - Example: `get_repo_memory_section(section_id="core.architecture")`
+  - Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
+
+- **get_repo_memory_summary**: Get the summary and table of contents
+  - Example: `get_repo_memory_summary()`
+
+- **list_repo_memory_sections**: List all available section IDs
+  - Example: `list_repo_memory_sections()`
 
 ### Knowledge Search (MCP Tools)
 - **wiki_code_search**: Search curated ML/AI knowledge base for implementation patterns
