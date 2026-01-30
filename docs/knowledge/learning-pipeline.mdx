@@ -25,7 +25,7 @@ flowchart LR
 ### Full Pipeline
 
 ```python
-from src.knowledge.learners import KnowledgePipeline, Source
+from src.knowledge_base.learners import KnowledgePipeline, Source
 
 pipeline = KnowledgePipeline(wiki_dir="data/wikis")
 
@@ -42,9 +42,10 @@ from src.kapso import Kapso, Source
 kapso = Kapso()
 
 # Learn from multiple sources
+findings = kapso.research("QLoRA best practices", mode="idea")
 kapso.learn(
     Source.Repo("https://github.com/huggingface/transformers"),
-    kapso.research("QLoRA best practices", mode="idea"),
+    *findings.ideas,
     wiki_dir="data/wikis",
 )
 ```
@@ -73,7 +74,7 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 | `Source.ResearchReport(query, content)` | Research report | Implemented |
 
 ```python
-from src.knowledge.learners import Source
+from src.knowledge_base.types import Source
 
 # Repository source
 repo = Source.Repo("https://github.com/user/repo", branch="main")
@@ -83,7 +84,7 @@ solution = kapso.evolve(goal="...")
 sol_source = Source.Solution(solution)
 
 # Research sources (from research())
-findings = kapso.research("topic", mode=["idea", "implementation"])
+findings = kapso.research("topic", mode="both")
 # findings.ideas is List[Source.Idea]
 # findings.implementations is List[Source.Implementation]
 ```
@@ -95,7 +96,7 @@ Ingestors extract WikiPages from sources. Each source type has a dedicated inges
 ### IngestorFactory
 
 ```python
-from src.knowledge.learners.ingestors import IngestorFactory
+from src.knowledge_base.learners.ingestors import IngestorFactory
 
 # Create by type
 ingestor = IngestorFactory.create("repo")
@@ -157,11 +158,11 @@ There are three specialized research ingestors:
 | `ResearchReportIngestor` | `researchreport` | Extracts comprehensive knowledge from reports |
 
 ```python
-research = kapso.research("QLoRA best practices", mode="idea")
+findings = kapso.research("QLoRA best practices", mode="idea")
 
 # Ingest into WikiPages (auto-detects ingestor type)
-ingestor = IngestorFactory.for_source(research.ideas[0])
-pages = ingestor.ingest(research.ideas[0])
+ingestor = IngestorFactory.for_source(findings.ideas[0])
+pages = ingestor.ingest(findings.ideas[0])
 
 # Or create by type
 ingestor = IngestorFactory.create("idea")
@@ -264,7 +265,7 @@ The merger uses these MCP tools via the `kg-graph-search` server:
 ### Using the Merger
 
 ```python
-from src.knowledge.learners import KnowledgeMerger
+from src.knowledge_base.learners import KnowledgeMerger
 
 merger = KnowledgeMerger()
 result = merger.merge(

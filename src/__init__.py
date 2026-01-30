@@ -14,8 +14,13 @@
 # CLI:
 #     python -m src.cli --goal "Build a web scraper"
 
+# Suppress deprecation warnings from third-party dependencies (e.g., pydub's audioop)
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
+
 # Light imports (no heavy dependencies)
-from src.knowledge.learners import Source
+from src.knowledge_base.learners import Source
 from src.execution.solution import SolutionResult
 from src.deployment import (
     Software,

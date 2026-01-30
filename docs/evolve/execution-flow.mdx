@@ -40,8 +40,8 @@ solution = kapso.evolve(
 | **SearchStrategy** | `src.execution.search_strategies` | Generates and selects solutions |
 | **ExperimentWorkspace** | `src.execution.experiment_workspace` | Manages Git branches |
 | **CodingAgent** | `src.execution.coding_agents` | Writes code and runs evaluation |
-| **FeedbackGenerator** | `src.execution.feedback_generator` | Validates results and decides stop |
-| **KnowledgeSearch** | `src.knowledge.search` | Retrieves KG context |
+| **FeedbackGenerator** | (within search strategy) | Validates results and decides stop |
+| **KnowledgeSearch** | `src.knowledge_base.search` | Retrieves KG context |
 
 ### Step 2: Gather Context
 
@@ -100,14 +100,15 @@ def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
 
 **SearchStrategy** generates solution candidates:
 
-**LinearSearch** — One idea per iteration:
+**GenericSearch** — Claude Code + MCP gates:
 ```python
 def run(self, context, budget_progress):
-    solution = self.llm.generate(f"Solve: {context.problem}")
-    self._implement_n_debug(solution, context, branch_name)
+    solution, sections = self._generate_solution(problem, parent_branch)
+    agent_output = self._implement(solution, problem, branch_name, parent_branch)
+    self._generate_feedback(node)
 ```
 
-**LlmSteeredTreeSearch** — Tree-based exploration:
+**BenchmarkTreeSearch** — Tree-based exploration:
 ```python
 def run(self, context, budget_progress):
     if budget_progress >= 20:

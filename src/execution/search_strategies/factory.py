@@ -16,7 +16,7 @@ from src.environment.handlers.base import ProblemHandler
 from src.core.llm import LLMBackend
 
 if TYPE_CHECKING:
-    from src.execution.feedback_generator import FeedbackGenerator
+    from src.execution.search_strategies.generic import FeedbackGenerator
 
 
 class SearchStrategyFactory:
@@ -28,7 +28,7 @@ class SearchStrategyFactory:
     
     Usage:
         # Create strategy
-        strategy = SearchStrategyFactory.create("llm_tree_search", ...)
+        strategy = SearchStrategyFactory.create("generic", ...)
         
         # List available
         SearchStrategyFactory.list_available()
@@ -37,7 +37,7 @@ class SearchStrategyFactory:
     # Class-level state
     _registry: Dict[str, Type[SearchStrategy]] = {}
     _configs: Dict[str, Any] = {}
-    _default_type: str = "llm_tree_search"
+    _default_type: str = "generic"
     _initialized: bool = False
     
     # Configuration
@@ -65,7 +65,7 @@ class SearchStrategyFactory:
         try:
             with open(cls.CONFIG_PATH, 'r') as f:
                 content = yaml.safe_load(f) or {}
-            cls._default_type = content.get("default_strategy", "llm_tree_search")
+            cls._default_type = content.get("default_strategy", "generic")
             cls._configs = content.get("strategies", {})
         except yaml.YAMLError:
             pass
@@ -119,7 +119,7 @@ class SearchStrategyFactory:
         Create a search strategy instance.
         
         Args:
-            strategy_type: Name of registered strategy (e.g., "llm_tree_search")
+            strategy_type: Name of registered strategy (e.g., "generic", "benchmark_tree_search")
             problem_handler: Problem handler instance
             llm: LLM backend
             coding_agent_config: Config for coding agent
@@ -263,8 +263,8 @@ def register_strategy(name: str):
     Decorator to register a search strategy.
     
     Usage:
-        @register_strategy("llm_tree_search")
-        class LlmSteeredTreeSearch(SearchStrategy):
+        @register_strategy("generic")
+        class GenericSearch(SearchStrategy):
             ...
     """
     def decorator(cls: Type[SearchStrategy]) -> Type[SearchStrategy]:

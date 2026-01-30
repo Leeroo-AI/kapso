@@ -70,7 +70,7 @@ RepoMemory is a structured representation of a repository's architecture, patter
 ### Ensure Memory Exists
 
 ```python
-from src.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory import RepoMemoryManager
 
 # Create or load memory
 doc = RepoMemoryManager.ensure_exists_in_worktree("/path/to/repo")
@@ -182,24 +182,36 @@ flowchart TD
 Claims must have evidence that exists in the repository:
 
 ```python
-from src.repo_memory.builders import validate_evidence
+from src.execution.memories.repo_memory.builders import validate_evidence
 
 result = validate_evidence(repo_root, model)
 if not result.ok:
     print(f"Missing evidence: {result.missing}")
 ```
 
-## CLI Access
+## MCP Tools Access
 
-For Claude Code agent, a CLI is available:
+For Claude Code agent, RepoMemory is accessible via MCP tools:
 
-```bash
-# List sections
-python tools/repo_memory_cli.py list-sections
+```python
+# Get summary and table of contents
+get_repo_memory_summary()
 
-# Get specific section
-python tools/repo_memory_cli.py get-section core.architecture
+# List available sections
+list_repo_memory_sections()
+
+# Get specific section content
+get_repo_memory_section(section_id="core.architecture")
 ```
+
+Available sections:
+- `core.architecture` - System design and module structure
+- `core.entrypoints` - How to run the application
+- `core.where_to_edit` - Key files for modifications
+- `core.invariants` - Contracts, constraints, and assumptions
+- `core.testing` - How to run tests
+- `core.gotchas` - Common pitfalls
+- `core.dependencies` - Key dependencies
 
 ## Integration with Coding Agents
 
@@ -226,12 +238,12 @@ def implement_solution(self, solution, context, session):
 
 ### Section Access Instructions
 
-Agents are told how to access detailed sections:
+Agents are told how to access detailed sections via MCP tools:
 
 ```
 For detailed section content (architecture, gotchas, invariants, etc.),
-use the CLI: `python3 tools/repo_memory_cli.py get-section <section_id>`
-Example: `python3 tools/repo_memory_cli.py get-section core.architecture`
+use the MCP tool: get_repo_memory_section(section_id="core.architecture")
+Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
 ```
 
 ## Quality Metrics

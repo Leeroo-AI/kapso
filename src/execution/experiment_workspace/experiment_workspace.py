@@ -116,6 +116,12 @@ class ExperimentWorkspace:
         Args:
             branch_name: Name of branch to switch to
         """
+        # Clean untracked files that might block checkout (e.g., __pycache__)
+        # Use -f to force, -d to remove directories, -x to remove ignored files too
+        try:
+            self.repo.git.clean('-fdx')
+        except Exception:
+            pass  # Best effort - continue even if clean fails
         self.repo.git.checkout(branch_name)
     
     def create_branch(self, branch_name: str) -> None:

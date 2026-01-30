@@ -107,7 +107,7 @@ else:
 ### Direct Usage
 
 ```python
-from src.execution.feedback_generator import FeedbackGenerator, FeedbackResult
+from src.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
 
 # Create feedback generator (uses claude_code by default)
 feedback_gen = FeedbackGenerator()
@@ -132,18 +132,14 @@ else:
 
 ## Configuration
 
-The feedback generator uses a coding agent (default: `claude_code`) with a specialized prompt. You can configure the agent type:
+The feedback generator is integrated within the search strategy. You can configure the agent type in the search strategy configuration:
 
-```python
-from src.execution.coding_agents.factory import CodingAgentFactory
-
-# Use a different agent for feedback generation
-config = CodingAgentFactory.build_config(
-    agent_type="gemini",
-    model="gemini-2.0-flash",
-)
-
-feedback_gen = FeedbackGenerator(coding_agent_config=config)
+```yaml
+search_strategy:
+  type: "generic"
+  params:
+    idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
 ```
 
 ## Integration with Search Strategy

@@ -34,7 +34,7 @@ python -m src.cli --goal-file problem.txt
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--iterations` | `-i` | `1` | Maximum experiment iterations |
+| `--iterations` | `-i` | `10` | Maximum experiment iterations |
 | `--output` | `-o` | auto | Output directory for solution |
 
 ```bash
@@ -45,36 +45,26 @@ python -m src.cli --goal "..." --iterations 10 --output ./my_solution
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--mode` | `-m` | Configuration mode (GENERIC, MINIMAL, TREE_SEARCH) |
+| `--mode` | `-m` | Configuration mode (GENERIC, MINIMAL) |
 | `--coding-agent` | `-a` | Coding agent (aider, gemini, claude_code, openhands) |
 
 ```bash
-python -m src.cli --goal "..." --mode TREE_SEARCH --coding-agent gemini
+python -m src.cli --goal "..." --mode GENERIC --coding-agent claude_code
 ```
 
-### Execution Options
+### Directory Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--main-file` | `main.py` | Entry point file |
-| `--language` | `python` | Programming language |
-| `--timeout` | `300` | Execution timeout in seconds |
-
-```bash
-python -m src.cli --goal "..." --main-file app.py --timeout 600
-```
-
-### Evaluation Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--evaluator` | `no_score` | Evaluator type |
-| `--stop-condition` | `never` | Stop condition type |
+| `--eval-dir` | `None` | Directory with evaluation files (copied to `kapso_evaluation/`) |
+| `--data-dir` | `None` | Directory with data files (copied to `kapso_datasets/`) |
+| `--initial-repo` | `None` | Initial repository (local path or GitHub URL) |
 
 ```bash
 python -m src.cli --goal "..." \
-    --evaluator regex_pattern \
-    --stop-condition threshold
+    --eval-dir ./my_evaluation/ \
+    --data-dir ./my_data/ \
+    --initial-repo https://github.com/owner/repo
 ```
 
 ### List Commands
@@ -82,13 +72,9 @@ python -m src.cli --goal "..." \
 | Option | Description |
 |--------|-------------|
 | `--list-agents` | List available coding agents |
-| `--list-evaluators` | List available evaluators |
-| `--list-stop-conditions` | List available stop conditions |
 
 ```bash
 python -m src.cli --list-agents
-python -m src.cli --list-evaluators
-python -m src.cli --list-stop-conditions
 ```
 
 ## Examples
@@ -100,13 +86,13 @@ PYTHONPATH=. python -m src.cli \
     --goal "Build a random forest classifier for the Iris dataset"
 ```
 
-### With Evaluation
+### With Evaluation and Data
 
 ```bash
 PYTHONPATH=. python -m src.cli \
     --goal "Build a classifier with accuracy > 0.9" \
-    --evaluator regex_pattern \
-    --stop-condition threshold
+    --eval-dir ./evaluation/ \
+    --data-dir ./data/
 ```
 
 ### Full Options
@@ -115,13 +101,11 @@ PYTHONPATH=. python -m src.cli \
 PYTHONPATH=. python -m src.cli \
     --goal-file problem.txt \
     --iterations 20 \
-    --mode TREE_SEARCH \
-    --coding-agent gemini \
-    --main-file main.py \
-    --language python \
-    --timeout 600 \
-    --evaluator llm_judge \
-    --stop-condition plateau \
+    --mode GENERIC \
+    --coding-agent claude_code \
+    --initial-repo https://github.com/owner/starter-repo \
+    --eval-dir ./evaluation/ \
+    --data-dir ./data/ \
     --output ./my_solution
 ```
 
@@ -132,31 +116,36 @@ PYTHONPATH=. python -m src.cli \
 EVOLVING: Build a random forest classifier for the Iris dataset
 ============================================================
   Max iterations: 10
-  Language: python
-  Main file: main.py
-  Evaluator: regex_pattern
-  Stop condition: threshold
   Coding agent: from config
 
 Running experiments...
+Experiment 1: Developer agent implementing solution...
+Experiment 1: Running evaluation in kapso_evaluation/...
+Experiment 1: Feedback generator validating results...
 Experiment 1 completed with cumulative cost: $0.125
 ####################################################################################################
-Experiment with final score 0.92:
+Experiment with score 0.92:
 # Solution: Random forest with GridSearchCV hyperparameter tuning...
+# Feedback: Good progress! Accuracy 0.92 meets the > 0.9 target. Goal achieved.
 ####################################################################################################
 
 ============================================================
 Evolution Complete
 ============================================================
 Solution at: ./my_solution
-Experiments run: 3
-Total cost: $0.450
+Experiments run: 1
+Total cost: $0.125
+Stopped reason: goal_achieved
+Goal achieved: True
 
 ============================================================
 COMPLETED
 ============================================================
 Solution: ./my_solution
-Cost: $0.450
+Goal achieved: True
+Final score: 0.92
+Cost: $0.125
+Stopped reason: goal_achieved
 ```
 
 ## Environment Variables
@@ -182,39 +171,6 @@ Available Coding Agents:
   openhands: OpenHands agent with sandboxed execution
 ```
 
-## Available Evaluators
-
-```bash
-$ python -m src.cli --list-evaluators
-
-Available Evaluators:
-==================================================
-  no_score: No scoring, always returns 0
-  regex_pattern: Extract score using regex pattern
-  file_json: Read score from JSON file
-  multi_metric: Weighted combination of multiple metrics
-  llm_judge: LLM-based evaluation (flexible criteria)
-  llm_comparison: Compare against expected output
-  composite: Combine multiple evaluators
-```
-
-## Available Stop Conditions
-
-```bash
-$ python -m src.cli --list-stop-conditions
-
-Available Stop Conditions:
-==================================================
-  never: Never stop early
-  threshold: Stop when score reaches threshold
-  max_iterations: Stop after N iterations
-  plateau: Stop if no improvement for N iterations
-  cost_limit: Stop when cost limit reached
-  time_limit: Stop when time limit reached
-  consecutive_errors: Stop after N consecutive errors
-  composite: Combine multiple conditions
-```
-
 ## Exit Codes
 
 | Code | Meaning |
@@ -225,7 +181,7 @@ Available Stop Conditions:
 ## Tips
 
 <Tip>
-**Use `--list-*` options** to discover available components.
+**Use `--list-agents`** to discover available coding agents.
 </Tip>
 
 <Note>

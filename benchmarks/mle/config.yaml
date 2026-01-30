@@ -5,11 +5,8 @@
 # Use --developer-agent to select: aider, gemini, claude_code, openhands
 # Use --list-agents to see details
 #
-# Search strategies are pluggable via SearchStrategyFactory.
-# Available: llm_tree_search (more can be added via @register_strategy decorator)
-#
-# Context managers are pluggable via ContextManagerFactory.
-# Available: kg_enriched (more can be added via @register_context_manager decorator)
+# Available search strategies:
+#   - benchmark_tree_search: Tree search with handler.run() for evaluation
 #
 # Knowledge search backends are pluggable via KnowledgeSearchFactory.
 # Available: kg_llm_navigation (more can be added via @register_knowledge_search decorator)
@@ -47,13 +44,6 @@ modes:
     coding_agent:
       type: "aider"
       model: "gpt-5-mini"
-    
-    # Context manager configuration
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
     
     # Knowledge search configuration
     knowledge_search:
@@ -93,12 +83,6 @@ modes:
       model: "gpt-4.1-mini"
       debug_model: "gpt-4.1-mini"
     
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
-    
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: true
@@ -113,31 +97,6 @@ modes:
   # ===========================================
   # Testing Modes
   # ===========================================
-  
-  # Linear search - simple sequential approach (for testing)
-  LINEAR:
-    search_strategy:
-      type: "linear_search"
-      params:
-        code_debug_tries: 2
-        idea_generation_model: "gpt-4.1-mini"
-    
-    coding_agent:
-      type: "aider"
-      model: "gpt-4.1-mini"
-      debug_model: "gpt-4.1-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
-    
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
-    
-    fetch_huggingface_models: false
   
   # Minimal configuration for quick testing (tree search)
   MINIMAL:
@@ -161,12 +120,6 @@ modes:
       type: "aider"
       model: "gpt-4.1-mini"
       debug_model: "gpt-4.1-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
     
     knowledge_search:
       type: "kg_llm_navigation"

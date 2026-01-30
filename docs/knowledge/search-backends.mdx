@@ -38,7 +38,7 @@ flowchart LR
 ### Usage
 
 ```python
-from src.knowledge.search import KnowledgeSearchFactory, KGSearchFilters
+from src.knowledge_base.search import KnowledgeSearchFactory, KGSearchFilters
 
 # Create search instance
 search = KnowledgeSearchFactory.create("kg_graph_search", params={
@@ -102,7 +102,7 @@ flowchart LR
 ### Usage
 
 ```python
-from src.knowledge.search import KnowledgeSearchFactory
+from src.knowledge_base.search import KnowledgeSearchFactory
 
 # Create search instance
 search = KnowledgeSearchFactory.create("kg_llm_navigation")
@@ -251,8 +251,8 @@ result = search.search("query")  # Returns empty KGOutput
 ## Creating Custom Backends
 
 ```python
-from src.knowledge.search.base import KnowledgeSearch
-from src.knowledge.search.factory import register_knowledge_search
+from src.knowledge_base.search.base import KnowledgeSearch
+from src.knowledge_base.search.factory import register_knowledge_search
 
 @register_knowledge_search("my_custom_search")
 class MyCustomSearch(KnowledgeSearch):

@@ -13,9 +13,9 @@ load_dotenv()
 
 def main():
     """Test WorkflowRepoSearch."""
-    from src.knowledge.search import KnowledgeSearchFactory
-    from src.knowledge.search.workflow_search import WorkflowRepoSearch, extract_github_url
-    from src.knowledge.search.base import KGIndexInput
+    from src.knowledge_base.search import KnowledgeSearchFactory
+    from src.knowledge_base.search.workflow_search import WorkflowRepoSearch, extract_github_url
+    from src.knowledge_base.search.base import KGIndexInput
     
     print("=" * 60)
     print("WorkflowRepoSearch (C3) Test")

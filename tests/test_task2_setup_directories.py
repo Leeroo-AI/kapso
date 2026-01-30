@@ -72,7 +72,7 @@ class TestSetupKapsoDirectories:
         llm = LLMBackend()
         
         return SearchStrategyFactory.create(
-            strategy_type="linear_search",
+            strategy_type="generic",
             problem_handler=handler,
             llm=llm,
             coding_agent_config=coding_agent_config,

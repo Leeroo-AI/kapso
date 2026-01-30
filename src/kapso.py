@@ -23,14 +23,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+# Load environment variables from .env file (if present)
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.execution.orchestrator import OrchestratorAgent
 from src.execution.solution import SolutionResult
 from src.environment.handlers.generic import GenericProblemHandler
-from src.knowledge.search import KnowledgeSearchFactory, KGIndexInput
-from src.knowledge.search.base import KGIndexMetadata
-from src.knowledge.learners import Source, KnowledgePipeline
-from src.knowledge.researcher import Researcher, ResearchDepth, ResearchMode
-from src.knowledge.types import ResearchFindings
+from src.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
+from src.knowledge_base.search.base import KGIndexMetadata
+from src.knowledge_base.learners import Source, KnowledgePipeline
+from src.researcher import Researcher, ResearchDepth, ResearchMode
+from src.knowledge_base.types import ResearchFindings
 from src.core.config import load_config
 
 # Placeholder types for unimplemented learning
@@ -435,10 +439,6 @@ class Kapso:
         # --- Directory options ---
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
-        # --- Execution options ---
-        language: str = "python",
-        main_file: str = "main.py",
-        timeout: int = 300,
         # --- Extra context options ---
         additional_context: str = "",
     ) -> SolutionResult:
@@ -459,15 +459,11 @@ class Kapso:
                 - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
             
-            mode: Configuration mode (GENERIC, MINIMAL, TREE_SEARCH, etc.)
+            mode: Configuration mode (GENERIC, MINIMAL, etc.)
             coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
             
             eval_dir: Path to evaluation files (copied to workspace/kapso_evaluation/)
             data_dir: Path to data files (copied to workspace/kapso_datasets/)
-            
-            language: Programming language (default: python)
-            main_file: Entry point file (default: main.py)
-            timeout: Execution timeout in seconds (default: 300)
             
             additional_context: Extra context appended to the problem prompt.
                 This is the intended integration point for research context.
@@ -514,9 +510,7 @@ class Kapso:
         # Create problem handler with all options
         handler = GenericProblemHandler(
             problem_description=problem,
-            main_file=main_file,
-            language=language,
-            timeout=timeout,
+            eval_dir=eval_dir,
             data_dir=data_dir,
             additional_context=combined_context,
         )
@@ -566,7 +560,6 @@ class Kapso:
                 "iterations": solve_result.iterations_run,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
-                "language": language,
             }
         )
         
@@ -719,7 +712,7 @@ class Kapso:
             return None
         
         try:
-            from src.knowledge.search.workflow_search import WorkflowRepoSearch
+            from src.knowledge_base.search.workflow_search import WorkflowRepoSearch
             
             print("  Searching for relevant workflow...")
             workflow_search = WorkflowRepoSearch(kg_search=self.knowledge_search)

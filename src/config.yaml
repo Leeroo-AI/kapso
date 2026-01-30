@@ -5,9 +5,18 @@
 #   python -m src.runner -p "Your problem..." -m GENERIC
 #   python -m src.runner -f problem.txt -m MINIMAL
 #
+# Available Search Strategies:
+#   - generic: Claude Code + MCP gates for ideation and implementation
+#   - benchmark_tree_search: Tree search with handler.run() for benchmarks
+#
 # Knowledge Search Backends (via KnowledgeSearchFactory):
 #   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
 #   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
+#
+# Experiment History:
+#   - Stored in .kapso/experiment_history.json
+#   - Accessed via MCP tools (get_top_experiments, get_recent_experiments, search_similar_experiments)
+#   - Optionally indexed in Weaviate for semantic search (set WEAVIATE_URL env var)
 
 # Default mode to use
 default_mode: GENERIC
@@ -21,31 +30,39 @@ modes:
   # ===========================================
   
   # Standard configuration for generic problems
-  # To enable cognitive memory, change context_manager.type to "cognitive"
+  # Uses Claude Code with MCP gates for ideation and implementation
   GENERIC:
-    # Search strategy configuration
     search_strategy:
-      type: "linear_search"
+      type: "generic"
       params:
-        code_debug_tries: 5
-        idea_generation_model: "gpt-4o-mini"
+        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        use_bedrock: true
+        aws_region: "us-east-1"
+        ideation_timeout: 300
+        implementation_timeout: 600
+        ideation_gates: ["idea", "code", "research", "experiment_history", "repo_memory"]
+        implementation_gates: ["code", "research", "repo_memory"]
     
-    # Coding agent configuration
     coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 600
     
-    # Context manager configuration
-    context_manager:
-      type: "token_efficient"
-      params:
-        state_experiments_count: 5
-        relevant_retrieval_experiments_count: 3
-        top_experiments_in_context_count: 2
-        recent_experiments_in_context_count: 2
-        summary_token_limit: 1000
-        summary_model: "gpt-4o-mini"
+    feedback_generator:
+      type: "claude_code"
+      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      agent_specific:
+        use_bedrock: true
+        aws_region: "us-east-1"
+        streaming: true
+        timeout: 120
     
     # Knowledge search configuration
     # Use index_kg() to index data, then pass kg_index to Kapso
@@ -65,10 +82,16 @@ modes:
   # Minimal configuration for quick testing
   MINIMAL:
     search_strategy:
-      type: "linear_search"
+      type: "generic"
       params:
-        code_debug_tries: 2
-        idea_generation_model: "gpt-4o-mini"
+        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        use_bedrock: true
+        aws_region: "us-east-1"
+        ideation_timeout: 180
+        implementation_timeout: 300
+        ideation_gates: ["idea", "code", "research", "experiment_history", "repo_memory"]
+        implementation_gates: ["code", "research", "repo_memory"]
     
     coding_agent:
       type: "claude_code"
@@ -80,7 +103,6 @@ modes:
         streaming: true
         timeout: 120
     
-    # Feedback generator uses a coding agent to analyze results and decide when to stop
     feedback_generator:
       type: "claude_code"
       model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
@@ -90,92 +112,6 @@ modes:
         aws_region: "us-east-1"
         streaming: true
         timeout: 120
-    
-    context_manager:
-      type: "token_efficient"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
-    
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
-
-  # Minimal tree search with Claude Code on Bedrock
-  MINIMAL_TREE:
-    search_strategy:
-      type: "llm_tree_search"
-      params:
-        node_expansion_limit: 2
-        node_expansion_new_childs_count: 3
-        idea_generation_steps: 1
-        first_experiment_factor: 1
-        experimentation_per_run: 1
-        per_step_maximum_solution_count: 5
-        exploration_budget_percent: 40
-        idea_generation_model: "gpt-4o-mini"
-        idea_generation_ensemble_models:
-          - "gpt-4o-mini"
-    
-    coding_agent:
-      type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      agent_specific:
-        use_bedrock: true
-        aws_region: "us-east-1"
-        streaming: true
-        timeout: 120
-    
-    # Feedback generator uses a coding agent to analyze results and decide when to stop
-    feedback_generator:
-      type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      agent_specific:
-        use_bedrock: true
-        aws_region: "us-east-1"
-        streaming: true
-        timeout: 120
-    
-    context_manager:
-      type: "token_efficient"
-      params:
-        max_experiment_history_count: 3
-        max_recent_experiment_count: 3
-    
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
-
-  # Tree search for more complex problems
-  TREE_SEARCH:
-    search_strategy:
-      type: "llm_tree_search"
-      params:
-        reasoning_effort: "medium"
-        code_debug_tries: 3
-        node_expansion_limit: 2
-        node_expansion_new_childs_count: 3
-        idea_generation_steps: 1
-        first_experiment_factor: 1
-        experimentation_per_run: 1
-        per_step_maximum_solution_count: 5
-        exploration_budget_percent: 40
-        idea_generation_model: "gpt-4o-mini"
-        idea_generation_ensemble_models:
-          - "gpt-4o-mini"
-    
-    coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
-    
-    context_manager:
-      type: "kg_enriched"
-      params:
-        max_experiment_history_count: 5
-        max_recent_experiment_count: 5
     
     knowledge_search:
       type: "kg_llm_navigation"

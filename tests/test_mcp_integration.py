@@ -65,11 +65,11 @@ def run_test():
         "mcpServers": {
             "kg-graph-search": {
                 "command": "python",
-                "args": ["-m", "src.knowledge.wiki_mcps.mcp_server"],
+                "args": ["-m", "src.gated_mcp.server"],
                 "cwd": str(PROJECT_ROOT),
                 "env": {
                     "PYTHONPATH": str(PROJECT_ROOT),
-                    "KG_SEARCH_BACKEND": "kg_graph_search"
+                    "MCP_ENABLED_GATES": "kg"
                 }
             }
         }

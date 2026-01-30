@@ -63,7 +63,7 @@ def _check_prerequisites() -> tuple[bool, str]:
     
     return True, ""
 
-from src.repo_memory.observation import (
+from src.execution.memories.repo_memory.observation import (
     extract_repo_memory_sections_consulted,
 )
 
@@ -259,7 +259,7 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
 
 def dump_branch_memory(repo, branch_name: str) -> dict:
     """Load repo memory from a specific branch without checkout."""
-    from src.repo_memory import RepoMemoryManager
+    from src.execution.memories.repo_memory import RepoMemoryManager
     
     doc = RepoMemoryManager.load_from_git_branch(repo, branch_name)
     if not doc:
@@ -306,7 +306,7 @@ def _create_bedrock_config_file(output_dir: str) -> str:
         "modes": {
             "BEDROCK_TEST": {
                 "search_strategy": {
-                    "type": "llm_tree_search",
+                    "type": "benchmark_tree_search",
                     "params": {
                         "code_debug_tries": 2,
                         "idea_generation_model": "gpt-4o-mini",
@@ -326,13 +326,6 @@ def _create_bedrock_config_file(output_dir: str) -> str:
                     "model": TEST_CONFIG["coding_agent_model"],
                     "debug_model": TEST_CONFIG["coding_agent_model"],
                     "agent_specific": TEST_CONFIG["coding_agent_params"],
-                },
-                "context_manager": {
-                    "type": "token_efficient",
-                    "params": {
-                        "max_experiment_history_count": 3,
-                        "max_recent_experiment_count": 3,
-                    }
                 },
                 "knowledge_search": {
                     "type": "kg_llm_navigation",

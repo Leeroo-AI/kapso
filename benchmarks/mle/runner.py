@@ -132,7 +132,7 @@ def solve_competition(
     orchestrator.search_strategy.checkout_to_best_experiment_branch()
     cost = orchestrator.get_cumulative_cost()
     
-    workspace = orchestrator.search_strategy.workspace.workspace_folder
+    workspace = orchestrator.search_strategy.workspace.workspace_dir
     branch = orchestrator.search_strategy.workspace.get_current_branch()
     solution_path = f"{workspace}/{branch}"
     

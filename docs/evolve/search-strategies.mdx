@@ -11,18 +11,18 @@ Search strategies control how Kapso explores the solution space. They generate s
 
 | Strategy | Description | Best For |
 |----------|-------------|----------|
-| `linear_search` | One solution per iteration | Simple problems, quick testing |
-| `llm_tree_search` | Tree-based exploration | Complex problems, diverse solutions |
+| `generic` | Claude Code + MCP gates for ideation and implementation | General problem solving |
+| `benchmark_tree_search` | Tree-based exploration with handler evaluation | MLE-Bench, ALE-Bench |
 
-## Linear Search
+## Generic Search
 
-The simplest strategy: generate one solution per iteration.
+The main strategy for general problem solving. Uses Claude Code with MCP gates for both ideation and implementation.
 
 ```mermaid
 flowchart LR
-    A[Generate Solution] --> B[Implement Code]
+    A[Generate Solution via MCP] --> B[Implement Code]
     B --> C[Run & Evaluate]
-    C --> D[Record Result]
+    C --> D[Generate Feedback]
     D --> A
 ```
 
@@ -30,10 +30,16 @@ flowchart LR
 
 ```yaml
 search_strategy:
-  type: "linear_search"
+  type: "generic"
   params:
-    code_debug_tries: 5
-    idea_generation_model: "gpt-4o-mini"
+    idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    use_bedrock: true
+    aws_region: "us-east-1"
+    ideation_timeout: 300
+    implementation_timeout: 600
+    ideation_gates: ["idea", "code", "research", "experiment_history"]
+    implementation_gates: ["code", "research"]
 ```
 
 ### Usage
@@ -42,20 +48,31 @@ search_strategy:
 from src.execution.search_strategies import SearchStrategyFactory
 
 strategy = SearchStrategyFactory.create(
-    strategy_type="linear_search",
+    strategy_type="generic",
     problem_handler=handler,
     llm=llm,
     coding_agent_config=config,
-    params={"code_debug_tries": 5},
+    params={"ideation_timeout": 300},
 )
 
 strategy.run(context, budget_progress=0.0)
 best = strategy.get_best_experiment()
 ```
 
-## LLM Tree Search
+### MCP Gates
 
-Advanced strategy that explores solutions as a tree structure.
+The generic strategy uses MCP gates for external knowledge access:
+
+| Gate | Tools | Purpose |
+|------|-------|---------|
+| `idea` | `wiki_idea_search` | Search curated ML/AI knowledge |
+| `code` | `wiki_code_search` | Search code examples |
+| `research` | `research_*` | Deep research capabilities |
+| `experiment_history` | `get_top_experiments`, `get_recent_experiments`, `search_similar_experiments` | Learn from past experiments |
+
+## Benchmark Tree Search
+
+Advanced strategy for benchmarks that explores solutions as a tree structure.
 
 ```mermaid
 flowchart TB
@@ -107,7 +124,7 @@ def run(self, context, budget_progress):
 
 ```yaml
 search_strategy:
-  type: "llm_tree_search"
+  type: "benchmark_tree_search"
   params:
     reasoning_effort: "medium"
     code_debug_tries: 5
@@ -181,20 +198,11 @@ class SearchNode:
     workspace_dir: str = ""
 ```
 
-## Benchmark Tree Search
-
-For benchmarks (MLE-Bench, ALE-Bench), use `benchmark_tree_search` which uses the handler's built-in evaluation:
-
-```yaml
-# benchmarks/mle/config.yaml
-search_strategy:
-  type: "benchmark_tree_search"  # Uses handler.run() for evaluation
-```
+## Strategy Comparison
 
 | Strategy | Evaluation | Stop Decision | Use Case |
 |----------|------------|---------------|----------|
-| `llm_tree_search` | Agent-built | Feedback generator | `kapso.evolve()` |
-| `linear_search` | Agent-built | Feedback generator | Simple problems |
+| `generic` | Agent-built | Feedback generator | `kapso.evolve()` |
 | `benchmark_tree_search` | Handler's `run()` | Handler's `stop_condition()` | MLE/ALE benchmarks |
 
 ## Creating Custom Strategies
@@ -212,119 +220,23 @@ class MyCustomSearch(SearchStrategy):
     def run(self, context, budget_progress=0.0):
         # Generate and run experiments
         solution = self.generate_solution(context)
-        result = self._implement_n_debug(
+        result = self._implement(
             solution, context,
-            code_debug_tries=5,
             branch_name="experiment_0",
         )
-        self.experiment_history.append(result)
+        self.node_history.append(result)
 
     def get_experiment_history(self, best_last=False):
         if best_last:
-            return sorted(self.experiment_history, key=lambda x: x.score)
-        return self.experiment_history
+            return sorted(self.node_history, key=lambda x: x.score)
+        return self.node_history
 
     def get_best_experiment(self):
-        valid = [e for e in self.experiment_history if not e.had_error]
+        valid = [e for e in self.node_history if not e.had_error]
         return max(valid, key=lambda x: x.score) if valid else None
 
     def checkout_to_best_experiment_branch(self):
         best = self.get_best_experiment()
         if best:
             self.workspace.switch_branch(best.branch_name)
-```
-
-## Shared Implementation
-
-All strategies inherit from `SearchStrategy` base class:
-
-### implement_solution
-
-```python
-def implement_solution(self, solution, context, session):
-    # Build prompt with RepoMemory context
-    repo_memory_brief = RepoMemoryManager.render_summary_and_toc(...)
-
-    prompt = render_prompt(template, {
-        "problem": context.problem,
-        "solution": solution,
-        "repo_memory_brief": repo_memory_brief,
-        "kg_code_results": context.kg_code_results,
-    })
-
-    # Agent implements AND runs evaluation
-    session.generate_code(prompt)
-    
-    # Extract structured JSON from agent output
-    return self._extract_agent_result(session.output)
-```
-
-### _extract_agent_result
-
-```python
-def _extract_agent_result(self, agent_output: str) -> dict:
-    """
-    Extract structured JSON result from agent output.
-    
-    Looks for JSON block at the end of the output:
-    ```json
-    {"code_changes_summary": "...", ...}
-    ```
-    """
-    # Find and parse JSON from agent output
-    ...
-```
-
-### _generate_feedback
-
-```python
-def _generate_feedback(self, node: SearchNode) -> FeedbackResult:
-    """
-    Generate feedback for the node using FeedbackGenerator.
-    """
-    return self.feedback_generator.generate(
-        goal=self.goal,
-        idea=node.solution,
-        implementation=node.code_changes_summary,
-        evaluation_result=node.evaluation_output,
-    )
-```
-
-### debug_solution
-
-```python
-def debug_solution(self, solution, context, error, session):
-    prompt = render_prompt(debug_template, {
-        "problem": context.problem,
-        "solution": solution,
-        "error_details": error,
-    })
-
-    session.generate_code(prompt, debug_mode=True)
-```
-
-### _implement_n_debug
-
-```python
-def _implement_n_debug(self, solution, context, code_debug_tries, branch_name):
-    session = self.workspace.create_experiment_session(branch_name)
-    node = self.implement_solution(solution, context, session)
-
-    for i in range(code_debug_tries):
-        if node.had_error:
-            node = self.debug_solution(solution, context, node.error_message, session)
-        else:
-            break
-
-    # Generate feedback
-    feedback_result = self._generate_feedback(node)
-    node.feedback = feedback_result.feedback
-    node.score = feedback_result.score
-    node.should_stop = feedback_result.stop
-
-    # Update RepoMemory
-    session.schedule_repo_memory_update(solution_spec=solution, run_result=node)
-    self.workspace.finalize_session(session)
-
-    return node
 ```

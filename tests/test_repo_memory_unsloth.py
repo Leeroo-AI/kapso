@@ -17,8 +17,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.core.llm import LLMBackend
-from src.repo_memory import RepoMemoryManager
-from src.repo_memory.builders import build_repo_map, validate_evidence
+from src.execution.memories.repo_memory import RepoMemoryManager
+from src.execution.memories.repo_memory.builders import build_repo_map, validate_evidence
 
 
 def main():

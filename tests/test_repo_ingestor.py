@@ -9,7 +9,7 @@
 #     - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY: IAM access keys
 #     - AWS_PROFILE: SSO profile name (after running 'aws sso login')
 
-from src.knowledge.learners import KnowledgePipeline, Source
+from src.knowledge_base.learners import KnowledgePipeline, Source
 from dotenv import load_dotenv
 import logging
 

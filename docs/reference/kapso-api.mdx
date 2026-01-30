@@ -53,47 +53,44 @@ Run deep web research for a query.
 ```python
 def research(
     self,
-    query: str,
+    objective: str,
     *,
-    mode: Union[str, List[str]],  # Required - single mode or list
-    top_k: int = 5,
-    depth: str = "deep",
-) -> Union[List[Idea], List[Implementation], ResearchReport, ResearchFindings]
+    mode: str = "both",  # "idea" | "implementation" | "both"
+    depth: str = "deep",  # "light" | "deep"
+) -> ResearchFindings
 ```
 
 #### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `query` | `str` | - | What to research |
-| `mode` | `str` or `List[str]` | - | Single mode or list of modes (required) |
-| `top_k` | `int` | `5` | Max results for idea/implementation modes |
+| `objective` | `str` | - | What to research |
+| `mode` | `str` | `"both"` | Research mode: "idea", "implementation", or "both" |
 | `depth` | `str` | `"deep"` | `"light"` or `"deep"` |
 
 #### Returns
 
-Returns based on mode:
-- `List[Idea]` if mode="idea"
-- `List[Implementation]` if mode="implementation"
-- `ResearchReport` if mode="study"
-- `ResearchFindings` if mode is a list (e.g., `["idea", "implementation"]`)
+`ResearchFindings` containing:
+- `ideas`: List of `Source.Idea` objects
+- `implementations`: List of `Source.Implementation` objects
+- `report`: Optional `Source.ResearchReport` (if mode includes study)
 
 #### Example
 
 ```python
-# Single mode - returns List[Idea]
-ideas = kapso.research(
-    "QLoRA best practices for fine-tuning",
-    mode="idea",
-    top_k=10,
-)
-
-# Multiple modes - returns ResearchFindings
+# Research returns ResearchFindings
 findings = kapso.research(
     "QLoRA best practices for fine-tuning",
-    mode=["idea", "implementation"],
-    top_k=5,
+    mode="both",
+    depth="deep",
 )
+
+# Access results
+for idea in findings.ideas:
+    print(idea.to_string())
+
+for impl in findings.implementations:
+    print(impl.to_string())
 
 # Use as context
 solution = kapso.evolve(
@@ -354,19 +351,21 @@ class FeedbackResult:
 
 ```python
 from src.kapso import Source
-from src.knowledge.researcher import Idea, Implementation, ResearchReport, ResearchFindings
+from src.knowledge_base.types import ResearchFindings
 
 # Repository
 Source.Repo(url: str, branch: str = "main")
 
 # Solution (from evolve)
-Source.Solution(solution: SolutionResult)
+Source.Solution(obj: SolutionResult)
 
 # Research outputs (from research)
-Idea            # Returned by kapso.research(mode="idea")
-Implementation  # Returned by kapso.research(mode="implementation")
-ResearchReport  # Returned by kapso.research(mode="study")
-ResearchFindings  # Returned by kapso.research(mode=["idea", "implementation"])
+Source.Idea(query: str, source: str, content: str)
+Source.Implementation(query: str, source: str, content: str)
+Source.ResearchReport(query: str, content: str)
+
+# Multi-mode research results
+ResearchFindings  # Returned by kapso.research()
 ```
 
 ### DeployStrategy
@@ -405,11 +404,11 @@ from src.kapso import Kapso, Source, DeployStrategy
 # Initialize with KG
 kapso = Kapso(kg_index="data/indexes/ml.index")
 
-# Research with multiple modes
+# Research
 findings = kapso.research(
     "XGBoost best practices",
-    mode=["idea", "implementation"],
-    top_k=5,
+    mode="both",
+    depth="deep",
 )
 
 # Learn from repo and research
@@ -421,10 +420,6 @@ kapso.learn(
 )
 
 # Evolve with research context
-# Download dataset first (e.g., from HuggingFace)
-# from datasets import load_dataset
-# dataset = load_dataset("theatticusproject/cuad")
-# dataset.save_to_disk("./data/cuad_dataset")
 solution = kapso.evolve(
     goal="XGBoost classifier with AUC > 0.9",
     context=[findings.to_string()],

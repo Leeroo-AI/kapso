@@ -199,7 +199,7 @@ class TestKGGraphSearchIntegration:
         - QLoRA-related pages are found
         """
         from src.kapso import Kapso
-        from src.knowledge.search.base import KGSearchFilters
+        from src.knowledge_base.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "llm_finetuning.index"
         
@@ -360,7 +360,7 @@ class TestKGLLMNavigationIntegration:
         XGBoost, CatBoost, etc.
         """
         from src.kapso import Kapso
-        from src.knowledge.search.base import KGSearchFilters
+        from src.knowledge_base.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
@@ -405,7 +405,7 @@ class TestKGLLMNavigationIntegration:
         TF-IDF, DeBERTa, etc.
         """
         from src.kapso import Kapso
-        from src.knowledge.search.base import KGSearchFilters
+        from src.knowledge_base.search.base import KGSearchFilters
         
         index_path = temp_index_dir / "kaggle_kg.index"
         
@@ -563,7 +563,7 @@ class TestEvolveWithKGGraphSearch:
         assert kapso.knowledge_search.is_enabled(), "KG should be enabled after indexing"
         
         # Search should return results (proving KG has data for evolve to use)
-        from src.knowledge.search.base import KGSearchFilters
+        from src.knowledge_base.search.base import KGSearchFilters
         result = kapso.knowledge_search.search(
             query="QLoRA fine-tuning with limited GPU memory",
             filters=KGSearchFilters(top_k=3),

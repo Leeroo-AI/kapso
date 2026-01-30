@@ -20,10 +20,9 @@ PROMPT_PATHS = [
     "repo_memory/prompts/infer_repo_model_initial.md",
     "repo_memory/prompts/infer_repo_model_retry.md",
     "repo_memory/prompts/infer_repo_model_update.md",
-    # Execution prompts (coding + ideation)
+    # Execution prompts (coding)
     "execution/prompts/coding_agent_implement.md",
     "execution/prompts/coding_agent_debug.md",
-    "execution/prompts/ideation_solution_react.md",
 ]
 
 

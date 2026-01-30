@@ -2,6 +2,10 @@
 #
 # Provides modular search strategies for experiment generation.
 #
+# Available strategies:
+# - generic: Agent-based search for general problem solving
+# - benchmark_tree_search: Tree search with handler-based evaluation
+#
 # To add a new strategy:
 # 1. Create a new file in this directory (e.g., my_strategy.py)
 # 2. Subclass SearchStrategy from base.py
@@ -15,6 +19,7 @@
 from src.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
+    SearchNode,
     ExperimentResult,
 )
 from src.execution.search_strategies.factory import (
@@ -22,10 +27,17 @@ from src.execution.search_strategies.factory import (
     register_strategy,
 )
 
+# Import strategies to register them
+from src.execution.search_strategies.generic import GenericSearch
+from src.execution.search_strategies.benchmark_tree_search import BenchmarkTreeSearch
+
 __all__ = [
     "SearchStrategy",
-    "SearchStrategyConfig", 
+    "SearchStrategyConfig",
+    "SearchNode",
     "ExperimentResult",
     "SearchStrategyFactory",
     "register_strategy",
+    "GenericSearch",
+    "BenchmarkTreeSearch",
 ]

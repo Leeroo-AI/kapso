@@ -3,10 +3,15 @@
 # Unified LLM interface with support for completions, web search, and cost tracking.
 
 import asyncio
+import logging
 import os
 import time
 from litellm import completion, acompletion
 from typing import Optional, Dict, List
+
+# Suppress verbose LiteLLM logs
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+logging.getLogger("litellm").setLevel(logging.WARNING)
 
 
 class LLMBackend:
