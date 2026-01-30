@@ -522,7 +522,7 @@ class BenchmarkTreeSearch(SearchStrategy):
                 "read: `.kapso/repo_memory.json` and look up by section ID from the TOC."
             )
 
-        template = load_prompt("execution/prompts/coding_agent_implement.md")
+        template = load_prompt("execution/search_strategies/generic/prompts/coding_agent_implement.md")
         developer_prompt = render_prompt(
             template,
             {

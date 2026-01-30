@@ -439,10 +439,6 @@ class Kapso:
         # --- Directory options ---
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
-        # --- Execution options ---
-        language: str = "python",
-        main_file: str = "main.py",
-        timeout: int = 300,
         # --- Extra context options ---
         additional_context: str = "",
     ) -> SolutionResult:
@@ -463,15 +459,11 @@ class Kapso:
                 - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
             
-            mode: Configuration mode (GENERIC, MINIMAL, TREE_SEARCH, etc.)
+            mode: Configuration mode (GENERIC, MINIMAL, etc.)
             coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
             
             eval_dir: Path to evaluation files (copied to workspace/kapso_evaluation/)
             data_dir: Path to data files (copied to workspace/kapso_datasets/)
-            
-            language: Programming language (default: python)
-            main_file: Entry point file (default: main.py)
-            timeout: Execution timeout in seconds (default: 300)
             
             additional_context: Extra context appended to the problem prompt.
                 This is the intended integration point for research context.
@@ -518,9 +510,7 @@ class Kapso:
         # Create problem handler with all options
         handler = GenericProblemHandler(
             problem_description=problem,
-            main_file=main_file,
-            language=language,
-            timeout=timeout,
+            eval_dir=eval_dir,
             data_dir=data_dir,
             additional_context=combined_context,
         )

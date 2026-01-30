@@ -127,26 +127,6 @@ Examples:
         help="Initial repository (local path or GitHub URL)"
     )
     
-    # Execution options
-    parser.add_argument(
-        "--main-file",
-        type=str,
-        default="main.py",
-        help="Entry point file (default: main.py)"
-    )
-    parser.add_argument(
-        "--language",
-        type=str,
-        default="python",
-        help="Programming language (default: python)"
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=300,
-        help="Execution timeout in seconds (default: 300)"
-    )
-    
     # List commands
     parser.add_argument(
         "--list-agents",
@@ -185,9 +165,6 @@ Examples:
         eval_dir=args.eval_dir,
         data_dir=args.data_dir,
         initial_repo=args.initial_repo,
-        language=args.language,
-        main_file=args.main_file,
-        timeout=args.timeout,
     )
     
     # Print summary

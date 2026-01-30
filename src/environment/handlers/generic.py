@@ -31,12 +31,9 @@ class GenericProblemHandler(ProblemHandler):
     
     Args:
         problem_description: Main problem description/prompt
-        main_file: Entry point file (default: main.py)
-        language: Programming language (python, cpp, node, bash)
-        timeout: Execution timeout in seconds
-        data_dir: Optional data directory path
+        eval_dir: Optional evaluation directory path (copied to kapso_evaluation/)
+        data_dir: Optional data directory path (copied to kapso_datasets/)
         additional_context: Extra context to append (tips, requirements, etc.)
-        maximize_scoring: True if higher score is better
         
     Examples:
         # Simple - just provide problem description
@@ -44,33 +41,31 @@ class GenericProblemHandler(ProblemHandler):
             problem_description="Write a prime number finder..."
         )
         
-        # With data directory
+        # With eval and data directories
         handler = GenericProblemHandler(
             problem_description="Build a classifier...",
+            eval_dir="./evaluation/",
             data_dir="./datasets/",
         )
     """
     
+    # Always maximize scoring for generic handler
+    maximize_scoring: bool = True
+    
     def __init__(
         self,
         problem_description: str,
-        main_file: str = "main.py",
-        language: str = "python",
-        timeout: int = 300,
+        eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
         additional_context: str = "",
-        maximize_scoring: bool = True,
     ):
         """Initialize generic problem handler."""
         super().__init__(additional_context=additional_context)
         
         # Core config
         self.problem_description = problem_description
-        self.main_file = main_file
-        self.language = language
-        self.timeout = timeout
+        self.eval_dir = eval_dir
         self.data_dir = data_dir
-        self.maximize_scoring = maximize_scoring
         
         # Build context once
         self._problem_context = self._build_problem_context()
@@ -80,19 +75,27 @@ class GenericProblemHandler(ProblemHandler):
         parts = [
             "# Problem Description",
             self.problem_description,
-            "",
-            "# Requirements",
-            f"- Main file: {self.main_file}",
-            f"- Language: {self.language}",
-            f"- Timeout: {self.timeout} seconds",
         ]
         
-        # Add evaluation instructions for new design
+        # Add evaluation instructions
         parts.extend([
             "",
             "# Evaluation",
-            "You are responsible for building and running evaluation.",
-            "Create evaluation code in the `kapso_evaluation/` directory.",
+        ])
+        
+        # If eval_dir provided, mention it
+        if self.eval_dir and os.path.exists(self.eval_dir):
+            parts.extend([
+                "Evaluation scripts are provided in `kapso_evaluation/`.",
+                "Review and run the existing evaluation code.",
+            ])
+        else:
+            parts.extend([
+                "You are responsible for building and running evaluation.",
+                "Create evaluation code in the `kapso_evaluation/` directory.",
+            ])
+        
+        parts.extend([
             "The evaluation should:",
             "1. Test your solution against the goal criteria",
             "2. Output a clear score or success/failure indication",
@@ -108,12 +111,12 @@ class GenericProblemHandler(ProblemHandler):
             "```",
         ])
         
+        # Mention data directory if provided
         if self.data_dir and os.path.exists(self.data_dir):
             parts.extend([
                 "",
                 "# Data",
-                f"Data directory: {self.data_dir}",
-                "Use `kapso_datasets/` for any datasets provided.",
+                "Datasets are provided in `kapso_datasets/`.",
             ])
         
         if self.additional_context:
