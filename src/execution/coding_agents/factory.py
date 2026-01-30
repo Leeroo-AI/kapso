@@ -5,6 +5,11 @@
 # - Provides default configurations for each agent
 # - Allows runtime registration of custom agents
 
+# Suppress deprecation warnings from third-party dependencies before any imports
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
+
 import importlib
 import yaml
 from pathlib import Path
