@@ -1,13 +1,12 @@
 """
-RepoMemory CLI (standalone) tests
-================================
+RepoMemory CLI tests
+====================
 
-We expose RepoMemory sections to coding agents via a tiny CLI:
-`tools/repo_memory_cli.py`.
+We expose RepoMemory sections to coding agents via a CLI:
+`python -m src.execution.memories.repo_memory.cli`.
 
 These tests validate:
-- the CLI runs without importing `src` (no noisy stdout side effects)
-- it can render a single section by ID from a synthetic repo_memory.json
+- the CLI can render a single section by ID from a synthetic repo_memory.json
 """
 
 from __future__ import annotations
@@ -49,11 +48,11 @@ def test_repo_memory_cli_get_section(tmp_path: Path):
     }
     (kapso_dir / "repo_memory.json").write_text(json.dumps(doc))
 
-    cli_path = Path(__file__).resolve().parents[1] / "tools" / "repo_memory_cli.py"
     result = subprocess.run(
         [
             sys.executable,
-            str(cli_path),
+            "-m",
+            "src.execution.memories.repo_memory.cli",
             "--repo-root",
             str(repo_root),
             "get-section",
@@ -61,8 +60,8 @@ def test_repo_memory_cli_get_section(tmp_path: Path):
         ],
         capture_output=True,
         text=True,
+        cwd=str(Path(__file__).resolve().parents[1]),  # Run from project root
     )
     assert result.returncode == 0, result.stderr
     assert "Architecture" in result.stdout
     assert "Has a README" in result.stdout
-

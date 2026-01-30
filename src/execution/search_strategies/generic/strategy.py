@@ -210,7 +210,7 @@ class GenericSearch(SearchStrategy):
         Generate solution using Claude Code with MCP gates.
         
         Uses Claude Code as ideation agent with:
-        - Read-only access to repo (Read, Bash for repo_memory_cli.py)
+        - Read-only access to repo (Read, Bash for repo_memory cli)
         - RepoMemory via CLI
         - Idea/Code/Research/ExperimentHistory gates via MCP
         
@@ -241,10 +241,10 @@ class GenericSearch(SearchStrategy):
         )
         
         # 3. Build restricted tool set (read-only for ideation)
-        # Only allow Read and Bash (for repo_memory_cli.py), plus MCP tools
+        # Only allow Read and Bash (for repo_memory cli), plus MCP tools
         ideation_allowed_tools = [
             "Read",
-            "Bash",  # For repo_memory_cli.py
+            "Bash",  # For repo_memory cli
             *[t for t in mcp_tools if t.startswith("mcp__")],
         ]
         
@@ -330,8 +330,8 @@ class GenericSearch(SearchStrategy):
     
     def _extract_sections_consulted(self, output: str) -> List[str]:
         """Extract RepoMemory sections consulted from Claude Code output."""
-        # Look for repo_memory_cli.py get-section calls
-        sections = re.findall(r'repo_memory_cli\.py\s+get-section\s+(\S+)', output)
+        # Look for repo_memory cli get-section calls
+        sections = re.findall(r'repo_memory\.cli\s+get-section\s+(\S+)', output)
         # Also look for direct section references in tool calls
         sections.extend(re.findall(r'get-section\s+["\']?(\S+?)["\']?\s', output))
         # Deduplicate while preserving order
@@ -432,8 +432,8 @@ Problem: {problem}"""
         # 5. Build implementation prompt
         repo_memory_detail_access_instructions = (
             "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-            "use the CLI (preferred): `python3 tools/repo_memory_cli.py get-section <section_id>`\n"
-            "Example: `python3 tools/repo_memory_cli.py get-section core.architecture`\n"
+            "use the CLI (preferred): `python -m src.execution.memories.repo_memory.cli get-section <section_id>`\n"
+            "Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`\n"
             "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
         )
         

@@ -195,10 +195,10 @@ For Claude Code agent, a CLI is available:
 
 ```bash
 # List sections
-python tools/repo_memory_cli.py list-sections
+python -m src.execution.memories.repo_memory.cli list-sections
 
 # Get specific section
-python tools/repo_memory_cli.py get-section core.architecture
+python -m src.execution.memories.repo_memory.cli get-section core.architecture
 ```
 
 ## Integration with Coding Agents
@@ -230,8 +230,8 @@ Agents are told how to access detailed sections:
 
 ```
 For detailed section content (architecture, gotchas, invariants, etc.),
-use the CLI: `python3 tools/repo_memory_cli.py get-section <section_id>`
-Example: `python3 tools/repo_memory_cli.py get-section core.architecture`
+use the CLI: `python -m src.execution.memories.repo_memory.cli get-section <section_id>`
+Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`
 ```
 
 ## Quality Metrics

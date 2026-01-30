@@ -18,9 +18,9 @@ You are a world class developer and programmer. Your task is to implement the pr
 ### RepoMemory Access
 To get detailed section content about the codebase:
 ```bash
-python3 tools/repo_memory_cli.py get-section <section_id>
+python -m src.execution.memories.repo_memory.cli get-section <section_id>
 ```
-Example: `python3 tools/repo_memory_cli.py get-section core.architecture`
+Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`
 
 ### Knowledge Search (MCP Tools)
 - **wiki_code_search**: Search curated ML/AI knowledge base for implementation patterns

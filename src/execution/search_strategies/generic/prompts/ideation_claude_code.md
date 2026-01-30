@@ -8,15 +8,15 @@ You should explore the codebase, understand its architecture, and propose improv
 
 ### Codebase Access
 - **Read**: Read any file in the repository to understand the current implementation
-- **Bash**: Run commands (primarily for repo_memory_cli.py)
+- **Bash**: Run commands (primarily for repo_memory cli)
 
 ### RepoMemory Access
 The repository has a semantic memory that captures architecture, gotchas, and key patterns.
 To get detailed section content:
 ```bash
-python3 tools/repo_memory_cli.py get-section <section_id>
+python -m src.execution.memories.repo_memory.cli get-section <section_id>
 ```
-Example: `python3 tools/repo_memory_cli.py get-section core.architecture`
+Example: `python -m src.execution.memories.repo_memory.cli get-section core.architecture`
 
 Available sections are listed in the TOC below.
 
