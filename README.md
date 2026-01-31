@@ -166,7 +166,7 @@ If you use Kapso in your research, please cite:
 ```bibtex
 @misc{nadaf2026kapsoknowledgegroundedframeworkautonomous,
       title={KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization}, 
-      author={Alireza Nadaf and Alireza Mohammadshahi and Majid Yazdani},
+      author={Alireza Nadafian and Alireza Mohammadshahi and Majid Yazdani},
       year={2026},
       eprint={2601.21526},
       archivePrefix={arXiv},
