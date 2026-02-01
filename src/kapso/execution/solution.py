@@ -28,7 +28,7 @@ class SolutionResult:
         code_path: Path to the generated code/repository
         experiment_logs: List of experiment outcomes from the build process
         final_feedback: The last FeedbackResult from the feedback generator
-        metadata: Additional information (constraints, timestamps, etc.)
+        metadata: Additional information (timestamps, cost, etc.)
     """
     goal: str
     code_path: str

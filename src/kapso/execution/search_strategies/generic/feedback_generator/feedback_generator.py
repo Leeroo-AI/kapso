@@ -14,6 +14,7 @@
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
@@ -91,7 +92,9 @@ class FeedbackGenerator:
         self,
         goal: str,
         idea: str,
-        code_diff: str,
+        code_changes_summary: str,
+        base_branch: str,
+        head_branch: str,
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
@@ -102,7 +105,9 @@ class FeedbackGenerator:
         Args:
             goal: The original goal/objective
             idea: The solution approach for this iteration
-            code_diff: Git diff of implementation changes
+            code_changes_summary: Summary of code changes from the coding agent
+            base_branch: Git branch/commit to diff from (parent branch)
+            head_branch: Git branch/commit to diff to (current branch)
             evaluation_script_path: Path to evaluation script in workspace (e.g., kapso_evaluation/evaluate.py)
             evaluation_result: Output from running the evaluation
             workspace_dir: Path to workspace directory (agent can access full code)
@@ -117,11 +122,17 @@ class FeedbackGenerator:
         # Initialize agent with workspace so it can access full code
         self.agent.initialize(workspace_dir)
         
+        # Get commit message for head branch
+        commit_message = self._get_commit_message(workspace_dir, head_branch)
+        
         # Build the prompt
         prompt = self._build_prompt(
             goal=goal,
             idea=idea,
-            code_diff=code_diff,
+            code_changes_summary=code_changes_summary,
+            base_branch=base_branch,
+            head_branch=head_branch,
+            commit_message=commit_message,
             evaluation_script_path=evaluation_script_path,
             evaluation_result=evaluation_result,
             workspace_dir=workspace_dir,
@@ -131,14 +142,17 @@ class FeedbackGenerator:
         result = self.agent.generate_code(prompt)
         response = result.output
         
-        # Parse the response - expect strict JSON
+        # Parse the response - expect XML tags
         return self._parse_response(response)
     
     def _build_prompt(
         self,
         goal: str,
         idea: str,
-        code_diff: str,
+        code_changes_summary: str,
+        base_branch: str,
+        head_branch: str,
+        commit_message: str,
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
@@ -150,12 +164,40 @@ class FeedbackGenerator:
             {
                 "goal": goal,
                 "idea": idea,
-                "code_diff": code_diff,
+                "code_changes_summary": code_changes_summary,
+                "base_branch": base_branch,
+                "head_branch": head_branch,
+                "commit_message": commit_message,
                 "evaluation_script_path": evaluation_script_path,
                 "evaluation_result": evaluation_result,
                 "workspace_dir": workspace_dir,
             }
         )
+    
+    def _get_commit_message(self, workspace_dir: str, branch: str) -> str:
+        """
+        Get the commit message for a branch.
+        
+        Args:
+            workspace_dir: Path to the git repository
+            branch: Branch name or commit ref
+            
+        Returns:
+            Commit message string, or empty string if not found
+        """
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%B", branch],
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception as e:
+            print(f"[FeedbackGenerator] Warning: Could not get commit message: {e}")
+        return ""
     
     def _parse_response(self, response: str) -> FeedbackResult:
         """
@@ -196,7 +238,6 @@ class FeedbackGenerator:
             
             feedback = feedback_str or ""
             
-            print(f"[FeedbackGenerator] Extracted from XML tags: stop={stop}, score={score}")
             return FeedbackResult(
                 stop=stop,
                 evaluation_valid=evaluation_valid,
@@ -226,16 +267,14 @@ class FeedbackGenerator:
             
             data = json.loads(json_str)
             
-            print(f"[FeedbackGenerator] Extracted from JSON (fallback)")
             return FeedbackResult(
                 stop=data.get("stop", False),
                 evaluation_valid=data.get("evaluation_valid", True),
                 feedback=data.get("feedback", ""),
                 score=data.get("score"),
             )
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError):
             # If parsing fails, return a default result with the raw response as feedback
-            print(f"[FeedbackGenerator] Warning: Failed to parse response: {e}")
             return FeedbackResult(
                 stop=False,
                 evaluation_valid=True,

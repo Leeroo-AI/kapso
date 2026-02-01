@@ -11,10 +11,27 @@ You have access to the full workspace at: `{{workspace_dir}}`
 ## Solution Approach (Idea)
 {{idea}}
 
-## Code Changes (Git Diff)
-```diff
-{{code_diff}}
+## Code Changes Summary
+{{code_changes_summary}}
+
+## Commit Information
+**Commit message:**
 ```
+{{commit_message}}
+```
+
+## Git Diff Reference
+If you need to inspect the actual code changes in detail, you can run:
+```bash
+git diff {{base_branch}} {{head_branch}}
+```
+Or view specific files with:
+```bash
+git diff {{base_branch}} {{head_branch}} -- <file_path>
+```
+
+- Base branch: `{{base_branch}}`
+- Head branch: `{{head_branch}}`
 
 ## Evaluation Script
 Path: `{{evaluation_script_path}}`
@@ -33,6 +50,7 @@ You can read this file in the workspace to see the full evaluation code.
 3. **Extract the score** from the evaluation output (if any numeric score exists)
 4. **Validate the evaluation** - is it fair and actually testing the goal criteria?
 5. **Generate feedback** for the next iteration (if not stopping)
+6. **Optionally inspect code changes** - if the summary is unclear, use `git diff` to see details
 
 ## Required Output Format
 

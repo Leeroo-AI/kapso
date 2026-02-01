@@ -180,6 +180,7 @@ class GenericSearch(SearchStrategy):
         
         # Update node with implementation results
         node.branch_name = branch_name
+        node.parent_branch_name = parent_branch
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(branch_name, parent_branch)
         
@@ -578,7 +579,7 @@ Problem: {problem}"""
         Updates the node in-place with feedback, score, and should_stop.
         
         Args:
-            node: SearchNode with solution, evaluation_output, code_diff populated
+            node: SearchNode with solution, evaluation_output, code_changes_summary populated
             
         Returns:
             The same node with feedback, score, should_stop populated
@@ -597,7 +598,9 @@ Problem: {problem}"""
             feedback_result = self.feedback_generator.generate(
                 goal=self.goal,
                 idea=node.solution,
-                code_diff=node.code_diff,
+                code_changes_summary=node.code_changes_summary,
+                base_branch=node.parent_branch_name,
+                head_branch=node.branch_name,
                 evaluation_script_path=node.evaluation_script_path,
                 evaluation_result=node.evaluation_output,
                 workspace_dir=node.workspace_dir,
