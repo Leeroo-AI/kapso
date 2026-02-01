@@ -46,6 +46,7 @@ class SearchNode:
     
     # Step 2: Implementation
     branch_name: str = ""
+    parent_branch_name: str = ""  # Parent branch for git diff reference
     code_changes_summary: str = ""
     agent_output: str = ""  # Raw output from developer agent
     

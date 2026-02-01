@@ -184,12 +184,15 @@ class TestFeedbackGeneratorSignature(unittest.TestCase):
         # Check new parameters exist
         self.assertIn("goal", params)
         self.assertIn("idea", params)
-        self.assertIn("code_diff", params)
+        self.assertIn("code_changes_summary", params)
+        self.assertIn("base_branch", params)
+        self.assertIn("head_branch", params)
         self.assertIn("evaluation_script_path", params)
         self.assertIn("evaluation_result", params)
         self.assertIn("workspace_dir", params)
         
         # Check old parameters don't exist
+        self.assertNotIn("code_diff", params)
         self.assertNotIn("implementation", params)
         self.assertNotIn("evaluation_code", params)
 

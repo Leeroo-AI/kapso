@@ -429,7 +429,6 @@ class Kapso:
         self,
         goal: str,
         context: Optional[List[Any]] = None,
-        constraints: Optional[List[str]] = None,
         output_path: Optional[str] = None,
         initial_repo: Optional[str] = None,
         max_iterations: int = 10,
@@ -451,7 +450,6 @@ class Kapso:
         Args:
             goal: The high-level objective (problem description)
             context: Optional list of Source objects to learn before evolving
-            constraints: List of constraints (e.g., ["latency < 50ms"])
             output_path: Where to save the generated code
             initial_repo: Optional starting repository. Accepts:
                 - Local path: "/path/to/repo" or "./relative/path"
@@ -488,7 +486,7 @@ class Kapso:
         print()
         
         # Build problem description
-        problem = self._build_problem_description(goal, constraints)
+        problem = self._build_problem_description(goal)
 
         # Build context string from context items (text, not sources)
         # Context items are converted to strings and appended to additional_context
@@ -556,7 +554,6 @@ class Kapso:
             experiment_logs=experiment_logs,
             final_feedback=solve_result.final_feedback,
             metadata={
-                "constraints": constraints or [],
                 "iterations": solve_result.iterations_run,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
@@ -729,20 +726,9 @@ class Kapso:
             print(f"  Warning: Workflow search failed: {e}")
             return None
     
-    def _build_problem_description(
-        self, 
-        goal: str, 
-        constraints: Optional[List[str]]
-    ) -> str:
+    def _build_problem_description(self, goal: str) -> str:
         """Build the full problem description for the orchestrator."""
-        parts = [f"# Goal\n{goal}"]
-        
-        if constraints:
-            parts.append("\n# Constraints")
-            for c in constraints:
-                parts.append(f"- {c}")
-        
-        return "\n".join(parts)
+        return f"# Goal\n{goal}"
     
     def _extract_experiment_logs(self, orchestrator: OrchestratorAgent) -> List[str]:
         """Extract experiment history as string logs."""
