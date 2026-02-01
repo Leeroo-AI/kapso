@@ -138,8 +138,11 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 
 | Example | Description |
 |---------|-------------|
-| [**CUDA Optimization**](examples/cuda_optimization/README.md) | Optimize multi-head self-attention for CUDA using Flash Attention and Triton kernels |
-| [**PyTorch Optimization**](examples/pytorch_optimization/README.md) | Optimize PyTorch operations via kernel fusion, torch.compile, and custom kernels |
+| [**CUDA Optimization**](examples/cuda_optimization/README.md) | Optimize CUDA kernels for GPU performance |
+| [**PyTorch Optimization**](examples/pytorch_optimization/README.md) | Optimize PyTorch operations for speedup |
+| [**ML Model Development**](examples/ml_model_development/README.md) | Improve ML model accuracy on tabular data |
+| [**Prompt Engineering**](examples/prompt_engineering/README.md) | Optimize prompts for better LLM performance |
+| [**Agentic Scaffold**](examples/agentic_scaffold/README.md) | Optimize agentic AI workflows |
 
 ## Supported Benchmarks
 
