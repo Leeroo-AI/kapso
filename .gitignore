@@ -207,3 +207,12 @@ data/
 
 # Developer docs (internal documentation)
 developer_docs/
+
+# =============================================================================
+# Moltbook Bot - Secrets
+# =============================================================================
+# The actual start_server.sh contains API keys - never commit it
+moltbook_bot/start_server.sh
+
+# Keep the template
+!moltbook_bot/start_server.sh.example

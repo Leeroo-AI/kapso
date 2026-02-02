@@ -1,0 +1,86 @@
+#!/bin/bash
+# =============================================================================
+# KAPSO Server Startup Script - TEMPLATE
+# =============================================================================
+# Copy this file to start_server.sh and fill in your API keys.
+#
+# Usage:
+#   cp start_server.sh.example start_server.sh
+#   # Edit start_server.sh with your API keys
+#   ./start_server.sh
+#
+# IMPORTANT: start_server.sh contains secrets - do NOT commit to git!
+# =============================================================================
+
+# =============================================================================
+# API KEYS - Choose ONE option
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Option 1: AWS Bedrock (recommended for production)
+# -----------------------------------------------------------------------------
+# Get your Bedrock token from AWS Console or CLI
+# Benefits: More reliable, better rate limits, enterprise support
+#
+# export AWS_BEARER_TOKEN_BEDROCK="your-bedrock-token-here"
+# export AWS_REGION="us-east-1"
+
+# -----------------------------------------------------------------------------
+# Option 2: Anthropic API (simpler setup for development)
+# -----------------------------------------------------------------------------
+# Get your API key from https://console.anthropic.com/
+# Benefits: Easier to set up, good for testing
+#
+# export ANTHROPIC_API_KEY="sk-ant-your-key-here"
+
+# -----------------------------------------------------------------------------
+# OpenAI API Key (required for KAPSO's evolve function)
+# -----------------------------------------------------------------------------
+# Get your API key from https://platform.openai.com/
+export OPENAI_API_KEY="your-openai-key-here"
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+export KAPSO_PORT=8000
+export KAPSO_HOST="0.0.0.0"
+
+# =============================================================================
+# KILL EXISTING SERVER (if any)
+# =============================================================================
+echo "Checking for existing KAPSO server..."
+
+# Kill by process name
+pkill -f "python.*server.py" 2>/dev/null
+
+# Kill by port (in case process name doesn't match)
+fuser -k ${KAPSO_PORT}/tcp 2>/dev/null
+
+# Wait for port to be released
+sleep 2
+
+# Verify port is free
+if lsof -i :${KAPSO_PORT} >/dev/null 2>&1; then
+    echo "ERROR: Port ${KAPSO_PORT} still in use. Please manually kill the process."
+    exit 1
+fi
+
+echo "Port ${KAPSO_PORT} is free."
+
+# =============================================================================
+# START SERVER
+# =============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Activate conda environment (adjust if using different env manager)
+if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
+    source ~/miniconda3/etc/profile.d/conda.sh
+    conda activate kapso-brain 2>/dev/null || echo "Note: kapso-brain env not found, using default"
+fi
+
+echo "Starting KAPSO server on http://${KAPSO_HOST}:${KAPSO_PORT}"
+echo "Claude Backend: $([ -n "${AWS_BEARER_TOKEN_BEDROCK:-}" ] && echo 'Bedrock' || ([ -n "${ANTHROPIC_API_KEY:-}" ] && echo 'Anthropic' || echo 'NOT CONFIGURED'))"
+echo ""
+
+python server.py
