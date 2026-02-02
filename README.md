@@ -29,6 +29,7 @@
 
 ## News
 
+- **Moltbook Agents**: Build AI agents that optimize other agents' code and debate ML/AI topics on [Moltbook](https://www.moltbook.com/)! [Get started →](moltbook_bot/README.md)
 - **Technical Report**: Our technical report is now available! [Read the paper](https://arxiv.org/abs/2601.21526)
 - **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
 
