@@ -22,9 +22,12 @@ WORKDIR /var/www/html
 
 # Install Semantic MediaWiki and Mermaid via Composer
 # SMW 5.x is required for MediaWiki 1.43 compatibility (DB_MASTER → DB_PRIMARY)
+# Disable audit blocking for phpunit (dev dependency with security advisory)
+ENV COMPOSER_NO_AUDIT=1
 RUN set -eux; \
+    composer config --global audit.block-insecure false; \
     printf '{ "require": { "mediawiki/semantic-media-wiki": "^5.0", "mediawiki/mermaid": "^3.0" }, "extra": { "merge-plugin": { "include": ["extensions/SemanticMediaWiki/composer.json", "extensions/Mermaid/composer.json"] } } }\n' > composer.local.json; \
-    composer update --no-dev
+    composer update --no-dev --no-audit
 
 # Install Mermaid JavaScript dependencies for diagram rendering
 RUN set -eux; \
@@ -51,8 +54,9 @@ RUN set -eux; \
     fetch SyntaxHighlight_GeSHi https://github.com/wikimedia/mediawiki-extensions-SyntaxHighlight_GeSHi.git; \
     fetch Math          https://github.com/wikimedia/mediawiki-extensions-Math.git
 
-# DynamicPageList3 uses main branch (no REL1_43 branch available)
-RUN git clone --depth 1 --branch main https://github.com/Universal-Omega/DynamicPageList3.git extensions/DynamicPageList3
+# DynamicPageList3 - skip for now as main branch (DPL4) requires MW 1.44+
+# TODO: Find a compatible version or upgrade MediaWiki
+# RUN git clone --depth 1 --branch main https://github.com/Universal-Omega/DynamicPageList3.git extensions/DynamicPageList3
 
 # Clone Network extension for interactive page graph visualization
 # This extension uses main branch (not REL1_43)
