@@ -101,6 +101,9 @@ $wgEnableWriteAPI = true;
 # ============================================
 enableSemantics();
 
+# Disable SMW purge button (the ||| icon in page header)
+$smwgPurgeEnabled = false;
+
 # ============================================
 # Appearance (logo)
 # ============================================
@@ -298,12 +301,14 @@ EOF
     php maintenance/run.php update.php --quick 2>/dev/null || true
     echo "✓ Extension tables created"
     
-    # Create Main Page with DynamicPageList index
+    # Create Main Page with SMW queries
     echo "📄 Creating Main Page..."
     cat > /tmp/main_page.txt <<'MAINPAGE'
 == Welcome to {{SITENAME}} ==
 
-This wiki contains structured knowledge organized by type.
+Your centralized playbook for '''Machine Learning''' and '''Data Engineering''' excellence. Discover expert-level implementation patterns, battle-tested best practices, and deep technical insights, all curated to accelerate your path from concept to production.
+
+Want to connect this knowledge base to your AI agents? Follow the guide at [https://github.com/Leeroo-AI/kapso Kapso on GitHub].
 
 == Browse by Category ==
 
@@ -325,41 +330,34 @@ This wiki contains structured knowledge organized by type.
 == Recent Pages ==
 
 === Workflows ===
-<DPL>
-namespace=Workflow
-ordermethod=title
-count=10
-</DPL>
+{{#ask: [[Workflow:+]]
+ |limit=10
+ |format=ul
+}}
 
 === Principles ===
-<DPL>
-namespace=Principle
-ordermethod=title
-count=10
-</DPL>
+{{#ask: [[Principle:+]]
+ |limit=10
+ |format=ul
+}}
 
 === Implementations ===
-<DPL>
-namespace=Implementation
-ordermethod=title
-count=10
-</DPL>
+{{#ask: [[Implementation:+]]
+ |limit=10
+ |format=ul
+}}
 
 === Heuristics ===
-<DPL>
-namespace=Heuristic
-ordermethod=title
-count=10
-</DPL>
+{{#ask: [[Heuristic:+]]
+ |limit=10
+ |format=ul
+}}
 
 === Environments ===
-<DPL>
-namespace=Environment
-ordermethod=title
-count=10
-</DPL>
-
-----
+{{#ask: [[Environment:+]]
+ |limit=10
+ |format=ul
+}}
 
 ''Use the category table above to browse all pages, or search using the search box.''
 MAINPAGE
@@ -451,6 +449,32 @@ COMMONJS
         "MediaWiki:Common.js" < /tmp/common_js.txt
     rm /tmp/common_js.txt
     echo "✓ Common.js created"
+
+    # Create Common.css for UI customizations
+    echo "📄 Creating Common.css..."
+    cat > /tmp/common_css.txt <<'COMMONCSS'
+/* Hide Semantic MediaWiki purge button */
+.smw-purge {
+    display: none !important;
+}
+
+/* Hide SMW entity examiner / vertical bar loader (the ||| icon) */
+.smw-indicator-vertical-bar-loader,
+.smw-entity-examiner {
+    display: none !important;
+}
+
+/* Hide Vector 2022 page tools dropdown */
+#vector-page-tools-dropdown {
+    display: none !important;
+}
+COMMONCSS
+    php maintenance/run.php edit.php \
+        --user "$MW_ADMIN_USER" \
+        --summary "Auto-created: Hide SMW purge button" \
+        "MediaWiki:Common.css" < /tmp/common_css.txt
+    rm /tmp/common_css.txt
+    echo "✓ Common.css created"
 else
     echo "✓ Wiki already initialized (LocalSettings.php exists)"
 fi
@@ -500,6 +524,100 @@ $wgNamespaceProtection[NS_ARTIFACT] = ['editprotected'];
 $wgNamespaceProtection[NS_HEURISTIC] = ['editprotected'];
 $wgNamespaceProtection[NS_ENVIRONMENT] = ['editprotected'];
 $wgNamespaceProtection[NS_RESOURCE] = ['editprotected'];
+
+# ============================================
+# SIGNUP REQUIREMENTS
+# ============================================
+# Make email and real name required, add company name field
+
+# Add Company Name field to signup form
+$wgHooks['AuthChangeFormFields'][] = function ($requests, $fieldInfo, &$formDescriptor, $action) {
+    if ($action !== 'create') {
+        return true;
+    }
+
+    // Make email required and update label
+    if (isset($formDescriptor['email'])) {
+        $formDescriptor['email']['required'] = true;
+        $formDescriptor['email']['label'] = 'Email address';
+        unset($formDescriptor['email']['label-message']);
+    }
+
+    // Make real name required and update label
+    if (isset($formDescriptor['realname'])) {
+        $formDescriptor['realname']['required'] = true;
+        $formDescriptor['realname']['label'] = 'Real name';
+        $formDescriptor['realname']['placeholder'] = 'Enter your real name';
+        unset($formDescriptor['realname']['label-message']);
+    }
+
+    // Add Company Name field after real name
+    $formDescriptor['companyname'] = [
+        'type' => 'text',
+        'label' => 'Company name',
+        'help-message' => 'prefs-help-company-name',
+        'required' => true,
+        'weight' => 35,  // Position after realname (30) but before email (40)
+    ];
+
+    return true;
+};
+
+# Validate required fields and save company name on account creation
+$wgHooks['LocalUserCreated'][] = function ($user, $autocreated) {
+    if ($autocreated) {
+        return true;
+    }
+
+    global $wgRequest;
+    $companyName = $wgRequest->getText('wpcompanyname');
+
+    // Store company name in user preferences
+    if (!empty($companyName)) {
+        $userOptionsManager = MediaWiki\MediaWikiServices::getInstance()->getUserOptionsManager();
+        $userOptionsManager->setOption($user, 'companyname', $companyName);
+        $userOptionsManager->saveOptions($user);
+    }
+
+    return true;
+};
+
+# Add company name to user preferences for later editing
+$wgHooks['GetPreferences'][] = function ($user, &$preferences) {
+    $preferences['companyname'] = [
+        'type' => 'text',
+        'label-message' => 'prefs-companyname',
+        'section' => 'personal/info',
+        'help-message' => 'prefs-help-company-name',
+    ];
+    return true;
+};
+
+# Define messages for company name
+$wgHooks['MessageCacheReplace'][] = function (&$cache) {
+    return true;
+};
+
+# Custom messages
+$wgExtensionMessagesFiles['LeeroopediaCustom'] = null;
+$wgMessagesDirs['LeeroopediaCustom'] = [];
+$wgHooks['LoadExtensionSchemaUpdates'][] = function () {
+    return true;
+};
+
+# Inline message definitions
+$wgHooks['MessagesPreLoad'][] = function ($title, &$message, $code) {
+    $customMessages = [
+        'prefs-companyname' => 'Company name',
+        'prefs-help-company-name' => 'Your company or organization name.',
+        'createacct-realname' => 'Real name',
+        'prefs-help-realname' => 'Your real name for attribution.',
+    ];
+    if (isset($customMessages[$title])) {
+        $message = $customMessages[$title];
+    }
+    return true;
+};
 PERMISSIONS
     echo "✓ Wiki permissions applied"
 else

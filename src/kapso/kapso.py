@@ -410,9 +410,26 @@ class Kapso:
         # - We pass the index path through pipeline->merger so the Claude Code
         #   subprocess can set KG_INDEX_PATH for the MCP server.
         index_path = kg_index or getattr(self, "_kg_index_path", None)
-        merger_params = {"kg_index_path": index_path} if index_path else None
+        merger_params = {"kg_index_path": index_path} if index_path else {}
 
-        pipeline = KnowledgePipeline(wiki_dir=resolved_wiki_dir, merger_params=merger_params)
+        # Get learner config from mode config
+        # This allows config.yaml to specify ingestor/merger params (use_bedrock, aws_region, etc.)
+        mode = self._config.get("default_mode", "GENERIC")
+        mode_config = self._config.get("modes", {}).get(mode, {})
+        learner_config = mode_config.get("learner", {})
+
+        # Extract ingestor and merger params from config
+        ingestor_params = learner_config.get("ingestor", {})
+        config_merger_params = learner_config.get("merger", {})
+
+        # Merge config merger params with kg_index_path (kg_index_path takes precedence)
+        final_merger_params = {**config_merger_params, **merger_params}
+
+        pipeline = KnowledgePipeline(
+            wiki_dir=resolved_wiki_dir,
+            ingestor_params=ingestor_params,
+            merger_params=final_merger_params,
+        )
         result = pipeline.run(*sources, skip_merge=skip_merge)
 
         # Keep a small, user-friendly summary.
