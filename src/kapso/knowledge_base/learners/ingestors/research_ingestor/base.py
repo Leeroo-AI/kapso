@@ -71,10 +71,10 @@ class ResearchIngestorBase(Ingestor):
         
         Args:
             params: Optional parameters:
+                - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
                 - timeout: Agent timeout in seconds (default: 600)
-                - use_bedrock: Use AWS Bedrock (default: True)
+                - use_bedrock: Use AWS Bedrock (default: False)
                 - aws_region: AWS region for Bedrock (default: "us-east-1")
-                - model: Model override (default: Sonnet on Bedrock)
                 - wiki_dir: Output directory (default: data/wikis)
                 - staging_subdir: Staging subdirectory (default: "_staging")
                 - cleanup_staging: Remove staging after ingest (default: False)
@@ -83,7 +83,7 @@ class ResearchIngestorBase(Ingestor):
         
         # Agent configuration
         self._timeout = self.params.get("timeout", 600)  # 10 minutes default
-        self._use_bedrock = self.params.get("use_bedrock", True)  # Bedrock by default
+        self._use_bedrock = self.params.get("use_bedrock", False)
         self._aws_region = self.params.get("aws_region", "us-east-1")
         self._model = self.params.get("model")
         
@@ -116,20 +116,13 @@ class ResearchIngestorBase(Ingestor):
             "planning_mode": True,
         }
         
-        # Determine model
+        # Model from params (should be provided via config.yaml)
         model = self._model
         
         # Configure Bedrock if enabled
         if self._use_bedrock:
             agent_specific["use_bedrock"] = True
             agent_specific["aws_region"] = self._aws_region
-            # Default Bedrock model if not specified (Claude Opus 4.5)
-            if not model:
-                model = "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        else:
-            # Direct Anthropic API
-            if not model:
-                model = "claude-sonnet-4-20250514"
         
         # Build config for Claude Code
         config = CodingAgentFactory.build_config(

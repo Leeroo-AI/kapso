@@ -370,7 +370,7 @@ class KnowledgeMerger:
         """
         Initialize Claude Code agent with wiki MCP tools.
         
-        Defaults to AWS Bedrock with Claude Opus 4.5 if no config provided.
+        Configuration should be provided via agent_config (from config.yaml).
         
         MCP Server Configuration:
         - Configures the kg-graph-search MCP server for knowledge operations
@@ -414,18 +414,16 @@ class KnowledgeMerger:
             "mcp_servers": mcp_servers,
         }
         
-        # Model configuration
+        # Model from config (should be provided via config.yaml)
         model = self._agent_config.get("model")
         
-        # Default to Bedrock if not explicitly disabled
-        use_bedrock = self._agent_config.get("use_bedrock", True)
+        # Configure Bedrock if enabled
+        use_bedrock = self._agent_config.get("use_bedrock", False)
         
         if use_bedrock:
             agent_specific["use_bedrock"] = True
             if self._agent_config.get("aws_region"):
                 agent_specific["aws_region"] = self._agent_config["aws_region"]
-            if not model:
-                model = "us.anthropic.claude-opus-4-5-20251101-v1:0"
         
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",
@@ -436,7 +434,7 @@ class KnowledgeMerger:
         
         self._agent = CodingAgentFactory.create(config)
         self._agent.initialize(str(workspace))
-        logger.info(f"Initialized Claude Code agent (bedrock={use_bedrock}, mcp=True)")
+        logger.info(f"Initialized Claude Code agent (bedrock={use_bedrock}, model={model}, mcp=True)")
     
     def _build_merge_prompt(self, pages: List[WikiPage], wiki_dir: Path) -> str:
         """Build the comprehensive merge instruction prompt."""

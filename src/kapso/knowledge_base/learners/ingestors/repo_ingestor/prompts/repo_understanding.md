@@ -138,7 +138,12 @@ Check your progress:
 
 ## Efficiency Tips (for completing ALL files)
 
-- **Use Task tool** to parallelize: spawn sub-agents for different directories
+- **Use Task tool carefully** to parallelize:
+  - Spawn **at most 3-4 sub-agents** at a time (not more!)
+  - Sub-agents MUST write results directly to `{wiki_dir}/_files/` files
+  - Sub-agents should return ONLY a brief summary: "Completed 10 files: loader.py, save.py, ..."
+  - Do NOT have sub-agents return full file content - this causes context overflow
+  - Wait for one batch of sub-agents to complete before spawning more
 - Read files in batches (5-10 at a time) to build context
 - Use the AST info in detail files (Classes, Functions) to know what to look for
 - For test files, brief is OK: "Tests for X functionality"

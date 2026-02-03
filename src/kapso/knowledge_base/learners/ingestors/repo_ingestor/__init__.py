@@ -122,7 +122,10 @@ class RepoIngestor(Ingestor):
         
         Args:
             params: Optional parameters:
+                - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
                 - timeout: Claude Code timeout in seconds (default: 1800)
+                - use_bedrock: True to use AWS Bedrock instead of direct Anthropic API
+                - aws_region: AWS region for Bedrock (default: "us-east-1")
                 - cleanup: Whether to cleanup cloned repos (default: True)
                 - wiki_dir: Output directory for wiki pages (default: data/wikis)
                 - staging_subdir: Where to stage phase outputs inside wiki_dir (default: "_staging")
@@ -157,7 +160,7 @@ class RepoIngestor(Ingestor):
         Supports passing through agent_specific settings from params:
             - use_bedrock: True to use AWS Bedrock instead of direct Anthropic API
             - aws_region: AWS region for Bedrock (default: "us-east-1")
-            - model: Model name (required for Bedrock, e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
+            - model: Model name (required, e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
         """
         # Base agent_specific config
         agent_specific = {
@@ -168,9 +171,7 @@ class RepoIngestor(Ingestor):
             "planning_mode": True,
         }
         
-        # Model override - important for Bedrock which requires specific model IDs
-        # Bedrock model IDs look like: us.anthropic.claude-opus-4-5-20251101-v1:0
-        # Direct Anthropic API uses: claude-opus-4-5
+        # Model from params (should be provided via config.yaml)
         model = self.params.get("model")
         
         # Pass through Bedrock settings from ingestor params if provided
@@ -180,9 +181,6 @@ class RepoIngestor(Ingestor):
             # Allow aws_region override, default is handled by ClaudeCodeCodingAgent
             if self.params.get("aws_region"):
                 agent_specific["aws_region"] = self.params["aws_region"]
-            # Default Bedrock model if not specified (Claude Opus 4.5 on Bedrock)
-            if not model:
-                model = "us.anthropic.claude-opus-4-5-20251101-v1:0"
         
         # Build config for Claude Code with read + write tools
         config = CodingAgentFactory.build_config(
@@ -194,7 +192,7 @@ class RepoIngestor(Ingestor):
         
         self._agent = CodingAgentFactory.create(config)
         self._agent.initialize(workspace)
-        logger.info(f"Initialized Claude Code agent for {workspace} (bedrock={agent_specific.get('use_bedrock', False)})")
+        logger.info(f"Initialized Claude Code agent for {workspace} (bedrock={agent_specific.get('use_bedrock', False)}, model={model})")
     
     def _normalize_source(self, source: Any) -> Dict[str, Any]:
         """
