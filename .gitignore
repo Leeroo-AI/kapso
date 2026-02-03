@@ -216,3 +216,7 @@ moltbook_bot/start_server.sh
 
 # Keep the template
 !moltbook_bot/start_server.sh.example
+
+.mcp.json
+
+CLAUDE.md

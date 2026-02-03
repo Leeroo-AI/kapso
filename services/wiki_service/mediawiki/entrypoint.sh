@@ -43,7 +43,7 @@ wfLoadExtension('VisualEditor');
 wfLoadExtension('SyntaxHighlight_GeSHi');
 wfLoadExtension('Math');
 wfLoadExtension('Mermaid');
-wfLoadExtension('DynamicPageList3');
+# wfLoadExtension('DynamicPageList3');  # Disabled - requires MW 1.44+
 wfLoadExtension('Network');
 
 # ============================================
@@ -453,6 +453,235 @@ COMMONJS
     echo "✓ Common.js created"
 else
     echo "✓ Wiki already initialized (LocalSettings.php exists)"
+fi
+
+# Apply wiki permissions (private wiki with tiered access)
+echo "🔒 Applying wiki permissions..."
+if ! grep -q "WIKI PERMISSIONS" /var/www/html/LocalSettings.php; then
+    cat >> /var/www/html/LocalSettings.php <<'PERMISSIONS'
+
+# ============================================
+# WIKI PERMISSIONS
+# ============================================
+# Private wiki: login required to view
+$wgGroupPermissions['*']['read'] = false;
+$wgGroupPermissions['*']['edit'] = false;
+$wgGroupPermissions['*']['createaccount'] = true;
+
+# Allow anonymous users to access login and account creation pages
+$wgWhitelistRead = [
+    'Special:UserLogin',
+    'Special:CreateAccount',
+    'Special:PasswordReset',
+];
+
+# Users: can read and edit (talk pages only due to namespace protection below)
+$wgGroupPermissions['user']['read'] = true;
+$wgGroupPermissions['user']['edit'] = true;
+$wgGroupPermissions['user']['createpage'] = false;
+$wgGroupPermissions['user']['createtalk'] = true;
+
+# Admins: full edit access (bypasses namespace protection)
+$wgGroupPermissions['sysop']['edit'] = true;
+$wgGroupPermissions['sysop']['createpage'] = true;
+$wgGroupPermissions['sysop']['editprotected'] = true;
+
+# Protect main content namespaces - only users with 'editprotected' can edit
+# NS_MAIN (0), NS_PROJECT (4), NS_TEMPLATE (10), NS_CATEGORY (14)
+# Plus custom namespaces (3000-3012)
+$wgNamespaceProtection[NS_MAIN] = ['editprotected'];
+$wgNamespaceProtection[NS_PROJECT] = ['editprotected'];
+$wgNamespaceProtection[NS_TEMPLATE] = ['editprotected'];
+$wgNamespaceProtection[NS_CATEGORY] = ['editprotected'];
+$wgNamespaceProtection[NS_PRINCIPLE] = ['editprotected'];
+$wgNamespaceProtection[NS_WORKFLOW] = ['editprotected'];
+$wgNamespaceProtection[NS_IMPLEMENTATION] = ['editprotected'];
+$wgNamespaceProtection[NS_ARTIFACT] = ['editprotected'];
+$wgNamespaceProtection[NS_HEURISTIC] = ['editprotected'];
+$wgNamespaceProtection[NS_ENVIRONMENT] = ['editprotected'];
+$wgNamespaceProtection[NS_RESOURCE] = ['editprotected'];
+PERMISSIONS
+    echo "✓ Wiki permissions applied"
+else
+    echo "✓ Wiki permissions already set"
+fi
+
+# Configure email via Resend HTTP API (for proper HTML support)
+if [ -n "${SMTP_PASS:-}" ]; then
+    echo "📧 Configuring Resend email API..."
+    if ! grep -q "RESEND EMAIL CONFIGURATION" /var/www/html/LocalSettings.php; then
+        cat >> /var/www/html/LocalSettings.php <<EMAILCONFIG
+# ============================================
+# RESEND EMAIL CONFIGURATION
+# ============================================
+\$wgEnableEmail = true;
+\$wgEnableUserEmail = true;
+\$wgAllowHTMLEmail = true;
+\$wgUserEmailUseReplyTo = true;
+\$wgPasswordSender = '${SMTP_FROM:-wiki@localhost}';
+\$wgEmergencyContact = '${SMTP_FROM:-wiki@localhost}';
+
+# Custom mailer using Resend HTTP API with HTML email templates
+\$wgHooks['AlternateUserMailer'][] = function (\$headers, \$to, \$from, \$subject, \$body) {
+    \$apiKey = '${SMTP_PASS}';
+    \$siteServer = '${MW_SITE_SERVER}';
+
+    // Parse recipients
+    \$toAddresses = [];
+    if (is_array(\$to)) {
+        foreach (\$to as \$recipient) {
+            if (is_object(\$recipient) && method_exists(\$recipient, 'toString')) {
+                \$toAddresses[] = \$recipient->toString();
+            } elseif (is_string(\$recipient)) {
+                \$toAddresses[] = \$recipient;
+            }
+        }
+    } else {
+        \$toAddresses[] = is_object(\$to) ? \$to->toString() : (string)\$to;
+    }
+
+    // Parse from address
+    \$fromAddress = is_object(\$from) ? \$from->toString() : (string)\$from;
+    if (empty(\$fromAddress)) {
+        \$fromAddress = '${SMTP_FROM:-wiki@localhost}';
+    }
+
+    // Transform email body to HTML based on email type
+    \$htmlBody = null;
+    \$newSubject = \$subject;
+
+    // Email confirmation
+    if (strpos(\$body, 'Special:ConfirmEmail') !== false) {
+        \$newSubject = 'Welcome to Leeroopedia';
+        // Extract confirmation URL
+        preg_match('/(http[^\s]+Special:ConfirmEmail[^\s]+)/', \$body, \$matches);
+        \$confirmUrl = \$matches[1] ?? '#';
+        // Extract expiry
+        preg_match('/expire[s]? at ([^\\.]+)/', \$body, \$expiryMatch);
+        \$expiry = \$expiryMatch[1] ?? '7 days';
+
+        \$htmlBody = "<!DOCTYPE html>
+<html><head><meta charset='UTF-8'/><style>
+body{background:#fff;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#000}
+.container{max-width:600px;margin:0 auto;padding:20px}
+.header{text-align:center;padding:20px 0}
+.logo{height:50px;margin-bottom:10px}
+.content{background:#fff;padding:20px;border-radius:6px;border:1px solid #eee}
+h1{font-size:24px;margin-bottom:16px;color:#000;text-align:center}
+p{line-height:1.6;font-size:16px;margin:10px 0}
+.button-wrapper{text-align:center;margin:20px 0}
+.button{display:inline-block;background:#000;color:#fff;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold}
+.info-box{margin:20px 0;padding:15px;background:#f5f5f5;border-radius:6px}
+.footer{text-align:center;font-size:14px;color:#999;margin-top:30px}
+a{color:#000;text-decoration:none}
+</style></head><body>
+<div class='container'><div class='content'>
+<div class='header'>
+<img src='https://xwipmlfvxtqnizhwoppi.supabase.co/storage/v1/object/public/logo//400dpiLogoCropped.png' alt='Leeroopedia' class='logo'/>
+<h1>Welcome to Leeroopedia!</h1>
+</div>
+<p>Hi there,</p>
+<p>Thank you for joining us! We are thrilled to welcome you to Leeroopedia.</p>
+<p>Leeroopedia is your centralized playbook for <strong>Machine Learning</strong> and <strong>Data Engineering</strong>. We have built this platform to serve as a comprehensive knowledge wiki, gathering expert-level implementation patterns, best practices, and deep industry insights all in one place.</p>
+<p>To get started, please confirm your email address:</p>
+<div class='button-wrapper'><a href='" . htmlspecialchars(\$confirmUrl) . "' class='button'>Confirm Your Email</a></div>
+<p style='text-align:center;color:#999;font-size:14px;margin-top:15px'>This link will expire at " . htmlspecialchars(\$expiry) . "</p>
+<div class='info-box'>
+<p style='margin:0'><strong>Connect with Autonomous Agents</strong></p>
+<p style='margin:10px 0 0 0'>To connect Leeroopedia to your own agents, check out the <a href='https://github.com/Leeroo-AI/kapso'><strong>Kapso guide on GitHub</strong></a>.</p>
+</div>
+</div>
+<div class='footer'><p>Welcome aboard!</p><p>2026 Leeroo. All rights reserved.</p></div>
+</div></body></html>";
+    }
+
+    // Password reset
+    if (strpos(\$body, 'Temporary password') !== false || strpos(\$body, 'reset of your') !== false) {
+        \$newSubject = 'Reset your Leeroopedia password';
+        // Extract username and temp password
+        preg_match('/Username:\\s*([^\\n]+)/s', \$body, \$userMatch);
+        preg_match('/Temporary password:\\s*([^\\n]+)/s', \$body, \$passMatch);
+        \$username = trim(\$userMatch[1] ?? '');
+        \$tempPass = trim(\$passMatch[1] ?? '');
+
+        \$htmlBody = "<!DOCTYPE html>
+<html><head><meta charset='UTF-8'/><style>
+body{background:#fff;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#000}
+.container{max-width:600px;margin:0 auto;padding:20px}
+.header{text-align:center;padding:20px 0}
+.logo{height:50px;margin-bottom:10px}
+.content{background:#fff;padding:20px;border-radius:6px;border:1px solid #eee}
+h1{font-size:24px;margin-bottom:16px;color:#000;text-align:center}
+p{line-height:1.6;font-size:16px;margin:10px 0}
+.password-box{margin:20px 0;padding:20px;background:#fafafa;border:2px dashed #000;text-align:center;border-radius:6px}
+.password-code{display:block;font-size:24px;font-weight:bold;letter-spacing:2px;color:#000;margin:10px 0;font-family:monospace}
+.button-wrapper{text-align:center;margin:20px 0}
+.button{display:inline-block;background:#000;color:#fff;text-decoration:none;padding:12px 24px;border-radius:4px;font-weight:bold}
+.warning-box{margin:20px 0;padding:15px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px}
+.footer{text-align:center;font-size:14px;color:#999;margin-top:30px}
+a{color:#000;text-decoration:none}
+</style></head><body>
+<div class='container'><div class='content'>
+<div class='header'>
+<img src='https://xwipmlfvxtqnizhwoppi.supabase.co/storage/v1/object/public/logo//400dpiLogoCropped.png' alt='Leeroopedia' class='logo'/>
+<h1>Password Reset</h1>
+</div>
+<p>Hello,</p>
+<p>We received a request to reset your password for Leeroopedia.</p>
+<div class='password-box'>
+<p><strong>Your Temporary Password</strong></p>
+<span class='password-code'>" . htmlspecialchars(\$tempPass) . "</span>
+<p style='font-size:14px;color:#666'>Username: " . htmlspecialchars(\$username) . "</p>
+</div>
+<div class='button-wrapper'><a href='" . \$siteServer . "/index.php/Special:UserLogin' class='button'>Log In Now</a></div>
+<div class='warning-box'><p style='margin:0'><strong>Note:</strong> This temporary password will expire in 7 days.</p></div>
+<p style='color:#666;font-size:14px'>If you did not request a password reset, you can safely ignore this email. Your account remains secure.</p>
+</div>
+<div class='footer'><p>Best regards,<br>The Leeroo Team</p><p>2026 Leeroo. All rights reserved.</p></div>
+</div></body></html>";
+    }
+
+    // Build payload
+    \$payload = [
+        'from' => \$fromAddress,
+        'to' => \$toAddresses,
+        'subject' => \$newSubject,
+    ];
+
+    if (\$htmlBody !== null) {
+        \$payload['html'] = \$htmlBody;
+    } else {
+        \$payload['text'] = \$body;
+    }
+
+    // Send via Resend API
+    \$ch = curl_init('https://api.resend.com/emails');
+    curl_setopt(\$ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt(\$ch, CURLOPT_POST, true);
+    curl_setopt(\$ch, CURLOPT_POSTFIELDS, json_encode(\$payload));
+    curl_setopt(\$ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . \$apiKey,
+        'Content-Type: application/json',
+    ]);
+
+    \$response = curl_exec(\$ch);
+    \$httpCode = curl_getinfo(\$ch, CURLINFO_HTTP_CODE);
+    curl_close(\$ch);
+
+    if (\$httpCode >= 200 && \$httpCode < 300) {
+        return true;
+    }
+
+    wfDebugLog('email', "Resend API error (\$httpCode): \$response");
+    return false;
+};
+EMAILCONFIG
+        echo "✓ Resend email API configured"
+    else
+        echo "✓ Email already configured"
+    fi
+else
+    echo "ℹ️  Email not configured (set SMTP_PASS with Resend API key)"
 fi
 
 # Create API agent user if requested

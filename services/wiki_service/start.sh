@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start local wiki - builds image and brings up containers
+# Start wiki service - builds image and brings up containers
 # Usage: ./start.sh [--wiki-dir PATH] [--port PORT] [--fresh]
 #
 # Options:
@@ -37,17 +37,17 @@ find_available_port() {
     local start_port=$1
     local max_tries=${2:-10}
     local port=$start_port
-    
+
     for ((i=0; i<max_tries; i++)); do
         if is_port_available $port; then
             echo $port
             return 0
         fi
-        echo "⚠️  Port $port is in use, trying next..." >&2
+        echo "Warning: Port $port is in use, trying next..." >&2
         port=$((port + 1))
     done
-    
-    echo "❌ Could not find available port after $max_tries attempts" >&2
+
+    echo "Error: Could not find available port after $max_tries attempts" >&2
     return 1
 }
 
@@ -78,15 +78,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "=========================================="
-echo "  Local Wiki Startup"
+echo "  Wiki Service"
 echo "=========================================="
 echo ""
 
 # Create .env from example if missing
 if [ ! -f .env ]; then
-    echo "📄 Creating .env from template..."
+    echo "Creating .env from template..."
     cp .env.example .env 2>/dev/null || touch .env
-    echo "✓ Created .env file"
+    echo "Created .env file"
 fi
 
 # Source env for port variable
@@ -102,16 +102,16 @@ else
 fi
 
 # Find an available port
-echo "🔍 Checking port availability..."
+echo "Checking port availability..."
 PORT=$(find_available_port $START_PORT)
 if [ $? -ne 0 ]; then
-    echo "❌ Failed to find an available port"
+    echo "Error: Failed to find an available port"
     exit 1
 fi
 
 # Export the port for docker-compose
 export WIKI_PORT="$PORT"
-echo "✓ Using port: $PORT"
+echo "Using wiki port: $PORT"
 
 # Set wiki directory (command line arg > env var > default)
 if [ -n "$WIKI_DIR_ARG" ]; then
@@ -120,13 +120,13 @@ elif [ -z "${WIKI_DIR:-}" ]; then
     export WIKI_DIR="data/wikis"
 fi
 
-echo "📂 Wiki data directory: $WIKI_DIR"
+echo "Wiki data directory: $WIKI_DIR"
 
 # Remove import flag if --fresh specified (forces reimport)
 if [ "$FRESH_IMPORT" = true ]; then
     IMPORT_FLAG="../../${WIKI_DIR}/.wikis_imported"
     if [ -f "$IMPORT_FLAG" ]; then
-        echo "🔄 Removing import flag for fresh import..."
+        echo "Removing import flag for fresh import..."
         rm -f "$IMPORT_FLAG"
     fi
 fi
@@ -136,26 +136,26 @@ mkdir -p images state outbox
 
 # Build the wiki image
 echo ""
-echo "🔨 Building wiki image..."
-docker compose build
+echo "Building wiki image..."
+docker compose build wiki
 
 # Start containers
-echo "🚀 Starting containers..."
+echo "Starting containers..."
 docker compose up -d
 
 # Wait for wiki to be healthy
 echo ""
-echo "⏳ Waiting for wiki to be ready..."
+echo "Waiting for wiki to be ready..."
 echo "   (This may take 1-2 minutes on first run)"
 echo ""
 
 tries=90
 while ((tries--)); do
-    # Check if wiki responds with HTTP 200 or 301
+    # Check if wiki responds with HTTP 200 or 301/302
     if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}" | grep -qE "^(200|301|302)$"; then
         echo ""
         echo "=========================================="
-        echo "✅ Wiki is ready!"
+        echo "Wiki is ready!"
         echo ""
         echo "   URL:      http://localhost:${PORT}"
         echo ""
@@ -178,8 +178,7 @@ while ((tries--)); do
 done
 
 echo ""
-echo "❌ Wiki did not start in time."
+echo "Error: Wiki did not start in time."
 echo ""
 echo "Check logs with: docker compose logs wiki"
 exit 1
-
