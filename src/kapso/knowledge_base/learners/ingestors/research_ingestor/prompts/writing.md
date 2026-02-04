@@ -130,6 +130,32 @@ Use semantic wiki links in the `== Related Pages ==` section:
 - Good: `LoRA_Fine_Tuning.md`, `LangChain_RAG_Agent.md`, `PyTorch_GPU_Setup.md`
 - Bad: `Research_Web_LoRA.md`, `Web_LangChain.md`, `Research_PyTorch.md`
 
+### 5. MediaWiki Syntax (CRITICAL)
+
+Wiki pages use **MediaWiki syntax**, NOT Markdown. This is critical for proper rendering.
+
+| Format | MediaWiki (CORRECT) | Markdown (WRONG) |
+|--------|---------------------|------------------|
+| Bold | `'''bold text'''` | `**bold text**` |
+| Italic | `''italic text''` | `*italic text*` |
+| Headers | `== Header ==` | `## Header` |
+| Bullets | `* item` | `- item` |
+| Numbered | `# item` | `1. item` |
+
+**Example of correct MediaWiki content:**
+```mediawiki
+== Overview ==
+
+This implementation provides '''optimized model loading''' for fine-tuning.
+
+=== Description ===
+
+The '''FastLanguageModel''' class handles:
+* 4-bit quantization
+* LoRA adapter injection
+* Memory-efficient inference
+```
+
 ## Quality Checklist
 
 Before finishing each page, verify:

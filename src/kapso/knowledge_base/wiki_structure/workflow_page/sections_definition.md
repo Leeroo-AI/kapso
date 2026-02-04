@@ -1,6 +1,8 @@
 # Workflow Page Sections Guide
 
-This document defines the schema, purpose, and detailed writing instructions for a **Workflow** page. Every section is mandatory to ensure the recipe is reproducible and understandable.
+This document defines the schema, purpose, and detailed writing instructions for a '''Workflow''' page. Every section is mandatory to ensure the recipe is reproducible and understandable.
+
+'''IMPORTANT:''' All wiki pages use MediaWiki syntax, NOT Markdown. See the syntax reference at the end of this document.
 
 ---
 
@@ -12,9 +14,9 @@ This document defines the schema, purpose, and detailed writing instructions for
 ```
 
 ### WikiMedia Syntax Rules
-1. **First character capitalized** — Auto-converted by system
-2. **Underscores only** — Use `_` as word separator (NO hyphens, NO spaces)
-3. **Case-sensitive after first character**
+# First letter capitalized — Auto-converted by system
+# Underscores only — Use `_` as word separator (NO hyphens, NO spaces)
+# Case-sensitive after first character
 
 ### Forbidden Characters
 Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
@@ -30,44 +32,49 @@ Never use: `#`, `<`, `>`, `[`, `]`, `{`, `}`, `|`, `+`, `:`, `/`, `-` (hyphen)
 
 ## 0. Page Title (REQUIRED - First Line)
 
-**Goal:** Provide a human-readable H1 title as the very first line of the page.
+'''Goal:''' Provide a human-readable H1 title as the very first line of the page.
 
-**Format:** `# Workflow: {Page_Name}`
+'''Format:''' `# Workflow: {Page_Name}`
 
 Where `{Page_Name}` is the page name WITHOUT the repo namespace prefix.
 
-**Sample:**
+'''Sample:'''
 ```mediawiki
 # Workflow: QLoRA_Finetuning
 ```
 
 For a file named `Owner_Repo_QLoRA_Finetuning.md`, the title is:
-- ✅ `# Workflow: QLoRA_Finetuning` (correct - no repo prefix)
-- ❌ `# Workflow: Owner_Repo_QLoRA_Finetuning` (wrong - includes repo prefix)
+* ✅ `# Workflow: QLoRA_Finetuning` (correct - no repo prefix)
+* ❌ `# Workflow: Owner_Repo_QLoRA_Finetuning` (wrong - includes repo prefix)
 
 ---
 
 ## 1. Metadata Block (Top of Page)
-**Goal:** Provide structured context for the graph parser.
-**Format:** Semantic MediaWiki Table (Right-aligned).
+
+'''Goal:''' Provide structured context for the graph parser.
+
+'''Format:''' Semantic MediaWiki Table (Right-aligned).
 
 ### Fields Explanation
-1.  **Knowledge Sources:** HIGH-LEVEL references only (not individual file paths!).
-    *   *Syntax:* `[[source::{Type}|{Title}|{URL}]]`
-    *   *Types:*
-        - `Repo` → Link to the **repository root URL**, not individual files
-        - `Doc` → Official documentation websites
-        - `Blog` → Tutorials, blog posts
-        - `Paper` → Academic papers (arXiv, etc.)
-    *   ⚠️ **DO NOT put individual file paths here** (e.g., `unsloth/save.py`)
-    *   Specific file references belong in the linked Implementation pages
-2.  **Domains:** Categorization tags.
-    *   *Syntax:* `[[domain::{Tag}]]`
-    *   *Examples:* `LLM_Ops`, `Data_Engineering`, `Training`.
-3.  **Last Updated:** Freshness marker.
-    *   *Syntax:* `[[last_updated::{YYYY-MM-DD HH:MM GMT}]]`
 
-**Sample:**
+'''Knowledge Sources:''' HIGH-LEVEL references only (not individual file paths!).
+* ''Syntax:'' `[[source::{Type}|{Title}|{URL}]]`
+* ''Types:''
+** `Repo` → Link to the repository root URL, not individual files
+** `Doc` → Official documentation websites
+** `Blog` → Tutorials, blog posts
+** `Paper` → Academic papers (arXiv, etc.)
+* ⚠️ DO NOT put individual file paths here (e.g., `unsloth/save.py`)
+* Specific file references belong in the linked Implementation pages
+
+'''Domains:''' Categorization tags.
+* ''Syntax:'' `[[domain::{Tag}]]`
+* ''Examples:'' `LLM_Ops`, `Data_Engineering`, `Training`.
+
+'''Last Updated:''' Freshness marker.
+* ''Syntax:'' `[[last_updated::{YYYY-MM-DD HH:MM GMT}]]`
+
+'''Sample:'''
 ```mediawiki
 {| class="wikitable" style="float:right; margin-left:1em; width:300px;"
 |-
@@ -85,12 +92,12 @@ For a file named `Owner_Repo_QLoRA_Finetuning.md`, the title is:
 |}
 ```
 
-**❌ WRONG (individual file paths in Knowledge Sources):**
+'''❌ WRONG (individual file paths in Knowledge Sources):'''
 ```mediawiki
 * [[source::Repo|Unsloth Save Module|https://github.com/unslothai/unsloth/blob/main/unsloth/save.py]]  ← WRONG!
 ```
 
-**✅ CORRECT (high-level repo URL):**
+'''✅ CORRECT (high-level repo URL):'''
 ```mediawiki
 * [[source::Repo|Unsloth|https://github.com/unslothai/unsloth]]  ← RIGHT!
 ```
@@ -100,40 +107,46 @@ For a file named `Owner_Repo_QLoRA_Finetuning.md`, the title is:
 ## 2. Overview Block (The "Card")
 
 ### `== Overview ==`
-**Instruction:** Define the goal in **one sentence**.
-*   *Purpose:* Search snippet.
-*   *Content:* "End-to-end process for {Goal} using {Technique}."
 
-**Sample:**
+'''Instruction:''' Define the goal in one sentence.
+* ''Purpose:'' Search snippet.
+* ''Content:'' "End-to-end process for {Goal} using {Technique}."
+
+'''Sample:'''
 ```mediawiki
 == Overview ==
+
 End-to-end process for parameter-efficient fine-tuning (PEFT) of Llama-2 models on custom datasets.
 ```
 
 ### `=== Description ===` (The "What")
-**Instruction:** Explain the **Process**.
-*   *Content:*
-    1.  **Goal:** What is the output? (e.g., "A LoRA adapter").
-    2.  **Scope:** What does it cover? (e.g., "From raw text to saved weights").
-    3.  **Strategy:** High-level approach (e.g., "Uses QLoRA to minimize memory").
 
-**Sample:**
+'''Instruction:''' Explain the process.
+* ''Content:''
+*# '''Goal:''' What is the output? (e.g., "A LoRA adapter").
+*# '''Scope:''' What does it cover? (e.g., "From raw text to saved weights").
+*# '''Strategy:''' High-level approach (e.g., "Uses QLoRA to minimize memory").
+
+'''Sample:'''
 ```mediawiki
 === Description ===
+
 This workflow outlines the standard procedure for fine-tuning Large Language Models (LLMs) on consumer hardware. It leverages Quantization and Low-Rank Adapters (LoRA) to reduce memory requirements, allowing training of 7B+ models on single GPUs. The process covers data formatting, model quantization, adapter training, and merging.
 ```
 
 ### `=== Usage ===` (The "When")
-**Instruction:** Define the **Business Trigger**.
-*   *Purpose:* Tells the user when to run this.
-*   *Content:*
-    *   *Input State:* "You have a JSON dataset..."
-    *   *Desired Output:* "You need a specialized model for X..."
-*   *Goal:* Answer "Is this the right recipe for my task?"
 
-**Sample:**
+'''Instruction:''' Define the business trigger.
+* ''Purpose:'' Tells the user when to run this.
+* ''Content:''
+** ''Input State:'' "You have a JSON dataset..."
+** ''Desired Output:'' "You need a specialized model for X..."
+* ''Goal:'' Answer "Is this the right recipe for my task?"
+
+'''Sample:'''
 ```mediawiki
 === Usage ===
+
 Execute this workflow when you have a domain-specific dataset (instruction-tuning style) and need to adapt a base Llama-2 model to follow instructions, but have limited GPU resources (e.g., <24GB VRAM).
 ```
 
@@ -142,19 +155,20 @@ Execute this workflow when you have a domain-specific dataset (instruction-tunin
 ## 3. The Recipe
 
 ### `== Execution Steps ==`
-**Instruction:** The ordered list of steps in natural language.
 
-**⚠️ NO CODE IN WORKFLOW STEPS!** The actual implementation lives in the GitHub Repository linked below.
+'''Instruction:''' The ordered list of steps in natural language.
 
-*   *Structure:* Use Level 3 Headers (`===`) for each step.
-*   *Content per Step:*
-    1.  **Description:** Natural language summary of what this step accomplishes.
-    2.  **Key Points:** Important considerations for this step.
-    3.  **Pseudocode (optional):** If needed for clarity, use high-level pseudocode (not actual implementation code).
+'''⚠️ NO CODE IN WORKFLOW STEPS!''' The actual implementation lives in the GitHub Repository linked below.
 
-**Note:** Steps describe WHAT happens conceptually. The actual executable implementation is in the GitHub Repository.
+* ''Structure:'' Use Level 3 Headers (`===`) for each step.
+* ''Content per Step:''
+*# '''Description:''' Natural language summary of what this step accomplishes.
+*# '''Key Points:''' Important considerations for this step.
+*# '''Pseudocode (optional):''' If needed for clarity, use high-level pseudocode (not actual implementation code).
 
-**Sample:**
+'''Note:''' Steps describe WHAT happens conceptually. The actual executable implementation is in the GitHub Repository.
+
+'''Sample:'''
 ```mediawiki
 == Execution Steps ==
 
@@ -172,9 +186,9 @@ Transform raw training data into the structured prompt format expected by the mo
 Load the base model in reduced precision to minimize memory footprint. The quantization process maps 16-bit weights to a lower bit representation (e.g., 4-bit NormalFloat) while preserving model quality through careful calibration.
 
 '''Pseudocode:'''
-  1. Load model configuration
-  2. Apply quantization config (4-bit NF4 with double quantization)
-  3. Load weights with on-the-fly dequantization for compute
+# Load model configuration
+# Apply quantization config (4-bit NF4 with double quantization)
+# Load weights with on-the-fly dequantization for compute
 
 === Step 3: Adapter Training ===
 
@@ -186,16 +200,16 @@ Inject low-rank adapter matrices into the frozen base model's attention and feed
 * Only A and B are updated during training (typically <1% of total parameters)
 ```
 
-**❌ WRONG (actual code in workflow step):**
+'''❌ WRONG (actual code in workflow step):'''
 ```mediawiki
 === Step 1: Load Model ===
-```python
+<syntaxhighlight lang="python">
 from unsloth import FastLanguageModel
 model, tokenizer = FastLanguageModel.from_pretrained(...)  # ← WRONG! Code belongs in GitHub repo
-```
+</syntaxhighlight>
 ```
 
-**✅ CORRECT (natural language description):**
+'''✅ CORRECT (natural language description):'''
 ```mediawiki
 === Step 1: Load Model ===
 
@@ -207,15 +221,17 @@ Initialize the language model with memory-optimized settings. The loader applies
 ## 4. Visualization
 
 ### `== Execution Diagram ==`
-**Instruction:** Create a Mermaid flowchart of the steps.
-*   **Purpose:** Visual overview of the process flow.
-*   **Format:** `{{#mermaid:graph TD ... }}`
-*   **Nodes:** Use the Step Names.
-*   **Edges:** Show the logical flow (usually linear or branching).
 
-**Sample:**
+'''Instruction:''' Create a Mermaid flowchart of the steps.
+* '''Purpose:''' Visual overview of the process flow.
+* '''Format:''' `{{#mermaid:graph TD ... }}`
+* '''Nodes:''' Use the Step Names.
+* '''Edges:''' Show the logical flow (usually linear or branching).
+
+'''Sample:'''
 ```mediawiki
 == Execution Diagram ==
+
 {{#mermaid:graph TD
     A[Data Preparation] --> B[Model Quantization]
     B --> C[Adapter Training]
@@ -227,38 +243,39 @@ Initialize the language model with memory-optimized settings. The loader applies
 ## 5. GitHub Repository (Executable Implementation)
 
 ### `== GitHub URL ==`
-**Instruction:** Link to the private GitHub repository containing the executable implementation of this workflow.
 
-*   **Purpose:** Provides deterministic, version-controlled implementation
-*   **Format:** `[[github_url::{URL}]]`
-*   **Content:** The repository contains:
-    *   Step-by-step implementation files (one file per step)
-    *   `requirements.txt` with pinned dependencies
-    *   `README.md` with setup and execution instructions
-    *   Proper Python package structure
+'''Instruction:''' Link to the private GitHub repository containing the executable implementation of this workflow.
 
-**Sample:**
+* '''Purpose:''' Provides deterministic, version-controlled implementation
+* '''Format:''' `[[github_url::{URL}]]`
+* '''Content:''' The repository contains:
+** Step-by-step implementation files (one file per step)
+** `requirements.txt` with pinned dependencies
+** `README.md` with setup and execution instructions
+** Proper Python package structure
+
+'''Sample:'''
 ```mediawiki
 == GitHub URL ==
 
 [[github_url::https://github.com/kapso/workflow-unslothai-qlora-finetuning]]
 ```
 
-**Why a GitHub Repository?**
-- **Deterministic:** Pinned versions ensure reproducibility
-- **Version-controlled:** Track changes over time
-- **Testable:** Can be executed and validated
-- **Professional:** Follows software engineering best practices
+'''Why a GitHub Repository?'''
+* '''Deterministic:''' Pinned versions ensure reproducibility
+* '''Version-controlled:''' Track changes over time
+* '''Testable:''' Can be executed and validated
+* '''Professional:''' Follows software engineering best practices
 
 ---
 
 ## 6. WorkflowIndex Update (CRITICAL)
 
-After creating a Workflow page, you **MUST** update the `_WorkflowIndex.md` file with detailed implementation context for each step. This index bridges Phase 1 (Anchoring) and Phase 2 (Excavation).
+After creating a Workflow page, you '''MUST''' update the `_WorkflowIndex.md` file with detailed implementation context for each step. This index bridges Phase 1 (Anchoring) and Phase 2 (Excavation).
 
 ### Why This Matters
 
-The WorkflowIndex preserves **implementation context** that Phase 2 needs to create the GitHub repository. Without this context, the repository builder cannot determine which APIs and libraries to use.
+The WorkflowIndex preserves '''implementation context''' that Phase 2 needs to create the GitHub repository. Without this context, the repository builder cannot determine which APIs and libraries to use.
 
 ### Required Information Per Step
 
@@ -266,22 +283,22 @@ For each workflow step, capture in the WorkflowIndex:
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| **Step Name** | The step name | `Model_Loading` |
-| **API Call** | Exact function/method signature | `FastLanguageModel.from_pretrained(model_name, load_in_4bit, ...)` |
-| **Source Location** | File path and line numbers | `unsloth/models/loader.py:L120-620` |
-| **External Dependencies** | Libraries outside the repo | `transformers`, `bitsandbytes` |
-| **Key Parameters** | Important params with types | `model_name: str`, `load_in_4bit: bool` |
-| **Inputs** | What this step consumes | Model name/path |
-| **Outputs** | What this step produces | `Tuple[PeftModel, Tokenizer]` |
+| '''Step Name''' | The step name | `Model_Loading` |
+| '''API Call''' | Exact function/method signature | `FastLanguageModel.from_pretrained(model_name, load_in_4bit, ...)` |
+| '''Source Location''' | File path and line numbers | `unsloth/models/loader.py:L120-620` |
+| '''External Dependencies''' | Libraries outside the repo | `transformers`, `bitsandbytes` |
+| '''Key Parameters''' | Important params with types | `model_name: str`, `load_in_4bit: bool` |
+| '''Inputs''' | What this step consumes | Model name/path |
+| '''Outputs''' | What this step produces | `Tuple[PeftModel, Tokenizer]` |
 
 ### WorkflowIndex Structure
 
 ```markdown
 ## Workflow: {Workflow_Name}
 
-**File:** [→](./workflows/{filename}.md)
-**Description:** One-line description.
-**GitHub URL:** https://github.com/kapso/workflow-{repo}-{name}
+'''File:''' [→](./workflows/{filename}.md)
+'''Description:''' One-line description.
+'''GitHub URL:''' https://github.com/kapso/workflow-{repo}-{name}
 
 ### Steps Overview
 
@@ -294,22 +311,22 @@ For each workflow step, capture in the WorkflowIndex:
 
 | Attribute | Value |
 |-----------|-------|
-| **API Call** | `get_chat_template(tokenizer, ...)` |
-| **Source Location** | `path/to/file.py:L100-200` |
-| **External Dependencies** | `transformers` |
-| **Key Parameters** | `tokenizer: PreTrainedTokenizer` |
-| **Inputs** | Raw dataset, tokenizer |
-| **Outputs** | Formatted prompts |
+| '''API Call''' | `get_chat_template(tokenizer, ...)` |
+| '''Source Location''' | `path/to/file.py:L100-200` |
+| '''External Dependencies''' | `transformers` |
+| '''Key Parameters''' | `tokenizer: PreTrainedTokenizer` |
+| '''Inputs''' | Raw dataset, tokenizer |
+| '''Outputs''' | Formatted prompts |
 ```
 
 ### Implementation Types to Document
 
 | Type | When to Use | Example |
 |------|-------------|---------|
-| **API Doc** | Unsloth function/class | `FastLanguageModel.from_pretrained` |
-| **Wrapper Doc** | External API with Unsloth usage | `SFTTrainer` (TRL) |
-| **Pattern Doc** | User-defined pattern | `reward_function_interface` |
-| **External Tool Doc** | CLI/external tool | `llama_cli_validation` |
+| '''API Doc''' | Unsloth function/class | `FastLanguageModel.from_pretrained` |
+| '''Wrapper Doc''' | External API with Unsloth usage | `SFTTrainer` (TRL) |
+| '''Pattern Doc''' | User-defined pattern | `reward_function_interface` |
+| '''External Tool Doc''' | CLI/external tool | `llama_cli_validation` |
 
 ### Extraction Hints for Repository Builder
 
@@ -323,3 +340,56 @@ Include a summary section at the end of each workflow listing all APIs to implem
 | Data_Preparation | `get_chat_template` | `chat_templates.py` | transformers |
 | Model_Loading | `FastLanguageModel.from_pretrained` | `loader.py` | bitsandbytes |
 ```
+
+---
+
+## MediaWiki Syntax Reference (CRITICAL)
+
+'''Use MediaWiki syntax, NOT Markdown!''' This is critical for proper rendering.
+
+### Text Formatting
+
+| Format | MediaWiki (CORRECT) | Markdown (WRONG) |
+|--------|---------------------|------------------|
+| Bold | `'''bold text'''` | `**bold text**` |
+| Italic | `''italic text''` | `*italic text*` |
+| Bold+Italic | `'''''both'''''` | `***both***` |
+
+### Headers (inside wiki pages)
+
+```mediawiki
+== Level 2 Header ==
+=== Level 3 Header ===
+==== Level 4 Header ====
+```
+
+NOT: `## Header` or `### Header`
+
+### Lists
+
+```mediawiki
+* Bullet item 1
+* Bullet item 2
+** Nested bullet
+
+# Numbered item 1
+# Numbered item 2
+## Nested numbered
+```
+
+### Code Blocks
+
+```mediawiki
+<syntaxhighlight lang="python">
+def example():
+    return "code here"
+</syntaxhighlight>
+```
+
+NOT: triple backticks
+
+### Whitespace Rules
+
+* '''Blank line required''' after headers before content
+* '''Blank line required''' between paragraphs
+* '''No blank line''' between list items (unless separating groups)

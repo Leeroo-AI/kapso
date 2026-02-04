@@ -57,6 +57,85 @@ All page names must follow WikiMedia technical syntax:
    {repo_name}_FastLanguageModel/from  (slash)
 ```
 
+## 📝 MEDIAWIKI SYNTAX (CRITICAL - NOT Markdown!)
+
+Wiki pages use **MediaWiki syntax**, NOT Markdown. This is critical for proper rendering.
+
+### Text Formatting
+
+| Format | MediaWiki (CORRECT) | Markdown (WRONG) |
+|--------|---------------------|------------------|
+| Bold | `'''bold text'''` | `**bold text**` |
+| Italic | `''italic text''` | `*italic text*` |
+| Bold+Italic | `'''''both'''''` | `***both***` |
+
+### Headers
+
+```mediawiki
+== Level 2 Header ==
+=== Level 3 Header ===
+==== Level 4 Header ====
+```
+
+NOT: `## Header` or `### Header`
+
+### Lists
+
+```mediawiki
+* Bullet item 1
+* Bullet item 2
+** Nested bullet
+
+# Numbered item 1
+# Numbered item 2
+## Nested numbered
+```
+
+### Links
+
+```mediawiki
+[https://example.com External Link]
+[[Internal_Page_Name]]
+[[Page_Name|Display Text]]
+```
+
+### Code Blocks
+
+```mediawiki
+<syntaxhighlight lang="python">
+def example():
+    return "code here"
+</syntaxhighlight>
+```
+
+NOT: triple backticks (```python)
+
+### Whitespace Rules
+
+- **Blank line required** after headers before content
+- **Blank line required** between paragraphs
+- **No blank line** between list items (unless separating groups)
+
+### Example of Correct MediaWiki Content
+
+```mediawiki
+== Overview ==
+
+Concrete tool for loading models provided by Unsloth.
+
+=== Description ===
+
+The '''FastLanguageModel''' class provides optimized model loading with:
+
+* 4-bit quantization support
+* Automatic LoRA patching
+* Memory-efficient inference
+
+'''Key parameters:'''
+* ''model_name'': HuggingFace model ID or local path
+* ''load_in_4bit'': Enable 4-bit quantization
+```
+
 ## High-Level Task Summary
 
 ```

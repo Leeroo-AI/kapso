@@ -81,6 +81,14 @@ You are a knowledge validation agent. Your task is to audit the wiki pages creat
 - [ ] Filenames are descriptive of the content (NOT prefixed with "Research_Web")
 - [ ] No forbidden characters in filenames
 
+### 6. MediaWiki Syntax (CRITICAL)
+
+- [ ] Bold text uses `'''triple quotes'''` NOT `**double asterisks**`
+- [ ] Italic text uses `''double quotes''` NOT `*single asterisks*`
+- [ ] Headers use `== Header ==` NOT `## Header`
+- [ ] Bullet lists use `*` NOT `-`
+- [ ] Numbered lists use `#` NOT `1.`
+
 ## Fixing Issues
 
 When you find issues:
