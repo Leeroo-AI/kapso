@@ -22,6 +22,9 @@ echo ""
 echo "🗑️  Removing containers and volumes..."
 docker compose down -v --remove-orphans
 
+echo "🗑️  Stopping Leeroopedia API service..."
+docker compose -f ../leeroopedia_service/docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+
 echo "🗑️  Clearing local directories..."
 rm -rf images/* state/* outbox/* 2>/dev/null || true
 

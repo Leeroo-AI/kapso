@@ -31,7 +31,7 @@ services:
       MW_DB_NAME: ${MW_DB_NAME:-wiki}
       MW_DB_USER: ${MW_DB_USER:-mediawiki}
       MW_DB_PASSWORD: ${MW_DB_PASSWORD:-localpass123}
-      MW_SITE_SERVER: http://localhost:${WIKI_PORT:-8080}
+      MW_SITE_SERVER: ${MW_SITE_SERVER:-http://localhost:${WIKI_PORT:-8080}}
       MW_SITENAME: ${MW_SITENAME:-Local Wiki}
       MW_LANG: ${MW_LANG:-en}
       MW_ADMIN_USER: ${MW_ADMIN_USER:-admin}
