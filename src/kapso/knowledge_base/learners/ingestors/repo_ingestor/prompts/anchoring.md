@@ -52,6 +52,74 @@ All page names must follow WikiMedia technical syntax:
    {repo_name}_Model/Loading        (slash)
 ```
 
+## 📝 MEDIAWIKI SYNTAX (CRITICAL - NOT Markdown!)
+
+Wiki pages use **MediaWiki syntax**, NOT Markdown. This is critical for proper rendering.
+
+### Text Formatting
+
+| Format | MediaWiki (CORRECT) | Markdown (WRONG) |
+|--------|---------------------|------------------|
+| Bold | `'''bold text'''` | `**bold text**` |
+| Italic | `''italic text''` | `*italic text*` |
+| Bold+Italic | `'''''both'''''` | `***both***` |
+
+### Headers
+
+```mediawiki
+== Level 2 Header ==
+=== Level 3 Header ===
+==== Level 4 Header ====
+```
+
+NOT: `## Header` or `### Header`
+
+### Lists
+
+```mediawiki
+* Bullet item 1
+* Bullet item 2
+** Nested bullet
+
+# Numbered item 1
+# Numbered item 2
+## Nested numbered
+```
+
+### Links
+
+```mediawiki
+[https://example.com External Link]
+[[Internal_Page_Name]]
+[[Page_Name|Display Text]]
+```
+
+### Whitespace Rules
+
+- **Blank line required** after headers before content
+- **Blank line required** between paragraphs
+- **No blank line** between list items (unless separating groups)
+
+### Example of Correct MediaWiki Content
+
+```mediawiki
+== Overview ==
+
+This workflow demonstrates model fine-tuning.
+
+=== Description ===
+
+The process involves '''three key steps''':
+
+* Load the base model
+* Apply LoRA adapters
+* Train on custom data
+
+'''Key considerations:'''
+* Use 4-bit quantization for memory efficiency
+* Monitor loss during training
+```
+
 ## Context
 
 - Repository: {repo_name}

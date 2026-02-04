@@ -598,12 +598,18 @@ $wgHooks['LocalUserCreated'][] = function ($user, $autocreated) {
     global $wgRequest;
     $companyName = $wgRequest->getText('wpcompanyname');
 
+    $userOptionsManager = MediaWiki\MediaWikiServices::getInstance()->getUserOptionsManager();
+
     // Store company name in user preferences
     if (!empty($companyName)) {
-        $userOptionsManager = MediaWiki\MediaWikiServices::getInstance()->getUserOptionsManager();
         $userOptionsManager->setOption($user, 'companyname', $companyName);
-        $userOptionsManager->saveOptions($user);
     }
+
+    // Generate Leeroopedia API key: lp_<user_id>_<32_hex_chars>
+    $apiKey = 'lp_' . $user->getId() . '_' . bin2hex(random_bytes(16));
+    $userOptionsManager->setOption($user, 'leeroopedia_api_key', $apiKey);
+
+    $userOptionsManager->saveOptions($user);
 
     return true;
 };
@@ -616,6 +622,19 @@ $wgHooks['GetPreferences'][] = function ($user, &$preferences) {
         'section' => 'personal/info',
         'help-message' => 'prefs-help-company-name',
     ];
+
+    // Display Leeroopedia API key (read-only)
+    $userOptionsManager = MediaWiki\MediaWikiServices::getInstance()->getUserOptionsManager();
+    $apiKey = $userOptionsManager->getOption($user, 'leeroopedia_api_key', '');
+
+    $preferences['leeroopedia_api_key'] = [
+        'type' => 'info',
+        'label' => 'Leeroopedia API Key',
+        'default' => $apiKey ?: 'No API key generated',
+        'section' => 'personal/info',
+        'help' => 'Use this key to access the Leeroopedia Content API.',
+    ];
+
     return true;
 };
 
