@@ -618,20 +618,55 @@ $wgHooks['LocalUserCreated'][] = function ($user, $autocreated) {
 $wgHooks['GetPreferences'][] = function ($user, &$preferences) {
     $preferences['companyname'] = [
         'type' => 'text',
-        'label-message' => 'prefs-companyname',
+        'label' => 'Company name',
         'section' => 'personal/info',
-        'help-message' => 'prefs-help-company-name',
+        'help' => 'Your company or organization name.',
     ];
 
-    // Display Leeroopedia API key (read-only)
+    // Display Leeroopedia API key with show/copy buttons
     $userOptionsManager = MediaWiki\MediaWikiServices::getInstance()->getUserOptionsManager();
     $apiKey = $userOptionsManager->getOption($user, 'leeroopedia_api_key', '');
+    $maskedKey = $apiKey ? str_repeat('•', strlen($apiKey)) : 'No API key generated';
+
+    $apiKeyHtml = '<div style="display: flex; align-items: center; gap: 10px;">
+        <code id="apikey-display" style="font-family: monospace; padding: 4px 8px; background: #f5f5f5; border-radius: 4px;">' . htmlspecialchars($maskedKey) . '</code>
+        <input type="hidden" id="apikey-value" value="' . htmlspecialchars($apiKey) . '">
+        <button type="button" id="apikey-toggle" onclick="toggleApiKey()" style="padding: 4px 12px; cursor: pointer; border: 1px solid #a2a9b1; border-radius: 4px; background: #f8f9fa;">Show</button>
+        <button type="button" onclick="copyApiKey()" style="padding: 4px 12px; cursor: pointer; border: 1px solid #a2a9b1; border-radius: 4px; background: #f8f9fa;">Copy</button>
+    </div>
+    <script>
+    var apiKeyVisible = false;
+    function toggleApiKey() {
+        var display = document.getElementById("apikey-display");
+        var value = document.getElementById("apikey-value").value;
+        var btn = document.getElementById("apikey-toggle");
+        if (apiKeyVisible) {
+            display.textContent = "' . str_repeat('•', strlen($apiKey)) . '";
+            btn.textContent = "Show";
+            apiKeyVisible = false;
+        } else {
+            display.textContent = value;
+            btn.textContent = "Hide";
+            apiKeyVisible = true;
+        }
+    }
+    function copyApiKey() {
+        var value = document.getElementById("apikey-value").value;
+        navigator.clipboard.writeText(value).then(function() {
+            var btn = event.target;
+            var orig = btn.textContent;
+            btn.textContent = "Copied!";
+            setTimeout(function() { btn.textContent = orig; }, 1500);
+        });
+    }
+    </script>';
 
     $preferences['leeroopedia_api_key'] = [
         'type' => 'info',
         'label' => 'Leeroopedia API Key',
-        'default' => $apiKey ?: 'No API key generated',
+        'default' => new HtmlArmor($apiKeyHtml),
         'section' => 'personal/info',
+        'raw' => true,
         'help' => 'Use this key to access the Leeroopedia Content API.',
     ];
 
