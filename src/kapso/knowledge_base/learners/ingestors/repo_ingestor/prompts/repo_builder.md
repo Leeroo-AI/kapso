@@ -381,9 +381,17 @@ if __name__ == "__main__":
    python -m py_compile src/**/*.py scripts/*.py 2>/dev/null || echo "Syntax check skipped"
    ```
 
-3. **Set GitHub authentication** (REQUIRED before any gh command):
+3. **Set GitHub authentication and git author** (REQUIRED before any git/gh command):
    ```bash
    export GH_TOKEN="{github_pat}"
+   
+   # CRITICAL: Set git author to match the PAT owner
+   # This ensures commits are attributed to the correct user, not the local git config
+   # Get the PAT owner's username and set git config
+   GH_USER=$(GH_TOKEN="{github_pat}" gh api user --jq '.login')
+   GH_NAME=$(GH_TOKEN="{github_pat}" gh api user --jq '.name // .login')
+   git config --global user.name "$GH_NAME"
+   git config --global user.email "$GH_USER@users.noreply.github.com"
    ```
 
 4. **Initialize and push:**
