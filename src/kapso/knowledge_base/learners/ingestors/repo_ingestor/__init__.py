@@ -35,6 +35,8 @@
 #     pages = ingestor.ingest(Source.Repo("https://github.com/user/repo"))
 
 import logging
+import os
+import re
 import shutil
 import time
 import uuid
@@ -133,6 +135,7 @@ class RepoIngestor(Ingestor):
                 - fail_on_validation_errors: If True, raise if deterministic validation fails (default: True)
                 - github_repo_visibility: "private" or "public" for workflow repos (default: "private")
                 - github_org: Optional GitHub organization to push workflow repos to
+                - github_pat: GitHub Personal Access Token for repo creation (falls back to GITHUB_PAT env var)
         """
         super().__init__(params)
         self._timeout = self.params.get("timeout", 1800)  # 30 minutes default
@@ -143,6 +146,11 @@ class RepoIngestor(Ingestor):
         self._fail_on_validation_errors = self.params.get("fail_on_validation_errors", True)
         self._github_repo_visibility = self.params.get("github_repo_visibility", "private")
         self._github_org = self.params.get("github_org")  # Optional: push to this org
+        # GitHub PAT for repo creation - from params or environment
+        # CRITICAL: This must be used instead of any existing gh CLI auth
+        self._github_pat = self.params.get("github_pat") or os.environ.get("GITHUB_PAT")
+        if not self._github_pat:
+            logger.warning("No GITHUB_PAT found in params or environment. Repo builder phase may fail.")
         self._agent = None
         self._last_repo_path: Optional[Path] = None
         self._last_staging_dir: Optional[Path] = None
@@ -549,6 +557,11 @@ class RepoIngestor(Ingestor):
                 suggested_repo_name = sanitize_repo_name(workflow_name)
                 # Use "none" as sentinel value when no org is specified
                 github_org_value = self._github_org if self._github_org else "none"
+                # CRITICAL: Pass GitHub PAT to prompt for authentication
+                # This ensures the agent uses the correct account, not any existing gh CLI auth
+                github_pat_value = self._github_pat or ""
+                if not github_pat_value:
+                    logger.warning(f"No GITHUB_PAT available for {workflow_name}. Repo creation may fail or use wrong account.")
                 prompt = base_prompt.format(
                     workflow_name=workflow_name,
                     repo_path=str(repo_path_abs),
@@ -556,6 +569,7 @@ class RepoIngestor(Ingestor):
                     suggested_repo_name=suggested_repo_name,
                     visibility=self._github_repo_visibility,
                     github_org=github_org_value,
+                    github_pat=github_pat_value,
                     result_file=str(result_file),
                 )
                 

@@ -12,7 +12,24 @@ You are a Senior Software Engineer. Your task is to create a professional, well-
 - **Suggested Repo Name**: `{suggested_repo_name}`
 - **Visibility**: `{visibility}`
 - **GitHub Organization**: `{github_org}`
+- **GitHub PAT**: `{github_pat}`
 - **Result File**: `{result_file}` (write final GitHub URL here)
+
+## CRITICAL: GitHub Authentication
+
+**You MUST use the provided GitHub PAT for all GitHub operations.** Do NOT use any existing `gh` CLI authentication or SSH keys.
+
+Before ANY `gh` command, set the token:
+```bash
+export GH_TOKEN="{github_pat}"
+```
+
+Or prefix each `gh` command:
+```bash
+GH_TOKEN="{github_pat}" gh repo create ...
+```
+
+This ensures repos are created under the correct account (the PAT owner), not whatever account is logged into `gh` CLI.
 
 ---
 
@@ -350,6 +367,8 @@ if __name__ == "__main__":
 
 ## Step 5: Create and Push to GitHub
 
+**CRITICAL: Always use `GH_TOKEN` for authentication. Never rely on existing `gh` CLI login.**
+
 1. **Create files** in a temporary directory:
    ```bash
    mkdir -p /tmp/kapso_workflow_{workflow_name}
@@ -362,7 +381,12 @@ if __name__ == "__main__":
    python -m py_compile src/**/*.py scripts/*.py 2>/dev/null || echo "Syntax check skipped"
    ```
 
-3. **Initialize and push:**
+3. **Set GitHub authentication** (REQUIRED before any gh command):
+   ```bash
+   export GH_TOKEN="{github_pat}"
+   ```
+
+4. **Initialize and push:**
    ```bash
    git init
    git add .
@@ -371,24 +395,24 @@ if __name__ == "__main__":
    # Check if name available (include org if specified)
    # If github_org is "none", create under personal account
    # Otherwise, create under the specified organization
-   gh repo view {github_org}/{suggested_repo_name} 2>/dev/null && TAKEN=1 || TAKEN=0
+   GH_TOKEN="{github_pat}" gh repo view {github_org}/{suggested_repo_name} 2>/dev/null && TAKEN=1 || TAKEN=0
    
    # Create repo (try alternatives if taken)
    # Use --org flag if github_org is not "none"
-   # Example: gh repo create my-org/repo-name --private --source=. --push
-   # Or:      gh repo create repo-name --private --source=. --push (personal account)
-   gh repo create {github_org}/{suggested_repo_name} --{visibility} --source=. --push
+   # Example: GH_TOKEN="..." gh repo create my-org/repo-name --private --source=. --push
+   # Or:      GH_TOKEN="..." gh repo create repo-name --private --source=. --push (personal account)
+   GH_TOKEN="{github_pat}" gh repo create {github_org}/{suggested_repo_name} --{visibility} --source=. --push
    ```
    
    **IMPORTANT GitHub Organization Rules:**
    - If `{github_org}` is `none`: Create under your personal account (omit org prefix)
-     - Command: `gh repo create FINAL_NAME --{visibility} --source=. --push`
+     - Command: `GH_TOKEN="{github_pat}" gh repo create FINAL_NAME --{visibility} --source=. --push`
    - If `{github_org}` is set (e.g., `my-org`): Create under that organization
-     - Command: `gh repo create {github_org}/FINAL_NAME --{visibility} --source=. --push`
+     - Command: `GH_TOKEN="{github_pat}" gh repo create {github_org}/FINAL_NAME --{visibility} --source=. --push`
 
-4. **Write result:**
+5. **Write result:**
    ```bash
-   gh repo view FINAL_NAME --json url -q .url > {result_file}
+   GH_TOKEN="{github_pat}" gh repo view FINAL_NAME --json url -q .url > {result_file}
    cat {result_file}  # Verify
    ```
 
