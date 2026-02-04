@@ -10,6 +10,7 @@ echo ""
 echo "   - Database contents"
 echo "   - Uploaded images"
 echo "   - Indexer state"
+echo "   - Sync state"
 echo ""
 read -r -p "Are you sure? [y/N] " ans
 case "${ans:-}" in
