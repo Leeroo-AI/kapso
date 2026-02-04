@@ -39,12 +39,16 @@ if [ ! -f /var/www/html/LocalSettings.php ]; then
 wfLoadExtension('SemanticMediaWiki');
 wfLoadExtension('PageForms');
 wfLoadExtension('Cargo');
+$wgCargoAllowedSQLFunctions[] = '_pageName';
+$wgCargoAllowedSQLFunctions[] = '_pageNamespace';
+$wgCargoIgnoreBacklinks = true;  // Disable backlinks to avoid SQL bug with table aliasing
 wfLoadExtension('VisualEditor');
 wfLoadExtension('SyntaxHighlight_GeSHi');
 wfLoadExtension('Math');
 wfLoadExtension('Mermaid');
 # wfLoadExtension('DynamicPageList3');  # Disabled - requires MW 1.44+
 wfLoadExtension('Network');
+wfLoadExtension('CategoryTree');
 
 # ============================================
 # SyntaxHighlight configuration
@@ -95,6 +99,9 @@ $wgMaxUploadSize = 1024 * 1024 * 50; # 50MB
 # ============================================
 $wgEnableAPI = true;
 $wgEnableWriteAPI = true;
+
+# Enable PAGESINNAMESPACE magic word for dynamic page counts
+$wgAllowSlowParserFunctions = true;
 
 # ============================================
 # Semantic MediaWiki
@@ -252,10 +259,10 @@ $wgHooks['ArticleViewFooter'][] = function ( $article ) {
     $title = $article->getTitle();
     $ns = $title->getNamespace();
     
-    // Only add to custom knowledge namespaces (3000-3012)
+    // Only add to custom knowledge namespaces (excluding Workflow)
     $knowledgeNamespaces = [
         3000, // Principle
-        3002, // Workflow
+        // 3002, // Workflow - excluded, no page connections
         3004, // Implementation
         3006, // Artifact
         3008, // Heuristic
@@ -314,52 +321,35 @@ Want to connect this knowledge base to your AI agents? Follow the guide at [http
 
 {| class="wikitable" style="width:100%"
 |-
-! Category !! Description !! Browse
+! Category !! Description !! Pages !! Browse
 |-
-| '''Workflows''' || Step-by-step processes and procedures || [[Special:AllPages/Workflow:|Browse All]]
+| '''Workflows''' || Step-by-step processes and procedures || '''{{PAGESINNAMESPACE:3002}}''' || [[Special:AllPages/Workflow:|Browse All]]
 |-
-| '''Principles''' || Core ideas and foundational knowledge || [[Special:AllPages/Principle:|Browse All]]
+| '''Principles''' || Core ideas and foundational knowledge || '''{{PAGESINNAMESPACE:3000}}''' || [[Special:AllPages/Principle:|Browse All]]
 |-
-| '''Implementations''' || Code-level details and modules || [[Special:AllPages/Implementation:|Browse All]]
+| '''Implementations''' || Code-level details and modules || '''{{PAGESINNAMESPACE:3004}}''' || [[Special:AllPages/Implementation:|Browse All]]
 |-
-| '''Heuristics''' || Best practices and guidelines || [[Special:AllPages/Heuristic:|Browse All]]
+| '''Heuristics''' || Best practices and guidelines || '''{{PAGESINNAMESPACE:3008}}''' || [[Special:AllPages/Heuristic:|Browse All]]
 |-
-| '''Environments''' || Setup and configuration guides || [[Special:AllPages/Environment:|Browse All]]
+| '''Environments''' || Setup and configuration guides || '''{{PAGESINNAMESPACE:3010}}''' || [[Special:AllPages/Environment:|Browse All]]
 |}
 
 == Recent Pages ==
 
 === Workflows ===
-{{#ask: [[Workflow:+]]
- |limit=10
- |format=ul
-}}
+{{#cargo_query:tables=PageInfo|fields=_pageName|where=PageType='Workflow'|limit=10|format=ul}}
 
 === Principles ===
-{{#ask: [[Principle:+]]
- |limit=10
- |format=ul
-}}
+{{#cargo_query:tables=PageInfo|fields=_pageName|where=PageType='Principle'|limit=10|format=ul}}
 
 === Implementations ===
-{{#ask: [[Implementation:+]]
- |limit=10
- |format=ul
-}}
+{{#cargo_query:tables=PageInfo|fields=_pageName|where=PageType='Implementation'|limit=10|format=ul}}
 
 === Heuristics ===
-{{#ask: [[Heuristic:+]]
- |limit=10
- |format=ul
-}}
+{{#cargo_query:tables=PageInfo|fields=_pageName|where=PageType='Heuristic'|limit=10|format=ul}}
 
 === Environments ===
-{{#ask: [[Environment:+]]
- |limit=10
- |format=ul
-}}
-
-''Use the category table above to browse all pages, or search using the search box.''
+{{#cargo_query:tables=PageInfo|fields=_pageName|where=PageType='Environment'|limit=10|format=ul}}
 MAINPAGE
     
     php maintenance/run.php edit.php \
@@ -368,7 +358,43 @@ MAINPAGE
         "Main Page" < /tmp/main_page.txt
     rm /tmp/main_page.txt
     echo "✓ Main Page created"
-    
+
+    # Create Category pages for CategoryTree to work
+    echo "📄 Creating category pages..."
+    echo "Pages related to step-by-step processes and procedures." | php maintenance/run.php edit.php --user "$MW_ADMIN_USER" --summary "Auto-created category" "Category:Workflows"
+    echo "Pages related to core ideas and foundational knowledge." | php maintenance/run.php edit.php --user "$MW_ADMIN_USER" --summary "Auto-created category" "Category:Principles"
+    echo "Pages related to code-level details and modules." | php maintenance/run.php edit.php --user "$MW_ADMIN_USER" --summary "Auto-created category" "Category:Implementations"
+    echo "Pages related to best practices and guidelines." | php maintenance/run.php edit.php --user "$MW_ADMIN_USER" --summary "Auto-created category" "Category:Heuristics"
+    echo "Pages related to setup and configuration guides." | php maintenance/run.php edit.php --user "$MW_ADMIN_USER" --summary "Auto-created category" "Category:Environments"
+    echo "✓ Category pages created"
+
+    # Create PageInfo template for Cargo table
+    echo "📄 Creating PageInfo Cargo template..."
+    cat > /tmp/pageinfo_template.txt <<'PAGEINFO'
+<noinclude>
+{{#cargo_declare:_table=PageInfo
+|PageType=String
+|PageTitle=String
+}}
+This template stores page metadata for querying.
+[[Category:Templates]]
+</noinclude><includeonly>{{#cargo_store:_table=PageInfo
+|PageType={{{type|}}}
+|PageTitle={{{title|}}}
+}}</includeonly>
+PAGEINFO
+    php maintenance/run.php edit.php \
+        --user "$MW_ADMIN_USER" \
+        --summary "Auto-created: PageInfo Cargo template" \
+        "Template:PageInfo" < /tmp/pageinfo_template.txt
+    rm /tmp/pageinfo_template.txt
+    echo "✓ PageInfo template created"
+
+    # Create Cargo table with proper schema (including internal columns like _pageID)
+    echo "🔄 Initializing Cargo PageInfo table..."
+    php /var/www/html/extensions/Cargo/maintenance/cargoRecreateData.php --table PageInfo --replacement 2>/dev/null || true
+    echo "✓ Cargo PageInfo table initialized"
+
     # Create NetworkLegend template for graph visualization
     echo "📄 Creating Network Legend template..."
     cat > /tmp/network_legend.txt <<'LEGENDTEMPLATE'
