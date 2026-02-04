@@ -132,6 +132,7 @@ class RepoIngestor(Ingestor):
                 - cleanup_staging: Whether to remove the staging directory after ingest (default: False)
                 - fail_on_validation_errors: If True, raise if deterministic validation fails (default: True)
                 - github_repo_visibility: "private" or "public" for workflow repos (default: "private")
+                - github_org: Optional GitHub organization to push workflow repos to
         """
         super().__init__(params)
         self._timeout = self.params.get("timeout", 1800)  # 30 minutes default
@@ -141,6 +142,7 @@ class RepoIngestor(Ingestor):
         self._cleanup_staging = self.params.get("cleanup_staging", False)
         self._fail_on_validation_errors = self.params.get("fail_on_validation_errors", True)
         self._github_repo_visibility = self.params.get("github_repo_visibility", "private")
+        self._github_org = self.params.get("github_org")  # Optional: push to this org
         self._agent = None
         self._last_repo_path: Optional[Path] = None
         self._last_staging_dir: Optional[Path] = None
@@ -545,12 +547,15 @@ class RepoIngestor(Ingestor):
                 # Build the agentic prompt with full context
                 # The agent will read WorkflowIndex and source code itself
                 suggested_repo_name = sanitize_repo_name(workflow_name)
+                # Use "none" as sentinel value when no org is specified
+                github_org_value = self._github_org if self._github_org else "none"
                 prompt = base_prompt.format(
                     workflow_name=workflow_name,
                     repo_path=str(repo_path_abs),
                     wiki_dir=str(wiki_dir_abs),
                     suggested_repo_name=suggested_repo_name,
                     visibility=self._github_repo_visibility,
+                    github_org=github_org_value,
                     result_file=str(result_file),
                 )
                 
@@ -602,6 +607,7 @@ class RepoIngestor(Ingestor):
             f"- Workflows processed: {len(workflows)}",
             f"- Repositories created: {repos_created}",
             f"- Visibility: {self._github_repo_visibility}",
+            f"- GitHub Organization: {self._github_org or 'personal account'}",
             f"- Mode: Fully agentic (agent designed repository structure)",
             "",
             "## Workflow Details",

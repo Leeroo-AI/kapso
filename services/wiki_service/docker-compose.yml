@@ -54,6 +54,34 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/api.php?action=query&meta=siteinfo&format=json"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  wiki-sync:
+    build:
+      context: .
+      dockerfile: sync/Dockerfile
+    environment:
+      WIKI_URL: http://wiki:80
+      WIKI_DIR: /wikis
+      SYNC_STATE: /state/sync.json
+      MW_USER: ${MW_AGENT_USER:-agent}
+      MW_PASS: ${WIKI_AGENT_PASSWORD:-agentpass123}
+      POLL_INTERVAL: ${SYNC_POLL_INTERVAL:-30}
+      DEBOUNCE_MS: ${SYNC_DEBOUNCE_MS:-500}
+      CONFLICT_MODE: ${SYNC_CONFLICT_MODE:-file}
+      DELETE_MODE: ${SYNC_DELETE_MODE:-log}
+    volumes:
+      - ../../${WIKI_DIR:-data/wikis}:/wikis:rw
+      - ./state:/state:rw
+    depends_on:
+      wiki:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

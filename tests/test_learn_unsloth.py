@@ -24,6 +24,8 @@ kapso = Kapso()
 result = kapso.learn(
     Source.Repo("https://github.com/unslothai/unsloth"),
     wiki_dir="data/wiki_unsloth",
+    github_org="leeroopedia",
+    is_private=False,
     skip_merge=True,  # Skip merge step (avoids needing Neo4j/Weaviate)
 )
 

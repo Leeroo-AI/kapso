@@ -11,6 +11,7 @@ You are a Senior Software Engineer. Your task is to create a professional, well-
 - **Workflow Page**: `{wiki_dir}/workflows/{workflow_name}.md`
 - **Suggested Repo Name**: `{suggested_repo_name}`
 - **Visibility**: `{visibility}`
+- **GitHub Organization**: `{github_org}`
 - **Result File**: `{result_file}` (write final GitHub URL here)
 
 ---
@@ -367,12 +368,23 @@ if __name__ == "__main__":
    git add .
    git commit -m "Initial implementation: {workflow_name}"
    
-   # Check if name available
-   gh repo view {suggested_repo_name} 2>/dev/null && TAKEN=1 || TAKEN=0
+   # Check if name available (include org if specified)
+   # If github_org is "none", create under personal account
+   # Otherwise, create under the specified organization
+   gh repo view {github_org}/{suggested_repo_name} 2>/dev/null && TAKEN=1 || TAKEN=0
    
    # Create repo (try alternatives if taken)
-   gh repo create FINAL_NAME --{visibility} --source=. --push
+   # Use --org flag if github_org is not "none"
+   # Example: gh repo create my-org/repo-name --private --source=. --push
+   # Or:      gh repo create repo-name --private --source=. --push (personal account)
+   gh repo create {github_org}/{suggested_repo_name} --{visibility} --source=. --push
    ```
+   
+   **IMPORTANT GitHub Organization Rules:**
+   - If `{github_org}` is `none`: Create under your personal account (omit org prefix)
+     - Command: `gh repo create FINAL_NAME --{visibility} --source=. --push`
+   - If `{github_org}` is set (e.g., `my-org`): Create under that organization
+     - Command: `gh repo create {github_org}/FINAL_NAME --{visibility} --source=. --push`
 
 4. **Write result:**
    ```bash

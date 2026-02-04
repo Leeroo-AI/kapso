@@ -359,6 +359,8 @@ class Kapso:
         wiki_dir: str = "data/wikis",
         skip_merge: bool = False,
         kg_index: Optional[str] = None,
+        github_org: Optional[str] = None,
+        is_private: bool = True,
     ) -> "PipelineResult":
         """
         Learn from one or more knowledge sources.
@@ -381,6 +383,10 @@ class Kapso:
                   supported in this code path yet.
             skip_merge: If True, only extract `WikiPage`s (Stage 1) and skip merging
                 into the KG backends (Stage 2). This avoids requiring Neo4j/Weaviate.
+            github_org: Optional GitHub organization to push workflow repos to.
+                If not provided, repos are created under the authenticated user's account.
+            is_private: Whether to create private repos (default: True).
+                Set to False to create public repos.
             
         Example:
             # Learn from repo + web research and merge into local KG
@@ -388,6 +394,13 @@ class Kapso:
                 Source.Repo("https://github.com/user/repo"),
                 kapso.research("How to pick LoRA rank?", mode="idea"),
                 wiki_dir="data/wikis",
+            )
+            
+            # Learn and push workflow repos to an organization as public
+            kapso.learn(
+                Source.Repo("https://github.com/user/repo"),
+                github_org="my-org",
+                is_private=False,
             )
         """
         if not sources:
@@ -419,8 +432,16 @@ class Kapso:
         learner_config = mode_config.get("learner", {})
 
         # Extract ingestor and merger params from config
-        ingestor_params = learner_config.get("ingestor", {})
+        ingestor_params = learner_config.get("ingestor", {}).copy()
         config_merger_params = learner_config.get("merger", {})
+
+        # Override ingestor params with user-provided GitHub settings
+        # These take precedence over config.yaml values
+        if github_org is not None:
+            ingestor_params["github_org"] = github_org
+        # is_private overrides github_repo_visibility from config
+        # Convert is_private (bool) to visibility string for backward compatibility
+        ingestor_params["github_repo_visibility"] = "private" if is_private else "public"
 
         # Merge config merger params with kg_index_path (kg_index_path takes precedence)
         final_merger_params = {**config_merger_params, **merger_params}

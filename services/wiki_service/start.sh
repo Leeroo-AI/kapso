@@ -134,10 +134,10 @@ fi
 # Create directories for volumes
 mkdir -p images state outbox
 
-# Build the wiki image
+# Build the wiki and sync images
 echo ""
-echo "Building wiki image..."
-docker compose build wiki
+echo "Building images..."
+docker compose build wiki wiki-sync
 
 # Start containers
 echo "Starting containers..."
@@ -164,12 +164,16 @@ while ((tries--)); do
         echo ""
         echo "   API User: ${MW_AGENT_USER:-agent}"
         echo "   API Pass: ${WIKI_AGENT_PASSWORD:-agentpass123}"
+        echo ""
+        echo "   Sync:     Bidirectional sync enabled"
+        echo "             Local files <-> Wiki pages"
         echo "=========================================="
         echo ""
         echo "Commands:"
         echo "  ./stop.sh   - Stop wiki (keeps data)"
         echo "  ./reset.sh  - Delete all data"
-        echo "  docker compose logs -f wiki - View logs"
+        echo "  docker compose logs -f wiki      - View wiki logs"
+        echo "  docker compose logs -f wiki-sync - View sync logs"
         echo ""
         exit 0
     fi
