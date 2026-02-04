@@ -132,7 +132,17 @@ while IFS= read -r -d '' file; do
     # Pattern: [[source::Type|DisplayText|URL]] -> [URL DisplayText]
     # Example: [[source::Repo|Unsloth|https://github.com/...]] -> [https://github.com/... Unsloth]
     content=$(echo "$content" | sed -E 's/\[\[source::[^|]+\|([^|]+)\|(https?:[^]]+)\]\]/[\2 \1]/g')
-    
+
+    # Add category and Cargo template for queryability
+    if [ -n "$namespace" ]; then
+        category="${namespace}s"  # Pluralize: Workflow -> Workflows
+        # Add PageInfo template for Cargo queries and category
+        content="{{PageInfo|type=${namespace}|title=${page_name}}}
+${content}
+
+[[Category:${category}]]"
+    fi
+
     # Import the page using MediaWiki's edit.php maintenance script
     # Note: edit.php may return non-zero if "no change was made", which is fine
     output=$(echo "$content" | php /var/www/html/maintenance/run.php edit.php \
@@ -157,4 +167,10 @@ echo "File format: $FILE_EXT" >> "$IMPORT_FLAG"
 
 echo ""
 echo "✅ Import complete: $imported imported, $skipped skipped, $failed failed"
+
+# Recreate Cargo table to index all imported pages
+# Always rebuild to ensure table schema is correct (--replacement creates fresh table with all internal columns)
+echo "🔄 Rebuilding Cargo PageInfo table..."
+php /var/www/html/extensions/Cargo/maintenance/cargoRecreateData.php --table PageInfo --replacement 2>/dev/null || true
+echo "✓ Cargo table rebuilt"
 

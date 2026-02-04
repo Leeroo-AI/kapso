@@ -35,9 +35,9 @@ services:
       MW_SITENAME: ${MW_SITENAME:-Local Wiki}
       MW_LANG: ${MW_LANG:-en}
       MW_ADMIN_USER: ${MW_ADMIN_USER:-admin}
-      MW_ADMIN_PASS: ${MW_ADMIN_PASS:-adminpass123}
+      MW_ADMIN_PASS: ${WIKI_ADMIN_PASSWORD:-adminpass123}
       MW_AGENT_USER: ${MW_AGENT_USER:-agent}
-      MW_AGENT_PASS: ${MW_AGENT_PASS:-agentpass123}
+      MW_AGENT_PASS: ${WIKI_AGENT_PASSWORD:-agentpass123}
       MW_CREATE_AGENT: "true"
       # SMTP settings (optional, for password reset emails)
       SMTP_HOST: ${SMTP_HOST:-}
