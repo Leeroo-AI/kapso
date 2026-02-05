@@ -209,7 +209,7 @@ Add this section at the end of the workflow:
 ```mediawiki
 == GitHub URL ==
 
-[[github_url::PENDING_REPO_BUILD]]
+[https://github.com/PENDING Pending Repository Build]
 ```
 
 ### Step 5: Update Coverage in Repository Map

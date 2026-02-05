@@ -15,7 +15,7 @@ This document defines the strictly **Top-Down Directed Acyclic Graph (DAG)** sch
 |:---|:---|:---|
 | **Workflow** | GitHub Repository | "This workflow's implementation lives at this URL." |
 
-**Note:** Workflows no longer have outgoing wiki links. The executable implementation is stored in a GitHub repository linked via `[[github_url::...]]`.
+**Note:** Workflows no longer have outgoing wiki links. The executable implementation is stored in a GitHub repository linked via `[URL Label]` format (MediaWiki external link).
 
 ### 2. Principle Layer (The Theory)
 *The heavy lifter. Must be connected to Code.*
@@ -70,7 +70,8 @@ Every **Principle** MUST have at least one outgoing `[[implemented_by::Implement
 - If the Principle is abstract (e.g., "Optimization"), it must link to a "Base Class" or "Interface" implementation.
 
 ### Rule 2: Workflow GitHub URL Constraint
-Every **Workflow** MUST have a `[[github_url::...]]` link to a GitHub repository.
+Every **Workflow** MUST have a GitHub URL link using `[URL Label]` format.
+- Example: `[https://github.com/kapso/workflow-name Workflow Repository]`
 - The repository contains the executable implementation of the workflow steps.
 - The repository must follow the standard structure (step files, requirements.txt, README.md).
 

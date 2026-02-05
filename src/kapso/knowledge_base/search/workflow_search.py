@@ -93,10 +93,12 @@ def extract_github_url(content: str) -> str:
     """
     Extract GitHub URL from wiki page content.
     
-    Looks for patterns:
-    1. == Github URL == section
-    2. [[source::Repo|name|URL]] - MediaWiki syntax
-    3. Raw GitHub URLs
+    Looks for patterns (in order of priority):
+    1. MediaWiki external link: [https://github.com/user/repo Label]
+    2. == Github URL == section with raw URL
+    3. [[source::Repo|name|URL]] - MediaWiki property syntax
+    4. [[github_url::URL]] - Legacy property syntax
+    5. Raw GitHub URLs (fallback)
     
     Args:
         content: Wiki page content
@@ -104,19 +106,32 @@ def extract_github_url(content: str) -> str:
     Returns:
         GitHub URL or empty string if not found
     """
-    # Pattern 1: == Github URL == section
+    # Pattern 1: MediaWiki external link [URL Label] (preferred format)
+    # Matches: [https://github.com/user/repo Some Label Text]
+    link_pattern = r'\[(https://github\.com/[\w-]+/[\w.-]+)\s+[^\]]+\]'
+    match = re.search(link_pattern, content)
+    if match:
+        return match.group(1)
+    
+    # Pattern 2: == Github URL == section with raw URL on next line
     section_pattern = r'==\s*Github URL\s*==\s*\n\s*(https://github\.com/\S+)'
     match = re.search(section_pattern, content, re.IGNORECASE)
     if match:
         return match.group(1)
     
-    # Pattern 2: [[source::Repo|name|URL]]
+    # Pattern 3: [[source::Repo|name|URL]]
     repo_pattern = r'\[\[source::Repo\|[^|]+\|(https://github\.com/[^\]]+)\]\]'
     match = re.search(repo_pattern, content)
     if match:
         return match.group(1)
     
-    # Pattern 3: Any GitHub URL
+    # Pattern 4: [[github_url::URL]] (legacy format)
+    property_pattern = r'\[\[github_url::(https://github\.com/[^\]]+)\]\]'
+    match = re.search(property_pattern, content)
+    if match:
+        return match.group(1)
+    
+    # Pattern 5: Any raw GitHub URL (fallback)
     url_pattern = r'https://github\.com/[\w-]+/[\w.-]+'
     match = re.search(url_pattern, content)
     if match:
