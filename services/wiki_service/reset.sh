@@ -28,6 +28,10 @@ docker compose -f ../leeroopedia_service/docker-compose.yml down -v --remove-orp
 echo "🗑️  Clearing local directories..."
 rm -rf images/* state/* outbox/* 2>/dev/null || true
 
+echo "🗑️  Clearing sync data (state + conflicts)..."
+rm -f state/sync.json 2>/dev/null || true
+rm -rf ../../data/wikis/_conflicts 2>/dev/null || true
+
 echo "🗑️  Removing import flag (so pages reimport on next start)..."
 rm -f ../../data/wikis/.wikis_imported 2>/dev/null || true
 
