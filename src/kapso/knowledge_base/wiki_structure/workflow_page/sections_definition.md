@@ -247,7 +247,7 @@ Initialize the language model with memory-optimized settings. The loader applies
 '''Instruction:''' Link to the private GitHub repository containing the executable implementation of this workflow.
 
 * '''Purpose:''' Provides deterministic, version-controlled implementation
-* '''Format:''' `[[github_url::{URL}]]`
+* '''Format:''' `[{URL} Workflow Repository]` (MediaWiki external link)
 * '''Content:''' The repository contains:
 ** Step-by-step implementation files (one file per step)
 ** `requirements.txt` with pinned dependencies
@@ -258,7 +258,7 @@ Initialize the language model with memory-optimized settings. The loader applies
 ```mediawiki
 == GitHub URL ==
 
-[[github_url::https://github.com/kapso/workflow-unslothai-qlora-finetuning]]
+[https://github.com/kapso/workflow-unslothai-qlora-finetuning Workflow Repository]
 ```
 
 '''Why a GitHub Repository?'''

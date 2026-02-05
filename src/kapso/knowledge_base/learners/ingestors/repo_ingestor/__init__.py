@@ -648,6 +648,8 @@ class RepoIngestor(Ingestor):
         """
         Update a Workflow page with its GitHub repository URL.
         
+        Uses MediaWiki external link format: [URL Label]
+        
         Args:
             workflow_name: Workflow page name
             github_url: GitHub repository URL
@@ -662,37 +664,60 @@ class RepoIngestor(Ingestor):
         
         content = workflow_path.read_text(encoding="utf-8")
         
-        # Replace PENDING placeholder with actual URL
-        # Pattern: [[github_url::PENDING_REPO_BUILD]] or [[github_url::PENDING]]
+        # New format: [URL Workflow Repository]
+        new_link = f'[{github_url} Workflow Repository]'
+        
+        # Replace PENDING placeholder (new format)
+        # Pattern: [https://github.com/PENDING Pending Repository Build]
         updated = re.sub(
-            r'\[\[github_url::(PENDING_REPO_BUILD|PENDING)\]\]',
-            f'[[github_url::{github_url}]]',
+            r'\[https://github\.com/PENDING\s+[^\]]+\]',
+            new_link,
             content
         )
         
-        # If no placeholder found, try to update the GitHub URL section
+        # Also handle legacy format: [[github_url::PENDING_REPO_BUILD]] or [[github_url::PENDING]]
         if updated == content:
-            # Look for == GitHub URL == section and update it
-            github_section_pattern = r'(== GitHub URL ==.*?)(\[\[github_url::)([^\]]+)(\]\])'
-            match = re.search(github_section_pattern, content, re.DOTALL)
+            updated = re.sub(
+                r'\[\[github_url::(PENDING_REPO_BUILD|PENDING)\]\]',
+                new_link,
+                content
+            )
+        
+        # If no placeholder found, try to update existing GitHub URL in the section
+        if updated == content:
+            # Look for == GitHub URL == section and update existing link
+            # Pattern 1: New format [URL Label]
+            github_link_pattern = r'(== GitHub URL ==\s*\n\s*)\[(https://github\.com/[^\s\]]+)\s+[^\]]+\]'
+            match = re.search(github_link_pattern, content, re.DOTALL)
             if match:
                 updated = re.sub(
-                    github_section_pattern,
-                    f'\\1\\2{github_url}\\4',
+                    github_link_pattern,
+                    f'\\1{new_link}',
                     content,
                     flags=re.DOTALL
                 )
+            else:
+                # Pattern 2: Legacy format [[github_url::URL]]
+                legacy_pattern = r'(== GitHub URL ==.*?)(\[\[github_url::)([^\]]+)(\]\])'
+                match = re.search(legacy_pattern, content, re.DOTALL)
+                if match:
+                    updated = re.sub(
+                        legacy_pattern,
+                        f'\\1{new_link}',
+                        content,
+                        flags=re.DOTALL
+                    )
         
         if updated != content:
             workflow_path.write_text(updated, encoding="utf-8")
             logger.info(f"Updated {workflow_name} with GitHub URL: {github_url}")
         else:
-            # Append GitHub URL section if not found (minimal format)
+            # Append GitHub URL section if not found
             github_section = f"""
 
 == GitHub URL ==
 
-[[github_url::{github_url}]]
+{new_link}
 """
             workflow_path.write_text(content + github_section, encoding="utf-8")
             logger.info(f"Added GitHub URL section to {workflow_name}")

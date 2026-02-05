@@ -191,10 +191,18 @@ class StateManager:
         return self.load().conflicts
 
     def find_file_by_title(self, wiki_title: str) -> Optional[str]:
-        """Find a file path by wiki title."""
+        """Find a file path by wiki title.
+
+        MediaWiki treats spaces and underscores as equivalent in titles,
+        so we normalize both for comparison.
+        """
         state = self.load()
+        # Normalize the search title (use underscores as canonical form)
+        normalized_search = wiki_title.replace(" ", "_")
         for rel_path, file_state in state.files.items():
-            if file_state.wiki_title == wiki_title:
+            # Normalize stored title for comparison
+            normalized_stored = file_state.wiki_title.replace(" ", "_")
+            if normalized_stored == normalized_search:
                 return rel_path
         return None
 

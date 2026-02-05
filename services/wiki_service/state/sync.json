@@ -1,139 +1,325 @@
 {
   "version": 1,
-  "last_rc_timestamp": "2026-02-05T09:31:35Z",
-  "last_rc_id": 152,
+  "last_rc_timestamp": "2026-02-05T10:26:05Z",
+  "last_rc_id": 79,
   "files": {
-    "heuristics/Unslothai Unsloth Dtype Selection.md": {
-      "content_hash": "sha256:2c4929460955ffeca75dbaec56e4159b87134808d5153d9e5ab8d6c5e83f7da0",
-      "wiki_title": "Heuristic:Unslothai Unsloth Dtype Selection",
-      "wiki_revid": 143,
-      "synced_at": "2026-02-05T09:31:45.927980+00:00"
-    },
-    "workflows/Unslothai Unsloth Model Export GGUF.md": {
-      "content_hash": "sha256:d8d09108dbbee8f826544bc0ee00732df05910cd3dd96c98377d7bd02b5ccbb2",
-      "wiki_title": "Workflow:Unslothai Unsloth Model Export GGUF",
-      "wiki_revid": 150,
-      "synced_at": "2026-02-05T09:31:45.993602+00:00"
-    },
-    "workflows/Unslothai Unsloth QLoRA Finetuning.md": {
-      "content_hash": "sha256:99177287db13979c831aaebe150d0929c9fbbba0eb547bf3b419de0c1ce52169",
-      "wiki_title": "Workflow:Unslothai Unsloth QLoRA Finetuning",
-      "wiki_revid": 148,
-      "synced_at": "2026-02-05T09:31:45.950535+00:00"
-    },
-    "workflows/Unslothai Unsloth GRPO Reinforcement Learning.md": {
-      "content_hash": "sha256:9b32faca78c16cd766402009ad84657efe0ae494fbf1924f1ee2d155ae7d1a7c",
-      "wiki_title": "Workflow:Unslothai Unsloth GRPO Reinforcement Learning",
-      "wiki_revid": 147,
-      "synced_at": "2026-02-05T09:31:45.971004+00:00"
-    },
-    "heuristics/Unslothai Unsloth Sample Packing.md": {
-      "content_hash": "sha256:7c935258cb0e10abd563aa1991a96b8195a7f3a8247c5dbe0ee006ef224d1dae",
-      "wiki_title": "Heuristic:Unslothai Unsloth Sample Packing",
-      "wiki_revid": 144,
-      "synced_at": "2026-02-05T09:31:45.880956+00:00"
-    },
-    "heuristics/Unslothai Unsloth Gradient Checkpointing.md": {
-      "content_hash": "sha256:9bf9421d4fbf710b5f968d4e9960a54fc9b7692de399f86c4cb66ebec8d4fdb2",
-      "wiki_title": "Heuristic:Unslothai Unsloth Gradient Checkpointing",
-      "wiki_revid": 142,
-      "synced_at": "2026-02-05T09:31:45.905075+00:00"
-    },
-    "heuristics/Unslothai Unsloth LoRA Configuration.md": {
-      "content_hash": "sha256:c53ea8a27876688988a9e6459b69b6865fd6f2e84b2bca10c0e718e2ad776a85",
+    "heuristics/Unslothai_Unsloth_LoRA_Configuration.md": {
+      "content_hash": "sha256:ae5665fd27e04983fbf392ef3bbbd579439955daa432d1d4f686d2fb9852c4f0",
       "wiki_title": "Heuristic:Unslothai Unsloth LoRA Configuration",
-      "wiki_revid": 139,
-      "synced_at": "2026-02-05T09:31:45.853471+00:00"
+      "wiki_revid": 23,
+      "synced_at": "2026-02-05T10:24:30.390374+00:00"
     },
-    "implementations/Unslothai Unsloth OLLAMA TEMPLATES.md": {
-      "content_hash": "sha256:cc576d49f2d329efbc871578596c9d102071c85270f1c394d5782a074ef09571",
-      "wiki_title": "Implementation:Unslothai Unsloth OLLAMA TEMPLATES",
-      "wiki_revid": 122,
-      "synced_at": "2026-02-05T09:31:15.433386+00:00"
+    "heuristics/Unslothai_Unsloth_Gradient_Checkpointing.md": {
+      "content_hash": "sha256:4b2be54210b735160b76718cf75dc11bfeab875854a8589a5a50cea59d5ffde9",
+      "wiki_title": "Heuristic:Unslothai Unsloth Gradient Checkpointing",
+      "wiki_revid": 25,
+      "synced_at": "2026-02-05T10:25:00.474523+00:00"
     },
-    "implementations/Unslothai Unsloth MoE Ops.md": {
-      "content_hash": "sha256:685eac4305d0c4522ce4fd862370493068361f3ce4a1f5de68b082d7e230df26",
-      "wiki_title": "Implementation:Unslothai Unsloth MoE Ops",
-      "wiki_revid": 121,
-      "synced_at": "2026-02-05T09:31:15.456338+00:00"
+    "workflows/Unslothai_Unsloth_GRPO_Reinforcement_Learning.md": {
+      "content_hash": "sha256:d5458d5fad4a00c181a9111b6588b3651c3f490f03fa87094d69c3af71e7560d",
+      "wiki_title": "Workflow:Unslothai Unsloth GRPO Reinforcement Learning",
+      "wiki_revid": 26,
+      "synced_at": "2026-02-05T10:25:00.492796+00:00"
     },
-    "implementations/Unslothai Unsloth FastFalconH1Model.md": {
-      "content_hash": "sha256:3bb2dfb841a584a854d4fbf0c48ae2370693bbff6e7584a226a6beeaf25c9cba",
-      "wiki_title": "Implementation:Unslothai Unsloth FastFalconH1Model",
-      "wiki_revid": 95,
-      "synced_at": "2026-02-05T09:31:15.481523+00:00"
+    "workflows/Unslothai_Unsloth_Model_Export_GGUF.md": {
+      "content_hash": "sha256:0510ad482d6b87d024f84741679ea2971aa2fcb5e7ce0e5303dd74dc988e7457",
+      "wiki_title": "Workflow:Unslothai Unsloth Model Export GGUF",
+      "wiki_revid": 27,
+      "synced_at": "2026-02-05T10:25:00.509153+00:00"
     },
-    "implementations/Unslothai Unsloth GEGLU Kernels.md": {
-      "content_hash": "sha256:b5f2eb27d66d395d0442f3733027f096a6908b25796b75406b673e657e00633f",
-      "wiki_title": "Implementation:Unslothai Unsloth GEGLU Kernels",
-      "wiki_revid": 50,
-      "synced_at": "2026-02-05T09:31:15.506692+00:00"
-    },
-    "implementations/Unslothai Unsloth FastLlamaModel get peft model.md": {
-      "content_hash": "sha256:90bcb9e47dfc5f93c98ab488ecefcff2e03f19aa276348e606d4d1890789f427",
-      "wiki_title": "Implementation:Unslothai Unsloth FastLlamaModel get peft model",
-      "wiki_revid": 49,
-      "synced_at": "2026-02-05T09:31:15.532178+00:00"
-    },
-    "implementations/Unslothai Unsloth Grouped GEMM Interface.md": {
-      "content_hash": "sha256:02cbbbd4bc09b3d0f9613ac28f6ced601862583800fe31f882798d712034aa2c",
-      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Interface",
-      "wiki_revid": 48,
-      "synced_at": "2026-02-05T09:31:15.558236+00:00"
-    },
-    "implementations/Unslothai Unsloth FastGemmaModel.md": {
-      "content_hash": "sha256:f113927cdec83c35e3c3f1806f2eaa14c21f6d04723fc9f3d59d903487c77678",
-      "wiki_title": "Implementation:Unslothai Unsloth FastGemmaModel",
-      "wiki_revid": 47,
-      "synced_at": "2026-02-05T09:31:15.580568+00:00"
-    },
-    "implementations/Unslothai Unsloth SwiGLU Kernels.md": {
-      "content_hash": "sha256:ae134e86fb387087d15852cc97a17487bccc5c81f912cc3f381bc8c278e2ac95",
-      "wiki_title": "Implementation:Unslothai Unsloth SwiGLU Kernels",
-      "wiki_revid": 45,
-      "synced_at": "2026-02-05T09:31:15.601631+00:00"
-    },
-    "implementations/Unslothai Unsloth UnslothGRPOTrainer.md": {
-      "content_hash": "sha256:348603b6354bb593ff2e6f71834186c40896f1be97bb67d1fc842ed77146f3eb",
-      "wiki_title": "Implementation:Unslothai Unsloth UnslothGRPOTrainer",
-      "wiki_revid": 44,
-      "synced_at": "2026-02-05T09:31:15.625870+00:00"
-    },
-    "implementations/Unslothai Unsloth FastQwen2Model.md": {
-      "content_hash": "sha256:d3177a69dca9586fc45f9959d0f49d69956a25f72f09ceefad53cff3c2fa1d57",
-      "wiki_title": "Implementation:Unslothai Unsloth FastQwen2Model",
-      "wiki_revid": 43,
-      "synced_at": "2026-02-05T09:31:15.649780+00:00"
-    },
-    "implementations/Unslothai Unsloth FastLanguageModel from pretrained.md": {
-      "content_hash": "sha256:6aa8092e65dc7f4ae0c55aa8ea0af3d846ed29cf1fe52e0904f1a5ee55bc6c01",
-      "wiki_title": "Implementation:Unslothai Unsloth FastLanguageModel from pretrained",
-      "wiki_revid": 42,
-      "synced_at": "2026-02-05T09:31:15.674850+00:00"
-    },
-    "implementations/Unslothai Unsloth Grouped GEMM Tuning.md": {
-      "content_hash": "sha256:7316ea7b94789a5fb1d489d5c609012ced946820dd465ec475f6e67cad4684a6",
-      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Tuning",
-      "wiki_revid": 40,
-      "synced_at": "2026-02-05T09:31:15.699200+00:00"
-    },
-    "implementations/Unslothai Unsloth RoPE Embedding Kernel.md": {
-      "content_hash": "sha256:21807d357e9e8c3d3ba6578df80c65e3359725609100ca571bdcc95bfc4f1a11",
-      "wiki_title": "Implementation:Unslothai Unsloth RoPE Embedding Kernel",
-      "wiki_revid": 39,
-      "synced_at": "2026-02-05T09:31:15.722735+00:00"
-    },
-    "implementations/Unslothai Unsloth FastMistralModel.md": {
-      "content_hash": "sha256:5dae3b80dc34aebcd0bb594b5d346ad715666b8f6c4c01c100b451e16cf9f2a8",
+    "implementations/Unslothai_Unsloth_FastMistralModel.md": {
+      "content_hash": "sha256:054c7258a26488533927fb64620fbaed06c8704a99ef1ebb89f61afe4bbaab59",
       "wiki_title": "Implementation:Unslothai Unsloth FastMistralModel",
-      "wiki_revid": 38,
-      "synced_at": "2026-02-05T09:31:15.746800+00:00"
+      "wiki_revid": 28,
+      "synced_at": "2026-02-05T10:25:00.524406+00:00"
     },
-    "implementations/Unslothai Unsloth FastQwen3Model.md": {
-      "content_hash": "sha256:f0335e4ff7a9042cb79903e0700cdf6110aff448519342baf8aa7c4d0571f291",
+    "implementations/Unslothai_Unsloth_RoPE_Embedding_Kernel.md": {
+      "content_hash": "sha256:80e7aa3c9f421e4f8ca086aeb107f36604b65cb71d9cf983342f6371aa3bc678",
+      "wiki_title": "Implementation:Unslothai Unsloth RoPE Embedding Kernel",
+      "wiki_revid": 29,
+      "synced_at": "2026-02-05T10:25:00.540289+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastLanguageModel_from_pretrained.md": {
+      "content_hash": "sha256:442490528e8b6e38fc4d667a76e3d7e5fa5d75c0b32b15baa556ad4b78f35731",
+      "wiki_title": "Implementation:Unslothai Unsloth FastLanguageModel from pretrained",
+      "wiki_revid": 30,
+      "synced_at": "2026-02-05T10:25:00.555350+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastQwen2Model.md": {
+      "content_hash": "sha256:9b9300adf5b8b5bc3a3ab7cda9ea6bdd654eb6508750d80e41b41fd0bec00726",
+      "wiki_title": "Implementation:Unslothai Unsloth FastQwen2Model",
+      "wiki_revid": 31,
+      "synced_at": "2026-02-05T10:25:00.570708+00:00"
+    },
+    "implementations/Unslothai_Unsloth_UnslothGRPOTrainer.md": {
+      "content_hash": "sha256:1ebbcc58d61cf9ec3df56b60de98b07578175a8b4f04c5ca3634f8d239123998",
+      "wiki_title": "Implementation:Unslothai Unsloth UnslothGRPOTrainer",
+      "wiki_revid": 32,
+      "synced_at": "2026-02-05T10:25:00.586260+00:00"
+    },
+    "implementations/Unslothai_Unsloth_SwiGLU_Kernels.md": {
+      "content_hash": "sha256:e60d8c59395b7f8ac101e989778d9806e51e4c93aedbdc9090882f22134a08a0",
+      "wiki_title": "Implementation:Unslothai Unsloth SwiGLU Kernels",
+      "wiki_revid": 33,
+      "synced_at": "2026-02-05T10:25:00.601128+00:00"
+    },
+    "implementations/Unslothai_Unsloth_MoE_Ops.md": {
+      "content_hash": "sha256:2e92ba16042f9814c1fff38bf349b1b62aff2a4a2ea82a2cd4c2237af714295c",
+      "wiki_title": "Implementation:Unslothai Unsloth MoE Ops",
+      "wiki_revid": 34,
+      "synced_at": "2026-02-05T10:25:00.616435+00:00"
+    },
+    "implementations/Unslothai_Unsloth_OLLAMA_TEMPLATES.md": {
+      "content_hash": "sha256:9805fc5ebb46f3eb41ac596fba33f2fb57536948bf1b78e9b52b5e213f823e2f",
+      "wiki_title": "Implementation:Unslothai Unsloth OLLAMA TEMPLATES",
+      "wiki_revid": 35,
+      "synced_at": "2026-02-05T10:25:00.632006+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Qwen3_MoE.md": {
+      "content_hash": "sha256:87969c7c790691f328426dbe6504004a462365a00aa9b1f4e482de5c9f503558",
+      "wiki_title": "Implementation:Unslothai Unsloth Qwen3 MoE",
+      "wiki_revid": 36,
+      "synced_at": "2026-02-05T10:25:00.647253+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastQwen3MoEModel.md": {
+      "content_hash": "sha256:133f3904dd9dc012ef215d65be036a1a3802b396f80d103322a5a2bdab32df5d",
+      "wiki_title": "Implementation:Unslothai Unsloth FastQwen3MoEModel",
+      "wiki_revid": 37,
+      "synced_at": "2026-02-05T10:25:00.664523+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Import_Fixes.md": {
+      "content_hash": "sha256:f6dc37f8dfe8819a5af70e7b263fcc6abb1e0eeeb9f666ab7ed3b3b3f907cf4b",
+      "wiki_title": "Implementation:Unslothai Unsloth Import Fixes",
+      "wiki_revid": 38,
+      "synced_at": "2026-02-05T10:25:00.682184+00:00"
+    },
+    "implementations/Unslothai_Unsloth_UnslothTrainer.md": {
+      "content_hash": "sha256:03bd34dc50fb71a1c964f482a23e0715b17b3e7bab6b8c1ddd0a17651c690284",
+      "wiki_title": "Implementation:Unslothai Unsloth UnslothTrainer",
+      "wiki_revid": 39,
+      "synced_at": "2026-02-05T10:25:00.700380+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Grouped_GEMM_Forward.md": {
+      "content_hash": "sha256:68b8e6e7fea3452564618afd22604ef03256dbf486701d73253fc053394c01bd",
+      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Forward",
+      "wiki_revid": 40,
+      "synced_at": "2026-02-05T10:25:00.716675+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Grouped_GEMM_Tuning.md": {
+      "content_hash": "sha256:319c4db39ac3d71319d9781ee716a76ed195b1cfd25664f82c53b39b903e0b38",
+      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Tuning",
+      "wiki_revid": 41,
+      "synced_at": "2026-02-05T10:25:30.786828+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Model_Registry.md": {
+      "content_hash": "sha256:75146b75b41ddb1825dd418557d3d943c4e068130581ded66b6e69578464c73b",
+      "wiki_title": "Implementation:Unslothai Unsloth Model Registry",
+      "wiki_revid": 42,
+      "synced_at": "2026-02-05T10:25:30.803586+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Grouped_GEMM_Interface.md": {
+      "content_hash": "sha256:69bb365c7d7187b2a8defa3d7c9912f68edfc5f1e9c277c1e4dbbcb6a8c8dd6a",
+      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Interface",
+      "wiki_revid": 43,
+      "synced_at": "2026-02-05T10:25:30.819879+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastLlamaModel_get_peft_model.md": {
+      "content_hash": "sha256:71314c9867ff2fc8eea663ee5560b45e3e4711b753242e5737859b6dfa2133f5",
+      "wiki_title": "Implementation:Unslothai Unsloth FastLlamaModel get peft model",
+      "wiki_revid": 44,
+      "synced_at": "2026-02-05T10:25:30.836138+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Device_Type.md": {
+      "content_hash": "sha256:71832e81ddf9c224d4f55c10e932f35195567c918d15200b761fb53d968b3e62",
+      "wiki_title": "Implementation:Unslothai Unsloth Device Type",
+      "wiki_revid": 45,
+      "synced_at": "2026-02-05T10:25:30.851464+00:00"
+    },
+    "implementations/Unslothai_Unsloth_get_chat_template.md": {
+      "content_hash": "sha256:1242f4970f19b6d77ac7f75e1bd7c073509344d01c7da04b5680e119a6f0215f",
+      "wiki_title": "Implementation:Unslothai Unsloth get chat template",
+      "wiki_revid": 46,
+      "synced_at": "2026-02-05T10:25:30.866500+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastQwen3Model.md": {
+      "content_hash": "sha256:2b816ca96268ea2a342eb767740a85c03c5eeee888bf52d6bb3056ae47f27577",
       "wiki_title": "Implementation:Unslothai Unsloth FastQwen3Model",
-      "wiki_revid": 151,
-      "synced_at": "2026-02-05T09:31:46.015866+00:00"
+      "wiki_revid": 47,
+      "synced_at": "2026-02-05T10:25:30.883451+00:00"
+    },
+    "implementations/Unslothai_Unsloth_save_to_gguf.md": {
+      "content_hash": "sha256:9a5ac0917d72ae202b0d4fe01b7d208ee4121ea6c2c5e85f8e87bd3882a7669d",
+      "wiki_title": "Implementation:Unslothai Unsloth save to gguf",
+      "wiki_revid": 48,
+      "synced_at": "2026-02-05T10:25:30.897878+00:00"
+    },
+    "implementations/Unslothai_Unsloth_LayerNorm_Kernel.md": {
+      "content_hash": "sha256:2a727628effffb837a311d18d244c2730f348411d393034cd1d527cdde8c5e9c",
+      "wiki_title": "Implementation:Unslothai Unsloth LayerNorm Kernel",
+      "wiki_revid": 49,
+      "synced_at": "2026-02-05T10:25:30.912094+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Llama4_MoE.md": {
+      "content_hash": "sha256:cadc964f1cc41e9e06436448b51e8b494b8c2a7beaa44a1af553b7757d9e6035",
+      "wiki_title": "Implementation:Unslothai Unsloth Llama4 MoE",
+      "wiki_revid": 50,
+      "synced_at": "2026-02-05T10:25:30.927466+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Flex_Attention.md": {
+      "content_hash": "sha256:03644fc775e98f6a718b36eda4eafffdf080af4c3214138187e5a2169c3f4c2c",
+      "wiki_title": "Implementation:Unslothai Unsloth Flex Attention",
+      "wiki_revid": 51,
+      "synced_at": "2026-02-05T10:25:30.941452+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastVisionModel.md": {
+      "content_hash": "sha256:f286db050db2bb4c50e1e979119592751b7a5a6c64932fa1e6742ace476d792e",
+      "wiki_title": "Implementation:Unslothai Unsloth FastVisionModel",
+      "wiki_revid": 52,
+      "synced_at": "2026-02-05T10:25:30.955371+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Model_Name_Mapper.md": {
+      "content_hash": "sha256:20a1b3dd0ed865ff45e57c3b65ceedd343c7ce37cb4d95418acfd324c088a3fd",
+      "wiki_title": "Implementation:Unslothai Unsloth Model Name Mapper",
+      "wiki_revid": 53,
+      "synced_at": "2026-02-05T10:25:30.968888+00:00"
+    },
+    "implementations/Unslothai_Unsloth_RMS_LayerNorm_Kernel.md": {
+      "content_hash": "sha256:ef0d0b5abfcb00c4ee4db618609f09856d6b73f345ea62a6be896a7cafe56fb5",
+      "wiki_title": "Implementation:Unslothai Unsloth RMS LayerNorm Kernel",
+      "wiki_revid": 54,
+      "synced_at": "2026-02-05T10:25:30.983414+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Grouped_GEMM_Autotuning.md": {
+      "content_hash": "sha256:17adbe143a69ec78905e622993a7b7ec1d6a3dc48d8dad49df93a20d146c29ed",
+      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Autotuning",
+      "wiki_revid": 55,
+      "synced_at": "2026-02-05T10:25:30.997281+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastSentenceTransformerModel.md": {
+      "content_hash": "sha256:a5a106eb7a6d31b860ab69727541f3cec5af92d05edf58d2c8f62f6eecb7bf93",
+      "wiki_title": "Implementation:Unslothai Unsloth FastSentenceTransformerModel",
+      "wiki_revid": 56,
+      "synced_at": "2026-02-05T10:26:01.063091+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FP8_Kernels.md": {
+      "content_hash": "sha256:e7e3d8447fb101d017566d9551019b158221b07934f0e89ece8cff4f0464a22d",
+      "wiki_title": "Implementation:Unslothai Unsloth FP8 Kernels",
+      "wiki_revid": 57,
+      "synced_at": "2026-02-05T10:26:01.079785+00:00"
+    },
+    "implementations/Unslothai_Unsloth_GEGLU_Kernels.md": {
+      "content_hash": "sha256:d82fbb72edcf1f73595eea40513237ae97b33681969fd75dbe4d79a12800e6dd",
+      "wiki_title": "Implementation:Unslothai Unsloth GEGLU Kernels",
+      "wiki_revid": 58,
+      "synced_at": "2026-02-05T10:26:01.096945+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastCohereModel.md": {
+      "content_hash": "sha256:b471db45b1d4f8ba34f22180255c63464ef1bb1a0b30448ec87be007dea5bc5b",
+      "wiki_title": "Implementation:Unslothai Unsloth FastCohereModel",
+      "wiki_revid": 59,
+      "synced_at": "2026-02-05T10:26:01.113142+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastFalconH1Model.md": {
+      "content_hash": "sha256:ce879579de3aa967bd9ddb59dc8a727e75fc37a12fe07e154998a4c123f9b422",
+      "wiki_title": "Implementation:Unslothai Unsloth FastFalconH1Model",
+      "wiki_revid": 60,
+      "synced_at": "2026-02-05T10:26:01.130567+00:00"
+    },
+    "implementations/Unslothai_Unsloth_reward_function_interface.md": {
+      "content_hash": "sha256:9d06748abc3159a54111f21baca4f33da4a50e3ecad19327ad76fcbf1cdc7957",
+      "wiki_title": "Implementation:Unslothai Unsloth reward function interface",
+      "wiki_revid": 61,
+      "synced_at": "2026-02-05T10:26:01.148849+00:00"
+    },
+    "implementations/Unslothai_Unsloth_MoE_Block.md": {
+      "content_hash": "sha256:87aa47ee3ce500506c020409b64746275c67d4b55b763b25bddc84dde619205c",
+      "wiki_title": "Implementation:Unslothai Unsloth MoE Block",
+      "wiki_revid": 62,
+      "synced_at": "2026-02-05T10:26:01.164181+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastGemma2Model.md": {
+      "content_hash": "sha256:c41006e9a291c02a5ceed1f3488d33c5bac2a635bff38ad6e03f8d2f9c91eca3",
+      "wiki_title": "Implementation:Unslothai Unsloth FastGemma2Model",
+      "wiki_revid": 63,
+      "synced_at": "2026-02-05T10:26:01.180786+00:00"
+    },
+    "implementations/Unslothai_Unsloth_FastGraniteModel.md": {
+      "content_hash": "sha256:60f793d528e90688c411d9868a0292e42713501bfc28743b71880d6c69bde762",
+      "wiki_title": "Implementation:Unslothai Unsloth FastGraniteModel",
+      "wiki_revid": 64,
+      "synced_at": "2026-02-05T10:26:01.197855+00:00"
+    },
+    "implementations/Unslothai_Unsloth_SyntheticDataKit.md": {
+      "content_hash": "sha256:240985bd686dc472dea1c7ed474da645e0ba7393c7c8e24bc2df96de0fca0fe4",
+      "wiki_title": "Implementation:Unslothai Unsloth SyntheticDataKit",
+      "wiki_revid": 65,
+      "synced_at": "2026-02-05T10:26:01.214024+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Attention_Dispatch.md": {
+      "content_hash": "sha256:bd016e02d46e751b145fa29d34cfff6f0f3373ab771f04ab821961b9a2da7f05",
+      "wiki_title": "Implementation:Unslothai Unsloth Attention Dispatch",
+      "wiki_revid": 66,
+      "synced_at": "2026-02-05T10:26:01.228893+00:00"
+    },
+    "implementations/Unslothai_Unsloth_Grouped_GEMM_Backward.md": {
+      "content_hash": "sha256:91857f85582601319be3bbfb4d2c4f893f6c4d89015efdc2a38ec5eaec294ac3",
+      "wiki_title": "Implementation:Unslothai Unsloth Grouped GEMM Backward",
+      "wiki_revid": 67,
+      "synced_at": "2026-02-05T10:26:01.245147+00:00"
+    },
+    "implementations/Unslothai_Unsloth_unsloth_save_model.md": {
+      "content_hash": "sha256:7fffbb26142855b63b8ca4a2556c2edcca93c3e73bd5ed9d613ea37b3fb11c05",
+      "wiki_title": "Implementation:Unslothai Unsloth unsloth save model",
+      "wiki_revid": 68,
+      "synced_at": "2026-02-05T10:26:01.261071+00:00"
+    },
+    "principles/Unslothai_Unsloth_Reward_Function_Design.md": {
+      "content_hash": "sha256:992c03834a0ae408e3c4adda5ed17a551a707c4704ec5a8d1271ecfdbdf4a40c",
+      "wiki_title": "Principle:Unslothai Unsloth Reward Function Design",
+      "wiki_revid": 69,
+      "synced_at": "2026-02-05T10:26:01.276074+00:00"
+    },
+    "principles/Unslothai_Unsloth_SFT_Training.md": {
+      "content_hash": "sha256:cbd0a660c2060de445bf88feff27b422e3b143c46b28b35bba945d39661eeb76",
+      "wiki_title": "Principle:Unslothai Unsloth SFT Training",
+      "wiki_revid": 70,
+      "synced_at": "2026-02-05T10:26:01.291318+00:00"
+    },
+    "principles/Unslothai_Unsloth_GRPO_Training.md": {
+      "content_hash": "sha256:b1297ba2df852e0de7416a53660bd4a4bf6b0e5acdc60083107c031e01828a1a",
+      "wiki_title": "Principle:Unslothai Unsloth GRPO Training",
+      "wiki_revid": 71,
+      "synced_at": "2026-02-05T10:26:01.306117+00:00"
+    },
+    "principles/Unslothai_Unsloth_Model_Saving.md": {
+      "content_hash": "sha256:09de8b26264060c4411f61e27dafc75b7b51ba05390b21f40be0c770c34163ce",
+      "wiki_title": "Principle:Unslothai Unsloth Model Saving",
+      "wiki_revid": 72,
+      "synced_at": "2026-02-05T10:26:31.381758+00:00"
+    },
+    "principles/Unslothai_Unsloth_GGUF_Export.md": {
+      "content_hash": "sha256:ef604751aa0db0fa1211db4f1c76aedb88df692a95342fe965343648aab111ba",
+      "wiki_title": "Principle:Unslothai Unsloth GGUF Export",
+      "wiki_revid": 73,
+      "synced_at": "2026-02-05T10:26:31.397910+00:00"
+    },
+    "principles/Unslothai_Unsloth_Ollama_Deployment.md": {
+      "content_hash": "sha256:47e2bcd1f096a35004d08d4929b05a91055515685266672252a171fd514d029e",
+      "wiki_title": "Principle:Unslothai Unsloth Ollama Deployment",
+      "wiki_revid": 74,
+      "synced_at": "2026-02-05T10:26:31.417109+00:00"
+    },
+    "principles/Unslothai_Unsloth_Model_Loading.md": {
+      "content_hash": "sha256:b8f52d9b1ccd29a762654cf1680cddc67e02e7d02435429d388cbb2e38a61c4d",
+      "wiki_title": "Principle:Unslothai Unsloth Model Loading",
+      "wiki_revid": 75,
+      "synced_at": "2026-02-05T10:26:31.434425+00:00"
+    },
+    "principles/Unslothai_Unsloth_LoRA_Adapter_Injection.md": {
+      "content_hash": "sha256:264e2734fb2371a88730a488ebae1ed0b9e7d29c8d42dc9d650f6906533b0d29",
+      "wiki_title": "Principle:Unslothai Unsloth LoRA Adapter Injection",
+      "wiki_revid": 76,
+      "synced_at": "2026-02-05T10:26:31.452958+00:00"
     }
   },
   "pending": [],

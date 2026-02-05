@@ -113,10 +113,10 @@ Check each file in `principles/`:
 
 ### Rule 2: Workflow GitHub URL Constraint (CRITICAL)
 
-**Every Workflow MUST have a `[[github_url::...]]` link.**
+**Every Workflow MUST have a GitHub URL link using the format `[URL Label]`.**
 
 Check each file in `workflows/`:
-1. Find the `[[github_url::...]]` link
+1. Find the `[https://github.com/... Label]` link in the `== GitHub URL ==` section
 2. Verify the URL is valid (not "PENDING")
 
 **Fix:** If missing or PENDING, add a placeholder note in the audit report. The Repository Builder phase will create the actual repos.
@@ -131,7 +131,7 @@ All link targets must point to actual pages:
 | `[[requires_env::Environment:{repo_name}_X]]` | `environments/{repo_name}_X.md` |
 | `[[uses_heuristic::Heuristic:{repo_name}_X]]` | `heuristics/{repo_name}_X.md` |
 
-**Note:** `[[github_url::...]]` links point to external URLs, not wiki pages.
+**Note:** GitHub URL links use external link format `[URL Label]`, not wiki property syntax.
 
 **Fix:** Remove broken links or create missing target pages.
 

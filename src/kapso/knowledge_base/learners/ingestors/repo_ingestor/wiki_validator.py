@@ -232,20 +232,24 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
     # Workflows now link to GitHub repositories instead of step links
     for workflow_id in by_type.get("Workflow", []):
         if workflow_id not in workflow_github_urls:
-            # Also check if the page content contains a github_url
+            # Also check if the page content contains a GitHub URL
             for page in pages:
                 if page.id == workflow_id:
-                    # Check content for [[github_url::...]] pattern
-                    if page.content and "[[github_url::" in page.content:
-                        # Extract URL from content
-                        url_match = re.search(r'\[\[github_url::([^\]]+)\]\]', page.content)
-                        if url_match:
-                            workflow_github_urls[workflow_id] = url_match.group(1)
+                    if page.content:
+                        # Check for new format: [URL Label]
+                        link_match = re.search(r'\[(https://github\.com/[\w-]+/[\w.-]+)\s+[^\]]+\]', page.content)
+                        if link_match:
+                            workflow_github_urls[workflow_id] = link_match.group(1)
+                        else:
+                            # Check for legacy format: [[github_url::...]]
+                            url_match = re.search(r'\[\[github_url::([^\]]+)\]\]', page.content)
+                            if url_match:
+                                workflow_github_urls[workflow_id] = url_match.group(1)
                     break
         
         if workflow_id not in workflow_github_urls:
             report.errors.append(
-                f"{workflow_id}: missing mandatory [[github_url::...]] link to implementation repository"
+                f"{workflow_id}: missing mandatory GitHub URL link (use [URL Label] format)"
             )
 
     # 4) Note: Principles are no longer connected to Workflows via step links

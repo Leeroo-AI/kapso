@@ -220,3 +220,5 @@ moltbook_bot/start_server.sh
 .mcp.json
 
 CLAUDE.md
+
+services/wiki_service/state/sync.json

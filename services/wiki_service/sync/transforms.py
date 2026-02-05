@@ -100,11 +100,24 @@ def title_to_path(wiki_dir: Path, title: str) -> Optional[Path]:
     if not folder:
         return None
 
-    # Replace underscores with underscores (keep them) for filename
-    # MediaWiki titles use underscores for spaces
-    filename = f"{name}.md"
+    folder_path = wiki_dir / folder
 
-    return wiki_dir / folder / filename
+    # MediaWiki treats spaces and underscores as equivalent
+    # Check for existing file with either convention
+    name_with_spaces = name.replace("_", " ")
+    name_with_underscores = name.replace(" ", "_")
+
+    # Check for existing files (prefer underscore version to match original convention)
+    path_underscores = folder_path / f"{name_with_underscores}.md"
+    path_spaces = folder_path / f"{name_with_spaces}.md"
+
+    if path_underscores.exists():
+        return path_underscores
+    elif path_spaces.exists():
+        return path_spaces
+    else:
+        # New file - use underscore convention
+        return path_underscores
 
 
 def parse_namespace(title: str) -> Tuple[Optional[str], str]:

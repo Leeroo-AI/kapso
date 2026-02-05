@@ -391,8 +391,9 @@ PAGEINFO
     echo "✓ PageInfo template created"
 
     # Create Cargo table with proper schema (including internal columns like _pageID)
+    # Note: Don't use --replacement flag as it requires an existing table to swap with
     echo "🔄 Initializing Cargo PageInfo table..."
-    php /var/www/html/extensions/Cargo/maintenance/cargoRecreateData.php --table PageInfo --replacement 2>/dev/null || true
+    php /var/www/html/extensions/Cargo/maintenance/cargoRecreateData.php --table PageInfo 2>&1 || true
     echo "✓ Cargo PageInfo table initialized"
 
     # Create NetworkLegend template for graph visualization
