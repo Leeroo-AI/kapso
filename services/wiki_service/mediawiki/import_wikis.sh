@@ -19,7 +19,8 @@
 # Pages are created with titles: {repo_name}/{Page_Name}
 # e.g., huggingface_text-generation-inference/Workflow_Model_Loading
 
-set -euo pipefail
+set -eu
+# Note: pipefail removed to avoid SIGPIPE errors when output is redirected
 
 # Configuration
 WIKIS_DIR="${WIKIS_DIR:-/wikis}"
