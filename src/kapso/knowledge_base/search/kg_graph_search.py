@@ -1682,8 +1682,9 @@ Only include pages that would actually help answer the query.
         target_dir = wiki_dir / subdir
         target_dir.mkdir(parents=True, exist_ok=True)
         
-        # Determine filename from page title (use spaces, not underscores)
-        filename = page.page_title.replace("_", " ") + ".md"
+        # Use underscores in filename to match repo ingestor convention
+        # and avoid duplicate files (spaces vs underscores)
+        filename = page.page_title.replace(" ", "_") + ".md"
         file_path = target_dir / filename
         
         # Write content directly - it should already be in proper MediaWiki format
