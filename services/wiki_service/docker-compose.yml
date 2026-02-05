@@ -75,7 +75,7 @@ services:
       POLL_INTERVAL: ${SYNC_POLL_INTERVAL:-30}
       DEBOUNCE_MS: ${SYNC_DEBOUNCE_MS:-500}
       CONFLICT_MODE: ${SYNC_CONFLICT_MODE:-file}
-      DELETE_MODE: ${SYNC_DELETE_MODE:-log}
+      DELETE_MODE: ${SYNC_DELETE_MODE:-sync}
     volumes:
       - ../../${WIKI_DIR:-data/wikis}:/wikis:rw
       - ./state:/state:rw
