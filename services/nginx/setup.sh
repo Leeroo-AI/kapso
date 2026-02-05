@@ -20,7 +20,7 @@ cd "$(dirname "$0")"
 # Default values
 DOMAIN="${DOMAIN:-test-leeroopedia.leeroo.com}"
 EMAIL="${EMAIL:-admin@leeroo.com}"
-WIKI_PORT="${WIKI_PORT:-8080}"
+WIKI_PORT="${WIKI_PORT:-8090}"
 API_PORT="${API_PORT:-8091}"
 
 # Parse command line arguments

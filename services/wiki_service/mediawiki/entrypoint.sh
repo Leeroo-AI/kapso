@@ -893,8 +893,11 @@ fi
 
 # Import wiki pages from /wikis directory if mounted
 # This loads .mediawiki files from data/wikis into MediaWiki
+# Run in background so Apache can start immediately (healthcheck needs Apache running)
 if [ -d "/wikis" ]; then
-    /import_wikis.sh
+    echo "📥 Starting wiki import in background..."
+    nohup /import_wikis.sh > /var/log/wiki_import.log 2>&1 &
+    echo "✓ Wiki import started (check /var/log/wiki_import.log for progress)"
 fi
 
 echo "🚀 Starting MediaWiki on ${MW_SITE_SERVER}"
