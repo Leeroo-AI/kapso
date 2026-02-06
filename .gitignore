@@ -222,3 +222,4 @@ moltbook_bot/start_server.sh
 CLAUDE.md
 
 services/wiki_service/state/sync.json
+scripts/evaluate_repos.py

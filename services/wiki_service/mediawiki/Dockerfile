@@ -67,6 +67,7 @@ RUN git clone --depth 1 https://github.com/ProfessionalWiki/Network.git extensio
 COPY entrypoint.sh /entrypoint.sh
 COPY import_wikis.sh /import_wikis.sh
 COPY create_user.php /create_user.php
+COPY refresh-stats.php /var/www/html/refresh-stats.php
 COPY leeroo-logo.png /var/www/html/leeroo-logo.png
 RUN chmod +x /entrypoint.sh /import_wikis.sh
 

@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 
 # Namespace IDs for our synced namespaces
 # These are defined in LocalSettings.php and registered during wiki setup
-# Heuristic=3000, Workflow=3002, Principle=3004, Implementation=3006, Environment=3008
+# Principle=3000, Workflow=3002, Implementation=3004, Heuristic=3008, Environment=3010
 NAMESPACE_IDS = {
-    "Heuristic": 3000,
+    "Principle": 3000,
     "Workflow": 3002,
-    "Principle": 3004,
-    "Implementation": 3006,
-    "Environment": 3008,
+    "Implementation": 3004,
+    "Heuristic": 3008,
+    "Environment": 3010,
 }
 
 
