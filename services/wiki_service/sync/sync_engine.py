@@ -158,6 +158,8 @@ class SyncEngine:
                     wiki_revid=new_revid,
                 )
                 logger.info(f"Synced local->wiki: {title} (rev {new_revid})")
+                # Refresh caches to update Cargo and Main Page
+                self._refresh_wiki_caches()
                 return True
             else:
                 logger.error(f"Wiki edit failed for {title}: {result}")
@@ -336,31 +338,41 @@ class SyncEngine:
         rel_path = str(file_path.relative_to(self.config.wiki_dir))
         file_state = self.state.get_file_state(rel_path)
 
-        if not file_state:
-            return
-
-        title = file_state.wiki_title
+        # Get title from state or derive from path
+        if file_state:
+            title = file_state.wiki_title
+        else:
+            # File not tracked - derive title from path anyway
+            title = path_to_title(self.config.wiki_dir, file_path)
+            if not title:
+                return
+            logger.debug(f"Untracked file deleted, derived title: {title}")
 
         if self.config.delete_mode == "log":
             logger.warning(
                 f"Local file deleted: {rel_path} (wiki: {title}). "
                 f"Manual action required to delete wiki page."
             )
-            self.state.remove_file_state(rel_path)
+            if file_state:
+                self.state.remove_file_state(rel_path)
         elif self.config.delete_mode == "sync":
             try:
                 self.mw.delete(title, reason="Sync: local file deleted")
                 logger.info(f"Deleted wiki page: {title}")
+                # Trigger cache refresh for main page stats
+                self._refresh_wiki_caches()
             except Exception as e:
                 logger.error(f"Failed to delete wiki page {title}: {e}")
-            self.state.remove_file_state(rel_path)
+            if file_state:
+                self.state.remove_file_state(rel_path)
         elif self.config.delete_mode == "archive":
             # Move to archive namespace instead of deleting
             logger.warning(
                 f"Archive mode not implemented. "
                 f"Local file deleted: {rel_path} (wiki: {title})"
             )
-            self.state.remove_file_state(rel_path)
+            if file_state:
+                self.state.remove_file_state(rel_path)
 
     def handle_wiki_delete(self, title: str) -> None:
         """Handle deletion of a wiki page."""
@@ -390,6 +402,41 @@ class SyncEngine:
                 f"Wiki page deleted: {title} (local: {rel_path})"
             )
             self.state.remove_file_state(rel_path)
+
+    def _refresh_wiki_caches(self) -> None:
+        """Refresh wiki caches after page changes (delete/create).
+
+        1. Triggers immediate site stats refresh via HTTP endpoint
+        2. Purges the main page parser cache
+        """
+        import hashlib
+        import requests
+
+        # 1. Trigger immediate stats refresh via HTTP endpoint
+        try:
+            token = hashlib.md5(
+                f"{self.config.mw_user}{self.config.mw_pass}".encode()
+            ).hexdigest()
+
+            stats_url = f"{self.config.wiki_url}/refresh-stats.php"
+            response = requests.get(
+                stats_url,
+                params={"token": token},
+                timeout=30,
+            )
+            if response.ok:
+                logger.info("Site stats refreshed successfully")
+            else:
+                logger.warning(f"Stats refresh returned: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Failed to refresh stats: {e}")
+
+        # 2. Purge the main page parser cache
+        try:
+            self.mw.purge_page("Main_Page")
+            logger.debug("Purged Main_Page cache")
+        except Exception as e:
+            logger.warning(f"Failed to purge Main_Page: {e}")
 
     def initial_sync(
         self,

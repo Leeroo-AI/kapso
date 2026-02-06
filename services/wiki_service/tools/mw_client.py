@@ -175,7 +175,8 @@ class MWClient:
 
     def edit(self, title: str, *, text: str | None = None, summary: str = "",
              createonly: bool = False, append: str | None = None,
-             prepend: str | None = None, bot: bool = True, minor: bool = False):
+             prepend: str | None = None, bot: bool = True, minor: bool = False,
+             _retry: bool = False):
         if not self.csrf:
             self.login()
         payload = {
@@ -202,6 +203,13 @@ class MWClient:
         r.raise_for_status()
         j = r.json()
         if "error" in j:
+            # Handle expired CSRF token by re-login and retry once
+            if j["error"].get("code") == "badtoken" and not _retry:
+                self.csrf = None
+                self.login()
+                return self.edit(title, text=text, summary=summary,
+                                createonly=createonly, append=append,
+                                prepend=prepend, bot=bot, minor=minor, _retry=True)
             raise RuntimeError(j["error"])
         return j
 
@@ -228,7 +236,7 @@ class MWClient:
             raise RuntimeError(j["error"])
         return j
 
-    def delete(self, title: str, *, reason: str = ""):
+    def delete(self, title: str, *, reason: str = "", _retry: bool = False):
         if not self.csrf:
             self.login()
         payload = {
@@ -242,7 +250,24 @@ class MWClient:
         r.raise_for_status()
         j = r.json()
         if "error" in j:
+            # Handle expired CSRF token by re-login and retry once
+            if j["error"].get("code") == "badtoken" and not _retry:
+                self.csrf = None
+                self.login()
+                return self.delete(title, reason=reason, _retry=True)
             raise RuntimeError(j["error"])
+        return j
+
+    def purge_page(self, title: str):
+        """Purge the cache for a page."""
+        payload = {
+            "action": "purge",
+            "format": "json",
+            "titles": title,
+        }
+        r = self.s.post(self.api_url, data=payload, timeout=self.timeout)
+        r.raise_for_status()
+        j = r.json()
         return j
 
     # Optional helpers

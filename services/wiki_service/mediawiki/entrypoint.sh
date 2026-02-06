@@ -321,17 +321,17 @@ Want to connect this knowledge base to your AI agents? Follow the guide at [http
 
 {| class="wikitable" style="width:100%"
 |-
-! Category !! Description !! Pages !! Browse
+! Category !! Description !! Browse
 |-
-| '''Workflows''' || Step-by-step processes and procedures || '''{{PAGESINNAMESPACE:3002}}''' || [[Special:AllPages/Workflow:|Browse All]]
+| '''Workflows''' || Step-by-step processes and procedures || [[Special:AllPages/Workflow:|Browse All]]
 |-
-| '''Principles''' || Core ideas and foundational knowledge || '''{{PAGESINNAMESPACE:3000}}''' || [[Special:AllPages/Principle:|Browse All]]
+| '''Principles''' || Core ideas and foundational knowledge || [[Special:AllPages/Principle:|Browse All]]
 |-
-| '''Implementations''' || Code-level details and modules || '''{{PAGESINNAMESPACE:3004}}''' || [[Special:AllPages/Implementation:|Browse All]]
+| '''Implementations''' || Code-level details and modules || [[Special:AllPages/Implementation:|Browse All]]
 |-
-| '''Heuristics''' || Best practices and guidelines || '''{{PAGESINNAMESPACE:3008}}''' || [[Special:AllPages/Heuristic:|Browse All]]
+| '''Heuristics''' || Best practices and guidelines || [[Special:AllPages/Heuristic:|Browse All]]
 |-
-| '''Environments''' || Setup and configuration guides || '''{{PAGESINNAMESPACE:3010}}''' || [[Special:AllPages/Environment:|Browse All]]
+| '''Environments''' || Setup and configuration guides || [[Special:AllPages/Environment:|Browse All]]
 |}
 
 == Recent Pages ==
@@ -900,6 +900,16 @@ if [ -d "/wikis" ]; then
     nohup /import_wikis.sh > /var/log/wiki_import.log 2>&1 &
     echo "✓ Wiki import started (check /var/log/wiki_import.log for progress)"
 fi
+
+# Start background job to refresh site stats periodically (for accurate page counts)
+echo "🔄 Starting background stats refresh job..."
+(
+    sleep 60  # Wait for Apache to start and initial import to complete
+    while true; do
+        php /var/www/html/maintenance/run.php initSiteStats.php --update > /dev/null 2>&1
+        sleep 30
+    done
+) &
 
 echo "🚀 Starting MediaWiki on ${MW_SITE_SERVER}"
 exec docker-php-entrypoint "$@"
