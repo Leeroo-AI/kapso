@@ -122,7 +122,7 @@ Before finishing, verify:
 
 - [ ] Every workflow section has detailed Step N tables
 - [ ] Every step table has ALL 6 attributes filled in
-- [ ] Source locations include file path AND line numbers (e.g., `file.py:L100-200`)
+- [ ] Source locations include file path AND line numbers (e.g., `file.ext:L100-200`)
 - [ ] Implementation Extraction Guide exists for each workflow
 - [ ] No `<!-- ENRICHMENT NEEDED -->` comments remain
 

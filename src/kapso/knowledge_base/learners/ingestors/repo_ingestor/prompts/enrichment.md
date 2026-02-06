@@ -107,7 +107,7 @@ Environment requirements for running Unsloth with CUDA acceleration.
 
 '''Software:'''
 * CUDA 11.8 or higher
-* Python 3.10+
+* Python 3.10+ / Node.js 18+ / Go 1.21+ (language-dependent)
 ```
 
 ## Context
@@ -183,7 +183,7 @@ Then scan those files for:
    - `try/except ImportError` blocks
 
 3. **Configuration files:**
-   - `requirements.txt`
+   - `requirements.txt` / `package.json` / `go.mod` / `Cargo.toml`
    - `setup.py` or `pyproject.toml`
 
 4. **Environment variables:**
@@ -194,7 +194,7 @@ Then scan those files for:
 
 For each environment requirement, create a page with:
 - System requirements (OS, hardware, disk)
-- Python/system package dependencies with versions
+- Language runtime and system package dependencies with versions
 - Required credentials (names only, never actual values!)
 - Code evidence (quote the actual check)
 

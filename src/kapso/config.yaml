@@ -35,8 +35,8 @@ modes:
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
+        implementation_model: "us.anthropic.claude-opus-4-6-v1"
         use_bedrock: true
         aws_region: "us-east-1"
         ideation_timeout: 300
@@ -46,8 +46,8 @@ modes:
     
     coding_agent:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      model: "us.anthropic.claude-opus-4-6-v1"
+      debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
         use_bedrock: true
         aws_region: "us-east-1"
@@ -56,8 +56,8 @@ modes:
     
     feedback_generator:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      model: "us.anthropic.claude-opus-4-6-v1"
+      debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
         use_bedrock: true
         aws_region: "us-east-1"
@@ -78,7 +78,7 @@ modes:
     # Learner configuration for kapso.learn()
     learner:
       ingestor:
-        model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        model: "us.anthropic.claude-opus-4-6-v1"
         use_bedrock: true
         aws_region: "us-east-1"
         timeout: 1800
@@ -87,7 +87,7 @@ modes:
         fail_on_validation_errors: true
         github_repo_visibility: "private"
       merger:
-        model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        model: "us.anthropic.claude-opus-4-6-v1"
         use_bedrock: true
         aws_region: "us-east-1"
         timeout: 3600
@@ -101,8 +101,8 @@ modes:
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
+        implementation_model: "us.anthropic.claude-opus-4-6-v1"
         use_bedrock: true
         aws_region: "us-east-1"
         ideation_timeout: 180
@@ -112,8 +112,8 @@ modes:
     
     coding_agent:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      model: "us.anthropic.claude-opus-4-6-v1"
+      debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
         use_bedrock: true
         aws_region: "us-east-1"
@@ -122,8 +122,8 @@ modes:
     
     feedback_generator:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-      debug_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      model: "us.anthropic.claude-opus-4-6-v1"
+      debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
         use_bedrock: true
         aws_region: "us-east-1"
@@ -137,7 +137,7 @@ modes:
     # Learner configuration for kapso.learn()
     learner:
       ingestor:
-        model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        model: "us.anthropic.claude-opus-4-6-v1"
         use_bedrock: true
         aws_region: "us-east-1"
         timeout: 600
@@ -146,7 +146,7 @@ modes:
         fail_on_validation_errors: true
         github_repo_visibility: "private"
       merger:
-        model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        model: "us.anthropic.claude-opus-4-6-v1"
         use_bedrock: true
         aws_region: "us-east-1"
         timeout: 1800

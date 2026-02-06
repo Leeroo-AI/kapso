@@ -100,7 +100,7 @@ One sentence describing what this code does.
 ```mediawiki
 === Source Location ===
 * '''Repository:''' [{repo_url} {repo_name}]
-* '''File:''' [{repo_url}/blob/main/path/file.py#L10-L100 path/file.py]
+* '''File:''' [{repo_url}/blob/main/path/file#L10-L100 path/file]
 * '''Lines:''' 10-100
 
 === Signature ===
@@ -109,6 +109,8 @@ class ClassName:
     def method(self, arg: Type) -> ReturnType:
         """Docstring."""
 </syntaxhighlight>
+
+Use the appropriate language for the `lang` attribute (e.g., `python`, `javascript`, `go`, `rust`, `java`, etc.).
 
 === Import ===
 <syntaxhighlight lang="python">
@@ -148,7 +150,7 @@ After creating EACH page, **IMMEDIATELY update the Status column** in `{candidat
 ## AUTO_KEEP (Must Document)
 | # | File | Lines | Rule | Status |
 |---|------|-------|------|--------|
-| 1 | `path/file.py` | 500 | K1 | ✅ DONE |  ← Update this
+| 1 | `path/file` | 500 | K1 | ✅ DONE |  ← Update this
 ```
 
 This allows resumption if interrupted.
@@ -158,12 +160,12 @@ This allows resumption if interrupted.
 After creating pages, **update the Coverage column** in `{repo_map_path}`:
 
 ```markdown
-| ✅ | `path/file.py` | 500 | Purpose | Impl: {repo_name}_ClassName | [→](...) |
+| ✅ | `path/file` | 500 | Purpose | Impl: {repo_name}_ClassName | [→](...) |
 ```
 
 If a Principle was also created:
 ```markdown
-| ✅ | `path/file.py` | 500 | Purpose | Impl: {repo_name}_X; Principle: {repo_name}_Y | [→](...) |
+| ✅ | `path/file` | 500 | Purpose | Impl: {repo_name}_X; Principle: {repo_name}_Y | [→](...) |
 ```
 
 ### Step 6: Update Page Indexes (IMMEDIATELY)
@@ -172,7 +174,7 @@ If a Principle was also created:
 
 **For new Implementations** → Add to `{wiki_dir}/_ImplementationIndex.md`:
 ```markdown
-| {repo_name}_ClassName | [→](./implementations/{repo_name}_ClassName.md) | ⬜Principle:{repo_name}_X | file.py:L10-100 |
+| {repo_name}_ClassName | [→](./implementations/{repo_name}_ClassName.md) | ⬜Principle:{repo_name}_X | file:L10-100 |
 ```
 
 **For new Principles** → Add to `{wiki_dir}/_PrincipleIndex.md`:
@@ -221,7 +223,7 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase5c_orphan_cre
 ### Implementations
 | Page | Source File | Lines |
 |------|-------------|-------|
-| {repo_name}_X | path/file.py | 10-100 |
+| {repo_name}_X | path/file | 10-100 |
 
 ### Principles
 | Page | Implemented By |

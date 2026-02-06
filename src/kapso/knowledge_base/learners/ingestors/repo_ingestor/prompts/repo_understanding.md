@@ -45,7 +45,7 @@ The repository understanding is split into:
    - **Coverage**: Which wiki pages cover this file (filled by later phases)
    - **Details**: Link to per-file detail page
 
-2. **Detail files** (`_files/*.md`): One file per Python file with full Understanding
+2. **Detail files** (`_files/*.md`): One file per source file with full Understanding
 
 ## Your Task
 
@@ -69,11 +69,11 @@ You may explore files in batches for efficiency. **But you MUST sync the index a
 **Example batch:**
 ```
 # Batch 1: Read 5 files
-Read: loader.py, __init__.py, save.py, trainer.py, _utils.py
+Read: loader.py, __init__.py, save.py, trainer.py, config.yaml
 Read: their detail files
 
 # Write 5 detail files
-Write: loader_py.md, __init___py.md, save_py.md, trainer_py.md, _utils_py.md
+Write: loader_py.md, __init___py.md, save_py.md, trainer_py.md, config_yaml.md
 
 # SYNC INDEX — update 5 rows at once
 Write: _RepoMap_xxx.md (with 5 rows changed from ⬜ to ✅ and Purpose filled)
@@ -111,10 +111,11 @@ Check your progress:
 
 ## Priority Order (process ALL, but start with these)
 
-1. **Core entry points first:** `__init__.py`, main loaders, primary APIs
+1. **Core entry points first:** Main entry files (e.g., `__init__.py`, `index.js`, `main.go`), primary APIs
 2. **Example files:** These show intended usage patterns
 3. **Kernel/utility files:** Supporting code
 4. **Test files:** Just note what they test (brief)
+5. **Config/data files:** Just note their purpose (brief)
 
 ⚠️ **All categories MUST be explored** — priority only affects order, not whether to include.
 
@@ -145,9 +146,10 @@ Check your progress:
   - Do NOT have sub-agents return full file content - this causes context overflow
   - Wait for one batch of sub-agents to complete before spawning more
 - Read files in batches (5-10 at a time) to build context
-- Use the AST info in detail files (Classes, Functions) to know what to look for
+- Use the structural info in detail files (Classes, Functions) to know what to look for
 - For test files, brief is OK: "Tests for X functionality"
 - For similar model files (e.g., `gemma.py`, `mistral.py`), copy patterns: "Gemma model patching (similar to Llama)"
+- For config files (`.yaml`, `.toml`, `.json`), a brief description suffices
 - **Don't overthink** — brief descriptions are fine, just cover ALL files
 
 ## Output

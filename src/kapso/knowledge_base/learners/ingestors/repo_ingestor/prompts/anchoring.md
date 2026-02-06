@@ -265,8 +265,8 @@ Write THIS structure:
 
 ### Source Files (for enrichment)
 
-- `path/to/file1.py` - Brief purpose
-- `path/to/file2.py` - Brief purpose
+- `path/to/file1` - Brief purpose
+- `path/to/file2` - Brief purpose
 
 <!-- ENRICHMENT NEEDED: Phase 1b will add detailed Step N attribute tables below -->
 
@@ -319,8 +319,8 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase1a_anchoring.
 ## Source Files Identified Per Workflow
 
 ### {repo_name}_WorkflowName
-- `file1.py` - purpose
-- `file2.py` - purpose
+- `file1` - purpose
+- `file2` - purpose
 
 ## Notes for Phase 1b (Enrichment)
 - [Files that need line-by-line tracing]

@@ -108,6 +108,8 @@ def example():
 </syntaxhighlight>
 ```
 
+Use the appropriate language for the `lang` attribute (e.g., `python`, `javascript`, `go`, `rust`, `java`, etc.).
+
 NOT: triple backticks (```python)
 
 ### Whitespace Rules
