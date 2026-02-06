@@ -310,7 +310,10 @@ class KnowledgeMerger:
         type_dir = wiki_dir / subdir
         type_dir.mkdir(parents=True, exist_ok=True)
         
-        filename = f"{page.page_title}.md"
+        # Use underscores in filename to match repo ingestor convention
+        # and avoid duplicate files (spaces vs underscores)
+        sanitized_title = page.page_title.replace(" ", "_")
+        filename = f"{sanitized_title}.md"
         file_path = type_dir / filename
         file_path.write_text(page.content, encoding="utf-8")
         

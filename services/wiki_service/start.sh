@@ -154,6 +154,43 @@ while ((tries--)); do
     # Check if wiki responds with HTTP 200 or 301/302
     if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}" | grep -qE "^(200|301|302)$"; then
         echo ""
+        echo "Wiki server is up, running page import..."
+        echo ""
+        
+        # Run wiki import inside the container in background and poll for completion
+        # This avoids SIGPIPE issues with long-running docker exec commands
+        docker compose exec -d wiki bash -c '/import_wikis.sh > /tmp/import_output.log 2>&1; echo $? > /tmp/import_done'
+        
+        # Wait for import to complete (check for marker file)
+        import_tries=600  # 10 minutes max
+        prev_line=""
+        while ((import_tries--)); do
+            if docker compose exec -T wiki test -f /tmp/import_done 2>/dev/null; then
+                break
+            fi
+            # Show progress
+            last_line=$(docker compose exec -T wiki tail -1 /tmp/import_output.log 2>/dev/null || echo "")
+            if [[ -n "$last_line" && "$last_line" != "$prev_line" ]]; then
+                echo "$last_line"
+                prev_line="$last_line"
+            fi
+            sleep 1
+        done
+        
+        # Get exit code and show final output
+        import_exit_code=$(docker compose exec -T wiki cat /tmp/import_done 2>/dev/null | tr -d '[:space:]')
+        echo ""
+        docker compose exec -T wiki tail -5 /tmp/import_output.log 2>/dev/null || true
+        
+        echo ""
+        if [ "$import_exit_code" = "0" ]; then
+            echo "Page import completed successfully."
+        else
+            echo "Warning: Page import exited with code $import_exit_code"
+            echo "Check logs with: docker compose exec wiki cat /tmp/import_output.log"
+        fi
+        
+        echo ""
         echo "=========================================="
         echo "Wiki is ready!"
         echo ""
@@ -218,6 +255,10 @@ done
 
 echo ""
 echo "Error: Wiki did not start in time."
+echo ""
+echo "Check logs with: docker compose logs wiki"
+exit 1
+ in time."
 echo ""
 echo "Check logs with: docker compose logs wiki"
 exit 1
