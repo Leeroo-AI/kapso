@@ -13,26 +13,22 @@ from ..config import get_settings
 
 
 # Valid namespaces mapping (directory name to display name)
+# Only expose: Principle, Workflow, Implementation, Heuristic, Environment
 NAMESPACE_DIRS: Dict[str, str] = {
     "principles": "Principle",
     "workflows": "Workflow",
     "implementations": "Implementation",
-    "artifacts": "Artifact",
     "heuristics": "Heuristic",
     "environments": "Environment",
-    "resources": "Resource",
 }
 
 # Namespace display name to ID mapping
 NAMESPACE_IDS: Dict[str, int] = {
-    "main": 0,
     "Principle": 3000,
     "Workflow": 3002,
     "Implementation": 3004,
-    "Artifact": 3006,
     "Heuristic": 3008,
     "Environment": 3010,
-    "Resource": 3012,
 }
 
 # For API responses
@@ -40,21 +36,16 @@ VALID_NAMESPACES: Dict[int, str] = {v: k for k, v in NAMESPACE_IDS.items()}
 
 # Namespace name variations for filtering
 NAMESPACE_NAME_TO_DIR: Dict[str, str] = {
-    "main": "",
     "principle": "principles",
     "principles": "principles",
     "workflow": "workflows",
     "workflows": "workflows",
     "implementation": "implementations",
     "implementations": "implementations",
-    "artifact": "artifacts",
-    "artifacts": "artifacts",
     "heuristic": "heuristics",
     "heuristics": "heuristics",
     "environment": "environments",
     "environments": "environments",
-    "resource": "resources",
-    "resources": "resources",
 }
 
 

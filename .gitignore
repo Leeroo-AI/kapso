@@ -224,3 +224,4 @@ CLAUDE.md
 services/wiki_service/state/sync.json
 scripts/evaluate_repos.py
 repos.json
+scripts/tmux_log.sh
