@@ -36,7 +36,7 @@ Read `{candidates_path}` to see the MANUAL_REVIEW table:
 ```markdown
 | # | File | Lines | Purpose | Decision | Reasoning |
 |---|------|-------|---------|----------|-----------|
-| 1 | `path/to/file.py` | 150 | Some utility | ⬜ PENDING | |
+| 1 | `path/to/file` | 150 | Some utility | ⬜ PENDING | |
 ```
 
 ### Step 2: Evaluate Each MANUAL_REVIEW File
@@ -71,8 +71,8 @@ For each file, answer these questions:
 Update each row with your decision:
 
 ```markdown
-| 1 | `path/file.py` | 150 | Purpose | ✅ APPROVED | Has public API, user-facing |
-| 2 | `path/util.py` | 80 | Utility | ❌ REJECTED | Internal helper, no public API |
+| 1 | `path/file` | 150 | Purpose | ✅ APPROVED | Has public API, user-facing |
+| 2 | `path/util` | 80 | Utility | ❌ REJECTED | Internal helper, no public API |
 ```
 
 **Valid decisions:**
@@ -124,8 +124,8 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase5b_orphan_rev
 ## Decisions
 | File | Decision | Reasoning |
 |------|----------|-----------|
-| path/file.py | APPROVED | Has public API |
-| path/util.py | REJECTED | Internal helper |
+| path/file | APPROVED | Has public API |
+| path/util | REJECTED | Internal helper |
 
 ## Notes
 - [Any patterns observed]

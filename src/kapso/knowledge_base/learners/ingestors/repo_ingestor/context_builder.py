@@ -5,7 +5,7 @@
 #
 # Structure:
 # - _RepoMap_{repo_name}.md: Compact index with file list and status
-# - _files/{filename}.md: Per-file detail with AST info and Understanding
+# - _files/{filename}.md: Per-file detail with AST/structural info and Understanding
 #
 # This split design makes it easy to:
 # - See at a glance what's explored vs remaining
@@ -14,23 +14,93 @@
 #
 # Key functions:
 # - generate_repo_scaffold(): Create compact index + per-file detail files
-# - parse_python_file(): Extract classes, functions, imports from a Python file
+# - parse_source_file(): Extract structural info from source files (AST for Python, basic info for others)
+#
+# Supported languages:
+# - Python (.py) - full AST parsing (classes, functions, imports)
+# - JavaScript/TypeScript (.js, .ts, .jsx, .tsx, .mjs, .cjs) - line count + basic info
+# - Go (.go) - line count + basic info
+# - Rust (.rs) - line count + basic info
+# - Java/Kotlin (.java, .kt) - line count + basic info
+# - C/C++ (.c, .cpp, .h, .hpp, .cc, .cxx) - line count + basic info
+# - Ruby (.rb) - line count + basic info
+# - Shell (.sh, .bash) - line count + basic info
+# - Config/Data (.yaml, .yml, .toml, .json) - line count only
+# - Markdown (.md) - line count only
 
 import ast
 import logging
+import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
-def parse_python_file(file_path: Path) -> Dict:
+# =============================================================================
+# SUPPORTED FILE EXTENSIONS
+# =============================================================================
+
+# Source code extensions that get full structural parsing where possible
+# Python gets AST-based parsing; others get regex-based basic parsing
+SOURCE_CODE_EXTENSIONS: Set[str] = {
+    # Python (full AST parsing)
+    ".py",
+    # JavaScript / TypeScript
+    ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
+    # Go
+    ".go",
+    # Rust
+    ".rs",
+    # Java / Kotlin
+    ".java", ".kt",
+    # C / C++
+    ".c", ".cpp", ".h", ".hpp", ".cc", ".cxx",
+    # Ruby
+    ".rb",
+    # Shell scripts
+    ".sh", ".bash",
+}
+
+# Configuration / data files — included in the repo map but no structural parsing
+CONFIG_EXTENSIONS: Set[str] = {
+    ".yaml", ".yml", ".toml", ".json",
+}
+
+# Documentation files — included in the repo map for completeness
+DOC_EXTENSIONS: Set[str] = {
+    ".md", ".rst", ".txt",
+}
+
+# All extensions we care about (union of all sets above)
+ALL_SUPPORTED_EXTENSIONS: Set[str] = SOURCE_CODE_EXTENSIONS | CONFIG_EXTENSIONS | DOC_EXTENSIONS
+
+# Map file extensions to language names (used for display and syntax highlighting)
+EXTENSION_TO_LANGUAGE: Dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".ts": "typescript", ".tsx": "typescript", ".jsx": "javascript",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java", ".kt": "kotlin",
+    ".c": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+    ".h": "c", ".hpp": "cpp",
+    ".rb": "ruby",
+    ".sh": "shell", ".bash": "shell",
+    ".yaml": "yaml", ".yml": "yaml",
+    ".toml": "toml", ".json": "json",
+    ".md": "markdown", ".rst": "rst", ".txt": "text",
+}
+
+
+def _parse_python_file(file_path: Path) -> Dict:
     """
-    Parse a Python file and extract structural information.
+    Parse a Python file using AST and extract structural information.
     
     Returns dict with:
     - lines: Line count
+    - language: "python"
     - classes: List of class names with their public methods
     - functions: List of top-level function names
     - imports: List of imported modules/symbols
@@ -95,6 +165,7 @@ def parse_python_file(file_path: Path) -> Dict:
         
         return {
             "lines": lines,
+            "language": "python",
             "classes": classes,
             "functions": functions,
             "imports": imports,
@@ -105,6 +176,7 @@ def parse_python_file(file_path: Path) -> Dict:
     except SyntaxError as e:
         return {
             "lines": 0,
+            "language": "python",
             "classes": [],
             "functions": [],
             "imports": [],
@@ -114,6 +186,7 @@ def parse_python_file(file_path: Path) -> Dict:
     except Exception as e:
         return {
             "lines": 0,
+            "language": "python",
             "classes": [],
             "functions": [],
             "imports": [],
@@ -122,9 +195,249 @@ def parse_python_file(file_path: Path) -> Dict:
         }
 
 
+def _parse_generic_source_file(file_path: Path) -> Dict:
+    """
+    Parse a non-Python source file using regex-based heuristics.
+    
+    Extracts basic structural info (line count, class/function names)
+    using simple regex patterns. Not as accurate as AST parsing but
+    provides useful hints for the agent.
+    
+    Returns dict with same shape as _parse_python_file for consistency.
+    """
+    ext = file_path.suffix.lower()
+    language = EXTENSION_TO_LANGUAGE.get(ext, "unknown")
+    
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")
+        lines = len(content.splitlines())
+        
+        classes = []
+        functions = []
+        imports = []
+        has_main = False
+        
+        # Only attempt structural extraction for source code files
+        if ext in SOURCE_CODE_EXTENSIONS:
+            classes, functions, imports, has_main = _extract_structure_regex(
+                content, ext, language
+            )
+        
+        return {
+            "lines": lines,
+            "language": language,
+            "classes": classes,
+            "functions": functions,
+            "imports": imports,
+            "has_main": has_main,
+            "parse_error": None,
+        }
+    except Exception as e:
+        return {
+            "lines": 0,
+            "language": language,
+            "classes": [],
+            "functions": [],
+            "imports": [],
+            "has_main": False,
+            "parse_error": str(e),
+        }
+
+
+def _extract_structure_regex(
+    content: str, ext: str, language: str
+) -> Tuple[List[Dict], List[Dict], List[str], bool]:
+    """
+    Extract classes, functions, imports using regex patterns per language.
+    
+    Returns: (classes, functions, imports, has_main)
+    """
+    classes = []
+    functions = []
+    imports = []
+    has_main = False
+    
+    lines = content.splitlines()
+    
+    # --- JavaScript / TypeScript ---
+    if ext in (".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"):
+        for i, line in enumerate(lines, 1):
+            # Class definitions
+            m = re.match(r'^\s*(?:export\s+)?class\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Top-level function definitions
+            m = re.match(r'^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)', line)
+            if m:
+                functions.append({"name": m.group(1), "line": i})
+            # Arrow function exports: export const foo = ...
+            m = re.match(r'^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(', line)
+            if m and not m.group(1).startswith("_"):
+                functions.append({"name": m.group(1), "line": i})
+            # Imports
+            m = re.match(r"^\s*import\s+.*from\s+['\"]([^'\"]+)['\"]", line)
+            if m:
+                imports.append(m.group(1).split("/")[0])
+            m = re.match(r"^\s*(?:const|let|var)\s+.*=\s*require\(['\"]([^'\"]+)['\"]\)", line)
+            if m:
+                imports.append(m.group(1).split("/")[0])
+    
+    # --- Go ---
+    elif ext == ".go":
+        for i, line in enumerate(lines, 1):
+            # Type/struct definitions
+            m = re.match(r'^\s*type\s+(\w+)\s+struct\b', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Interface definitions
+            m = re.match(r'^\s*type\s+(\w+)\s+interface\b', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Function definitions
+            m = re.match(r'^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)\(', line)
+            if m:
+                functions.append({"name": m.group(1), "line": i})
+            # Imports (single and block)
+            m = re.match(r'^\s*import\s+"([^"]+)"', line)
+            if m:
+                imports.append(m.group(1).split("/")[-1])
+        # Check for main function
+        if 'func main()' in content:
+            has_main = True
+    
+    # --- Rust ---
+    elif ext == ".rs":
+        for i, line in enumerate(lines, 1):
+            # Struct definitions
+            m = re.match(r'^\s*(?:pub\s+)?struct\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Enum definitions
+            m = re.match(r'^\s*(?:pub\s+)?enum\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Trait definitions
+            m = re.match(r'^\s*(?:pub\s+)?trait\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Function definitions
+            m = re.match(r'^\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)', line)
+            if m:
+                functions.append({"name": m.group(1), "line": i})
+            # Use imports
+            m = re.match(r'^\s*use\s+(\w+)', line)
+            if m:
+                imports.append(m.group(1))
+        # Check for main function
+        if re.search(r'fn\s+main\s*\(', content):
+            has_main = True
+    
+    # --- Java / Kotlin ---
+    elif ext in (".java", ".kt"):
+        for i, line in enumerate(lines, 1):
+            # Class definitions
+            m = re.match(r'^\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+)?(?:data\s+)?class\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Interface definitions
+            m = re.match(r'^\s*(?:public\s+)?interface\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Imports
+            m = re.match(r'^\s*import\s+([\w.]+)', line)
+            if m:
+                imports.append(m.group(1).split(".")[0])
+        # Check for main method
+        if 'static void main' in content or 'fun main(' in content:
+            has_main = True
+    
+    # --- C / C++ ---
+    elif ext in (".c", ".cpp", ".h", ".hpp", ".cc", ".cxx"):
+        for i, line in enumerate(lines, 1):
+            # Class/struct definitions
+            m = re.match(r'^\s*(?:class|struct)\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Include directives as "imports"
+            m = re.match(r'^\s*#include\s+[<"]([^>"]+)[>"]', line)
+            if m:
+                imports.append(m.group(1))
+        # Check for main function
+        if re.search(r'\bint\s+main\s*\(', content):
+            has_main = True
+    
+    # --- Ruby ---
+    elif ext == ".rb":
+        for i, line in enumerate(lines, 1):
+            # Class definitions
+            m = re.match(r'^\s*class\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Module definitions
+            m = re.match(r'^\s*module\s+(\w+)', line)
+            if m:
+                classes.append({"name": m.group(1), "methods": [], "line": i})
+            # Method definitions
+            m = re.match(r'^\s*def\s+(\w+)', line)
+            if m:
+                functions.append({"name": m.group(1), "line": i})
+            # Require imports
+            m = re.match(r"^\s*require\s+['\"]([^'\"]+)['\"]", line)
+            if m:
+                imports.append(m.group(1))
+    
+    # --- Shell ---
+    elif ext in (".sh", ".bash"):
+        for i, line in enumerate(lines, 1):
+            # Function definitions
+            m = re.match(r'^\s*(?:function\s+)?(\w+)\s*\(\)', line)
+            if m:
+                functions.append({"name": m.group(1), "line": i})
+        # Check for main guard
+        if 'main "$@"' in content:
+            has_main = True
+    
+    # Deduplicate imports
+    imports = sorted(set(imports))
+    
+    return classes, functions, imports, has_main
+
+
+def parse_source_file(file_path: Path) -> Dict:
+    """
+    Parse a source file and extract structural information.
+    
+    Delegates to _parse_python_file() for .py files (full AST parsing)
+    and _parse_generic_source_file() for all other languages (regex-based).
+    
+    Returns dict with:
+    - lines: Line count
+    - language: Language name (e.g., "python", "javascript", "go")
+    - classes: List of class/struct names with their public methods
+    - functions: List of top-level function names
+    - imports: List of imported modules/symbols
+    - has_main: Whether file has a main entry point
+    - parse_error: Error string if parsing failed, else None
+    """
+    if file_path.suffix.lower() == ".py":
+        return _parse_python_file(file_path)
+    else:
+        return _parse_generic_source_file(file_path)
+
+
 def categorize_directories(repo_path: Path) -> Dict[str, List[str]]:
     """
     Categorize directories in the repo by their likely purpose.
+    
+    Detects project structures across multiple languages:
+    - Python (__init__.py, *.py)
+    - JavaScript/TypeScript (package.json, *.js, *.ts)
+    - Go (go.mod, *.go)
+    - Rust (Cargo.toml, *.rs)
+    - Java/Kotlin (*.java, *.kt)
+    - C/C++ (*.c, *.cpp, *.h)
+    - Ruby (Gemfile, *.rb)
+    - Generic src/ directories
     
     Returns dict with:
     - package_dirs: Main source code directories
@@ -139,11 +452,15 @@ def categorize_directories(repo_path: Path) -> Dict[str, List[str]]:
         "doc_dirs": [],
     }
     
-    # Common patterns
+    # Common patterns for directory categorization
     example_patterns = {"example", "examples", "demo", "demos", "sample", "samples", "notebook", "notebooks", "scripts"}
-    test_patterns = {"test", "tests", "testing", "spec", "specs"}
+    test_patterns = {"test", "tests", "testing", "spec", "specs", "__tests__"}
     doc_patterns = {"doc", "docs", "documentation", "wiki"}
-    skip_patterns = {"__pycache__", ".git", ".github", "node_modules", "venv", ".venv", "env", ".env", "build", "dist", "egg-info"}
+    skip_patterns = {
+        "__pycache__", ".git", ".github", "node_modules", "venv", ".venv",
+        "env", ".env", "build", "dist", "egg-info", "target", "vendor",
+        ".next", ".nuxt", "coverage", ".cache", "tmp", ".tmp",
+    }
     
     for item in repo_path.iterdir():
         if not item.is_dir():
@@ -161,26 +478,73 @@ def categorize_directories(repo_path: Path) -> Dict[str, List[str]]:
             categories["test_dirs"].append(item.name)
         elif name_lower in doc_patterns:
             categories["doc_dirs"].append(item.name)
+        # Python package detection
         elif (item / "__init__.py").exists():
-            # It's a Python package
             categories["package_dirs"].append(item.name)
-        elif any(item.glob("*.py")):
-            # Has Python files, might be a package or scripts
+        # JavaScript/TypeScript project detection
+        elif (item / "package.json").exists():
+            categories["package_dirs"].append(item.name)
+        # Go module detection
+        elif (item / "go.mod").exists():
+            categories["package_dirs"].append(item.name)
+        # Rust crate detection
+        elif (item / "Cargo.toml").exists():
+            categories["package_dirs"].append(item.name)
+        # Ruby gem detection
+        elif (item / "Gemfile").exists():
+            categories["package_dirs"].append(item.name)
+        # Generic "src" directory is always a package dir
+        elif name_lower == "src":
+            categories["package_dirs"].append(item.name)
+        # Generic "lib" or "pkg" directory
+        elif name_lower in ("lib", "pkg", "packages", "internal", "cmd"):
+            categories["package_dirs"].append(item.name)
+        # Fallback: check if directory has any supported source files
+        elif _dir_has_source_files(item):
             categories["package_dirs"].append(item.name)
     
     return categories
 
 
+def _dir_has_source_files(directory: Path) -> bool:
+    """Check if a directory contains any supported source code files."""
+    for ext in SOURCE_CODE_EXTENSIONS:
+        if any(directory.glob(f"*{ext}")):
+            return True
+    return False
+
+
 def find_key_files(repo_path: Path) -> Dict[str, Optional[str]]:
     """
     Find important files in the repository.
+    
+    Detects key files across multiple languages and ecosystems:
+    - README, LICENSE
+    - Python: setup.py, requirements.txt, pyproject.toml
+    - JavaScript/TypeScript: package.json, tsconfig.json
+    - Go: go.mod, go.sum
+    - Rust: Cargo.toml
+    - Ruby: Gemfile
+    - Java/Kotlin: build.gradle, pom.xml
+    - C/C++: CMakeLists.txt, Makefile
+    - Docker: Dockerfile, docker-compose.yml
     """
     key_files = {
         "readme": None,
-        "setup": None,
-        "requirements": None,
-        "pyproject": None,
-        "dockerfile": None,
+        "setup": None,          # Python: setup.py
+        "requirements": None,   # Python: requirements.txt
+        "pyproject": None,      # Python: pyproject.toml
+        "package_json": None,   # JS/TS: package.json
+        "tsconfig": None,       # TypeScript: tsconfig.json
+        "go_mod": None,         # Go: go.mod
+        "cargo_toml": None,     # Rust: Cargo.toml
+        "gemfile": None,        # Ruby: Gemfile
+        "build_gradle": None,   # Java/Kotlin: build.gradle
+        "pom_xml": None,        # Java: pom.xml
+        "cmake": None,          # C/C++: CMakeLists.txt
+        "makefile": None,       # Generic: Makefile
+        "dockerfile": None,     # Docker: Dockerfile
+        "docker_compose": None, # Docker: docker-compose.yml
     }
     
     for f in repo_path.iterdir():
@@ -197,20 +561,43 @@ def find_key_files(repo_path: Path) -> Dict[str, Optional[str]]:
             key_files["requirements"] = f.name
         elif name_lower == "pyproject.toml":
             key_files["pyproject"] = f.name
+        elif name_lower == "package.json":
+            key_files["package_json"] = f.name
+        elif name_lower == "tsconfig.json":
+            key_files["tsconfig"] = f.name
+        elif name_lower == "go.mod":
+            key_files["go_mod"] = f.name
+        elif name_lower == "cargo.toml":
+            key_files["cargo_toml"] = f.name
+        elif name_lower == "gemfile":
+            key_files["gemfile"] = f.name
+        elif name_lower in ("build.gradle", "build.gradle.kts"):
+            key_files["build_gradle"] = f.name
+        elif name_lower == "pom.xml":
+            key_files["pom_xml"] = f.name
+        elif name_lower == "cmakelists.txt":
+            key_files["cmake"] = f.name
+        elif name_lower == "makefile":
+            key_files["makefile"] = f.name
         elif name_lower == "dockerfile":
             key_files["dockerfile"] = f.name
+        elif name_lower in ("docker-compose.yml", "docker-compose.yaml"):
+            key_files["docker_compose"] = f.name
     
     return key_files
 
 
-def collect_python_files(repo_path: Path, max_files: int = 200) -> List[Dict]:
+def collect_source_files(repo_path: Path, max_files: int = 500) -> List[Dict]:
     """
-    Collect all Python files in the repository with their AST info.
+    Collect all supported source files in the repository with structural info.
+    
+    Scans for files matching ALL_SUPPORTED_EXTENSIONS and parses each one.
+    Python files get full AST parsing; others get regex-based extraction.
     
     Returns list of dicts with:
     - path: Relative path from repo root
     - category: package/example/test/other
-    - ast_info: Parsed AST information
+    - ast_info: Parsed structural information (classes, functions, imports, etc.)
     """
     categories = categorize_directories(repo_path)
     
@@ -221,18 +608,34 @@ def collect_python_files(repo_path: Path, max_files: int = 200) -> List[Dict]:
     
     files = []
     
-    # Skip patterns
-    skip_patterns = {"__pycache__", ".git", "node_modules", "venv", ".venv", "build", "dist"}
+    # Skip patterns — directories to ignore during file collection
+    skip_patterns = {
+        "__pycache__", ".git", "node_modules", "venv", ".venv",
+        "build", "dist", "target", "vendor", ".next", ".nuxt",
+        "coverage", ".cache", "tmp", ".tmp",
+    }
     
-    for py_file in repo_path.rglob("*.py"):
-        # Skip unwanted directories
-        if any(p in py_file.parts for p in skip_patterns):
+    # Walk the repo and collect all files with supported extensions
+    for source_file in repo_path.rglob("*"):
+        # Only process files (not directories)
+        if not source_file.is_file():
             continue
         
-        rel_path = py_file.relative_to(repo_path)
+        # Check if file has a supported extension
+        if source_file.suffix.lower() not in ALL_SUPPORTED_EXTENSIONS:
+            continue
+        
+        # Compute relative path FIRST, then check skip patterns
+        # (checking absolute path parts would match system dirs like /tmp)
+        rel_path = source_file.relative_to(repo_path)
+        
+        # Skip unwanted directories based on relative path components
+        if any(p in rel_path.parts for p in skip_patterns):
+            continue
+        
         rel_str = str(rel_path)
         
-        # Determine category
+        # Determine category based on first directory component
         first_dir = rel_path.parts[0] if len(rel_path.parts) > 1 else ""
         
         if first_dir in example_dirs:
@@ -244,8 +647,8 @@ def collect_python_files(repo_path: Path, max_files: int = 200) -> List[Dict]:
         else:
             category = "other"
         
-        # Parse the file
-        ast_info = parse_python_file(py_file)
+        # Parse the file for structural info
+        ast_info = parse_source_file(source_file)
         
         files.append({
             "path": rel_str,
@@ -280,18 +683,28 @@ def generate_file_detail(
     Generate the markdown content for a single file's detail page.
     
     This is a small, focused file (~30 lines) that's easy to edit.
+    Works for all supported languages — shows language and available structural info.
     """
     lines = []
     
     lines.append(f"# File: `{file_path}`")
     lines.append("")
     lines.append(f"**Category:** {category}")
+    
+    # Show language if available
+    language = ast_info.get("language", "unknown")
+    if language != "unknown":
+        lines.append(f"**Language:** {language}")
+    
     lines.append("")
     
-    # AST info table
+    # Structural info table
     lines.append("| Property | Value |")
     lines.append("|----------|-------|")
     lines.append(f"| Lines | {ast_info['lines']} |")
+    
+    if language != "unknown":
+        lines.append(f"| Language | {language} |")
     
     if ast_info["classes"]:
         class_names = [c["name"] for c in ast_info["classes"]]
@@ -312,7 +725,7 @@ def generate_file_detail(
         lines.append(f"| Imports | {', '.join(imports)} |")
     
     if ast_info["has_main"]:
-        lines.append("| Executable | Yes (`__main__`) |")
+        lines.append("| Executable | Yes (has main entry point) |")
     
     lines.append("")
     
@@ -337,7 +750,7 @@ def generate_repo_index(
     branch: str,
     categories: Dict[str, List[str]],
     key_files: Dict[str, Optional[str]],
-    python_files: List[Dict],
+    source_files: List[Dict],
     total_lines: int,
 ) -> str:
     """
@@ -361,9 +774,9 @@ def generate_repo_index(
     lines.append(f"| Repository | {repo_url} |")
     lines.append(f"| Branch | {branch} |")
     lines.append(f"| Generated | {datetime.now().strftime('%Y-%m-%d %H:%M')} |")
-    lines.append(f"| Python Files | {len(python_files)} |")
+    lines.append(f"| Source Files | {len(source_files)} |")
     lines.append(f"| Total Lines | {total_lines:,} |")
-    lines.append(f"| Explored | 0/{len(python_files)} |")
+    lines.append(f"| Explored | 0/{len(source_files)} |")
     lines.append("")
     
     # Directory structure
@@ -377,11 +790,19 @@ def generate_repo_index(
         lines.append(f"🧪 **Tests:** {', '.join(sorted(categories['test_dirs']))}")
     lines.append("")
     
+    # Show detected key files (project config indicators)
     if key_files.get("readme"):
         lines.append(f"📖 README: `{key_files['readme']}`")
-    if key_files.get("pyproject") or key_files.get("setup"):
-        setup_file = key_files.get("pyproject") or key_files.get("setup")
-        lines.append(f"⚙️ Setup: `{setup_file}`")
+    # Show project config file — pick the first one found
+    config_file = (
+        key_files.get("pyproject") or key_files.get("setup")
+        or key_files.get("package_json") or key_files.get("go_mod")
+        or key_files.get("cargo_toml") or key_files.get("gemfile")
+        or key_files.get("build_gradle") or key_files.get("pom_xml")
+        or key_files.get("cmake") or key_files.get("makefile")
+    )
+    if config_file:
+        lines.append(f"⚙️ Setup: `{config_file}`")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -396,7 +817,7 @@ def generate_repo_index(
     
     current_category = None
     
-    for file_info in python_files:
+    for file_info in source_files:
         cat = file_info["category"]
         path = file_info["path"]
         ast_info = file_info["ast_info"]
@@ -461,6 +882,9 @@ def generate_repo_scaffold(
     - _RepoMap_{repo_name}.md: Compact index (~150 lines)
     - _files/{filename}.md: Per-file detail (~30 lines each)
     
+    Supports all languages defined in ALL_SUPPORTED_EXTENSIONS.
+    Python files get full AST parsing; others get regex-based structural info.
+    
     This split design makes navigation and editing much easier for the agent.
     
     Args:
@@ -475,16 +899,16 @@ def generate_repo_scaffold(
     """
     categories = categorize_directories(repo_path)
     key_files = find_key_files(repo_path)
-    python_files = collect_python_files(repo_path)
+    source_files = collect_source_files(repo_path)
     
-    total_lines = sum(f["ast_info"]["lines"] for f in python_files)
+    total_lines = sum(f["ast_info"]["lines"] for f in source_files)
     
     # Generate and write per-file detail files if wiki_dir provided
     if wiki_dir:
         files_dir = wiki_dir / "_files"
         files_dir.mkdir(parents=True, exist_ok=True)
         
-        for file_info in python_files:
+        for file_info in source_files:
             detail_content = generate_file_detail(
                 file_path=file_info["path"],
                 ast_info=file_info["ast_info"],
@@ -494,7 +918,7 @@ def generate_repo_scaffold(
             detail_path = files_dir / detail_name
             detail_path.write_text(detail_content, encoding="utf-8")
         
-        logger.info(f"Wrote {len(python_files)} file detail pages to {files_dir}")
+        logger.info(f"Wrote {len(source_files)} file detail pages to {files_dir}")
         
         # Generate page index files (for tracking wiki pages by type)
         generate_page_indexes(wiki_dir, repo_name)
@@ -509,7 +933,7 @@ def generate_repo_scaffold(
         branch=branch,
         categories=categories,
         key_files=key_files,
-        python_files=python_files,
+        source_files=source_files,
         total_lines=total_lines,
     )
     
@@ -807,6 +1231,8 @@ def _apply_orphan_filter_rules(file_info: Dict) -> Tuple[str, str]:
     """
     Apply deterministic filter rules to classify an orphan file.
     
+    Supports multi-language test patterns, index files, and config files.
+    
     Returns:
         Tuple of (category, rule) where:
         - category: "AUTO_DISCARD", "AUTO_KEEP", or "MANUAL_REVIEW"
@@ -815,6 +1241,7 @@ def _apply_orphan_filter_rules(file_info: Dict) -> Tuple[str, str]:
     path = file_info["path"]
     lines = file_info["lines"]
     filename = path.split("/")[-1] if "/" in path else path
+    ext = Path(filename).suffix.lower()
     
     # =========================================================================
     # AUTO_DISCARD RULES (no agent judgment needed)
@@ -824,21 +1251,47 @@ def _apply_orphan_filter_rules(file_info: Dict) -> Tuple[str, str]:
     if lines <= 20:
         return ("AUTO_DISCARD", "D1: ≤20 lines")
     
-    # Rule D2: Small __init__.py files (<100 lines)
-    if filename == "__init__.py" and lines < 100:
-        return ("AUTO_DISCARD", "D2: Small __init__.py")
+    # Rule D2: Small index/init files (<100 lines)
+    # Python: __init__.py, JS/TS: index.js/index.ts, Rust: mod.rs, Go: doc.go
+    index_filenames = {"__init__.py", "index.js", "index.ts", "index.jsx", "index.tsx", "mod.rs", "doc.go"}
+    if filename in index_filenames and lines < 100:
+        return ("AUTO_DISCARD", f"D2: Small index file ({filename})")
     
-    # Rule D3: Test files (by path pattern)
-    if "/tests/" in path or "/test_" in path or "_test.py" in path or path.startswith("tests/"):
+    # Rule D3: Test files (multi-language patterns)
+    # Python: tests/, test_*, _test.py
+    # JS/TS: __tests__/, *.test.js, *.test.ts, *.spec.js, *.spec.ts
+    # Go: *_test.go
+    # Rust: tests/
+    # Java: *Test.java, *Spec.java
+    is_test = (
+        "/tests/" in path or "/test/" in path or "/__tests__/" in path
+        or path.startswith("tests/") or path.startswith("test/")
+        or "/test_" in path or "_test.py" in path
+        or filename.endswith(".test.js") or filename.endswith(".test.ts")
+        or filename.endswith(".test.jsx") or filename.endswith(".test.tsx")
+        or filename.endswith(".spec.js") or filename.endswith(".spec.ts")
+        or filename.endswith(".spec.jsx") or filename.endswith(".spec.tsx")
+        or filename.endswith("_test.go")
+        or (ext == ".java" and (filename.endswith("Test.java") or filename.endswith("Spec.java")))
+    )
+    if is_test:
         return ("AUTO_DISCARD", "D3: Test file")
     
     # Rule D4: Benchmark files
-    if "/benchmark/" in path or "/benchmarks/" in path:
+    if "/benchmark/" in path or "/benchmarks/" in path or "/bench/" in path:
         return ("AUTO_DISCARD", "D4: Benchmark file")
     
     # Rule D5: Scripts directory (not core library)
     if path.startswith("scripts/"):
         return ("AUTO_DISCARD", "D5: Scripts directory")
+    
+    # Rule D6: Config/data files that are small (<50 lines)
+    if ext in CONFIG_EXTENSIONS and lines < 50:
+        return ("AUTO_DISCARD", f"D6: Small config file ({ext})")
+    
+    # Rule D7: Documentation files (already captured in wiki)
+    if ext in DOC_EXTENSIONS:
+        return ("AUTO_DISCARD", f"D7: Documentation file ({ext})")
     
     # =========================================================================
     # AUTO_KEEP RULES (no agent judgment needed)
@@ -1154,9 +1607,12 @@ def verify_orphan_completion(wiki_dir: Path, repo_name: str) -> Tuple[bool, str]
         # - {repo_name}_geglu_kernel
         # - {repo_name}_geglu
         # - etc.
+        # Works for any language: strip extension to get base name
         # We check if ANY page exists that could correspond to this file
         
-        filename = file_path.split("/")[-1].replace(".py", "")
+        basename = file_path.split("/")[-1]
+        # Strip the file extension (works for .py, .js, .ts, .go, .rs, etc.)
+        filename = Path(basename).stem
         
         # Check if any implementation page might cover this file
         # Look for pages containing the filename (case-insensitive)

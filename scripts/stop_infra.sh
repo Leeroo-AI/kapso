@@ -52,7 +52,6 @@ if [[ "$REMOVE_VOLUMES" == "true" ]]; then
     echo -e "${RED}WARNING: This will DELETE all data:${NC}"
     echo "  - Neo4j graph database"
     echo "  - Weaviate vector database"
-    echo "  - MediaWiki pages and database"
     echo ""
     
     if [[ -t 0 ]]; then
@@ -64,10 +63,6 @@ if [[ "$REMOVE_VOLUMES" == "true" ]]; then
     fi
     
     $DOCKER_CMD compose -f "$COMPOSE_FILE" down -v --remove-orphans
-    
-    # Also clean up local index files
-    rm -f data/indexes/wikis.json 2>/dev/null
-    rm -f data/wikis/.wikis_imported 2>/dev/null
     
     echo -e "${GREEN}All containers and data removed.${NC}"
 else

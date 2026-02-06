@@ -1,5 +1,5 @@
 # Kapso Infrastructure Stack
-# Weaviate (vector DB), Neo4j (graph DB), MediaWiki (frontend)
+# Weaviate (vector DB), Neo4j (graph DB)
 
 services:
   weaviate:
@@ -30,49 +30,6 @@ services:
       - neo4j_data:/data
     restart: unless-stopped
 
-  db:
-    image: mariadb:11
-    environment:
-      MYSQL_ROOT_PASSWORD: localroot123
-      MYSQL_DATABASE: wiki
-      MYSQL_USER: mediawiki
-      MYSQL_PASSWORD: localpass123
-    volumes:
-      - dbdata:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  wiki:
-    build: ../wiki_service/mediawiki
-    image: wiki-service:latest
-    environment:
-      MW_DB_HOST: db
-      MW_DB_NAME: wiki
-      MW_DB_USER: mediawiki
-      MW_DB_PASSWORD: localpass123
-      MW_SITE_SERVER: http://localhost:8090
-      MW_SITENAME: Kapso Knowledge
-      MW_LANG: en
-      MW_ADMIN_USER: admin
-      MW_ADMIN_PASS: adminpass123
-      MW_AGENT_USER: agent
-      MW_AGENT_PASS: agentpass123
-      MW_CREATE_AGENT: "true"
-    ports:
-      - "8090:80"
-    volumes:
-      - ../wiki_service/images:/var/www/html/images
-      - ../../data/wikis:/wikis:rw
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   weaviate_data:
   neo4j_data:
-  dbdata:
