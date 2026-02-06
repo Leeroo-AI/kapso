@@ -27,6 +27,8 @@ from .transforms import (
     normalize_text,
     is_synced_title,
     is_synced_path,
+    prepare_content_for_wiki,
+    FOLDER_TO_NAMESPACE,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,6 +116,22 @@ class SyncEngine:
 
         content_hash = compute_content_hash(content)
 
+        # Derive namespace and page name for metadata injection
+        # e.g. file in workflows/ folder -> namespace="Workflow", page_name="Foo_Bar"
+        try:
+            rel = file_path.relative_to(self.config.wiki_dir)
+            folder_name = rel.parts[0] if rel.parts else ""
+        except ValueError:
+            folder_name = ""
+        namespace = FOLDER_TO_NAMESPACE.get(folder_name)
+        page_name = file_path.stem  # filename without .md
+
+        # Transform content for MediaWiki rendering:
+        # - Strip redundant H1 heading (would render as numbered list item)
+        # - Convert [[source::Type|Label|URL]] to [URL Label] external links
+        # - Add PageInfo Cargo template and Category tag
+        wiki_content = prepare_content_for_wiki(content, namespace, page_name)
+
         # Check current state
         file_state = self.state.get_file_state(rel_path)
 
@@ -141,11 +159,11 @@ class SyncEngine:
                     logger.info(f"Wiki has newer version, skipping local push: {title}")
                     return False
 
-        # Push to wiki
+        # Push to wiki (use transformed content, not raw local content)
         try:
             result = self.mw.edit(
                 title,
-                text=content,
+                text=wiki_content,
                 summary="Sync from local file",
                 bot=True,
             )
@@ -158,8 +176,6 @@ class SyncEngine:
                     wiki_revid=new_revid,
                 )
                 logger.info(f"Synced local->wiki: {title} (rev {new_revid})")
-                # Refresh caches to update Cargo and Main Page
-                self._refresh_wiki_caches()
                 return True
             else:
                 logger.error(f"Wiki edit failed for {title}: {result}")
@@ -359,8 +375,6 @@ class SyncEngine:
             try:
                 self.mw.delete(title, reason="Sync: local file deleted")
                 logger.info(f"Deleted wiki page: {title}")
-                # Trigger cache refresh for main page stats
-                self._refresh_wiki_caches()
             except Exception as e:
                 logger.error(f"Failed to delete wiki page {title}: {e}")
             if file_state:

@@ -25,6 +25,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from mw_client import MWClient
 
+# Add sync package to path for shared transforms
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from sync.transforms import prepare_content_for_wiki
+
 
 # Map folder names to MediaWiki namespaces
 FOLDER_TO_NAMESPACE = {
@@ -94,6 +98,18 @@ def import_wikis(wiki_dir, mw, force=False, dry_run=False):
         if not content.strip():
             skipped += 1
             continue
+
+        # Derive namespace for metadata injection
+        namespace = FOLDER_TO_NAMESPACE.get(folder_name, "")
+        page_name = filepath.stem  # filename without extension
+
+        # Apply content transforms (strip H1, convert source links, add metadata)
+        # This mirrors import_wikis.sh behaviour for consistent rendering
+        content = prepare_content_for_wiki(
+            content,
+            namespace=namespace if namespace else None,
+            page_name=page_name if namespace else None,
+        )
         
         print(f"  📄 {page_title}")
         
