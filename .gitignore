@@ -225,3 +225,7 @@ services/wiki_service/state/sync.json
 scripts/evaluate_repos.py
 repos.json
 scripts/tmux_log.sh
+
+# Separate repos (not tracked in kapso)
+leeroopedia_mcp/
+leeroopedia_mcp_backend/
