@@ -22,6 +22,7 @@ class SyncConfig(BaseSettings):
     # Timing
     poll_interval: int = 30  # seconds between RC polls
     debounce_ms: int = 500  # file watcher debounce delay
+    refresh_delay: int = 15  # seconds of quiet before Cargo/cache refresh
 
     # Behavior
     conflict_mode: Literal["file", "wiki_wins", "local_wins"] = "file"

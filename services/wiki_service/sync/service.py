@@ -10,6 +10,7 @@ import asyncio
 import logging
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -50,6 +51,11 @@ class WikiSyncService:
         self._recently_synced_local: set[str] = set()
         self._recently_synced_wiki: set[str] = set()
 
+        # Debounced cache refresh - waits for a quiet period after syncs
+        # before running a single Cargo + Main Page refresh
+        self._refresh_timer: Optional[threading.Timer] = None
+        self._refresh_lock = threading.Lock()
+
     def _on_local_change(self, file_path: Path) -> None:
         """Handle local file change."""
         rel_path = str(file_path.relative_to(self.config.wiki_dir))
@@ -62,11 +68,43 @@ class WikiSyncService:
         logger.debug(f"Local file changed: {file_path}")
         if self.engine.sync_local_to_wiki(file_path):
             self._recently_synced_local.add(rel_path)
+            self._schedule_refresh()
 
     def _on_local_delete(self, file_path: Path) -> None:
         """Handle local file deletion."""
         logger.debug(f"Local file deleted: {file_path}")
         self.engine.handle_local_delete(file_path)
+        self._schedule_refresh()
+
+    def _schedule_refresh(self) -> None:
+        """
+        Schedule a debounced Cargo + Main Page cache refresh.
+
+        Resets the timer on each call, so the actual refresh only runs
+        after `refresh_delay` seconds of quiet (no new syncs).
+        This avoids running cargoRecreateData.php once per page during
+        bulk imports — instead it runs once after all pages are done.
+        """
+        with self._refresh_lock:
+            if self._refresh_timer is not None:
+                self._refresh_timer.cancel()
+            self._refresh_timer = threading.Timer(
+                self.config.refresh_delay,
+                self._do_refresh,
+            )
+            self._refresh_timer.daemon = True
+            self._refresh_timer.start()
+
+    def _do_refresh(self) -> None:
+        """Run a single batched Cargo table rebuild + Main Page cache purge."""
+        with self._refresh_lock:
+            self._refresh_timer = None
+        try:
+            logger.info("Running batched wiki cache refresh...")
+            self.engine._refresh_wiki_caches()
+            logger.info("Wiki cache refresh complete")
+        except Exception as e:
+            logger.error(f"Wiki cache refresh failed: {e}")
 
     def _on_wiki_change(self, title: str, revid: int, content: str) -> None:
         """Handle wiki page change."""
@@ -107,6 +145,7 @@ class WikiSyncService:
         logger.info(f"  State file: {self.config.sync_state}")
         logger.info(f"  Poll interval: {self.config.poll_interval}s")
         logger.info(f"  Debounce: {self.config.debounce_ms}ms")
+        logger.info(f"  Refresh delay: {self.config.refresh_delay}s")
         logger.info(f"  Conflict mode: {self.config.conflict_mode}")
         logger.info(f"  Delete mode: {self.config.delete_mode}")
 
@@ -155,6 +194,12 @@ class WikiSyncService:
 
         if self._file_watcher:
             self._file_watcher.stop()
+
+        # Cancel any pending refresh timer
+        with self._refresh_lock:
+            if self._refresh_timer is not None:
+                self._refresh_timer.cancel()
+                self._refresh_timer = None
 
         logger.info("Sync service stopped")
 
