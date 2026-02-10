@@ -233,3 +233,4 @@ scripts/tmux_log.sh
 leeroopedia_mcp/
 leeroopedia_mcp_backend/
 services/leeroopedia-mcp/
+services/backend_search/
