@@ -25,7 +25,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Load environment
+# Load environment – root .env first, then local .env can override
+if [ -f "$KAPSO_ROOT/.env" ]; then
+    export $(grep -v '^#' "$KAPSO_ROOT/.env" | xargs)
+fi
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi

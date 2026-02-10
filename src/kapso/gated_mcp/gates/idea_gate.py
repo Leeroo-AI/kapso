@@ -117,7 +117,7 @@ Example queries:
         
         parts = [f'# Idea Search: "{query}"\n', f"Found **{result.total_found}** results:\n"]
         for i, item in enumerate(result.results, 1):
-            parts.append(f"\n---\n## [{i}] {item.page_title}\n")
+            parts.append(f"\n---\n## [{i}] {item.id}\n")
             parts.append(f"**Type:** {item.page_type} | **Score:** {item.score:.2f}\n")
             if item.domains:
                 parts.append(f"**Domains:** {', '.join(item.domains)}\n")

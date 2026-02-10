@@ -310,10 +310,9 @@ class KnowledgeMerger:
         type_dir = wiki_dir / subdir
         type_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use underscores in filename to match repo ingestor convention
-        # and avoid duplicate files (spaces vs underscores)
-        sanitized_title = page.page_title.replace(" ", "_")
-        filename = f"{sanitized_title}.md"
+        # Derive filename from page.id (e.g., "Principle/My_Concept" -> "My_Concept.md")
+        name_part = page.id.split("/", 1)[1] if "/" in page.id else page.id
+        filename = f"{name_part}.md"
         file_path = type_dir / filename
         file_path.write_text(page.content, encoding="utf-8")
         
@@ -466,7 +465,7 @@ class KnowledgeMerger:
         for page in pages:
             parts.append(f"### Page: {page.id}")
             parts.append(f"- **Type**: {page.page_type}")
-            parts.append(f"- **Title**: {page.page_title}")
+            parts.append(f"- **ID**: {page.id}")
             parts.append(f"- **Overview**: {page.overview}")
             parts.append(f"- **Domains**: {', '.join(page.domains) if page.domains else 'None'}")
             
@@ -599,7 +598,6 @@ if __name__ == "__main__":
     test_pages = [
         WikiPage(
             id="Principle/Test_Principle",
-            page_title="Test_Principle",
             page_type="Principle",
             overview="A test principle for the merger",
             content="== Overview ==\nTest content for principle.",
@@ -614,7 +612,6 @@ if __name__ == "__main__":
         ),
         WikiPage(
             id="Implementation/Test_Implementation",
-            page_title="Test_Implementation",
             page_type="Implementation",
             overview="A test implementation",
             content="== Overview ==\nTest implementation content.",

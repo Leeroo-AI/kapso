@@ -58,10 +58,10 @@ class WikiPage:
     Maps to the wiki structure defined in src/knowledge/wiki_structure/.
     
     Attributes:
-        id: Unique identifier (e.g., "allenai_allennlp/Model_Training")
-        page_title: Human-readable title
+        id: Unique identifier (e.g., "Workflow/QLoRA_Finetuning")
         page_type: PageType value (Workflow, Principle, Implementation, etc.)
         overview: Brief summary/description (the "card" content)
+        description: Detailed description text (used for embedding generation)
         content: Full page content
         domains: Domain tags (e.g., ["Deep_Learning", "NLP"])
         sources: Knowledge sources (repo URLs, papers, etc.)
@@ -69,10 +69,10 @@ class WikiPage:
         outgoing_links: Graph connections parsed from [[edge::Type:Target]] syntax
     """
     id: str
-    page_title: str
     page_type: str
     overview: str
     content: str
+    description: str = ""
     domains: List[str] = field(default_factory=list)
     sources: List[Dict[str, str]] = field(default_factory=list)
     last_updated: Optional[str] = None
@@ -82,9 +82,9 @@ class WikiPage:
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
-            "page_title": self.page_title,
             "page_type": self.page_type,
             "overview": self.overview,
+            "description": self.description,
             "content": self.content,
             "domains": self.domains,
             "sources": self.sources,
@@ -97,10 +97,10 @@ class WikiPage:
         """Create WikiPage from dictionary."""
         return cls(
             id=data["id"],
-            page_title=data["page_title"],
             page_type=data["page_type"],
             overview=data["overview"],
             content=data["content"],
+            description=data.get("description", ""),
             domains=data.get("domains", []),
             sources=data.get("sources", []),
             last_updated=data.get("last_updated"),
@@ -108,7 +108,7 @@ class WikiPage:
         )
     
     def __repr__(self) -> str:
-        return f"WikiPage(id={self.id!r}, type={self.page_type!r}, title={self.page_title!r})"
+        return f"WikiPage(id={self.id!r}, type={self.page_type!r})"
 
 
 @dataclass
@@ -183,9 +183,9 @@ class KGEditInput:
     
     Attributes:
         page_id: Unique identifier of the page to edit (required)
-        page_title: New title (optional)
         page_type: New page type (optional - may move file to different subdir)
-        overview: New overview text (optional - triggers re-embedding)
+        overview: New overview text (optional)
+        description: New description text (optional - triggers re-embedding)
         content: New full page content (optional - replaces entire file content)
         domains: New domain tags (optional, replaces existing)
         sources: New sources (optional, replaces existing)
@@ -216,9 +216,9 @@ class KGEditInput:
     page_id: str
     
     # Optional fields to update (None = no change)
-    page_title: Optional[str] = None
     page_type: Optional[str] = None
     overview: Optional[str] = None
+    description: Optional[str] = None
     content: Optional[str] = None  # Full file content replacement
     domains: Optional[List[str]] = None
     sources: Optional[List[Dict[str, str]]] = None
@@ -262,8 +262,8 @@ class KGEditInput:
     @property
     def requires_reembedding(self) -> bool:
         """Check if edit requires regenerating embeddings."""
-        # Overview is what gets embedded in Weaviate
-        return self.overview is not None
+        # Description is what gets embedded in Weaviate (fallback to overview)
+        return self.description is not None or self.overview is not None
     
     @property
     def requires_edge_rebuild(self) -> bool:
@@ -288,7 +288,7 @@ class KGEditInput:
     def get_updates(self) -> Dict[str, Any]:
         """Get dict of non-None fields to update."""
         updates = {}
-        for field_name in ['page_title', 'page_type', 'overview', 'content', 
+        for field_name in ['page_type', 'overview', 'description', 'content', 
                            'domains', 'sources', 'outgoing_links']:
             value = getattr(self, field_name)
             if value is not None:
@@ -415,7 +415,6 @@ class KGResultItem:
     Attributes:
         id: Unique identifier for the page/node
         score: Relevance score (higher = more relevant, 0.0 to 1.0)
-        page_title: Title of the wiki page
         page_type: Node type (Workflow, Principle, Implementation, Environment, Heuristic)
         overview: Brief summary/description (the "card" content)
         content: Full page content (may be empty if include_content=False)
@@ -423,7 +422,6 @@ class KGResultItem:
     """
     id: str
     score: float
-    page_title: str
     page_type: str
     overview: str
     content: str = ""
@@ -445,7 +443,7 @@ class KGResultItem:
         return self.metadata.get("last_updated")
     
     def __repr__(self) -> str:
-        return f"KGResultItem(id={self.id!r}, score={self.score:.3f}, title={self.page_title!r}, type={self.page_type!r})"
+        return f"KGResultItem(id={self.id!r}, score={self.score:.3f}, type={self.page_type!r})"
 
 
 @dataclass
@@ -509,13 +507,13 @@ class KGOutput:
         for item in self.results[:max_results]:
             if include_content and item.content:
                 parts.append(
-                    f"## {item.page_title} ({item.page_type})\n"
+                    f"## {item.id} ({item.page_type})\n"
                     f"**Overview:** {item.overview}\n\n"
                     f"{item.content}"
                 )
             else:
                 parts.append(
-                    f"## {item.page_title} ({item.page_type})\n"
+                    f"## {item.id} ({item.page_type})\n"
                     f"{item.overview}"
                 )
         return "\n\n---\n\n".join(parts)
@@ -546,7 +544,7 @@ class KGOutput:
             return ""
         
         return "\n\n".join(
-            f"## {item.page_title}\n{item.content}" for item in code_items
+            f"## {item.id}\n{item.content}" for item in code_items
         )
     
     def __len__(self) -> int:
@@ -653,21 +651,21 @@ class KnowledgeSearch(ABC):
         pass
     
     @abstractmethod
-    def get_page(self, page_title: str) -> Optional[WikiPage]:
+    def get_page(self, page_id: str) -> Optional[WikiPage]:
         """
-        Retrieve a wiki page by its title.
+        Retrieve a wiki page by its ID.
         
-        This is a direct lookup, not a search. Given an exact page title,
+        This is a direct lookup, not a search. Given an exact page ID,
         returns the complete WikiPage with all content.
         
         Args:
-            page_title: Exact title of the page to retrieve
+            page_id: Exact ID of the page to retrieve (e.g., "Workflow/QLoRA_Finetuning")
             
         Returns:
             WikiPage if found, None otherwise
             
         Example:
-            page = search.get_page("Model_Training")
+            page = search.get_page("Workflow/QLoRA_Finetuning")
             if page:
                 print(page.content)
         """
@@ -738,7 +736,6 @@ class KnowledgeSearch(ABC):
         Example:
             page = WikiPage(
                 id="Principle/My_New_Concept",
-                page_title="My New Concept",
                 page_type="Principle",
                 overview="A brief overview...",
                 content="Full content...",
@@ -843,7 +840,7 @@ class NullKnowledgeSearch(KnowledgeSearch):
         """Return empty results."""
         return KGOutput(query=query, filters=filters)
     
-    def get_page(self, page_title: str) -> Optional[WikiPage]:
+    def get_page(self, page_id: str) -> Optional[WikiPage]:
         """Return None (no pages in null search)."""
         return None
     

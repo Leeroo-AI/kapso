@@ -3,7 +3,7 @@
 # Hybrid search using Weaviate for embeddings and Neo4j for graph structure.
 # 
 # Architecture:
-# - Weaviate: Stores embeddings (from page overview) for semantic search
+# - Weaviate: Stores embeddings (from page description) for semantic search
 # - Neo4j: Stores graph structure (nodes + edges) for connection enrichment
 #
 # Search Flow:
@@ -189,11 +189,11 @@ def _parse_typed_md_file(file_path: Path, page_type: str) -> Optional[WikiPage]:
     # Construct identifier from type and filename
     identifier = f"{page_type}/{filename}"
     
-    # Extract title (fallback to filename with underscores replaced)
-    title = _extract_title(content, filename)
-    
     # Extract overview/definition
     overview = _extract_overview(content)
+    
+    # Extract description (richer detail, used for embedding)
+    description = _extract_description(content)
     
     # Extract domains from [[domain::...]] tags
     domains = _extract_domain_tags(content)
@@ -209,10 +209,10 @@ def _parse_typed_md_file(file_path: Path, page_type: str) -> Optional[WikiPage]:
     
     return WikiPage(
         id=identifier,
-        page_title=title,
         page_type=page_type,
         overview=overview,
         content=content,
+        description=description,
         domains=domains,
         sources=sources,
         last_updated=last_updated,
@@ -283,11 +283,11 @@ def parse_wiki_file(
     # Extract identifier
     identifier = _extract_identifier(content, filename, repo_id)
     
-    # Extract title from first header
-    title = _extract_title(content, filename)
-    
     # Extract overview/definition
     overview = _extract_overview(content)
+    
+    # Extract description (richer detail, used for embedding)
+    description = _extract_description(content)
     
     # Extract domains from metadata or use defaults
     domains = _extract_domains(content) or default_domains or []
@@ -303,10 +303,10 @@ def parse_wiki_file(
     
     return WikiPage(
         id=identifier,
-        page_title=title,
         page_type=page_type,
         overview=overview,
         content=content,
+        description=description,
         domains=domains,
         sources=sources,
         last_updated=last_updated,
@@ -342,22 +342,6 @@ def _extract_page_type(filename: str) -> Optional[str]:
     return None
 
 
-def _extract_title(content: str, filename: str) -> str:
-    """
-    Extract title from = Title = header or generate from filename.
-    
-    Example: "= Workflow: Model Training =" -> "Workflow: Model Training"
-    """
-    # Look for top-level header
-    match = re.search(r'^= ([^=]+) =$', content, re.MULTILINE)
-    if match:
-        return match.group(1).strip()
-    
-    # Fallback: convert filename to title
-    # "Workflow_Model_Training" -> "Workflow Model Training"
-    return filename.replace("_", " ")
-
-
 def _extract_overview(content: str) -> str:
     """
     Extract overview/definition from first content section.
@@ -379,6 +363,26 @@ def _extract_overview(content: str) -> str:
             overview = re.sub(r'\[\[Category:[^\]]+\]\]', '', overview)
             overview = re.sub(r'\n+', ' ', overview)  # Collapse newlines
             return overview.strip()
+    
+    return ""
+
+
+def _extract_description(content: str) -> str:
+    """
+    Extract the === Description === subsection from wiki content.
+    
+    This subsection sits under == Overview == and contains richer
+    semantic detail than the overview summary. Used as the primary
+    text source for embedding generation.
+    """
+    pattern = r'=== Description ===\s*\n+(.+?)(?=\n===|\n==|\n\{\{|\Z)'
+    match = re.search(pattern, content, re.DOTALL)
+    if match:
+        description = match.group(1).strip()
+        # Clean up wiki formatting
+        description = re.sub(r'\[\[Category:[^\]]+\]\]', '', description)
+        description = re.sub(r'\n+', ' ', description)  # Collapse newlines
+        return description.strip()
     
     return ""
 
@@ -578,11 +582,8 @@ class KGGraphSearch(KnowledgeSearch):
         self.include_connected_pages = self.params.get("include_connected_pages", True)
         self.use_llm_reranker = self.params.get("use_llm_reranker", True)
         
-        # Truncation limits MUST be config-driven (never hardcoded in code).
-        # These exist only to satisfy upstream API constraints and prompt size.
-        self.embedding_max_input_chars = self._coerce_positive_int(
-            self.params.get("embedding_max_input_chars")
-        )
+        # Truncation limit for reranker prompt (config-driven).
+        # No embedding truncation -- full description text is sent to the model.
         self.reranker_overview_max_chars = self._coerce_positive_int(
             self.params.get("reranker_overview_max_chars")
         )
@@ -778,14 +779,12 @@ class KGGraphSearch(KnowledgeSearch):
         query = """
             MERGE (p:WikiPage {id: $id})
             SET p.page_type = $page_type,
-                p.page_title = $page_title,
                 p.domains = $domains
         """
         session.run(
             query,
             id=page.id,
             page_type=page.page_type,
-            page_title=page.page_title,
             domains=page.domains,
         )
     
@@ -811,9 +810,6 @@ class KGGraphSearch(KnowledgeSearch):
             raw_target_id = f"{target_type}/{target_id}"
             target_page_id = normalize_page_id(raw_target_id)
             
-            # Also normalize the title for display
-            normalized_title = target_id.replace("_", " ")
-            
             # Map edge types to Neo4j relationship types
             neo4j_rel_type = self._map_edge_type(edge_type)
             
@@ -830,7 +826,7 @@ class KGGraphSearch(KnowledgeSearch):
                 # Create REVERSE edge: target → USES_HEURISTIC → source (this heuristic)
                 query = f"""
                 MERGE (target:WikiPage {{id: $target_id}})
-                    ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
+                    ON CREATE SET target.page_type = $target_type
                     WITH target
                     MATCH (source:WikiPage {{id: $source_id}})
                     MERGE (target)-[r:{neo4j_rel_type}]->(source)
@@ -840,7 +836,7 @@ class KGGraphSearch(KnowledgeSearch):
                 # Normal edge: source → target
                 query = f"""
                     MERGE (target:WikiPage {{id: $target_id}})
-                    ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
+                    ON CREATE SET target.page_type = $target_type
                     WITH target
                     MATCH (source:WikiPage {{id: $source_id}})
                     MERGE (source)-[r:{neo4j_rel_type}]->(target)
@@ -852,7 +848,6 @@ class KGGraphSearch(KnowledgeSearch):
                     source_id=page.id,
                     target_id=target_page_id,
                     target_type=target_type,
-                    target_title=normalized_title,
                 )
             except Exception as e:
                 logger.warning(f"Failed to create edge {page.id} -> {target_page_id}: {e}")
@@ -895,17 +890,17 @@ class KGGraphSearch(KnowledgeSearch):
         indexed_count = 0
         for page in pages:
             try:
-                # Generate embedding from overview
-                embedding = self._generate_embedding(page.overview)
+                # Generate embedding from description (fallback to overview)
+                embedding = self._generate_embedding(page.description or page.overview)
                 if not embedding:
                     continue
                 
                 # Prepare properties
                 properties = {
                     "page_id": page.id,
-                    "page_title": page.page_title,
                     "page_type": page.page_type,
                     "overview": page.overview,
+                    "description": page.description,
                     "content": page.content,
                     "domains": page.domains,
                 }
@@ -942,9 +937,9 @@ class KGGraphSearch(KnowledgeSearch):
                 vectorizer_config=None,
                 properties=[
                     wvc.config.Property(name="page_id", data_type=wvc.config.DataType.TEXT),
-                    wvc.config.Property(name="page_title", data_type=wvc.config.DataType.TEXT),
                     wvc.config.Property(name="page_type", data_type=wvc.config.DataType.TEXT),
                     wvc.config.Property(name="overview", data_type=wvc.config.DataType.TEXT),
+                    wvc.config.Property(name="description", data_type=wvc.config.DataType.TEXT),
                     wvc.config.Property(name="content", data_type=wvc.config.DataType.TEXT),
                     wvc.config.Property(name="domains", data_type=wvc.config.DataType.TEXT_ARRAY),
                 ],
@@ -955,15 +950,14 @@ class KGGraphSearch(KnowledgeSearch):
             logger.error(f"Failed to ensure Weaviate collection: {e}")
     
     def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding using OpenAI."""
+        """Generate embedding using OpenAI. No truncation -- full text is sent."""
         if not self._openai_client or not text:
             return None
         
         try:
-            input_text = self._maybe_truncate(text, self.embedding_max_input_chars)
             response = self._openai_client.embeddings.create(
                 model=self.embedding_model,
-                input=input_text,
+                input=text,
             )
             return response.data[0].embedding
             
@@ -1115,7 +1109,7 @@ class KGGraphSearch(KnowledgeSearch):
         for i, result in enumerate(results):
             overview_preview = self._maybe_truncate(result.overview or "", self.reranker_overview_max_chars)
             pages_info.append(
-                f"[{i}] {result.page_title} ({result.page_type})\n"
+                f"[{i}] {result.id} ({result.page_type})\n"
                 f"    Overview: {overview_preview}..."
             )
         
@@ -1215,14 +1209,18 @@ Only include pages that would actually help answer the query.
         filters: KGSearchFilters,
     ) -> List[KGResultItem]:
         """
-        Perform semantic search in Weaviate.
+        Perform hybrid search in Weaviate.
+        
+        Combines vector similarity (from description embeddings) with
+        BM25 keyword matching across description, overview, and content
+        for more robust retrieval than pure vector search.
         
         Args:
             query: Search query text
             filters: Search filters
             
         Returns:
-            List of KGResultItem ranked by similarity
+            List of KGResultItem ranked by fused score
         """
         if not self._weaviate_client or not self._openai_client:
             logger.warning("Weaviate or OpenAI not available for semantic search")
@@ -1240,13 +1238,19 @@ Only include pages that would actually help answer the query.
             # Build Weaviate filters
             weaviate_filters = self._build_weaviate_filters(filters)
             
-            # Search with near_vector (target named vector "default" for Weaviate 1.27+)
-            response = collection.query.near_vector(
-                near_vector=query_embedding,
+            # Hybrid search: combines vector similarity + BM25 keyword matching.
+            # alpha=0.75 leans toward semantic, boosted by keyword matches.
+            # BM25 searches description, overview, and content properties.
+            response = collection.query.hybrid(
+                query=query,
+                vector=query_embedding,
                 target_vector="default",
+                alpha=0.75,
+                query_properties=["description", "overview", "content"],
+                fusion_type=wvc.query.HybridFusion.RELATIVE_SCORE,
                 limit=filters.top_k,
                 filters=weaviate_filters,
-                return_metadata=["distance"],
+                return_metadata=wvc.query.MetadataQuery(score=True),
             )
             
             # Convert to KGResultItem
@@ -1254,9 +1258,9 @@ Only include pages that would actually help answer the query.
             for obj in response.objects:
                 props = obj.properties
                 
-                # Convert distance to score (cosine similarity)
-                distance = obj.metadata.distance if obj.metadata else 0
-                score = max(0.0, min(1.0, 1.0 - distance))
+                # Hybrid score is already a fused relevance score (0 to 1)
+                score = obj.metadata.score if obj.metadata and obj.metadata.score is not None else 0.0
+                score = max(0.0, min(1.0, score))
                 
                 # Apply min_score filter
                 if filters.min_score and score < filters.min_score:
@@ -1265,7 +1269,6 @@ Only include pages that would actually help answer the query.
                 results.append(KGResultItem(
                     id=props.get("page_id", ""),
                     score=score,
-                    page_title=props.get("page_title", ""),
                     page_type=props.get("page_type", ""),
                     overview=props.get("overview", ""),
                     content=props.get("content", "") if filters.include_content else "",
@@ -1339,14 +1342,13 @@ Only include pages that would actually help answer the query.
                 # Get outgoing connections
                 outgoing_query = """
                     MATCH (p:WikiPage {id: $page_id})-[r]->(target:WikiPage)
-                    RETURN target.id AS id, target.page_title AS title, 
+                    RETURN target.id AS id,
                            target.page_type AS type, type(r) AS edge_type
                 """
                 result = session.run(outgoing_query, page_id=page_id)
                 for record in result:
                     connected.append({
                         "id": record["id"],
-                        "title": record["title"],
                         "type": record["type"],
                         "edge_type": record["edge_type"],
                         "direction": "outgoing",
@@ -1355,14 +1357,13 @@ Only include pages that would actually help answer the query.
                 # Get incoming connections
                 incoming_query = """
                     MATCH (source:WikiPage)-[r]->(p:WikiPage {id: $page_id})
-                    RETURN source.id AS id, source.page_title AS title,
+                    RETURN source.id AS id,
                            source.page_type AS type, type(r) AS edge_type
                 """
                 result = session.run(incoming_query, page_id=page_id)
                 for record in result:
                     connected.append({
                         "id": record["id"],
-                        "title": record["title"],
                         "type": record["type"],
                         "edge_type": record["edge_type"],
                         "direction": "incoming",
@@ -1377,14 +1378,14 @@ Only include pages that would actually help answer the query.
     # Page Retrieval
     # =========================================================================
     
-    def get_page(self, page_title: str) -> Optional[WikiPage]:
+    def get_page(self, page_id: str) -> Optional[WikiPage]:
         """
-        Retrieve a wiki page by its title.
+        Retrieve a wiki page by its ID.
         
-        Looks up the page in Weaviate by exact title match.
+        Looks up the page in Weaviate by exact page_id match.
         
         Args:
-            page_title: Exact title of the page to retrieve
+            page_id: Exact ID of the page to retrieve (e.g., "Workflow/QLoRA_Finetuning")
             
         Returns:
             WikiPage if found, None otherwise
@@ -1396,49 +1397,29 @@ Only include pages that would actually help answer the query.
         try:
             collection = self._weaviate_client.collections.get(self.weaviate_collection)
 
-            # NOTE: although this method is named `get_page(page_title)`, the
-            # cognitive retrieval stack often has a stable page *id* (e.g.
-            # "Principle/huggingface peft LoRA Configuration") from Neo4j.
-            #
-            # To keep the interface stable while making retrieval robust, we
-            # support BOTH lookup modes:
-            # - If the input looks like a typed wiki ID ("Workflow/...", "Principle/...", ...),
-            #   we attempt an exact `page_id` match first.
-            # - Otherwise we fall back to the original `page_title` match.
-            response = None
-            if "/" in page_title:
-                prefix = page_title.split("/", 1)[0]
-                if prefix in PageType.values():
-                    response = collection.query.fetch_objects(
-                        filters=wvc.query.Filter.by_property("page_id").equal(page_title),
-                        limit=1,
-                        include_vector=False,
-                    )
-            
-            # Fallback / default: Query by exact page_title match
-            if response is None or not response.objects:
-                response = collection.query.fetch_objects(
-                    filters=wvc.query.Filter.by_property("page_title").equal(page_title),
-                    limit=1,
-                    include_vector=False,
-                )
+            # Lookup by exact page_id match
+            response = collection.query.fetch_objects(
+                filters=wvc.query.Filter.by_property("page_id").equal(page_id),
+                limit=1,
+                include_vector=False,
+            )
             
             if response.objects:
                 obj = response.objects[0]
                 props = obj.properties
                 return WikiPage(
                     id=props.get("page_id", ""),
-                    page_title=props.get("page_title", ""),
                     page_type=props.get("page_type", ""),
                     overview=props.get("overview", ""),
                     content=props.get("content", ""),
+                    description=props.get("description", ""),
                     domains=props.get("domains", []),
                 )
             
             return None
             
         except Exception as e:
-            logger.warning(f"Failed to get page '{page_title}': {e}")
+            logger.warning(f"Failed to get page '{page_id}': {e}")
             return None
     
     # =========================================================================
@@ -1583,7 +1564,6 @@ Only include pages that would actually help answer the query.
         Example:
             page = WikiPage(
                 id="Principle/My_New_Concept",
-                page_title="My New Concept",
                 page_type="Principle",
                 overview="A brief overview...",
                 content="Full content...",
@@ -1682,9 +1662,10 @@ Only include pages that would actually help answer the query.
         target_dir = wiki_dir / subdir
         target_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use underscores in filename to match repo ingestor convention
-        # and avoid duplicate files (spaces vs underscores)
-        filename = page.page_title.replace(" ", "_") + ".md"
+        # Derive filename from page.id (e.g., "Principle/My_Concept" -> "My_Concept.md")
+        # The id already uses underscores, matching repo ingestor convention
+        name_part = page.id.split("/", 1)[1] if "/" in page.id else page.id
+        filename = name_part + ".md"
         file_path = target_dir / filename
         
         # Write content directly - it should already be in proper MediaWiki format
@@ -1711,8 +1692,8 @@ Only include pages that would actually help answer the query.
         """
         parts = []
         
-        # Title
-        parts.append(f"# {page.page_title}")
+        # Title (derived from page ID)
+        parts.append(f"# {page.id}")
         parts.append("")
         
         # Metadata table
@@ -1826,8 +1807,8 @@ Only include pages that would actually help answer the query.
         # Ensure collection exists
         self._ensure_weaviate_collection()
         
-        # Generate embedding from overview
-        embedding = self._generate_embedding(page.overview)
+        # Generate embedding from description (fallback to overview)
+        embedding = self._generate_embedding(page.description or page.overview)
         if not embedding:
             logger.warning(f"Failed to generate embedding for {page.id}")
             return False
@@ -1835,9 +1816,9 @@ Only include pages that would actually help answer the query.
         # Prepare properties
         properties = {
             "page_id": page.id,
-            "page_title": page.page_title,
             "page_type": page.page_type,
             "overview": page.overview,
+            "description": page.description,
             "content": page.content,
             "domains": page.domains,
         }
@@ -2176,9 +2157,9 @@ Only include pages that would actually help answer the query.
         # Prepare property updates (map our field names to Weaviate properties)
         weaviate_updates = {}
         field_mapping = {
-            "page_title": "page_title",
             "page_type": "page_type", 
             "overview": "overview",
+            "description": "description",
             "content": "content",
             "domains": "domains",
         }
@@ -2187,10 +2168,12 @@ Only include pages that would actually help answer the query.
             if our_field in updates:
                 weaviate_updates[weaviate_field] = updates[our_field]
         
-        # Generate new embedding if overview changed
+        # Generate new embedding if description or overview changed
         new_vector = None
-        if reembed and "overview" in updates:
-            new_vector = self._generate_embedding(updates["overview"])
+        if reembed and ("description" in updates or "overview" in updates):
+            # Prefer description for embedding; fallback to overview
+            embed_text = updates.get("description") or updates.get("overview", "")
+            new_vector = self._generate_embedding(embed_text)
         
         # Update the object
         if new_vector:
@@ -2232,7 +2215,7 @@ Only include pages that would actually help answer the query.
             
             # Update node properties
             neo4j_updates = {}
-            for field in ["page_title", "page_type", "domains"]:
+            for field in ["page_type", "domains"]:
                 if field in updates:
                     neo4j_updates[field] = updates[field]
             
@@ -2260,13 +2243,12 @@ Only include pages that would actually help answer the query.
                     # Normalize ID: convert underscores to spaces
                     raw_target_id = f"{target_type}/{target_id}"
                     target_page_id = normalize_page_id(raw_target_id)
-                    normalized_title = target_id.replace("_", " ")
                     
                     neo4j_rel_type = self._map_edge_type(edge_type)
                     
                     query = f"""
                         MERGE (target:WikiPage {{id: $target_id}})
-                        ON CREATE SET target.page_type = $target_type, target.page_title = $target_title
+                        ON CREATE SET target.page_type = $target_type
                         WITH target
                         MATCH (source:WikiPage {{id: $source_id}})
                         MERGE (source)-[r:{neo4j_rel_type}]->(target)
@@ -2276,7 +2258,6 @@ Only include pages that would actually help answer the query.
                         source_id=page_id,
                         target_id=target_page_id,
                         target_type=target_type,
-                        target_title=normalized_title,
                     )
             
             return True
@@ -2473,7 +2454,7 @@ if __name__ == "__main__":
         
         print(f"\nResults ({result.total_found} found):")
         for item in result:
-            print(f"  - {item.page_title} ({item.page_type})")
+            print(f"  - {item.id} ({item.page_type})")
             print(f"    Score: {item.score:.3f}")
             if item.metadata.get("connected_pages"):
                 conn_count = len(item.metadata["connected_pages"])

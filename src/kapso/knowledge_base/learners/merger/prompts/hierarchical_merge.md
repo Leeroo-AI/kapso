@@ -168,7 +168,7 @@ Execute the plan for each sub-graph, processing nodes in the computed order:
    - If a child was CREATE_NEW: use the new page's ID
    - If a child was MERGE: use the merge target's ID
 4. Call `kg_index` with:
-   - `page_data`: page_title, page_type, overview, content, domains
+   - `page_data`: page_id, page_type, overview, content, domains
    - `wiki_dir`: {wiki_dir}
 5. Record the `result_page_id` (the new page's ID)
 6. Update plan.md: set Status = COMPLETED

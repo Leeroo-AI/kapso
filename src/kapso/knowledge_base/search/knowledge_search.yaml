@@ -63,10 +63,8 @@ searches:
       weaviate_collection: "KGWikiPages"
       include_connected_pages: true
       use_llm_reranker: true
-      # IMPORTANT: never hardcode truncation/cutoffs in code.
-      # These limits exist only to satisfy upstream API constraints and to keep
-      # reranker prompts compact. Tune here, not in Python source.
-      embedding_max_input_chars: 8000
+      # No embedding truncation -- full description text is sent to the embedding model.
+      # Reranker overview truncation keeps LLM prompts compact.
       reranker_overview_max_chars: 300
     
     presets:
@@ -78,7 +76,6 @@ searches:
           include_connected_pages: true
           use_llm_reranker: true
           reranker_model: "gpt-4.1-mini"
-          embedding_max_input_chars: 8000
           reranker_overview_max_chars: 300
       
       # Fast preset - no reranking, no graph enrichment
@@ -88,7 +85,6 @@ searches:
           weaviate_collection: "KGWikiPages"
           include_connected_pages: false
           use_llm_reranker: false
-          embedding_max_input_chars: 8000
           reranker_overview_max_chars: 300
       
       # Rerank only - no graph enrichment
@@ -99,7 +95,6 @@ searches:
           include_connected_pages: false
           use_llm_reranker: true
           reranker_model: "gpt-4.1-mini"
-          embedding_max_input_chars: 8000
           reranker_overview_max_chars: 300
     
     default_preset: "DEFAULT"

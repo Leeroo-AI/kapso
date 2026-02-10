@@ -60,7 +60,7 @@ def main():
     
     print(f"Results ({result.total_found} found, reranked={result.search_metadata.get('reranked')}):")
     for item in result:
-        print(f"  - {item.page_title} ({item.page_type}) score={item.score:.3f}")
+        print(f"  - {item.id} ({item.page_type}) score={item.score:.3f}")
     
     # =========================================================================
     # Step 3: Test WITH LLM Reranker
@@ -78,7 +78,7 @@ def main():
     
     print(f"Results ({result.total_found} found, reranked={result.search_metadata.get('reranked')}):")
     for item in result:
-        print(f"  - {item.page_title} ({item.page_type}) score={item.score:.3f}")
+        print(f"  - {item.id} ({item.page_type}) score={item.score:.3f}")
     
     # =========================================================================
     # Step 4: Test with filters + reranker + graph enrichment
@@ -103,7 +103,7 @@ def main():
     
     print(f"\nResults ({result.total_found} found, reranked={result.search_metadata.get('reranked')}):")
     for item in result:
-        print(f"  - {item.page_title} ({item.page_type}) score={item.score:.3f}")
+        print(f"  - {item.id} ({item.page_type}) score={item.score:.3f}")
         connected = item.metadata.get("connected_pages", [])
         if connected:
             print(f"    └─ Connected: {len(connected)} pages")
@@ -119,11 +119,11 @@ def main():
     
     # Try to get a page from the top result
     if result.top_result:
-        page_title = result.top_result.page_title
-        print(f"\nLooking up page: {page_title}")
-        page = search.get_page(page_title)
+        page_id = result.top_result.id
+        print(f"\nLooking up page: {page_id}")
+        page = search.get_page(page_id)
         if page:
-            print(f"  Found: {page.page_title} ({page.page_type})")
+            print(f"  Found: {page.id} ({page.page_type})")
             print(f"  Domains: {page.domains}")
             print(f"  Overview: {page.overview[:200]}..." if len(page.overview) > 200 else f"  Overview: {page.overview}")
         else:

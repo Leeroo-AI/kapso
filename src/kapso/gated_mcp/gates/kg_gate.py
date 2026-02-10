@@ -87,19 +87,19 @@ Results include page title, type, relevance score, overview, and content preview
             ),
             Tool(
                 name="get_wiki_page",
-                description="""Retrieve a specific wiki page by its exact title.
+                description="""Retrieve a specific wiki page by its exact ID.
 
-Use this when you already know the page title (from a previous search)
+Use this when you already know the page ID (from a previous search)
 and want to get the complete content.""",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "page_title": {
+                        "page_id": {
                             "type": "string",
-                            "description": "Exact title of the wiki page",
+                            "description": "Exact ID of the wiki page (e.g., 'Workflow/QLoRA_Finetuning')",
                         },
                     },
-                    "required": ["page_title"],
+                    "required": ["page_id"],
                 },
             ),
             Tool(
@@ -120,7 +120,7 @@ Supports two modes:
                             "type": "object",
                             "description": "Single page to add/update",
                             "properties": {
-                                "page_title": {"type": "string"},
+                                "page_id": {"type": "string", "description": "Page ID (e.g., 'Principle/My_Concept')"},
                                 "page_type": {
                                     "type": "string",
                                     "enum": ["Workflow", "Principle", "Implementation", "Environment", "Heuristic"],
@@ -131,7 +131,7 @@ Supports two modes:
                                 "sources": {"type": "array"},
                                 "outgoing_links": {"type": "array"},
                             },
-                            "required": ["page_title", "page_type", "overview", "content"],
+                            "required": ["page_id", "page_type", "overview", "content"],
                         },
                         "persist_path": {
                             "type": "string",
@@ -255,15 +255,15 @@ the correct structure.""",
         """Handle get_wiki_page tool call."""
         try:
             search = get_kg_search_backend()
-            page_title = arguments["page_title"]
+            page_id = arguments["page_id"]
             
-            logger.info(f"Getting page: '{page_title}'")
-            page = await self._run_sync(search.get_page, page_title)
+            logger.info(f"Getting page: '{page_id}'")
+            page = await self._run_sync(search.get_page, page_id)
             
             if page is None:
                 return [TextContent(
                     type="text",
-                    text=f"Page not found: '{page_title}'\n\nTip: Use search_knowledge to find pages by topic.",
+                    text=f"Page not found: '{page_id}'\n\nTip: Use search_knowledge to find pages by topic.",
                 )]
             
             return [TextContent(
@@ -313,7 +313,7 @@ the correct structure.""",
             
             # Single page mode
             elif page_data:
-                page_title = page_data.get("page_title", "")
+                page_id = page_data.get("page_id", "")
                 page_type = page_data.get("page_type", "")
                 overview = page_data.get("overview", "")
                 content = page_data.get("content", "")
@@ -321,10 +321,10 @@ the correct structure.""",
                 sources = page_data.get("sources", [])
                 outgoing_links = page_data.get("outgoing_links", [])
                 
-                if not all([page_title, page_type, overview, content]):
+                if not all([page_id, page_type, overview, content]):
                     return [TextContent(
                         type="text",
-                        text="Error: page_data requires page_title, page_type, overview, and content",
+                        text="Error: page_data requires page_id, page_type, overview, and content",
                     )]
                 
                 # Determine wiki_dir
@@ -332,11 +332,9 @@ the correct structure.""",
                     wiki_dir = get_index_data_source() or "data/wikis"
                 
                 wiki_path = Path(wiki_dir)
-                page_id = f"{page_type}/{page_title}"
                 
                 page = WikiPage(
                     id=page_id,
-                    page_title=page_title,
                     page_type=page_type,
                     overview=overview,
                     content=content,
@@ -503,7 +501,7 @@ No relevant knowledge found.
         
         for i, item in enumerate(result.results, 1):
             parts.append(f"\n---\n")
-            parts.append(f"## [{i}] {item.page_title}\n")
+            parts.append(f"## [{i}] {item.id}\n")
             parts.append(f"**Type:** {item.page_type} | **Score:** {item.score:.2f}\n")
             
             if item.domains:
@@ -522,7 +520,7 @@ No relevant knowledge found.
     def _format_page(self, page: WikiPage) -> str:
         """Format a wiki page as markdown."""
         parts = [
-            f"# {page.page_title}\n",
+            f"# {page.id}\n",
             f"**Type:** {page.page_type}\n",
         ]
         

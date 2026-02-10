@@ -51,6 +51,10 @@ parser.add_argument(
     "--log-dir", type=str, default="data/logs",
     help="Directory for log files (default: data/logs)",
 )
+parser.add_argument(
+    "--reverse", action="store_true", default=False,
+    help="Process repos from end to start (default: False)",
+)
 args = parser.parse_args()
 
 
@@ -90,8 +94,9 @@ repos_file = Path(__file__).parent.parent / "repos.json"
 with open(repos_file) as f:
     repos = json.load(f)
 
-# Process repos from end to start
-repos = list(reversed(repos))
+# Optionally reverse the list to process repos from end to start
+if args.reverse:
+    repos = list(reversed(repos))
 
 log(f"Found {len(repos)} repositories to process")
 log(f"Batch size: {args.batch_size}")

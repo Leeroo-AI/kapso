@@ -95,7 +95,7 @@ result = search.search(
 
 # Access results
 for item in result:
-    print(f"{item.page_title} ({item.page_type}) - Score: {item.score:.2f}")
+    print(f"{item.id} ({item.page_type}) - Score: {item.score:.2f}")
     
     # Graph connections (from Neo4j)
     connected = item.metadata.get("connected_pages", [])

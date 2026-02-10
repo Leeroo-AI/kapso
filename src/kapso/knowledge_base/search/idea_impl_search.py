@@ -151,7 +151,7 @@ class WikiIdeaSearch:
         # Convert to RetrievalResult
         items = [
             RetrievalItem(
-                title=r.page_title,
+                title=r.id,
                 content=r.content or r.overview,
                 score=r.score,
                 item_type=r.page_type,
@@ -237,7 +237,7 @@ class WikiCodeSearch:
         # Convert to RetrievalResult
         items = [
             RetrievalItem(
-                title=r.page_title,
+                title=r.id,
                 content=r.content or r.overview,
                 score=r.score,
                 item_type=r.page_type,

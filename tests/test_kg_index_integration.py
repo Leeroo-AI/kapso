@@ -220,7 +220,7 @@ class TestKGGraphSearchIntegration:
         assert len(result.results) > 0, "Should return search results"
         
         # Check that at least one result mentions QLoRA or fine-tuning
-        titles = [r.page_title.lower() for r in result.results]
+        titles = [r.id.lower() for r in result.results]
         contents = [r.content.lower() for r in result.results]
         
         has_relevant = any(
@@ -383,7 +383,7 @@ class TestKGLLMNavigationIntegration:
         
         # Check that results are relevant to tabular/ML
         all_content = " ".join([
-            f"{r.page_title} {r.content}".lower() 
+            f"{r.id} {r.content}".lower() 
             for r in result.results
         ])
         

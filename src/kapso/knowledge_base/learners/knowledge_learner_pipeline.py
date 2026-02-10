@@ -402,7 +402,7 @@ Examples:
     if result.extracted_pages and args.extract_only:
         print(f"\n  Extracted Pages:")
         for page in result.extracted_pages[:10]:
-            print(f"    - {page.page_title} ({page.page_type})")
+            print(f"    - {page.id} ({page.page_type})")
         if len(result.extracted_pages) > 10:
             print(f"    ... and {len(result.extracted_pages) - 10} more")
     

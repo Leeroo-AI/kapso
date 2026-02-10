@@ -295,7 +295,6 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 result_items.append(KGResultItem(
                     id=node_id,
                     score=score,
-                    page_title=node.get('name', ''),
                     page_type=node_type,
                     overview=node.get('overview', ''),
                     content=node.get('content', '') if filters.include_content else '',
@@ -395,14 +394,14 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         )
         return json.loads(response)
     
-    def get_page(self, page_title: str) -> Optional[WikiPage]:
+    def get_page(self, page_id: str) -> Optional[WikiPage]:
         """
-        Retrieve a wiki page by its title.
+        Retrieve a wiki page by its ID.
         
         Looks up the page in Neo4j by exact name match.
         
         Args:
-            page_title: Exact title of the page to retrieve
+            page_id: Exact ID of the page to retrieve
             
         Returns:
             WikiPage if found, None otherwise
@@ -414,7 +413,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
             with self._driver.session() as session:
                 result = session.run(
                     "MATCH (n:Node {name: $name}) RETURN n",
-                    name=page_title
+                    name=page_id
                 )
                 record = result.single()
                 
@@ -422,7 +421,6 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                     node = dict(record["n"])
                     return WikiPage(
                         id=node.get("id", ""),
-                        page_title=node.get("name", ""),
                         page_type=node.get("type", ""),
                         overview=node.get("overview", ""),
                         content=node.get("content", ""),
@@ -460,7 +458,6 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 # Map field names to Neo4j node properties
                 neo4j_updates = {}
                 field_mapping = {
-                    "page_title": "name",
                     "page_type": "type",
                     "overview": "overview",
                     "content": "content",
