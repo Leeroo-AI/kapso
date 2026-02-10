@@ -17,9 +17,8 @@ from typing import Any, Dict, List, Optional, Union
 # Default Paths
 # =============================================================================
 
-# Default wiki directory and persist path for indexing/editing
+# Default wiki directory for indexing/editing
 DEFAULT_WIKI_DIR = Path("data/wikis")
-DEFAULT_PERSIST_PATH = Path("data/indexes/wikis.json")
 
 
 # =============================================================================
@@ -58,10 +57,10 @@ class WikiPage:
     Maps to the wiki structure defined in src/knowledge/wiki_structure/.
     
     Attributes:
-        id: Unique identifier (e.g., "allenai_allennlp/Model_Training")
-        page_title: Human-readable title
+        id: Unique identifier (e.g., "Workflow/QLoRA_Finetuning")
         page_type: PageType value (Workflow, Principle, Implementation, etc.)
         overview: Brief summary/description (the "card" content)
+        description: Detailed description text (used for embedding generation)
         content: Full page content
         domains: Domain tags (e.g., ["Deep_Learning", "NLP"])
         sources: Knowledge sources (repo URLs, papers, etc.)
@@ -69,10 +68,10 @@ class WikiPage:
         outgoing_links: Graph connections parsed from [[edge::Type:Target]] syntax
     """
     id: str
-    page_title: str
     page_type: str
     overview: str
     content: str
+    description: str = ""
     domains: List[str] = field(default_factory=list)
     sources: List[Dict[str, str]] = field(default_factory=list)
     last_updated: Optional[str] = None
@@ -82,9 +81,9 @@ class WikiPage:
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
-            "page_title": self.page_title,
             "page_type": self.page_type,
             "overview": self.overview,
+            "description": self.description,
             "content": self.content,
             "domains": self.domains,
             "sources": self.sources,
@@ -97,10 +96,10 @@ class WikiPage:
         """Create WikiPage from dictionary."""
         return cls(
             id=data["id"],
-            page_title=data["page_title"],
             page_type=data["page_type"],
             overview=data["overview"],
             content=data["content"],
+            description=data.get("description", ""),
             domains=data.get("domains", []),
             sources=data.get("sources", []),
             last_updated=data.get("last_updated"),
@@ -108,7 +107,7 @@ class WikiPage:
         )
     
     def __repr__(self) -> str:
-        return f"WikiPage(id={self.id!r}, type={self.page_type!r}, title={self.page_title!r})"
+        return f"WikiPage(id={self.id!r}, type={self.page_type!r})"
 
 
 @dataclass
@@ -123,17 +122,13 @@ class KGIndexInput:
     Attributes:
         wiki_dir: Path to directory containing wiki files (default: data/wikis)
         pages: Pre-parsed WikiPage objects
-        persist_path: Where to save indexed data (default: data/indexes/wikis.json)
     
     Example:
-        # Index with defaults (data/wikis -> data/indexes/wikis.json)
+        # Index with defaults (data/wikis)
         search.index(KGIndexInput())
         
         # Index from custom directory
-        input_data = KGIndexInput(
-            wiki_dir="data/wikis/custom",
-            persist_path="data/indexes/custom.json",
-        )
+        input_data = KGIndexInput(wiki_dir="data/wikis/custom")
         search.index(input_data)
         
         # Index pre-parsed pages (no wiki_dir needed)
@@ -146,9 +141,6 @@ class KGIndexInput:
     # Input mode 2: Pre-parsed pages
     pages: Optional[List[WikiPage]] = None
     
-    # Persistence option (default: data/indexes/wikis.json)
-    persist_path: Optional[Union[str, Path]] = field(default=None)
-    
     # Internal flag to track if defaults should be used
     _use_defaults: bool = field(default=True, repr=False)
     
@@ -158,10 +150,6 @@ class KGIndexInput:
         if self.wiki_dir is None and self.pages is None and self._use_defaults:
             self.wiki_dir = DEFAULT_WIKI_DIR
         
-        # Apply default persist_path if wiki_dir is used
-        if self.persist_path is None and self.wiki_dir is not None:
-            self.persist_path = DEFAULT_PERSIST_PATH
-        
         # Validate: must have at least one input source
         if not self.wiki_dir and not self.pages:
             raise ValueError("Must provide either wiki_dir or pages")
@@ -169,8 +157,6 @@ class KGIndexInput:
         # Convert paths to Path objects
         if self.wiki_dir:
             self.wiki_dir = Path(self.wiki_dir)
-        if self.persist_path:
-            self.persist_path = Path(self.persist_path)
 
 
 @dataclass
@@ -178,26 +164,24 @@ class KGEditInput:
     """
     Input for editing an existing wiki page.
     
-    Updates all layers in sync: raw source files, JSON cache, Weaviate, and Neo4j.
+    Updates all layers in sync: raw source files, Weaviate, and Neo4j.
     Only the fields provided (not None) will be updated.
     
     Attributes:
         page_id: Unique identifier of the page to edit (required)
-        page_title: New title (optional)
         page_type: New page type (optional - may move file to different subdir)
-        overview: New overview text (optional - triggers re-embedding)
+        overview: New overview text (optional)
+        description: New description text (optional - triggers re-embedding)
         content: New full page content (optional - replaces entire file content)
         domains: New domain tags (optional, replaces existing)
         sources: New sources (optional, replaces existing)
         outgoing_links: New graph links (optional - triggers edge rebuild)
         auto_timestamp: Whether to auto-update last_updated (default: True)
         wiki_dir: Root wiki directory for source file updates (default: data/wikis)
-        persist_path: Path to JSON cache file (default: data/indexes/wikis.json)
         update_source_files: Whether to update raw .md/.mediawiki files (default: True)
-        update_persist_cache: Whether to update JSON cache (default: True)
     
     Example:
-        # Edit with defaults (uses data/wikis and data/indexes/wikis.json)
+        # Edit with defaults (uses data/wikis)
         edit_input = KGEditInput(
             page_id="Workflow/QLoRA_Finetuning",
             overview="Updated overview text",
@@ -216,9 +200,9 @@ class KGEditInput:
     page_id: str
     
     # Optional fields to update (None = no change)
-    page_title: Optional[str] = None
     page_type: Optional[str] = None
     overview: Optional[str] = None
+    description: Optional[str] = None
     content: Optional[str] = None  # Full file content replacement
     domains: Optional[List[str]] = None
     sources: Optional[List[Dict[str, str]]] = None
@@ -229,11 +213,9 @@ class KGEditInput:
     
     # Source file tracking (with defaults)
     wiki_dir: Optional[Union[str, Path]] = field(default=None)
-    persist_path: Optional[Union[str, Path]] = field(default=None)
     
     # Control which layers to update
     update_source_files: bool = True
-    update_persist_cache: bool = True
     
     def __post_init__(self):
         """Validate input and apply defaults."""
@@ -249,21 +231,18 @@ class KGEditInput:
                     f"Valid types: {valid_types}"
                 )
         
-        # Apply default paths
+        # Apply default path
         if self.wiki_dir is None:
             self.wiki_dir = DEFAULT_WIKI_DIR
-        if self.persist_path is None:
-            self.persist_path = DEFAULT_PERSIST_PATH
         
-        # Convert paths to Path objects
+        # Convert path to Path object
         self.wiki_dir = Path(self.wiki_dir)
-        self.persist_path = Path(self.persist_path)
     
     @property
     def requires_reembedding(self) -> bool:
         """Check if edit requires regenerating embeddings."""
-        # Overview is what gets embedded in Weaviate
-        return self.overview is not None
+        # Description is what gets embedded in Weaviate (fallback to overview)
+        return self.description is not None or self.overview is not None
     
     @property
     def requires_edge_rebuild(self) -> bool:
@@ -288,7 +267,7 @@ class KGEditInput:
     def get_updates(self) -> Dict[str, Any]:
         """Get dict of non-None fields to update."""
         updates = {}
-        for field_name in ['page_title', 'page_type', 'overview', 'content', 
+        for field_name in ['page_type', 'overview', 'description', 'content', 
                            'domains', 'sources', 'outgoing_links']:
             value = getattr(self, field_name)
             if value is not None:
@@ -415,7 +394,6 @@ class KGResultItem:
     Attributes:
         id: Unique identifier for the page/node
         score: Relevance score (higher = more relevant, 0.0 to 1.0)
-        page_title: Title of the wiki page
         page_type: Node type (Workflow, Principle, Implementation, Environment, Heuristic)
         overview: Brief summary/description (the "card" content)
         content: Full page content (may be empty if include_content=False)
@@ -423,7 +401,6 @@ class KGResultItem:
     """
     id: str
     score: float
-    page_title: str
     page_type: str
     overview: str
     content: str = ""
@@ -445,7 +422,7 @@ class KGResultItem:
         return self.metadata.get("last_updated")
     
     def __repr__(self) -> str:
-        return f"KGResultItem(id={self.id!r}, score={self.score:.3f}, title={self.page_title!r}, type={self.page_type!r})"
+        return f"KGResultItem(id={self.id!r}, score={self.score:.3f}, type={self.page_type!r})"
 
 
 @dataclass
@@ -509,13 +486,13 @@ class KGOutput:
         for item in self.results[:max_results]:
             if include_content and item.content:
                 parts.append(
-                    f"## {item.page_title} ({item.page_type})\n"
+                    f"## {item.id} ({item.page_type})\n"
                     f"**Overview:** {item.overview}\n\n"
                     f"{item.content}"
                 )
             else:
                 parts.append(
-                    f"## {item.page_title} ({item.page_type})\n"
+                    f"## {item.id} ({item.page_type})\n"
                     f"{item.overview}"
                 )
         return "\n\n---\n\n".join(parts)
@@ -546,7 +523,7 @@ class KGOutput:
             return ""
         
         return "\n\n".join(
-            f"## {item.page_title}\n{item.content}" for item in code_items
+            f"## {item.id}\n{item.content}" for item in code_items
         )
     
     def __len__(self) -> int:
@@ -607,13 +584,11 @@ class KnowledgeSearch(ABC):
             
         If data.wiki_dir is provided, parses .mediawiki files from the directory.
         If data.pages is provided, indexes the pre-parsed WikiPage objects.
-        If data.persist_path is set, saves the index for later loading.
         
         Example:
             # Index from directory
             search.index(KGIndexInput(
                 wiki_dir="data/wikis/allenai_allennlp",
-                persist_path="data/indexes/allenai_allennlp.json",
             ))
         """
         pass
@@ -653,21 +628,21 @@ class KnowledgeSearch(ABC):
         pass
     
     @abstractmethod
-    def get_page(self, page_title: str) -> Optional[WikiPage]:
+    def get_page(self, page_id: str) -> Optional[WikiPage]:
         """
-        Retrieve a wiki page by its title.
+        Retrieve a wiki page by its ID.
         
-        This is a direct lookup, not a search. Given an exact page title,
+        This is a direct lookup, not a search. Given an exact page ID,
         returns the complete WikiPage with all content.
         
         Args:
-            page_title: Exact title of the page to retrieve
+            page_id: Exact ID of the page to retrieve (e.g., "Workflow/QLoRA_Finetuning")
             
         Returns:
             WikiPage if found, None otherwise
             
         Example:
-            page = search.get_page("Model_Training")
+            page = search.get_page("Workflow/QLoRA_Finetuning")
             if page:
                 print(page.content)
         """
@@ -680,10 +655,9 @@ class KnowledgeSearch(ABC):
         
         Updates in order:
         1. Raw source file (.md or .mediawiki) - if update_source_files=True
-        2. Persist JSON cache - if update_persist_cache=True
-        3. Weaviate (embeddings + properties)
-        4. Neo4j (node properties + edges)
-        5. Internal memory cache
+        2. Weaviate (embeddings + properties)
+        3. Neo4j (node properties + edges)
+        4. Internal memory cache
         
         Args:
             data: KGEditInput with page_id and fields to update
@@ -710,22 +684,19 @@ class KnowledgeSearch(ABC):
         self,
         page: "WikiPage",
         wiki_dir: Path,
-        persist_path: Optional[Path] = None,
     ) -> bool:
         """
         Add a new page to all storage layers.
         
         Creates (in order):
         1. Raw source file (.md) in wiki_dir
-        2. Persist JSON cache entry (if persist_path provided)
-        3. Weaviate (embeddings + properties)
-        4. Neo4j (node + edges)
-        5. Internal memory cache
+        2. Weaviate (embeddings + properties)
+        3. Neo4j (node + edges)
+        4. Internal memory cache
         
         Args:
             page: WikiPage object to add
             wiki_dir: Directory to write the source .md file
-            persist_path: Optional path to JSON cache file
             
         Returns:
             True if successful, False on failure
@@ -738,7 +709,6 @@ class KnowledgeSearch(ABC):
         Example:
             page = WikiPage(
                 id="Principle/My_New_Concept",
-                page_title="My New Concept",
                 page_type="Principle",
                 overview="A brief overview...",
                 content="Full content...",
@@ -843,7 +813,7 @@ class NullKnowledgeSearch(KnowledgeSearch):
         """Return empty results."""
         return KGOutput(query=query, filters=filters)
     
-    def get_page(self, page_title: str) -> Optional[WikiPage]:
+    def get_page(self, page_id: str) -> Optional[WikiPage]:
         """Return None (no pages in null search)."""
         return None
     
@@ -855,7 +825,6 @@ class NullKnowledgeSearch(KnowledgeSearch):
         self,
         page: WikiPage,
         wiki_dir: Path,
-        persist_path: Optional[Path] = None,
     ) -> bool:
         """No-op add_page - always returns False."""
         return False

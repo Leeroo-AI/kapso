@@ -82,16 +82,6 @@ conda activate kapso
 pip install -e .
 ```
 
-### Set Up API Keys
-
-Create `.env` in project root:
-
-```bash
-OPENAI_API_KEY=your-openai-api-key
-GOOGLE_API_KEY=your-google-api-key       # For Gemini
-ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
-```
-
 ### Basic Usage
 
 ```python

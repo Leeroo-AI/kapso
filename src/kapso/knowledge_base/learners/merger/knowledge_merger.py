@@ -157,7 +157,12 @@ class KnowledgeMerger:
     # Main Merge Entry Point
     # =========================================================================
     
-    def merge(self, proposed_pages: List[WikiPage], wiki_dir: Path) -> MergeResult:
+    def merge(
+        self,
+        proposed_pages: List[WikiPage],
+        wiki_dir: Path,
+        staging_dir: Optional[Path] = None,
+    ) -> MergeResult:
         """
         Main merge entry point using hierarchical sub-graph-aware algorithm.
         
@@ -169,11 +174,17 @@ class KnowledgeMerger:
         Args:
             proposed_pages: Proposed pages to add/merge into the KG
             wiki_dir: Persistent wiki directory on disk (KG source-of-truth)
+            staging_dir: Directory where candidate .md files live on disk.
+                         The agentic merge prompt references these paths so the
+                         agent can read pages on demand instead of receiving
+                         all content inline.
             
         Returns:
             MergeResult with created, edited, failed, and error counts
         """
         wiki_dir = (Path(wiki_dir) if isinstance(wiki_dir, str) else wiki_dir).expanduser().resolve()
+        if staging_dir:
+            staging_dir = (Path(staging_dir) if isinstance(staging_dir, str) else staging_dir).expanduser().resolve()
         result = MergeResult(total_proposed=len(proposed_pages))
         
         if not proposed_pages:
@@ -190,7 +201,7 @@ class KnowledgeMerger:
                 return self._create_all_pages(proposed_pages, wiki_dir, result)
             
             # Step 2: Run agentic hierarchical merge
-            return self._run_agentic_merge(proposed_pages, wiki_dir)
+            return self._run_agentic_merge(proposed_pages, wiki_dir, staging_dir)
             
         except Exception as e:
             logger.error(f"Merge failed: {e}")
@@ -310,10 +321,9 @@ class KnowledgeMerger:
         type_dir = wiki_dir / subdir
         type_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use underscores in filename to match repo ingestor convention
-        # and avoid duplicate files (spaces vs underscores)
-        sanitized_title = page.page_title.replace(" ", "_")
-        filename = f"{sanitized_title}.md"
+        # Derive filename from page.id (e.g., "Principle/My_Concept" -> "My_Concept.md")
+        name_part = page.id.split("/", 1)[1] if "/" in page.id else page.id
+        filename = f"{name_part}.md"
         file_path = type_dir / filename
         file_path.write_text(page.content, encoding="utf-8")
         
@@ -327,18 +337,24 @@ class KnowledgeMerger:
         self,
         pages: List[WikiPage],
         wiki_dir: Path,
+        staging_dir: Optional[Path] = None,
     ) -> MergeResult:
         """
         Execute the single-agent hierarchical merge.
         
-        The agent receives all pages and comprehensive instructions,
-        then executes the 5-phase merge algorithm autonomously.
+        The agent receives a lightweight manifest of pages (IDs, types, file paths)
+        and reads page content from disk on demand via its Read tool.
+        
+        Args:
+            pages: Proposed WikiPage objects
+            wiki_dir: Target wiki directory
+            staging_dir: Directory where candidate .md files live on disk
         """
         # Initialize agent
         self._initialize_agent(wiki_dir)
         
-        # Build comprehensive prompt
-        prompt = self._build_merge_prompt(pages, wiki_dir)
+        # Build comprehensive prompt (manifest only, no inline content)
+        prompt = self._build_merge_prompt(pages, wiki_dir, staging_dir)
         
         logger.info(f"Running hierarchical merge for {len(pages)} pages...")
         
@@ -358,8 +374,9 @@ class KnowledgeMerger:
             result.errors.append(f"Agent failed: {agent_result.error}")
             return result
         
-        # Parse results from plan.md
-        result = self._parse_merge_plan(wiki_dir)
+        # Parse results from plan.md (written to staging_dir by the agent)
+        plan_dir = staging_dir if staging_dir else wiki_dir
+        result = self._parse_merge_plan(plan_dir)
         result.total_proposed = len(pages)
         
         logger.info(
@@ -439,61 +456,99 @@ class KnowledgeMerger:
         self._agent.initialize(str(workspace))
         logger.info(f"Initialized Claude Code agent (bedrock={use_bedrock}, model={model}, mcp=True)")
     
-    def _build_merge_prompt(self, pages: List[WikiPage], wiki_dir: Path) -> str:
-        """Build the comprehensive merge instruction prompt."""
+    def _build_merge_prompt(
+        self,
+        pages: List[WikiPage],
+        wiki_dir: Path,
+        staging_dir: Optional[Path] = None,
+    ) -> str:
+        """
+        Build the merge instruction prompt with a lightweight page manifest.
+        
+        Instead of serializing full page content into the prompt, generates
+        a manifest table (ID, type, file path) so the agent reads pages
+        from disk on demand.
+        
+        Args:
+            pages: Proposed WikiPage objects
+            wiki_dir: Target wiki directory
+            staging_dir: Directory where candidate .md files live on disk
+        """
         # Load prompt template
         template = load_prompt("hierarchical_merge")
         
-        # Serialize pages
-        serialized = self._serialize_pages(pages)
+        # Build lightweight manifest (no inline content)
+        manifest = self._build_page_manifest(pages, staging_dir)
         
-        # Format prompt
+        # Format prompt with manifest instead of serialized pages
         prompt = template.format(
             wiki_dir=str(wiki_dir),
+            staging_dir=str(staging_dir) if staging_dir else str(wiki_dir),
             max_retries=self.MAX_RETRIES,
-            serialized_pages=serialized,
+            page_manifest=manifest,
             timestamp=datetime.now().isoformat(),
         )
         
         return prompt
     
-    def _serialize_pages(self, pages: List[WikiPage]) -> str:
+    def _build_page_manifest(
+        self,
+        pages: List[WikiPage],
+        staging_dir: Optional[Path] = None,
+    ) -> str:
         """
-        Serialize pages to markdown format for prompt context.
-        """
-        parts = []
+        Build a lightweight page manifest for the merge prompt.
         
-        for page in pages:
-            parts.append(f"### Page: {page.id}")
-            parts.append(f"- **Type**: {page.page_type}")
-            parts.append(f"- **Title**: {page.page_title}")
-            parts.append(f"- **Overview**: {page.overview}")
-            parts.append(f"- **Domains**: {', '.join(page.domains) if page.domains else 'None'}")
+        Instead of embedding full page content (which can exceed OS arg limits),
+        this returns a markdown table with page IDs, types, and file paths.
+        The agent reads page content from disk on demand using its Read tool.
+        
+        Args:
+            pages: Proposed WikiPage objects
+            staging_dir: Directory where candidate .md files live on disk
             
-            if page.outgoing_links:
-                parts.append("- **Outgoing Links**:")
-                for link in page.outgoing_links:
-                    edge = link.get('edge_type', 'related')
-                    target_type = link.get('target_type', '')
-                    target_id = link.get('target_id', '')
-                    parts.append(f"  - `{edge}` → {target_type}:{target_id}")
+        Returns:
+            Markdown table string with page manifest
+        """
+        # Map page types to subdirectory names
+        type_to_subdir = {
+            "Workflow": "workflows",
+            "Principle": "principles",
+            "Implementation": "implementations",
+            "Environment": "environments",
+            "Heuristic": "heuristics",
+        }
+        
+        # Build manifest table
+        lines = []
+        lines.append("| # | Page ID | Type | File Path |")
+        lines.append("|---|---------|------|-----------|")
+        
+        for i, page in enumerate(pages, 1):
+            # Derive the file path from staging_dir + type subdir + filename
+            subdir = type_to_subdir.get(page.page_type, "other")
+            name_part = page.id.split("/", 1)[1] if "/" in page.id else page.id
+            filename = f"{name_part}.md"
+            
+            if staging_dir:
+                file_path = staging_dir / subdir / filename
             else:
-                parts.append("- **Outgoing Links**: None")
+                # Fallback: just show relative path structure
+                file_path = Path(subdir) / filename
             
-            # Content (truncated if too long)
-            parts.append("")
-            parts.append("**Content:**")
-            parts.append("```")
-            content = page.content
-            if len(content) > 3000:
-                content = content[:3000] + "\n... [content truncated]"
-            parts.append(content)
-            parts.append("```")
-            parts.append("")
-            parts.append("---")
-            parts.append("")
+            lines.append(f"| {i} | {page.id} | {page.page_type} | {file_path} |")
         
-        return "\n".join(parts)
+        # Add summary counts by type
+        lines.append("")
+        lines.append(f"**Total: {len(pages)} pages**")
+        
+        type_counts = {}
+        for page in pages:
+            type_counts[page.page_type] = type_counts.get(page.page_type, 0) + 1
+        for ptype, count in sorted(type_counts.items()):
+            lines.append(f"- {ptype}: {count}")
+        
+        return "\n".join(lines)
     
     def _parse_merge_plan(self, wiki_dir: Path) -> MergeResult:
         """
@@ -599,7 +654,6 @@ if __name__ == "__main__":
     test_pages = [
         WikiPage(
             id="Principle/Test_Principle",
-            page_title="Test_Principle",
             page_type="Principle",
             overview="A test principle for the merger",
             content="== Overview ==\nTest content for principle.",
@@ -614,7 +668,6 @@ if __name__ == "__main__":
         ),
         WikiPage(
             id="Implementation/Test_Implementation",
-            page_title="Test_Implementation",
             page_type="Implementation",
             overview="A test implementation",
             content="== Overview ==\nTest implementation content.",

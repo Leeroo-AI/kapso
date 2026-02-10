@@ -23,7 +23,6 @@
 #   # Index wiki pages from directory
 #   search.index(KGIndexInput(
 #       wiki_dir="data/wikis/allenai_allennlp",
-#       persist_path="data/indexes/allenai_allennlp.json",
 #   ))
 #   
 #   # Search for knowledge

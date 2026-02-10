@@ -956,10 +956,11 @@ class RepoIngestor(Ingestor):
         """
         return self._last_repo_path
 
-    def get_last_staging_dir(self) -> Optional[Path]:
+    def get_staging_dir(self) -> Optional[Path]:
         """
         Get the path to the last staging wiki directory.
         
+        Overrides base Ingestor.get_staging_dir().
         Useful for debugging phase outputs before merge.
         """
         return self._last_staging_dir

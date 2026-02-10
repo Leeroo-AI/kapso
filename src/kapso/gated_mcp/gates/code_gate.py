@@ -16,7 +16,7 @@ from kapso.knowledge_base.search.base import KGSearchFilters, PageType
 
 logger = logging.getLogger(__name__)
 
-# Page types for code search (from idea_impl_search.py)
+# Page types for code search (Implementations + Environments)
 CODE_TYPES = [PageType.IMPLEMENTATION.value, PageType.ENVIRONMENT.value]
 
 
@@ -117,7 +117,7 @@ Example queries:
         
         parts = [f'# Code Search: "{query}"\n', f"Found **{result.total_found}** results:\n"]
         for i, item in enumerate(result.results, 1):
-            parts.append(f"\n---\n## [{i}] {item.page_title}\n")
+            parts.append(f"\n---\n## [{i}] {item.id}\n")
             parts.append(f"**Type:** {item.page_type} | **Score:** {item.score:.2f}\n")
             if item.domains:
                 parts.append(f"**Domains:** {', '.join(item.domains)}\n")

@@ -225,7 +225,7 @@ class WorkflowRepoSearch:
             github_url = extract_github_url(r.content or "")
             
             items.append(WorkflowRepoItem(
-                title=r.page_title,
+                title=r.id,
                 content=r.content or r.overview,
                 overview=r.overview,
                 github_url=github_url,

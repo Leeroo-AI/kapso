@@ -65,7 +65,7 @@ def test_idea_ingestor_e2e():
     
     for page in pages:
         assert isinstance(page, WikiPage), f"Expected WikiPage, got {type(page)}"
-        print(f"  - {page.page_type}: {page.page_title}")
+        print(f"  - {page.page_type}: {page.id}")
         
         # Validate page has required sections
         assert page.content, "Page content should not be empty"
@@ -115,7 +115,7 @@ def test_implementation_ingestor_e2e():
     
     for page in pages:
         assert isinstance(page, WikiPage), f"Expected WikiPage, got {type(page)}"
-        print(f"  - {page.page_type}: {page.page_title}")
+        print(f"  - {page.page_type}: {page.id}")
         
         # Validate page has required sections
         assert page.content, "Page content should not be empty"
@@ -163,7 +163,7 @@ def test_research_report_ingestor_e2e():
     
     for page in pages:
         assert isinstance(page, WikiPage), f"Expected WikiPage, got {type(page)}"
-        print(f"  - {page.page_type}: {page.page_title}")
+        print(f"  - {page.page_type}: {page.id}")
         
         # Validate page has required sections
         assert page.content, "Page content should not be empty"

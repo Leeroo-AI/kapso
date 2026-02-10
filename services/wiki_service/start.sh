@@ -162,17 +162,22 @@ while ((tries--)); do
         docker compose exec -d wiki bash -c '/import_wikis.sh > /tmp/import_output.log 2>&1; echo $? > /tmp/import_done'
         
         # Wait for import to complete (check for marker file)
-        import_tries=600  # 10 minutes max
-        prev_line=""
-        while ((import_tries--)); do
+        # Show ALL new lines since last check so no imported pages are skipped
+        # No timeout — waits until import finishes regardless of page count
+        lines_shown=0
+        while true; do
             if docker compose exec -T wiki test -f /tmp/import_done 2>/dev/null; then
+                # Import done — show any remaining lines we haven't printed yet
+                docker compose exec -T wiki tail -n +$((lines_shown + 1)) /tmp/import_output.log 2>/dev/null || true
                 break
             fi
-            # Show progress
-            last_line=$(docker compose exec -T wiki tail -1 /tmp/import_output.log 2>/dev/null || echo "")
-            if [[ -n "$last_line" && "$last_line" != "$prev_line" ]]; then
-                echo "$last_line"
-                prev_line="$last_line"
+            # Show all new lines since last check
+            new_output=$(docker compose exec -T wiki tail -n +$((lines_shown + 1)) /tmp/import_output.log 2>/dev/null || echo "")
+            if [[ -n "$new_output" ]]; then
+                echo "$new_output"
+                # Count how many lines we've now shown
+                new_count=$(echo "$new_output" | wc -l)
+                lines_shown=$((lines_shown + new_count))
             fi
             sleep 1
         done
@@ -207,45 +212,12 @@ while ((tries--)); do
         echo "=========================================="
         echo ""
 
-        # Start Leeroopedia API service
-        echo "Starting Leeroopedia API service..."
-        API_PORT="${API_PORT:-8091}"
-        
-        # Build and start leeroopedia service
-        docker compose -f ../leeroopedia_service/docker-compose.yml build
-        docker compose -f ../leeroopedia_service/docker-compose.yml up -d
-        
-        # Wait for leeroopedia API to be ready
-        echo "Waiting for Leeroopedia API..."
-        api_tries=30
-        while ((api_tries--)); do
-            if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT}/health" | grep -q "200"; then
-                echo ""
-                echo "=========================================="
-                echo "Leeroopedia API is ready!"
-                echo ""
-                echo "   URL:      http://localhost:${API_PORT}"
-                echo "   Docs:     http://localhost:${API_PORT}/docs"
-                echo "=========================================="
-                break
-            fi
-            printf "."
-            sleep 1
-        done
-        
-        if ((api_tries < 0)); then
-            echo ""
-            echo "Warning: Leeroopedia API did not start in time."
-            echo "Check logs with: docker compose -f ../leeroopedia_service/docker-compose.yml logs"
-        fi
-        
         echo ""
         echo "Commands:"
         echo "  ./stop.sh   - Stop wiki (keeps data)"
         echo "  ./reset.sh  - Delete all data"
         echo "  docker compose logs -f wiki      - View wiki logs"
         echo "  docker compose logs -f wiki-sync - View sync logs"
-        echo "  docker compose -f ../leeroopedia_service/docker-compose.yml logs -f - View API logs"
         echo ""
         exit 0
     fi
@@ -255,10 +227,6 @@ done
 
 echo ""
 echo "Error: Wiki did not start in time."
-echo ""
-echo "Check logs with: docker compose logs wiki"
-exit 1
- in time."
 echo ""
 echo "Check logs with: docker compose logs wiki"
 exit 1

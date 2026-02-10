@@ -7,6 +7,9 @@ public
 release-notes.md
 typescript*
 
+# wiki-backend is a separate repo (git@github.com:Leeroo-AI/wiki-backend.git)
+services/wiki_backend/
+
 # Byte-compiled / optimized / DLL files
 *__pycache__*
 *.py[cod]
@@ -225,3 +228,9 @@ services/wiki_service/state/sync.json
 scripts/evaluate_repos.py
 repos.json
 scripts/tmux_log.sh
+
+# Separate repos (not tracked in kapso)
+leeroopedia_mcp/
+leeroopedia_mcp_backend/
+services/leeroopedia-mcp/
+services/backend_search/
