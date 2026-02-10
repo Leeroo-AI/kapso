@@ -57,7 +57,6 @@ def main():
     
     # KGGraphSearch expects type subdirectories (workflows/, principles/, etc.)
     wiki_dir = Path("data/workflow_repos")
-    persist_path = Path("data/indexes/workflow_repos.json")
     
     if not (wiki_dir / "workflows").exists() or not list((wiki_dir / "workflows").glob("*.md")):
         print(f"\n⚠️  No workflow pages found in {wiki_dir}")
@@ -67,7 +66,7 @@ def main():
     print(f"\nIndexing workflow pages from {wiki_dir}...")
     kg_search = KnowledgeSearchFactory.create("kg_graph_search")
     kg_search.clear()  # Clear old data
-    kg_search.index(KGIndexInput(wiki_dir=wiki_dir, persist_path=persist_path))
+    kg_search.index(KGIndexInput(wiki_dir=wiki_dir))
     print("Indexing complete!")
     
     # =========================================================================

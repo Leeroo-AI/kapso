@@ -29,13 +29,11 @@ def main():
     # Step 1: Index wiki pages
     # =========================================================================
     wiki_dir = Path("data/wikis")
-    persist_path = Path("data/indexes/wikis.json")
     
     if wiki_dir.exists():
         print(f"\nIndexing wiki pages from {wiki_dir}...")
         search.index(KGIndexInput(
             wiki_dir=wiki_dir,
-            persist_path=persist_path,
         ))
         print("Indexing complete!")
     else:
@@ -155,7 +153,6 @@ def main():
         page_id=test_page_id,
         domains=test_domains,
         update_source_files=False,  # Only update indexes, not raw files
-        update_persist_cache=False,  # Skip JSON cache too
         auto_timestamp=False,  # Don't change timestamp
     ))
     print(f"  Edit result: {'✓ Success' if success else '✗ Failed'}")
@@ -185,7 +182,6 @@ def main():
         page_id=test_page_id,
         overview=test_overview,
         update_source_files=True,  # Update the .md file
-        update_persist_cache=True,
         auto_timestamp=False,
     ))
     print(f"  Edit result: {'✓ Success' if overview_success else '✗ Failed'}")
@@ -203,7 +199,6 @@ def main():
             page_id=test_page_id,
             overview=original_overview,
             update_source_files=True,
-            update_persist_cache=True,
             auto_timestamp=False,
         ))
         print(f"  Restored overview: {'✓' if restore_overview else '✗'}")
@@ -227,7 +222,6 @@ def main():
         page_id=test_page_id,
         content=test_content,
         update_source_files=True,
-        update_persist_cache=True,
         auto_timestamp=False,
     ))
     print(f"  Edit result: {'✓ Success' if content_success else '✗ Failed'}")
@@ -244,7 +238,6 @@ def main():
             page_id=test_page_id,
             content=original_content,
             update_source_files=True,
-            update_persist_cache=True,
             auto_timestamp=False,
         ))
         print(f"  Restored content: {'✓' if restore_content else '✗'}")
@@ -265,7 +258,6 @@ def main():
             page_id=test_page_id,
             domains=original_page.domains,  # Restore original
             update_source_files=True,  # Update raw .md file
-            update_persist_cache=True,  # Update JSON cache
             auto_timestamp=True,  # Update timestamp
         ))
         print(f"  Restore result: {'✓ Success' if restore_success else '✗ Failed'}")
@@ -281,7 +273,6 @@ def main():
     print("\n  [5e] Test KGEditInput defaults and properties...")
     test_edit = KGEditInput(page_id="Workflow/QLoRA_Finetuning")
     print(f"  Default wiki_dir: {test_edit.wiki_dir}")
-    print(f"  Default persist_path: {test_edit.persist_path}")
     print(f"  requires_reembedding (no overview): {test_edit.requires_reembedding}")
     print(f"  requires_edge_rebuild (no links): {test_edit.requires_edge_rebuild}")
     

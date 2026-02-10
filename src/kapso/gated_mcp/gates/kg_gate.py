@@ -133,10 +133,6 @@ Supports two modes:
                             },
                             "required": ["page_id", "page_type", "overview", "content"],
                         },
-                        "persist_path": {
-                            "type": "string",
-                            "description": "Path to JSON cache file",
-                        },
                         "clear_existing": {
                             "type": "boolean",
                             "description": "Clear existing data before indexing",
@@ -282,7 +278,6 @@ the correct structure.""",
             
             wiki_dir = arguments.get("wiki_dir")
             page_data = arguments.get("page_data")
-            persist_path = arguments.get("persist_path")
             clear_existing = arguments.get("clear_existing", False)
             
             if clear_existing:
@@ -302,7 +297,6 @@ the correct structure.""",
                 
                 index_input = KGIndexInput(
                     wiki_dir=wiki_path,
-                    persist_path=Path(persist_path) if persist_path else None,
                 )
                 await self._run_sync(search.index, index_input)
                 
@@ -358,7 +352,6 @@ the correct structure.""",
                         sources=sources if sources else None,
                         outgoing_links=outgoing_links if outgoing_links else None,
                         wiki_dir=wiki_path,
-                        persist_path=Path(persist_path) if persist_path else None,
                     )
                     success = await self._run_sync(search.edit, edit_input)
                     
@@ -371,10 +364,8 @@ the correct structure.""",
                         return [TextContent(type="text", text=f"Failed to update page: {page_id}")]
                 else:
                     # Add new
-                    persist = Path(persist_path) if persist_path else None
-                    
                     if hasattr(search, 'add_page'):
-                        success = await self._run_sync(search.add_page, page, wiki_path, persist)
+                        success = await self._run_sync(search.add_page, page, wiki_path)
                     else:
                         index_input = KGIndexInput(pages=[page])
                         await self._run_sync(search.index, index_input)

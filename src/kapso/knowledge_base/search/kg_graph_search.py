@@ -703,7 +703,6 @@ class KGGraphSearch(KnowledgeSearch):
             
         If data.wiki_dir is provided, parses wiki files from the directory.
         If data.pages is provided, indexes the pre-parsed WikiPage objects.
-        If data.persist_path is set, saves the parsed pages for later loading.
         """
         # Get pages from input
         if data.pages:
@@ -723,10 +722,6 @@ class KGGraphSearch(KnowledgeSearch):
         
         # Index to Weaviate (embeddings)
         self._index_to_weaviate(pages)
-        
-        # Save parsed pages if persist_path provided
-        if data.persist_path:
-            self._save_parsed_pages(data.persist_path)
         
         logger.info(f"Indexed {len(pages)} pages to Neo4j and Weaviate")
     
@@ -961,49 +956,6 @@ class KGGraphSearch(KnowledgeSearch):
     # =========================================================================
     # Parsed Data Persistence (Internal)
     # =========================================================================
-    
-    def _save_parsed_pages(self, path: Union[str, Path]) -> None:
-        """
-        Save parsed WikiPages to JSON file (internal use).
-        
-        Note: This only saves the parsed page data, not the actual indexed
-        data in Weaviate/Neo4j. Used internally during indexing.
-        """
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        
-        data = {
-            "pages": [p.to_dict() for p in self._pages],
-            "metadata": {
-                "collection": self.weaviate_collection,
-                "embedding_model": self.embedding_model,
-            },
-        }
-        
-        with open(path, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        logger.info(f"Saved {len(self._pages)} pages to {path}")
-    
-    def _load_parsed_pages(self, path: Union[str, Path]) -> None:
-        """
-        Load parsed WikiPages from JSON file (internal use).
-        
-        Note: This only loads the parsed page data into memory, not the
-        actual indexed data. If Weaviate/Neo4j don't have the data,
-        you'll need to call index() again.
-        """
-        path = Path(path)
-        
-        if not path.exists():
-            raise FileNotFoundError(f"Index file not found: {path}")
-        
-        with open(path, 'r') as f:
-            data = json.load(f)
-        
-        self._pages = [WikiPage.from_dict(p) for p in data.get("pages", [])]
-        
-        logger.info(f"Loaded {len(self._pages)} pages from {path}")
     
     # =========================================================================
     # Search Methods
@@ -1425,10 +1377,9 @@ Only include pages that would actually help answer the query.
         
         Updates (in order):
         1. Raw source file (.md or .mediawiki)
-        2. Persist JSON cache
-        3. Weaviate (embeddings + properties)
-        4. Neo4j (node properties + edges)
-        5. Internal memory cache
+        2. Weaviate (embeddings + properties)
+        3. Neo4j (node properties + edges)
+        4. Internal memory cache
         
         Args:
             data: KGEditInput with page_id and fields to update
@@ -1449,7 +1400,6 @@ Only include pages that would actually help answer the query.
         # Track results for each layer
         results = {
             "source_file": None,
-            "persist_cache": None,
             "weaviate": None,
             "neo4j": None,
         }
@@ -1469,21 +1419,7 @@ Only include pages that would actually help answer the query.
                 results["source_file"] = False
         
         # =====================================================================
-        # 2. Update Persist JSON Cache
-        # =====================================================================
-        if data.update_persist_cache and data.persist_path:
-            try:
-                results["persist_cache"] = self._update_persist_cache(
-                    data.page_id,
-                    updates,
-                    data.persist_path,
-                )
-            except Exception as e:
-                logger.error(f"Failed to update persist cache for {data.page_id}: {e}")
-                results["persist_cache"] = False
-        
-        # =====================================================================
-        # 3. Update Weaviate
+        # 2. Update Weaviate
         # =====================================================================
         if self._weaviate_client:
             try:
@@ -1497,7 +1433,7 @@ Only include pages that would actually help answer the query.
                 results["weaviate"] = False
         
         # =====================================================================
-        # 4. Update Neo4j
+        # 3. Update Neo4j
         # =====================================================================
         if self._neo4j_driver:
             try:
@@ -1534,22 +1470,19 @@ Only include pages that would actually help answer the query.
         self,
         page: WikiPage,
         wiki_dir: Path,
-        persist_path: Optional[Path] = None,
     ) -> bool:
         """
         Add a new page to ALL storage layers.
         
         Creates (in order):
         1. Raw source file (.md) in wiki_dir
-        2. Persist JSON cache entry (if persist_path provided)
-        3. Weaviate (embeddings + properties)
-        4. Neo4j (node + edges)
-        5. Internal memory cache
+        2. Weaviate (embeddings + properties)
+        3. Neo4j (node + edges)
+        4. Internal memory cache
         
         Args:
             page: WikiPage object to add
             wiki_dir: Directory to write the source .md file
-            persist_path: Optional path to JSON cache file
             
         Returns:
             True if successful, False on failure
@@ -1565,7 +1498,6 @@ Only include pages that would actually help answer the query.
         """
         results = {
             "source_file": None,
-            "persist_cache": None,
             "weaviate": None,
             "neo4j": None,
         }
@@ -1580,17 +1512,7 @@ Only include pages that would actually help answer the query.
             results["source_file"] = False
         
         # =====================================================================
-        # 2. Update Persist JSON Cache
-        # =====================================================================
-        if persist_path:
-            try:
-                results["persist_cache"] = self._add_to_persist_cache(page, persist_path)
-            except Exception as e:
-                logger.error(f"Failed to update persist cache for {page.id}: {e}")
-                results["persist_cache"] = False
-        
-        # =====================================================================
-        # 3. Index to Weaviate
+        # 2. Index to Weaviate
         # =====================================================================
         if self._weaviate_client:
             try:
@@ -1600,7 +1522,7 @@ Only include pages that would actually help answer the query.
                 results["weaviate"] = False
         
         # =====================================================================
-        # 4. Index to Neo4j
+        # 3. Index to Neo4j
         # =====================================================================
         if self._neo4j_driver:
             try:
@@ -1735,52 +1657,6 @@ Only include pages that would actually help answer the query.
         
         return "\n".join(parts)
     
-    def _add_to_persist_cache(self, page: WikiPage, persist_path: Path) -> bool:
-        """
-        Add a page to the persist JSON cache.
-        
-        Loads existing cache, appends the new page, and saves back.
-        
-        Args:
-            page: WikiPage to add
-            persist_path: Path to JSON cache file
-            
-        Returns:
-            True if successful
-        """
-        # Load existing cache or create new
-        if persist_path.exists():
-            with open(persist_path, 'r') as f:
-                data = json.load(f)
-        else:
-            persist_path.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "pages": [],
-                "metadata": {
-                    "collection": self.weaviate_collection,
-                    "embedding_model": self.embedding_model,
-                },
-            }
-        
-        # Check if page already exists (by id)
-        existing_ids = {p.get("id") for p in data.get("pages", [])}
-        if page.id in existing_ids:
-            # Update existing entry
-            data["pages"] = [
-                page.to_dict() if p.get("id") == page.id else p
-                for p in data["pages"]
-            ]
-            logger.debug(f"Updated existing page in cache: {page.id}")
-        else:
-            # Append new page
-            data["pages"].append(page.to_dict())
-            logger.debug(f"Added new page to cache: {page.id}")
-        
-        # Save back
-        with open(persist_path, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        return True
     
     def _index_single_page_to_weaviate(self, page: WikiPage) -> bool:
         """
@@ -2080,44 +1956,6 @@ Only include pages that would actually help answer the query.
     # Persist Cache Update Methods
     # =========================================================================
     
-    def _update_persist_cache(
-        self,
-        page_id: str,
-        updates: Dict[str, Any],
-        persist_path: Path,
-    ) -> bool:
-        """
-        Update the persisted JSON cache file.
-        """
-        if not persist_path.exists():
-            logger.warning(f"Persist cache not found: {persist_path}")
-            return False
-        
-        # Load existing cache
-        with open(persist_path, 'r') as f:
-            data = json.load(f)
-        
-        # Find and update the page
-        pages = data.get("pages", [])
-        found = False
-        for page_dict in pages:
-            if page_dict.get("id") == page_id:
-                for field, value in updates.items():
-                    if field in page_dict:
-                        page_dict[field] = value
-                found = True
-                break
-        
-        if not found:
-            logger.warning(f"Page {page_id} not found in persist cache")
-            return False
-        
-        # Write back
-        with open(persist_path, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        logger.info(f"Updated persist cache: {persist_path}")
-        return True
     
     # =========================================================================
     # Weaviate Update Methods
@@ -2407,13 +2245,11 @@ if __name__ == "__main__":
     else:
         # Index data/wikis
         wiki_dir = Path("data/wikis")
-        persist_path = Path("data/indexes/wikis.json")
         
         if wiki_dir.exists():
             print(f"\nIndexing wiki pages from {wiki_dir}...")
             search.index(KGIndexInput(
                 wiki_dir=wiki_dir,
-                persist_path=persist_path,
             ))
         else:
             print(f"\nWarning: {wiki_dir} not found")

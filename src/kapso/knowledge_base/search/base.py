@@ -17,9 +17,8 @@ from typing import Any, Dict, List, Optional, Union
 # Default Paths
 # =============================================================================
 
-# Default wiki directory and persist path for indexing/editing
+# Default wiki directory for indexing/editing
 DEFAULT_WIKI_DIR = Path("data/wikis")
-DEFAULT_PERSIST_PATH = Path("data/indexes/wikis.json")
 
 
 # =============================================================================
@@ -123,17 +122,13 @@ class KGIndexInput:
     Attributes:
         wiki_dir: Path to directory containing wiki files (default: data/wikis)
         pages: Pre-parsed WikiPage objects
-        persist_path: Where to save indexed data (default: data/indexes/wikis.json)
     
     Example:
-        # Index with defaults (data/wikis -> data/indexes/wikis.json)
+        # Index with defaults (data/wikis)
         search.index(KGIndexInput())
         
         # Index from custom directory
-        input_data = KGIndexInput(
-            wiki_dir="data/wikis/custom",
-            persist_path="data/indexes/custom.json",
-        )
+        input_data = KGIndexInput(wiki_dir="data/wikis/custom")
         search.index(input_data)
         
         # Index pre-parsed pages (no wiki_dir needed)
@@ -146,9 +141,6 @@ class KGIndexInput:
     # Input mode 2: Pre-parsed pages
     pages: Optional[List[WikiPage]] = None
     
-    # Persistence option (default: data/indexes/wikis.json)
-    persist_path: Optional[Union[str, Path]] = field(default=None)
-    
     # Internal flag to track if defaults should be used
     _use_defaults: bool = field(default=True, repr=False)
     
@@ -158,10 +150,6 @@ class KGIndexInput:
         if self.wiki_dir is None and self.pages is None and self._use_defaults:
             self.wiki_dir = DEFAULT_WIKI_DIR
         
-        # Apply default persist_path if wiki_dir is used
-        if self.persist_path is None and self.wiki_dir is not None:
-            self.persist_path = DEFAULT_PERSIST_PATH
-        
         # Validate: must have at least one input source
         if not self.wiki_dir and not self.pages:
             raise ValueError("Must provide either wiki_dir or pages")
@@ -169,8 +157,6 @@ class KGIndexInput:
         # Convert paths to Path objects
         if self.wiki_dir:
             self.wiki_dir = Path(self.wiki_dir)
-        if self.persist_path:
-            self.persist_path = Path(self.persist_path)
 
 
 @dataclass
@@ -178,7 +164,7 @@ class KGEditInput:
     """
     Input for editing an existing wiki page.
     
-    Updates all layers in sync: raw source files, JSON cache, Weaviate, and Neo4j.
+    Updates all layers in sync: raw source files, Weaviate, and Neo4j.
     Only the fields provided (not None) will be updated.
     
     Attributes:
@@ -192,12 +178,10 @@ class KGEditInput:
         outgoing_links: New graph links (optional - triggers edge rebuild)
         auto_timestamp: Whether to auto-update last_updated (default: True)
         wiki_dir: Root wiki directory for source file updates (default: data/wikis)
-        persist_path: Path to JSON cache file (default: data/indexes/wikis.json)
         update_source_files: Whether to update raw .md/.mediawiki files (default: True)
-        update_persist_cache: Whether to update JSON cache (default: True)
     
     Example:
-        # Edit with defaults (uses data/wikis and data/indexes/wikis.json)
+        # Edit with defaults (uses data/wikis)
         edit_input = KGEditInput(
             page_id="Workflow/QLoRA_Finetuning",
             overview="Updated overview text",
@@ -229,11 +213,9 @@ class KGEditInput:
     
     # Source file tracking (with defaults)
     wiki_dir: Optional[Union[str, Path]] = field(default=None)
-    persist_path: Optional[Union[str, Path]] = field(default=None)
     
     # Control which layers to update
     update_source_files: bool = True
-    update_persist_cache: bool = True
     
     def __post_init__(self):
         """Validate input and apply defaults."""
@@ -249,15 +231,12 @@ class KGEditInput:
                     f"Valid types: {valid_types}"
                 )
         
-        # Apply default paths
+        # Apply default path
         if self.wiki_dir is None:
             self.wiki_dir = DEFAULT_WIKI_DIR
-        if self.persist_path is None:
-            self.persist_path = DEFAULT_PERSIST_PATH
         
-        # Convert paths to Path objects
+        # Convert path to Path object
         self.wiki_dir = Path(self.wiki_dir)
-        self.persist_path = Path(self.persist_path)
     
     @property
     def requires_reembedding(self) -> bool:
@@ -605,13 +584,11 @@ class KnowledgeSearch(ABC):
             
         If data.wiki_dir is provided, parses .mediawiki files from the directory.
         If data.pages is provided, indexes the pre-parsed WikiPage objects.
-        If data.persist_path is set, saves the index for later loading.
         
         Example:
             # Index from directory
             search.index(KGIndexInput(
                 wiki_dir="data/wikis/allenai_allennlp",
-                persist_path="data/indexes/allenai_allennlp.json",
             ))
         """
         pass
@@ -678,10 +655,9 @@ class KnowledgeSearch(ABC):
         
         Updates in order:
         1. Raw source file (.md or .mediawiki) - if update_source_files=True
-        2. Persist JSON cache - if update_persist_cache=True
-        3. Weaviate (embeddings + properties)
-        4. Neo4j (node properties + edges)
-        5. Internal memory cache
+        2. Weaviate (embeddings + properties)
+        3. Neo4j (node properties + edges)
+        4. Internal memory cache
         
         Args:
             data: KGEditInput with page_id and fields to update
@@ -708,22 +684,19 @@ class KnowledgeSearch(ABC):
         self,
         page: "WikiPage",
         wiki_dir: Path,
-        persist_path: Optional[Path] = None,
     ) -> bool:
         """
         Add a new page to all storage layers.
         
         Creates (in order):
         1. Raw source file (.md) in wiki_dir
-        2. Persist JSON cache entry (if persist_path provided)
-        3. Weaviate (embeddings + properties)
-        4. Neo4j (node + edges)
-        5. Internal memory cache
+        2. Weaviate (embeddings + properties)
+        3. Neo4j (node + edges)
+        4. Internal memory cache
         
         Args:
             page: WikiPage object to add
             wiki_dir: Directory to write the source .md file
-            persist_path: Optional path to JSON cache file
             
         Returns:
             True if successful, False on failure
@@ -852,7 +825,6 @@ class NullKnowledgeSearch(KnowledgeSearch):
         self,
         page: WikiPage,
         wiki_dir: Path,
-        persist_path: Optional[Path] = None,
     ) -> bool:
         """No-op add_page - always returns False."""
         return False

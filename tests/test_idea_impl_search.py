@@ -25,14 +25,13 @@ def main():
     # Setup: Index wiki data
     # =========================================================================
     wiki_dir = Path("data/wikis_llm_finetuning")
-    persist_path = Path("data/indexes/wikis_llm_finetuning.json")
     
     print(f"\nIndexing wiki pages from {wiki_dir}...")
     # Use factory to get params from config (weaviate_collection, etc.)
     kg_search = KnowledgeSearchFactory.create("kg_graph_search")
     # Clear old data to avoid duplicates from previous runs
     kg_search.clear()
-    kg_search.index(KGIndexInput(wiki_dir=wiki_dir, persist_path=persist_path))
+    kg_search.index(KGIndexInput(wiki_dir=wiki_dir))
     print("Indexing complete!")
     
     # =========================================================================
