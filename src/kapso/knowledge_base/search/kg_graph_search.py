@@ -68,28 +68,22 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # ID Normalization
 # =============================================================================
-# Wiki files use spaces in names: "huggingface peft LoRA Configuration.md"
-# But wiki links use underscores: [[step::Principle:huggingface_peft_LoRA_Configuration]]
-# This function normalizes both to use spaces for consistent matching.
+# Page IDs use underscores throughout (derived from filenames).
+# Wiki links also use underscores: [[step::Principle:Unslothai_Unsloth_LoRA_Configuration]]
+# This function is kept as a pass-through for backward compatibility.
+# Previously it converted underscores to spaces, which broke Neo4j edges.
 
 def normalize_page_id(page_id: str) -> str:
     """
     Normalize a page ID for consistent matching.
     
-    Converts underscores to spaces in the page name part (after the type prefix).
-    Example: "Principle/huggingface_peft_LoRA_Configuration" 
-          -> "Principle/huggingface peft LoRA Configuration"
+    Returns the page ID as-is. Both filenames and wiki links use underscores,
+    so no conversion is needed.
     
-    This ensures wiki links match actual wiki file names.
+    Example: "Principle/Unslothai_Unsloth_LoRA_Configuration" 
+          -> "Principle/Unslothai_Unsloth_LoRA_Configuration"  (unchanged)
     """
-    if "/" in page_id:
-        page_type, name = page_id.split("/", 1)
-        # Convert underscores to spaces in the name part only
-        normalized_name = name.replace("_", " ")
-        return f"{page_type}/{normalized_name}"
-    else:
-        # No type prefix, just normalize the whole string
-        return page_id.replace("_", " ")
+    return page_id
 
 
 # =============================================================================
@@ -805,8 +799,7 @@ class KGGraphSearch(KnowledgeSearch):
             target_type = link.get("target_type", "")
             target_id = link.get("target_id", "")
             
-            # Construct and NORMALIZE target page ID
-            # Wiki links use underscores but file names use spaces
+            # Construct target page ID (normalize preserves underscores)
             raw_target_id = f"{target_type}/{target_id}"
             target_page_id = normalize_page_id(raw_target_id)
             
@@ -2240,7 +2233,7 @@ Only include pages that would actually help answer the query.
                     target_type = link.get("target_type", "")
                     target_id = link.get("target_id", "")
                     
-                    # Normalize ID: convert underscores to spaces
+                    # Normalize ID (pass-through, keeps underscores)
                     raw_target_id = f"{target_type}/{target_id}"
                     target_page_id = normalize_page_id(raw_target_id)
                     

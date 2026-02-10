@@ -85,6 +85,15 @@ def main():
         for item in result.results:
             print(f"  [{item.score:.3f}] {item.id} ({item.page_type})")
 
+            # Show Neo4j graph connections (incoming & outgoing)
+            connected = item.metadata.get("connected_pages", [])
+            outgoing = [c for c in connected if c["direction"] == "outgoing"]
+            incoming = [c for c in connected if c["direction"] == "incoming"]
+            if outgoing:
+                print(f"           → outgoing: {', '.join(c['id'] for c in outgoing)}")
+            if incoming:
+                print(f"           ← incoming: {', '.join(c['id'] for c in incoming)}")
+
     # ------------------------------------------------------------------
     # 4. Test get_page on first result
     # ------------------------------------------------------------------
@@ -99,19 +108,21 @@ def main():
         print(f"  overview:    {page.overview[:120]}…" if len(page.overview) > 120 else f"  overview:    {page.overview}")
         print(f"  description: {page.description[:120]}…" if len(page.description) > 120 else f"  description: {page.description}")
         print(f"  domains:     {page.domains}")
+        print(f"  outgoing:    {page.outgoing_links}")
 
     # ------------------------------------------------------------------
     # 5. Cleanup — remove test Weaviate collection
+    #    (commented out so we can inspect the collection after the test)
     # ------------------------------------------------------------------
-    print(f"\n{'=' * 60}")
-    try:
-        import weaviate
-        wv = weaviate.connect_to_local()
-        wv.collections.delete(TEST_COLLECTION)
-        wv.close()
-        print(f"Deleted Weaviate collection '{TEST_COLLECTION}'")
-    except Exception as e:
-        print(f"Warning: could not delete collection: {e}")
+    # print(f"\n{'=' * 60}")
+    # try:
+    #     import weaviate
+    #     wv = weaviate.connect_to_local()
+    #     wv.collections.delete(TEST_COLLECTION)
+    #     wv.close()
+    #     print(f"Deleted Weaviate collection '{TEST_COLLECTION}'")
+    # except Exception as e:
+    #     print(f"Warning: could not delete collection: {e}")
 
     search.close()
     print("Test complete!")
