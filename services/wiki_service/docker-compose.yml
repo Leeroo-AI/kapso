@@ -58,8 +58,8 @@ services:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/api.php?action=query&meta=siteinfo&format=json"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 30s
+      retries: 30         # increased from 12 — gives 300s of retries for slow startups
+      start_period: 60s   # increased from 30s — more grace time for entrypoint setup
     restart: unless-stopped
 
   wiki-sync:

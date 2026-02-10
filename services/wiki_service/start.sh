@@ -162,17 +162,22 @@ while ((tries--)); do
         docker compose exec -d wiki bash -c '/import_wikis.sh > /tmp/import_output.log 2>&1; echo $? > /tmp/import_done'
         
         # Wait for import to complete (check for marker file)
-        import_tries=600  # 10 minutes max
-        prev_line=""
-        while ((import_tries--)); do
+        # Show ALL new lines since last check so no imported pages are skipped
+        # No timeout — waits until import finishes regardless of page count
+        lines_shown=0
+        while true; do
             if docker compose exec -T wiki test -f /tmp/import_done 2>/dev/null; then
+                # Import done — show any remaining lines we haven't printed yet
+                docker compose exec -T wiki tail -n +$((lines_shown + 1)) /tmp/import_output.log 2>/dev/null || true
                 break
             fi
-            # Show progress
-            last_line=$(docker compose exec -T wiki tail -1 /tmp/import_output.log 2>/dev/null || echo "")
-            if [[ -n "$last_line" && "$last_line" != "$prev_line" ]]; then
-                echo "$last_line"
-                prev_line="$last_line"
+            # Show all new lines since last check
+            new_output=$(docker compose exec -T wiki tail -n +$((lines_shown + 1)) /tmp/import_output.log 2>/dev/null || echo "")
+            if [[ -n "$new_output" ]]; then
+                echo "$new_output"
+                # Count how many lines we've now shown
+                new_count=$(echo "$new_output" | wc -l)
+                lines_shown=$((lines_shown + new_count))
             fi
             sleep 1
         done

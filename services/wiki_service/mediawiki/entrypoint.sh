@@ -893,12 +893,10 @@ if [ "${MW_CREATE_AGENT:-false}" = "true" ] && [ -n "${MW_AGENT_USER:-}" ] && [ 
 fi
 
 # Import wiki pages from /wikis directory if mounted
-# This loads .mediawiki files from data/wikis into MediaWiki
-# Run in background so Apache can start immediately (healthcheck needs Apache running)
+# NOTE: The actual import is triggered by start.sh after Apache is up.
+# We skip running it here to avoid duplicate imports on large wikis.
 if [ -d "/wikis" ]; then
-    echo "📥 Starting wiki import in background..."
-    nohup /import_wikis.sh > /var/log/wiki_import.log 2>&1 &
-    echo "✓ Wiki import started (check /var/log/wiki_import.log for progress)"
+    echo "ℹ️  Wiki pages will be imported after Apache starts (via start.sh)"
 fi
 
 # Start background job to refresh site stats periodically (for accurate page counts)
