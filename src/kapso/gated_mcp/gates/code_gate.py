@@ -16,7 +16,7 @@ from kapso.knowledge_base.search.base import KGSearchFilters, PageType
 
 logger = logging.getLogger(__name__)
 
-# Page types for code search (from idea_impl_search.py)
+# Page types for code search (Implementations + Environments)
 CODE_TYPES = [PageType.IMPLEMENTATION.value, PageType.ENVIRONMENT.value]
 
 

@@ -16,7 +16,7 @@ from kapso.knowledge_base.search.base import KGSearchFilters, PageType
 
 logger = logging.getLogger(__name__)
 
-# Page types for idea search (from idea_impl_search.py)
+# Page types for idea search (Principles + Heuristics)
 IDEA_TYPES = [PageType.PRINCIPLE.value, PageType.HEURISTIC.value]
 
 
