@@ -60,7 +60,7 @@ searches:
     defaults:
       embedding_model: "text-embedding-3-large"
       reranker_model: "gpt-4.1-mini"
-      weaviate_collection: "KGWikiPages"
+      weaviate_collection: "KapsoKG"
       include_connected_pages: true
       use_llm_reranker: true
       # No embedding truncation -- full description text is sent to the embedding model.
@@ -72,7 +72,7 @@ searches:
       DEFAULT:
         params:
           embedding_model: "text-embedding-3-large"
-          weaviate_collection: "KGWikiPages"
+          weaviate_collection: "KapsoKG"
           include_connected_pages: true
           use_llm_reranker: true
           reranker_model: "gpt-4.1-mini"
@@ -82,7 +82,7 @@ searches:
       FAST:
         params:
           embedding_model: "text-embedding-3-large"
-          weaviate_collection: "KGWikiPages"
+          weaviate_collection: "KapsoKG"
           include_connected_pages: false
           use_llm_reranker: false
           reranker_overview_max_chars: 300
@@ -91,7 +91,7 @@ searches:
       RERANK_ONLY:
         params:
           embedding_model: "text-embedding-3-large"
-          weaviate_collection: "KGWikiPages"
+          weaviate_collection: "KapsoKG"
           include_connected_pages: false
           use_llm_reranker: true
           reranker_model: "gpt-4.1-mini"

@@ -35,7 +35,20 @@ def main():
     print("=" * 60)
 
     # ------------------------------------------------------------------
-    # 1. Create search backend with a test-specific collection
+    # 1. Clean slate — delete test Weaviate collection if it exists
+    #    This prevents duplicate objects from accumulating across runs.
+    # ------------------------------------------------------------------
+    try:
+        import weaviate
+        wv = weaviate.connect_to_local()
+        wv.collections.delete(TEST_COLLECTION)
+        wv.close()
+        print(f"Cleaned up existing collection '{TEST_COLLECTION}'")
+    except Exception:
+        pass  # collection didn't exist yet — that's fine
+
+    # ------------------------------------------------------------------
+    # 2. Create search backend with a test-specific collection
     # ------------------------------------------------------------------
     search = KnowledgeSearchFactory.create(
         "kg_graph_search",
@@ -43,7 +56,7 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 2. Index the wiki pages
+    # 3. Index the wiki pages
     # ------------------------------------------------------------------
     assert WIKI_DIR.exists(), f"Test wiki dir not found: {WIKI_DIR}"
     print(f"\nIndexing wiki pages from {WIKI_DIR} …")
@@ -55,7 +68,7 @@ def main():
     assert page_count > 0, "Expected at least one page to be indexed"
 
     # ------------------------------------------------------------------
-    # 3. Run search queries
+    # 4. Run search queries
     # ------------------------------------------------------------------
     queries = [
         # Semantic match — LoRA / fine-tuning topic
@@ -95,7 +108,7 @@ def main():
                 print(f"           ← incoming: {', '.join(c['id'] for c in incoming)}")
 
     # ------------------------------------------------------------------
-    # 4. Test get_page on first result
+    # 5. Test get_page on first result
     # ------------------------------------------------------------------
     top = result.top_result
     if top:
@@ -111,18 +124,17 @@ def main():
         print(f"  outgoing:    {page.outgoing_links}")
 
     # ------------------------------------------------------------------
-    # 5. Cleanup — remove test Weaviate collection
-    #    (commented out so we can inspect the collection after the test)
+    # 6. Cleanup — remove test Weaviate collection
     # ------------------------------------------------------------------
-    # print(f"\n{'=' * 60}")
-    # try:
-    #     import weaviate
-    #     wv = weaviate.connect_to_local()
-    #     wv.collections.delete(TEST_COLLECTION)
-    #     wv.close()
-    #     print(f"Deleted Weaviate collection '{TEST_COLLECTION}'")
-    # except Exception as e:
-    #     print(f"Warning: could not delete collection: {e}")
+    print(f"\n{'=' * 60}")
+    try:
+        import weaviate
+        wv = weaviate.connect_to_local()
+        wv.collections.delete(TEST_COLLECTION)
+        wv.close()
+        print(f"Deleted Weaviate collection '{TEST_COLLECTION}'")
+    except Exception as e:
+        print(f"Warning: could not delete collection: {e}")
 
     search.close()
     print("Test complete!")
