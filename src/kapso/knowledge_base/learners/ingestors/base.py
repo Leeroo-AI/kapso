@@ -10,6 +10,7 @@
 # 3. Register with @register_ingestor("your_name") decorator
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from kapso.knowledge_base.search.base import WikiPage
@@ -80,4 +81,17 @@ class Ingestor(ABC):
             List of WikiPage objects representing extracted knowledge
         """
         pass
+    
+    def get_staging_dir(self) -> Optional[Path]:
+        """
+        Get the path to the staging directory used by this ingestor.
+        
+        The staging directory contains the candidate .md files produced
+        during ingestion. The merger uses this path so the agent can
+        read pages from disk on demand.
+        
+        Returns:
+            Path to staging directory, or None if not set/applicable
+        """
+        return None
 

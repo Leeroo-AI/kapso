@@ -207,45 +207,12 @@ while ((tries--)); do
         echo "=========================================="
         echo ""
 
-        # Start Leeroopedia API service
-        echo "Starting Leeroopedia API service..."
-        API_PORT="${API_PORT:-8091}"
-        
-        # Build and start leeroopedia service
-        docker compose -f ../leeroopedia_service/docker-compose.yml build
-        docker compose -f ../leeroopedia_service/docker-compose.yml up -d
-        
-        # Wait for leeroopedia API to be ready
-        echo "Waiting for Leeroopedia API..."
-        api_tries=30
-        while ((api_tries--)); do
-            if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT}/health" | grep -q "200"; then
-                echo ""
-                echo "=========================================="
-                echo "Leeroopedia API is ready!"
-                echo ""
-                echo "   URL:      http://localhost:${API_PORT}"
-                echo "   Docs:     http://localhost:${API_PORT}/docs"
-                echo "=========================================="
-                break
-            fi
-            printf "."
-            sleep 1
-        done
-        
-        if ((api_tries < 0)); then
-            echo ""
-            echo "Warning: Leeroopedia API did not start in time."
-            echo "Check logs with: docker compose -f ../leeroopedia_service/docker-compose.yml logs"
-        fi
-        
         echo ""
         echo "Commands:"
         echo "  ./stop.sh   - Stop wiki (keeps data)"
         echo "  ./reset.sh  - Delete all data"
         echo "  docker compose logs -f wiki      - View wiki logs"
         echo "  docker compose logs -f wiki-sync - View sync logs"
-        echo "  docker compose -f ../leeroopedia_service/docker-compose.yml logs -f - View API logs"
         echo ""
         exit 0
     fi
@@ -255,10 +222,6 @@ done
 
 echo ""
 echo "Error: Wiki did not start in time."
-echo ""
-echo "Check logs with: docker compose logs wiki"
-exit 1
- in time."
 echo ""
 echo "Check logs with: docker compose logs wiki"
 exit 1

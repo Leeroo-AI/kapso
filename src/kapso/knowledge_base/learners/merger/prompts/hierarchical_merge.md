@@ -13,12 +13,16 @@ You are a knowledge merge agent. Your task is to merge proposed wiki pages into 
 ## Configuration
 
 - **Wiki Directory**: {wiki_dir}
-- **Plan Output**: {wiki_dir}/_merge_plan.md
+- **Plan Output**: {staging_dir}/_merge_plan.md
 - **Max Retries**: {max_retries}
 
 ## Proposed Pages to Merge
 
-{serialized_pages}
+**Staging Directory**: `{staging_dir}`
+
+The candidate pages are stored as `.md` files on disk. Use your **Read** tool to read any page's content from the file path listed below. Do NOT attempt to read all pages at once — read them **on demand** as you work through Phase 1 and Phase 2.
+
+{page_manifest}
 
 ## Wiki Hierarchy (Top-Down DAG)
 
@@ -41,7 +45,7 @@ Heuristic (Leaf - Target Only)
 
 ## Your Task
 
-Execute the merge in 5 phases. Write your plan and progress to `{wiki_dir}/_merge_plan.md`.
+Execute the merge in 5 phases. Write your plan and progress to `{staging_dir}/_merge_plan.md`.
 
 **IMPORTANT**: Update the plan file after each significant action so progress can be tracked.
 
@@ -51,10 +55,11 @@ Execute the merge in 5 phases. Write your plan and progress to `{wiki_dir}/_merg
 
 Analyze the proposed pages and their connections:
 
-1. Parse each page's `outgoing_links` to understand the graph structure
-2. Build an adjacency list of connections within the proposed pages
-3. Find **root nodes** (nodes with no incoming edges from other proposed pages)
-4. Group connected components into sub-graphs
+1. **Read each page** from the staging directory using the file paths in the manifest above
+2. Parse each page's `outgoing_links` (found in the `== Related Pages ==` section) to understand the graph structure
+3. Build an adjacency list of connections within the proposed pages
+4. Find **root nodes** (nodes with no incoming edges from other proposed pages)
+5. Group connected components into sub-graphs
 
 **Write to plan.md:**
 
@@ -160,24 +165,26 @@ Execute the plan for each sub-graph, processing nodes in the computed order:
 #### For CREATE_NEW nodes:
 
 1. **Get page structure first**: Call `get_page_structure` with the page type (e.g., "principle", "implementation") to understand the required sections and formatting
-2. Prepare the page content from the proposed page, **following the sections_definition structure exactly**:
+2. **Read the proposed page** from the staging directory using the file path in the manifest
+3. Prepare the page content from the proposed page, **following the sections_definition structure exactly**:
    - Use the correct MediaWiki syntax (wikitable for metadata, `== Section ==` headers)
    - Include all required sections in the correct order
    - Follow the formatting rules for that page type
-3. Update `outgoing_links` to point to `result_page_id` of already-processed children:
+4. Update `outgoing_links` to point to `result_page_id` of already-processed children:
    - If a child was CREATE_NEW: use the new page's ID
    - If a child was MERGE: use the merge target's ID
-4. Call `kg_index` with:
+5. Call `kg_index` with:
    - `page_data`: page_id, page_type, overview, content, domains
    - `wiki_dir`: {wiki_dir}
-5. Record the `result_page_id` (the new page's ID)
-6. Update plan.md: set Status = COMPLETED
+6. Record the `result_page_id` (the new page's ID)
+7. Update plan.md: set Status = COMPLETED
 
 #### For MERGE nodes:
 
 1. **Get page structure first**: Call `get_page_structure` with the page type to understand the required sections and formatting
-2. Use `get_wiki_page` to fetch the target page's current content
-3. **Merge content intelligently while preserving the sections_definition structure**:
+2. **Read the proposed page** from the staging directory using the file path in the manifest
+3. Use `get_wiki_page` to fetch the target page's current content
+4. **Merge content intelligently while preserving the sections_definition structure**:
    - **Preserve the metadata block format** (wikitable with Knowledge Sources, Domains, Last Updated)
    - **Keep section headers intact** (`== Overview ==`, `=== Description ===`, `== Theoretical Basis ==`, etc.)
    - Combine overviews (keep both perspectives if different)
@@ -185,16 +192,16 @@ Execute the plan for each sub-graph, processing nodes in the computed order:
    - Union domains
    - Combine sources (deduplicate by URL)
    - **Preserve the Related Pages section format** with proper wiki link syntax
-4. Update `outgoing_links` **ADDITIVELY**:
+5. Update `outgoing_links` **ADDITIVELY**:
    - Keep all existing edges from the target
    - Add new edges pointing to children's `result_page_id`
    - Deduplicate if pointing to the same target
-5. Call `kg_edit` with:
+6. Call `kg_edit` with:
    - `page_id`: the target page's ID (format: "Type/Title")
    - `updates`: overview, content, domains, outgoing_links
    - `wiki_dir`: {wiki_dir}
-6. Record `result_page_id = target_page_id`
-7. Update plan.md: set Status = COMPLETED
+7. Record `result_page_id = target_page_id`
+8. Update plan.md: set Status = COMPLETED
 
 **Update plan.md after each node:**
 
@@ -290,6 +297,7 @@ Collect and report final results:
 6. **Bottom-up execution**: Process leaves (Environment, Heuristic) before parents
 7. **No cross-type merges**: Never merge a Principle with an Implementation, etc.
 8. **Follow page structure**: Before creating or editing ANY page, call `get_page_structure` with the page type. The returned sections_definition.md defines the REQUIRED structure - follow it exactly. This ensures consistent formatting across all pages.
+9. **Read pages from disk**: All candidate page content lives in the staging directory. Use your Read tool with the file paths from the manifest. Do NOT assume page content — always read it from disk.
 
 ## Edge Type Reference
 
@@ -302,7 +310,7 @@ Collect and report final results:
 
 ## Output
 
-When complete, ensure `{wiki_dir}/_merge_plan.md` contains:
+When complete, ensure `{staging_dir}/_merge_plan.md` contains:
 - All sub-graphs with their plans
 - All node statuses (COMPLETED or FAILED)
 - Final lists of created and edited pages

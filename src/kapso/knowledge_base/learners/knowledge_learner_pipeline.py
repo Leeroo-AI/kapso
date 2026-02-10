@@ -181,6 +181,7 @@ class KnowledgePipeline:
         # Stage 1: Ingest all sources
         all_pages = []
         source_urls = []
+        last_staging_dir = None  # Track the most recent staging directory
         
         for source in sources:
             try:
@@ -194,6 +195,11 @@ class KnowledgePipeline:
                 
                 all_pages.extend(pages)
                 result.sources_processed += 1
+                
+                # Track staging directory for the merger prompt
+                staging = ingestor.get_staging_dir()
+                if staging:
+                    last_staging_dir = staging
                 
                 # Track source URL for context
                 if hasattr(source, 'url'):
@@ -219,8 +225,13 @@ class KnowledgePipeline:
         
         # Stage 2: Merge into KG
         try:
-            # Run merge (Stage 2)
-            merge_result = self._merger.merge(all_pages, wiki_dir=self.wiki_dir)
+            # Run merge (Stage 2) — pass staging_dir so the agent can
+            # read candidate page files from disk on demand
+            merge_result = self._merger.merge(
+                all_pages,
+                wiki_dir=self.wiki_dir,
+                staging_dir=last_staging_dir,
+            )
             result.merge_result = merge_result
             
             # Add merge errors to result
@@ -258,6 +269,7 @@ class KnowledgePipeline:
     def merge_pages(
         self,
         pages: List[WikiPage],
+        staging_dir: Optional[Path] = None,
     ) -> MergeResult:
         """
         Run only Stage 2: merge existing WikiPages into KG.
@@ -267,11 +279,13 @@ class KnowledgePipeline:
         
         Args:
             pages: List of WikiPage objects to merge
+            staging_dir: Optional staging directory where candidate .md files
+                         live on disk (for the agentic merge prompt)
             
         Returns:
             MergeResult with statistics
         """
-        return self._merger.merge(pages, wiki_dir=self.wiki_dir)
+        return self._merger.merge(pages, wiki_dir=self.wiki_dir, staging_dir=staging_dir)
     
     def close(self) -> None:
         """Clean up resources."""
