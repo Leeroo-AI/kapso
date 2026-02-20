@@ -43,6 +43,9 @@ description: "Complete installation guide for Kapso and benchmarks"
 
     # For Claude Code coding agent
     ANTHROPIC_API_KEY=your-anthropic-api-key
+
+    # For Leeroopedia MCP (curated ML/AI knowledge — sign up at leeroopedia.com)
+    LEEROOPEDIA_API_KEY=your-leeroopedia-api-key
     ```
   </Step>
 </Steps>
@@ -97,6 +100,22 @@ Kapso supports multiple coding agents. Install the ones you plan to use:
     Do NOT install OpenHands in the same environment as Kapso.
   </Tab>
 </Tabs>
+
+## Leeroopedia MCP (Optional)
+
+Connect Kapso to [Leeroopedia](https://leeroopedia.com) — a curated knowledge base of 1000+ ML/AI frameworks. Kapso agents use it during ideation and implementation to search docs, build plans, verify code, diagnose failures, and look up hyperparameter defaults.
+
+```bash
+pip install leeroopedia-mcp
+```
+
+Sign up at [app.leeroopedia.com](https://app.leeroopedia.com) for an API key ($20 free credit, no credit card required), then add to your `.env`:
+
+```bash
+LEEROOPEDIA_API_KEY=kpsk_your_key_here
+```
+
+See the [Leeroopedia MCP docs](https://github.com/Leeroo-AI/leeroopedia-mcp) for Claude Code and Cursor setup.
 
 ## Benchmark Installation
 
@@ -294,6 +313,7 @@ The `.index` file is a JSON reference to the indexed data:
 | `OPENAI_API_KEY` | Yes | - | OpenAI API key (also for embeddings) |
 | `GOOGLE_API_KEY` | No | - | Google API key for Gemini |
 | `ANTHROPIC_API_KEY` | No | - | Anthropic API key for Claude |
+| `LEEROOPEDIA_API_KEY` | No | - | Leeroopedia API key ([sign up](https://leeroopedia.com)) |
 | `NEO4J_URI` | No | `bolt://localhost:7687` | Neo4j connection URI |
 | `NEO4J_USER` | No | `neo4j` | Neo4j username |
 | `NEO4J_PASSWORD` | No | `password` | Neo4j password |

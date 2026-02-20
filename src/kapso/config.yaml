@@ -41,8 +41,8 @@ modes:
         aws_region: "us-east-1"
         ideation_timeout: 300
         implementation_timeout: 600
-        ideation_gates: ["idea", "code", "research", "experiment_history", "repo_memory"]
-        implementation_gates: ["code", "research", "repo_memory"]
+        ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
+        implementation_gates: ["research", "repo_memory", "leeroopedia"]
     
     coding_agent:
       type: "claude_code"
@@ -104,8 +104,8 @@ modes:
         aws_region: "us-east-1"
         ideation_timeout: 180
         implementation_timeout: 300
-        ideation_gates: ["idea", "code", "research", "experiment_history", "repo_memory"]
-        implementation_gates: ["code", "research", "repo_memory"]
+        ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
+        implementation_gates: ["research", "repo_memory", "leeroopedia"]
     
     coding_agent:
       type: "claude_code"

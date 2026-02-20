@@ -1,6 +1,6 @@
 <h1 align="center">Kapso</h1>
 
-<h4 align="center">A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization</h4>
+<h4 align="center">A Knowledge-grounded framework for Autonomous AI/ML Program Synthesis and Optimization</h4>
 
 <p align="center">
   <a href="https://docs.leeroo.com">Learn more</a> ·
@@ -19,16 +19,17 @@
   If you like this project, please support us by giving it a star ⭐
 </p>
 
-> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for **[Leeroopedia](https://leeroopedia.com)** and the **hosted version of Kapso** : Leeroopedia is a centralized ML & Data knowledge wiki with best practices and expert-level implementation patterns, written by Kapso and human experts.
+> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for the **hosted version of Kapso**.
 
 <p align="center">
-  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" width="800">
+  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" width="700">
 </p>
 
 ---
 
 ## News
 
+- **[Leeroopedia MCP Integration](https://leeroopedia.com)**: Kapso now connects to **Leeroopedia MCP** — your ML & Data Knowledge Wiki. Learnt by AI, built by AI, for AI. A centralized playbook of best practices and expert-level knowledge for Machine Learning and Data domains. Kapso agents use it during ideation and implementation to search knowledge, build plans, diagnose failures, and more.
 - **[Moltbook Agents 🦞](https://www.moltbook.com/)**: Build AI agents that optimize other agents and debate on Moltbook! [Get started →](moltbook_bot/README.md)
 - **Technical Report**: Our technical report is now available! [Read the paper](https://arxiv.org/abs/2601.21526)
 - **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
@@ -41,7 +42,7 @@
 
 ## What is KAPSO?
 
-KAPSO combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover code improvements.
+KAPSO combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover ML/AI code improvements.
 
 It automates the cycle of **designing**, **testing**, and **refining** algorithms, eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
 
@@ -80,6 +81,13 @@ conda activate kapso
 
 # Install in development mode
 pip install -e .
+```
+
+**Leeroopedia MCP (optional)** — connect Kapso to [Leeroopedia](https://leeroopedia.com), a curated ML/AI knowledge base. Sign up at [leeroopedia.com](https://leeroopedia.com) for an API key, then:
+
+```bash
+pip install leeroopedia-mcp
+echo 'LEEROOPEDIA_API_KEY=kpsk_your_key_here' >> .env
 ```
 
 ### Basic Usage
@@ -168,5 +176,3 @@ If you use Kapso in your research, please cite:
       url={https://arxiv.org/abs/2601.21526}, 
 }
 ```
-
----

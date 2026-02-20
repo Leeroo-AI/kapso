@@ -64,8 +64,8 @@ Results include page title, type, relevance score, overview, and content preview
                         },
                         "top_k": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 5, max: 20)",
-                            "default": 5,
+                            "description": "Number of results to return (default: 3, max: 20)",
+                            "default": 3,
                         },
                         "page_types": {
                             "type": "array",
@@ -222,7 +222,7 @@ the correct structure.""",
         try:
             search = get_kg_search_backend()
             
-            top_k = min(arguments.get("top_k", 5), 20)
+            top_k = min(arguments.get("top_k", 3), 3)  # cap at 3 for agentic search perf
             include_content = self.get_param("include_content", True)
             
             filters = KGSearchFilters(
@@ -495,18 +495,46 @@ No relevant knowledge found.
             parts.append(f"## [{i}] {item.id}\n")
             parts.append(f"**Type:** {item.page_type} | **Score:** {item.score:.2f}\n")
             
-            if item.domains:
-                parts.append(f"**Domains:** {', '.join(item.domains)}\n")
-            
+            # Show overview
             parts.append(f"\n### Overview\n{item.overview}\n")
             
+            # Extract and show the full description from content
             if include_content and item.content:
-                content_preview = item.content[:800].strip()
-                if len(item.content) > 800:
-                    content_preview += "\n\n... [truncated - use `get_wiki_page` for full content]"
-                parts.append(f"\n### Content Preview\n{content_preview}\n")
+                description = self._extract_description(item.content)
+                if description:
+                    parts.append(f"\n### Description\n{description}\n")
+                parts.append(f"\n... [truncated - use `get_wiki_page` with page_id=\"{item.id}\" for full content]\n")
         
         return "".join(parts)
+    
+    def _extract_description(self, content: str) -> str:
+        """Extract the Description section from raw wiki page content.
+        
+        Looks for '=== Description ===' marker and returns everything
+        up to the next '==' section header (or end of content).
+        """
+        # Find the description section start
+        desc_marker = "=== Description ==="
+        desc_idx = content.find(desc_marker)
+        if desc_idx == -1:
+            return ""
+        
+        # Skip past the marker line
+        desc_start = desc_idx + len(desc_marker)
+        
+        # Find the next section header (any == X == pattern)
+        remaining = content[desc_start:]
+        next_section_idx = remaining.find("\n== ")
+        if next_section_idx == -1:
+            # Also check for === (sub-section)
+            next_section_idx = remaining.find("\n=== ")
+        
+        if next_section_idx != -1:
+            description = remaining[:next_section_idx].strip()
+        else:
+            description = remaining.strip()
+        
+        return description
     
     def _format_page(self, page: WikiPage) -> str:
         """Format a wiki page as markdown."""

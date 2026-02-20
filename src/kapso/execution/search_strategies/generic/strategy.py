@@ -56,8 +56,8 @@ class GenericSearch(SearchStrategy):
         - aws_region: AWS region (default: us-east-1)
         - ideation_timeout: Timeout for ideation in seconds (default: 300)
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
-        - ideation_gates: MCP gates for ideation (default: ["idea", "code", "research", "experiment_history", "repo_memory"])
-        - implementation_gates: MCP gates for implementation (default: ["code", "research", "repo_memory"])
+        - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
+        - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
     """
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
@@ -72,8 +72,8 @@ class GenericSearch(SearchStrategy):
         self.use_bedrock = self.params.get("use_bedrock", True)
         self.aws_region = self.params.get("aws_region", "us-east-1")
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
-        # Include experiment_history and repo_memory gates by default for ideation
-        self.ideation_gates = self.params.get("ideation_gates", ["idea", "code", "research", "experiment_history", "repo_memory"])
+        # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
+        self.ideation_gates = self.params.get("ideation_gates", ["research", "experiment_history", "repo_memory", "leeroopedia"])
         
         # Config params for implementation
         self.implementation_model = self.params.get(
@@ -81,7 +81,7 @@ class GenericSearch(SearchStrategy):
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
-        self.implementation_gates = self.params.get("implementation_gates", ["code", "research", "repo_memory"])
+        self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
         
         # Experiment history path (set by orchestrator)
         self.experiment_history_path = self.params.get(

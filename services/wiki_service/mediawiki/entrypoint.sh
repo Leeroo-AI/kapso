@@ -219,7 +219,7 @@ $wgPageNetworkOptions = [
     'groups' => [
         'bluelink' => [
             'shape' => 'dot',
-            'color' => ['background' => '#2196F3', 'border' => '#1565C0'],
+            'color' => ['background' => '#90A4AE', 'border' => '#607D8B'],
         ],
         'redlink' => [
             'hidden' => true,
@@ -313,9 +313,13 @@ EOF
     cat > /tmp/main_page.txt <<'MAINPAGE'
 == Welcome to {{SITENAME}} ==
 
-Your centralized playbook for '''Machine Learning''' and '''Data Engineering''' excellence. Discover expert-level implementation patterns, battle-tested best practices, and deep technical insights, all curated to accelerate your path from concept to production.
+'''Your ML & Data Knowledge Wiki.''' Best practices and expert-level knowledge for Machine Learning and Data Engineering, covering '''1000+ frameworks and libraries''' from training to deployment.
 
-Want to connect this knowledge base to your AI agents? Follow the guide at [https://github.com/Leeroo-AI/kapso Kapso on GitHub].
+Browse implementation patterns, configuration guides, debugging heuristics, and battle-tested defaults for frameworks like vLLM, DeepSpeed, Megatron-LM, FlashAttention, Triton, Unsloth, LangChain, and many more. Every page is structured so both humans and AI agents can find what they need fast.
+
+'''Connect your AI coding agent.''' Plug Leeroopedia into your favorite coding agent with the [https://github.com/Leeroo-AI/leeroopedia-mcp Leeroopedia MCP setup guide]. Let it search docs, build plans, verify code, and diagnose failures on your behalf.
+
+'''Go end-to-end.''' Leeroopedia gives your agent the '''knowledge'''. [https://github.com/leeroo-ai/kapso '''Kapso'''] gives it the '''ability to act on it''': research, experiment, and deploy.
 
 == Browse by Category ==
 
@@ -400,13 +404,10 @@ PAGEINFO
     echo "📄 Creating Network Legend template..."
     cat > /tmp/network_legend.txt <<'LEGENDTEMPLATE'
 <div class="network-legend" style="display:flex; flex-wrap:wrap; gap:12px; padding:12px; background:#fff; border:1px solid #a2a9b1; border-radius:6px; margin-bottom:1em; font-size:0.9em;">
-<div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#4CAF50; border:2px solid #2E7D32;"></div> Workflow</div>
 <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#2196F3; border:2px solid #1565C0;"></div> Principle</div>
 <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#FF9800; border:2px solid #EF6C00;"></div> Implementation</div>
-<div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#9C27B0; border:2px solid #7B1FA2;"></div> Artifact</div>
 <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#F44336; border:2px solid #C62828;"></div> Heuristic</div>
 <div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#00BCD4; border:2px solid #0097A7;"></div> Environment</div>
-<div style="display:flex; align-items:center; gap:6px;"><div style="width:14px; height:14px; border-radius:50%; background:#795548; border:2px solid #5D4037;"></div> Resource</div>
 </div><noinclude>
 == Usage ==
 Add <code><nowiki>{{NetworkLegend}}</nowiki></code> before your network graph.
@@ -423,20 +424,24 @@ LEGENDTEMPLATE
     # Create Common.js for network graph enhancements
     echo "📄 Creating Common.js for graph enhancements..."
     cat > /tmp/common_js.txt <<'COMMONJS'
-/* Network Extension Enhancements - Filter external links, color by namespace */
+/* Network Extension Enhancements - Filter external links, color by namespace.
+ * vis.js is loaded asynchronously by the Network extension, so we poll
+ * until window.vis.DataSet is available before monkey-patching.
+ */
 (function() {
     'use strict';
     var nsColors = {
-        'Workflow': {bg: '#4CAF50', border: '#2E7D32', font: '#1B5E20'},
-        'Principle': {bg: '#2196F3', border: '#1565C0', font: '#0D47A1'},
+        'Workflow':       {bg: '#4CAF50', border: '#2E7D32', font: '#1B5E20'},
+        'Principle':      {bg: '#2196F3', border: '#1565C0', font: '#0D47A1'},
         'Implementation': {bg: '#FF9800', border: '#EF6C00', font: '#E65100'},
-        'Artifact': {bg: '#9C27B0', border: '#7B1FA2', font: '#4A148C'},
-        'Heuristic': {bg: '#F44336', border: '#C62828', font: '#B71C1C'},
-        'Environment': {bg: '#00BCD4', border: '#0097A7', font: '#006064'},
-        'Resource': {bg: '#795548', border: '#5D4037', font: '#3E2723'}
+        'Artifact':       {bg: '#9C27B0', border: '#7B1FA2', font: '#4A148C'},
+        'Heuristic':      {bg: '#F44336', border: '#C62828', font: '#B71C1C'},
+        'Environment':    {bg: '#00BCD4', border: '#0097A7', font: '#006064'},
+        'Resource':       {bg: '#795548', border: '#5D4037', font: '#3E2723'}
     };
     var excludedPrefixes = ['Template:', 'Category:', 'MediaWiki:', 'Special:', 'File:'];
-    if (window.vis && window.vis.DataSet) {
+
+    function applyPatch() {
         var originalUpdate = window.vis.DataSet.prototype.update;
         window.vis.DataSet.prototype.update = function(data, senderId) {
             if (!Array.isArray(data)) data = [data];
@@ -468,6 +473,19 @@ LEGENDTEMPLATE
             return originalUpdate.call(this, data, senderId);
         };
     }
+
+    /* Poll for vis.js readiness — it loads async via ResourceLoader */
+    var attempts = 0;
+    var maxAttempts = 100;
+    var timer = setInterval(function() {
+        attempts++;
+        if (window.vis && window.vis.DataSet) {
+            clearInterval(timer);
+            applyPatch();
+        } else if (attempts >= maxAttempts) {
+            clearInterval(timer);
+        }
+    }, 100);
 })();
 COMMONJS
     php maintenance/run.php edit.php \
@@ -764,7 +782,6 @@ if [ -n "${SMTP_PASS:-}" ]; then
 body{background:#fff;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#000}
 .container{max-width:600px;margin:0 auto;padding:20px}
 .header{text-align:center;padding:20px 0}
-.logo{height:50px;margin-bottom:10px}
 .content{background:#fff;padding:20px;border-radius:6px;border:1px solid #eee}
 h1{font-size:24px;margin-bottom:16px;color:#000;text-align:center}
 p{line-height:1.6;font-size:16px;margin:10px 0}
@@ -776,18 +793,16 @@ a{color:#000;text-decoration:none}
 </style></head><body>
 <div class='container'><div class='content'>
 <div class='header'>
-<img src='https://xwipmlfvxtqnizhwoppi.supabase.co/storage/v1/object/public/logo//400dpiLogoCropped.png' alt='Leeroopedia' class='logo'/>
 <h1>Welcome to Leeroopedia!</h1>
 </div>
 <p>Hi there,</p>
-<p>Thank you for joining us! We are thrilled to welcome you to Leeroopedia.</p>
-<p>Leeroopedia is your centralized playbook for <strong>Machine Learning</strong> and <strong>Data Engineering</strong>. We have built this platform to serve as a comprehensive knowledge wiki, gathering expert-level implementation patterns, best practices, and deep industry insights all in one place.</p>
+<p>Thank you for signing up! Leeroopedia is <strong>your ML &amp; Data Knowledge Wiki</strong> &mdash; covering <strong>1000+ frameworks and libraries</strong> like vLLM, DeepSpeed, Megatron-LM, FlashAttention, Triton, Unsloth, LangChain, and many more.</p>
+<p>Whether you're fine-tuning LLMs, optimizing inference serving, building agents, or wiring up RAG pipelines &mdash; plug Leeroopedia into your AI coding agent and let it <strong>search docs</strong>, <strong>build plans</strong>, <strong>verify code</strong>, <strong>diagnose training failures</strong>, and <strong>look up hyperparameter defaults</strong>. No more guessing at framework internals.</p>
 <p>To get started, please confirm your email address:</p>
 <div class='button-wrapper'><a href='" . htmlspecialchars(\$confirmUrl) . "' class='button'>Confirm Your Email</a></div>
-<p style='text-align:center;color:#999;font-size:14px;margin-top:15px'>This link will expire at " . htmlspecialchars(\$expiry) . "</p>
 <div class='info-box'>
-<p style='margin:0'><strong>Connect with Autonomous Agents</strong></p>
-<p style='margin:10px 0 0 0'>To connect Leeroopedia to your own agents, check out the <a href='https://github.com/Leeroo-AI/kapso'><strong>Kapso guide on GitHub</strong></a>.</p>
+<p style='margin:0'><strong>Connect to your Agents</strong></p>
+<p style='margin:10px 0 0 0'>After confirming, follow the <a href='https://github.com/Leeroo-AI/leeroopedia-mcp'><strong>Leeroopedia MCP setup guide</strong></a> to get your API key and connect to <strong>Claude Code</strong> or <strong>Cursor</strong> in under 2 minutes.</p>
 </div>
 </div>
 <div class='footer'><p>Welcome aboard!</p><p>2026 Leeroo. All rights reserved.</p></div>

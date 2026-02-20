@@ -71,6 +71,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - streaming: True (default) - stream output live to terminal for visibility
     - use_bedrock: False (default) - use AWS Bedrock instead of direct Anthropic API
     - aws_region: AWS region for Bedrock (required if use_bedrock=True, default: "us-east-1")
+    - append_system_prompt: Optional string appended to Claude Code's default system prompt
+      Useful for injecting workspace restrictions (e.g. filesystem sandboxing)
     - mcp_servers: Dict of MCP server configurations (optional)
       Example:
         {
@@ -134,6 +136,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Format: {"server-name": {"command": "...", "args": [...], "cwd": "...", "env": {...}}}
         self._mcp_servers: Optional[Dict[str, Any]] = config.agent_specific.get("mcp_servers")
         self._mcp_config_path: Optional[Path] = None  # Set during initialize()
+        
+        # Optional system prompt to append to Claude Code's default system prompt.
+        # Useful for injecting workspace restrictions, project rules, etc.
+        self._append_system_prompt: Optional[str] = config.agent_specific.get("append_system_prompt")
         
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
@@ -344,6 +350,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         total_cost: float = 0.0
         is_error: bool = False
         error_msg: str = ""
+        # Metrics: count tool calls and track token usage
+        tool_call_count: int = 0
+        input_tokens: int = 0
+        output_tokens: int = 0
         
         c = _COLORS  # shorthand
         
@@ -441,11 +451,41 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         result_text = event.get("result", "")
                         total_cost = event.get("total_cost_usd", 0.0)
                         is_error = event.get("is_error", False)
+                        # Extract token usage from result event if available
+                        usage = event.get("usage", {})
+                        input_tokens = usage.get("input_tokens", 0)
+                        output_tokens = usage.get("output_tokens", 0)
                         break
                 except json.JSONDecodeError:
                     continue
             
-            print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}) ━━━{c['reset']}\n", flush=True)
+            # Count tool calls and sum per-turn token usage from assistant events.
+            # The per-turn usage is a reliable fallback when the result event
+            # doesn't include aggregated token counts.
+            cumulative_input = 0
+            cumulative_output = 0
+            for line in raw_lines:
+                try:
+                    event = json.loads(line)
+                    if event.get("type") == "assistant":
+                        msg = event.get("message", {})
+                        for block in msg.get("content", []):
+                            if block.get("type") == "tool_use":
+                                tool_call_count += 1
+                        # Sum per-turn usage (input_tokens, output_tokens)
+                        usage = msg.get("usage", {})
+                        cumulative_input += usage.get("input_tokens", 0)
+                        cumulative_output += usage.get("output_tokens", 0)
+                except json.JSONDecodeError:
+                    continue
+            
+            # Use result-level tokens if available, else fall back to summed per-turn
+            if input_tokens == 0 and cumulative_input > 0:
+                input_tokens = cumulative_input
+            if output_tokens == 0 and cumulative_output > 0:
+                output_tokens = cumulative_output
+            
+            print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n", flush=True)
             
             if retcode != 0 or is_error:
                 error_msg = result_text if is_error else f"CLI exited with code {retcode}"
@@ -453,7 +493,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     success=False,
                     output="\n".join(assistant_texts),
                     error=error_msg,
-                    metadata={"elapsed_seconds": elapsed}
+                    metadata={
+                        "elapsed_seconds": elapsed,
+                        "tool_call_count": tool_call_count,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "raw_log_lines": raw_lines,
+                    }
                 )
             
             files_changed = self._get_changed_files()
@@ -470,6 +516,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "elapsed_seconds": elapsed,
                     "streaming": True,
                     "use_bedrock": self._use_bedrock,
+                    "tool_call_count": tool_call_count,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "raw_log_lines": raw_lines,
                 }
             )
             
@@ -545,32 +595,47 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         cmd = tool_input.get("command", "")[:80]
                         print(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
                     elif tool_name.startswith("mcp__"):
-                        # MCP tool - show the arguments
+                        # MCP tool - show full arguments for transparency
                         args_str = json.dumps(tool_input, ensure_ascii=False)
-                        # Truncate if too long
-                        if len(args_str) > 200:
-                            args_str = args_str[:200] + "..."
                         print(f"{c['blue']}  [tool:{tool_name}] {args_str}{c['reset']}", flush=True)
                     else:
                         print(f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True)
         
         elif event_type == "user":
-            # Tool result returned to Claude
+            # Tool result returned to Claude — show full content for transparency.
+            #
+            # Claude Code stream-json tool_result content can be either:
+            #   - a plain str  (simple text result)
+            #   - a list of content blocks, e.g. [{"type": "text", "text": "..."}]
+            # We normalise both forms into a single string before printing.
             content = event.get("message", {}).get("content", [])
             for block in content:
                 if block.get("type") == "tool_result":
-                    tool_use_id = block.get("tool_use_id", "")[:8]
                     is_error = block.get("is_error", False)
                     status = "error" if is_error else "ok"
-                    # Show truncated result content
-                    result_content = block.get("content", "")
-                    if isinstance(result_content, str):
-                        result_preview = result_content[:150].replace('\n', ' ')
-                        if len(result_content) > 150:
-                            result_preview += "..."
+                    raw = block.get("content", "")
+
+                    # Normalise content to a single string
+                    if isinstance(raw, str):
+                        result_text = raw
+                    elif isinstance(raw, list):
+                        # List of content blocks — extract text from each
+                        parts = []
+                        for item in raw:
+                            if isinstance(item, dict) and item.get("text"):
+                                parts.append(item["text"])
+                            elif isinstance(item, str):
+                                parts.append(item)
+                        result_text = "\n".join(parts)
                     else:
-                        result_preview = "..."
-                    print(f"{c['dim']}  [result:{status}] {result_preview}{c['reset']}", flush=True)
+                        result_text = str(raw) if raw else ""
+
+                    if result_text.strip():
+                        print(f"{c['dim']}  [result:{status}] ↓{c['reset']}", flush=True)
+                        for result_line in result_text.splitlines():
+                            print(f"{c['dim']}    {result_line}{c['reset']}", flush=True)
+                    else:
+                        print(f"{c['dim']}  [result:{status}] (empty){c['reset']}", flush=True)
         
         elif event_type == "result":
             # Final result - show summary
@@ -608,6 +673,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Add MCP config if available
         if self._mcp_config_path and self._mcp_config_path.exists():
             cmd.extend(["--mcp-config", str(self._mcp_config_path)])
+        
+        # Append system prompt if configured (e.g. workspace sandbox instructions)
+        if self._append_system_prompt:
+            cmd.extend(["--append-system-prompt", self._append_system_prompt])
         
         return cmd
     

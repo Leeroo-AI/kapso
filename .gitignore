@@ -230,6 +230,7 @@ repos.json
 scripts/tmux_log.sh
 
 # Separate repos (not tracked in kapso)
+leeroopedia-mcp/
 leeroopedia_mcp/
 leeroopedia_mcp_backend/
 services/leeroopedia-mcp/

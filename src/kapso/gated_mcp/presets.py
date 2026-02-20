@@ -12,10 +12,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 @dataclass
 class GateDefinition:
-    """Definition of a gate with its tools and default config."""
+    """Definition of a gate with its tools and default config.
+    
+    For internal gates (bundled into gated-knowledge server), server_name and
+    command are None. For external gates (e.g., leeroopedia-mcp), set server_name
+    to the MCP server name and command to the CLI entry point.
+    """
     
     tools: List[str]
     default_params: Dict[str, Any] = field(default_factory=dict)
+    # External server fields (None = bundled in gated-knowledge)
+    server_name: Optional[str] = None
+    command: Optional[str] = None
+    env_keys: List[str] = field(default_factory=list)
 
 
 # =============================================================================
@@ -81,6 +90,24 @@ GATES: Dict[str, GateDefinition] = {
         ],
         default_params={},
     ),
+    # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
+    # Runs as a separate process, not bundled in gated-knowledge
+    "leeroopedia": GateDefinition(
+        tools=[
+            "search_knowledge",
+            "build_plan",
+            "review_plan",
+            "verify_code_math",
+            "diagnose_failure",
+            "propose_hypothesis",
+            "query_hyperparameter_priors",
+            "get_page",
+        ],
+        default_params={},
+        server_name="leeroopedia",
+        command="leeroopedia-mcp",
+        env_keys=["LEEROOPEDIA_API_KEY"],
+    ),
 }
 
 
@@ -115,11 +142,14 @@ def get_allowed_tools_for_gates(
         tools.extend(["Read", "Write", "Bash"])
     
     # Add MCP tools for each gate
+    # External gates (with server_name set) use their own server name prefix
     for gate_name in gates:
         if gate_name in GATES:
-            for tool_name in GATES[gate_name].tools:
+            gate_def = GATES[gate_name]
+            effective_server = gate_def.server_name or mcp_server_name
+            for tool_name in gate_def.tools:
                 # Format: mcp__<server>__<tool>
-                mcp_tool = f"mcp__{mcp_server_name}__{tool_name}"
+                mcp_tool = f"mcp__{effective_server}__{tool_name}"
                 tools.append(mcp_tool)
     
     return tools
@@ -167,10 +197,13 @@ def get_mcp_config(
         # Default: 3 levels up from this file (src/knowledge/gated_mcp -> project root)
         project_root = Path(__file__).parent.parent.parent.parent
     
-    # Build environment for MCP server
+    # Split gates into internal (bundled in gated-knowledge) and external (separate servers)
+    internal_gates = [g for g in gates if g in GATES and GATES[g].command is None]
+    
+    # Build environment for MCP server (internal gates only)
     mcp_env: Dict[str, str] = {
         "PYTHONPATH": str(project_root),
-        "MCP_ENABLED_GATES": ",".join(gates),
+        "MCP_ENABLED_GATES": ",".join(internal_gates),
     }
     
     # Resolve kg_index_path (needed for kg, idea, code gates)
@@ -199,7 +232,7 @@ def get_mcp_config(
         if resolved_repo_root:
             mcp_env["REPO_MEMORY_ROOT"] = resolved_repo_root
     
-    # Build MCP servers config
+    # Build MCP servers config (gated-knowledge for internal gates)
     mcp_servers = {
         server_name: {
             "command": "python",
@@ -208,6 +241,22 @@ def get_mcp_config(
             "env": mcp_env,
         }
     }
+    
+    # Add external MCP servers (e.g., leeroopedia-mcp)
+    for gate_name in gates:
+        if gate_name not in GATES:
+            continue
+        gate_def = GATES[gate_name]
+        if gate_def.command and gate_def.server_name:
+            ext_env = {}
+            for key in gate_def.env_keys:
+                val = os.environ.get(key, "")
+                if val:
+                    ext_env[key] = val
+            mcp_servers[gate_def.server_name] = {
+                "command": gate_def.command,
+                "env": ext_env,
+            }
     
     # Get allowed tools
     allowed_tools = get_allowed_tools_for_gates(

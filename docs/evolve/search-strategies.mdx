@@ -38,8 +38,8 @@ search_strategy:
     aws_region: "us-east-1"
     ideation_timeout: 300
     implementation_timeout: 600
-    ideation_gates: ["idea", "code", "research", "experiment_history"]
-    implementation_gates: ["code", "research"]
+    ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
+    implementation_gates: ["research", "repo_memory", "leeroopedia"]
 ```
 
 ### Usage
@@ -65,10 +65,10 @@ The generic strategy uses MCP gates for external knowledge access:
 
 | Gate | Tools | Purpose |
 |------|-------|---------|
-| `idea` | `wiki_idea_search` | Search curated ML/AI knowledge |
-| `code` | `wiki_code_search` | Search code examples |
 | `research` | `research_*` | Deep research capabilities |
 | `experiment_history` | `get_top_experiments`, `get_recent_experiments`, `search_similar_experiments` | Learn from past experiments |
+| `repo_memory` | `get_repo_memory_section`, `list_repo_memory_sections`, `get_repo_memory_summary` | Repository understanding |
+| `leeroopedia` | `search_knowledge`, `build_plan`, `review_plan`, `verify_code_math`, `diagnose_failure`, `propose_hypothesis`, `query_hyperparameter_priors`, `get_page` | Curated ML/AI knowledge via [Leeroopedia](https://leeroopedia.com) |
 
 ## Benchmark Tree Search
 

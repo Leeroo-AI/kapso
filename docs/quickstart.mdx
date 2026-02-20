@@ -42,6 +42,19 @@ description: "Get Kapso running in 5 minutes"
     ANTHROPIC_API_KEY=your-anthropic-api-key # For Claude Code
     ```
   </Step>
+  <Step title="Connect Leeroopedia MCP (optional)">
+    Give Kapso access to curated best practices from 1000+ ML/AI frameworks:
+
+    ```bash
+    pip install leeroopedia-mcp
+    ```
+
+    Sign up at [app.leeroopedia.com](https://app.leeroopedia.com) for an API key ($20 free credit), then add to your `.env`:
+
+    ```bash
+    LEEROOPEDIA_API_KEY=kpsk_your_key_here
+    ```
+  </Step>
 </Steps>
 
 ## Run Your First Experiment

@@ -34,8 +34,8 @@ strategies:
           aws_region: "us-east-1"
           ideation_timeout: 300
           implementation_timeout: 600
-          ideation_gates: ["idea", "code", "research", "experiment_history"]
-          implementation_gates: ["code", "research"]
+          ideation_gates: ["research", "experiment_history", "leeroopedia"]
+          implementation_gates: ["research", "leeroopedia"]
       
       # Minimal for quick testing
       MINIMAL:
@@ -46,8 +46,8 @@ strategies:
           aws_region: "us-east-1"
           ideation_timeout: 180
           implementation_timeout: 300
-          ideation_gates: ["idea", "code", "research", "experiment_history"]
-          implementation_gates: ["code", "research"]
+          ideation_gates: ["research", "experiment_history", "leeroopedia"]
+          implementation_gates: ["research", "leeroopedia"]
     
     default_preset: "PRODUCTION"
 
