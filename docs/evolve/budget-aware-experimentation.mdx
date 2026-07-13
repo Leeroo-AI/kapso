@@ -981,6 +981,43 @@ requests is always the fraction the maintainer calibrated.
 The track is cumulative: each milestone re-runs every earlier row. A full-track pass on
 the example plus the unit suites is the definition of "the design is applied."
 
+### What the live track caught (2026-07-13, first full execution)
+
+The first paid execution of the track — real agents, real budgets — surfaced eight
+defects, every one found by an actual failing campaign and fixed with a pinned test:
+
+1. **Intra-iteration clamp drift.** Every phase clamped against the iteration-start
+   snapshot; implementation was granted 360s when ~55s remained (777s elapsed on a 480s
+   budget). Snapshots now carry a monotonic anchor and clamps discount time already burned.
+2. **Final checkout death by interpreter junk.** Sessions committed `__pycache__` into
+   experiment branches; the workspace's untracked shadows aborted the campaign's artifact
+   checkout. `switch_branch` clears untracked shadows of target-tracked paths only; novel
+   files and modified tracked files keep the safety boundary.
+3. **No bootstrap checkpoint.** A crash inside iteration 1 orphaned the paid maintainer
+   registration. `solve()` checkpoints right after registration, before the loop.
+4. **Session corpses blocked crash redos.** A killed attempt's session clone (and, in the
+   push-before-checkpoint window, its branch) collided with the redo. Session creation owns
+   its directory and branch name; close force-pushes.
+5. **Estimate-bounded VALIDATE deadlines killed campaigns.** The timing model calibrates
+   on the baseline artifact and cannot bound a future artifact's training (a 7-seed GBM
+   ensemble needed minutes against a 51s upper). Estimates gate admission only; frame-run
+   deadlines are the affordability window and overruns are failed attempts, never raises.
+6. **The deliverable followed raw scores.** An unvalidated fast probe (0.87 on 40 items)
+   was checked out over the TIER_FULL candidate (0.9 full-set). Delivery now walks
+   evidence tiers (`get_deliverable_experiment`); parent selection alone stays on
+   projections.
+7. **VALIDATE iterations made campaigns unresumable.** `load_state` still demanded
+   `iteration_count == len(node_history)`; validates consume iterations without minting
+   nodes. The invariant is `>=`.
+8. **`final_score` described the last experiment, not the artifact.** The result now
+   reports the deliverable's full-class measurement (`delivered_score`).
+
+Two live observations recorded, not yet acted on: deadline-killed agent calls report $0
+(the CLI emits cost only in its terminal event — the cost floor is real and biased low
+exactly on kills), and the first campaign produced a wildly discordant calibration pair
+(fast 0.49 vs full 0.9, measured on different session states) — evidence for the deferred
+Spearman rank-correlation calibration gate.
+
 ## Explicitly rejected (for now), with evidence
 
 - **LLM duration/cost estimates for admission.** No surveyed system validates them; admission
