@@ -1,0 +1,650 @@
+---
+title: "Budget-Aware Experimentation"
+description: "Design for making time, cost, and iteration budgets first-class in the evolve loop: honest telemetry, typed budget contracts, mechanical enforcement, and a finalization reserve"
+---
+
+Status: **design proposal** (2026-07-13, against `main @ 31db3ff4`; fidelity layer amended
+after an adversarial Codex review the same day — holdout/calibration discipline, cap-based
+escrowed reserve, deterrence-not-containment enforcement framing, and versioned
+evaluation-attempt records all trace to its findings). Companion analyses: the competitor
+mechanism survey (`archive/competitor_search/mechanisms_ranked.md`) and the Research-Planner
+related-work study (`archive/competitor_search/research_planner_related_work.md`).
+This design is the budget slice of that larger direction, scoped to land independently.
+
+## Executive summary
+
+Kapso already *computes* a budget signal — `solve()` derives `budget_progress` from iteration,
+time, and cost fractions every iteration (`orchestrator.py:697-705`) — but the signal is fed by
+meters that miss most of the real spend, is consumed by almost nothing, and does not survive a
+resume. Budget-aware experimentation therefore starts as a **data-plane problem, not a planner
+problem**: make the recorded state true first, then make enforcement mechanical, and keep every
+budget decision in deterministic orchestrator code. That ordering is the strongest consensus of
+the 12-system competitor survey: every high-performing system (ShinkaEvolve, MLEvolve, R&D-Agent,
+AI Scientist v2, AIRA-dojo) keeps budget authority in a non-LLM control plane and gives the LLM
+at most an advisory view of remaining budget.
+
+The design adds one new module (`src/kapso/execution/budget.py` — `BudgetSpec`, `BudgetLedger`,
+`BudgetSnapshot`), per-iteration telemetry on `SearchNode`, a v2 `RunCheckpoint` that persists
+elapsed time, cost harvesting from the three agents whose spend is currently invisible, an
+advisory `{{budget_status}}` prompt block, budget-clamped agent deadlines, a mechanical
+finalization reserve — and, on top of that substrate, a **fidelity contract**
+(PROBE / VALIDATE / FULL): sanctioned fast variants of training and evaluation (deterministic
+data subsamples, everything else identical) with a deterministic policy that decides, from
+remaining budget and measured run costs, when an experiment runs fast and when the campaign
+spends a full run. When no budget is configured, behavior is unchanged.
+
+## Why now: the verified gaps
+
+Audited against `main @ 31db3ff4`; each gap is a fact of the current code, not a projection.
+
+| # | Gap | Evidence |
+|---|-----|----------|
+| G1 | **The cost ledger misses the three dominant spenders.** `get_cumulative_cost()` sums checkpoint-seeded prior cost, `LLMBackend` cost, and `workspace.previous_sessions_cost` (`orchestrator.py:524-530`). But `GenericSearch` directly instantiates its ideation agent (`generic/strategy.py:343`) and implementation agent (`generic/strategy.py:524`) and never harvests their cost; `ExperimentSession.get_cumulative_cost()` reads only the factory-created session agent (`experiment_session.py:342`), which generic mode uses only for one-time workspace initialization (`generic/strategy.py:154-164`), never for iteration work; the `FeedbackGenerator` agent's cost is likewise dropped. `cost_budget` currently meters repo-memory inference, insight extraction, and commit messages — the cheap parts. | `grep cost generic/strategy.py` → no matches |
+| G2 | **Elapsed time does not survive resume.** `solve()` sets `start_time = time.time()` (`orchestrator.py:689`); `RunCheckpoint` persists `cumulative_cost` but no elapsed-seconds field (`run_checkpoint.py:51-64`). A resumed campaign silently restarts its time budget. | `run_checkpoint.py:51-95` |
+| G3 | **The budget signal reaches no prompt.** `GenericSearch` only prints `budget_progress` (`generic/strategy.py:184`); `_build_ideation_prompt` receives only `problem` and `repo_memory_brief` (`generic/strategy.py:368-382`). The ideation agent cannot know it is on iteration 9 of 10. | prompt templates have no budget placeholder |
+| G4 | **Nothing protects finalization.** No reserve exists; if the last admitted iteration consumes the remaining wall-clock, best-branch checkout and final validation run on borrowed time. `stopped_reason` has no finalization semantics (`orchestrator.py:60`). | — |
+| G5 | **No public budget API.** `time_budget_minutes` / `cost_budget` exist only on `solve()` (`orchestrator.py:660-665`); `Kapso.evolve()` exposes neither. | `kapso.py:477-496` |
+| G6 | **No per-iteration telemetry.** `SearchNode` records no duration or cost (`base.py:44-89`), so empirical runtime models — the only admission basis the survey found defensible — have no substrate. | — |
+| G7 | **Static timeouts ignore the budget.** Ideation 300 s, implementation 600 s (`generic/strategy.py:110,119`) are configured without regard to remaining budget. | — |
+| G8 | **Configured timeouts are not enforced on the code path generic mode uses.** The adapter enforces `agent_specific["timeout"]` only in its buffered path (`subprocess.run(..., timeout=...)`, `claude_code_agent.py:422`); the streaming path `_run_streaming` has no deadline check and no kill, and both generic-mode agents set `streaming: True` (`generic/strategy.py:330,501`). The 300 s/600 s values are stored but never enforced — an agent call can run indefinitely today. | `claude_code_agent.py:460-679` |
+
+Two smaller honesty bugs compound G1: the Claude Code adapter's failure path drops the parsed
+cost of a failed call (success records it; failure does not — `claude_code_agent.py:615-638`),
+and the non-streaming path only estimates cost. Expensive *failed* iterations are exactly the
+ones a cost budget exists to bound.
+
+### The motivating scenario: tight budgets where full runs don't fit
+
+[PostTrainBench](https://posttrainbench.com/) is the concrete case: post-train a small LM
+(Qwen3-1.7B/4B, SmolLM3-3B, Gemma3-4B) on **one H100 in 10 hours**, scored on a weighted
+average of seven eval suites (AIME 2025, Arena Hard, BFCL, GPQA, GSM8K, HealthBench,
+HumanEval). A full SFT pass plus a full seven-suite evaluation costs roughly 4–5 GPU-hours,
+so the current loop — every experiment full-size by default — affords **two experiments,
+chosen blind**. No amount of budget *accounting* fixes that; the loop needs a sanctioned way
+to run cheap experiments and spend full runs deliberately. That is the fidelity contract
+below (the "Fidelity" section), and it is the part of this design that budget arithmetic
+exists to serve.
+
+## Design principles
+
+Derived from the related-work evidence and the binding constraints in
+`docs/evolve/reliability-roadmap.mdx`:
+
+1. **Deterministic budget authority.** The orchestrator computes, enforces, and persists all
+   budget state. Strategies are read-only consumers of budget *decisions and snapshots*; the
+   one thing they send upward is attributed telemetry (`CostEntry` records) through a narrow
+   reporting interface, and reported entries never trigger enforcement mid-iteration. No
+   surveyed system lets an LLM own budget decisions, and the ones that tried adjacent ideas
+   (LLM duration estimates) have no validation story.
+2. **Telemetry before policy.** Every future capability — empirical runtime models, admission,
+   phase policies, planners — must be a pure function over recorded per-iteration state. Nothing
+   in this design estimates; it measures.
+3. **Mechanical enforcement, advisory prompts.** Prompt text is never a protection mechanism
+   (`reliability-roadmap.mdx:47-48`). Enforcement points are the pre-iteration stop gate, the
+   reserve arithmetic, and subprocess deadline kills — which Phase 4 must first *implement* in
+   the adapter's streaming path (G8), since today's timeout is only enforced when buffering.
+4. **Additive compatibility.** Unbudgeted runs behave identically. `SearchNode.from_dict`
+   already tolerates newer fields (`base.py:104-109`); the checkpoint schema is versioned
+   deliberately; `BenchmarkTreeSearch` keeps seeing the same `budget_progress` float and is
+   otherwise untouched (the survey's rank-9/10 audits identify dual-strategy lockstep as the
+   dominant integration cost — this design pays none of it).
+5. **Budgets are operator dials, not campaign identity.** Like `max_iterations` (a `solve()`
+   argument that was never fingerprinted), budget settings must be excluded from
+   `config_fingerprint` so "resume with a bigger budget" works under strict resume validation.
+   For that to hold, budget exhaustion must not mark the campaign `completed` — see the
+   checkpoint-status change below, which this design makes deliberately.
+
+## Architecture
+
+### New module: `src/kapso/execution/budget.py`
+
+```python
+@dataclass(frozen=True)
+class BudgetSpec:
+    """Campaign budget declaration. Validated, JSON-round-trippable."""
+    max_iterations: int
+    time_budget_seconds: Optional[float] = None
+    cost_budget_usd: Optional[float] = None
+    finalization_reserve_seconds: float = 0.0
+    min_iteration_seconds: float = 60.0      # floor for the reserve gate
+    min_agent_timeout_seconds: float = 60.0  # floor for deadline clamps
+    # The 60 s floors are provisional: below adapter startup plus a single
+    # tool round-trip an agent call cannot do useful work, and clamping to
+    # near-zero would burn an iteration on guaranteed timeouts. Revisit once
+    # Phase 1 phase_telemetry provides measured call-duration distributions.
+
+    @classmethod
+    def resolve(cls, *, evolve_kwargs, mode_config) -> "BudgetSpec":
+        """Explicit evolve() kwargs > mode_config['budget'] block > defaults."""
+
+@dataclass(frozen=True)
+class CostEntry:
+    """One attributed spend record."""
+    phase: str            # "ideation" | "implementation" | "feedback"
+    cost_usd: float
+    duration_seconds: float
+    source: str           # e.g. "claude_code:stream_result"
+
+class BudgetLedger:
+    """Owned by OrchestratorAgent — the sole owner and mutator of accumulated
+    budget state. Strategies may append attributed CostEntry records through
+    record(); all reads, derived arithmetic, and enforcement decisions stay
+    orchestrator-side.
+
+    - Seeds prior_elapsed_seconds / prior_cost_usd / prior_cost_by_component
+      from the resume checkpoint.
+    - Measures the live slice with time.monotonic() (durations) against a
+      single wall-clock base recorded at solve() start (checkpoint elapsed).
+    - record(entry: CostEntry) accumulates attributed agent spend.
+    - Samples LLMBackend and workspace meters as separate aggregates;
+      total_cost() replaces the blind sum at orchestrator.py:524-530.
+    """
+
+@dataclass(frozen=True)
+class BudgetSnapshot:
+    """Per-iteration read model handed to strategies. Never written by them."""
+    iteration_index: int
+    max_iterations: int
+    elapsed_seconds: float
+    cost_usd: float
+    time_budget_seconds: Optional[float]
+    cost_budget_usd: Optional[float]
+    finalization_reserve_seconds: float
+    # Derived: remaining_seconds, remaining_after_reserve, remaining_usd,
+    # progress_percent (identical arithmetic to today's budget_progress).
+```
+
+Double-counting invariant: in generic mode the session's factory agent never runs (only
+`_initialize_workspace` uses `session.generate_code`), so `finalize_session`'s existing harvest
+(`experiment_workspace.py:394-396`) contributes nothing for the directly-instantiated agents;
+each agent's cost flows through exactly one meter.
+
+### Contract extensions
+
+**`SearchNode` telemetry (closes G6)** — additive fields with `None`/`{}` defaults, validated
+finite-and-non-negative-or-absent in `from_dict` (never zero-filled):
+
+```python
+duration_seconds: Optional[float] = None
+cost_usd: Optional[float] = None
+started_at: str = ""                                # ISO-8601 UTC
+phase_telemetry: Dict[str, Dict[str, float]] = field(default_factory=dict)
+# {"ideation": {"cost_usd": ..., "duration_seconds": ...}, "implementation": ..., "feedback": ...}
+
+# Fidelity (Phase 5; defaults preserve full-size semantics for old nodes)
+train_fidelity: str = "full"
+eval_fidelity: str = "full"
+promoted_from: Optional[int] = None                 # probe node this FULL retrain came from
+evaluation_attempts: List[EvaluationAttempt] = field(default_factory=list)
+# append-only, versioned by evaluator_id — see "Evaluation versioning";
+# node.score is the canonical attempt's projection
+```
+
+**`RunCheckpoint` schema v2 (closes G2)** — `SCHEMA_VERSION = 2` with a deterministic,
+loudly-logged `_upgrade_v1()` applied in `from_dict` before required-field checks; v3+ still
+rejected; `save()` always writes v2:
+
+```python
+elapsed_seconds: float = 0.0        # v1 checkpoints migrate to 0.0 — semantically
+                                    # identical to today's clock restart, real from
+                                    # the first v2 save onward
+cost_by_component: Dict[str, float] = field(default_factory=dict)
+budget_spec: Optional[Dict] = None  # last-slice BudgetSpec.to_dict(); reporting only,
+                                    # never fingerprinted, never validated on resume
+last_stop: Optional[str] = None     # "time_budget" | "cost_budget" |
+                                    # "finalization_reserve" | None
+```
+
+**Checkpoint-status semantics change (deliberate).** Today budget exhaustion writes
+`status="completed"` (`orchestrator.py:802-807`), and `validate_resume` raises
+`RunCheckpointCompletedError` *before* the fingerprint comparison
+(`run_checkpoint.py:203-207`) — so the fingerprint carve-out alone could never enable the
+headline "resume with a bigger budget" scenario: the runs that most need a top-up would be
+terminal. This design therefore reserves `status="completed"` for **goal achievement**;
+time/cost/reserve stops persist `status="running"` with the stop recorded in `last_stop`.
+A budget-exhausted campaign is paused, not finished. This deliberately **amends** the
+budget-exhaustion-marks-completed semantics pinned by `tests/test_run_checkpoint.py:394` —
+that test changes with this design, and the change is called out here rather than discovered
+in review. Goal-achieved runs keep today's completed-at-stop behavior unchanged.
+
+**`SolveResult.stop_detail`** — `stopped_reason` keeps its four-value vocabulary
+(`orchestrator.py:60`; pinned by tests). A new additive `stop_detail: Optional[str]` carries
+`"finalization_reserve" | "time_budget" | "cost_budget"` under
+`stopped_reason="budget_exhausted"`.
+
+**`FeedbackResult`** — additive `cost_usd: float = 0.0` and
+`duration_seconds: Optional[float] = None`, measured in `FeedbackGenerator.generate()` as the
+delta of the persistent agent's `get_cumulative_cost()` around the `generate_code` call
+(agent built once at `feedback_generator.py:89`; call site `feedback_generator.py:142`).
+
+**Strategy interface** — no `run()` signature change and no config injection. The base class
+gains two additive members set by the orchestrator before each iteration:
+
+```python
+class SearchStrategy:
+    budget_snapshot: Optional[BudgetSnapshot] = None
+    def observe_budget(self, snapshot, cost_reporter=None) -> None:
+        self.budget_snapshot = snapshot
+        self._cost_reporter = cost_reporter   # Callable[[CostEntry], None] | None
+```
+
+`BenchmarkTreeSearch` inherits both inertly and continues to consume the unchanged
+`budget_progress` float. `GenericSearch` stamps node telemetry unconditionally (free) and
+reports `CostEntry` records only when a reporter is set.
+
+### Authority model
+
+```mermaid
+flowchart TD
+    A["Kapso.evolve(..., time_budget_minutes, cost_budget, finalization_reserve_minutes)"]
+    A --> B["BudgetSpec.resolve(kwargs, mode_config.budget)"]
+    B --> C["OrchestratorAgent: BudgetLedger (sole writer)"]
+    C -->|"pre-iteration"| D{"remaining_after_reserve > min_iteration_seconds?"}
+    D -->|no| E["stop: budget_exhausted / stop_detail=finalization_reserve<br/>checkpoint status=running, last_stop set (resumable)"]
+    D -->|yes| F["BudgetSnapshot -> strategy.observe_budget()"]
+    F --> G["GenericSearch iteration"]
+    G --> G1["ideation agent<br/>deadline=clamp(300, remaining_after_reserve)"]
+    G --> G2["implementation agent<br/>deadline=clamp(600, remaining_after_reserve)"]
+    G --> G3["feedback agent (deadline clamp deferred)"]
+    G1 & G2 & G3 -->|"CostEntry + phase_telemetry"| C
+    C -->|"every iteration"| H["RunCheckpoint v2: elapsed_seconds,<br/>cost_by_component, budget_spec, last_stop"]
+    E --> I["Protected window: checkout best branch,<br/>final external evaluation (checkpoint stays running)"]
+```
+
+## Revised system flow
+
+One `solve()` iteration, with additions in bold:
+
+1. **Ledger refresh**: elapsed = prior (checkpoint) + monotonic live slice; total cost =
+   prior + LLM backend + workspace + **attributed agent entries**.
+2. Compute `budget_progress` (unchanged formula) and **`BudgetSnapshot`**.
+3. Existing stop gate at `budget_progress >= 100`; **new reserve gate**: if a time budget is
+   set and `remaining_after_reserve <= min_iteration_seconds`, stop with
+   `stop_detail="finalization_reserve"` and checkpoint `status="running"` + `last_stop`
+   (budget stops are resumable; only goal achievement completes a campaign). Hard arithmetic
+   only — no duration estimation. **When fidelity is enabled**, the `FidelityPolicy` also
+   grants this iteration's profile here (PROBE / VALIDATE / FULL — see the Fidelity section),
+   and the reserve gate's trip executes the guaranteed FULL run instead of merely stopping.
+4. **`strategy.observe_budget(snapshot, ledger.record)`**, then `strategy.run(context,
+   budget_progress)` exactly as today.
+5. Inside `GenericSearch.run()`:
+   - ideation and implementation agents get **clamped deadlines**
+     `max(min_agent_timeout_seconds, min(configured, remaining_after_reserve))` passed via
+     `agent_specific["timeout"]` (`generic/strategy.py:329,500`). Enforcement is *new work*:
+     today the adapter honors the timeout only in its buffered path
+     (`claude_code_agent.py:422`), and generic mode always streams (G8) — Phase 4 adds a
+     deadline check and kill to `_run_streaming`, recording wall-clock duration (and any
+     cost parsed before the kill) for the terminated call;
+   - both prompts render the **`{{budget_status}}`** block (always rendered — neutral
+     "Iteration i of N; no time or cost budget set" when unbudgeted, so no template ships a
+     literal unmatched placeholder; `prompt_loader.py` leaves unknown placeholders verbatim);
+   - each agent call is wrapped with monotonic timing; **cost is harvested** from
+     `CodingResult.cost` reconciled against `agent.get_cumulative_cost()` in the existing
+     `finally` blocks (`generic/strategy.py:365-366,534-535`) into `node.phase_telemetry` and
+     the ledger.
+6. Integrity enforcement, external evaluation, history persistence, and the per-iteration
+   checkpoint write proceed unchanged — the checkpoint now carrying elapsed time and
+   per-component cost.
+7. Post-iteration budget checks switch from process-local to **persisted-elapsed arithmetic**,
+   and budget-triggered stops now persist `status="running"` + `last_stop` instead of
+   `status="completed"` (the deliberate semantics change described above; the affected
+   `test_run_checkpoint` expectations change with it, goal-achieved behavior does not).
+
+`Kapso.evolve()` forwards the three new optional parameters; `SolutionResult.metadata` gains
+`cost_by_component` and `stop_detail` alongside the existing `cumulative_iterations` /
+`best_branch` / `external_metrics`.
+
+## Fidelity: fast and full experimentation
+
+This is the layer that makes tight budgets *searchable* rather than merely metered. It is
+opt-in: with fidelity off (the default), every experiment runs full-size exactly as today.
+
+### The contract
+
+A **fidelity** is a declared, verifiable execution profile for one experiment, with two dials:
+
+- `train_fidelity: fast | full` — *fast* trains on a deterministic subsample of the training
+  data (fixed fraction, fixed seed) and/or a capped step count. **Everything else — recipe,
+  hyperparameters, code path — is identical**, and the implementation is required to make the
+  fast→full switch a configuration flip, not a rewrite.
+- `eval_fidelity: fast | full` — *fast* evaluates on a deterministic subsample of each eval
+  suite (fixed fraction, fixed seed, so fast scores are comparable **across experiments**),
+  with the same harness, metrics, and scoring.
+
+Three sanctioned combinations keep the space tractable:
+
+| Profile | Train | Eval | Role | Typical cost (PostTrainBench) |
+|---|---|---|---|---|
+| **PROBE** | fast | fast | The search workhorse: cheap signal on a recipe | ~45 min |
+| **VALIDATE** | *reuse artifact* | full | Full-eval an existing probe's model — trust check before committing to a retrain; no training cost | ~1.5 h |
+| **FULL** | full | full | The deliverable; the only profile that can end a campaign | ~4.5 h |
+
+### Evaluation versioning and comparability classes
+
+A score is meaningless without the identity of the evaluator that produced it — and in kapso
+the evaluator itself *moves*: fidelity changes the item set, and in agent-generated mode the
+agent can rebuild the evaluation between iterations. So evaluations become **append-only,
+versioned attempt records** rather than mutable fields:
+
+```python
+@dataclass(frozen=True)
+class EvaluationAttempt:
+    commit_sha: str          # the candidate artifact (not a branch name — branches move)
+    evaluator_id: str        # manifest_fingerprint of the kapso_evaluation/ tree at eval
+                             # time — the versioning primitive; reuses the existing
+                             # evaluation-integrity hashing, and instantiates the
+                             # `evaluator_version` field the aggregate roadmap proposed
+    fidelity: str            # "fast" | "full"
+    fidelity_params: Dict    # fraction, seed, item count (echoed from the manifest line)
+    score: Optional[float]
+    metrics: Dict[str, float]
+    duration_seconds: float
+```
+
+`SearchNode` gains `train_fidelity`, `eval_fidelity`, `promoted_from: Optional[int]`, and
+`evaluation_attempts: List[EvaluationAttempt]`. A VALIDATE pass **appends** an attempt; it
+never overwrites anything, so experiment history and checkpoints can never disagree about a
+finalized node. `SearchNode.score` keeps its binding single-scalar role as a *projection*:
+the score of the node's canonical attempt (the campaign's current canonical `evaluator_id`
+at the node's granted fidelity).
+
+**The comparability rule, versioned.** Two attempts are directly comparable **iff** they
+share a comparability class: same `evaluator_id`, same fidelity, same `fidelity_params`.
+Ranking — parent selection, leaders, pruning — happens only *within* a class:
+
+- Because the fast subsample uses a fixed fraction and seed, all probe attempts under one
+  evaluator version are one class and share the exact item set — comparisons are **paired**
+  (GEPA's minibatch-acceptance insight: parent-vs-child deltas on identical items cancel
+  most subsample noise; prefer paired deltas over absolute fast scores).
+- **Evaluator drift re-anchors the frontier.** When the evaluation tree changes (new
+  `evaluator_id` — detected mechanically by the same hashing that powers integrity checks),
+  prior scores become a stale class: never mixed with new ones. The policy re-anchors by
+  re-evaluating the incumbent best under the new evaluator (eval-only, cheap) so the
+  frontier stays comparable instead of silently spanning two rulers.
+- **Mixed-fidelity selection is a tier order, not a merged ranking** (AIDE's
+  `WorstMetricValue` discipline — missing evidence always compares worse): nodes with a
+  FULL attempt > nodes with a full-eval VALIDATE attempt > probe-only nodes; within a tier,
+  rank by that tier's class score. The final artifact is the best full-eval result;
+  `should_stop` can only be set by FULL evidence — the feedback agent is told the fidelity
+  and instructed that probe results are signals, not outcomes.
+- If a campaign ends with no FULL result, `SolutionResult` says so explicitly
+  (`fidelity_of_best`) rather than presenting a probe score as the result.
+
+### Calibration: earning the right to promote on fast scores
+
+Fast scores are a proxy, and an uncalibrated proxy invites winner's-curse promotion. The
+mitigation is that the campaign *measures its own proxy quality*: every node that holds both
+a fast and a full-eval attempt under the same evaluator lineage is a calibration pair, and
+VALIDATE/FULL passes produce exactly these pairs as a side effect. The policy maintains the
+pair table in its persisted state and computes rank agreement (Spearman) as pairs accumulate:
+
+- **Below a floor** (or with too few pairs), fast scores are demoted to *pruning-only* —
+  good enough to discard clear losers, not to crown winners; promotion then requires a
+  VALIDATE confirmation.
+- **Above it**, automatic promotion by fast-score margin is permitted, still hedged by
+  `promotion_margin`.
+
+The rung discipline itself is the classic multi-fidelity answer (Successive Halving /
+Hyperband / ASHA): PROBE → VALIDATE → FULL are rungs; candidates are compared within a rung
+and *promoted* between rungs, never scored across them. Multi-seed repetition
+(AI Scientist v2) is reserved for finalists. **Holdout discipline** (the adversarial
+review's sharpest point): the fast subsample is a *development* set by construction — reused
+every iteration, therefore adapted to; the full suite is the measurement. Bounding VALIDATE
+count (`max_full_evals`) bounds the adaptivity leak into the full suite, and the final FULL
+result is reported from the full suite with the campaign's total full-suite query count
+recorded alongside it — visible, if not eliminable, adaptivity.
+
+### Who decides fidelity — and how budget connects
+
+A deterministic **FidelityPolicy** owned by the orchestrator decides the profile *before
+ideation each iteration*, from the ledger and measured telemetry — this is the first real
+occupant of the action-portfolio slot, and it follows the evidence: a three-action
+deterministic policy, not an agentic planner. The ideation agent may *request* a profile in
+its solution spec (e.g., "this recipe is promising enough to warrant FULL"); the executive
+grants the request only if the arithmetic allows. LLM proposes; executive disposes.
+
+The policy, in words:
+
+1. **The reserve is an escrowed, deadline-bounded FULL attempt — not a promise built on an
+   average.** A point estimate (EWMA) cannot bound a maximum, so the reserve is sized from a
+   **conservative upper bound**: an operator-declared `full_run_cap_minutes` (required to
+   enable fidelity — no defensible bound, no fidelity: fail closed at cold start), tightened
+   to a measured upper quantile × overhead factor only after full-size runs have been
+   observed. The reserve is *escrowed*: every PROBE and VALIDATE admission is checked
+   against `remaining − reserve`, and a VALIDATE is admitted only if its own cap fits
+   outside the escrow. The reserve run itself executes under a deadline equal to the
+   reserve — so the honest guarantee is *one full-size, deadline-bounded attempt on the
+   best recipe*, not "a completed full run of arbitrary duration."
+2. **Default to PROBE** while `remaining_after_reserve` affords at least one more probe
+   (measured probe EWMA after the first iteration).
+3. **Promote to VALIDATE** when the fast-score leader beats the incumbent by
+   `promotion_margin` and a validate pass fits outside the reserve — buying trust in the
+   signal for one-third the cost of a retrain.
+4. **Promote to FULL mid-campaign** only when `remaining_after_reserve` still covers a full
+   run with margin (rare on a 10 h budget; common on a 48 h one), capped by `max_full_runs`.
+5. **The reserve run executes FULL** on the best-validated recipe when the gate trips.
+
+`BudgetSnapshot` carries the granted profile plus the current duration estimates, so both
+agents and the prompts see *why* this iteration is a probe. **All policy state persists in
+the checkpoint** — duration quantiles, the calibration pair table, the escrow, granted but
+unfinished work, and promotion decisions — so a resumed campaign schedules deterministically
+instead of re-deriving a different plan from partial memory.
+
+### Worked example: PostTrainBench, 10 h × 1 H100
+
+Full run ≈ 3 h SFT + 1.5 h seven-suite eval. Naive loop: 2 blind experiments. With fidelity
+(`fast_train_fraction 0.1`, `fast_eval_fraction 0.15`, reserve = 4.5 h × 1.15 ≈ 5.2 h):
+
+```
+0h ─ probes #1-5 (≈45 min each: 10% SFT + 15% eval, deterministic seeds)   ~3.9h
+   ─ VALIDATE leader (full 7-suite eval of best probe artifact)            ~1.3h  → 5.2h
+   ─ reserve gate trips: FULL train+eval of the validated recipe           ~4.5h  → 9.7h
+   ─ SolutionResult: full-eval score, lineage probe→validate→full
+```
+
+Five recipes explored, the winner trust-checked, and the deliverable full-trained — versus
+two guesses. The same config with a 48 h budget naturally degrades to mostly-FULL runs
+(step 4 keeps affording them), which is why fidelity `mode: auto` enables the machinery only
+when the arithmetic says fewer than `min_affordable_full_runs` full experiments fit.
+
+The timeline above assumes estimates hold; the schedule's *feasibility* rests on the
+mechanisms, not the arithmetic: probe overruns are cut by probe-sized deadlines, the
+VALIDATE is admitted only because its cap fits outside the escrowed reserve, and the final
+run is a deadline-bounded attempt inside a reserve sized from a cap, not an average. The
+worst case degrades to fewer probes and an earlier reserve trip — never to a campaign that
+ends without its full-size attempt.
+
+### Enforcement, honestly: deterrence now, containment later
+
+The earlier deferral of "cascaded evaluation" stands — per-stage thresholds with per-stage
+timeouts still require a Kapso-owned evaluator process. And that runner is also the only
+**true** enforcement for fidelity: the implementation agent holds Bash, can launch training
+that outlives its own CLI process, and no orchestrator-side admission check can preempt work
+it cannot observe. Until the runner exists (allowlisted commands, process supervision,
+GPU/cgroup accounting, hard deadlines — the roadmap's deferred endpoint), the three levels
+below are correctly described as **deterrence** — they make cheating unprofitable and
+visible, not impossible:
+
+1. **Mechanical deadlines**: a PROBE iteration's agents get probe-sized deadlines. An
+   implementation that ignores the subsample contract gets killed at the probe deadline —
+   fast stays fast in wall-clock even when disobeyed. This depends on the Phase 4
+   streaming-deadline fix (G8), and the kill must terminate the **whole process tree**, not
+   just the agent CLI — a child training process that survives the kill is exactly the
+   bypass this level exists to close. Cheap plausibility telemetry (periodic GPU-utilization
+   sampling during the iteration) extends visibility to work the deadline missed.
+2. **Contract verification**: the evaluation must print a one-line fidelity manifest
+   (fidelity, fraction, seed, item count); the feedback agent verifies it against the granted
+   profile, and a mismatch marks the evaluation invalid exactly like an integrity failure.
+3. **Telemetry plausibility**: a "probe" whose duration lands at the FULL duration profile is
+   flagged mechanically, independent of what any agent claims.
+
+**The fidelity interface convention.** For *agent-generated* evaluation, the implementation
+prompt requires building the eval with the interface from iteration 1: honor
+`KAPSO_EVAL_FIDELITY` / `KAPSO_EVAL_FRACTION` / `KAPSO_EVAL_SEED`, print the manifest line.
+For *provided* evaluation (`eval_dir`), the suite opts in by honoring the same variables
+(declared in an optional `fidelity.yaml`); the integrity manifest already hashes whatever the
+caller provides, so the fast path is tamper-checked like everything else. A provided suite
+without the interface simply makes `eval_fidelity: fast` unavailable — the policy degrades to
+fast-train + full-eval and says so, rather than pretending.
+
+## Configuration
+
+```yaml
+modes:
+  GENERIC:
+    budget:                                # optional; absent = today's behavior
+      time_budget_minutes: 600
+      cost_budget_usd: 25.0
+      finalization_reserve_minutes: 10     # ignored when fidelity is active —
+                                           # the reserve is then derived from the
+                                           # full-run estimate (see below)
+      min_agent_timeout_seconds: 60
+      fidelity:                            # optional; absent/off = full-size always
+        mode: auto                         # off | on | auto (auto: enable only when
+                                           #   fewer than min_affordable_full_runs
+                                           #   full experiments fit the time budget)
+        min_affordable_full_runs: 4
+        fast_train_fraction: 0.10
+        fast_eval_fraction: 0.15
+        eval_subsample_seed: 1337          # fixed so probe attempts share one item set
+        full_run_cap_minutes: 300          # REQUIRED to enable fidelity: a hard upper
+                                           # bound, not an estimate — sizes the escrowed
+                                           # reserve; tightened to a measured upper
+                                           # quantile x overhead once full runs exist
+        promotion_margin: 0.02
+        max_full_runs: 2
+        max_full_evals: 3                  # bounds VALIDATE passes (adaptivity leak into
+                                           # the full suite)
+        calibration_min_pairs: 3           # below this, fast scores prune only
+        calibration_min_spearman: 0.5      # rank-agreement floor for auto-promotion
+```
+
+Resolution order: explicit `evolve()` kwargs > mode-config `budget` block > unset. The block is
+**popped before config fingerprinting** (`orchestrator.py:146-152`) with a test asserting that
+configs without the block produce byte-identical fingerprints. Together with the
+checkpoint-status change (budget stops persist `status="running"`), budget top-up on resume
+works from either the API or YAML without tripping `validate_resume` — for interrupted,
+max-iteration, and budget-exhausted runs alike. Only goal-achieved campaigns are terminal.
+
+## Delivery phases
+
+Each phase is independently shippable, test-pinned, and behavior-preserving when unbudgeted.
+
+**Phase 1 — Telemetry honesty (G1, G6).** `SearchNode` telemetry fields; cost/duration
+harvesting in `GenericSearch` and `FeedbackGenerator`; Claude Code adapter failure-path cost fix
+(`claude_code_agent.py:615-638`). Acceptance: in an integration test with a mock adapter
+reporting known costs, the sum of `phase_telemetry` `cost_usd` equals the sum of
+`CodingResult.cost` / `get_cumulative_cost()` deltas within $0.001; failed calls report cost;
+no behavior change; `$0`-harvest logs a warning when a cost budget is set.
+
+**Phase 2 — Durable clock (G2).** `RunCheckpoint` v2 with `_upgrade_v1`; `solve()` seeds
+`_prior_elapsed_seconds` beside `_prior_cost` with plain orchestrator arithmetic (the ledger
+abstraction subsumes this in Phase 3); post-iteration checks use persisted arithmetic;
+budget-stop status change (`status="running"` + `last_stop`). Budgeted runs in this phase exist
+only via the existing `solve(time_budget_minutes=...)` path. Acceptance: resume of an
+interrupted budgeted run continues the clock (pinned test); a budget-exhausted run is resumable
+and a goal-achieved run is not; v1 checkpoints migrate loudly with elapsed 0.0; the remainder of
+the `test_run_checkpoint` suite passes unchanged.
+
+**Phase 3 — Contracts and API (G5).** `budget.py` (`BudgetSpec`/`BudgetLedger`/`BudgetSnapshot`);
+`evolve()` parameters; config `budget` block with fingerprint carve-out; `observe_budget()` hook.
+Acceptance: unbudgeted fingerprints byte-identical; budget top-up on a budget-exhausted resume
+validated end-to-end; BTS untouched by diff.
+
+**Phase 4 — Consumption and enforcement (G3, G4, G7, G8).** `{{budget_status}}` in both
+templates (render-tested in budgeted and unbudgeted modes); **deadline enforcement (kill +
+duration capture) implemented in the adapter's streaming path** — the prerequisite G8 fix;
+deadline clamps in `GenericSearch`; reserve gate + `stop_detail`. Acceptance: a streaming agent
+call provably terminates at its deadline (new adapter test); with a 1-minute remaining budget
+the implementation agent's effective deadline is clamped; the reserve gate refuses admission
+whenever `remaining_after_reserve <= min_iteration_seconds`, and on a synthetic slow campaign
+finalization completes within the reserve (given the sizing precondition from limitation 2);
+prompts unchanged byte-for-byte except the block.
+
+**Phase 5 — Fidelity (the PROBE/VALIDATE/FULL contract).** Depends on Phase 1 (telemetry
+EWMAs), Phase 3 (spec/policy plumbing), and Phase 4 (deadline tiers are the enforcement
+teeth). Delivers: `SearchNode` fidelity fields; append-only `EvaluationAttempt` records with
+`evaluator_id` versioning; the `FidelityPolicy` and its config block; the escrowed,
+cap-based reserve; the eval fidelity-interface convention (env vars + manifest line) in both
+prompt templates; fidelity-aware feedback judging (probe results never set `should_stop`);
+comparability-class ranking with re-anchoring on evaluator drift; the calibration pair table
+gating promotion; `VALIDATE` (eval-only attempt append) and `FULL` (retrain, `promoted_from`)
+promotion paths. Acceptance: on a simulated tight-budget campaign the policy produces the
+probe→validate→full timeline and the final artifact is full-evaluated; attempts from
+different comparability classes never appear in one ranking (pinned test); an evaluator
+change triggers re-anchoring and never mixes classes; interrupting and resuming mid-campaign
+reproduces the same schedule (policy state round-trips); a probe exceeding the FULL duration
+profile is flagged; enabling fidelity without `full_run_cap_minutes` fails loudly; with
+`fidelity.mode: off` the diff is behavior-neutral; a provided suite without the interface
+degrades to fast-train + full-eval with an explicit log line.
+
+## Explicitly rejected (for now), with evidence
+
+- **LLM duration/cost estimates for admission.** No surveyed system validates them; admission
+  beyond hard arithmetic waits for empirical per-repo runtime models over `phase_telemetry`
+  (≥ N recorded iterations), which this design makes possible but does not build.
+- **An agentic budget planner.** AIRA-dojo's evidence: well-operatored greedy is competitive
+  with sophisticated planners at ~10-iteration scale; every strong executive in the survey is
+  deterministic. Revisit only with an A/B once telemetry exists.
+- **Cascaded evaluation with per-stage thresholds and timeouts** (OpenEvolve-style).
+  Unenforceable while the implementation agent runs evaluation in-session under one timeout;
+  blocked on the Kapso-owned evaluator process the reliability roadmap already defers
+  (`reliability-roadmap.mdx:293-294`). Note the distinction: the **two-tier fidelity
+  contract** (PROBE/VALIDATE/FULL, above) is *in* scope precisely because it demands less —
+  deadline tiers, a printed manifest, and telemetry plausibility instead of framework-owned
+  stage execution.
+- **A categorical complexity hint in the prompt block.** AIRA derives it from tree child count;
+  GenericSearch's linear chain has no analogue. The block carries only iterations, minutes,
+  dollars, and reserve.
+- **Changing `run()`'s signature or injecting the ledger into strategies.** Dual-strategy
+  lockstep is the dominant integration cost (survey ranks 9/10/12); the `observe_budget()` hook
+  costs none of it.
+
+## Known limitations and open questions
+
+Stated plainly because budget enforcement that overpromises is worse than none:
+
+1. **Cost is a floor, not a meter.** Claude Code reports `$0` under subscription auth; the
+   non-streaming path estimates; aider/gemini adapters under-report; and a streaming call
+   killed at its Phase-4 deadline emits no final result event, so its cost is lost (beyond
+   whatever was parsed before the kill) even though its *duration* is always recorded.
+   Mitigations: warn on `$0` harvest under a cost budget; document `cost_budget` as
+   best-effort and time budgets as the reliable dial; future cross-check of harvested totals
+   against token counts × `ModelRouter` pricing.
+2. **The reserve gates between iterations only.** After admission, the clamped agent calls
+   bound most of the iteration, but the tail — repo-memory inference, insight extraction,
+   commit-message generation, checkpoint I/O, and `IterationEvaluator` external runs
+   (`orchestrator.py:602-658`) — is unclamped and eats into the reserve. `phase_telemetry`
+   deliberately records tail duration so reserve sizing becomes data-driven; guidance is
+   reserve ≥ observed p95 tail + finalization cost. An optional future policy may skip
+   external evaluation once inside the reserve — safe with respect to the
+   holdout-observational constraint, but it would break the "evaluator runs exactly once per
+   completed candidate" guarantee pinned by the reliability roadmap's milestone-4 tests
+   (`reliability-roadmap.mdx:268`), so it must either relax that acceptance explicitly or
+   record a typed skipped-for-reserve marker on the node.
+3. **The FeedbackGenerator deadline is not clamped in v1.** Its agent is built once
+   (`feedback_generator.py:89`) with a 120 s timeout fixed at construction (class default at
+   `feedback_generator.py:82`; the GENERIC mode config sets the same value) — clamping it
+   per-call requires per-call timeout support in the adapter interface. Deferred explicitly
+   rather than claimed.
+4. **Reserve calibration has no precedent** — mitigated when fidelity is on. No surveyed
+   system protects finalization time at all. Without fidelity, start with an operator-set
+   value and revisit once tail telemetry accumulates; with fidelity on, the reserve is
+   *derived* (full-run estimate × safety factor), which turns the folklore knob into
+   measured arithmetic after the first full-size run — but the **first** full run still
+   rides on the operator's `full_run_estimate_minutes` prior, bounded by the deadline clamp.
+5. **Fast scores are noisy proxies, and adaptive reuse biases them.** A 15% eval subsample
+   ranks recipes imperfectly; a 10% training subsample can invert orderings that only emerge
+   at scale; and optimizing against the same subsample every iteration adapts to it
+   (winner's curse). The design's hedges — paired same-item comparisons, the measured
+   calibration gate (fast scores demote to pruning-only until rank agreement is
+   demonstrated), `promotion_margin`, VALIDATE confirmation, bounded full-suite queries —
+   manage the risk; they do not remove it. A campaign that only ever probes can still polish
+   the wrong recipe. This is the accepted price of searching at all under a 10 h ceiling.
+6. **Fidelity contracts are agent-executed: deterrence, not containment.** Until the
+   Kapso-owned runner lands, the subsample happens inside agent-run code, and an agent with
+   Bash can spawn work that outlives its own process — which is why the streaming-deadline
+   kill must take the whole process tree and why GPU-utilization sampling exists as a
+   tripwire. The three enforcement levels make cheating unprofitable and visible rather than
+   impossible — consistent with how provided-eval integrity is handled today. The runner
+   remains the real fix.
