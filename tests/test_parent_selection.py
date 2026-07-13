@@ -22,6 +22,7 @@ def strategy_with_history(policy="best", *, maximize=True):
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.parent_policy = policy
     strategy.registered_evaluator_id = ""
+    strategy.fidelity_decision = None
     strategy.problem_handler = SimpleNamespace(maximize_scoring=maximize)
     strategy.node_history = [
         SearchNode(node_id=0, branch_name="candidate-0", score=0.4),

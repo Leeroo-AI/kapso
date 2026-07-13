@@ -62,6 +62,14 @@ from kapso.execution.evaluation_maintainer import (
     EvaluationMaintainer,
     EvaluationMaintainerError,
 )
+from kapso.execution.fidelity import (
+    FULL_PASSTHROUGH,
+    TIER_FULL,
+    FidelityPolicy,
+    FidelitySpec,
+    evidence_tier,
+    select_committed_candidate,
+)
 
 
 CHANGE_REQUEST_PATTERN = re.compile(
@@ -283,6 +291,17 @@ class OrchestratorAgent:
             self._max_change_requests,
         ) = self._create_evaluation_maintainer()
         self._change_requests_filed = 0
+        self.fidelity_spec = FidelitySpec.resolve(
+            self._config_budget.get("fidelity")
+        )
+        if (
+            self.fidelity_spec.mode != "off"
+            and self.evaluation_maintainer is None
+        ):
+            raise ValueError(
+                "Fidelity requires an evaluation_maintainer block: the "
+                "policy's timing model comes from measured evaluation runs"
+            )
 
         # Now create experiment history store with the actual workspace path
         experiment_history_path = os.path.join(
@@ -630,6 +649,18 @@ class OrchestratorAgent:
             self._record_maintainer_spend()
         self._adopt_registered_evaluation()
 
+    def _probe_estimate_seconds(self, budget_spec: BudgetSpec) -> float:
+        """Measured mean probe duration; the iteration floor before data."""
+        durations = [
+            node.duration_seconds
+            for node in self.search_strategy.get_experiment_history()
+            if getattr(node, "eval_fidelity", "full") == "fast"
+            and node.duration_seconds is not None
+        ]
+        if durations:
+            return sum(durations) / len(durations)
+        return budget_spec.min_iteration_seconds
+
     def _route_change_requests(self, candidates: List[SearchNode]) -> None:
         """File explicit <evaluation_change_request> tags with the maintainer."""
         if self.evaluation_maintainer is None:
@@ -866,6 +897,39 @@ class OrchestratorAgent:
         # The maintainer's setup transaction runs inside the budgeted clock,
         # before iteration 1; on resume it validates registry consistency.
         self._ensure_evaluation_registered()
+
+        # The fidelity policy: deterministic profile grants over measured
+        # evaluation timing. Enabled by mode (or auto-affordability); the
+        # escrowed reserve becomes the committed-run slot when active.
+        fidelity_policy: Optional[FidelityPolicy] = None
+        fidelity_active = False
+        if (
+            self.fidelity_spec.mode != "off"
+            and self.evaluation_maintainer is not None
+        ):
+            timing_full = self.evaluation_maintainer.timing(1.0)
+            timing_fast = self.evaluation_maintainer.timing(
+                self.fidelity_spec.eval_fast_fraction
+            )
+            fidelity_policy = FidelityPolicy(
+                spec=self.fidelity_spec,
+                evaluator_id=(
+                    self.search_strategy.registered_evaluator_id
+                ),
+                subsample_seed=self.evaluation_maintainer.subsample_seed,
+                full_eval_upper_seconds=timing_full.upper_seconds,
+                fast_eval_upper_seconds=timing_fast.upper_seconds,
+            )
+            fidelity_active = fidelity_policy.enabled(
+                budget_spec.time_budget_seconds
+            )
+        reserve_run_pending = False
+        effective_reserve_seconds = (
+            fidelity_policy.reserve_seconds(budget_spec.time_budget_seconds)
+            if fidelity_active and budget_spec.time_budget_seconds is not None
+            else budget_spec.finalization_reserve_seconds
+        )
+
         stopped_reason = "max_iterations"  # default
         stop_detail: Optional[str] = None
         iterations_run = 0
@@ -885,8 +949,9 @@ class OrchestratorAgent:
                     cost_usd=self.get_cumulative_cost(),
                     time_budget_seconds=budget_spec.time_budget_seconds,
                     cost_budget_usd=budget_spec.cost_budget_usd,
-                    finalization_reserve_seconds=(
-                        budget_spec.finalization_reserve_seconds
+                    finalization_reserve_seconds=effective_reserve_seconds,
+                    min_agent_timeout_seconds=(
+                        budget_spec.min_agent_timeout_seconds
                     ),
                 )
                 self.search_strategy.observe_budget(snapshot)
@@ -913,24 +978,65 @@ class OrchestratorAgent:
 
                 # The reserve gate: refuse admission when what remains
                 # outside the escrowed finalization reserve cannot hold one
-                # more iteration. Hard arithmetic only — no estimation.
+                # more iteration. Hard arithmetic only — no estimation. With
+                # fidelity active and no full-size result yet, the trip does
+                # not merely stop: it grants the guaranteed reserve run.
                 remaining_after_reserve = snapshot.remaining_after_reserve
                 if (
                     remaining_after_reserve is not None
                     and remaining_after_reserve
                     <= budget_spec.min_iteration_seconds
                 ):
-                    print(
-                        "[Orchestrator] Stopping: finalization reserve "
-                        "reached — protecting the endgame window"
+                    committed = (
+                        select_committed_candidate(
+                            self.search_strategy.get_experiment_history(),
+                            evaluator_id=(
+                                self.search_strategy.registered_evaluator_id
+                            ),
+                        )
+                        if fidelity_active
+                        else None
                     )
-                    stopped_reason = "budget_exhausted"
-                    stop_detail = "finalization_reserve"
-                    self._save_run_checkpoint(
-                        status="running",
-                        last_stop=stop_detail,
+                    committed_has_full = committed is not None and (
+                        evidence_tier(
+                            committed,
+                            self.search_strategy.registered_evaluator_id,
+                        )
+                        == TIER_FULL
                     )
-                    break
+                    if fidelity_active and not committed_has_full:
+                        print(
+                            "[Orchestrator] Reserve gate: executing the "
+                            "escrowed full-size attempt before stopping"
+                        )
+                        reserve_run_pending = True
+                    else:
+                        print(
+                            "[Orchestrator] Stopping: finalization reserve "
+                            "reached — protecting the endgame window"
+                        )
+                        stopped_reason = "budget_exhausted"
+                        stop_detail = "finalization_reserve"
+                        self._save_run_checkpoint(
+                            status="running",
+                            last_stop=stop_detail,
+                        )
+                        break
+
+                if fidelity_active:
+                    decision = fidelity_policy.decide(
+                        nodes=self.search_strategy.get_experiment_history(),
+                        remaining_after_reserve=(
+                            snapshot.remaining_after_reserve
+                        ),
+                        probe_estimate_seconds=(
+                            self._probe_estimate_seconds(budget_spec)
+                        ),
+                        reserve_run=reserve_run_pending,
+                    )
+                else:
+                    decision = FULL_PASSTHROUGH
+                self.search_strategy.observe_fidelity(decision)
 
                 iterations_run = i + 1
                 
@@ -1038,6 +1144,19 @@ class OrchestratorAgent:
                 if node.should_stop:
                     print("[Orchestrator] Stopping: goal achieved")
                     stopped_reason = "goal_achieved"
+                    break
+
+                if reserve_run_pending:
+                    print(
+                        "[Orchestrator] Reserve run complete — stopping "
+                        "with the finalization window honored"
+                    )
+                    stopped_reason = "budget_exhausted"
+                    stop_detail = "finalization_reserve"
+                    self._save_run_checkpoint(
+                        status="running",
+                        last_stop=stop_detail,
+                    )
                     break
 
                 if budget_exhausted:

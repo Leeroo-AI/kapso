@@ -1,0 +1,408 @@
+"""Hermetic tests for the FidelityPolicy grant ladder and its wiring (M6b).
+
+Every counter the policy reads is derived from node history, so the same
+history always yields the same grants — resume-deterministic by
+construction.
+"""
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import kapso.execution.evaluation_maintainer.maintainer as maintainer_module
+import kapso.execution.orchestrator as orchestrator_module
+import kapso.execution.search_strategies.generic.strategy as strategy_module
+from kapso.execution.budget import BudgetSpec
+from kapso.execution.fidelity import (
+    EvaluationAttempt,
+    FULL_PASSTHROUGH,
+    FidelityPolicy,
+    FidelitySpec,
+    PROFILE_FULL,
+    PROFILE_PROBE,
+    PROFILE_VALIDATE,
+)
+from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
+
+from tests.test_evaluation_maintainer_wiring import (
+    ScriptedMaintainerAgent,
+    manifest_stdout,
+    patch_maintainer_environment,
+    write_entrypoint,
+)
+from tests.test_run_checkpoint import (
+    _init_git_workspace,
+    _orchestrator,
+    _patch_orchestrator,
+)
+
+
+def attempt(*, fidelity="fast", fraction=0.15, score=0.5, evaluator="ev-1"):
+    return EvaluationAttempt(
+        commit_sha="sha",
+        evaluator_id=evaluator,
+        fidelity=fidelity,
+        fraction=fraction,
+        seed=1337,
+        score=score,
+    )
+
+
+def probe_node(node_id, fast_score):
+    node = SearchNode(node_id=node_id, build_fidelity="fast")
+    node.evaluation_attempts = [attempt(score=fast_score)]
+    return node
+
+
+def validated_node(node_id, fast_score, full_score):
+    node = probe_node(node_id, fast_score)
+    node.evaluation_attempts.append(
+        attempt(fidelity="full", fraction=1.0, score=full_score)
+    )
+    return node
+
+
+def make_policy(**spec_overrides):
+    spec_kwargs = dict(
+        mode="on",
+        build_fast_fraction=0.10,
+        eval_fast_fraction=0.15,
+        committed_run_fraction=0.45,
+        promotion_margin=0.02,
+        max_full_runs=2,
+        max_full_evals=3,
+        calibration_min_pairs=2,
+    )
+    spec_kwargs.update(spec_overrides)
+    spec = FidelitySpec(**spec_kwargs)
+    return FidelityPolicy(
+        spec=spec,
+        evaluator_id="ev-1",
+        subsample_seed=1337,
+        full_eval_upper_seconds=100.0,
+        fast_eval_upper_seconds=20.0,
+    )
+
+
+# =========================================================================
+# Spec and arithmetic
+# =========================================================================
+
+def test_spec_resolution_and_unknown_keys():
+    spec = FidelitySpec.resolve(
+        {
+            "mode": "auto",
+            "build": {"fast_fraction": 0.1},
+            "eval": {"fast_fraction": 0.2},
+            "committed_run_fraction": 0.5,
+        }
+    )
+    assert spec.mode == "auto"
+    assert spec.build_fast_fraction == 0.1
+    assert spec.eval_fast_fraction == 0.2
+
+    with pytest.raises(ValueError, match="Unknown fidelity config keys"):
+        FidelitySpec.resolve({"fast_train_fraction": 0.1})
+
+    assert FidelitySpec.resolve(None).mode == "off"
+    # The budget block accepts the fidelity key untouched.
+    assert BudgetSpec.resolve(
+        config_block={"fidelity": {"mode": "on"}}
+    ).is_unbudgeted
+
+
+def test_reserve_arithmetic_and_auto_enablement():
+    policy = make_policy()
+    budget = 600 * 60.0
+
+    assert policy.reserve_seconds(budget) == pytest.approx(0.45 * budget)
+    assert policy.build_cap_seconds(budget) == pytest.approx(
+        0.45 * budget - 100.0
+    )
+    # mode=on: always enabled with a time budget, never without one.
+    assert policy.enabled(budget)
+    assert not policy.enabled(None)
+
+    auto = make_policy(mode="auto", min_affordable_full_runs=4)
+    # 1 / 0.45 ≈ 2.2 affordable full runs < 4 -> tiers pay.
+    assert auto.enabled(budget)
+    generous = make_policy(mode="auto", min_affordable_full_runs=2)
+    assert not generous.enabled(budget)
+
+
+# =========================================================================
+# The grant ladder
+# =========================================================================
+
+def test_default_grant_is_a_probe():
+    decision = make_policy().decide(
+        nodes=[], remaining_after_reserve=1000.0, probe_estimate_seconds=60.0
+    )
+    assert decision.profile == PROFILE_PROBE
+    assert decision.build_fidelity == "fast"
+    assert decision.eval_fidelity == "fast"
+    assert decision.eval_fraction == 0.15
+
+
+def test_unvalidated_leader_clearing_margin_gets_a_validate():
+    nodes = [validated_node(0, 0.45, 0.40), probe_node(1, 0.48)]
+    decision = make_policy().decide(
+        nodes=nodes, remaining_after_reserve=1000.0,
+        probe_estimate_seconds=60.0,
+    )
+    assert decision.profile == PROFILE_VALIDATE
+    assert decision.target_node_id == 1
+    assert decision.deadline_seconds == 100.0
+
+    # Below the margin: no validate, keep probing.
+    close = [validated_node(0, 0.47, 0.40), probe_node(1, 0.48)]
+    assert (
+        make_policy().decide(
+            nodes=close,
+            remaining_after_reserve=1000.0,
+            probe_estimate_seconds=60.0,
+        ).profile
+        == PROFILE_PROBE
+    )
+
+
+def test_validate_respects_cap_and_affordability():
+    nodes = [probe_node(1, 0.48)]
+
+    unaffordable = make_policy().decide(
+        nodes=nodes, remaining_after_reserve=50.0, probe_estimate_seconds=60.0
+    )
+    assert unaffordable.profile == PROFILE_PROBE
+
+    exhausted_cap = make_policy(max_full_evals=0).decide(
+        nodes=nodes, remaining_after_reserve=1000.0,
+        probe_estimate_seconds=60.0,
+    )
+    assert exhausted_cap.profile == PROFILE_PROBE
+
+
+def test_endgame_validate_fires_near_the_gate_without_margin():
+    # The leader does not clear the margin, but the searchable window has
+    # shrunk to one probe plus one validate: confirm before the reserve.
+    nodes = [validated_node(0, 0.47, 0.40), probe_node(1, 0.48)]
+    decision = make_policy().decide(
+        nodes=nodes, remaining_after_reserve=150.0, probe_estimate_seconds=60.0
+    )
+    assert decision.profile == PROFILE_VALIDATE
+    assert "endgame" in decision.reason
+
+
+def test_mid_campaign_full_is_calibration_gated():
+    validated_leader = validated_node(0, 0.48, 0.42)
+    one_pair = [validated_leader]
+    gated = make_policy().decide(
+        nodes=one_pair, remaining_after_reserve=10000.0,
+        probe_estimate_seconds=60.0,
+    )
+    assert gated.profile == PROFILE_PROBE  # pairs < calibration_min_pairs
+
+    two_pairs = [validated_leader, validated_node(1, 0.44, 0.39)]
+    granted = make_policy().decide(
+        nodes=two_pairs, remaining_after_reserve=10000.0,
+        probe_estimate_seconds=60.0,
+    )
+    assert granted.profile == PROFILE_FULL
+    assert granted.target_node_id == 0
+    assert granted.reserve_run is False
+
+    slots_gone = make_policy(max_full_runs=0).decide(
+        nodes=two_pairs, remaining_after_reserve=10000.0,
+        probe_estimate_seconds=60.0,
+    )
+    assert slots_gone.profile == PROFILE_PROBE
+
+
+def test_reserve_run_targets_the_committed_candidate():
+    nodes = [validated_node(0, 0.48, 0.42), probe_node(1, 0.50)]
+    decision = make_policy().decide(
+        nodes=nodes, remaining_after_reserve=10.0,
+        probe_estimate_seconds=60.0, reserve_run=True,
+    )
+    assert decision.profile == PROFILE_FULL
+    assert decision.reserve_run is True
+    assert decision.target_node_id == 0
+
+
+# =========================================================================
+# Strategy execution of granted profiles
+# =========================================================================
+
+def test_validate_grant_short_circuits_and_appends_a_full_attempt(
+    monkeypatch, tmp_path
+):
+    from contextlib import contextmanager
+
+    target = probe_node(0, 0.48)
+    target.branch_name = "generic_exp_0"
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.iteration_count = 0
+    strategy.node_history = [target]
+    strategy.registered_evaluator_id = "ev-1"
+    strategy.registered_subsample_seed = 1337
+
+    class FakeWorkspace:
+        repo = SimpleNamespace(
+            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
+        )
+
+        @contextmanager
+        def materialize_ref(self, ref):
+            yield str(tmp_path)
+
+    strategy.workspace = FakeWorkspace()
+
+    payload = {
+        "fidelity": "full",
+        "fraction": 1.0,
+        "seed": 1337,
+        "items": 100,
+        "total_items": 100,
+        "score": 0.41,
+    }
+    monkeypatch.setattr(
+        strategy_module,
+        "subprocess",
+        SimpleNamespace(
+            run=lambda command, cwd, capture_output, text, timeout: (
+                SimpleNamespace(
+                    returncode=0,
+                    stdout=(
+                        f"{maintainer_module.MANIFEST_MARKER} "
+                        f"{json.dumps(payload)}\n"
+                    ),
+                    stderr="",
+                )
+            )
+        ),
+    )
+
+    from kapso.execution.fidelity import FidelityDecision
+
+    strategy.observe_fidelity(
+        FidelityDecision(
+            profile=PROFILE_VALIDATE,
+            build_fidelity="fast",
+            eval_fidelity="full",
+            eval_fraction=1.0,
+            target_node_id=0,
+            deadline_seconds=100.0,
+        )
+    )
+    returned = strategy.run("problem")
+
+    assert returned is target
+    full_attempts = [
+        a for a in target.evaluation_attempts if a.fidelity == "full"
+    ]
+    assert len(full_attempts) == 1
+    assert full_attempts[0].score == 0.41
+    assert full_attempts[0].commit_sha == "sha-full"
+
+
+# =========================================================================
+# Orchestrator wiring
+# =========================================================================
+
+def test_fidelity_without_a_maintainer_fails_loud(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "load_mode_config",
+        lambda config_path, mode: {
+            "search_strategy": {"type": "generic", "params": {}},
+            "budget": {"fidelity": {"mode": "on"}},
+        },
+    )
+
+    with pytest.raises(ValueError, match="evaluation_maintainer"):
+        _orchestrator(workspace)
+
+
+def fidelity_mode_config(config_path, mode):
+    return {
+        "search_strategy": {"type": "generic", "params": {}},
+        "evaluation_maintainer": {"type": "claude_code"},
+        "budget": {
+            "min_iteration_seconds": 90,
+            "fidelity": {
+                "mode": "on",
+                "build": {"fast_fraction": 0.10},
+                "eval": {"fast_fraction": 0.15},
+                "committed_run_fraction": 0.45,
+            },
+        },
+    }
+
+
+def test_probe_grants_and_reserve_slot_reach_the_strategy(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", fidelity_mode_config
+    )
+
+    orchestrator = _orchestrator(workspace)
+    orchestrator.solve(experiment_max_iter=1, time_budget_minutes=60)
+
+    decisions = orchestrator.search_strategy.fidelity_decisions
+    assert decisions[0].profile == PROFILE_PROBE
+    snapshot = orchestrator.search_strategy.budget_snapshot
+    assert snapshot.finalization_reserve_seconds == pytest.approx(
+        0.45 * 3600
+    )
+
+
+def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", fidelity_mode_config
+    )
+
+    orchestrator = _orchestrator(workspace)
+    # 2-minute budget: reserve = 54s, searchable = 66s <= the 90s iteration
+    # floor -> the gate trips immediately, and instead of stopping it grants
+    # the one escrowed FULL run, then stops with the reserve honored.
+    result = orchestrator.solve(experiment_max_iter=5, time_budget_minutes=2)
+
+    decisions = orchestrator.search_strategy.fidelity_decisions
+    assert len(decisions) == 1
+    assert decisions[0].profile == PROFILE_FULL
+    assert decisions[0].reserve_run is True
+    assert result.iterations_run == 1
+    assert result.stopped_reason == "budget_exhausted"
+    assert result.stop_detail == "finalization_reserve"
+
+
+def test_fidelity_off_grants_full_passthrough(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    orchestrator = _orchestrator(workspace)
+    orchestrator.solve(experiment_max_iter=1)
+
+    assert orchestrator.search_strategy.fidelity_decisions == [
+        FULL_PASSTHROUGH
+    ]

@@ -110,6 +110,10 @@ class FakeStrategy:
     def observe_budget(self, snapshot: Any) -> None:
         self.budget_snapshot = snapshot
 
+    def observe_fidelity(self, decision: Any) -> None:
+        self.fidelity_decisions = getattr(self, "fidelity_decisions", [])
+        self.fidelity_decisions.append(decision)
+
     def set_registered_evaluation(
         self, *, manifest, command, evaluator_id, subsample_seed
     ) -> None:
@@ -119,6 +123,8 @@ class FakeStrategy:
             "evaluator_id": evaluator_id,
             "subsample_seed": subsample_seed,
         }
+        self.registered_evaluator_id = evaluator_id
+        self.registered_subsample_seed = subsample_seed
 
     def get_experiment_history(
         self,

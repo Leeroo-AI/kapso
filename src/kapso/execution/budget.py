@@ -26,6 +26,8 @@ _BUDGET_BLOCK_KEYS = {
     "finalization_reserve_minutes",
     "min_iteration_seconds",
     "min_agent_timeout_seconds",
+    # Validated separately by FidelitySpec.resolve.
+    "fidelity",
 }
 
 

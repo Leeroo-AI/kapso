@@ -52,6 +52,36 @@ class EvaluationMaintainerError(RuntimeError):
     """Raised when a maintainer transaction violates its post-conditions."""
 
 
+def evaluation_command(*, fidelity: str, fraction: float, seed: int) -> str:
+    """The registered invocation contract (CLI args, never env vars)."""
+    return (
+        f"python {EVALUATION_DIR_NAME}/{ENTRYPOINT_NAME} "
+        f"--fidelity {fidelity} --fraction {fraction} --seed {seed}"
+    )
+
+
+def parse_manifest_line(stdout: str) -> Dict[str, Any]:
+    """Parse the single KAPSO_EVAL_MANIFEST JSON line an evaluation prints."""
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(MANIFEST_MARKER):
+            payload = json.loads(stripped[len(MANIFEST_MARKER):].strip())
+            for key in ("fidelity", "fraction", "seed", "items",
+                        "total_items"):
+                if key not in payload:
+                    raise EvaluationMaintainerError(
+                        f"Evaluation manifest line is missing {key!r}"
+                    )
+            if payload["items"] <= 0 or payload["total_items"] <= 0:
+                raise EvaluationMaintainerError(
+                    "Evaluation manifest item counts must be positive"
+                )
+            return payload
+    raise EvaluationMaintainerError(
+        f"Evaluation output contains no {MANIFEST_MARKER} line"
+    )
+
+
 @dataclass(frozen=True)
 class EvaluationChangeRequest:
     """A request to change the evaluation, filed by another component."""
@@ -335,10 +365,8 @@ class EvaluationMaintainer:
 
     def evaluation_command(self, *, fidelity: str, fraction: float) -> str:
         """The registered invocation contract (CLI args, never env vars)."""
-        return (
-            f"python {EVALUATION_DIR_NAME}/{ENTRYPOINT_NAME} "
-            f"--fidelity {fidelity} --fraction {fraction} "
-            f"--seed {self.subsample_seed}"
+        return evaluation_command(
+            fidelity=fidelity, fraction=fraction, seed=self.subsample_seed
         )
 
     # =====================================================================
@@ -398,7 +426,7 @@ class EvaluationMaintainer:
                 "Calibration run failed "
                 f"(exit {completed.returncode}): {completed.stderr}"
             )
-        manifest = self._parse_manifest_line(completed.stdout)
+        manifest = parse_manifest_line(completed.stdout)
         items = manifest["items"]
         return (
             TimingModel(
@@ -407,29 +435,6 @@ class EvaluationMaintainer:
                 total_items=manifest["total_items"],
             ),
             manifest,
-        )
-
-    @staticmethod
-    def _parse_manifest_line(stdout: str) -> Dict[str, Any]:
-        for line in stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith(MANIFEST_MARKER):
-                payload = json.loads(
-                    stripped[len(MANIFEST_MARKER):].strip()
-                )
-                for key in ("fidelity", "fraction", "seed", "items",
-                            "total_items"):
-                    if key not in payload:
-                        raise EvaluationMaintainerError(
-                            f"Evaluation manifest line is missing {key!r}"
-                        )
-                if payload["items"] <= 0 or payload["total_items"] <= 0:
-                    raise EvaluationMaintainerError(
-                        "Evaluation manifest item counts must be positive"
-                    )
-                return payload
-        raise EvaluationMaintainerError(
-            f"Evaluation output contains no {MANIFEST_MARKER} line"
         )
 
     def _commit_evaluation(self, message: str) -> None:

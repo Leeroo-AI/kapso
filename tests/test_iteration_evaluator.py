@@ -112,6 +112,10 @@ class TwoCandidateStrategy:
     def observe_budget(self, snapshot: Any) -> None:
         self.budget_snapshot = snapshot
 
+    def observe_fidelity(self, decision: Any) -> None:
+        self.fidelity_decisions = getattr(self, "fidelity_decisions", [])
+        self.fidelity_decisions.append(decision)
+
     def get_experiment_history(
         self,
         best_last: bool = False,

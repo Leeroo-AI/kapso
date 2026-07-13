@@ -78,6 +78,7 @@ def test_run_sums_attributed_phase_costs_onto_the_node():
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.parent_policy = "baseline"
     strategy.registered_evaluator_id = ""
+    strategy.fidelity_decision = None
     strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
     strategy.node_history = []
     strategy.iteration_count = 0

@@ -208,6 +208,7 @@ def make_strategy():
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.registered_evaluator_id = "eval-v1"
     strategy.registered_subsample_seed = 1337
+    strategy.fidelity_decision = None
     strategy.workspace = SimpleNamespace(
         repo=SimpleNamespace(
             commit=lambda branch: SimpleNamespace(hexsha=f"sha-{branch}")

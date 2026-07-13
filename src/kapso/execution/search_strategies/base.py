@@ -39,6 +39,7 @@ from kapso.execution.evaluation_integrity import (
 # Avoid circular import - FeedbackGenerator is optional
 if TYPE_CHECKING:
     from kapso.execution.budget import BudgetSnapshot
+    from kapso.execution.fidelity import FidelityDecision
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 
@@ -416,6 +417,8 @@ class SearchStrategy(ABC):
         # The orchestrator's per-iteration budget view; strategies read it,
         # only the orchestrator writes budget state.
         self.budget_snapshot: Optional["BudgetSnapshot"] = None
+        # The executive's granted workload profile for this iteration.
+        self.fidelity_decision: Optional["FidelityDecision"] = None
         self.evaluation_provenance = (
             PROVIDED if config.eval_dir else AGENT_GENERATED
         )
@@ -601,6 +604,10 @@ class SearchStrategy(ABC):
         attribute, and no run() signature changes across strategies.
         """
         self.budget_snapshot = snapshot
+
+    def observe_fidelity(self, decision: "FidelityDecision") -> None:
+        """Store the executive's granted profile for this iteration."""
+        self.fidelity_decision = decision
 
     def dump_evaluation_integrity_state(self) -> Dict[str, Any]:
         """Return the provided-suite baseline stored with strategy state."""

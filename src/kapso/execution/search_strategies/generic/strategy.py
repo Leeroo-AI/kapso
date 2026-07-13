@@ -27,10 +27,18 @@ from kapso.execution.search_strategies.base import (
 )
 from kapso.execution.search_strategies.factory import register_strategy
 from kapso.execution.fidelity import (
+    PROFILE_VALIDATE,
     ComparabilityClass,
     EvaluationAttempt,
+    FidelityDecision,
     project_score,
 )
+from kapso.execution.evaluation_maintainer.maintainer import (
+    evaluation_command,
+    parse_manifest_line,
+)
+import shlex
+import subprocess
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
 
@@ -204,6 +212,13 @@ class GenericSearch(SearchStrategy):
         """
         self.iteration_count += 1
         print(f"\n[GenericSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
+
+        # An eval-only VALIDATE grant short-circuits the whole lifecycle:
+        # no ideation, no implementation — one full-fidelity measurement of
+        # an existing artifact, appended to its node.
+        decision = self.fidelity_decision
+        if decision is not None and decision.profile == PROFILE_VALIDATE:
+            return self._run_validate(decision)
         
         # Extract problem from context (support both string and ContextData)
         if isinstance(context, str):
@@ -234,6 +249,11 @@ class GenericSearch(SearchStrategy):
         )
         node.started_at = iteration_started_at
         node.phase_telemetry["ideation"] = ideation_telemetry
+        if decision is not None:
+            node.build_fidelity = decision.build_fidelity
+            node.eval_fidelity = decision.eval_fidelity
+            if decision.profile == "full":
+                node.promoted_from = decision.target_node_id
         
         # Step 2: Implement - developer agent handles everything
         branch_name = f"generic_exp_{node.node_id}"
@@ -664,13 +684,15 @@ Problem: {problem}"""
             or not node.evaluation_valid
         ):
             return
+        decision = self.fidelity_decision
+        fraction = decision.eval_fraction if decision is not None else 1.0
         commit_sha = self.workspace.repo.commit(node.branch_name).hexsha
         node.evaluation_attempts.append(
             EvaluationAttempt(
                 commit_sha=commit_sha,
                 evaluator_id=self.registered_evaluator_id,
                 fidelity=node.eval_fidelity,
-                fraction=1.0,
+                fraction=fraction,
                 seed=self.registered_subsample_seed,
                 score=node.score,
                 duration_seconds=node.phase_telemetry.get(
@@ -678,6 +700,62 @@ Problem: {problem}"""
                 ).get("duration_seconds"),
             )
         )
+
+    def _run_validate(self, decision: FidelityDecision) -> SearchNode:
+        """Frame-run the registered full evaluation on an existing artifact.
+
+        This is the staged-execution-ownership step from the design: the
+        eval-only runs whose integrity matters most execute under Kapso's
+        own deadline-bounded subprocess, not inside an agent session. A
+        deadline overrun raises and fails the campaign loud.
+        """
+        target = self.node_history[decision.target_node_id]
+        print(
+            f"[GenericSearch] VALIDATE: full evaluation of node "
+            f"{target.node_id} ({target.branch_name})"
+        )
+        command = shlex.split(
+            evaluation_command(
+                fidelity="full",
+                fraction=1.0,
+                seed=self.registered_subsample_seed,
+            )
+        )
+        run_started = time.monotonic()
+        with self.workspace.materialize_ref(target.branch_name) as worktree:
+            completed = subprocess.run(
+                command,
+                cwd=worktree,
+                capture_output=True,
+                text=True,
+                timeout=decision.deadline_seconds,
+            )
+        duration = time.monotonic() - run_started
+        if completed.returncode != 0:
+            print(
+                "[GenericSearch] VALIDATE failed "
+                f"(exit {completed.returncode}): {completed.stderr}"
+            )
+            return target
+        manifest = parse_manifest_line(completed.stdout)
+        target.evaluation_attempts.append(
+            EvaluationAttempt(
+                commit_sha=self.workspace.repo.commit(
+                    target.branch_name
+                ).hexsha,
+                evaluator_id=self.registered_evaluator_id,
+                fidelity="full",
+                fraction=1.0,
+                seed=self.registered_subsample_seed,
+                score=float(manifest["score"]),
+                duration_seconds=duration,
+            )
+        )
+        print(
+            f"[GenericSearch] VALIDATE complete: node {target.node_id} "
+            f"full score {manifest['score']}"
+        )
+        return target
 
     def refresh_score_projections(
         self, comparability: ComparabilityClass

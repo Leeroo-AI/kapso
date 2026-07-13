@@ -211,3 +211,335 @@ def select_committed_candidate(
             sign * full_eval_score(node, evaluator_id),
         ),
     )
+
+
+# =========================================================================
+# The FidelityPolicy: deterministic PROBE / VALIDATE / FULL grants
+# =========================================================================
+
+PROFILE_PROBE = "probe"
+PROFILE_VALIDATE = "validate"
+PROFILE_FULL = "full"
+
+FIDELITY_MODES = {"off", "on", "auto"}
+
+_FIDELITY_BLOCK_KEYS = {
+    "mode",
+    "min_affordable_full_runs",
+    "build",
+    "eval",
+    "committed_run_fraction",
+    "promotion_margin",
+    "max_full_runs",
+    "max_full_evals",
+    "calibration_min_pairs",
+    "endgame_validate",
+}
+
+
+@dataclass(frozen=True)
+class FidelitySpec:
+    """Validated fidelity configuration from the budget block."""
+
+    mode: str = "off"
+    min_affordable_full_runs: int = 4
+    build_fast_fraction: Optional[float] = None  # None: no fast build dial
+    eval_fast_fraction: float = 0.15
+    committed_run_fraction: float = 0.45
+    promotion_margin: float = 0.02
+    max_full_runs: int = 2
+    max_full_evals: int = 3
+    calibration_min_pairs: int = 3
+    endgame_validate: bool = True
+
+    def __post_init__(self) -> None:
+        if self.mode not in FIDELITY_MODES:
+            raise ValueError(
+                f"fidelity mode must be one of {sorted(FIDELITY_MODES)}"
+            )
+        if self.build_fast_fraction is not None and not (
+            0 < self.build_fast_fraction <= 1
+        ):
+            raise ValueError("build fast_fraction must be in (0, 1]")
+        if not 0 < self.eval_fast_fraction <= 1:
+            raise ValueError("eval fast_fraction must be in (0, 1]")
+        if not 0 < self.committed_run_fraction < 1:
+            raise ValueError("committed_run_fraction must be in (0, 1)")
+
+    @classmethod
+    def resolve(cls, block: Optional[Mapping[str, Any]]) -> "FidelitySpec":
+        if not block:
+            return cls()
+        unknown = sorted(set(block) - _FIDELITY_BLOCK_KEYS)
+        if unknown:
+            raise ValueError(
+                "Unknown fidelity config keys: " + ", ".join(unknown)
+            )
+        build_block = dict(block.get("build") or {})
+        eval_block = dict(block.get("eval") or {})
+        kwargs: Dict[str, Any] = {
+            "mode": block.get("mode", "off"),
+        }
+        if "min_affordable_full_runs" in block:
+            kwargs["min_affordable_full_runs"] = block[
+                "min_affordable_full_runs"
+            ]
+        if "fast_fraction" in build_block:
+            kwargs["build_fast_fraction"] = build_block["fast_fraction"]
+        if "fast_fraction" in eval_block:
+            kwargs["eval_fast_fraction"] = eval_block["fast_fraction"]
+        for key in (
+            "committed_run_fraction",
+            "promotion_margin",
+            "max_full_runs",
+            "max_full_evals",
+            "calibration_min_pairs",
+            "endgame_validate",
+        ):
+            if key in block:
+                kwargs[key] = block[key]
+        return cls(**kwargs)
+
+
+@dataclass(frozen=True)
+class FidelityDecision:
+    """One iteration's granted workload profile. Executive-issued."""
+
+    profile: str  # probe | validate | full
+    build_fidelity: str
+    eval_fidelity: str
+    eval_fraction: float
+    target_node_id: Optional[int] = None  # validate/full promotion target
+    reserve_run: bool = False
+    deadline_seconds: Optional[float] = None  # eval-only run deadline
+    reason: str = ""
+
+
+FULL_PASSTHROUGH = FidelityDecision(
+    profile=PROFILE_FULL,
+    build_fidelity="full",
+    eval_fidelity="full",
+    eval_fraction=1.0,
+    reason="fidelity off: every experiment runs full-size",
+)
+
+
+class FidelityPolicy:
+    """Deterministic profile grants over measured state.
+
+    Every counter is derived from node history, so a resumed campaign
+    reaches identical decisions from the durable record — no hidden state.
+    The LLM may request; only this arithmetic grants.
+    """
+
+    def __init__(
+        self,
+        *,
+        spec: FidelitySpec,
+        evaluator_id: str,
+        subsample_seed: int,
+        full_eval_upper_seconds: float,
+        fast_eval_upper_seconds: float,
+    ):
+        self.spec = spec
+        self.evaluator_id = evaluator_id
+        self.subsample_seed = subsample_seed
+        self.full_eval_upper_seconds = float(full_eval_upper_seconds)
+        self.fast_eval_upper_seconds = float(fast_eval_upper_seconds)
+
+    # -- derived arithmetic ------------------------------------------------
+
+    def reserve_seconds(self, time_budget_seconds: float) -> float:
+        """The escrowed committed slot: build cap + full eval, by
+        construction committed_run_fraction of the budget."""
+        return self.spec.committed_run_fraction * time_budget_seconds
+
+    def build_cap_seconds(self, time_budget_seconds: float) -> float:
+        return max(
+            0.0,
+            self.reserve_seconds(time_budget_seconds)
+            - self.full_eval_upper_seconds,
+        )
+
+    def full_run_bound_seconds(self, time_budget_seconds: float) -> float:
+        return self.reserve_seconds(time_budget_seconds)
+
+    def enabled(self, time_budget_seconds: Optional[float]) -> bool:
+        if self.spec.mode == "off" or time_budget_seconds is None:
+            return False
+        if self.spec.mode == "on":
+            return True
+        affordable_full_runs = time_budget_seconds / self.full_run_bound_seconds(
+            time_budget_seconds
+        )
+        return affordable_full_runs < self.spec.min_affordable_full_runs
+
+    # -- history-derived counters -------------------------------------------
+
+    def _fast_class(self) -> ComparabilityClass:
+        return ComparabilityClass(
+            evaluator_id=self.evaluator_id,
+            fidelity="fast",
+            fraction=self.spec.eval_fast_fraction,
+            seed=self.subsample_seed,
+        )
+
+    def full_evals_used(self, nodes: Iterable[Any]) -> int:
+        return sum(
+            1
+            for node in nodes
+            if getattr(node, "build_fidelity", "full") == "fast"
+            and evidence_tier(node, self.evaluator_id) == TIER_VALIDATED
+        )
+
+    def full_runs_used(self, nodes: Iterable[Any]) -> int:
+        return sum(
+            1
+            for node in nodes
+            if evidence_tier(node, self.evaluator_id) == TIER_FULL
+        )
+
+    def calibration_pairs(self, nodes: Iterable[Any]) -> int:
+        fast_class = self._fast_class()
+        return sum(
+            1
+            for node in nodes
+            if project_score(node, fast_class) is not None
+            and full_eval_score(node, self.evaluator_id) is not None
+        )
+
+    def _fast_leader(self, nodes: List[Any]) -> Optional[Any]:
+        fast_class = self._fast_class()
+        scored = [
+            (project_score(node, fast_class), node)
+            for node in nodes
+            if not getattr(node, "had_error", False)
+            and getattr(node, "evaluation_valid", True)
+            and project_score(node, fast_class) is not None
+        ]
+        if not scored:
+            return None
+        return max(scored, key=lambda pair: pair[0])[1]
+
+    # -- the grant ladder ----------------------------------------------------
+
+    def decide(
+        self,
+        *,
+        nodes: List[Any],
+        remaining_after_reserve: Optional[float],
+        probe_estimate_seconds: float,
+        reserve_run: bool = False,
+    ) -> FidelityDecision:
+        """Grant this iteration's profile. Pure arithmetic; no estimation
+        beyond measured uppers and the declared fractions."""
+        spec = self.spec
+        build_fast = (
+            spec.build_fast_fraction is not None
+        )
+
+        if reserve_run:
+            committed = select_committed_candidate(
+                nodes, evaluator_id=self.evaluator_id
+            )
+            target = committed or self._fast_leader(nodes)
+            return FidelityDecision(
+                profile=PROFILE_FULL,
+                build_fidelity="full",
+                eval_fidelity="full",
+                eval_fraction=1.0,
+                target_node_id=(
+                    target.node_id if target is not None else None
+                ),
+                reserve_run=True,
+                reason=(
+                    "reserve run: the escrowed full-size attempt on the "
+                    "best recipe"
+                ),
+            )
+
+        fast_leader = self._fast_leader(nodes)
+        committed = select_committed_candidate(
+            nodes, evaluator_id=self.evaluator_id
+        )
+        leader_unvalidated = (
+            fast_leader is not None
+            and evidence_tier(fast_leader, self.evaluator_id) == TIER_PROBE
+        )
+
+        # VALIDATE: buy trust in the fast leader before committing to it.
+        if (
+            leader_unvalidated
+            and remaining_after_reserve is not None
+            and self.full_eval_upper_seconds <= remaining_after_reserve
+            and self.full_evals_used(nodes) < spec.max_full_evals
+        ):
+            fast_class = self._fast_class()
+            leader_score = project_score(fast_leader, fast_class)
+            incumbent_score = (
+                project_score(committed, fast_class)
+                if committed is not None
+                else None
+            )
+            clears_margin = incumbent_score is None or (
+                leader_score - incumbent_score >= spec.promotion_margin
+            )
+            endgame = (
+                spec.endgame_validate
+                and remaining_after_reserve
+                <= probe_estimate_seconds + self.full_eval_upper_seconds
+            )
+            if clears_margin or endgame:
+                return FidelityDecision(
+                    profile=PROFILE_VALIDATE,
+                    build_fidelity=fast_leader.build_fidelity,
+                    eval_fidelity="full",
+                    eval_fraction=1.0,
+                    target_node_id=fast_leader.node_id,
+                    deadline_seconds=self.full_eval_upper_seconds,
+                    reason=(
+                        "endgame validate: confirming the unvalidated fast "
+                        "leader before the reserve decision"
+                        if endgame
+                        else "fast leader cleared the promotion margin"
+                    ),
+                )
+
+        # FULL mid-campaign: only when the arithmetic affords it outside the
+        # escrow, the pair table has earned trust, and slots remain.
+        if (
+            committed is not None
+            and evidence_tier(committed, self.evaluator_id)
+            == TIER_VALIDATED
+            and remaining_after_reserve is not None
+            and self._mid_campaign_full_affordable(remaining_after_reserve)
+            and self.full_runs_used(nodes) < spec.max_full_runs
+            and self.calibration_pairs(nodes) >= spec.calibration_min_pairs
+        ):
+            return FidelityDecision(
+                profile=PROFILE_FULL,
+                build_fidelity="full",
+                eval_fidelity="full",
+                eval_fraction=1.0,
+                target_node_id=committed.node_id,
+                reason=(
+                    "mid-campaign full run: validated leader, calibrated "
+                    "pairs, and the arithmetic affords it outside the escrow"
+                ),
+            )
+
+        return FidelityDecision(
+            profile=PROFILE_PROBE,
+            build_fidelity="fast" if build_fast else "full",
+            eval_fidelity="fast",
+            eval_fraction=spec.eval_fast_fraction,
+            reason="default probe: searching outside the escrow",
+        )
+
+    def _mid_campaign_full_affordable(
+        self, remaining_after_reserve: float
+    ) -> bool:
+        # A mid-campaign full run must fit entirely outside the escrow.
+        return (
+            self.full_eval_upper_seconds * 2 <= remaining_after_reserve
+        )
