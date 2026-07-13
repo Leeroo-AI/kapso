@@ -4,13 +4,24 @@ description: "Maintainer plan for safe workspaces, resumable runs, external eval
 ---
 
 This document defines the upstream implementation plan for a set of reliability
-and extensibility improvements developed in a downstream Kapso fork. It is a
-design and delivery document: proposed APIs are not available until their
-corresponding milestone is merged.
+and extensibility improvements developed in a downstream Kapso fork. It also
+tracks which generic parts are now available in open-source Kapso.
 
 The changes must be upstreamed as focused pull requests. The downstream branch
 mixes reusable behavior with deployment-specific defaults, so it must not be
 merged or cherry-picked wholesale.
+
+| Milestone | Status |
+|-----------|--------|
+| 1. Workspace and Git safety | Implemented |
+| 2. Optional RepoMemory fault isolation | Implemented |
+| 3. Resumable evolution | Implemented |
+| 4. External iteration evaluation | Implemented |
+| 5. Evaluation integrity | Implemented |
+| 6. Claude Code authentication modes | Implemented |
+| 7. Capability-aware gates | Planned |
+| 8. Model routing and retry policy | Planned |
+| 9. Parent-selection policies | Planned |
 
 ## Goals
 
@@ -310,6 +321,20 @@ coding_agent:
 `use_bedrock` remains a deprecated compatibility alias for at least one
 release. The generic default is not switched to a developer-specific OAuth
 profile; subscription use is documented as an optional profile.
+
+OAuth discovery uses the supported `claude auth status` command rather than
+reading credential files or OS keychains. Per-agent `env_overrides` participate
+in validation, and explicit modes remove conflicting provider credentials from
+the child environment without mutating `os.environ`.
+
+### Acceptance tests
+
+- Explicit modes override conflicting ambient credentials.
+- `auto` resolves Bedrock, API key, and OAuth in the documented order.
+- OAuth works with either a stored CLI login or `CLAUDE_CODE_OAUTH_TOKEN`.
+- Credentials supplied through `env_overrides` are validated and forwarded.
+- Missing credentials and unknown modes fail before an experiment starts.
+- Both values of `use_bedrock` preserve their previous meaning and warn.
 
 ## Milestone 7: Capability-aware gates
 

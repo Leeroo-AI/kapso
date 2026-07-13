@@ -109,7 +109,7 @@ searches:
     agent:
       agent_type: "claude_code"
       model: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-      use_bedrock: true
+      auth_mode: "bedrock"
       aws_region: "us-east-1"
       timeout: 300
       allowed_tools:
@@ -141,4 +141,3 @@ searches:
   #         similarity_threshold: 0.7
   #         embedding_model: "text-embedding-3-small"
   #   default_preset: "DEFAULT"
-

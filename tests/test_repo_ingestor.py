@@ -25,10 +25,10 @@ load_dotenv()
 # These ingestor_params are passed through to the RepoIngestor,
 # which then configures the Claude Code agent with Bedrock settings.
 ingestor_params = {
-    "use_bedrock": True,           # Use AWS Bedrock instead of direct Anthropic API
+    "auth_mode": "bedrock",       # Use AWS Bedrock
     "aws_region": "us-east-1",     # AWS region for Bedrock (adjust as needed)
     "timeout": 1800,               # 30 minutes timeout per phase
-    # model: defaults to "us.anthropic.claude-opus-4-5-20251101-v1:0" when use_bedrock=True
+    # model: use a Bedrock model ID when auth_mode="bedrock"
     # You can override with any Bedrock-compatible model ID if needed
 }
 

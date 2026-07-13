@@ -104,7 +104,7 @@ def patch_claude_code_for_bedrock():
         config["default_debug_model"] = BEDROCK_MODEL
         
         # Add Bedrock settings to agent_specific
-        config["agent_specific"]["use_bedrock"] = True
+        config["agent_specific"]["auth_mode"] = "bedrock"
         config["agent_specific"]["aws_region"] = os.environ.get("AWS_REGION", "us-east-1")
         
         logger.info(f"Patched claude_code for Bedrock: {BEDROCK_MODEL}")

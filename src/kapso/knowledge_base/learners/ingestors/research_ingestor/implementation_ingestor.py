@@ -35,7 +35,7 @@ class ImplementationIngestor(ResearchIngestorBase):
         
         # With custom settings
         ingestor = ImplementationIngestor(params={
-            "use_bedrock": False,
+            "auth_mode": "api_key",
             "model": "claude-sonnet-4-20250514",
             "timeout": 300,
         })

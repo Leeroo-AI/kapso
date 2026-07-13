@@ -8,7 +8,7 @@
 # - CLAUDE.md for project constitution
 # - Superior for complex, multi-step tasks
 # - Streaming mode for live output visibility
-# - Supports both direct Anthropic API and AWS Bedrock
+# - Supports OAuth, direct Anthropic API keys, and AWS Bedrock
 #
 # Requires:
 # - Claude Code CLI installed: npm install -g @anthropic-ai/claude-code
@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,7 +62,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - Planning mode (outlines steps before executing)
     - CLAUDE.md project constitution support
     - Permission system for tools (Edit, Read, Write)
-    - Supports both direct Anthropic API and AWS Bedrock
+    - Supports OAuth, direct Anthropic API keys, and AWS Bedrock
     
     Configuration (agent_specific):
     - claude_md_path: Path to CLAUDE.md file (optional)
@@ -69,8 +70,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - timeout: 3600 (default) - CLI timeout in seconds (1 hour)
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
     - streaming: True (default) - stream output live to terminal for visibility
-    - use_bedrock: False (default) - use AWS Bedrock instead of direct Anthropic API
-    - aws_region: AWS region for Bedrock (required if use_bedrock=True, default: "us-east-1")
+    - auth_mode: Authentication mode: auto (default), oauth, api_key, or bedrock
+    - use_bedrock: Deprecated compatibility alias. True selects bedrock; False selects api_key.
+    - aws_region: AWS region for Bedrock (default: "us-east-1")
     - append_system_prompt: Optional string appended to Claude Code's default system prompt
       Useful for injecting workspace restrictions (e.g. filesystem sandboxing)
     - mcp_servers: Dict of MCP server configurations (optional)
@@ -84,16 +86,26 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             }
         }
     
-    Environment (Direct Anthropic mode - default):
+    Environment (API-key mode):
     - ANTHROPIC_API_KEY: Required for authentication
+
+    Environment (OAuth mode):
+    - A stored Claude CLI login, or CLAUDE_CODE_OAUTH_TOKEN
     
-    Environment (AWS Bedrock mode - use_bedrock=True):
+    Environment (AWS Bedrock mode):
     - AWS_REGION: AWS region (can also be set via aws_region config)
     - One of:
       - AWS_BEARER_TOKEN_BEDROCK: Bedrock API key (simplest)
       - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY: IAM access keys
       - AWS_PROFILE: SSO profile name (after running aws sso login)
     """
+
+    AUTH_MODES = frozenset({"auto", "oauth", "api_key", "bedrock"})
+    _PROVIDER_FLAGS = (
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+    )
     
     def __init__(self, config: CodingAgentConfig):
         """Initialize Claude Code coding agent."""
@@ -125,10 +137,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Show heartbeat messages during long operations (default False to reduce noise)
         self._show_heartbeat = config.agent_specific.get("show_heartbeat", False)
         
-        # AWS Bedrock settings
-        # use_bedrock: If True, route requests through AWS Bedrock instead of direct Anthropic API
-        self._use_bedrock = config.agent_specific.get("use_bedrock", False)
-        # aws_region: AWS region for Bedrock (required if use_bedrock=True)
+        # Authentication settings. ``use_bedrock`` remains an input alias for
+        # compatibility, but all runtime behavior is based on the resolved mode.
+        self._requested_auth_mode = self._get_requested_auth_mode(config.agent_specific)
+        self._auth_mode = self._requested_auth_mode
+        self._use_bedrock = self._auth_mode == "bedrock"
         self._aws_region = config.agent_specific.get("aws_region", "us-east-1")
         
         # MCP server configuration
@@ -146,11 +159,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     
     def _verify_cli(self):
         """
-        Verify Claude Code CLI is installed and credentials are available.
-        
-        Checks for appropriate credentials based on mode:
-        - Direct mode: ANTHROPIC_API_KEY
-        - Bedrock mode: AWS credentials (bearer token, access keys, or profile)
+        Verify Claude Code CLI is installed and resolve authentication.
         """
         if not shutil.which("claude"):
             raise RuntimeError(
@@ -158,15 +167,128 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 "Install with: npm install -g @anthropic-ai/claude-code"
             )
         
-        if self._use_bedrock:
-            # Bedrock mode: Check for AWS credentials
-            self._verify_bedrock_credentials()
+        env = self._get_effective_env()
+        self._auth_mode = self._resolve_auth_mode(env)
+        self._use_bedrock = self._auth_mode == "bedrock"
+
+        if self._auth_mode == "bedrock":
+            self._verify_bedrock_credentials(env)
+        elif self._auth_mode == "api_key":
+            if not env.get("ANTHROPIC_API_KEY"):
+                raise ValueError(
+                    "ANTHROPIC_API_KEY not set. Required when auth_mode='api_key'."
+                )
+        elif self._requested_auth_mode != "auto" and not self._has_oauth_credentials(env):
+            raise ValueError(
+                "Claude Code OAuth credentials not found. Run 'claude auth login' "
+                "or set CLAUDE_CODE_OAUTH_TOKEN."
+            )
+
+    def _get_requested_auth_mode(self, agent_specific: Dict[str, Any]) -> str:
+        """Normalize the new auth setting and its deprecated alias."""
+        explicit_mode = agent_specific.get("auth_mode")
+        has_alias = "use_bedrock" in agent_specific
+
+        if has_alias:
+            warnings.warn(
+                "Claude Code agent_specific.use_bedrock is deprecated; use "
+                "agent_specific.auth_mode instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+
+        if explicit_mode is not None:
+            mode = str(explicit_mode).strip().lower()
+        elif has_alias:
+            mode = "bedrock" if bool(agent_specific["use_bedrock"]) else "api_key"
         else:
-            # Direct mode: Check for Anthropic API key
-            if not os.environ.get("ANTHROPIC_API_KEY"):
-                raise ValueError("ANTHROPIC_API_KEY not set in environment")
-    
-    def _verify_bedrock_credentials(self):
+            mode = "auto"
+
+        if mode not in self.AUTH_MODES:
+            choices = ", ".join(sorted(self.AUTH_MODES))
+            raise ValueError(f"Invalid Claude Code auth_mode {mode!r}. Expected one of: {choices}")
+
+        return mode
+
+    def _resolve_auth_mode(self, env: Dict[str, str]) -> str:
+        """Resolve ``auto`` deterministically without exposing credentials."""
+        if self._requested_auth_mode != "auto":
+            return self._requested_auth_mode
+
+        # Keep Bedrock first for compatibility with Kapso's existing AWS-first
+        # deployments, then preserve direct API-key behavior, then use a CLI
+        # subscription login.
+        if self._has_bedrock_credentials(env):
+            return "bedrock"
+        if env.get("ANTHROPIC_API_KEY"):
+            return "api_key"
+        if self._has_oauth_credentials(env):
+            return "oauth"
+
+        raise ValueError(
+            "No Claude Code credentials found for auth_mode='auto'. Configure AWS "
+            "Bedrock credentials, set ANTHROPIC_API_KEY, or run 'claude auth login'."
+        )
+
+    def _get_effective_env(self) -> Dict[str, str]:
+        """Return the process environment plus per-agent overrides."""
+        env = os.environ.copy()
+        env.update(self._env_overrides)
+        return env
+
+    @staticmethod
+    def _has_bedrock_credentials(env: Dict[str, str]) -> bool:
+        """Return whether a complete supported AWS credential source is present."""
+        return bool(
+            env.get("AWS_BEARER_TOKEN_BEDROCK")
+            or (
+                env.get("AWS_ACCESS_KEY_ID")
+                and env.get("AWS_SECRET_ACCESS_KEY")
+            )
+            or env.get("AWS_PROFILE")
+        )
+
+    def _has_oauth_credentials(self, env: Dict[str, str]) -> bool:
+        """Check OAuth without reading Claude's platform-specific credential store."""
+        if env.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            return True
+
+        status_env = env.copy()
+        self._remove_provider_flags(status_env)
+        status_env.pop("ANTHROPIC_API_KEY", None)
+        status_env.pop("ANTHROPIC_AUTH_TOKEN", None)
+
+        try:
+            result = subprocess.run(
+                ["claude", "auth", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=status_env,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+        if result.returncode != 0:
+            return False
+
+        try:
+            status = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            return False
+
+        auth_method = str(status.get("authMethod", "")).strip().lower()
+        return bool(
+            status.get("loggedIn")
+            and auth_method not in {"api_key", "api-key", "apikey"}
+        )
+
+    @classmethod
+    def _remove_provider_flags(cls, env: Dict[str, str]) -> None:
+        for name in cls._PROVIDER_FLAGS:
+            env.pop(name, None)
+
+    def _verify_bedrock_credentials(self, env: Optional[Dict[str, str]] = None):
         """
         Verify AWS Bedrock credentials are available.
         
@@ -178,7 +300,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         Also verifies AWS_REGION is set (required for Bedrock).
         """
         # Check for AWS region
-        aws_region = os.environ.get("AWS_REGION") or self._aws_region
+        if env is None:
+            env = self._get_effective_env()
+        aws_region = env.get("AWS_REGION") or self._aws_region
         if not aws_region:
             raise ValueError(
                 "AWS_REGION not set. Required for Bedrock mode. "
@@ -186,12 +310,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             )
         
         # Check for at least one authentication method
-        has_bearer_token = bool(os.environ.get("AWS_BEARER_TOKEN_BEDROCK"))
+        has_bearer_token = bool(env.get("AWS_BEARER_TOKEN_BEDROCK"))
         has_access_keys = bool(
-            os.environ.get("AWS_ACCESS_KEY_ID") and 
-            os.environ.get("AWS_SECRET_ACCESS_KEY")
+            env.get("AWS_ACCESS_KEY_ID") and
+            env.get("AWS_SECRET_ACCESS_KEY")
         )
-        has_profile = bool(os.environ.get("AWS_PROFILE"))
+        has_profile = bool(env.get("AWS_PROFILE"))
         
         if not (has_bearer_token or has_access_keys or has_profile):
             raise ValueError(
@@ -328,6 +452,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             metadata={
                 "model": model,
                 "planning_mode": self._planning_mode,
+                "auth_mode": self._auth_mode,
                 "use_bedrock": self._use_bedrock,
             }
         )
@@ -494,6 +619,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     output="\n".join(assistant_texts),
                     error=error_msg,
                     metadata={
+                        "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "tool_call_count": tool_call_count,
                         "input_tokens": input_tokens,
@@ -515,6 +641,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "planning_mode": self._planning_mode,
                     "elapsed_seconds": elapsed,
                     "streaming": True,
+                    "auth_mode": self._auth_mode,
                     "use_bedrock": self._use_bedrock,
                     "tool_call_count": tool_call_count,
                     "input_tokens": input_tokens,
@@ -684,15 +811,19 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         """
         Get environment variables for subprocess.
         
-        Sets up the appropriate environment based on mode:
-        - Direct mode: Ensures ANTHROPIC_API_KEY is available
-        - Bedrock mode: Sets CLAUDE_CODE_USE_BEDROCK=1 and AWS_REGION
+        Sets up an isolated environment for the resolved mode. Provider flags
+        and higher-precedence credentials from other modes are removed so an
+        explicit selection cannot be silently overridden by Claude Code.
         """
-        env = os.environ.copy()
-        
-        if self._use_bedrock:
+        env = self._get_effective_env()
+
+        if self._auth_mode == "bedrock":
             # Bedrock mode: Set the flag and region
+            self._remove_provider_flags(env)
             env["CLAUDE_CODE_USE_BEDROCK"] = "1"
+            env.pop("ANTHROPIC_API_KEY", None)
+            env.pop("ANTHROPIC_AUTH_TOKEN", None)
+            env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
             
             # Set AWS_REGION if not already in environment
             if "AWS_REGION" not in env:
@@ -705,14 +836,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 logger.debug("Using Bedrock with access key authentication")
             elif env.get("AWS_PROFILE"):
                 logger.debug(f"Using Bedrock with SSO profile: {env.get('AWS_PROFILE')}")
-        else:
-            # Direct Anthropic mode: Ensure API key is available
-            if "ANTHROPIC_API_KEY" not in env:
+        elif self._auth_mode == "api_key":
+            self._remove_provider_flags(env)
+            env.pop("ANTHROPIC_AUTH_TOKEN", None)
+            env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+            if not env.get("ANTHROPIC_API_KEY"):
                 raise ValueError("ANTHROPIC_API_KEY not set")
-
-        # Apply caller-provided env overrides last so they take precedence.
-        if self._env_overrides:
-            env.update(self._env_overrides)
+        elif self._auth_mode == "oauth":
+            self._remove_provider_flags(env)
+            env.pop("ANTHROPIC_API_KEY", None)
+            env.pop("ANTHROPIC_AUTH_TOKEN", None)
+        else:  # Defensive: auto is always resolved during initialization.
+            raise RuntimeError(f"Unresolved Claude Code auth mode: {self._auth_mode}")
         
         return env
     
@@ -784,6 +919,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "cost_tracking": True,
             "streaming": self._streaming,  # Now supports live output streaming
             "bedrock": self._use_bedrock,  # Using AWS Bedrock for API calls
+            "oauth": self._auth_mode == "oauth",
+            "api_key": self._auth_mode == "api_key",
             "mcp": bool(self._mcp_servers),  # MCP server integration enabled
         }
-

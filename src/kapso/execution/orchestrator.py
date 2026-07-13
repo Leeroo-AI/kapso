@@ -358,7 +358,7 @@ class OrchestratorAgent:
                 coding_agent_type = coding_config.get('type', 'aider')
                 coding_agent_model = coding_config.get('model')
                 coding_agent_debug_model = coding_config.get('debug_model')
-                # Support agent_specific from YAML config (e.g., use_bedrock for Claude Code)
+                # Support agent_specific from YAML config (e.g., auth_mode for Claude Code)
                 coding_agent_specific = coding_config.get('agent_specific')
             else:
                 coding_agent_type = 'aider'

@@ -73,7 +73,8 @@ class ResearchIngestorBase(Ingestor):
             params: Optional parameters:
                 - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
                 - timeout: Agent timeout in seconds (default: 600)
-                - use_bedrock: Use AWS Bedrock (default: False)
+                - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
+                - use_bedrock: Deprecated compatibility alias (default remains api_key)
                 - aws_region: AWS region for Bedrock (default: "us-east-1")
                 - wiki_dir: Output directory (default: data/wikis)
                 - staging_subdir: Staging subdirectory (default: "_staging")
@@ -83,7 +84,12 @@ class ResearchIngestorBase(Ingestor):
         
         # Agent configuration
         self._timeout = self.params.get("timeout", 600)  # 10 minutes default
-        self._use_bedrock = self.params.get("use_bedrock", False)
+        if self.params.get("auth_mode") is not None:
+            self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
+        elif "use_bedrock" in self.params:
+            self._claude_auth_settings = {"use_bedrock": self.params["use_bedrock"]}
+        else:
+            self._claude_auth_settings = {"auth_mode": "api_key"}
         self._aws_region = self.params.get("aws_region", "us-east-1")
         self._model = self.params.get("model")
         
@@ -119,10 +125,8 @@ class ResearchIngestorBase(Ingestor):
         # Model from params (should be provided via config.yaml)
         model = self._model
         
-        # Configure Bedrock if enabled
-        if self._use_bedrock:
-            agent_specific["use_bedrock"] = True
-            agent_specific["aws_region"] = self._aws_region
+        agent_specific.update(self._claude_auth_settings)
+        agent_specific["aws_region"] = self._aws_region
         
         # Build config for Claude Code
         config = CodingAgentFactory.build_config(
@@ -136,7 +140,7 @@ class ResearchIngestorBase(Ingestor):
         self._agent.initialize(workspace)
         logger.info(
             f"Initialized Claude Code agent for {workspace} "
-            f"(bedrock={self._use_bedrock}, model={model})"
+            f"(auth={self._claude_auth_settings}, model={model})"
         )
     
     def _normalize_source(self, source: Any) -> Dict[str, Any]:

@@ -136,7 +136,7 @@ def main():
         # any .index created in the previous round.
         #
         # Load merger config from config.yaml (same as Kapso.learn() does):
-        #   use_bedrock, aws_region, model, timeout, etc.
+        #   auth_mode, aws_region, model, timeout, etc.
         index_path = WIKI_DIR / ".index"
         has_index = index_path.exists()
         mode = "Agentic Merge" if has_index else "Create All"

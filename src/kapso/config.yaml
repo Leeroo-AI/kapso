@@ -37,7 +37,7 @@ modes:
       params:
         idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
         implementation_model: "us.anthropic.claude-opus-4-6-v1"
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         ideation_timeout: 300
         implementation_timeout: 600
@@ -49,7 +49,7 @@ modes:
       model: "us.anthropic.claude-opus-4-6-v1"
       debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         streaming: true
         timeout: 600
@@ -59,7 +59,7 @@ modes:
       model: "us.anthropic.claude-opus-4-6-v1"
       debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         streaming: true
         timeout: 120
@@ -76,7 +76,7 @@ modes:
     learner:
       ingestor:
         model: "us.anthropic.claude-opus-4-6-v1"
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         timeout: 1800
         cleanup: true
@@ -85,7 +85,7 @@ modes:
         github_repo_visibility: "private"
       merger:
         model: "us.anthropic.claude-opus-4-6-v1"
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         timeout: 3600
 
@@ -100,7 +100,7 @@ modes:
       params:
         idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
         implementation_model: "us.anthropic.claude-opus-4-6-v1"
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         ideation_timeout: 180
         implementation_timeout: 300
@@ -112,7 +112,7 @@ modes:
       model: "us.anthropic.claude-opus-4-6-v1"
       debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         streaming: true
         timeout: 120
@@ -122,7 +122,7 @@ modes:
       model: "us.anthropic.claude-opus-4-6-v1"
       debug_model: "us.anthropic.claude-opus-4-6-v1"
       agent_specific:
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         streaming: true
         timeout: 120
@@ -135,7 +135,7 @@ modes:
     learner:
       ingestor:
         model: "us.anthropic.claude-opus-4-6-v1"
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         timeout: 600
         cleanup: true
@@ -144,6 +144,6 @@ modes:
         github_repo_visibility: "private"
       merger:
         model: "us.anthropic.claude-opus-4-6-v1"
-        use_bedrock: true
+        auth_mode: "bedrock"
         aws_region: "us-east-1"
         timeout: 1800
