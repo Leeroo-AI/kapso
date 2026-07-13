@@ -32,14 +32,23 @@ touch /etc/ptb-image-ready   # run_startup.sh skips installs when this exists
 poweroff
 EOF
 
-gcloud compute instances create "$BUILDER" \
-    --project "$PROJECT" --zone "$ZONE" \
-    --machine-type e2-standard-8 \
-    --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
-    --boot-disk-size 50GB --boot-disk-type pd-balanced \
-    --provisioning-model=SPOT --instance-termination-action=STOP \
-    --metadata-from-file startup-script="$SETUP"
+CREATED=0
+for MACHINE_ARGS in \
+    "--machine-type=e2-standard-8 --provisioning-model=SPOT --instance-termination-action=STOP" \
+    "--machine-type=e2-standard-8"; do
+    # shellcheck disable=SC2086
+    if gcloud compute instances create "$BUILDER" \
+        --project "$PROJECT" --zone "$ZONE" \
+        $MACHINE_ARGS \
+        --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
+        --boot-disk-size 50GB --boot-disk-type pd-balanced \
+        --metadata-from-file startup-script="$SETUP"; then
+        CREATED=1; break
+    fi
+    echo "image-builder create failed with: $MACHINE_ARGS — trying next config"
+done
 rm -f "$SETUP"
+[ "$CREATED" = 1 ] || { echo "image-builder creation failed in every config"; exit 1; }
 
 echo "Waiting for image builder to power off..."
 for _ in $(seq 1 60); do

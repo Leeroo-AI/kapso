@@ -24,16 +24,28 @@ gcloud compute disks describe "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" 
     gcloud compute disks create "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" \
         --size "${CACHE_DISK_SIZE_GB}GB" --type pd-balanced
 
-gcloud compute instances create "$BUILDER" \
-    --project "$PROJECT" --zone "$ZONE" \
-    --machine-type e2-standard-16 \
-    --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
-    --boot-disk-size 200GB --boot-disk-type pd-ssd \
-    --disk "name=${CACHE_DISK},device-name=hfcache,mode=rw,auto-delete=no" \
-    --service-account "$SA_EMAIL" --scopes cloud-platform \
-    --provisioning-model=SPOT --instance-termination-action=STOP \
-    --metadata-from-file startup-script=builder_startup.sh \
-    --metadata "ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},kapso_repo=${KAPSO_REPO_URL},cache_scope=${CACHE_SCOPE},kapso_src_gcs=gs://${BUCKET}/assets/kapso-src.tgz"
+# Spot e2 capacity comes and goes; fall back through configs (on-demand e2 is
+# ~$0.54/h — the build is short, availability matters more than the discount).
+CREATED=0
+for MACHINE_ARGS in \
+    "--machine-type=e2-standard-16 --provisioning-model=SPOT --instance-termination-action=STOP" \
+    "--machine-type=e2-standard-8 --provisioning-model=SPOT --instance-termination-action=STOP" \
+    "--machine-type=e2-standard-16"; do
+    # shellcheck disable=SC2086
+    if gcloud compute instances create "$BUILDER" \
+        --project "$PROJECT" --zone "$ZONE" \
+        $MACHINE_ARGS \
+        --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
+        --boot-disk-size 200GB --boot-disk-type pd-ssd \
+        --disk "name=${CACHE_DISK},device-name=hfcache,mode=rw,auto-delete=no" \
+        --service-account "$SA_EMAIL" --scopes cloud-platform \
+        --metadata-from-file startup-script=builder_startup.sh \
+        --metadata "ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},kapso_repo=${KAPSO_REPO_URL},cache_scope=${CACHE_SCOPE},kapso_src_gcs=gs://${BUCKET}/assets/kapso-src.tgz"; then
+        CREATED=1; break
+    fi
+    echo "builder create failed with: $MACHINE_ARGS — trying next config"
+done
+[ "$CREATED" = 1 ] || { echo "builder creation failed in every config"; exit 1; }
 
 echo "Builder started. Waiting for gs://$BUCKET/assets/BUILD_DONE ..."
 echo "(follow along: gcloud compute instances tail-serial-port-output $BUILDER --zone $ZONE)"
