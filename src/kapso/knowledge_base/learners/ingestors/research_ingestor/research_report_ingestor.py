@@ -37,7 +37,7 @@ class ResearchReportIngestor(ResearchIngestorBase):
         
         # With custom settings
         ingestor = ResearchReportIngestor(params={
-            "use_bedrock": False,
+            "auth_mode": "api_key",
             "model": "claude-sonnet-4-20250514",
             "timeout": 600,  # Longer timeout for comprehensive reports
         })

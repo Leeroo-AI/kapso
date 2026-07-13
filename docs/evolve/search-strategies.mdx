@@ -34,13 +34,18 @@ search_strategy:
   params:
     idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
     implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    use_bedrock: true
+    auth_mode: "bedrock"
     aws_region: "us-east-1"
     ideation_timeout: 300
     implementation_timeout: 600
     ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
     implementation_gates: ["research", "repo_memory", "leeroopedia"]
 ```
+
+The generic strategy deliberately keeps `bedrock` as its default authentication
+profile. Set `auth_mode` to `auto`, `api_key`, or `oauth` to opt into another
+Claude Code credential source. The deprecated `use_bedrock` boolean is still
+accepted for compatibility.
 
 ### Usage
 

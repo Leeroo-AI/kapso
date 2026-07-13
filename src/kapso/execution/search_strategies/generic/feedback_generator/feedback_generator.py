@@ -76,7 +76,7 @@ class FeedbackGenerator:
                 model="us.anthropic.claude-opus-4-5-20251101-v1:0",
                 debug_model="us.anthropic.claude-opus-4-5-20251101-v1:0",
                 agent_specific={
-                    "use_bedrock": True,
+                    "auth_mode": "bedrock",
                     "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
                     "streaming": True,
                     "timeout": 120,

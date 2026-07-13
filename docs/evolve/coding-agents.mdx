@@ -83,7 +83,7 @@ Anthropic's Claude Code CLI for complex tasks.
 - Advanced reasoning
 - Complex refactoring
 - MCP tool support
-- Bedrock integration option
+- Explicit OAuth, Anthropic API-key, and AWS Bedrock authentication
 
 ### Installation
 
@@ -98,27 +98,99 @@ coding_agent:
   type: "claude_code"
   model: "claude-sonnet-4-20250514"
   agent_specific:
-    use_bedrock: false
+    auth_mode: "auto"
     claude_md_path: "CLAUDE.md"
 ```
 
-### Bedrock Support
+`auth_mode` accepts four values:
+
+| Mode | Credential source | Behavior |
+|------|-------------------|----------|
+| `auto` | AWS, then `ANTHROPIC_API_KEY`, then Claude CLI OAuth | Selects the first available source in that order |
+| `bedrock` | Bedrock bearer token, AWS access keys, or `AWS_PROFILE` | Validates AWS credentials and sets the Bedrock provider flag |
+| `api_key` | `ANTHROPIC_API_KEY` | Requires direct Anthropic API credentials |
+| `oauth` | `CLAUDE_CODE_OAUTH_TOKEN` or `claude auth login` | Uses the current user's Claude CLI subscription login |
+
+The low-level Claude Code adapter defaults to `auto`. Kapso's generic search
+presets continue to default to `bedrock`, so upgrading does not silently switch
+an existing AWS experiment to a developer's local subscription.
+
+Explicit modes remove conflicting provider flags and higher-precedence
+credentials from the Claude subprocess environment. For example, `oauth`
+ignores an inherited `ANTHROPIC_API_KEY`, while `api_key` ignores an inherited
+Bedrock flag. The parent process environment is never modified.
+
+### OAuth
+
+Authenticate the local Claude CLI, then choose `oauth`:
+
+```bash
+claude auth login
+claude auth status
+```
+
+```yaml
+coding_agent:
+  type: "claude_code"
+  model: "claude-opus-4-6"
+  agent_specific:
+    auth_mode: "oauth"
+```
+
+For a non-interactive environment, `CLAUDE_CODE_OAUTH_TOKEN` is also accepted.
+See Anthropic's [authentication documentation](https://code.claude.com/docs/en/authentication)
+for token setup and the terms that apply to subscription credentials.
+
+### Anthropic API key
+
+```bash
+export ANTHROPIC_API_KEY=...
+```
+
+```yaml
+coding_agent:
+  type: "claude_code"
+  model: "claude-opus-4-6"
+  agent_specific:
+    auth_mode: "api_key"
+```
+
+### AWS Bedrock
 
 For AWS Bedrock:
 
 ```yaml
 coding_agent:
   type: "claude_code"
+  model: "us.anthropic.claude-opus-4-6-v1"
   agent_specific:
-    use_bedrock: true
+    auth_mode: "bedrock"
+    aws_region: "us-east-1"
 ```
 
-Set environment variables:
+Set one supported AWS credential source and a region:
+
 ```bash
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
 ```
+
+`AWS_BEARER_TOKEN_BEDROCK` or `AWS_PROFILE` can be used instead of access keys.
+
+### Compatibility migration
+
+`use_bedrock` remains supported for one compatibility period and emits a
+`DeprecationWarning`:
+
+```yaml
+agent_specific:
+  use_bedrock: true   # same as auth_mode: bedrock
+  # use_bedrock: false  # same as auth_mode: api_key
+```
+
+When both keys are present, `auth_mode` wins. New configurations should only
+use `auth_mode`.
 
 ## Gemini
 

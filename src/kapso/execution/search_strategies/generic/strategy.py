@@ -52,7 +52,9 @@ class GenericSearch(SearchStrategy):
     Config params:
         - idea_generation_model: Model for solution generation (default: claude-opus-4-5-20251101)
         - implementation_model: Model for implementation (default: claude-opus-4-5-20251101)
-        - use_bedrock: Use AWS Bedrock (default: True)
+        - auth_mode: Claude authentication mode: auto, oauth, api_key, or bedrock
+          (default: bedrock, preserving the existing generic strategy behavior)
+        - use_bedrock: Deprecated compatibility alias for auth_mode
         - aws_region: AWS region (default: us-east-1)
         - ideation_timeout: Timeout for ideation in seconds (default: 300)
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
@@ -69,7 +71,14 @@ class GenericSearch(SearchStrategy):
             "idea_generation_model", 
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
-        self.use_bedrock = self.params.get("use_bedrock", True)
+        if self.params.get("auth_mode") is not None:
+            self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
+        elif "use_bedrock" in self.params:
+            # Pass the legacy key through so the adapter can preserve its exact
+            # True/False behavior and emit the deprecation warning.
+            self._claude_auth_settings = {"use_bedrock": self.params["use_bedrock"]}
+        else:
+            self._claude_auth_settings = {"auth_mode": "bedrock"}
         self.aws_region = self.params.get("aws_region", "us-east-1")
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
         # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
@@ -100,7 +109,7 @@ class GenericSearch(SearchStrategy):
         print(f"[GenericSearch] Initialized:")
         print(f"  - idea_generation_model: {self.idea_generation_model}")
         print(f"  - implementation_model: {self.implementation_model}")
-        print(f"  - use_bedrock: {self.use_bedrock}")
+        print(f"  - auth: {self._claude_auth_settings}")
         print(f"  - ideation_gates: {self.ideation_gates}")
         print(f"  - implementation_gates: {self.implementation_gates}")
         print(f"  - experiment_history_path: {self.experiment_history_path}")
@@ -267,7 +276,7 @@ class GenericSearch(SearchStrategy):
             model=self.idea_generation_model,
             debug_model=self.idea_generation_model,
             agent_specific={
-                "use_bedrock": self.use_bedrock,
+                **self._claude_auth_settings,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": ideation_allowed_tools,
@@ -433,7 +442,7 @@ Problem: {problem}"""
             model=self.implementation_model,
             debug_model=self.implementation_model,
             agent_specific={
-                "use_bedrock": self.use_bedrock,
+                **self._claude_auth_settings,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": implementation_allowed_tools,

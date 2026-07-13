@@ -99,7 +99,7 @@ TEST_CONFIG = {
     "evaluator_params": {"pattern": r"SCORE:\s*(\d+)"},
     # Bedrock-specific configuration for Claude Code
     "coding_agent_params": {
-        "use_bedrock": True,
+        "auth_mode": "bedrock",
         "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
         "streaming": True,
         "timeout": 180,  # Longer timeout for complex tasks

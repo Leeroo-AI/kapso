@@ -32,7 +32,7 @@ DEFAULT_REPO_LIMIT = 2
 
 # Ingestor settings (AWS Bedrock mode)
 INGESTOR_PARAMS = {
-    "use_bedrock": True,
+    "auth_mode": "bedrock",
     "aws_region": "us-east-1",
     "timeout": 1800,  # 30 minutes per phase
 }
@@ -279,4 +279,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
