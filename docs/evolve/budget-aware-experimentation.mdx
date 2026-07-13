@@ -935,10 +935,20 @@ scores in one command, so the task has no separate build phase. The fidelity con
 the `build:` block entirely and fast fidelity is a row-subsample flag on the evaluation —
 the zero-build degenerate case must work end to end, not just in prose.
 
+**Harness**: `examples/ml_model_development/e2e/run_e2e.py`, with every knob
+single-sourced in `examples/ml_model_development/e2e/config.e2e.yaml` and the
+per-row commands in that directory's README. The runner stages, spawns the campaign
+under the hard wall, and mechanically verifies the invariants below from the run
+artifacts. Two config-surface notes relative to the sketch that follows:
+`subsample_seed` lives in the `evaluation_maintainer` block (registration owns the
+item set), and the fast fraction is single-sourced in `budget.fidelity.eval` — the
+maintainer block deliberately has no fraction knob, so the fraction the policy
+requests is always the fraction the maintainer calibrated.
+
 **Fixed test budgets** (defined here so every milestone tests against the same numbers):
 
 - `E2E_BUDGET`: `time_budget_minutes: 45`, `committed_run_fraction: 0.4`,
-  `max_iterations: 6`, `eval: {fast_fraction: 0.2, subsample_seed: 1337}` — agent latency
+  `max_iterations: 6`, `eval: {fast_fraction: 0.2}`, `subsample_seed: 1337` — agent latency
   dominates compute on this task, so 45 min affords roughly: maintainer setup, 3–4 probes,
   one VALIDATE, and the reserved full run.
 - `GATE_BUDGET`: `time_budget_minutes: 8` — small enough that the reserve gate and
@@ -947,7 +957,8 @@ the zero-build degenerate case must work end to end, not just in prose.
   failed test, never a hung CI job.
 - **Data**: a deterministic synthetic generator with the Spaceship-Titanic schema
   (~2,000 rows, fixed seed) replaces the Kaggle download, so the track needs no
-  credentials and every run sees identical data.
+  credentials and every run sees identical data. The target carries honest signal
+  (~0.5 dummy, ~0.88 for informed feature work) with decoy features and missingness.
 
 | After | Run | Must hold |
 |---|---|---|

@@ -248,3 +248,41 @@ def test_registered_evaluation_syncs_into_sessions(tmp_path):
     synced = session / "kapso_evaluation"
     assert (synced / "kapso_eval.py").read_text() == "V2 = 2\n"
     assert not (synced / "stale.py").exists()
+
+
+def test_fast_fraction_is_single_sourced_from_the_fidelity_block(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "load_mode_config",
+        lambda config_path, mode: {
+            "search_strategy": {"type": "generic", "params": {}},
+            "budget": {
+                "fidelity": {"mode": "auto", "eval": {"fast_fraction": 0.2}}
+            },
+            "evaluation_maintainer": MAINTAINER_BLOCK,
+        },
+    )
+    orchestrator = _orchestrator(workspace)
+    assert orchestrator.evaluation_maintainer.fast_fraction == 0.2
+
+    # The maintainer block has no fraction knob of its own.
+    monkeypatch.setattr(
+        orchestrator_module,
+        "load_mode_config",
+        lambda config_path, mode: {
+            "search_strategy": {"type": "generic", "params": {}},
+            "evaluation_maintainer": dict(
+                MAINTAINER_BLOCK, fast_fraction=0.3
+            ),
+        },
+    )
+    with pytest.raises(ValueError, match="evaluation_maintainer config keys"):
+        _orchestrator(str(tmp_path / "workspace_two"))

@@ -78,6 +78,21 @@ CHANGE_REQUEST_PATTERN = re.compile(
     re.DOTALL,
 )
 
+# The fast fraction is deliberately absent: it is single-sourced in the
+# fidelity block (budget.fidelity.eval.fast_fraction).
+_MAINTAINER_BLOCK_KEYS = {
+    "type",
+    "model",
+    "debug_model",
+    "agent_specific",
+    "subsample_seed",
+    "calibration_fraction",
+    "calibration_timeout_seconds",
+    "fast_variant_threshold_minutes",
+    "overhead_factor",
+    "max_change_requests",
+}
+
 
 @dataclass
 class SolveResult:
@@ -287,14 +302,16 @@ class OrchestratorAgent:
 
         self.budget_ledger = self._create_budget_ledger()
 
+        # Resolved before the maintainer: the fast fraction is single-sourced
+        # in the fidelity block and the maintainer calibrates at that value.
+        self.fidelity_spec = FidelitySpec.resolve(
+            self._config_budget.get("fidelity")
+        )
         (
             self.evaluation_maintainer,
             self._max_change_requests,
         ) = self._create_evaluation_maintainer()
         self._change_requests_filed = 0
-        self.fidelity_spec = FidelitySpec.resolve(
-            self._config_budget.get("fidelity")
-        )
         self._fidelity_active = False
         if (
             self.fidelity_spec.mode != "off"
@@ -579,6 +596,12 @@ class OrchestratorAgent:
         block = self.mode_config.get("evaluation_maintainer")
         if not block:
             return None, 0
+        unknown = sorted(set(block) - _MAINTAINER_BLOCK_KEYS)
+        if unknown:
+            raise ValueError(
+                "Unknown evaluation_maintainer config keys: "
+                + ", ".join(unknown)
+            )
         agent_config = CodingAgentFactory.build_config(
             agent_type=block.get("type", "claude_code"),
             model=block.get("model"),
@@ -588,7 +611,9 @@ class OrchestratorAgent:
         maintainer = EvaluationMaintainer(
             coding_agent_config=agent_config,
             workspace_dir=self.search_strategy.workspace_dir,
-            fast_fraction=block.get("fast_fraction", 0.15),
+            # Single-sourced in the fidelity block: the fraction the policy
+            # requests is the fraction the maintainer calibrates and registers.
+            fast_fraction=self.fidelity_spec.eval_fast_fraction,
             subsample_seed=block.get("subsample_seed", 1337),
             calibration_fraction=block.get("calibration_fraction", 0.03),
             calibration_timeout_seconds=block.get(
