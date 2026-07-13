@@ -12,6 +12,14 @@ source ./env.sh
 
 BUILDER="ptb-builder"
 
+# Ship the exact local kapso tree (this checkout, committed or not) so the
+# container gets our branch without requiring a push.
+KAPSO_ROOT="$(cd ../../.. && pwd)"
+tar -czf - -C "$KAPSO_ROOT" \
+    --exclude=.git --exclude=.claude --exclude=archive --exclude=tests \
+    --exclude=moltbook_bot --exclude=tmp . \
+    | gsutil cp - "gs://$BUCKET/assets/kapso-src.tgz"
+
 gcloud compute disks describe "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" >/dev/null 2>&1 || \
     gcloud compute disks create "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" \
         --size "${CACHE_DISK_SIZE_GB}GB" --type pd-balanced
@@ -25,7 +33,7 @@ gcloud compute instances create "$BUILDER" \
     --service-account "$SA_EMAIL" --scopes cloud-platform \
     --provisioning-model=SPOT --instance-termination-action=STOP \
     --metadata-from-file startup-script=builder_startup.sh \
-    --metadata "ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},kapso_repo=${KAPSO_REPO_URL},cache_scope=${CACHE_SCOPE}"
+    --metadata "ptb_bucket=${BUCKET},ptb_repo=${PTB_REPO_URL},kapso_repo=${KAPSO_REPO_URL},cache_scope=${CACHE_SCOPE},kapso_src_gcs=gs://${BUCKET}/assets/kapso-src.tgz"
 
 echo "Builder started. Waiting for gs://$BUCKET/assets/BUILD_DONE ..."
 echo "(follow along: gcloud compute instances tail-serial-port-output $BUILDER --zone $ZONE)"

@@ -37,7 +37,16 @@ mkdir -p "$HF_HOME"
 
 # --- repos ---
 git clone --depth 1 "$PTB_REPO" /opt/ptb
-git clone --depth 1 "$KAPSO_REPO" /opt/kapso-src
+# kapso source: prefer the exact local tree uploaded by 01_build_assets.sh
+# (kapso_src_gcs metadata) over a git clone, so unpushed branches build too.
+KAPSO_SRC_GCS=$(meta kapso_src_gcs || true)
+if [ -n "$KAPSO_SRC_GCS" ]; then
+    mkdir -p /opt/kapso-src
+    gsutil cp "$KAPSO_SRC_GCS" /opt/kapso-src.tgz
+    tar -xzf /opt/kapso-src.tgz -C /opt/kapso-src
+else
+    git clone --depth 1 "$KAPSO_REPO" /opt/kapso-src
+fi
 cd /opt/ptb
 
 # Apply the kapso adapter if this checkout doesn't carry it already
@@ -76,13 +85,16 @@ if [ "$CACHE_SCOPE" = "core" ]; then
 EOF
 fi
 
+# Gated models (google/gemma-3-4b-pt) fail without an accepted-license token;
+# keep gemma LAST in the core list and tolerate a partial download.
 apptainer exec \
     --bind "${HF_HOME}:${HF_HOME}" \
     --bind /opt/ptb:/opt/ptb \
     --env HF_HOME="${HF_HOME}" \
     --env HF_TOKEN="${HF_TOKEN}" \
     --pwd /opt/ptb \
-    containers/kapso.sif python containers/download_hf_cache/download_resources.py
+    containers/kapso.sif python containers/download_hf_cache/download_resources.py \
+    || echo "WARN: cache download incomplete (gated model without hf-token secret?)"
 
 du -sh "$HF_HOME" | gsutil cp - "gs://$BUCKET/assets/cache_size.txt" || true
 umount /mnt/hfcache
