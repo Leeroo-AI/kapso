@@ -54,6 +54,26 @@ _LAZY_IMPORTS = {
         "kapso.execution.run_checkpoint",
         "RunCheckpointCompletedError",
     ),
+    "IterationEvaluationContext": (
+        "kapso.execution.iteration_evaluator",
+        "IterationEvaluationContext",
+    ),
+    "IterationEvaluationResult": (
+        "kapso.execution.iteration_evaluator",
+        "IterationEvaluationResult",
+    ),
+    "IterationEvaluationError": (
+        "kapso.execution.iteration_evaluator",
+        "IterationEvaluationError",
+    ),
+    "IterationEvaluationValidationError": (
+        "kapso.execution.iteration_evaluator",
+        "IterationEvaluationValidationError",
+    ),
+    "IterationEvaluator": (
+        "kapso.execution.iteration_evaluator",
+        "IterationEvaluator",
+    ),
 }
 
 def __getattr__(name):
@@ -80,6 +100,12 @@ __all__ = [
     "RunCheckpointCorruptError",
     "RunCheckpointIncompatibleError",
     "RunCheckpointCompletedError",
+    # External candidate evaluation
+    "IterationEvaluationContext",
+    "IterationEvaluationResult",
+    "IterationEvaluationError",
+    "IterationEvaluationValidationError",
+    "IterationEvaluator",
 ]
 
 __version__ = "0.1.0"

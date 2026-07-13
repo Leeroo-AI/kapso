@@ -29,6 +29,7 @@ load_dotenv()
 
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.solution import SolutionResult
+from kapso.execution.iteration_evaluator import IterationEvaluator
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
 from kapso.knowledge_base.search.base import KGIndexMetadata
@@ -472,6 +473,8 @@ class Kapso:
         max_iterations: int = 10,
         resume: bool = False,
         allow_legacy_checkpoint: bool = False,
+        iteration_evaluator: Optional[IterationEvaluator] = None,
+        iteration_evaluator_failure_policy: str = "record",
         # --- Configuration options ---
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
@@ -501,6 +504,10 @@ class Kapso:
             allow_legacy_checkpoint: Explicitly trust and migrate an old
                 ``checkpoint.pkl`` when no JSON run checkpoint exists. Pickle
                 must only be enabled for a trusted workspace.
+            iteration_evaluator: Optional callback that evaluates each
+                finalized candidate in an isolated detached Git worktree.
+            iteration_evaluator_failure_policy: ``record`` stores callback
+                errors on the candidate; ``raise`` stops the run.
             
             mode: Configuration mode (GENERIC, MINIMAL, etc.)
             coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
@@ -586,6 +593,10 @@ class Kapso:
             workspace_dir=output_path,
             resume=resume,
             allow_legacy_checkpoint=allow_legacy_checkpoint,
+            iteration_evaluator=iteration_evaluator,
+            iteration_evaluator_failure_policy=(
+                iteration_evaluator_failure_policy
+            ),
             initial_repo=resolved_repo,
             eval_dir=eval_dir,
             data_dir=data_dir,
@@ -622,6 +633,19 @@ class Kapso:
                 "stopped_reason": solve_result.stopped_reason,
                 "best_branch": best_branch,
                 "resumed": resume,
+                "external_metrics": dict(
+                    getattr(
+                        solve_result.best_experiment,
+                        "metrics",
+                        {},
+                    )
+                    or {}
+                ),
+                "external_primary_metric": getattr(
+                    solve_result.best_experiment,
+                    "primary_metric",
+                    None,
+                ),
             }
         )
         
@@ -849,4 +873,5 @@ __all__ = [
     "DeployConfig",
     "DeploymentFactory",
     "ResearchFindings",
+    "IterationEvaluator",
 ]

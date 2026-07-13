@@ -1,0 +1,183 @@
+---
+title: "External Iteration Evaluation"
+description: "Evaluate every finalized candidate without coupling metrics to search"
+---
+
+Kapso can run a caller-owned evaluator once for every candidate finalized by
+an evolution iteration. This is useful for integration tests, benchmark
+harnesses, validation suites, performance measurements, and observational
+holdout reporting.
+
+External metrics are deliberately separate from Kapso's internal `node.score`.
+They do not affect idea generation, stopping, parent selection, or the final
+branch selected by default.
+
+## Basic usage
+
+```python
+import json
+import subprocess
+
+from kapso import IterationEvaluationResult
+
+
+def evaluate_candidate(context):
+    completed = subprocess.run(
+        ["python", "evaluation/run.py", "--json"],
+        cwd=context.workspace_dir,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    report = json.loads(completed.stdout)
+    return IterationEvaluationResult(
+        metrics={
+            "validation_accuracy": report["accuracy"],
+            "p95_latency_ms": report["p95_latency_ms"],
+        },
+        primary_metric="validation_accuracy",
+        metadata={"suite_version": report["suite_version"]},
+    )
+
+
+solution = kapso.evolve(
+    goal="Improve the support agent",
+    output_path="./campaign",
+    max_iterations=3,
+    iteration_evaluator=evaluate_candidate,
+)
+```
+
+`solution.metadata["external_metrics"]` contains the metrics attached to the
+internally selected best candidate. All candidate metrics are retained in
+`.kapso/experiment_history.json` and, for resumable runs, in
+`.kapso/run_state.json`.
+
+## Callback context
+
+The callback receives an `IterationEvaluationContext`:
+
+```python
+@dataclass(frozen=True)
+class IterationEvaluationContext:
+    iteration: int
+    goal: str
+    workspace_dir: Path
+    git_ref: str
+    parent_ref: str
+    node: SearchNode
+```
+
+- `iteration` is the one-based campaign iteration, including resumed calls.
+- `workspace_dir` is a temporary detached Git worktree at exactly `git_ref`.
+- `git_ref` is the finalized candidate branch.
+- `parent_ref` is the branch from which the candidate was created.
+- `node` is a snapshot. Mutating it cannot change Kapso's live search state.
+
+The worktree exists only during the callback. Read outputs and return metrics
+before the callback exits; do not retain its path. Changes made inside it are
+discarded and the root experiment workspace's current checkout is unchanged.
+
+## Result contract
+
+The callback must return `IterationEvaluationResult`:
+
+```python
+@dataclass(frozen=True)
+class IterationEvaluationResult:
+    metrics: Mapping[str, float]
+    primary_metric: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+```
+
+Metric names must be non-empty strings. Values must be finite numbers; booleans,
+strings, `NaN`, and infinity are rejected. `primary_metric`, when supplied,
+must name one of the returned metrics. Metadata must be JSON-compatible and
+have string keys.
+
+`primary_metric` describes the report. It does not make that metric a search or
+selection signal.
+
+## Lifecycle and persistence
+
+```mermaid
+flowchart LR
+    A["Strategy finalizes candidates"] --> B["Detect new candidate nodes"]
+    B --> C["Materialize each Git ref"]
+    C --> D["Run and validate evaluator"]
+    D --> E["Attach observational metrics"]
+    E --> F["Write experiment history"]
+    F --> G["Atomically write run checkpoint"]
+```
+
+Generic search normally finalizes one candidate per iteration. Tree search can
+finalize several; the evaluator runs exactly once for each new candidate. A
+resumed run evaluates only candidates created after the resume, not candidates
+already stored in its checkpoint.
+
+Make callbacks idempotent. If the process exits after the callback finishes but
+before the atomic checkpoint replacement, recovery may repeat that candidate's
+measurement because the completed result was never made durable.
+
+Metrics are attached before experiment history and checkpoint persistence, so
+durable representations agree. Internal `score`, feedback, and stop state have
+already been produced by the strategy and are never replaced by the callback.
+
+Kapso does not include external metrics or evaluator errors in the
+agent-facing experiment-history formatter. They remain available to the caller
+and in durable run records without becoming feedback for later ideas.
+
+## Failure policy
+
+The default `record` policy keeps the experiment loop running:
+
+```python
+solution = kapso.evolve(
+    ...,
+    iteration_evaluator=evaluate_candidate,
+    iteration_evaluator_failure_policy="record",
+)
+```
+
+The candidate receives empty external metrics and an
+`external_evaluation_error` containing the exception type and message. The
+error is persisted in experiment history and the checkpoint.
+
+Use `raise` when every external measurement is mandatory:
+
+```python
+solution = kapso.evolve(
+    ...,
+    iteration_evaluator=evaluate_candidate,
+    iteration_evaluator_failure_policy="raise",
+)
+```
+
+Kapso raises `IterationEvaluationError` and stops before writing that candidate
+to experiment history or the run checkpoint. The candidate Git branch remains
+available for inspection.
+
+## Holdout guidance
+
+A true holdout metric should remain observational. Returning it from this hook
+is safe with the default selection behavior because Kapso continues to rank by
+internal `node.score`. Do not copy holdout values into the agent prompt,
+feedback, internal score, or a custom parent-selection policy.
+
+When you want a metric to guide optimization, use a validation or development
+split and label it accordingly. Reserve the holdout split for final reporting
+after model and configuration choices are complete.
+
+The callback is trusted application code, not a security sandbox. Kapso
+isolates its normal filesystem view and node object to prevent accidental
+mutation; the callback process still has the operating-system permissions of
+the caller.
+
+## Resume compatibility
+
+When an evaluator is configured, Kapso includes its module-qualified callable
+name and failure policy in the run configuration fingerprint. Resume therefore
+requires the same evaluator entry point and policy. Closures with the same
+callable name but different captured values cannot be distinguished; keep such
+parameters in stable application configuration and do not change them during a
+campaign.

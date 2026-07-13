@@ -64,6 +64,13 @@ class SearchNode:
     score: Optional[float] = None
     should_stop: bool = False
     evaluation_valid: bool = True
+
+    # Observational metrics from a caller-owned iteration evaluator. These do
+    # not participate in search, stopping, or best-candidate selection.
+    metrics: Dict[str, float] = field(default_factory=dict)
+    primary_metric: Optional[str] = None
+    external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
+    external_evaluation_error: str = ""
     
     # Metadata
     had_error: bool = False
@@ -116,6 +123,7 @@ class SearchNode:
             "error_message",
             "workspace_dir",
             "code_diff",
+            "external_evaluation_error",
         }
         invalid_strings = sorted(
             name
@@ -139,6 +147,21 @@ class SearchNode:
             or not math.isfinite(float(score))
         ):
             raise ValueError("Search node score must be finite or null")
+
+        from kapso.execution.iteration_evaluator import (
+            normalize_metadata,
+            normalize_metrics,
+        )
+
+        metrics, primary_metric = normalize_metrics(
+            values.get("metrics", {}),
+            values.get("primary_metric"),
+        )
+        values["metrics"] = metrics
+        values["primary_metric"] = primary_metric
+        values["external_evaluation_metadata"] = normalize_metadata(
+            values.get("external_evaluation_metadata", {})
+        )
         return cls(**values)
     
     def __str__(self) -> str:
@@ -173,6 +196,10 @@ class ExperimentResult:
     evaluation_script_path: str = ""
     code_diff: str = ""
     workspace_dir: str = ""
+    metrics: Dict[str, float] = field(default_factory=dict)
+    primary_metric: Optional[str] = None
+    external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
+    external_evaluation_error: str = ""
     
     def __str__(self) -> str:
         if self.had_error:
@@ -206,6 +233,12 @@ class ExperimentResult:
             evaluation_script_path=node.evaluation_script_path,
             code_diff=node.code_diff,
             workspace_dir=node.workspace_dir,
+            metrics=dict(node.metrics),
+            primary_metric=node.primary_metric,
+            external_evaluation_metadata=dict(
+                node.external_evaluation_metadata
+            ),
+            external_evaluation_error=node.external_evaluation_error,
         )
 
 

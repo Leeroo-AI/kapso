@@ -36,6 +36,7 @@
               "docs/evolve/architecture",
               "docs/evolve/execution-flow",
               "docs/evolve/resuming-runs",
+              "docs/evolve/external-evaluation",
               "docs/evolve/reliability-roadmap",
               {
                 "group": "Components",

@@ -459,20 +459,24 @@ class BenchmarkTreeSearch(SearchStrategy):
         node.node_event_history.append([self.experimentation_count, "experiment"])
         node.branch_name = branch_name
         node.workspace_dir = self.workspace_dir
+        parent_branch_name = (
+            self._get_closest_experimented_parent(node).branch_name
+        )
+        node.parent_branch_name = parent_branch_name
         
         # Step 1: Implement (using base class method)
         agent_output = self._implement(
             node.solution,
             context,
             branch_name=branch_name,
-            parent_branch_name=self._get_closest_experimented_parent(node).branch_name,
+            parent_branch_name=parent_branch_name,
             ideation_repo_memory_sections_consulted=node.ideation_repo_memory_sections_consulted,
         )
         
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(
             branch_name, 
-            self._get_closest_experimented_parent(node).branch_name
+            parent_branch_name
         )
         
         # Step 2: Use handler.run() for evaluation (instead of agent-based)
