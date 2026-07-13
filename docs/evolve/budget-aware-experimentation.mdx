@@ -319,6 +319,70 @@ Three sanctioned combinations keep the space tractable:
 | **VALIDATE** | *reuse artifact* | full | Full-eval an existing probe's model — trust check before committing to a retrain; no training cost | ~1.5 h |
 | **FULL** | full | full | The deliverable; the only profile that can end a campaign | ~4.5 h |
 
+### The Evaluation Maintainer: one owner for the measuring instrument
+
+Evaluation stops being something implementation agents improvise and becomes an owned
+surface. The **EvaluationMaintainer** is a coding-agent module (built via the agent factory
+with its own config block and prompts, exactly like the FeedbackGenerator) with a monopoly:
+**it is the only component allowed to write `kapso_evaluation/`, in every provenance mode.**
+
+**Setup transaction (once, before iteration 1):**
+
+1. **Provided evaluator** (`eval_dir` given): verify it runs; check whether it already honors
+   the fidelity interface. Its **logic is immutable** — the maintainer may only *derive* a
+   fast variant by layering a subsampling wrapper over it (fixed fraction, fixed seed,
+   untouched scoring), and fix execution-environment breakage; a genuinely broken provided
+   suite is surfaced to the caller, never silently rewritten.
+2. **No evaluator provided**: the maintainer **builds the full evaluator from the goal** —
+   this moves evaluation construction out of the first implementation iteration, where it
+   currently lives as an improvised side effect.
+3. **Time it by measurement, not declaration**: run a calibration slice (a few percent of
+   items), measure per-item rate and fixed startup, extrapolate to full- and fast-variant
+   durations. Minutes of spend at setup replaces the operator's guess about evaluation time.
+4. **Derive the fast variant** when the measured full duration is material against the
+   budget (threshold in config); skip it when full evaluation is already cheap.
+5. **Register and commit**: manifest-hash the evaluation tree, write the registry entry, and
+   commit to the workspace `main` so every experiment branch inherits the registered
+   evaluator.
+
+**The registry** (`.kapso/evaluation_registry.json`) is the versioning backbone — one
+append-only entry per evaluator version:
+
+```python
+@dataclass(frozen=True)
+class EvaluatorVersion:
+    evaluator_id: str        # manifest fingerprint of the evaluation tree
+    version: int
+    provenance: str          # "provided" | "maintainer_built" | "derived_fast"
+    parent_evaluator: Optional[str]
+    fidelity_support: Dict   # fractions/seeds available
+    timing: Dict             # per_item_ms, startup_s, full_estimate_s, fast_estimate_s,
+                             # measured_samples (refined by every real run)
+    created_at_iteration: int
+    reason: str              # setup | change-request id + summary
+```
+
+**During the loop:** implementation agents get the evaluation as **read-and-execute only** —
+enforced mechanically, not by prompt: `enforce_evaluation_integrity` now checks *every*
+candidate against the registered manifest in *all* modes (the current provided-only check
+generalizes; `agent_generated` provenance disappears as a distinct trust regime). An agent
+that believes the evaluation is wrong emits an `<evaluation_change_request>` tag in its
+output; the feedback agent's `evaluation_valid=false` verdicts route the same way. The
+orchestrator queues requests and invokes the maintainer **between iterations**: it judges
+the request, implements accepted changes (never on provided logic), registers a new version,
+and triggers the re-anchor step below. Evaluator drift thereby changes from something the
+system *detects after the fact* into an explicit, versioned, reasoned **transaction**.
+
+The maintainer is itself a budgeted actor: its setup transaction and every change-request
+run are deadline-bounded agent calls whose cost and duration land in the ledger
+(`CostEntry` phase `"evaluation_maintenance"`) — the calibration slice is deliberately a
+few minutes bought once to replace guesswork for the whole campaign.
+
+The maintainer is also the natural stepping stone to the deferred Kapso-owned evaluator
+*runner*: it already owns the content and the timing model; giving it execution (allowlisted
+command, process supervision, hard deadline) later upgrades fidelity enforcement from
+deterrence to containment without re-architecting.
+
 ### Evaluation versioning and comparability classes
 
 A score is meaningless without the identity of the evaluator that produced it — and in kapso
@@ -356,11 +420,12 @@ Ranking — parent selection, leaders, pruning — happens only *within* a class
   evaluator version are one class and share the exact item set — comparisons are **paired**
   (GEPA's minibatch-acceptance insight: parent-vs-child deltas on identical items cancel
   most subsample noise; prefer paired deltas over absolute fast scores).
-- **Evaluator drift re-anchors the frontier.** When the evaluation tree changes (new
-  `evaluator_id` — detected mechanically by the same hashing that powers integrity checks),
-  prior scores become a stale class: never mixed with new ones. The policy re-anchors by
-  re-evaluating the incumbent best under the new evaluator (eval-only, cheap) so the
-  frontier stays comparable instead of silently spanning two rulers.
+- **Evaluator changes re-anchor the frontier — and only the maintainer can cause one.**
+  A new `evaluator_id` exists only when the EvaluationMaintainer registers a new version
+  (any other diff to the evaluation tree is an integrity violation on the candidate that
+  made it). Prior scores become a stale class, never mixed with new ones; registration
+  triggers the re-anchor: re-evaluate the incumbent best under the new version (eval-only,
+  cheap) so the frontier stays comparable instead of silently spanning two rulers.
 - **Mixed-fidelity selection is a tier order, not a merged ranking** (AIDE's
   `WorstMetricValue` discipline — missing evidence always compares worse): nodes with a
   FULL attempt > nodes with a full-eval VALIDATE attempt > probe-only nodes; within a tier,
@@ -405,16 +470,22 @@ grants the request only if the arithmetic allows. LLM proposes; executive dispos
 
 The policy, in words:
 
-1. **The reserve is an escrowed, deadline-bounded FULL attempt — not a promise built on an
-   average.** A point estimate (EWMA) cannot bound a maximum, so the reserve is sized from a
-   **conservative upper bound**: an operator-declared `full_run_cap_minutes` (required to
-   enable fidelity — no defensible bound, no fidelity: fail closed at cold start), tightened
-   to a measured upper quantile × overhead factor only after full-size runs have been
-   observed. The reserve is *escrowed*: every PROBE and VALIDATE admission is checked
-   against `remaining − reserve`, and a VALIDATE is admitted only if its own cap fits
-   outside the escrow. The reserve run itself executes under a deadline equal to the
-   reserve — so the honest guarantee is *one full-size, deadline-bounded attempt on the
-   best recipe*, not "a completed full run of arbitrary duration."
+1. **The reserve is an escrowed, deadline-bounded FULL attempt — sized from measurement
+   plus one declared bound.** Its two halves have different epistemics. The **evaluation
+   half is measured before the loop starts**: the EvaluationMaintainer's setup transaction
+   times the registered evaluators (calibration slice → per-item rate → full/fast
+   estimates), so full-eval duration is data from iteration 0 and is refined by every
+   VALIDATE and manifest echo thereafter. The **training half cannot be measured up front**
+   (the recipes don't exist yet), so it takes the one operator-declared ceiling the design
+   still needs: `train_run_cap_minutes` — "a legitimate full training run never exceeds
+   this" (required to enable fidelity; no defensible bound, no fidelity: fail closed).
+   Reserve = train cap + measured full-eval upper estimate + overhead factor, tightened by
+   measured quantiles as full-size runs accumulate. The reserve is *escrowed*: every PROBE
+   and VALIDATE admission is checked against `remaining − reserve`, and a VALIDATE is
+   admitted only if its measured cap fits outside the escrow. The reserve run itself
+   executes under a deadline equal to the reserve — so the honest guarantee is *one
+   full-size, deadline-bounded attempt on the best recipe*, not "a completed full run of
+   arbitrary duration."
 2. **Default to PROBE** while `remaining_after_reserve` affords at least one more probe
    (measured probe EWMA after the first iteration).
 3. **Promote to VALIDATE** when the fast-score leader beats the incumbent by
@@ -433,7 +504,9 @@ instead of re-deriving a different plan from partial memory.
 ### Worked example: PostTrainBench, 10 h × 1 H100
 
 Full run ≈ 3 h SFT + 1.5 h seven-suite eval. Naive loop: 2 blind experiments. With fidelity
-(`fast_train_fraction 0.1`, `fast_eval_fraction 0.15`, reserve = 4.5 h × 1.15 ≈ 5.2 h):
+(`fast_train_fraction 0.1`, `fast_eval_fraction 0.15`; at setup the maintainer times the
+suite — full eval ≈ 1.4 h measured, fast variant derived — so reserve = 3.5 h train cap +
+1.4 h measured eval + overhead ≈ 5.2 h):
 
 ```
 0h ─ probes #1-5 (≈45 min each: 10% SFT + 15% eval, deterministic seeds)   ~3.9h
@@ -478,14 +551,15 @@ visible, not impossible:
 3. **Telemetry plausibility**: a "probe" whose duration lands at the FULL duration profile is
    flagged mechanically, independent of what any agent claims.
 
-**The fidelity interface convention.** For *agent-generated* evaluation, the implementation
-prompt requires building the eval with the interface from iteration 1: honor
-`KAPSO_EVAL_FIDELITY` / `KAPSO_EVAL_FRACTION` / `KAPSO_EVAL_SEED`, print the manifest line.
-For *provided* evaluation (`eval_dir`), the suite opts in by honoring the same variables
-(declared in an optional `fidelity.yaml`); the integrity manifest already hashes whatever the
-caller provides, so the fast path is tamper-checked like everything else. A provided suite
-without the interface simply makes `eval_fidelity: fast` unavailable — the policy degrades to
-fast-train + full-eval and says so, rather than pretending.
+**The fidelity interface, maintained not improvised.** The interface
+(`KAPSO_EVAL_FIDELITY` / `KAPSO_EVAL_FRACTION` / `KAPSO_EVAL_SEED`, plus the printed manifest
+line) is the EvaluationMaintainer's to implement — it builds it into evaluators it authors
+and layers it as a wrapper over provided ones, whose scoring logic stays immutable.
+Implementation agents only *invoke* the registered command at the granted fidelity; editing
+`kapso_evaluation/` is an integrity violation in every mode. When a provided suite cannot
+support subsampling even via a wrapper (opaque scoring over the whole set), the maintainer
+registers that fact and the policy degrades to fast-train + full-eval and says so, rather
+than pretending.
 
 ## Configuration
 
@@ -507,16 +581,22 @@ modes:
         fast_train_fraction: 0.10
         fast_eval_fraction: 0.15
         eval_subsample_seed: 1337          # fixed so probe attempts share one item set
-        full_run_cap_minutes: 300          # REQUIRED to enable fidelity: a hard upper
-                                           # bound, not an estimate — sizes the escrowed
-                                           # reserve; tightened to a measured upper
-                                           # quantile x overhead once full runs exist
+        train_run_cap_minutes: 210         # REQUIRED to enable fidelity: hard ceiling on
+                                           # one legitimate full TRAINING run. Evaluation
+                                           # needs no declared bound - the maintainer
+                                           # measures it at setup; reserve = this cap +
+                                           # measured full-eval estimate + overhead
+        fast_variant_threshold_minutes: 20 # maintainer derives a fast evaluator only when
+                                           # measured full eval exceeds this
         promotion_margin: 0.02
         max_full_runs: 2
         max_full_evals: 3                  # bounds VALIDATE passes (adaptivity leak into
                                            # the full suite)
         calibration_min_pairs: 3           # below this, fast scores prune only
         calibration_min_spearman: 0.5      # rank-agreement floor for auto-promotion
+    evaluation_maintainer:                 # coding-agent module, like feedback_generator
+      type: "claude_code"
+      # model/auth/timeout follow the same agent-config pattern as other agent modules
 ```
 
 Resolution order: explicit `evolve()` kwargs > mode-config `budget` block > unset. The block is
@@ -563,18 +643,25 @@ prompts unchanged byte-for-byte except the block.
 
 **Phase 5 — Fidelity (the PROBE/VALIDATE/FULL contract).** Depends on Phase 1 (telemetry
 EWMAs), Phase 3 (spec/policy plumbing), and Phase 4 (deadline tiers are the enforcement
-teeth). Delivers: `SearchNode` fidelity fields; append-only `EvaluationAttempt` records with
-`evaluator_id` versioning; the `FidelityPolicy` and its config block; the escrowed,
-cap-based reserve; the eval fidelity-interface convention (env vars + manifest line) in both
-prompt templates; fidelity-aware feedback judging (probe results never set `should_stop`);
-comparability-class ranking with re-anchoring on evaluator drift; the calibration pair table
-gating promotion; `VALIDATE` (eval-only attempt append) and `FULL` (retrain, `promoted_from`)
-promotion paths. Acceptance: on a simulated tight-budget campaign the policy produces the
+teeth). Delivers: the **EvaluationMaintainer module** (setup transaction: verify-or-build
+the full evaluator, calibration-slice timing, fast-variant derivation, registry +
+workspace commit; change-request routing between iterations; provided-logic immutability);
+integrity enforcement generalized to every mode against the registered manifest;
+`SearchNode` fidelity fields; append-only `EvaluationAttempt` records with `evaluator_id`
+versioning; the `FidelityPolicy` and its config block; the escrowed reserve (train cap +
+measured eval); fidelity-aware feedback judging (probe results never set `should_stop`);
+comparability-class ranking with re-anchoring on maintainer re-registration; the
+calibration pair table gating promotion; `VALIDATE` (eval-only attempt append) and `FULL`
+(retrain, `promoted_from`) promotion paths. Acceptance: the maintainer's measured full-eval
+estimate is within tolerance of an actual full eval on the calibration workload; an
+implementation agent editing `kapso_evaluation/` is rejected in *agent-built* mode too; a
+change request produces a new registry version and a re-anchor, never an in-place edit; on
+a simulated tight-budget campaign the policy produces the
 probe→validate→full timeline and the final artifact is full-evaluated; attempts from
 different comparability classes never appear in one ranking (pinned test); an evaluator
 change triggers re-anchoring and never mixes classes; interrupting and resuming mid-campaign
 reproduces the same schedule (policy state round-trips); a probe exceeding the FULL duration
-profile is flagged; enabling fidelity without `full_run_cap_minutes` fails loudly; with
+profile is flagged; enabling fidelity without `train_run_cap_minutes` fails loudly; with
 `fidelity.mode: off` the diff is behavior-neutral; a provided suite without the interface
 degrades to fast-train + full-eval with an explicit log line.
 
@@ -632,7 +719,8 @@ Stated plainly because budget enforcement that overpromises is worse than none:
    value and revisit once tail telemetry accumulates; with fidelity on, the reserve is
    *derived* (full-run estimate × safety factor), which turns the folklore knob into
    measured arithmetic after the first full-size run — but the **first** full run still
-   rides on the operator's `full_run_estimate_minutes` prior, bounded by the deadline clamp.
+   rides on the operator's `train_run_cap_minutes` ceiling for its training half (the
+   evaluation half is measured at setup by the maintainer), bounded by the deadline clamp.
 5. **Fast scores are noisy proxies, and adaptive reuse biases them.** A 15% eval subsample
    ranks recipes imperfectly; a 10% training subsample can invert orderings that only emerge
    at scale; and optimizing against the same subsample every iteration adapts to it
