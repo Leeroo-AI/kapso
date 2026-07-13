@@ -4,10 +4,24 @@ Gate definitions and configuration for the Gated MCP Server.
 Each gate groups related tools with default configuration parameters.
 """
 
+import logging
 import os
+import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -24,7 +38,86 @@ class GateDefinition:
     # External server fields (None = bundled in gated-knowledge)
     server_name: Optional[str] = None
     command: Optional[str] = None
-    env_keys: List[str] = field(default_factory=list)
+    required_env: List[str] = field(default_factory=list)
+    required_commands: List[str] = field(default_factory=list)
+    # Deprecated construction alias retained for downstream registries.
+    env_keys: List[str] = field(default_factory=list, repr=False)
+
+    def __post_init__(self) -> None:
+        self.required_env = list(
+            dict.fromkeys([*self.required_env, *self.env_keys])
+        )
+        self.env_keys = list(self.required_env)
+
+
+@dataclass(frozen=True)
+class GateDiagnostic:
+    """Capability check result for one requested gate."""
+
+    gate_name: str
+    enabled: bool
+    missing_env: Tuple[str, ...] = ()
+    missing_commands: Tuple[str, ...] = ()
+
+    @property
+    def reason(self) -> str:
+        if self.enabled:
+            return "available"
+
+        parts = []
+        if self.missing_env:
+            parts.append(f"missing environment: {', '.join(self.missing_env)}")
+        if self.missing_commands:
+            parts.append(f"missing commands: {', '.join(self.missing_commands)}")
+        return "; ".join(parts) or "unavailable"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "gate_name": self.gate_name,
+            "enabled": self.enabled,
+            "reason": self.reason,
+            "missing_env": list(self.missing_env),
+            "missing_commands": list(self.missing_commands),
+        }
+
+
+@dataclass(frozen=True)
+class GateResolution:
+    """Resolved gates plus a diagnostic for every requested gate."""
+
+    requested_gates: Tuple[str, ...]
+    enabled_gates: Tuple[str, ...]
+    diagnostics: Tuple[GateDiagnostic, ...]
+
+    @property
+    def unavailable_gates(self) -> Tuple[str, ...]:
+        return tuple(
+            diagnostic.gate_name
+            for diagnostic in self.diagnostics
+            if not diagnostic.enabled
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "requested_gates": list(self.requested_gates),
+            "enabled_gates": list(self.enabled_gates),
+            "unavailable_gates": list(self.unavailable_gates),
+            "diagnostics": [
+                diagnostic.to_dict() for diagnostic in self.diagnostics
+            ],
+        }
+
+
+class GateCapabilityError(RuntimeError):
+    """Raised when required gate capabilities are unavailable in error mode."""
+
+    def __init__(self, diagnostics: Sequence[GateDiagnostic]):
+        self.diagnostics = tuple(diagnostics)
+        details = "; ".join(
+            f"{diagnostic.gate_name}: {diagnostic.reason}"
+            for diagnostic in self.diagnostics
+        )
+        super().__init__(f"Gate capability requirements not met: {details}")
 
 
 # =============================================================================
@@ -41,6 +134,7 @@ GATES: Dict[str, GateDefinition] = {
             "get_page_structure",
         ],
         default_params={"include_content": True},
+        required_env=["KG_INDEX_PATH"],
     ),
     "idea": GateDefinition(
         tools=["wiki_idea_search"],
@@ -49,6 +143,7 @@ GATES: Dict[str, GateDefinition] = {
             "use_llm_reranker": True,
             "include_content": True,
         },
+        required_env=["KG_INDEX_PATH"],
     ),
     "code": GateDefinition(
         tools=["wiki_code_search"],
@@ -57,6 +152,7 @@ GATES: Dict[str, GateDefinition] = {
             "use_llm_reranker": True,
             "include_content": True,
         },
+        required_env=["KG_INDEX_PATH"],
     ),
     "research": GateDefinition(
         tools=[
@@ -68,6 +164,7 @@ GATES: Dict[str, GateDefinition] = {
             "default_depth": "deep",
             "default_top_k": 5,
         },
+        required_env=["OPENAI_API_KEY"],
     ),
     "experiment_history": GateDefinition(
         tools=[
@@ -81,6 +178,7 @@ GATES: Dict[str, GateDefinition] = {
             "recent_k": 5,
             "similar_k": 3,
         },
+        required_env=["EXPERIMENT_HISTORY_PATH"],
     ),
     "repo_memory": GateDefinition(
         tools=[
@@ -106,7 +204,8 @@ GATES: Dict[str, GateDefinition] = {
         default_params={},
         server_name="leeroopedia",
         command="leeroopedia-mcp",
-        env_keys=["LEEROOPEDIA_API_KEY"],
+        required_env=["LEEROOPEDIA_API_KEY"],
+        required_commands=["leeroopedia-mcp"],
     ),
 }
 
@@ -115,8 +214,100 @@ GATES: Dict[str, GateDefinition] = {
 # Helper Functions
 # =============================================================================
 
+GATE_FAILURE_POLICIES = frozenset({"skip", "warn", "error"})
+
+
+def _normalize_gate_names(gates: Sequence[str]) -> Tuple[str, ...]:
+    if isinstance(gates, str):
+        raise TypeError("gates must be a sequence of gate names, not a string")
+
+    normalized = []
+    for gate in gates:
+        name = str(gate).strip()
+        if name and name not in normalized:
+            normalized.append(name)
+
+    unknown = [name for name in normalized if name not in GATES]
+    if unknown:
+        available = ", ".join(GATES)
+        requested = ", ".join(unknown)
+        raise ValueError(
+            f"Unknown gate(s): {requested}. Available gates: {available}"
+        )
+    return tuple(normalized)
+
+
+def resolve_gates(
+    gates: Sequence[str],
+    *,
+    policy: str = "warn",
+    env: Optional[Mapping[str, str]] = None,
+    command_resolver: Optional[Callable[[str], Optional[str]]] = None,
+) -> GateResolution:
+    """Resolve requested gates against their declared capabilities.
+
+    ``skip`` and ``warn`` both omit unavailable gates; ``warn`` additionally
+    logs a diagnostic. ``error`` raises one aggregate ``GateCapabilityError``.
+    Unknown gates and policies are always configuration errors.
+    """
+    normalized_policy = str(policy).strip().lower()
+    if normalized_policy not in GATE_FAILURE_POLICIES:
+        choices = ", ".join(sorted(GATE_FAILURE_POLICIES))
+        raise ValueError(
+            f"Invalid gate failure policy {policy!r}. Expected one of: {choices}"
+        )
+
+    requested = _normalize_gate_names(gates)
+    effective_env = os.environ if env is None else env
+    resolve_command = command_resolver or shutil.which
+    diagnostics = []
+
+    for gate_name in requested:
+        definition = GATES[gate_name]
+        required_commands = list(definition.required_commands)
+        if definition.command:
+            required_commands.append(definition.command)
+        required_commands = list(dict.fromkeys(required_commands))
+
+        missing_env = tuple(
+            name for name in definition.required_env if not effective_env.get(name)
+        )
+        missing_commands = tuple(
+            command
+            for command in required_commands
+            if not resolve_command(command)
+        )
+        diagnostics.append(
+            GateDiagnostic(
+                gate_name=gate_name,
+                enabled=not missing_env and not missing_commands,
+                missing_env=missing_env,
+                missing_commands=missing_commands,
+            )
+        )
+
+    unavailable = [item for item in diagnostics if not item.enabled]
+    if unavailable and normalized_policy == "error":
+        raise GateCapabilityError(unavailable)
+    if normalized_policy == "warn":
+        for diagnostic in unavailable:
+            logger.warning(
+                "Skipping unavailable MCP gate '%s': %s",
+                diagnostic.gate_name,
+                diagnostic.reason,
+            )
+
+    return GateResolution(
+        requested_gates=requested,
+        enabled_gates=tuple(
+            item.gate_name for item in diagnostics if item.enabled
+        ),
+        diagnostics=tuple(diagnostics),
+    )
+
+
 def get_allowed_tools_for_gates(
-    gates: List[str],
+    gates: Sequence[str],
     mcp_server_name: str,
     include_base_tools: bool = True,
 ) -> List[str]:
@@ -135,6 +326,7 @@ def get_allowed_tools_for_gates(
         >>> get_allowed_tools_for_gates(["idea", "research"], "gated-knowledge")
         ["Read", "Write", "Bash", "mcp__gated-knowledge__wiki_idea_search", ...]
     """
+    gate_names = _normalize_gate_names(gates)
     tools: List[str] = []
     
     # Add base tools if requested
@@ -143,20 +335,19 @@ def get_allowed_tools_for_gates(
     
     # Add MCP tools for each gate
     # External gates (with server_name set) use their own server name prefix
-    for gate_name in gates:
-        if gate_name in GATES:
-            gate_def = GATES[gate_name]
-            effective_server = gate_def.server_name or mcp_server_name
-            for tool_name in gate_def.tools:
-                # Format: mcp__<server>__<tool>
-                mcp_tool = f"mcp__{effective_server}__{tool_name}"
-                tools.append(mcp_tool)
+    for gate_name in gate_names:
+        gate_def = GATES[gate_name]
+        effective_server = gate_def.server_name or mcp_server_name
+        for tool_name in gate_def.tools:
+            # Format: mcp__<server>__<tool>
+            mcp_tool = f"mcp__{effective_server}__{tool_name}"
+            tools.append(mcp_tool)
     
     return tools
 
 
 def get_mcp_config(
-    gates: List[str],
+    gates: Sequence[str],
     server_name: str = "gated-knowledge",
     project_root: Optional[Path] = None,
     kg_index_path: Optional[str] = None,
@@ -164,6 +355,8 @@ def get_mcp_config(
     weaviate_url: Optional[str] = None,
     repo_root: Optional[str] = None,
     include_base_tools: bool = True,
+    gate_failure_policy: str = "warn",
+    command_resolver: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
@@ -171,7 +364,7 @@ def get_mcp_config(
     Args:
         gates: List of gate names (e.g., ["idea", "research", "experiment_history"])
         server_name: MCP server name (default: "gated-knowledge")
-        project_root: Project root path (defaults to 2 levels up from this file)
+        project_root: Project root path (defaults to the Kapso checkout root)
         kg_index_path: Path to .index file. Required if "kg", "idea", or "code" 
                        gates are enabled. Falls back to KG_INDEX_PATH env var.
         experiment_history_path: Path to experiment history JSON file. Required if
@@ -180,6 +373,8 @@ def get_mcp_config(
         repo_root: Path to repo root for repo_memory gate. Falls back to 
                    REPO_MEMORY_ROOT env var or CWD.
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
+        gate_failure_policy: Missing-capability policy: skip, warn, or error.
+        command_resolver: Optional command lookup override for testing.
     
     Returns:
         Tuple of (mcp_servers dict, allowed_tools list)
@@ -192,65 +387,77 @@ def get_mcp_config(
         ...     "allowed_tools": allowed_tools,
         ... })
     """
+    # Explicit path arguments behave like environment capabilities for gate
+    # resolution, without mutating the caller's process environment.
+    effective_env = dict(os.environ)
+    explicit_env = {
+        "KG_INDEX_PATH": kg_index_path,
+        "EXPERIMENT_HISTORY_PATH": experiment_history_path,
+        "WEAVIATE_URL": weaviate_url,
+        "REPO_MEMORY_ROOT": repo_root,
+    }
+    effective_env.update(
+        {key: str(value) for key, value in explicit_env.items() if value}
+    )
+
+    resolution = resolve_gates(
+        gates,
+        policy=gate_failure_policy,
+        env=effective_env,
+        command_resolver=command_resolver,
+    )
+    enabled_gates = list(resolution.enabled_gates)
+
     # Resolve project root
     if project_root is None:
-        # Default: 3 levels up from this file (src/knowledge/gated_mcp -> project root)
+        # src/kapso/gated_mcp/presets.py -> checkout root
         project_root = Path(__file__).parent.parent.parent.parent
+    project_root = Path(project_root).expanduser().resolve()
+    python_path = project_root / "src"
+    if not python_path.is_dir():
+        python_path = project_root
     
     # Split gates into internal (bundled in gated-knowledge) and external (separate servers)
-    internal_gates = [g for g in gates if g in GATES and GATES[g].command is None]
+    internal_gates = [
+        gate_name
+        for gate_name in enabled_gates
+        if GATES[gate_name].command is None
+    ]
     
     # Build environment for MCP server (internal gates only)
     mcp_env: Dict[str, str] = {
-        "PYTHONPATH": str(project_root),
+        "PYTHONPATH": str(python_path),
         "MCP_ENABLED_GATES": ",".join(internal_gates),
+        "MCP_GATE_FAILURE_POLICY": "error",
     }
-    
-    # Resolve kg_index_path (needed for kg, idea, code gates)
-    kg_gates = {"kg", "idea", "code"}
-    needs_kg = bool(kg_gates & set(gates))
-    
-    if needs_kg:
-        resolved_kg_path = kg_index_path or os.environ.get("KG_INDEX_PATH")
-        if resolved_kg_path:
-            mcp_env["KG_INDEX_PATH"] = resolved_kg_path
-    
-    # Resolve experiment_history_path (needed for experiment_history gate)
-    if "experiment_history" in gates:
-        resolved_history_path = experiment_history_path or os.environ.get("EXPERIMENT_HISTORY_PATH")
-        if resolved_history_path:
-            mcp_env["EXPERIMENT_HISTORY_PATH"] = resolved_history_path
-        
-        # Add Weaviate URL if available
-        resolved_weaviate_url = weaviate_url or os.environ.get("WEAVIATE_URL")
-        if resolved_weaviate_url:
-            mcp_env["WEAVIATE_URL"] = resolved_weaviate_url
-    
-    # Resolve repo_root (needed for repo_memory gate)
-    if "repo_memory" in gates:
-        resolved_repo_root = repo_root or os.environ.get("REPO_MEMORY_ROOT")
-        if resolved_repo_root:
-            mcp_env["REPO_MEMORY_ROOT"] = resolved_repo_root
+
+    # Forward required environment plus optional per-gate context only for
+    # enabled internal gates.
+    for gate_name in internal_gates:
+        for key in GATES[gate_name].required_env:
+            mcp_env[key] = effective_env[key]
+    if "experiment_history" in internal_gates and effective_env.get("WEAVIATE_URL"):
+        mcp_env["WEAVIATE_URL"] = effective_env["WEAVIATE_URL"]
+    if "repo_memory" in internal_gates and effective_env.get("REPO_MEMORY_ROOT"):
+        mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
     
     # Build MCP servers config (gated-knowledge for internal gates)
-    mcp_servers = {
-        server_name: {
-            "command": "python",
+    mcp_servers: Dict[str, Any] = {}
+    if internal_gates:
+        mcp_servers[server_name] = {
+            "command": sys.executable,
             "args": ["-m", "kapso.gated_mcp.server"],
             "cwd": str(project_root),
             "env": mcp_env,
         }
-    }
     
     # Add external MCP servers (e.g., leeroopedia-mcp)
-    for gate_name in gates:
-        if gate_name not in GATES:
-            continue
+    for gate_name in enabled_gates:
         gate_def = GATES[gate_name]
         if gate_def.command and gate_def.server_name:
             ext_env = {}
-            for key in gate_def.env_keys:
-                val = os.environ.get(key, "")
+            for key in gate_def.required_env:
+                val = effective_env.get(key, "")
                 if val:
                     ext_env[key] = val
             mcp_servers[gate_def.server_name] = {
@@ -260,7 +467,7 @@ def get_mcp_config(
     
     # Get allowed tools
     allowed_tools = get_allowed_tools_for_gates(
-        gates, server_name, include_base_tools=include_base_tools
+        enabled_gates, server_name, include_base_tools=include_base_tools
     )
     
     return mcp_servers, allowed_tools

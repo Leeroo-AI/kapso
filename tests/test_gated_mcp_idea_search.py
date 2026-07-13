@@ -9,7 +9,8 @@ This standalone script tests the idea search gate by:
 Run: python tests/test_gated_mcp_idea_search.py
 
 Environment:
-    KG_INDEX_PATH              - Path to .index file (optional)
+    KG_INDEX_PATH              - Path to .index file (required for idea/code)
+    OPENAI_API_KEY             - Required for research gate
     AWS_REGION                 - AWS region (default: us-east-1)
 """
 
@@ -52,7 +53,10 @@ def run_idea_search_test() -> bool:
     print(f"Workspace: {workspace}")
     
     # Get MCP config for idea and research gates
-    mcp_servers, allowed_tools = get_mcp_config(["idea", "code", "research"])
+    mcp_servers, allowed_tools = get_mcp_config(
+        ["idea", "code", "research"],
+        gate_failure_policy="error",
+    )
     
     print(f"Gates: idea, research")
     print(f"Allowed tools: {allowed_tools}")

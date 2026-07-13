@@ -19,22 +19,32 @@ Usage:
 
 from kapso.gated_mcp.presets import (
     GATES,
+    GATE_FAILURE_POLICIES,
+    GateCapabilityError,
     GateDefinition,
+    GateDiagnostic,
+    GateResolution,
     get_allowed_tools_for_gates,
     get_mcp_config,
     list_gates,
     get_gate_config,
+    resolve_gates,
 )
 from kapso.gated_mcp.server import create_gated_mcp_server
 
 __all__ = [
     # Gates
     "GATES",
+    "GATE_FAILURE_POLICIES",
+    "GateCapabilityError",
     "GateDefinition",
+    "GateDiagnostic",
+    "GateResolution",
     "get_allowed_tools_for_gates",
     "get_mcp_config",
     "list_gates",
     "get_gate_config",
+    "resolve_gates",
     # Server
     "create_gated_mcp_server",
 ]

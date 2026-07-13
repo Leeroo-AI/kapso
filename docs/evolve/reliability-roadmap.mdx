@@ -19,7 +19,7 @@ merged or cherry-picked wholesale.
 | 4. External iteration evaluation | Implemented |
 | 5. Evaluation integrity | Implemented |
 | 6. Claude Code authentication modes | Implemented |
-| 7. Capability-aware gates | Planned |
+| 7. Capability-aware gates | Implemented |
 | 8. Model routing and retry policy | Planned |
 | 9. Parent-selection policies | Planned |
 
@@ -351,6 +351,20 @@ class GateDefinition:
 
 `resolve_gates` returns enabled gates and diagnostic reasons according to a
 `skip`, `warn`, or `error` policy. Unknown gates are configuration errors.
+
+The resolver checks explicit path inputs and the effective environment before
+building MCP server configuration. Unavailable gates never appear in the
+allowed-tool list, and an external-only request does not create an empty
+bundled server.
+
+### Acceptance tests
+
+- Missing environment variables and executables produce structured diagnostics.
+- `skip`, `warn`, and `error` apply their documented behavior.
+- Unknown gates and policies always raise configuration errors.
+- Explicit KG, history, and repo paths are forwarded without global env mutation.
+- Allowed tools and MCP servers contain enabled gates only.
+- Direct bundled-server startup enforces the same capability policy.
 
 ## Milestone 8: Model routing and retry policy
 
