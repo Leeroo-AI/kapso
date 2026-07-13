@@ -334,9 +334,17 @@ def test_generic_strategy_state_round_trip() -> None:
     assert restored.iteration_count == 1
     assert restored.previous_errors == ["old error"]
 
+    # A VALIDATE short-circuit consumes an iteration without minting a
+    # node, so iteration_count may legitimately exceed node_history —
+    # the live top-up leg was unresumable under the old equality check.
+    validate_consumed = source.dump_state()
+    validate_consumed["iteration_count"] = 3
+    restored.load_state(validate_consumed)
+    assert restored.iteration_count == 3
+
     invalid = source.dump_state()
-    invalid["iteration_count"] = 2
-    with pytest.raises(ValueError, match="must match node_history"):
+    invalid["iteration_count"] = 0
+    with pytest.raises(ValueError, match="cannot be smaller"):
         restored.load_state(invalid)
 
 

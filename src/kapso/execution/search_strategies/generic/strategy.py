@@ -1205,10 +1205,10 @@ Problem: {problem}"""
             raise ValueError(
                 "GenericSearch checkpoint iteration_count must be non-negative"
             )
-        if iteration_count != len(self.node_history):
+        if iteration_count < len(self.node_history):
             raise ValueError(
-                "GenericSearch checkpoint iteration_count must match "
-                "node_history"
+                "GenericSearch checkpoint iteration_count cannot be smaller "
+                "than node_history: every node consumed an iteration"
             )
         self.iteration_count = iteration_count
 
