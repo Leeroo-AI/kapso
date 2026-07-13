@@ -109,6 +109,9 @@ class TwoCandidateStrategy:
         self.workspace.current_cost += 1.0
         return self.node_history[-1]
 
+    def observe_budget(self, snapshot: Any) -> None:
+        self.budget_snapshot = snapshot
+
     def get_experiment_history(
         self,
         best_last: bool = False,
@@ -472,7 +475,13 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
             captured.update(kwargs)
             self.search_strategy = PublicFakeStrategy()
 
-        def solve(self, experiment_max_iter: int) -> SolveResult:
+        def solve(
+            self,
+            experiment_max_iter: int,
+            time_budget_minutes=None,
+            cost_budget=None,
+            finalization_reserve_minutes=None,
+        ) -> SolveResult:
             return SolveResult(
                 best_experiment=selected,
                 final_feedback=None,

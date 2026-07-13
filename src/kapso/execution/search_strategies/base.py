@@ -34,6 +34,7 @@ from kapso.execution.evaluation_integrity import (
 
 # Avoid circular import - FeedbackGenerator is optional
 if TYPE_CHECKING:
+    from kapso.execution.budget import BudgetSnapshot
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 
@@ -372,6 +373,9 @@ class SearchStrategy(ABC):
         self.problem_handler = config.problem_handler
         self.llm = config.llm
         self.params = config.params
+        # The orchestrator's per-iteration budget view; strategies read it,
+        # only the orchestrator writes budget state.
+        self.budget_snapshot: Optional["BudgetSnapshot"] = None
         self.evaluation_provenance = (
             PROVIDED if config.eval_dir else AGENT_GENERATED
         )
@@ -541,6 +545,14 @@ class SearchStrategy(ABC):
         except Exception as e:
             print(f"[SearchStrategy] Warning: Could not get diff: {e}")
             return ""
+
+    def observe_budget(self, snapshot: "BudgetSnapshot") -> None:
+        """Store the orchestrator's read-only budget view for this iteration.
+
+        Additive by design: strategies that ignore budgets inherit an inert
+        attribute, and no run() signature changes across strategies.
+        """
+        self.budget_snapshot = snapshot
 
     def dump_evaluation_integrity_state(self) -> Dict[str, Any]:
         """Return the provided-suite baseline stored with strategy state."""

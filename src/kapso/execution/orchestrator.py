@@ -50,6 +50,11 @@ from kapso.execution.run_checkpoint import (
     RunCheckpointStore,
     config_fingerprint,
 )
+from kapso.execution.budget import (
+    BudgetLedger,
+    BudgetSnapshot,
+    BudgetSpec,
+)
 
 
 @dataclass
@@ -134,11 +139,20 @@ class OrchestratorAgent:
             self.strategy_type,
             self.strategy_params,
         ) = self._resolve_search_strategy_config()
+        # Budgets are operator dials, not campaign identity — like
+        # max_iterations (a solve() argument that was never fingerprinted).
+        # Excluding the budget block keeps "resume with a bigger budget"
+        # possible under strict resume validation.
+        self._config_budget = dict(self.mode_config.get("budget") or {})
         fingerprint_config = {
             "strategy_type": self.strategy_type,
             "strategy_params": self.strategy_params,
             "mode": self.mode,
-            "mode_config": self.mode_config,
+            "mode_config": {
+                key: value
+                for key, value in self.mode_config.items()
+                if key != "budget"
+            },
             "coding_agent_override": coding_agent,
         }
         self._provided_evaluation_manifest: Optional[Dict[str, str]] = None
@@ -168,8 +182,6 @@ class OrchestratorAgent:
         self._prior_elapsed_seconds = 0.0
         self._prior_cost_by_component: Dict[str, float] = {}
         self._restored_node_count = 0
-        # Set when solve() starts; the live slice of the durable clock.
-        self._solve_start_monotonic: Optional[float] = None
 
         if workspace_dir is not None:
             self.checkpoint_store = RunCheckpointStore(workspace_dir)
@@ -247,7 +259,9 @@ class OrchestratorAgent:
             self.checkpoint_store = RunCheckpointStore(
                 self.search_strategy.workspace_dir
             )
-        
+
+        self.budget_ledger = self._create_budget_ledger()
+
         # Now create experiment history store with the actual workspace path
         experiment_history_path = os.path.join(
             self.search_strategy.workspace_dir, 
@@ -517,35 +531,28 @@ class OrchestratorAgent:
                 )
         return live
 
+    def _create_budget_ledger(self) -> BudgetLedger:
+        """Wire the ledger: priors from the checkpoint, live meters, nodes."""
+        ledger = BudgetLedger(
+            prior_elapsed_seconds=self._prior_elapsed_seconds,
+            prior_cost_usd=self._prior_cost,
+            prior_cost_by_component=self._prior_cost_by_component,
+        )
+        ledger.set_meter("llm_backend", self.llm.get_cumulative_cost)
+        ledger.set_meter(
+            "workspace_sessions",
+            self.search_strategy.workspace.get_cumulative_cost,
+        )
+        ledger.set_phase_cost_provider(self._live_phase_costs)
+        return ledger
+
     def get_cumulative_cost(self) -> float:
         """Get total cost from all components, attributed agents included."""
-        return (
-            self._prior_cost
-            + self.llm.get_cumulative_cost()
-            + self.search_strategy.workspace.get_cumulative_cost()
-            + sum(self._live_phase_costs().values())
-        )
+        return self.budget_ledger.total_cost()
 
     def get_elapsed_seconds(self) -> float:
         """The durable clock: prior slices plus the live one."""
-        live = (
-            time.monotonic() - self._solve_start_monotonic
-            if self._solve_start_monotonic is not None
-            else 0.0
-        )
-        return self._prior_elapsed_seconds + live
-
-    def _current_cost_by_component(self) -> Dict[str, float]:
-        """Prior per-component spend merged with this slice's meters."""
-        components = dict(self._prior_cost_by_component)
-        live = dict(self._live_phase_costs())
-        live["llm_backend"] = self.llm.get_cumulative_cost()
-        live["workspace_sessions"] = (
-            self.search_strategy.workspace.get_cumulative_cost()
-        )
-        for name, value in live.items():
-            components[name] = components.get(name, 0.0) + value
-        return components
+        return self.budget_ledger.elapsed_seconds()
 
     def _save_run_checkpoint(
         self, *, status: str, last_stop: Optional[str] = None
@@ -565,7 +572,7 @@ class OrchestratorAgent:
             current_feedback=self.current_feedback,
             strategy_state=self.search_strategy.dump_state(),
             elapsed_seconds=self.get_elapsed_seconds(),
-            cost_by_component=self._current_cost_by_component(),
+            cost_by_component=self.budget_ledger.cost_by_component(),
             last_stop=last_stop,
         )
         self.checkpoint_store.save(checkpoint)
@@ -681,10 +688,11 @@ class OrchestratorAgent:
                 )
 
     def solve(
-        self, 
-        experiment_max_iter: int = 20, 
-        time_budget_minutes: Optional[int] = None, 
-        cost_budget: Optional[float] = None
+        self,
+        experiment_max_iter: int = 20,
+        time_budget_minutes: Optional[float] = None,
+        cost_budget: Optional[float] = None,
+        finalization_reserve_minutes: Optional[float] = None,
     ) -> SolveResult:
         """
         Run the main experimentation loop.
@@ -709,7 +717,14 @@ class OrchestratorAgent:
         Returns:
             SolveResult with best_experiment, final_feedback, stopped_reason
         """
-        self._solve_start_monotonic = time.monotonic()
+        # Explicit arguments win over the mode config's optional budget block.
+        budget_spec = BudgetSpec.resolve(
+            config_block=self._config_budget,
+            time_budget_minutes=time_budget_minutes,
+            cost_budget=cost_budget,
+            finalization_reserve_minutes=finalization_reserve_minutes,
+        )
+        self.budget_ledger.start_clock()
         stopped_reason = "max_iterations"  # default
         iterations_run = 0
 
@@ -718,36 +733,36 @@ class OrchestratorAgent:
 
         try:
             for i in range(experiment_max_iter):
-                # Calculate budget progress (0-100) from the durable clock so
-                # a resumed campaign continues its budget instead of resetting.
-                # Only include time/cost if budgets are set.
-                time_fraction = (
-                    self.get_elapsed_seconds() / (time_budget_minutes * 60)
-                    if time_budget_minutes is not None
-                    else 0.0
+                # Build the per-iteration budget view from the durable clock,
+                # so a resumed campaign continues its budget instead of
+                # resetting it. Strategies get the snapshot read-only.
+                snapshot = BudgetSnapshot(
+                    iteration_index=i,
+                    max_iterations=experiment_max_iter,
+                    elapsed_seconds=self.get_elapsed_seconds(),
+                    cost_usd=self.get_cumulative_cost(),
+                    time_budget_seconds=budget_spec.time_budget_seconds,
+                    cost_budget_usd=budget_spec.cost_budget_usd,
+                    finalization_reserve_seconds=(
+                        budget_spec.finalization_reserve_seconds
+                    ),
                 )
-                cost_fraction = (
-                    self.get_cumulative_cost() / cost_budget
-                    if cost_budget is not None
-                    else 0.0
-                )
-                budget_progress = (
-                    max(i / experiment_max_iter, time_fraction, cost_fraction)
-                    * 100
-                )
+                self.search_strategy.observe_budget(snapshot)
+                budget_progress = snapshot.progress_percent
 
                 # Check budget exhaustion. A budget stop is a pause, not a
                 # completion: the checkpoint stays resumable and records why
                 # in last_stop. Only goal achievement completes a campaign.
-                if budget_progress >= 100:
+                if snapshot.exhausted:
                     print("[Orchestrator] Stopping: budget exhausted")
                     stopped_reason = "budget_exhausted"
                     self._save_run_checkpoint(
                         status="running",
                         last_stop=(
                             "time_budget"
-                            if time_fraction >= 1.0
-                            else "cost_budget" if cost_fraction >= 1.0
+                            if snapshot.time_fraction >= 1.0
+                            else "cost_budget"
+                            if snapshot.cost_fraction >= 1.0
                             else None
                         ),
                     )
@@ -830,12 +845,14 @@ class OrchestratorAgent:
                 self.current_feedback = node.feedback
                 self.completed_iterations += 1
                 time_budget_exhausted = (
-                    time_budget_minutes is not None
-                    and self.get_elapsed_seconds() >= time_budget_minutes * 60
+                    budget_spec.time_budget_seconds is not None
+                    and self.get_elapsed_seconds()
+                    >= budget_spec.time_budget_seconds
                 )
                 cost_budget_exhausted = (
-                    cost_budget is not None
-                    and self.get_cumulative_cost() >= cost_budget
+                    budget_spec.cost_budget_usd is not None
+                    and self.get_cumulative_cost()
+                    >= budget_spec.cost_budget_usd
                 )
                 budget_exhausted = (
                     time_budget_exhausted or cost_budget_exhausted

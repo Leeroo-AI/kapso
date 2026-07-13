@@ -481,6 +481,9 @@ class Kapso:
         output_path: Optional[str] = None,
         initial_repo: Optional[str] = None,
         max_iterations: int = 10,
+        time_budget_minutes: Optional[float] = None,
+        cost_budget: Optional[float] = None,
+        finalization_reserve_minutes: Optional[float] = None,
         resume: bool = False,
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
@@ -508,6 +511,12 @@ class Kapso:
                 - GitHub URL: "https://github.com/owner/repo" (will be cloned)
                 - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
+            time_budget_minutes: Wall-clock budget for the campaign. The
+                durable clock continues across resumes.
+            cost_budget: Best-effort spend budget in USD (cost metering is a
+                floor, not a meter — see the budget design doc).
+            finalization_reserve_minutes: Wall-clock escrowed so the campaign
+                always ends with checkout and final evaluation inside budget.
             resume: Continue an existing campaign at ``output_path``. Resume
                 is strict: the workspace and compatible checkpoint must exist.
             iteration_evaluator: Optional callback that evaluates each
@@ -610,7 +619,12 @@ class Kapso:
         
         # Run experimentation
         print("Running experiments...")
-        solve_result = orchestrator.solve(experiment_max_iter=max_iterations)
+        solve_result = orchestrator.solve(
+            experiment_max_iter=max_iterations,
+            time_budget_minutes=time_budget_minutes,
+            cost_budget=cost_budget,
+            finalization_reserve_minutes=finalization_reserve_minutes,
+        )
         
         # Collect results
         experiment_logs = self._extract_experiment_logs(orchestrator)

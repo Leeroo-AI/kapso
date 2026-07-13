@@ -104,6 +104,9 @@ class FakeStrategy:
         self.workspace.current_cost += 1.0
         return node
 
+    def observe_budget(self, snapshot: Any) -> None:
+        self.budget_snapshot = snapshot
+
     def get_experiment_history(
         self,
         best_last: bool = False,
@@ -511,7 +514,13 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
             captured.update(kwargs)
             self.search_strategy = PublicFakeStrategy()
 
-        def solve(self, experiment_max_iter: int) -> SolveResult:
+        def solve(
+            self,
+            experiment_max_iter: int,
+            time_budget_minutes=None,
+            cost_budget=None,
+            finalization_reserve_minutes=None,
+        ) -> SolveResult:
             assert experiment_max_iter == 1
             return SolveResult(
                 best_experiment=None,
