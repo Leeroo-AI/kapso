@@ -84,10 +84,12 @@ class MyStrategy(SearchStrategy):
         return max(valid, key=lambda x: x.score) if valid else None
     
     def checkout_to_best_experiment_branch(self):
-        """Checkout git to best experiment's branch."""
+        """Checkout and return the best experiment branch, if one exists."""
         best = self.get_best_experiment()
         if best:
             self.workspace.switch_branch(best.branch_name)
+            return best.branch_name
+        return None
 ```
 
 ### Step 3: Add Presets (Optional)
@@ -190,6 +192,8 @@ class RandomSearch(SearchStrategy):
         best = self.get_best_experiment()
         if best:
             self.workspace.switch_branch(best.branch_name)
+            return best.branch_name
+        return None
 ```
 
 ## Factory API Reference

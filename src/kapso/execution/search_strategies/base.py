@@ -321,8 +321,8 @@ class SearchStrategy(ABC):
         pass
     
     @abstractmethod
-    def checkout_to_best_experiment_branch(self) -> None:
-        """Checkout git to the best experiment's branch."""
+    def checkout_to_best_experiment_branch(self) -> Optional[str]:
+        """Checkout and return the best experiment branch, if one exists."""
         pass
 
     @abstractmethod

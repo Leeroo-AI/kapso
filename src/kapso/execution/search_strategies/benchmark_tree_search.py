@@ -255,14 +255,16 @@ class BenchmarkTreeSearch(SearchStrategy):
             key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
-    def checkout_to_best_experiment_branch(self) -> None:
-        """Checkout git to the best experiment's branch."""
+    def checkout_to_best_experiment_branch(self) -> Optional[str]:
+        """Checkout and return the best experiment branch."""
         best_node = self.get_best_experiment()
         if best_node:
             print("#" * 100)
             print(f"Checking out to the best experiment branch: {best_node.branch_name}")
             print("#" * 100)
             self.workspace.switch_branch(best_node.branch_name)
+            return best_node.branch_name
+        return None
 
     # =========================================================================
     # Tree Operations
