@@ -207,3 +207,47 @@ def test_generic_strategy_returns_verified_best_branch(tmp_path: Path) -> None:
 
     assert selected == "generic_exp_0"
     assert workspace.get_current_branch() == selected
+
+
+def test_session_creation_clears_crash_corpses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A crashed attempt leaves a session folder (and, if it died between
+    push and checkpoint, a workspace branch) under the redo's name. Session
+    creation owns both: the redo clones fresh and branches from the parent,
+    never from the corpse.
+    """
+    from kapso.execution.experiment_workspace import (
+        experiment_session as session_module,
+    )
+
+    workspace = _workspace(tmp_path)
+    _commit_file(workspace, "train.py", "parent version\n", "baseline")
+
+    # Corpse branch: a pushed attempt whose node never landed in history.
+    workspace.create_branch("generic_exp_0")
+    _commit_file(workspace, "train.py", "corpse version\n", "dead attempt")
+    workspace.switch_branch("main")
+
+    # Corpse session folder from the same dead attempt.
+    corpse_dir = Path(workspace.workspace_dir, "sessions", "generic_exp_0")
+    corpse_dir.mkdir(parents=True)
+    (corpse_dir / "leftover.txt").write_text("junk\n")
+
+    monkeypatch.setattr(
+        session_module.CodingAgentFactory,
+        "create",
+        classmethod(
+            lambda cls, config: SimpleNamespace(
+                initialize=lambda folder: None,
+                cleanup=lambda: None,
+                supports_native_git=lambda: False,
+            )
+        ),
+    )
+    session = workspace.create_experiment_session("generic_exp_0", "main")
+
+    assert not (Path(session.session_folder) / "leftover.txt").exists()
+    session_train = Path(session.session_folder, "train.py")
+    assert session_train.read_text() == "parent version\n"
+    assert session.repo.active_branch.name == "generic_exp_0"
