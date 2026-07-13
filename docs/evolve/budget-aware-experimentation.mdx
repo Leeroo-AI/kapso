@@ -851,6 +851,15 @@ interrupted budgeted run continues the clock (pinned test); a budget-exhausted r
 and a goal-achieved run is not; v1 checkpoints migrate loudly with elapsed 0.0; the remainder of
 the `test_run_checkpoint` suite passes unchanged.
 
+Two clock properties the live E2E track pinned down: `solve()` writes a **bootstrap
+checkpoint** right after evaluation registration and reconciliation, before the first
+iteration — a crash at any later instant resumes (with the paid maintainer setup intact)
+instead of restarting the campaign. And the durable clock meters **checkpointed time
+only**: work in flight between the last checkpoint and a crash is lost from the meter, so
+a crashed campaign under-counts, never over-counts. The alternative — reconciling against
+wall time at resume — would bill the downtime between crash and resume, which can be days;
+losing the in-flight slice is the correct side of that trade.
+
 **Phase 3 — Contracts and API (G5).** `budget.py` (`BudgetSpec`/`BudgetLedger`/`BudgetSnapshot`);
 `evolve()` parameters; config `budget` block with fingerprint carve-out; `observe_budget()` hook.
 Acceptance: unbudgeted fingerprints byte-identical; budget top-up on a budget-exhausted resume

@@ -148,8 +148,35 @@ def kill_group(process: subprocess.Popen, sig: int) -> None:
         os.killpg(process.pid, sig)
 
 
+def sweep_run_orphans(run_dir: Path) -> None:
+    """Kill detached agent sessions whose cwd lives under this run.
+
+    The adapter deliberately detaches agents into their own sessions
+    (per-call deadline enforcement), so killing the child's process group
+    cannot reach them; after a simulated crash or a wall kill they would
+    keep spending against a dead campaign. cwd is the precise marker:
+    agents run inside the campaign's session/worktree directories.
+    """
+    run_root = str(run_dir.resolve())
+    own_group = os.getpgrp()
+    for proc_dir in Path("/proc").iterdir():
+        if not proc_dir.name.isdigit():
+            continue
+        # realpath is non-strict: for a vanished pid it returns the
+        # unresolved /proc path, which never matches run_root.
+        target = os.path.realpath(str(proc_dir / "cwd"))
+        if target != run_root and not target.startswith(run_root + os.sep):
+            continue
+        pid = int(proc_dir.name)
+        if (proc_dir / "stat").exists():
+            group = os.getpgid(pid)
+            if group != own_group:
+                print(f"[e2e] sweeping orphan pgid={group} cwd={target}")
+                os.killpg(group, signal.SIGTERM)
+
+
 def run_walled_child(
-    args: argparse.Namespace, wall_seconds: float
+    args: argparse.Namespace, wall_seconds: float, run_dir: Path
 ) -> tuple:
     """Returns (outcome, returncode): 'exited', 'interrupted', 'walled'."""
     command = [
@@ -188,9 +215,11 @@ def run_walled_child(
                 time.sleep(1.0)
             kill_group(process, signal.SIGKILL)
             process.wait()
+            sweep_run_orphans(run_dir)
             return "walled", process.returncode
         time.sleep(2.0)
     if interrupted:
+        sweep_run_orphans(run_dir)
         return "interrupted", process.returncode
     return "exited", process.returncode
 
@@ -596,7 +625,7 @@ def main() -> None:
         f"[e2e] mode={args.mode} budget={budget_minutes}min "
         f"hard_wall={wall_seconds / 60:.0f}min"
     )
-    outcome, child_returncode = run_walled_child(args, wall_seconds)
+    outcome, child_returncode = run_walled_child(args, wall_seconds, run_dir)
     raise SystemExit(verify(args, run_dir, outcome, child_returncode))
 
 
