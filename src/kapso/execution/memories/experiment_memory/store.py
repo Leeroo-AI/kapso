@@ -18,7 +18,7 @@ import logging
 import os
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kapso.execution.memories.experiment_memory.insight_extractor import InsightExtractor
@@ -55,6 +55,12 @@ class ExperimentRecord:
     insight_type: Optional[str] = None  # "critical_error" or "best_practice"
     insight_confidence: Optional[float] = None
     insight_tags: List[str] = field(default_factory=list)
+    # Observational caller-owned metrics. Internal ``score`` remains the search
+    # and ranking signal used by Kapso.
+    metrics: Dict[str, float] = field(default_factory=dict)
+    primary_metric: Optional[str] = None
+    external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
+    external_evaluation_error: str = ""
     
     def __str__(self) -> str:
         """Format for display."""
@@ -149,6 +155,25 @@ class ExperimentHistoryStore:
         Args:
             node: SearchNode with experiment results
         """
+        raw_metrics = getattr(node, "metrics", {})
+        metrics = (
+            dict(raw_metrics) if isinstance(raw_metrics, Mapping) else {}
+        )
+        raw_metadata = getattr(node, "external_evaluation_metadata", {})
+        metadata = (
+            dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+        )
+        primary_metric = getattr(node, "primary_metric", None)
+        if not isinstance(primary_metric, str):
+            primary_metric = None
+        external_evaluation_error = getattr(
+            node,
+            "external_evaluation_error",
+            "",
+        )
+        if not isinstance(external_evaluation_error, str):
+            external_evaluation_error = ""
+
         record = ExperimentRecord(
             node_id=node.node_id,
             solution=node.solution or "",
@@ -158,6 +183,10 @@ class ExperimentHistoryStore:
             had_error=node.had_error,
             error_message=node.error_message or "",
             timestamp=datetime.now().isoformat(),
+            metrics=metrics,
+            primary_metric=primary_metric,
+            external_evaluation_metadata=metadata,
+            external_evaluation_error=external_evaluation_error,
         )
         
         # Extract insight if enabled
@@ -331,6 +360,10 @@ class ExperimentHistoryStore:
                     insight_type=props.get("insight_type"),
                     insight_confidence=props.get("insight_confidence"),
                     insight_tags=props.get("insight_tags", []),
+                    metrics={},
+                    primary_metric=None,
+                    external_evaluation_metadata={},
+                    external_evaluation_error="",
                 ))
             return records
             
@@ -380,6 +413,14 @@ class ExperimentHistoryStore:
                             insight_type=e.get("insight_type"),
                             insight_confidence=e.get("insight_confidence"),
                             insight_tags=e.get("insight_tags", []),
+                            metrics=e.get("metrics", {}),
+                            primary_metric=e.get("primary_metric"),
+                            external_evaluation_metadata=e.get(
+                                "external_evaluation_metadata", {}
+                            ),
+                            external_evaluation_error=e.get(
+                                "external_evaluation_error", ""
+                            ),
                         )
                         self.experiments.append(record)
                 print(f"[ExperimentHistoryStore] Loaded {len(self.experiments)} experiments from {self.json_path}")
@@ -515,7 +556,7 @@ def format_experiments(experiments: List[ExperimentRecord]) -> str:
 
 **Feedback:**
 {exp.feedback[:300]}{'...' if len(exp.feedback) > 300 else ''}""")
-        
+
         # Include insight if available
         if exp.insight:
             lines.append(f"""

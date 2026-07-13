@@ -13,7 +13,8 @@
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from kapso.knowledge_base.search import (
     KnowledgeSearch,
@@ -28,8 +29,15 @@ from kapso.execution.search_strategies.generic import FeedbackGenerator, Feedbac
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
 from kapso.core.config import load_mode_config
-from kapso.execution.search_strategies.base import ExperimentResult
+from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.iteration_evaluator import (
+    IterationEvaluationContext,
+    IterationEvaluationError,
+    IterationEvaluator,
+    normalize_failure_policy,
+    normalize_result,
+)
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
     RunCheckpointError,
@@ -69,6 +77,9 @@ class OrchestratorAgent:
         coding_agent: Coding agent to use (overrides config if specified)
         is_kg_active: Whether to use the knowledge graph
         goal: The goal/objective for the evolve process
+        iteration_evaluator: Optional observational callback for each finalized
+            candidate Git ref
+        iteration_evaluator_failure_policy: ``record`` or ``raise``
     """
     
     def __init__(
@@ -83,6 +94,8 @@ class OrchestratorAgent:
         start_from_checkpoint: bool = False,
         resume: bool = False,
         allow_legacy_checkpoint: bool = False,
+        iteration_evaluator: Optional[IterationEvaluator] = None,
+        iteration_evaluator_failure_policy: str = "record",
         initial_repo: Optional[str] = None,
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
@@ -102,6 +115,10 @@ class OrchestratorAgent:
         self.allow_legacy_checkpoint = (
             allow_legacy_checkpoint or start_from_checkpoint
         )
+        self.iteration_evaluator = iteration_evaluator
+        self.iteration_evaluator_failure_policy = normalize_failure_policy(
+            iteration_evaluator_failure_policy
+        )
         if self.allow_legacy_checkpoint and not self.resume:
             raise ValueError(
                 "allow_legacy_checkpoint requires resume=True"
@@ -113,15 +130,21 @@ class OrchestratorAgent:
             self.strategy_type,
             self.strategy_params,
         ) = self._resolve_search_strategy_config()
-        self.config_fingerprint = config_fingerprint(
-            {
-                "strategy_type": self.strategy_type,
-                "strategy_params": self.strategy_params,
-                "mode": self.mode,
-                "mode_config": self.mode_config,
-                "coding_agent_override": coding_agent,
-            }
-        )
+        fingerprint_config = {
+            "strategy_type": self.strategy_type,
+            "strategy_params": self.strategy_params,
+            "mode": self.mode,
+            "mode_config": self.mode_config,
+            "coding_agent_override": coding_agent,
+        }
+        if self.iteration_evaluator is not None:
+            fingerprint_config["iteration_evaluator"] = (
+                self._callable_identity(self.iteration_evaluator)
+            )
+            fingerprint_config["iteration_evaluator_failure_policy"] = (
+                self.iteration_evaluator_failure_policy
+            )
+        self.config_fingerprint = config_fingerprint(fingerprint_config)
         
         # Determine workspace directory for experiment history
         self._workspace_dir = workspace_dir
@@ -505,6 +528,96 @@ class OrchestratorAgent:
                 f"Run checkpoint references missing Git branches: {unique}"
             )
 
+    @staticmethod
+    def _callable_identity(callback: IterationEvaluator) -> str:
+        """Return a stable-enough identity for strict resume compatibility."""
+        module = getattr(callback, "__module__", type(callback).__module__)
+        qualname = getattr(
+            callback,
+            "__qualname__",
+            type(callback).__qualname__,
+        )
+        return f"{module}.{qualname}"
+
+    @staticmethod
+    def _new_candidates(
+        previous_node_ids: set[int],
+        history: List[SearchNode],
+        returned_node: Optional[SearchNode],
+    ) -> List[SearchNode]:
+        """Find candidates finalized by the current strategy iteration."""
+        candidates = []
+        seen_node_ids = set(previous_node_ids)
+        for candidate in history:
+            if candidate.node_id in seen_node_ids:
+                continue
+            candidates.append(candidate)
+            seen_node_ids.add(candidate.node_id)
+        if (
+            returned_node is not None
+            and returned_node.node_id not in seen_node_ids
+        ):
+            candidates.append(returned_node)
+        return candidates
+
+    def _evaluate_candidates(
+        self,
+        candidates: List[SearchNode],
+        *,
+        iteration: int,
+    ) -> None:
+        """Evaluate each finalized ref in an isolated detached worktree."""
+        if self.iteration_evaluator is None:
+            return
+
+        for candidate in candidates:
+            git_ref = candidate.branch_name
+            parent_ref = candidate.parent_branch_name or "main"
+            try:
+                if not git_ref:
+                    raise ValueError(
+                        "candidate does not identify a Git branch"
+                    )
+                with self.search_strategy.workspace.materialize_ref(
+                    git_ref
+                ) as materialized_dir:
+                    node_snapshot = SearchNode.from_dict(candidate.to_dict())
+                    node_snapshot.workspace_dir = str(materialized_dir)
+                    context = IterationEvaluationContext(
+                        iteration=iteration,
+                        goal=self.goal,
+                        workspace_dir=Path(materialized_dir),
+                        git_ref=git_ref,
+                        parent_ref=parent_ref,
+                        node=node_snapshot,
+                    )
+                    result = normalize_result(
+                        self.iteration_evaluator(context)
+                    )
+                candidate.metrics = dict(result.metrics)
+                candidate.primary_metric = result.primary_metric
+                candidate.external_evaluation_metadata = dict(
+                    result.metadata
+                )
+                candidate.external_evaluation_error = ""
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                if self.iteration_evaluator_failure_policy == "raise":
+                    raise IterationEvaluationError(
+                        "Iteration evaluator failed for candidate "
+                        f"{candidate.node_id} at "
+                        f"{git_ref or '<missing-ref>'}: "
+                        f"{exc}"
+                    ) from exc
+                candidate.metrics = {}
+                candidate.primary_metric = None
+                candidate.external_evaluation_metadata = {}
+                candidate.external_evaluation_error = message
+                print(
+                    "[Orchestrator] Warning: external evaluation failed for "
+                    f"candidate {candidate.node_id}: {message}"
+                )
+
     def solve(
         self, 
         experiment_max_iter: int = 20, 
@@ -517,8 +630,9 @@ class OrchestratorAgent:
         In the new design:
         1. Developer agent implements solution and runs evaluation
         2. Feedback generator validates evaluation and decides stop/continue
-        3. Loop continues until goal reached or budget exhausted
-        4. Experiment history is accessed via MCP tools (not context managers)
+        3. Optional external evaluator records observational candidate metrics
+        4. Loop continues until goal reached or budget exhausted
+        5. Experiment history is accessed via MCP tools (not context managers)
         
         Stops when ANY of these conditions is met:
         1. Feedback generator says STOP (goal achieved)
@@ -569,6 +683,12 @@ class OrchestratorAgent:
                 # Run one iteration of search strategy
                 # Search strategy handles: solution generation, implementation, feedback
                 # Returns SearchNode with all data including should_stop
+                previous_node_ids = {
+                    candidate.node_id
+                    for candidate in (
+                        self.search_strategy.get_experiment_history()
+                    )
+                }
                 node = self.search_strategy.run(
                     context, 
                     budget_progress=budget_progress
@@ -578,10 +698,23 @@ class OrchestratorAgent:
                 if node is None:
                     print(f"[Orchestrator] Warning: No result from iteration {i+1}")
                     continue
-                
-                # Add experiment to history store (for MCP access)
+
+                finalized_candidates = self._new_candidates(
+                    previous_node_ids,
+                    self.search_strategy.get_experiment_history(),
+                    node,
+                )
+                self._evaluate_candidates(
+                    finalized_candidates,
+                    iteration=self.completed_iterations + 1,
+                )
+
+                # Persist every candidate finalized in this strategy iteration.
+                # External metrics are attached before history and checkpoint
+                # writes so all durable representations agree.
                 if self.experiment_store:
-                    self.experiment_store.add_experiment(node)
+                    for candidate in finalized_candidates:
+                        self.experiment_store.add_experiment(candidate)
                 
                 # Log result
                 print(f"[Orchestrator] Iteration {i+1} result:")

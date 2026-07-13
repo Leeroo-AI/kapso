@@ -729,6 +729,12 @@ Problem: {problem}"""
         self.node_history = [
             SearchNode.from_dict(node_data) for node_data in raw_history
         ]
+        node_ids = [node.node_id for node in self.node_history]
+        if node_ids != list(range(len(self.node_history))):
+            raise ValueError(
+                "GenericSearch checkpoint node IDs must be unique, ordered, "
+                "and contiguous from zero"
+            )
 
         iteration_count = state.get(
             "iteration_count", len(self.node_history)

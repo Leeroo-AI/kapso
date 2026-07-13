@@ -12,6 +12,13 @@ from kapso.execution.run_checkpoint import (
     RunCheckpointIncompatibleError,
     RunCheckpointMissingError,
 )
+from kapso.execution.iteration_evaluator import (
+    IterationEvaluationContext,
+    IterationEvaluationError,
+    IterationEvaluationResult,
+    IterationEvaluationValidationError,
+    IterationEvaluator,
+)
 
 # OrchestratorAgent has heavy dependencies (git, etc.), import lazily
 def __getattr__(name):
@@ -28,4 +35,9 @@ __all__ = [
     "RunCheckpointCorruptError",
     "RunCheckpointIncompatibleError",
     "RunCheckpointCompletedError",
+    "IterationEvaluationContext",
+    "IterationEvaluationResult",
+    "IterationEvaluationError",
+    "IterationEvaluationValidationError",
+    "IterationEvaluator",
 ]

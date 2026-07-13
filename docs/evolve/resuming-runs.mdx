@@ -107,8 +107,10 @@ The current schema is:
 ```
 
 The configuration fingerprint includes the selected mode configuration,
-strategy type and parameters, and any coding-agent override. It prevents a run
-from silently continuing under different search or model settings.
+strategy type and parameters, any coding-agent override, and the external
+evaluator identity and failure policy when one is configured. It prevents a
+run from silently continuing under different search, model, or measurement
+settings.
 
 ## Atomic saves and iteration boundaries
 

@@ -220,7 +220,18 @@ if feedback_result.stop:
 node.feedback = feedback_result.feedback
 ```
 
-### Step 9: Return Result
+### Step 9: Optional External Evaluation
+
+When `iteration_evaluator` is configured, Kapso evaluates every candidate
+finalized by the strategy before writing experiment history or a run
+checkpoint. Each candidate ref is materialized in a temporary detached
+worktree. Returned metrics are stored on `node.metrics` and remain
+observational: `node.score` still controls search and best-branch selection.
+
+See [External Iteration Evaluation](/docs/evolve/external-evaluation) for the
+callback contract, isolation model, and failure policies.
+
+### Step 10: Return Result
 
 When the loop ends, **Kapso** returns the best solution:
 
