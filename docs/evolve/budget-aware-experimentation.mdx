@@ -3,9 +3,12 @@ title: "Budget-Aware Experimentation"
 description: "Design for making time, cost, and iteration budgets first-class in the evolve loop: honest telemetry, typed budget contracts, mechanical enforcement, and a finalization reserve"
 ---
 
-Status: **design proposal** (2026-07-13, against `main @ 31db3ff4`). Companion analyses: the
-competitor mechanism survey (`archive/competitor_search/mechanisms_ranked.md`) and the
-Research-Planner related-work study (`archive/competitor_search/research_planner_related_work.md`).
+Status: **design proposal** (2026-07-13, against `main @ 31db3ff4`; fidelity layer amended
+after an adversarial Codex review the same day — holdout/calibration discipline, cap-based
+escrowed reserve, deterrence-not-containment enforcement framing, and versioned
+evaluation-attempt records all trace to its findings). Companion analyses: the competitor
+mechanism survey (`archive/competitor_search/mechanisms_ranked.md`) and the Research-Planner
+related-work study (`archive/competitor_search/research_planner_related_work.md`).
 This design is the budget slice of that larger direction, scoped to land independently.
 
 ## Executive summary
@@ -23,8 +26,12 @@ at most an advisory view of remaining budget.
 The design adds one new module (`src/kapso/execution/budget.py` — `BudgetSpec`, `BudgetLedger`,
 `BudgetSnapshot`), per-iteration telemetry on `SearchNode`, a v2 `RunCheckpoint` that persists
 elapsed time, cost harvesting from the three agents whose spend is currently invisible, an
-advisory `{{budget_status}}` prompt block, budget-clamped agent timeouts, and a mechanical
-finalization reserve. When no budget is configured, behavior is unchanged.
+advisory `{{budget_status}}` prompt block, budget-clamped agent deadlines, a mechanical
+finalization reserve — and, on top of that substrate, a **fidelity contract**
+(PROBE / VALIDATE / FULL): sanctioned fast variants of training and evaluation (deterministic
+data subsamples, everything else identical) with a deterministic policy that decides, from
+remaining budget and measured run costs, when an experiment runs fast and when the campaign
+spends a full run. When no budget is configured, behavior is unchanged.
 
 ## Why now: the verified gaps
 
@@ -45,6 +52,18 @@ Two smaller honesty bugs compound G1: the Claude Code adapter's failure path dro
 cost of a failed call (success records it; failure does not — `claude_code_agent.py:615-638`),
 and the non-streaming path only estimates cost. Expensive *failed* iterations are exactly the
 ones a cost budget exists to bound.
+
+### The motivating scenario: tight budgets where full runs don't fit
+
+[PostTrainBench](https://posttrainbench.com/) is the concrete case: post-train a small LM
+(Qwen3-1.7B/4B, SmolLM3-3B, Gemma3-4B) on **one H100 in 10 hours**, scored on a weighted
+average of seven eval suites (AIME 2025, Arena Hard, BFCL, GPQA, GSM8K, HealthBench,
+HumanEval). A full SFT pass plus a full seven-suite evaluation costs roughly 4–5 GPU-hours,
+so the current loop — every experiment full-size by default — affords **two experiments,
+chosen blind**. No amount of budget *accounting* fixes that; the loop needs a sanctioned way
+to run cheap experiments and spend full runs deliberately. That is the fidelity contract
+below (the "Fidelity" section), and it is the part of this design that budget arithmetic
+exists to serve.
 
 ## Design principles
 
@@ -151,6 +170,14 @@ cost_usd: Optional[float] = None
 started_at: str = ""                                # ISO-8601 UTC
 phase_telemetry: Dict[str, Dict[str, float]] = field(default_factory=dict)
 # {"ideation": {"cost_usd": ..., "duration_seconds": ...}, "implementation": ..., "feedback": ...}
+
+# Fidelity (Phase 5; defaults preserve full-size semantics for old nodes)
+train_fidelity: str = "full"
+eval_fidelity: str = "full"
+promoted_from: Optional[int] = None                 # probe node this FULL retrain came from
+evaluation_attempts: List[EvaluationAttempt] = field(default_factory=list)
+# append-only, versioned by evaluator_id — see "Evaluation versioning";
+# node.score is the canonical attempt's projection
 ```
 
 **`RunCheckpoint` schema v2 (closes G2)** — `SCHEMA_VERSION = 2` with a deterministic,
@@ -235,7 +262,9 @@ One `solve()` iteration, with additions in bold:
    set and `remaining_after_reserve <= min_iteration_seconds`, stop with
    `stop_detail="finalization_reserve"` and checkpoint `status="running"` + `last_stop`
    (budget stops are resumable; only goal achievement completes a campaign). Hard arithmetic
-   only — no duration estimation.
+   only — no duration estimation. **When fidelity is enabled**, the `FidelityPolicy` also
+   grants this iteration's profile here (PROBE / VALIDATE / FULL — see the Fidelity section),
+   and the reserve gate's trip executes the guaranteed FULL run instead of merely stopping.
 4. **`strategy.observe_budget(snapshot, ledger.record)`**, then `strategy.run(context,
    budget_progress)` exactly as today.
 5. Inside `GenericSearch.run()`:
@@ -265,16 +294,229 @@ One `solve()` iteration, with additions in bold:
 `cost_by_component` and `stop_detail` alongside the existing `cumulative_iterations` /
 `best_branch` / `external_metrics`.
 
+## Fidelity: fast and full experimentation
+
+This is the layer that makes tight budgets *searchable* rather than merely metered. It is
+opt-in: with fidelity off (the default), every experiment runs full-size exactly as today.
+
+### The contract
+
+A **fidelity** is a declared, verifiable execution profile for one experiment, with two dials:
+
+- `train_fidelity: fast | full` — *fast* trains on a deterministic subsample of the training
+  data (fixed fraction, fixed seed) and/or a capped step count. **Everything else — recipe,
+  hyperparameters, code path — is identical**, and the implementation is required to make the
+  fast→full switch a configuration flip, not a rewrite.
+- `eval_fidelity: fast | full` — *fast* evaluates on a deterministic subsample of each eval
+  suite (fixed fraction, fixed seed, so fast scores are comparable **across experiments**),
+  with the same harness, metrics, and scoring.
+
+Three sanctioned combinations keep the space tractable:
+
+| Profile | Train | Eval | Role | Typical cost (PostTrainBench) |
+|---|---|---|---|---|
+| **PROBE** | fast | fast | The search workhorse: cheap signal on a recipe | ~45 min |
+| **VALIDATE** | *reuse artifact* | full | Full-eval an existing probe's model — trust check before committing to a retrain; no training cost | ~1.5 h |
+| **FULL** | full | full | The deliverable; the only profile that can end a campaign | ~4.5 h |
+
+### Evaluation versioning and comparability classes
+
+A score is meaningless without the identity of the evaluator that produced it — and in kapso
+the evaluator itself *moves*: fidelity changes the item set, and in agent-generated mode the
+agent can rebuild the evaluation between iterations. So evaluations become **append-only,
+versioned attempt records** rather than mutable fields:
+
+```python
+@dataclass(frozen=True)
+class EvaluationAttempt:
+    commit_sha: str          # the candidate artifact (not a branch name — branches move)
+    evaluator_id: str        # manifest_fingerprint of the kapso_evaluation/ tree at eval
+                             # time — the versioning primitive; reuses the existing
+                             # evaluation-integrity hashing, and instantiates the
+                             # `evaluator_version` field the aggregate roadmap proposed
+    fidelity: str            # "fast" | "full"
+    fidelity_params: Dict    # fraction, seed, item count (echoed from the manifest line)
+    score: Optional[float]
+    metrics: Dict[str, float]
+    duration_seconds: float
+```
+
+`SearchNode` gains `train_fidelity`, `eval_fidelity`, `promoted_from: Optional[int]`, and
+`evaluation_attempts: List[EvaluationAttempt]`. A VALIDATE pass **appends** an attempt; it
+never overwrites anything, so experiment history and checkpoints can never disagree about a
+finalized node. `SearchNode.score` keeps its binding single-scalar role as a *projection*:
+the score of the node's canonical attempt (the campaign's current canonical `evaluator_id`
+at the node's granted fidelity).
+
+**The comparability rule, versioned.** Two attempts are directly comparable **iff** they
+share a comparability class: same `evaluator_id`, same fidelity, same `fidelity_params`.
+Ranking — parent selection, leaders, pruning — happens only *within* a class:
+
+- Because the fast subsample uses a fixed fraction and seed, all probe attempts under one
+  evaluator version are one class and share the exact item set — comparisons are **paired**
+  (GEPA's minibatch-acceptance insight: parent-vs-child deltas on identical items cancel
+  most subsample noise; prefer paired deltas over absolute fast scores).
+- **Evaluator drift re-anchors the frontier.** When the evaluation tree changes (new
+  `evaluator_id` — detected mechanically by the same hashing that powers integrity checks),
+  prior scores become a stale class: never mixed with new ones. The policy re-anchors by
+  re-evaluating the incumbent best under the new evaluator (eval-only, cheap) so the
+  frontier stays comparable instead of silently spanning two rulers.
+- **Mixed-fidelity selection is a tier order, not a merged ranking** (AIDE's
+  `WorstMetricValue` discipline — missing evidence always compares worse): nodes with a
+  FULL attempt > nodes with a full-eval VALIDATE attempt > probe-only nodes; within a tier,
+  rank by that tier's class score. The final artifact is the best full-eval result;
+  `should_stop` can only be set by FULL evidence — the feedback agent is told the fidelity
+  and instructed that probe results are signals, not outcomes.
+- If a campaign ends with no FULL result, `SolutionResult` says so explicitly
+  (`fidelity_of_best`) rather than presenting a probe score as the result.
+
+### Calibration: earning the right to promote on fast scores
+
+Fast scores are a proxy, and an uncalibrated proxy invites winner's-curse promotion. The
+mitigation is that the campaign *measures its own proxy quality*: every node that holds both
+a fast and a full-eval attempt under the same evaluator lineage is a calibration pair, and
+VALIDATE/FULL passes produce exactly these pairs as a side effect. The policy maintains the
+pair table in its persisted state and computes rank agreement (Spearman) as pairs accumulate:
+
+- **Below a floor** (or with too few pairs), fast scores are demoted to *pruning-only* —
+  good enough to discard clear losers, not to crown winners; promotion then requires a
+  VALIDATE confirmation.
+- **Above it**, automatic promotion by fast-score margin is permitted, still hedged by
+  `promotion_margin`.
+
+The rung discipline itself is the classic multi-fidelity answer (Successive Halving /
+Hyperband / ASHA): PROBE → VALIDATE → FULL are rungs; candidates are compared within a rung
+and *promoted* between rungs, never scored across them. Multi-seed repetition
+(AI Scientist v2) is reserved for finalists. **Holdout discipline** (the adversarial
+review's sharpest point): the fast subsample is a *development* set by construction — reused
+every iteration, therefore adapted to; the full suite is the measurement. Bounding VALIDATE
+count (`max_full_evals`) bounds the adaptivity leak into the full suite, and the final FULL
+result is reported from the full suite with the campaign's total full-suite query count
+recorded alongside it — visible, if not eliminable, adaptivity.
+
+### Who decides fidelity — and how budget connects
+
+A deterministic **FidelityPolicy** owned by the orchestrator decides the profile *before
+ideation each iteration*, from the ledger and measured telemetry — this is the first real
+occupant of the action-portfolio slot, and it follows the evidence: a three-action
+deterministic policy, not an agentic planner. The ideation agent may *request* a profile in
+its solution spec (e.g., "this recipe is promising enough to warrant FULL"); the executive
+grants the request only if the arithmetic allows. LLM proposes; executive disposes.
+
+The policy, in words:
+
+1. **The reserve is an escrowed, deadline-bounded FULL attempt — not a promise built on an
+   average.** A point estimate (EWMA) cannot bound a maximum, so the reserve is sized from a
+   **conservative upper bound**: an operator-declared `full_run_cap_minutes` (required to
+   enable fidelity — no defensible bound, no fidelity: fail closed at cold start), tightened
+   to a measured upper quantile × overhead factor only after full-size runs have been
+   observed. The reserve is *escrowed*: every PROBE and VALIDATE admission is checked
+   against `remaining − reserve`, and a VALIDATE is admitted only if its own cap fits
+   outside the escrow. The reserve run itself executes under a deadline equal to the
+   reserve — so the honest guarantee is *one full-size, deadline-bounded attempt on the
+   best recipe*, not "a completed full run of arbitrary duration."
+2. **Default to PROBE** while `remaining_after_reserve` affords at least one more probe
+   (measured probe EWMA after the first iteration).
+3. **Promote to VALIDATE** when the fast-score leader beats the incumbent by
+   `promotion_margin` and a validate pass fits outside the reserve — buying trust in the
+   signal for one-third the cost of a retrain.
+4. **Promote to FULL mid-campaign** only when `remaining_after_reserve` still covers a full
+   run with margin (rare on a 10 h budget; common on a 48 h one), capped by `max_full_runs`.
+5. **The reserve run executes FULL** on the best-validated recipe when the gate trips.
+
+`BudgetSnapshot` carries the granted profile plus the current duration estimates, so both
+agents and the prompts see *why* this iteration is a probe. **All policy state persists in
+the checkpoint** — duration quantiles, the calibration pair table, the escrow, granted but
+unfinished work, and promotion decisions — so a resumed campaign schedules deterministically
+instead of re-deriving a different plan from partial memory.
+
+### Worked example: PostTrainBench, 10 h × 1 H100
+
+Full run ≈ 3 h SFT + 1.5 h seven-suite eval. Naive loop: 2 blind experiments. With fidelity
+(`fast_train_fraction 0.1`, `fast_eval_fraction 0.15`, reserve = 4.5 h × 1.15 ≈ 5.2 h):
+
+```
+0h ─ probes #1-5 (≈45 min each: 10% SFT + 15% eval, deterministic seeds)   ~3.9h
+   ─ VALIDATE leader (full 7-suite eval of best probe artifact)            ~1.3h  → 5.2h
+   ─ reserve gate trips: FULL train+eval of the validated recipe           ~4.5h  → 9.7h
+   ─ SolutionResult: full-eval score, lineage probe→validate→full
+```
+
+Five recipes explored, the winner trust-checked, and the deliverable full-trained — versus
+two guesses. The same config with a 48 h budget naturally degrades to mostly-FULL runs
+(step 4 keeps affording them), which is why fidelity `mode: auto` enables the machinery only
+when the arithmetic says fewer than `min_affordable_full_runs` full experiments fit.
+
+The timeline above assumes estimates hold; the schedule's *feasibility* rests on the
+mechanisms, not the arithmetic: probe overruns are cut by probe-sized deadlines, the
+VALIDATE is admitted only because its cap fits outside the escrowed reserve, and the final
+run is a deadline-bounded attempt inside a reserve sized from a cap, not an average. The
+worst case degrades to fewer probes and an earlier reserve trip — never to a campaign that
+ends without its full-size attempt.
+
+### Enforcement, honestly: deterrence now, containment later
+
+The earlier deferral of "cascaded evaluation" stands — per-stage thresholds with per-stage
+timeouts still require a Kapso-owned evaluator process. And that runner is also the only
+**true** enforcement for fidelity: the implementation agent holds Bash, can launch training
+that outlives its own CLI process, and no orchestrator-side admission check can preempt work
+it cannot observe. Until the runner exists (allowlisted commands, process supervision,
+GPU/cgroup accounting, hard deadlines — the roadmap's deferred endpoint), the three levels
+below are correctly described as **deterrence** — they make cheating unprofitable and
+visible, not impossible:
+
+1. **Mechanical deadlines**: a PROBE iteration's agents get probe-sized deadlines. An
+   implementation that ignores the subsample contract gets killed at the probe deadline —
+   fast stays fast in wall-clock even when disobeyed. This depends on the Phase 4
+   streaming-deadline fix (G8), and the kill must terminate the **whole process tree**, not
+   just the agent CLI — a child training process that survives the kill is exactly the
+   bypass this level exists to close. Cheap plausibility telemetry (periodic GPU-utilization
+   sampling during the iteration) extends visibility to work the deadline missed.
+2. **Contract verification**: the evaluation must print a one-line fidelity manifest
+   (fidelity, fraction, seed, item count); the feedback agent verifies it against the granted
+   profile, and a mismatch marks the evaluation invalid exactly like an integrity failure.
+3. **Telemetry plausibility**: a "probe" whose duration lands at the FULL duration profile is
+   flagged mechanically, independent of what any agent claims.
+
+**The fidelity interface convention.** For *agent-generated* evaluation, the implementation
+prompt requires building the eval with the interface from iteration 1: honor
+`KAPSO_EVAL_FIDELITY` / `KAPSO_EVAL_FRACTION` / `KAPSO_EVAL_SEED`, print the manifest line.
+For *provided* evaluation (`eval_dir`), the suite opts in by honoring the same variables
+(declared in an optional `fidelity.yaml`); the integrity manifest already hashes whatever the
+caller provides, so the fast path is tamper-checked like everything else. A provided suite
+without the interface simply makes `eval_fidelity: fast` unavailable — the policy degrades to
+fast-train + full-eval and says so, rather than pretending.
+
 ## Configuration
 
 ```yaml
 modes:
   GENERIC:
     budget:                                # optional; absent = today's behavior
-      time_budget_minutes: 120
+      time_budget_minutes: 600
       cost_budget_usd: 25.0
-      finalization_reserve_minutes: 10
+      finalization_reserve_minutes: 10     # ignored when fidelity is active —
+                                           # the reserve is then derived from the
+                                           # full-run estimate (see below)
       min_agent_timeout_seconds: 60
+      fidelity:                            # optional; absent/off = full-size always
+        mode: auto                         # off | on | auto (auto: enable only when
+                                           #   fewer than min_affordable_full_runs
+                                           #   full experiments fit the time budget)
+        min_affordable_full_runs: 4
+        fast_train_fraction: 0.10
+        fast_eval_fraction: 0.15
+        eval_subsample_seed: 1337          # fixed so probe attempts share one item set
+        full_run_cap_minutes: 300          # REQUIRED to enable fidelity: a hard upper
+                                           # bound, not an estimate — sizes the escrowed
+                                           # reserve; tightened to a measured upper
+                                           # quantile x overhead once full runs exist
+        promotion_margin: 0.02
+        max_full_runs: 2
+        max_full_evals: 3                  # bounds VALIDATE passes (adaptivity leak into
+                                           # the full suite)
+        calibration_min_pairs: 3           # below this, fast scores prune only
+        calibration_min_spearman: 0.5      # rank-agreement floor for auto-promotion
 ```
 
 Resolution order: explicit `evolve()` kwargs > mode-config `budget` block > unset. The block is
@@ -319,6 +561,23 @@ whenever `remaining_after_reserve <= min_iteration_seconds`, and on a synthetic 
 finalization completes within the reserve (given the sizing precondition from limitation 2);
 prompts unchanged byte-for-byte except the block.
 
+**Phase 5 — Fidelity (the PROBE/VALIDATE/FULL contract).** Depends on Phase 1 (telemetry
+EWMAs), Phase 3 (spec/policy plumbing), and Phase 4 (deadline tiers are the enforcement
+teeth). Delivers: `SearchNode` fidelity fields; append-only `EvaluationAttempt` records with
+`evaluator_id` versioning; the `FidelityPolicy` and its config block; the escrowed,
+cap-based reserve; the eval fidelity-interface convention (env vars + manifest line) in both
+prompt templates; fidelity-aware feedback judging (probe results never set `should_stop`);
+comparability-class ranking with re-anchoring on evaluator drift; the calibration pair table
+gating promotion; `VALIDATE` (eval-only attempt append) and `FULL` (retrain, `promoted_from`)
+promotion paths. Acceptance: on a simulated tight-budget campaign the policy produces the
+probe→validate→full timeline and the final artifact is full-evaluated; attempts from
+different comparability classes never appear in one ranking (pinned test); an evaluator
+change triggers re-anchoring and never mixes classes; interrupting and resuming mid-campaign
+reproduces the same schedule (policy state round-trips); a probe exceeding the FULL duration
+profile is flagged; enabling fidelity without `full_run_cap_minutes` fails loudly; with
+`fidelity.mode: off` the diff is behavior-neutral; a provided suite without the interface
+degrades to fast-train + full-eval with an explicit log line.
+
 ## Explicitly rejected (for now), with evidence
 
 - **LLM duration/cost estimates for admission.** No surveyed system validates them; admission
@@ -327,9 +586,13 @@ prompts unchanged byte-for-byte except the block.
 - **An agentic budget planner.** AIRA-dojo's evidence: well-operatored greedy is competitive
   with sophisticated planners at ~10-iteration scale; every strong executive in the survey is
   deterministic. Revisit only with an A/B once telemetry exists.
-- **Fidelity ladder / cascaded evaluation.** Unenforceable while the implementation agent runs
-  evaluation in-session under one timeout; blocked on the Kapso-owned evaluator process the
-  reliability roadmap already defers (`reliability-roadmap.mdx:293-294`).
+- **Cascaded evaluation with per-stage thresholds and timeouts** (OpenEvolve-style).
+  Unenforceable while the implementation agent runs evaluation in-session under one timeout;
+  blocked on the Kapso-owned evaluator process the reliability roadmap already defers
+  (`reliability-roadmap.mdx:293-294`). Note the distinction: the **two-tier fidelity
+  contract** (PROBE/VALIDATE/FULL, above) is *in* scope precisely because it demands less —
+  deadline tiers, a printed manifest, and telemetry plausibility instead of framework-owned
+  stage execution.
 - **A categorical complexity hint in the prompt block.** AIRA derives it from tree child count;
   GenericSearch's linear chain has no analogue. The block carries only iterations, minutes,
   dollars, and reserve.
@@ -364,6 +627,24 @@ Stated plainly because budget enforcement that overpromises is worse than none:
    `feedback_generator.py:82`; the GENERIC mode config sets the same value) — clamping it
    per-call requires per-call timeout support in the adapter interface. Deferred explicitly
    rather than claimed.
-4. **Reserve calibration has no precedent.** No surveyed system protects finalization time at
-   all — this is one of Kapso's genuinely novel pieces. Start with an operator-set value and
-   revisit once tail telemetry accumulates.
+4. **Reserve calibration has no precedent** — mitigated when fidelity is on. No surveyed
+   system protects finalization time at all. Without fidelity, start with an operator-set
+   value and revisit once tail telemetry accumulates; with fidelity on, the reserve is
+   *derived* (full-run estimate × safety factor), which turns the folklore knob into
+   measured arithmetic after the first full-size run — but the **first** full run still
+   rides on the operator's `full_run_estimate_minutes` prior, bounded by the deadline clamp.
+5. **Fast scores are noisy proxies, and adaptive reuse biases them.** A 15% eval subsample
+   ranks recipes imperfectly; a 10% training subsample can invert orderings that only emerge
+   at scale; and optimizing against the same subsample every iteration adapts to it
+   (winner's curse). The design's hedges — paired same-item comparisons, the measured
+   calibration gate (fast scores demote to pruning-only until rank agreement is
+   demonstrated), `promotion_margin`, VALIDATE confirmation, bounded full-suite queries —
+   manage the risk; they do not remove it. A campaign that only ever probes can still polish
+   the wrong recipe. This is the accepted price of searching at all under a 10 h ceiling.
+6. **Fidelity contracts are agent-executed: deterrence, not containment.** Until the
+   Kapso-owned runner lands, the subsample happens inside agent-run code, and an agent with
+   Bash can spawn work that outlives its own process — which is why the streaming-deadline
+   kill must take the whole process tree and why GPU-utilization sampling exists as a
+   tripwire. The three enforcement levels make cheating unprofitable and visible rather than
+   impossible — consistent with how provided-eval integrity is handled today. The runner
+   remains the real fix.
