@@ -44,6 +44,7 @@
                 "pages": [
                   "docs/evolve/orchestrator",
                   "docs/evolve/search-strategies",
+                  "docs/evolve/parent-selection",
                   "docs/evolve/mcp-gates",
                   "docs/evolve/model-routing-retries",
                   "docs/evolve/coding-agents",

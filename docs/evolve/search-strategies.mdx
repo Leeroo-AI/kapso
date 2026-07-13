@@ -35,6 +35,7 @@ search_strategy:
     idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
     implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
     auth_mode: "bedrock"
+    parent_policy: "best"
     aws_region: "us-east-1"
     gate_failure_policy: "warn"
     ideation_timeout: 300
@@ -52,6 +53,13 @@ Gate requirements are checked before each agent is configured. `warn` (the
 default) removes unavailable gates and logs a warning, `skip` removes them
 silently, and `error` stops configuration. Unknown gate names always fail. See
 [Capability-Aware MCP Gates](/docs/evolve/mcp-gates).
+
+`parent_policy` controls experiment lineage. `best` (the default) refines the
+best valid candidate; `baseline` starts every candidate from `main`. Ideation
+reads from a detached worktree of that same selected ref, so its code and
+RepoMemory context match the implementation base. See
+[Parent Selection](/docs/evolve/parent-selection) for lineage and resume
+semantics.
 
 ### Usage
 
