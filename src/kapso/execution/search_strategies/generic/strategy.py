@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,6 +47,10 @@ if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 logger = logging.getLogger(__name__)
+
+# Enforcement mechanic (mirrors the coding-agent adapter's deadline grace):
+# time granted between SIGTERM and SIGKILL when a frame run overruns.
+_FRAME_RUN_KILL_GRACE_SECONDS = 2.0
 
 PARENT_POLICIES = frozenset({"best", "baseline"})
 
@@ -718,9 +723,11 @@ Problem: {problem}"""
 
         This is the staged-execution-ownership step from the design: the
         eval-only runs whose integrity matters most execute under Kapso's
-        own deadline-bounded subprocess, not inside an agent session. A
-        deadline overrun raises and fails the campaign loud. Returns the
-        measured score, or None when the run exited non-zero.
+        own deadline-bounded subprocess, not inside an agent session. The
+        deadline is the affordability window and an overrun is an
+        operational outcome, never a campaign failure: the process group
+        is killed and the attempt reports None, exactly like a non-zero
+        exit. Timing estimates gate admission; they do not kill campaigns.
         """
         command = shlex.split(
             evaluation_command(
@@ -731,21 +738,46 @@ Problem: {problem}"""
         )
         run_started = time.monotonic()
         with self.workspace.materialize_ref(target.branch_name) as worktree:
-            completed = subprocess.run(
+            # The frame emits a handful of lines plus the manifest — far
+            # below pipe capacity — so draining once at exit cannot
+            # deadlock the child.
+            process = subprocess.Popen(
                 command,
                 cwd=worktree,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=deadline_seconds,
+                start_new_session=True,
             )
+            while process.poll() is None:
+                overran = (
+                    deadline_seconds is not None
+                    and time.monotonic() - run_started >= deadline_seconds
+                )
+                if overran:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    grace = time.monotonic() + _FRAME_RUN_KILL_GRACE_SECONDS
+                    while process.poll() is None and time.monotonic() < grace:
+                        time.sleep(0.2)
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                    print(
+                        "[GenericSearch] Registered evaluation exceeded its "
+                        f"{deadline_seconds:.0f}s affordability window; "
+                        "recorded as a failed attempt"
+                    )
+                    return None
+                time.sleep(0.5)
+            stdout, stderr = process.communicate()
         duration = time.monotonic() - run_started
-        if completed.returncode != 0:
+        if process.returncode != 0:
             print(
                 "[GenericSearch] Registered evaluation failed "
-                f"(exit {completed.returncode}): {completed.stderr}"
+                f"(exit {process.returncode}): {stderr}"
             )
             return None
-        manifest = parse_manifest_line(completed.stdout)
+        manifest = parse_manifest_line(stdout)
         score = float(manifest["score"])
         target.evaluation_attempts.append(
             EvaluationAttempt(

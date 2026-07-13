@@ -496,7 +496,11 @@ class FidelityPolicy:
                     eval_fidelity="full",
                     eval_fraction=1.0,
                     target_node_id=fast_leader.node_id,
-                    deadline_seconds=self.full_eval_upper_seconds,
+                    # The estimate gates admission (above); the deadline is
+                    # the affordability window. Real artifacts carry real
+                    # training cost a baseline-calibrated estimate cannot
+                    # bound — a validate may run right up to the reserve.
+                    deadline_seconds=remaining_after_reserve,
                     reason=(
                         "endgame validate: confirming the unvalidated fast "
                         "leader before the reserve decision"

@@ -33,6 +33,7 @@ from tests.test_evaluation_maintainer_wiring import (
     patch_maintainer_environment,
     write_entrypoint,
 )
+from tests.test_evaluator_transition import fake_eval_subprocess
 from tests.test_run_checkpoint import (
     _init_git_workspace,
     _orchestrator,
@@ -155,7 +156,9 @@ def test_unvalidated_leader_clearing_margin_gets_a_validate():
     )
     assert decision.profile == PROFILE_VALIDATE
     assert decision.target_node_id == 1
-    assert decision.deadline_seconds == 100.0
+    # Admission was gated by the estimate; the granted deadline is the
+    # affordability window (everything outside the reserve).
+    assert decision.deadline_seconds == 1000.0
 
     # Below the margin: no validate, keep probing.
     close = [validated_node(0, 0.47, 0.40), probe_node(1, 0.48)]
@@ -269,20 +272,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
         "score": 0.41,
     }
     monkeypatch.setattr(
-        strategy_module,
-        "subprocess",
-        SimpleNamespace(
-            run=lambda command, cwd, capture_output, text, timeout: (
-                SimpleNamespace(
-                    returncode=0,
-                    stdout=(
-                        f"{maintainer_module.MANIFEST_MARKER} "
-                        f"{json.dumps(payload)}\n"
-                    ),
-                    stderr="",
-                )
-            )
-        ),
+        strategy_module, "subprocess", fake_eval_subprocess(payload)
     )
 
     from kapso.execution.fidelity import FidelityDecision
@@ -406,3 +396,72 @@ def test_fidelity_off_grants_full_passthrough(tmp_path, monkeypatch):
     assert orchestrator.search_strategy.fidelity_decisions == [
         FULL_PASSTHROUGH
     ]
+
+
+def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
+    tmp_path, monkeypatch
+):
+    """The live campaign died on subprocess.TimeoutExpired when a real
+    artifact's training outran a baseline-calibrated estimate. Overruns
+    kill the process group and report None; they never raise.
+    """
+    from contextlib import contextmanager
+
+    target = probe_node(0, 0.48)
+    target.branch_name = "generic_exp_0"
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.node_history = [target]
+    strategy.registered_evaluator_id = "ev-1"
+    strategy.registered_subsample_seed = 1337
+
+    class FakeWorkspace:
+        repo = SimpleNamespace(
+            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
+        )
+
+        @contextmanager
+        def materialize_ref(self, ref):
+            yield str(tmp_path)
+
+    strategy.workspace = FakeWorkspace()
+
+    class NeverEndingPopen:
+        pid = 424242
+        returncode = None
+
+        def poll(self):
+            return None
+
+        def wait(self):
+            return -15
+
+    kills = []
+    monkeypatch.setattr(
+        strategy_module,
+        "subprocess",
+        SimpleNamespace(
+            PIPE=-1,
+            Popen=lambda *args, **kwargs: NeverEndingPopen(),
+        ),
+    )
+    monkeypatch.setattr(
+        strategy_module.os,
+        "killpg",
+        lambda pgid, sig: kills.append((pgid, sig)),
+    )
+    monkeypatch.setattr(
+        strategy_module, "_FRAME_RUN_KILL_GRACE_SECONDS", 0.05
+    )
+
+    score = strategy._execute_registered_evaluation(
+        target, fidelity="full", fraction=1.0, deadline_seconds=0.0
+    )
+
+    assert score is None
+    assert not any(
+        a.fidelity == "full" for a in target.evaluation_attempts
+    )
+    assert kills[0] == (424242, strategy_module.signal.SIGTERM)
+    assert kills[-1] == (424242, strategy_module.signal.SIGKILL)
+

@@ -64,6 +64,39 @@ def test_transition_state_round_trips_and_validates():
         fresh.load_state(broken)
 
 
+class FakeEvalPopen:
+    """A completed frame-run process for the strategy's Popen pattern."""
+
+    def __init__(self, stdout: str, returncode: int = 0):
+        self._stdout = stdout
+        self.pid = 99999
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self):
+        return self.returncode
+
+    def communicate(self):
+        return self._stdout, ""
+
+
+def fake_eval_subprocess(payload, returncode: int = 0):
+    """A strategy_module.subprocess stand-in emitting one manifest line."""
+    manifest_line = (
+        f"{maintainer_module.MANIFEST_MARKER} {json.dumps(payload)}\n"
+    )
+
+    def popen(
+        command, cwd, stdout=None, stderr=None, text=None,
+        start_new_session=None,
+    ):
+        return FakeEvalPopen(manifest_line, returncode)
+
+    return SimpleNamespace(PIPE=-1, Popen=popen)
+
+
 def make_bridge_strategy(tmp_path, *, branches):
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.registered_evaluator_id = "ev-2"
@@ -106,20 +139,7 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
         "score": 0.37,
     }
     monkeypatch.setattr(
-        strategy_module,
-        "subprocess",
-        SimpleNamespace(
-            run=lambda command, cwd, capture_output, text, timeout: (
-                SimpleNamespace(
-                    returncode=0,
-                    stdout=(
-                        f"{maintainer_module.MANIFEST_MARKER} "
-                        f"{json.dumps(payload)}\n"
-                    ),
-                    stderr="",
-                )
-            )
-        ),
+        strategy_module, "subprocess", fake_eval_subprocess(payload)
     )
     alive = SearchNode(node_id=1, branch_name="generic_exp_1")
     assert (
