@@ -199,8 +199,15 @@ class GenericSearch(SearchStrategy):
             node.evaluation_output = agent_output
             print(f"[GenericSearch] Warning: No JSON result from agent, using raw output")
         
-        # Step 4: Generate feedback
-        self._generate_feedback(node)
+        # Step 4: Verify provided evaluation files before accepting any score
+        # or feedback derived from them.
+        if self.enforce_evaluation_integrity(node):
+            self._generate_feedback(node)
+        else:
+            print(
+                "[GenericSearch] Rejected invalid provided evaluation: "
+                f"{node.evaluation_integrity_error}"
+            )
         
         # Store node
         self.node_history.append(node)
@@ -542,7 +549,7 @@ Problem: {problem}"""
             return sorted(
                 self.node_history,
                 key=lambda node: (
-                    not node.had_error,
+                    not node.had_error and node.evaluation_valid,
                     (node.score or 0) if self.problem_handler.maximize_scoring else -(node.score or 0)
                 )
             )
@@ -550,7 +557,11 @@ Problem: {problem}"""
     
     def get_best_experiment(self) -> Optional[SearchNode]:
         """Return the best successful node."""
-        valid = [node for node in self.node_history if not node.had_error]
+        valid = [
+            node
+            for node in self.node_history
+            if not node.had_error and node.evaluation_valid
+        ]
         if not valid:
             return None
         return max(
@@ -609,9 +620,15 @@ Problem: {problem}"""
             
             # Update node with feedback results
             node.feedback = feedback_result.feedback
-            node.score = feedback_result.score
-            node.should_stop = feedback_result.stop
             node.evaluation_valid = feedback_result.evaluation_valid
+            node.score = (
+                feedback_result.score
+                if feedback_result.evaluation_valid
+                else None
+            )
+            node.should_stop = (
+                feedback_result.stop and feedback_result.evaluation_valid
+            )
             
             print(f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}")
             
@@ -715,6 +732,9 @@ Problem: {problem}"""
             "node_history": [node.to_dict() for node in self.node_history],
             "iteration_count": self.iteration_count,
             "previous_errors": list(self.previous_errors),
+            "evaluation_integrity": (
+                self.dump_evaluation_integrity_state()
+            ),
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -762,6 +782,9 @@ Problem: {problem}"""
                 "GenericSearch checkpoint previous_errors must be strings"
             )
         self.previous_errors = list(previous_errors)
+        self.load_evaluation_integrity_state(
+            state.get("evaluation_integrity")
+        )
 
     def export_checkpoint(self) -> None:
         """Write the deprecated trusted-pickle checkpoint format."""

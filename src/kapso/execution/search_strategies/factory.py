@@ -112,6 +112,7 @@ class SearchStrategyFactory:
         initial_repo: Optional[str] = None,
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
+        evaluation_manifest: Optional[Dict[str, str]] = None,
         feedback_generator: Optional["FeedbackGenerator"] = None,
         goal: str = "",
     ) -> SearchStrategy:
@@ -130,6 +131,7 @@ class SearchStrategyFactory:
             initial_repo: Path to initial repository to seed workspace
             eval_dir: Path to evaluation files (copied to kapso_evaluation/)
             data_dir: Path to data files (copied to kapso_datasets/)
+            evaluation_manifest: Prevalidated provided-suite file hashes
             feedback_generator: FeedbackGenerator for generating feedback after experiments
             goal: Goal string for feedback generation
         
@@ -157,6 +159,7 @@ class SearchStrategyFactory:
             params=resolved_params,
             initial_repo=initial_repo,
             eval_dir=eval_dir,
+            evaluation_manifest=evaluation_manifest,
             data_dir=data_dir,
             feedback_generator=feedback_generator,
             goal=goal,

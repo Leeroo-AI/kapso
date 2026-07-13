@@ -74,6 +74,14 @@ _LAZY_IMPORTS = {
         "kapso.execution.iteration_evaluator",
         "IterationEvaluator",
     ),
+    "EvaluationIntegrityError": (
+        "kapso.execution.evaluation_integrity",
+        "EvaluationIntegrityError",
+    ),
+    "EvaluationIntegrityReport": (
+        "kapso.execution.evaluation_integrity",
+        "EvaluationIntegrityReport",
+    ),
 }
 
 def __getattr__(name):
@@ -106,6 +114,9 @@ __all__ = [
     "IterationEvaluationError",
     "IterationEvaluationValidationError",
     "IterationEvaluator",
+    # Provided evaluation integrity
+    "EvaluationIntegrityError",
+    "EvaluationIntegrityReport",
 ]
 
 __version__ = "0.1.0"

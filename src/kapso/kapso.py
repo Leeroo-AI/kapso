@@ -30,6 +30,7 @@ load_dotenv()
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.solution import SolutionResult
 from kapso.execution.iteration_evaluator import IterationEvaluator
+from kapso.execution.evaluation_integrity import build_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
 from kapso.knowledge_base.search.base import KGIndexMetadata
@@ -527,6 +528,10 @@ class Kapso:
             )
         if resume:
             self._validate_resume_workspace(output_path)
+        if eval_dir:
+            # Validate caller-owned evaluation inputs before resolving an
+            # initial repository or initializing the experiment workspace.
+            build_evaluation_manifest(eval_dir)
 
         print(f"\n{'='*60}")
         print(f"EVOLVING: {goal}")
@@ -645,6 +650,12 @@ class Kapso:
                     solve_result.best_experiment,
                     "primary_metric",
                     None,
+                ),
+                "invalid_evaluations": sum(
+                    not getattr(node, "evaluation_valid", True)
+                    for node in (
+                        orchestrator.search_strategy.get_experiment_history()
+                    )
                 ),
             }
         )
@@ -852,6 +863,16 @@ class Kapso:
         for exp in history:
             if hasattr(exp, 'had_error') and exp.had_error:
                 logs.append(f"Failed: {exp.solution[:100]}... (Error: {exp.error_message})")
+            elif not getattr(exp, "evaluation_valid", True):
+                integrity_error = getattr(
+                    exp,
+                    "evaluation_integrity_error",
+                    "Invalid evaluation",
+                )
+                logs.append(
+                    f"Rejected: {exp.solution[:100]}... "
+                    f"(Evaluation: {integrity_error})"
+                )
             else:
                 score = getattr(exp, 'score', 'N/A')
                 logs.append(f"Success: {exp.solution[:100]}... (Score: {score})")

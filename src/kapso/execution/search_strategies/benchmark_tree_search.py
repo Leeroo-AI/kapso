@@ -238,16 +238,26 @@ class BenchmarkTreeSearch(SearchStrategy):
             return sorted(
                 self.node_history,
                 key=lambda node: (
-                    (not node.had_error, node.score or 0) 
+                    (
+                        not node.had_error and node.evaluation_valid,
+                        node.score or 0,
+                    )
                     if self.problem_handler.maximize_scoring 
-                    else (not node.had_error, -(node.score or 0))
+                    else (
+                        not node.had_error and node.evaluation_valid,
+                        -(node.score or 0),
+                    )
                 )
             )
         return self.node_history
     
     def get_best_experiment(self) -> Optional[SearchNode]:
         """Get the best experiment result."""
-        valid_nodes = [node for node in self.node_history if not node.had_error]
+        valid_nodes = [
+            node
+            for node in self.node_history
+            if not node.had_error and node.evaluation_valid
+        ]
         if not valid_nodes:
             return None
         return max(
@@ -479,11 +489,13 @@ class BenchmarkTreeSearch(SearchStrategy):
             parent_branch_name
         )
         
-        # Step 2: Use handler.run() for evaluation (instead of agent-based)
-        self._evaluate_with_handler(node, node.solution)
-        
-        # Step 3: Check handler's stop condition
-        node.should_stop = self._check_handler_stop_condition()
+        # Step 2: Reject changes to caller-provided evaluator files before the
+        # handler can accept a score from this branch.
+        if self.enforce_evaluation_integrity(node):
+            self._evaluate_with_handler(node, node.solution)
+            node.should_stop = self._check_handler_stop_condition()
+        else:
+            node.is_terminated = True
         
         with self.node_history_lock:
             self.node_history.append(node)
@@ -863,6 +875,9 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
             ],
             "experimentation_count": self.experimentation_count,
             "previous_errors": list(self.previous_errors),
+            "evaluation_integrity": (
+                self.dump_evaluation_integrity_state()
+            ),
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -986,6 +1001,9 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
                 "BenchmarkTreeSearch previous_errors must be strings"
             )
         self.previous_errors = list(previous_errors)
+        self.load_evaluation_integrity_state(
+            state.get("evaluation_integrity")
+        )
 
     def import_checkpoint(self) -> None:
         """Import the deprecated trusted-pickle checkpoint format."""

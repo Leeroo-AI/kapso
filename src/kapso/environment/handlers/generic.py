@@ -88,6 +88,9 @@ class GenericProblemHandler(ProblemHandler):
             parts.extend([
                 "Evaluation scripts are provided in `kapso_evaluation/`.",
                 "Review and run the existing evaluation code.",
+                "Do not modify, delete, replace, or add evaluator source "
+                "files.",
+                "Runtime outputs such as `result.json` may be created.",
             ])
         else:
             parts.extend([
