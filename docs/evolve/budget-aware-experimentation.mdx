@@ -890,6 +890,77 @@ profile is flagged; enabling fidelity with neither a time budget to derive the b
 `fidelity.mode: off` the diff is behavior-neutral; a provided suite without the interface
 degrades to fast-build + full-eval with an explicit log line.
 
+## Implementation plan
+
+Seven landable milestones, each independently green, committed and pushed per CLAUDE.md
+Rules 8/11. Honesty lands first: everything downstream trusts the numbers.
+
+| # | Slice | Size | Depends on | Core surfaces |
+|---|---|---|---|---|
+| M0 | Adapter honesty: failure-path cost + streaming deadline kill (process group) | S | — | `claude_code_agent.py` |
+| M1 | Node telemetry + agent cost harvesting (no behavior change) | M | M0 | `base.py`, `generic/strategy.py`, `feedback_generator/` |
+| M2 | Checkpoint v2: durable clock; budget stops resumable | S | M1 | `run_checkpoint.py`, `orchestrator.py` |
+| M3 | `budget.py` contracts + public API + fingerprint carve-out + `observe_budget()` | M | M2 | new `execution/budget.py`, `kapso.py`, `config.yaml` |
+| M4 | Enforcement: deadline clamps, reserve gate + `stop_detail`, `{{budget_status}}` | M | M0, M3 | `generic/strategy.py`, prompt templates |
+| M5 | EvaluationMaintainer + registry + integrity generalized to all modes | L | M1, M2 | new `execution/evaluation_maintainer/` |
+| M6 | Fidelity in three sub-slices: (a) attempts/classes/leaderboards, (b) FidelityPolicy/escrow/promotion, (c) transition state machine | L | M3–M5 | `budget.py`, `base.py`, `generic/strategy.py` |
+
+Milestone acceptance criteria are the Delivery-phases criteria above, redistributed:
+Phase 1 → M0+M1, Phase 2 → M2, Phase 3 → M3, Phase 4 → M4, Phase 5 → M5+M6.
+`BenchmarkTreeSearch` is untouched throughout; `fidelity.mode: off` stays behavior-neutral.
+
+**CLAUDE.md adaptations decided up front** (the repo rules post-date parts of this design
+and simplify it):
+
+- **Rule 7 (no backward compatibility)**: checkpoint v2 ships with *no* `_upgrade_v1`
+  shim — v1 checkpoints are rejected loudly and prior state discarded; the trusted-pickle
+  legacy path (`allow_legacy_checkpoint`, `import_checkpoint`) is deleted in M2, and
+  `agent_generated` as a separate integrity regime is deleted (not bridged) in M5.
+- **Rule 3 (no env vars)**: the fidelity interface is **CLI arguments**, not `KAPSO_*`
+  env vars — the registered command contract is
+  `evaluate.py --fidelity fast|full --fraction F --seed S`, manifest line printed.
+  Earlier mentions of env-var plumbing in this doc read as CLI args at implementation.
+- **Rule 2 (no try/except)**: new code validates-then-acts; `try/finally` (no except)
+  remains for cleanup. The two OS-race spots — process-group kill and atomic replace —
+  use poll-before-kill / write-then-rename, and the residual race (target dies between
+  poll and kill) crashes loud pending an explicit rule decision.
+- **Rule 1**: every budget/fidelity knob lives once in `config.yaml`; dataclasses carry
+  no duplicate literal defaults.
+
+## End-to-end verification track: `examples/ml_model_development`
+
+The Spaceship-Titanic example is the standing E2E vehicle for every milestone — chosen
+deliberately because it exercises the **generality claim**: its `evaluate.py` trains *and*
+scores in one command, so the task has no separate build phase. The fidelity config omits
+the `build:` block entirely and fast fidelity is a row-subsample flag on the evaluation —
+the zero-build degenerate case must work end to end, not just in prose.
+
+**Fixed test budgets** (defined here so every milestone tests against the same numbers):
+
+- `E2E_BUDGET`: `time_budget_minutes: 45`, `committed_run_fraction: 0.4`,
+  `max_iterations: 6`, `eval: {fast_fraction: 0.2, subsample_seed: 1337}` — agent latency
+  dominates compute on this task, so 45 min affords roughly: maintainer setup, 3–4 probes,
+  one VALIDATE, and the reserved full run.
+- `GATE_BUDGET`: `time_budget_minutes: 8` — small enough that the reserve gate and
+  deadline clamps *must* fire; the campaign must still end with a checked-out artifact.
+- **Hard wall**: the harness kills any E2E run at 2× its budget — a hung campaign is a
+  failed test, never a hung CI job.
+- **Data**: a deterministic synthetic generator with the Spaceship-Titanic schema
+  (~2,000 rows, fixed seed) replaces the Kaggle download, so the track needs no
+  credentials and every run sees identical data.
+
+| After | Run | Must hold |
+|---|---|---|
+| M1 | example, **unbudgeted** | Behavior identical to main; every node carries `phase_telemetry`; summed phase costs match adapter-reported spend. |
+| M2 | example, interrupt at iteration 2, resume | Clock continues (elapsed persisted); budget-stopped run is resumable; goal-achieved run is not. |
+| M3 | example with `E2E_BUDGET`, then resume with +15 min | Fingerprint unchanged by the budget block; top-up works; `observe_budget` snapshots visible in strategy state. |
+| M4 | example with `GATE_BUDGET` | Reserve gate refuses admission; agent deadlines provably clamped below configured values; final checkout completes inside the reserve; `stop_detail` set. |
+| M5 | example with `E2E_BUDGET` | Maintainer setup times `evaluate.py` via calibration slice, derives the `--fraction` wrapper, registers v1; an implementation agent's eval edit is voided; a change request produces v2 + re-anchor. |
+| M6 | example with `E2E_BUDGET` | The probe→validate→full timeline emerges; no ranking mixes comparability classes; `fidelity_of_best = FULL`; with `fidelity.mode: off` the run is byte-equivalent in behavior to the M4 run. |
+
+The track is cumulative: each milestone re-runs every earlier row. A full-track pass on
+the example plus the unit suites is the definition of "the design is applied."
+
 ## Explicitly rejected (for now), with evidence
 
 - **LLM duration/cost estimates for admission.** No surveyed system validates them; admission
