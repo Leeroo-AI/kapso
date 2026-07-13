@@ -71,7 +71,9 @@ The evaluation trains the model, splits training data into train/validation
 
 ## Success Criteria
 - Accuracy: higher is better (baseline ~0.50 with DummyClassifier)
-- Target: 0.78+ accuracy through improved modeling
+- Target: 0.97+ accuracy. This is a hard target: iterate on feature
+  engineering, model selection, and hyperparameters until the budget is
+  spent. Do not declare success below the target.
 """
 
 WALL_GRACE_SECONDS = 30.0
