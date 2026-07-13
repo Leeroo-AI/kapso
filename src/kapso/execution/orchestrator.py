@@ -66,6 +66,9 @@ class SolveResult:
     iterations_run: int
     total_cost: float
     cumulative_iterations: int = 0
+    # Which budget dial triggered a budget_exhausted stop:
+    # "time_budget" | "cost_budget" | "finalization_reserve" | None
+    stop_detail: Optional[str] = None
 
 
 class OrchestratorAgent:
@@ -726,6 +729,7 @@ class OrchestratorAgent:
         )
         self.budget_ledger.start_clock()
         stopped_reason = "max_iterations"  # default
+        stop_detail: Optional[str] = None
         iterations_run = 0
 
         # Get problem context once (experiment history is accessed via MCP)
@@ -756,15 +760,37 @@ class OrchestratorAgent:
                 if snapshot.exhausted:
                     print("[Orchestrator] Stopping: budget exhausted")
                     stopped_reason = "budget_exhausted"
+                    stop_detail = (
+                        "time_budget"
+                        if snapshot.time_fraction >= 1.0
+                        else "cost_budget"
+                        if snapshot.cost_fraction >= 1.0
+                        else None
+                    )
                     self._save_run_checkpoint(
                         status="running",
-                        last_stop=(
-                            "time_budget"
-                            if snapshot.time_fraction >= 1.0
-                            else "cost_budget"
-                            if snapshot.cost_fraction >= 1.0
-                            else None
-                        ),
+                        last_stop=stop_detail,
+                    )
+                    break
+
+                # The reserve gate: refuse admission when what remains
+                # outside the escrowed finalization reserve cannot hold one
+                # more iteration. Hard arithmetic only — no estimation.
+                remaining_after_reserve = snapshot.remaining_after_reserve
+                if (
+                    remaining_after_reserve is not None
+                    and remaining_after_reserve
+                    <= budget_spec.min_iteration_seconds
+                ):
+                    print(
+                        "[Orchestrator] Stopping: finalization reserve "
+                        "reached — protecting the endgame window"
+                    )
+                    stopped_reason = "budget_exhausted"
+                    stop_detail = "finalization_reserve"
+                    self._save_run_checkpoint(
+                        status="running",
+                        last_stop=stop_detail,
                     )
                     break
 
@@ -857,14 +883,15 @@ class OrchestratorAgent:
                 budget_exhausted = (
                     time_budget_exhausted or cost_budget_exhausted
                 )
-                self._save_run_checkpoint(
-                    status="completed" if node.should_stop else "running",
-                    last_stop=(
+                if budget_exhausted:
+                    stop_detail = (
                         "time_budget"
                         if time_budget_exhausted
-                        else "cost_budget" if cost_budget_exhausted
-                        else None
-                    ),
+                        else "cost_budget"
+                    )
+                self._save_run_checkpoint(
+                    status="completed" if node.should_stop else "running",
+                    last_stop=stop_detail if budget_exhausted else None,
                 )
 
                 # Check if search strategy says stop
@@ -914,4 +941,5 @@ class OrchestratorAgent:
             iterations_run=iterations_run,
             total_cost=self.get_cumulative_cost(),
             cumulative_iterations=self.completed_iterations,
+            stop_detail=stop_detail,
         )

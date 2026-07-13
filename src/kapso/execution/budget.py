@@ -245,6 +245,23 @@ class BudgetSnapshot:
     time_budget_seconds: Optional[float] = None
     cost_budget_usd: Optional[float] = None
     finalization_reserve_seconds: float = 0.0
+    # Sourced from BudgetSpec at construction; the default only serves
+    # direct construction in tests.
+    min_agent_timeout_seconds: float = 60.0
+
+    def clamp_timeout(self, configured_seconds: float) -> float:
+        """Bound an agent deadline by the budget remaining outside reserve.
+
+        Enforcement floor: below min_agent_timeout_seconds an agent call
+        cannot do useful work, so the clamp never goes lower.
+        """
+        remaining = self.remaining_after_reserve
+        if remaining is None:
+            return configured_seconds
+        return max(
+            self.min_agent_timeout_seconds,
+            min(configured_seconds, remaining),
+        )
 
     @property
     def remaining_seconds(self) -> Optional[float]:

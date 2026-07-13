@@ -344,7 +344,7 @@ class GenericSearch(SearchStrategy):
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
-                    "timeout": self.ideation_timeout,
+                    "timeout": self._clamped_timeout(self.ideation_timeout),
                     "streaming": True,
                     "planning_mode": False,
                 },
@@ -401,6 +401,7 @@ class GenericSearch(SearchStrategy):
             {
                 "problem": problem or "(No problem description provided)",
                 "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
+                "budget_status": self._render_budget_status(),
             },
         )
     
@@ -520,7 +521,7 @@ Problem: {problem}"""
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": implementation_allowed_tools,
-                "timeout": self.implementation_timeout,
+                "timeout": self._clamped_timeout(self.implementation_timeout),
                 "streaming": True,
             }
         )
@@ -616,8 +617,55 @@ Problem: {problem}"""
                 "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
                 "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
                 "previous_errors": previous_errors or "(No previous errors)",
+                "budget_status": self._render_budget_status(),
             },
         )
+
+    def _clamped_timeout(self, configured_seconds: float) -> float:
+        """Bound an agent deadline by the searchable budget, when known."""
+        if self.budget_snapshot is None:
+            return configured_seconds
+        return self.budget_snapshot.clamp_timeout(configured_seconds)
+
+    def _render_budget_status(self) -> str:
+        """Deterministic budget block for prompts. Advisory only — never a
+        protection mechanism; enforcement is the deadline clamp and the
+        orchestrator's gates."""
+        snapshot = self.budget_snapshot
+        if snapshot is None:
+            return (
+                f"Iteration {self.iteration_count} — no budget information "
+                "available."
+            )
+        position = (
+            f"Iteration {snapshot.iteration_index + 1} of "
+            f"{snapshot.max_iterations}."
+        )
+        if (
+            snapshot.time_budget_seconds is None
+            and snapshot.cost_budget_usd is None
+        ):
+            return f"{position} No time or cost budget is set."
+        parts = [position]
+        if snapshot.time_budget_seconds is not None:
+            parts.append(
+                f"Elapsed {snapshot.elapsed_seconds / 60:.0f} of "
+                f"{snapshot.time_budget_seconds / 60:.0f} budgeted minutes."
+            )
+            if snapshot.finalization_reserve_seconds > 0:
+                searchable = max(snapshot.remaining_after_reserve, 0.0)
+                parts.append(
+                    "Finalization reserve escrowed: "
+                    f"{snapshot.finalization_reserve_seconds / 60:.0f} "
+                    "minutes; searchable time remaining: "
+                    f"{searchable / 60:.0f} minutes."
+                )
+        if snapshot.cost_budget_usd is not None:
+            parts.append(
+                f"Spent ${snapshot.cost_usd:.2f} of "
+                f"${snapshot.cost_budget_usd:.2f}."
+            )
+        return " ".join(parts)
 
     def _select_parent(self) -> ParentSelection:
         """Select one consistent parent according to the configured policy."""

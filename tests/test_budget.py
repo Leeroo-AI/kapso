@@ -219,3 +219,152 @@ def test_strategy_receives_a_snapshot_every_iteration(
     assert snapshot.time_budget_seconds == 3600
     assert snapshot.finalization_reserve_seconds == 600
     assert snapshot.remaining_after_reserve is not None
+
+
+# =========================================================================
+# M4: reserve gate, stop_detail, clamps, and the prompt block
+# =========================================================================
+
+def test_reserve_gate_refuses_admission_and_stays_resumable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    # 2-minute budget with a 1.5-minute reserve: 30s of searchable time is
+    # below the 60s iteration floor, so no iteration may be admitted.
+    result = _orchestrator(workspace).solve(
+        experiment_max_iter=3,
+        time_budget_minutes=2,
+        finalization_reserve_minutes=1.5,
+    )
+
+    assert result.stopped_reason == "budget_exhausted"
+    assert result.stop_detail == "finalization_reserve"
+    assert result.iterations_run == 0
+
+    checkpoint = RunCheckpointStore(str(workspace)).load()
+    assert checkpoint.status == "running"
+    assert checkpoint.last_stop == "finalization_reserve"
+    resumed = _orchestrator(workspace, resume=True)
+    assert resumed.completed_iterations == 0
+
+
+def test_cost_exhaustion_reports_stop_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    result = _orchestrator(workspace).solve(
+        experiment_max_iter=3,
+        cost_budget=0.5,
+    )
+
+    assert result.stopped_reason == "budget_exhausted"
+    assert result.stop_detail == "cost_budget"
+
+
+def test_snapshot_clamps_agent_deadlines_with_a_floor():
+    budgeted = BudgetSnapshot(
+        iteration_index=0,
+        max_iterations=10,
+        elapsed_seconds=3480,
+        cost_usd=0.0,
+        time_budget_seconds=3600,
+        finalization_reserve_seconds=0.0,
+    )
+    assert budgeted.clamp_timeout(600) == 120  # remaining bounds it
+
+    nearly_out = BudgetSnapshot(
+        iteration_index=0,
+        max_iterations=10,
+        elapsed_seconds=3595,
+        cost_usd=0.0,
+        time_budget_seconds=3600,
+    )
+    assert nearly_out.clamp_timeout(600) == 60  # the floor holds
+
+    unbudgeted = BudgetSnapshot(
+        iteration_index=0,
+        max_iterations=10,
+        elapsed_seconds=1e6,
+        cost_usd=0.0,
+    )
+    assert unbudgeted.clamp_timeout(600) == 600
+
+
+def test_budget_status_block_renders_in_all_modes():
+    from kapso.core.prompt_loader import load_prompt
+    from kapso.execution.search_strategies.generic.strategy import (
+        GenericSearch,
+    )
+
+    for template_name in (
+        "execution/search_strategies/generic/prompts/ideation_claude_code.md",
+        "execution/search_strategies/generic/prompts/"
+        "implementation_claude_code.md",
+    ):
+        assert load_prompt(template_name).count("{{budget_status}}") == 1
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.iteration_count = 4
+
+    strategy.budget_snapshot = None
+    assert "no budget information" in strategy._render_budget_status()
+
+    strategy.budget_snapshot = BudgetSnapshot(
+        iteration_index=3,
+        max_iterations=10,
+        elapsed_seconds=0.0,
+        cost_usd=0.0,
+    )
+    unbudgeted_text = strategy._render_budget_status()
+    assert "Iteration 4 of 10." in unbudgeted_text
+    assert "No time or cost budget is set" in unbudgeted_text
+
+    strategy.budget_snapshot = BudgetSnapshot(
+        iteration_index=3,
+        max_iterations=10,
+        elapsed_seconds=1800,
+        cost_usd=2.5,
+        time_budget_seconds=6000,
+        cost_budget_usd=10.0,
+        finalization_reserve_seconds=1200,
+    )
+    budgeted_text = strategy._render_budget_status()
+    assert "Iteration 4 of 10." in budgeted_text
+    assert "Elapsed 30 of 100 budgeted minutes." in budgeted_text
+    assert "searchable time remaining: 50 minutes" in budgeted_text
+    assert "Spent $2.50 of $10.00." in budgeted_text
+
+    rendered = strategy._build_ideation_prompt(
+        problem="the problem",
+        repo_memory_brief="memory",
+    )
+    assert "{{budget_status}}" not in rendered
+    assert "Spent $2.50 of $10.00." in rendered
+
+
+def test_clamped_timeout_helper_uses_the_snapshot():
+    from kapso.execution.search_strategies.generic.strategy import (
+        GenericSearch,
+    )
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.budget_snapshot = None
+    assert strategy._clamped_timeout(600) == 600
+
+    strategy.budget_snapshot = BudgetSnapshot(
+        iteration_index=0,
+        max_iterations=10,
+        elapsed_seconds=0.0,
+        cost_usd=0.0,
+        time_budget_seconds=300,
+        finalization_reserve_seconds=120,
+    )
+    assert strategy._clamped_timeout(600) == 180

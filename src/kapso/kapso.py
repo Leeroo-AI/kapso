@@ -650,6 +650,7 @@ class Kapso:
                 "cumulative_iterations": solve_result.cumulative_iterations,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
+                "stop_detail": solve_result.stop_detail,
                 "best_branch": best_branch,
                 "resumed": resume,
                 "external_metrics": dict(

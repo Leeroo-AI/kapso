@@ -89,6 +89,12 @@ OBSERVABILITY REQUIREMENT (do not skip):
 - If you did not consult repo memory, write:
   RepoMemory sections consulted: none
 
+## Budget
+
+{{budget_status}}
+Advisory context: size your work to fit — the system enforces deadlines
+mechanically.
+
 ## Problem
 
 <problem>
