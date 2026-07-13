@@ -27,13 +27,15 @@ gcloud compute disks describe "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" 
     gcloud compute disks create "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" \
         --size "${CACHE_DISK_SIZE_GB}GB" --type pd-balanced
 
-# Spot e2 capacity comes and goes; fall back through configs (on-demand e2 is
-# ~$0.54/h — the build is short, availability matters more than the discount).
+# Leftover builder from a previous (failed/preempted) attempt blocks creation.
+gcloud compute instances delete "$BUILDER" --zone "$ZONE" --project "$PROJECT" --quiet 2>/dev/null || true
+
+# On-demand only: a ~$1 build is not worth spot preemption roulette (measured
+# us-central1-a spot: preempted 4m42s into a 1h build).
 CREATED=0
 for MACHINE_ARGS in \
-    "--machine-type=e2-standard-16 --provisioning-model=SPOT --instance-termination-action=STOP" \
-    "--machine-type=e2-standard-8 --provisioning-model=SPOT --instance-termination-action=STOP" \
-    "--machine-type=e2-standard-16"; do
+    "--machine-type=e2-standard-16" \
+    "--machine-type=e2-standard-8"; do
     # shellcheck disable=SC2086
     if gcloud compute instances create "$BUILDER" \
         --project "$PROJECT" --zone "$ZONE" \
@@ -61,6 +63,12 @@ for _ in $(seq 1 720); do   # up to 12h
     if gsutil -q stat "gs://$BUCKET/assets/BUILD_FAILED" 2>/dev/null; then
         echo "BUILD FAILED — log tail:"
         gsutil cat "gs://$BUCKET/assets/build.log" 2>/dev/null | tail -40
+        exit 1
+    fi
+    STATUS=$(gcloud compute instances describe "$BUILDER" --zone "$ZONE" --project "$PROJECT" \
+        --format='value(status)' 2>/dev/null || echo GONE)
+    if [ "$STATUS" = "TERMINATED" ] || [ "$STATUS" = "GONE" ]; then
+        echo "Builder died (status=$STATUS) without writing a marker — aborting."
         exit 1
     fi
     sleep 60
