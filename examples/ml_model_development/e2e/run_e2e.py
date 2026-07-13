@@ -149,7 +149,7 @@ def kill_group(process: subprocess.Popen, sig: int) -> None:
 def run_walled_child(args: argparse.Namespace, wall_seconds: float) -> str:
     """Returns 'exited', 'interrupted', or 'walled'."""
     command = [
-        sys.executable, str(Path(__file__).resolve()), "--child",
+        sys.executable, "-u", str(Path(__file__).resolve()), "--child",
         "--mode", args.mode,
         "--runs-dir", str(args.runs_dir),
         "--max-iterations", str(args.max_iterations),
