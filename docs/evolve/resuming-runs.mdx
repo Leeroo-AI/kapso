@@ -112,6 +112,9 @@ evaluator identity and failure policy when one is configured. It prevents a
 run from silently continuing under different search, model, or measurement
 settings.
 
+When `eval_dir` is provided, its content fingerprint is also part of strict
+compatibility. Pass the same unchanged suite to every resumed call.
+
 ## Atomic saves and iteration boundaries
 
 The checkpoint is written to a temporary file in `.kapso/`, flushed, and then

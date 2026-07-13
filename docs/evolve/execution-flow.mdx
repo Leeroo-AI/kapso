@@ -155,6 +155,11 @@ The developer agent is responsible for:
 3. Running the evaluation
 4. Returning structured JSON with results
 
+When the caller supplies `eval_dir`, step 2 changes: the agent must run the
+provided evaluation without changing its source. Kapso fingerprints the suite
+and verifies the finalized candidate ref before accepting its score. See
+[Evaluation Integrity](/docs/evolve/evaluation-integrity).
+
 Each experiment gets its own **Git branch** via `ExperimentWorkspace`:
 
 ```

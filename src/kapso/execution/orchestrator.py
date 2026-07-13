@@ -38,6 +38,10 @@ from kapso.execution.iteration_evaluator import (
     normalize_failure_policy,
     normalize_result,
 )
+from kapso.execution.evaluation_integrity import (
+    build_evaluation_manifest,
+    manifest_fingerprint,
+)
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
     RunCheckpointError,
@@ -137,6 +141,14 @@ class OrchestratorAgent:
             "mode_config": self.mode_config,
             "coding_agent_override": coding_agent,
         }
+        self._provided_evaluation_manifest: Optional[Dict[str, str]] = None
+        if eval_dir:
+            self._provided_evaluation_manifest = build_evaluation_manifest(
+                eval_dir
+            )
+            fingerprint_config["provided_evaluation_fingerprint"] = (
+                manifest_fingerprint(self._provided_evaluation_manifest)
+            )
         if self.iteration_evaluator is not None:
             fingerprint_config["iteration_evaluator"] = (
                 self._callable_identity(self.iteration_evaluator)
@@ -373,6 +385,7 @@ class OrchestratorAgent:
             start_from_checkpoint=start_from_checkpoint,
             initial_repo=self.initial_repo,
             eval_dir=self.eval_dir,
+            evaluation_manifest=self._provided_evaluation_manifest,
             data_dir=self.data_dir,
             feedback_generator=self.feedback_generator,
             goal=self.goal,
@@ -704,6 +717,19 @@ class OrchestratorAgent:
                     self.search_strategy.get_experiment_history(),
                     node,
                 )
+                enforce_integrity = getattr(
+                    self.search_strategy,
+                    "enforce_evaluation_integrity",
+                    None,
+                )
+                if callable(enforce_integrity):
+                    for candidate in finalized_candidates:
+                        if not getattr(
+                            candidate,
+                            "_evaluation_integrity_checked",
+                            False,
+                        ):
+                            enforce_integrity(candidate)
                 self._evaluate_candidates(
                     finalized_candidates,
                     iteration=self.completed_iterations + 1,

@@ -61,6 +61,9 @@ class ExperimentRecord:
     primary_metric: Optional[str] = None
     external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
     external_evaluation_error: str = ""
+    evaluation_valid: bool = True
+    evaluation_provenance: str = "agent_generated"
+    evaluation_integrity_error: str = ""
     
     def __str__(self) -> str:
         """Format for display."""
@@ -173,6 +176,23 @@ class ExperimentHistoryStore:
         )
         if not isinstance(external_evaluation_error, str):
             external_evaluation_error = ""
+        evaluation_valid = getattr(node, "evaluation_valid", True)
+        if not isinstance(evaluation_valid, bool):
+            evaluation_valid = True
+        evaluation_provenance = getattr(
+            node,
+            "evaluation_provenance",
+            "agent_generated",
+        )
+        if evaluation_provenance not in {"provided", "agent_generated"}:
+            evaluation_provenance = "agent_generated"
+        evaluation_integrity_error = getattr(
+            node,
+            "evaluation_integrity_error",
+            "",
+        )
+        if not isinstance(evaluation_integrity_error, str):
+            evaluation_integrity_error = ""
 
         record = ExperimentRecord(
             node_id=node.node_id,
@@ -187,6 +207,9 @@ class ExperimentHistoryStore:
             primary_metric=primary_metric,
             external_evaluation_metadata=metadata,
             external_evaluation_error=external_evaluation_error,
+            evaluation_valid=evaluation_valid,
+            evaluation_provenance=evaluation_provenance,
+            evaluation_integrity_error=evaluation_integrity_error,
         )
         
         # Extract insight if enabled
@@ -208,7 +231,7 @@ class ExperimentHistoryStore:
         self._save_to_json()
         
         # Index in Weaviate (for semantic search)
-        if self.weaviate:
+        if self.weaviate and record.evaluation_valid:
             self._index_in_weaviate(record)
         
         insight_info = f", insight={record.insight_type}" if record.insight else ""
@@ -280,7 +303,13 @@ class ExperimentHistoryStore:
         Returns:
             List of experiments sorted by score (best first)
         """
-        valid = [e for e in self.experiments if not e.had_error and e.score is not None]
+        valid = [
+            e
+            for e in self.experiments
+            if not e.had_error
+            and e.evaluation_valid
+            and e.score is not None
+        ]
         return sorted(valid, key=lambda x: x.score or 0, reverse=True)[:k]
     
     def get_recent_experiments(self, k: int = 5) -> List[ExperimentRecord]:
@@ -364,6 +393,9 @@ class ExperimentHistoryStore:
                     primary_metric=None,
                     external_evaluation_metadata={},
                     external_evaluation_error="",
+                    evaluation_valid=True,
+                    evaluation_provenance="agent_generated",
+                    evaluation_integrity_error="",
                 ))
             return records
             
@@ -420,6 +452,16 @@ class ExperimentHistoryStore:
                             ),
                             external_evaluation_error=e.get(
                                 "external_evaluation_error", ""
+                            ),
+                            evaluation_valid=e.get(
+                                "evaluation_valid", True
+                            ),
+                            evaluation_provenance=e.get(
+                                "evaluation_provenance",
+                                "agent_generated",
+                            ),
+                            evaluation_integrity_error=e.get(
+                                "evaluation_integrity_error", ""
                             ),
                         )
                         self.experiments.append(record)
@@ -543,7 +585,9 @@ def format_experiments(experiments: List[ExperimentRecord]) -> str:
     
     lines = []
     for exp in experiments:
-        if exp.had_error:
+        if not exp.evaluation_valid:
+            status = "INVALID EVALUATION"
+        elif exp.had_error:
             status = f"FAILED: {exp.error_message[:100]}"
         else:
             status = f"score={exp.score}"

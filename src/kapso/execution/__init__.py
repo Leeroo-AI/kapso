@@ -19,6 +19,10 @@ from kapso.execution.iteration_evaluator import (
     IterationEvaluationValidationError,
     IterationEvaluator,
 )
+from kapso.execution.evaluation_integrity import (
+    EvaluationIntegrityError,
+    EvaluationIntegrityReport,
+)
 
 # OrchestratorAgent has heavy dependencies (git, etc.), import lazily
 def __getattr__(name):
@@ -40,4 +44,6 @@ __all__ = [
     "IterationEvaluationError",
     "IterationEvaluationValidationError",
     "IterationEvaluator",
+    "EvaluationIntegrityError",
+    "EvaluationIntegrityReport",
 ]

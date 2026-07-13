@@ -14,7 +14,7 @@ import uuid
 import logging
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, fields
+from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from kapso.execution.types import ContextData
@@ -23,6 +23,14 @@ from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.evaluation_integrity import (
+    AGENT_GENERATED,
+    PROVIDED,
+    VALID_PROVENANCE,
+    build_evaluation_manifest,
+    manifest_fingerprint,
+    verify_evaluation_tree,
+)
 
 # Avoid circular import - FeedbackGenerator is optional
 if TYPE_CHECKING:
@@ -64,6 +72,8 @@ class SearchNode:
     score: Optional[float] = None
     should_stop: bool = False
     evaluation_valid: bool = True
+    evaluation_provenance: str = AGENT_GENERATED
+    evaluation_integrity_error: str = ""
 
     # Observational metrics from a caller-owned iteration evaluator. These do
     # not participate in search, stopping, or best-candidate selection.
@@ -80,10 +90,15 @@ class SearchNode:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize stable base-node fields to JSON-compatible data."""
-        return {
-            item.name: getattr(self, item.name)
-            for item in fields(SearchNode)
-        }
+        values = {}
+        for item in fields(SearchNode):
+            if hasattr(self, item.name):
+                values[item.name] = getattr(self, item.name)
+            elif item.default is not MISSING:
+                values[item.name] = item.default
+            elif item.default_factory is not MISSING:
+                values[item.name] = item.default_factory()
+        return values
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SearchNode":
@@ -124,6 +139,7 @@ class SearchNode:
             "workspace_dir",
             "code_diff",
             "external_evaluation_error",
+            "evaluation_integrity_error",
         }
         invalid_strings = sorted(
             name
@@ -139,6 +155,16 @@ class SearchNode:
         for name in ("should_stop", "evaluation_valid", "had_error"):
             if name in values and not isinstance(values[name], bool):
                 raise ValueError(f"Search node {name} must be a boolean")
+
+        provenance = values.get("evaluation_provenance", AGENT_GENERATED)
+        if (
+            not isinstance(provenance, str)
+            or provenance not in VALID_PROVENANCE
+        ):
+            raise ValueError(
+                "Search node evaluation_provenance must be 'provided' or "
+                "'agent_generated'"
+            )
 
         score = values.get("score")
         if score is not None and (
@@ -194,6 +220,9 @@ class ExperimentResult:
     embedding: List[float] = None
     evaluation_output: str = ""
     evaluation_script_path: str = ""
+    evaluation_valid: bool = True
+    evaluation_provenance: str = AGENT_GENERATED
+    evaluation_integrity_error: str = ""
     code_diff: str = ""
     workspace_dir: str = ""
     metrics: Dict[str, float] = field(default_factory=dict)
@@ -231,6 +260,9 @@ class ExperimentResult:
             feedbacks=node.feedback,
             evaluation_output=node.evaluation_output,
             evaluation_script_path=node.evaluation_script_path,
+            evaluation_valid=node.evaluation_valid,
+            evaluation_provenance=node.evaluation_provenance,
+            evaluation_integrity_error=node.evaluation_integrity_error,
             code_diff=node.code_diff,
             workspace_dir=node.workspace_dir,
             metrics=dict(node.metrics),
@@ -255,6 +287,7 @@ class SearchStrategyConfig:
     # Optional: directories to copy into workspace
     eval_dir: Optional[str] = None
     data_dir: Optional[str] = None
+    evaluation_manifest: Optional[Dict[str, str]] = None
     # Optional: FeedbackGenerator for generating feedback after each experiment
     feedback_generator: Optional["FeedbackGenerator"] = None
     # Goal string for feedback generation
@@ -293,6 +326,20 @@ class SearchStrategy(ABC):
         self.problem_handler = config.problem_handler
         self.llm = config.llm
         self.params = config.params
+        self.evaluation_provenance = (
+            PROVIDED if config.eval_dir else AGENT_GENERATED
+        )
+        self.provided_evaluation_manifest: Dict[str, str] = {}
+        self.provided_evaluation_fingerprint: Optional[str] = None
+        if self.evaluation_provenance == PROVIDED:
+            self.provided_evaluation_manifest = dict(
+                config.evaluation_manifest
+                if config.evaluation_manifest is not None
+                else build_evaluation_manifest(config.eval_dir)
+            )
+            self.provided_evaluation_fingerprint = manifest_fingerprint(
+                self.provided_evaluation_manifest
+            )
         self.repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 self.params.get(
@@ -390,10 +437,14 @@ class SearchStrategy(ABC):
         
         # Setup kapso_evaluation/
         kapso_eval = os.path.join(workspace, "kapso_evaluation")
-        os.makedirs(kapso_eval, exist_ok=True)
         if eval_dir and os.path.exists(eval_dir):
-            shutil.copytree(eval_dir, kapso_eval, dirs_exist_ok=True)
+            # The caller-provided suite is authoritative. Avoid silently
+            # mixing it with evaluation files from a seeded repository.
+            shutil.rmtree(kapso_eval, ignore_errors=True)
+            shutil.copytree(eval_dir, kapso_eval)
             print("  Copied eval_dir to kapso_evaluation/")
+        else:
+            os.makedirs(kapso_eval, exist_ok=True)
         dirs_created.append("kapso_evaluation")
         
         # Setup kapso_datasets/
@@ -413,9 +464,23 @@ class SearchStrategy(ABC):
                     f.write("# Placeholder to track empty directory\n")
         
         # Commit the directories to the workspace repo
-        self.workspace.repo.git.add(dirs_created)
+        if self.evaluation_provenance == PROVIDED:
+            # Seed repositories may ignore test/config suffixes. Caller-owned
+            # evaluation files must still be present in every candidate clone.
+            self.workspace.repo.git.add("-f", "kapso_evaluation")
+            self.workspace.repo.git.add(["kapso_datasets"])
+        else:
+            self.workspace.repo.git.add(dirs_created)
         if self.workspace.repo.is_dirty(untracked_files=True):
             self.workspace.repo.git.commit("-m", "chore(kapso): setup evaluation and data directories")
+
+        if self.evaluation_provenance == PROVIDED:
+            copied_manifest = build_evaluation_manifest(kapso_eval)
+            if copied_manifest != self.provided_evaluation_manifest:
+                raise RuntimeError(
+                    "Copied evaluation suite does not match its source "
+                    "manifest"
+                )
     
     # =========================================================================
     # Shared Helpers
@@ -429,6 +494,95 @@ class SearchStrategy(ABC):
         except Exception as e:
             print(f"[SearchStrategy] Warning: Could not get diff: {e}")
             return ""
+
+    def dump_evaluation_integrity_state(self) -> Dict[str, Any]:
+        """Return the provided-suite baseline stored with strategy state."""
+        return {
+            "provenance": getattr(
+                self,
+                "evaluation_provenance",
+                AGENT_GENERATED,
+            ),
+            "manifest": dict(
+                getattr(self, "provided_evaluation_manifest", {})
+            ),
+            "fingerprint": getattr(
+                self,
+                "provided_evaluation_fingerprint",
+                None,
+            ),
+        }
+
+    def load_evaluation_integrity_state(self, state: Any) -> None:
+        """Validate persisted evaluation provenance against this invocation."""
+        if state is None:
+            return
+        if not isinstance(state, dict):
+            raise ValueError("Evaluation integrity state must be an object")
+        provenance = state.get("provenance")
+        manifest = state.get("manifest")
+        fingerprint = state.get("fingerprint")
+        if (
+            not isinstance(provenance, str)
+            or provenance not in VALID_PROVENANCE
+        ):
+            raise ValueError("Evaluation integrity provenance is invalid")
+        if not isinstance(manifest, dict) or any(
+            not isinstance(path, str) or not isinstance(digest, str)
+            for path, digest in manifest.items()
+        ):
+            raise ValueError("Evaluation integrity manifest is invalid")
+        expected_fingerprint = (
+            manifest_fingerprint(manifest) if manifest else None
+        )
+        if fingerprint != expected_fingerprint:
+            raise ValueError("Evaluation integrity fingerprint is invalid")
+        if not hasattr(self, "evaluation_provenance"):
+            self.evaluation_provenance = provenance
+            self.provided_evaluation_manifest = dict(manifest)
+            self.provided_evaluation_fingerprint = fingerprint
+            return
+        if provenance != self.evaluation_provenance:
+            raise ValueError(
+                "Evaluation integrity provenance changed on resume"
+            )
+        if manifest != self.provided_evaluation_manifest:
+            raise ValueError("Provided evaluation suite changed on resume")
+
+    def enforce_evaluation_integrity(self, node: SearchNode) -> bool:
+        """Reject a candidate that changed its caller-provided evaluator."""
+        node._evaluation_integrity_checked = True
+        node.evaluation_provenance = self.evaluation_provenance
+        node.evaluation_integrity_error = ""
+        if self.evaluation_provenance == AGENT_GENERATED:
+            return True
+
+        try:
+            with self.workspace.materialize_ref(
+                node.branch_name
+            ) as candidate_dir:
+                evaluation_dir = os.path.join(
+                    candidate_dir,
+                    "kapso_evaluation",
+                )
+                report = verify_evaluation_tree(
+                    evaluation_dir,
+                    self.provided_evaluation_manifest,
+                )
+        except Exception as exc:
+            node.evaluation_integrity_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+        else:
+            node.evaluation_integrity_error = report.error
+
+        if node.evaluation_integrity_error:
+            node.evaluation_valid = False
+            node.score = None
+            node.should_stop = False
+            node.feedback = node.evaluation_integrity_error
+            return False
+        return True
 
     # =========================================================================
     # Abstract Methods - Must be implemented by subclasses

@@ -238,7 +238,9 @@ class ExperimentHistoryGate(ToolGate):
         lines = [f"# {title}\n"]
         
         for exp in experiments:
-            if exp.had_error:
+            if not exp.evaluation_valid:
+                status = "INVALID EVALUATION"
+            elif exp.had_error:
                 status = f"FAILED: {exp.error_message[:100]}"
             else:
                 status = f"score={exp.score}"
