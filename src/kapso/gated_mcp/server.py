@@ -10,6 +10,7 @@ Usage:
 
 Environment Variables:
     MCP_ENABLED_GATES: Comma-separated gate names (e.g., "idea,research")
+    MCP_GATE_FAILURE_POLICY: Missing-capability behavior (skip, warn, or error)
     KG_INDEX_PATH: Path to .index file for KG configuration
 """
 
@@ -26,7 +27,7 @@ except ImportError:
     HAS_MCP = False
     Server = None
 
-from kapso.gated_mcp.presets import GATES
+from kapso.gated_mcp.presets import GATES, resolve_gates
 from kapso.gated_mcp.gates.base import GateConfig
 from kapso.gated_mcp.gates import (
     ToolGate,
@@ -63,24 +64,34 @@ def _resolve_configuration() -> Dict[str, GateConfig]:
         Dict mapping gate names to their configurations
     """
     enabled_gates = os.getenv("MCP_ENABLED_GATES", "").strip()
-    
+
     if enabled_gates:
-        gate_names = [g.strip() for g in enabled_gates.split(",") if g.strip()]
-        logger.info(f"Using gates: {gate_names}")
-        
-        # Build config with default params from GATES
-        configs = {}
-        for name in gate_names:
-            if name in GATE_CLASSES:
-                default_params = GATES[name].default_params if name in GATES else {}
-                configs[name] = GateConfig(enabled=True, params=default_params.copy())
-        return configs
-    
-    # Default to all gates
-    logger.info("No gates specified, enabling all gates")
+        requested_gates = [
+            gate.strip() for gate in enabled_gates.split(",") if gate.strip()
+        ]
+        logger.info(f"Requested gates: {requested_gates}")
+    else:
+        requested_gates = list(GATE_CLASSES)
+        logger.info("No gates specified, checking all bundled gates")
+
+    unsupported = [
+        gate for gate in requested_gates if gate in GATES and gate not in GATE_CLASSES
+    ]
+    if unsupported:
+        names = ", ".join(unsupported)
+        raise ValueError(
+            f"External gate(s) cannot run in the bundled MCP server: {names}"
+        )
+
+    resolution = resolve_gates(
+        requested_gates,
+        policy=os.getenv("MCP_GATE_FAILURE_POLICY", "warn"),
+        env=os.environ,
+    )
+
     configs = {}
-    for name in GATE_CLASSES:
-        default_params = GATES[name].default_params if name in GATES else {}
+    for name in resolution.enabled_gates:
+        default_params = GATES[name].default_params
         configs[name] = GateConfig(enabled=True, params=default_params.copy())
     return configs
 

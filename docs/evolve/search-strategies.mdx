@@ -36,6 +36,7 @@ search_strategy:
     implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
     auth_mode: "bedrock"
     aws_region: "us-east-1"
+    gate_failure_policy: "warn"
     ideation_timeout: 300
     implementation_timeout: 600
     ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
@@ -46,6 +47,11 @@ The generic strategy deliberately keeps `bedrock` as its default authentication
 profile. Set `auth_mode` to `auto`, `api_key`, or `oauth` to opt into another
 Claude Code credential source. The deprecated `use_bedrock` boolean is still
 accepted for compatibility.
+
+Gate requirements are checked before each agent is configured. `warn` (the
+default) removes unavailable gates and logs a warning, `skip` removes them
+silently, and `error` stops configuration. Unknown gate names always fail. See
+[Capability-Aware MCP Gates](/docs/evolve/mcp-gates).
 
 ### Usage
 

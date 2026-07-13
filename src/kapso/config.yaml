@@ -38,6 +38,7 @@ modes:
         idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
         implementation_model: "us.anthropic.claude-opus-4-6-v1"
         auth_mode: "bedrock"
+        gate_failure_policy: "warn"
         aws_region: "us-east-1"
         ideation_timeout: 300
         implementation_timeout: 600
@@ -101,6 +102,7 @@ modes:
         idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
         implementation_model: "us.anthropic.claude-opus-4-6-v1"
         auth_mode: "bedrock"
+        gate_failure_policy: "warn"
         aws_region: "us-east-1"
         ideation_timeout: 180
         implementation_timeout: 300

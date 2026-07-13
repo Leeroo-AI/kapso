@@ -1,0 +1,124 @@
+---
+title: "Capability-Aware MCP Gates"
+description: "Resolve optional MCP tools before an experiment starts"
+---
+
+Kapso's MCP gates expose optional knowledge, research, experiment-history, and
+repository-memory tools to coding agents. Each gate declares its dependencies
+in the central registry, so a missing API key or executable is handled before
+Claude Code starts instead of surfacing as a failed tool call during an
+experiment.
+
+## Gate registry
+
+| Gate | Required environment | Required command | Server |
+|------|----------------------|------------------|--------|
+| `kg` | `KG_INDEX_PATH` | — | Bundled |
+| `idea` | `KG_INDEX_PATH` | — | Bundled |
+| `code` | `KG_INDEX_PATH` | — | Bundled |
+| `research` | `OPENAI_API_KEY` | — | Bundled |
+| `experiment_history` | `EXPERIMENT_HISTORY_PATH` | — | Bundled |
+| `repo_memory` | — | — | Bundled |
+| `leeroopedia` | `LEEROOPEDIA_API_KEY` | `leeroopedia-mcp` | External |
+
+`GateDefinition.required_env` checks for a non-empty value.
+`required_commands` uses the system command lookup. These checks establish that
+a dependency is configured; they do not make a network request or prove that a
+credential is valid.
+
+## Failure policies
+
+`resolve_gates` accepts three policies:
+
+| Policy | Unavailable gate behavior | Diagnostic |
+|--------|---------------------------|------------|
+| `skip` | Omit the gate | Returned in `GateResolution` |
+| `warn` | Omit the gate | Returned and logged as a warning |
+| `error` | Stop configuration | Aggregate `GateCapabilityError` |
+
+Unknown gate names and unknown policy names are always configuration errors;
+they are never skipped.
+
+```python
+from kapso.gated_mcp import resolve_gates
+
+resolution = resolve_gates(
+    ["research", "repo_memory", "leeroopedia"],
+    policy="warn",
+)
+
+print(resolution.enabled_gates)
+for diagnostic in resolution.diagnostics:
+    print(diagnostic.gate_name, diagnostic.enabled, diagnostic.reason)
+```
+
+The request order is preserved and duplicate names are removed. Diagnostics
+contain dependency names only—never credential values.
+
+## Building agent configuration
+
+`get_mcp_config` resolves capabilities first and returns servers and allowed
+tools only for enabled gates:
+
+```python
+from kapso.gated_mcp import get_mcp_config
+
+mcp_servers, allowed_tools = get_mcp_config(
+    ["idea", "experiment_history", "repo_memory"],
+    kg_index_path="./knowledge.index",
+    experiment_history_path="./.kapso/experiment_history.json",
+    repo_root=".",
+    gate_failure_policy="error",
+    include_base_tools=False,
+)
+```
+
+Explicit path arguments satisfy the corresponding environment requirement and
+are forwarded only to the bundled MCP subprocess. Kapso uses the running Python
+interpreter for that subprocess, which avoids relying on a separate `python`
+executable on `PATH`. If all internal gates are omitted, no empty bundled server
+is created. External gates retain their own MCP server and tool-name prefix.
+
+## Generic search
+
+The generic strategy defaults to `warn`, because its knowledge integrations are
+optional enrichment:
+
+```yaml
+search_strategy:
+  type: generic
+  params:
+    gate_failure_policy: warn  # skip | warn | error
+    ideation_gates:
+      - research
+      - experiment_history
+      - repo_memory
+      - leeroopedia
+    implementation_gates:
+      - research
+      - repo_memory
+      - leeroopedia
+```
+
+Use `error` for a reproducible campaign where every configured knowledge source
+is mandatory. Use `skip` when optional capabilities are expected to vary across
+machines and warnings would be noisy.
+
+## Adding a gate
+
+Dependencies belong beside the tool definition, not in a search strategy:
+
+```python
+GATES["example"] = GateDefinition(
+    tools=["example_search"],
+    command="example-mcp",       # external server; omit for bundled gates
+    server_name="example",
+    required_env=["EXAMPLE_API_KEY"],
+    required_commands=["example-mcp"],
+)
+```
+
+For a bundled gate, also register its `ToolGate` class in `GATE_CLASSES`. For an
+external gate, set both `command` and `server_name`. Add hermetic resolution
+tests for missing and available dependencies; live credential tests should
+remain opt-in.

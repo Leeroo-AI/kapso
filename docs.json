@@ -44,6 +44,7 @@
                 "pages": [
                   "docs/evolve/orchestrator",
                   "docs/evolve/search-strategies",
+                  "docs/evolve/mcp-gates",
                   "docs/evolve/coding-agents",
                   "docs/evolve/feedback-generator",
                   "docs/evolve/experiment-lifecycle",

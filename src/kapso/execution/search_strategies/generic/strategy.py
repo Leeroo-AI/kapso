@@ -58,6 +58,8 @@ class GenericSearch(SearchStrategy):
         - aws_region: AWS region (default: us-east-1)
         - ideation_timeout: Timeout for ideation in seconds (default: 300)
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
+        - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
+          (default: warn)
         - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
         - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
     """
@@ -90,6 +92,7 @@ class GenericSearch(SearchStrategy):
             "us.anthropic.claude-opus-4-5-20251101-v1:0"
         )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
+        self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
         
         # Experiment history path (set by orchestrator)
@@ -112,6 +115,7 @@ class GenericSearch(SearchStrategy):
         print(f"  - auth: {self._claude_auth_settings}")
         print(f"  - ideation_gates: {self.ideation_gates}")
         print(f"  - implementation_gates: {self.implementation_gates}")
+        print(f"  - gate_failure_policy: {self.gate_failure_policy}")
         print(f"  - experiment_history_path: {self.experiment_history_path}")
         print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
@@ -259,6 +263,7 @@ class GenericSearch(SearchStrategy):
             experiment_history_path=self.experiment_history_path,
             repo_root=self.workspace_dir,
             include_base_tools=False,
+            gate_failure_policy=self.gate_failure_policy,
         )
         
         # 3. Build restricted tool set (read-only for ideation)
@@ -425,6 +430,7 @@ Problem: {problem}"""
             gates=self.implementation_gates,
             repo_root=session.session_folder,
             include_base_tools=False,
+            gate_failure_policy=self.gate_failure_policy,
         )
         
         # 3. Build full tool set for implementation (includes Write, Edit)
