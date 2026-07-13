@@ -454,13 +454,19 @@ def verify(
 
     checks = [
         ("checkpoint_v2", lambda ev: check_checkpoint_v2(checkpoint, ev)),
-        ("node_telemetry", lambda ev: check_node_telemetry(nodes, ev)),
         (
             "single_class_scores",
             lambda ev: check_single_class_scores(nodes, ev),
         ),
     ]
     if outcome == "interrupted":
+        # A pre-iteration interrupt legitimately has zero nodes — the
+        # bootstrap checkpoint is what makes it resumable. Completed nodes,
+        # when present, must still carry telemetry.
+        if nodes:
+            checks.append(
+                ("node_telemetry", lambda ev: check_node_telemetry(nodes, ev))
+            )
         checks.append(
             (
                 "interrupt_left_resumable_state",
@@ -469,6 +475,7 @@ def verify(
         )
     else:
         checks += [
+            ("node_telemetry", lambda ev: check_node_telemetry(nodes, ev)),
             (
                 "child_clean_exit",
                 lambda ev: check_child_exit(child_returncode, result, ev),

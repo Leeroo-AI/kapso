@@ -439,7 +439,11 @@ def test_raise_policy_stops_before_history_and_checkpoint_write(
         orchestrator.solve(experiment_max_iter=1)
 
     assert not (workspace / ".kapso" / "experiment_history.json").exists()
-    assert not RunCheckpointStore(str(workspace)).exists()
+    # The bootstrap checkpoint legitimately exists (pre-loop durable work);
+    # what must never persist is the poisoned candidate itself.
+    checkpoint = RunCheckpointStore(str(workspace)).load()
+    assert checkpoint.completed_iterations == 0
+    assert checkpoint.strategy_state.get("node_history", []) == []
     assert {head.name for head in git.Repo(workspace).heads} >= {
         "candidate_0",
         "candidate_1",

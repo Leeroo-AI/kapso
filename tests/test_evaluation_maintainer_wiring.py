@@ -286,3 +286,34 @@ def test_fast_fraction_is_single_sourced_from_the_fidelity_block(
     )
     with pytest.raises(ValueError, match="evaluation_maintainer config keys"):
         _orchestrator(str(tmp_path / "workspace_two"))
+
+
+def test_registration_is_checkpointed_before_the_first_iteration(
+    tmp_path, monkeypatch
+):
+    """A crash inside iteration 1 must not orphan the paid setup: the
+    bootstrap checkpoint makes the campaign resumable from registration.
+    """
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    orchestrator = _orchestrator(workspace)
+    monkeypatch.setattr(
+        orchestrator.search_strategy,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated crash inside iteration 1")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        orchestrator.solve(experiment_max_iter=1)
+
+    checkpoint = RunCheckpointStore(str(workspace)).load()
+    assert checkpoint.status == "running"
+    assert checkpoint.completed_iterations == 0
+    # The paid registration itself is durable on disk alongside it.
+    assert orchestrator.evaluation_maintainer.registry.exists()

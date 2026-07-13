@@ -1064,6 +1064,11 @@ class OrchestratorAgent:
         stop_detail: Optional[str] = None
         iterations_run = 0
 
+        # Bootstrap checkpoint: registration and reconciliation are paid,
+        # durable work — a crash at any later point must resume instead of
+        # restarting the campaign (and re-buying the maintainer setup).
+        self._save_run_checkpoint(status="running")
+
         # Get problem context once (experiment history is accessed via MCP)
         problem = self.problem_handler.get_problem_context()
 
