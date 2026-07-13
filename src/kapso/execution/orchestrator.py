@@ -30,6 +30,14 @@ from kapso.core.llm import LLMBackend
 from kapso.core.config import load_mode_config
 from kapso.execution.search_strategies.base import ExperimentResult
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.run_checkpoint import (
+    RunCheckpoint,
+    RunCheckpointError,
+    RunCheckpointCorruptError,
+    RunCheckpointIncompatibleError,
+    RunCheckpointStore,
+    config_fingerprint,
+)
 
 
 @dataclass
@@ -40,6 +48,7 @@ class SolveResult:
     stopped_reason: str  # "goal_achieved", "max_iterations", "budget_exhausted", "legacy_stop"
     iterations_run: int
     total_cost: float
+    cumulative_iterations: int = 0
 
 
 class OrchestratorAgent:
@@ -72,6 +81,8 @@ class OrchestratorAgent:
         knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
         start_from_checkpoint: bool = False,
+        resume: bool = False,
+        allow_legacy_checkpoint: bool = False,
         initial_repo: Optional[str] = None,
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
@@ -87,12 +98,74 @@ class OrchestratorAgent:
         # Optional: directories to copy into workspace
         self.eval_dir = eval_dir
         self.data_dir = data_dir
+        self.resume = resume or start_from_checkpoint
+        self.allow_legacy_checkpoint = (
+            allow_legacy_checkpoint or start_from_checkpoint
+        )
+        if self.allow_legacy_checkpoint and not self.resume:
+            raise ValueError(
+                "allow_legacy_checkpoint requires resume=True"
+            )
         
         # Load config once and store for reuse
         self.mode_config = load_mode_config(config_path, mode)
+        (
+            self.strategy_type,
+            self.strategy_params,
+        ) = self._resolve_search_strategy_config()
+        self.config_fingerprint = config_fingerprint(
+            {
+                "strategy_type": self.strategy_type,
+                "strategy_params": self.strategy_params,
+                "mode": self.mode,
+                "mode_config": self.mode_config,
+                "coding_agent_override": coding_agent,
+            }
+        )
         
         # Determine workspace directory for experiment history
         self._workspace_dir = workspace_dir
+
+        self.checkpoint_store: Optional[RunCheckpointStore] = None
+        self._resume_checkpoint: Optional[RunCheckpoint] = None
+        self._migrate_legacy_checkpoint = False
+        self.completed_iterations = 0
+        self._prior_cost = 0.0
+
+        if workspace_dir is not None:
+            self.checkpoint_store = RunCheckpointStore(workspace_dir)
+
+        if self.resume:
+            if workspace_dir is None:
+                raise ValueError(
+                    "Resuming an evolution campaign requires workspace_dir"
+                )
+            if self.checkpoint_store is None:
+                raise AssertionError("Checkpoint store was not initialized")
+
+            if self.checkpoint_store.exists():
+                checkpoint = self.checkpoint_store.load()
+                checkpoint.validate_resume(
+                    goal=self.goal,
+                    strategy_type=self.strategy_type,
+                    config_fingerprint=self.config_fingerprint,
+                )
+                self._resume_checkpoint = checkpoint
+                self.completed_iterations = checkpoint.completed_iterations
+                self._prior_cost = float(checkpoint.cumulative_cost)
+            elif (
+                self.allow_legacy_checkpoint
+                and self.checkpoint_store.legacy_path.is_file()
+            ):
+                self._migrate_legacy_checkpoint = True
+            else:
+                # Produce the strict missing-checkpoint error with its path.
+                self.checkpoint_store.load()
+        elif self.checkpoint_store is not None and self.checkpoint_store.exists():
+            raise RunCheckpointIncompatibleError(
+                "This workspace already contains a run checkpoint; pass "
+                "resume=True or choose a new output path"
+            )
         
         # Create experiment history store
         # Path is determined after search strategy creates workspace
@@ -102,15 +175,52 @@ class OrchestratorAgent:
         self.feedback_generator = self._create_feedback_generator(coding_agent)
         
         # Track feedback for next iteration
-        self.current_feedback: Optional[str] = None
+        self.current_feedback: Optional[str] = (
+            self._resume_checkpoint.current_feedback
+            if self._resume_checkpoint is not None
+            else None
+        )
         self.last_feedback_result: Optional[FeedbackResult] = None
         
         # Create search strategy (uses feedback_generator)
         self.search_strategy = self._create_search_strategy(
             coding_agent=coding_agent,
             workspace_dir=workspace_dir,
-            start_from_checkpoint=start_from_checkpoint,
+            start_from_checkpoint=self.resume,
         )
+
+        if self._resume_checkpoint is not None:
+            try:
+                self.search_strategy.load_state(
+                    self._resume_checkpoint.strategy_state
+                )
+                self._validate_restored_branch_refs()
+            except RunCheckpointError:
+                raise
+            except Exception as exc:
+                raise RunCheckpointCorruptError(
+                    "Could not restore search strategy state from the run "
+                    "checkpoint"
+                ) from exc
+        elif self._migrate_legacy_checkpoint:
+            print(
+                "[Orchestrator] Warning: importing trusted legacy pickle "
+                "checkpoint and migrating it to JSON"
+            )
+            self.search_strategy.import_checkpoint()
+            self._validate_restored_branch_refs()
+            self.completed_iterations = len(
+                self.search_strategy.get_experiment_history()
+            )
+            self._save_run_checkpoint(status="running")
+            if self.checkpoint_store is None:
+                raise AssertionError("Checkpoint store was not initialized")
+            self.checkpoint_store.mark_legacy_migrated()
+
+        if self.checkpoint_store is None:
+            self.checkpoint_store = RunCheckpointStore(
+                self.search_strategy.workspace_dir
+            )
         
         # Now create experiment history store with the actual workspace path
         experiment_history_path = os.path.join(
@@ -193,37 +303,15 @@ class OrchestratorAgent:
             Configured SearchStrategy instance
         """
         mode_config = self.mode_config
-        
+        strategy_type = self.strategy_type
+        strategy_params = self.strategy_params
+
         if not mode_config:
-            # Use defaults
-            strategy_type = "generic"
-            strategy_params = {}
             coding_agent_type = coding_agent or "claude_code"
             coding_agent_model = None
             coding_agent_debug_model = None
+            coding_agent_specific = None
         else:
-            # Extract search strategy config
-            search_config = mode_config.get('search_strategy', {})
-            strategy_type = search_config.get('type', 'generic')
-            strategy_params = search_config.get('params', {})
-            
-            # If no search_strategy section, use legacy format
-            if not search_config:
-                strategy_type = "generic"
-                strategy_params = {
-                    'reasoning_effort': mode_config.get('reasoning_effort', 'medium'),
-                    'code_debug_tries': mode_config.get('code_debug_tries', 5),
-                    'node_expansion_limit': mode_config.get('node_expansion_limit', 2),
-                    'node_expansion_new_childs_count': mode_config.get('node_expansion_new_childs_count', 5),
-                    'idea_generation_steps': mode_config.get('idea_generation_steps', 1),
-                    'first_experiment_factor': mode_config.get('first_experiment_factor', 1),
-                    'experimentation_per_run': mode_config.get('experimentation_per_run', 1),
-                    'per_step_maximum_solution_count': mode_config.get('per_step_maximum_solution_count', 10),
-                    'exploration_budget_percent': mode_config.get('exploration_budget_percent', 30),
-                    'idea_generation_model': mode_config.get('idea_generation_model', 'gpt-4.1-mini'),
-                    'idea_generation_ensemble_models': mode_config.get('idea_generation_ensemble_models', ['gpt-4.1-mini']),
-                }
-            
             # Extract coding agent config
             coding_config = mode_config.get('coding_agent', {})
             if coding_agent:
@@ -265,6 +353,58 @@ class OrchestratorAgent:
             data_dir=self.data_dir,
             feedback_generator=self.feedback_generator,
             goal=self.goal,
+        )
+
+    def _resolve_search_strategy_config(self) -> Tuple[str, Dict[str, Any]]:
+        """Resolve strategy identity before a resume mutates the workspace."""
+        mode_config = self.mode_config
+        if not mode_config:
+            return "generic", {}
+
+        search_config = mode_config.get("search_strategy", {})
+        if search_config:
+            return (
+                search_config.get("type", "generic"),
+                search_config.get("params", {}) or {},
+            )
+
+        return (
+            "generic",
+            {
+                "reasoning_effort": mode_config.get(
+                    "reasoning_effort", "medium"
+                ),
+                "code_debug_tries": mode_config.get(
+                    "code_debug_tries", 5
+                ),
+                "node_expansion_limit": mode_config.get(
+                    "node_expansion_limit", 2
+                ),
+                "node_expansion_new_childs_count": mode_config.get(
+                    "node_expansion_new_childs_count", 5
+                ),
+                "idea_generation_steps": mode_config.get(
+                    "idea_generation_steps", 1
+                ),
+                "first_experiment_factor": mode_config.get(
+                    "first_experiment_factor", 1
+                ),
+                "experimentation_per_run": mode_config.get(
+                    "experimentation_per_run", 1
+                ),
+                "per_step_maximum_solution_count": mode_config.get(
+                    "per_step_maximum_solution_count", 10
+                ),
+                "exploration_budget_percent": mode_config.get(
+                    "exploration_budget_percent", 30
+                ),
+                "idea_generation_model": mode_config.get(
+                    "idea_generation_model", "gpt-4.1-mini"
+                ),
+                "idea_generation_ensemble_models": mode_config.get(
+                    "idea_generation_ensemble_models", ["gpt-4.1-mini"]
+                ),
+            },
         )
 
     def _create_knowledge_search(
@@ -322,9 +462,48 @@ class OrchestratorAgent:
     def get_cumulative_cost(self) -> float:
         """Get total cost from all components."""
         return (
-            self.llm.get_cumulative_cost() 
+            self._prior_cost
+            + self.llm.get_cumulative_cost()
             + self.search_strategy.workspace.get_cumulative_cost()
         )
+
+    def _save_run_checkpoint(self, *, status: str) -> None:
+        """Atomically persist orchestration and strategy state."""
+        if self.checkpoint_store is None:
+            self.checkpoint_store = RunCheckpointStore(
+                self.search_strategy.workspace_dir
+            )
+        checkpoint = RunCheckpoint.create(
+            strategy_type=self.strategy_type,
+            goal=self.goal,
+            config_fingerprint=self.config_fingerprint,
+            status=status,
+            completed_iterations=self.completed_iterations,
+            cumulative_cost=self.get_cumulative_cost(),
+            current_feedback=self.current_feedback,
+            strategy_state=self.search_strategy.dump_state(),
+        )
+        self.checkpoint_store.save(checkpoint)
+
+    def _validate_restored_branch_refs(self) -> None:
+        """Ensure successful checkpoint nodes still point to Git refs."""
+        import git
+
+        repo = git.Repo(self.search_strategy.workspace_dir)
+        missing = []
+        for node in self.search_strategy.get_experiment_history():
+            branch_name = getattr(node, "branch_name", "")
+            if not branch_name or getattr(node, "had_error", False):
+                continue
+            try:
+                repo.commit(branch_name)
+            except (git.BadName, git.GitCommandError, ValueError):
+                missing.append(branch_name)
+        if missing:
+            unique = ", ".join(sorted(set(missing)))
+            raise RunCheckpointCorruptError(
+                f"Run checkpoint references missing Git branches: {unique}"
+            )
 
     def solve(
         self, 
@@ -363,8 +542,6 @@ class OrchestratorAgent:
         
         try:
             for i in range(experiment_max_iter):
-                iterations_run = i + 1
-                
                 # Calculate budget progress (0-100)
                 # Only include time/cost if budgets are set
                 progress_factors = [i / experiment_max_iter]
@@ -376,9 +553,12 @@ class OrchestratorAgent:
                 
                 # Check budget exhaustion
                 if budget_progress >= 100:
-                    print(f"[Orchestrator] Stopping: budget exhausted")
+                    print("[Orchestrator] Stopping: budget exhausted")
                     stopped_reason = "budget_exhausted"
+                    self._save_run_checkpoint(status="completed")
                     break
+
+                iterations_run = i + 1
                 
                 # Build context with problem and feedback
                 # Experiment history is accessed via MCP tools by the agent
@@ -419,15 +599,38 @@ class OrchestratorAgent:
                         feedback=node.feedback,
                         score=node.score,
                     )
-                
+
+                self.current_feedback = node.feedback
+                self.completed_iterations += 1
+                time_budget_exhausted = (
+                    time_budget_minutes is not None
+                    and (time.time() - start_time)
+                    >= time_budget_minutes * 60
+                )
+                cost_budget_exhausted = (
+                    cost_budget is not None
+                    and self.get_cumulative_cost() >= cost_budget
+                )
+                budget_exhausted = (
+                    time_budget_exhausted or cost_budget_exhausted
+                )
+                checkpoint_status = (
+                    "completed"
+                    if node.should_stop or budget_exhausted
+                    else "running"
+                )
+                self._save_run_checkpoint(status=checkpoint_status)
+
                 # Check if search strategy says stop
                 if node.should_stop:
-                    print(f"[Orchestrator] Stopping: goal achieved")
+                    print("[Orchestrator] Stopping: goal achieved")
                     stopped_reason = "goal_achieved"
                     break
-                
-                # Store feedback for next iteration
-                self.current_feedback = node.feedback
+
+                if budget_exhausted:
+                    print("[Orchestrator] Stopping: budget exhausted")
+                    stopped_reason = "budget_exhausted"
+                    break
 
                 print(
                     f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
@@ -437,7 +640,10 @@ class OrchestratorAgent:
                     '\n', 
                     '#' * 100
                 )
-                self.search_strategy.export_checkpoint()
+
+            if stopped_reason == "max_iterations":
+                # Persist even a zero-iteration slice so it can be resumed.
+                self._save_run_checkpoint(status="running")
         finally:
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
             
@@ -461,4 +667,5 @@ class OrchestratorAgent:
             stopped_reason=stopped_reason,
             iterations_run=iterations_run,
             total_cost=self.get_cumulative_cost(),
+            cumulative_iterations=self.completed_iterations,
         )

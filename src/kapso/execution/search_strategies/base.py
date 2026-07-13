@@ -12,8 +12,9 @@ import os
 import shutil
 import uuid
 import logging
+import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from kapso.execution.types import ContextData
@@ -69,6 +70,76 @@ class SearchNode:
     error_message: str = ""
     workspace_dir: str = ""
     code_diff: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize stable base-node fields to JSON-compatible data."""
+        return {
+            item.name: getattr(self, item.name)
+            for item in fields(SearchNode)
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SearchNode":
+        """Load a node while tolerating fields added by newer versions."""
+        if not isinstance(data, dict):
+            raise ValueError("Search node state must be an object")
+        allowed = {item.name for item in fields(SearchNode)}
+        values = {key: value for key, value in data.items() if key in allowed}
+        if "node_id" not in values:
+            raise ValueError("Search node state is missing node_id")
+        node_id = values["node_id"]
+        if (
+            isinstance(node_id, bool)
+            or not isinstance(node_id, int)
+            or node_id < 0
+        ):
+            raise ValueError("Search node node_id must be a non-negative integer")
+        parent_node_id = values.get("parent_node_id")
+        if parent_node_id is not None and (
+            isinstance(parent_node_id, bool)
+            or not isinstance(parent_node_id, int)
+            or parent_node_id < 0
+        ):
+            raise ValueError(
+                "Search node parent_node_id must be null or non-negative"
+            )
+
+        string_fields = {
+            "solution",
+            "branch_name",
+            "parent_branch_name",
+            "code_changes_summary",
+            "agent_output",
+            "evaluation_script_path",
+            "evaluation_output",
+            "feedback",
+            "error_message",
+            "workspace_dir",
+            "code_diff",
+        }
+        invalid_strings = sorted(
+            name
+            for name in string_fields
+            if name in values and not isinstance(values[name], str)
+        )
+        if invalid_strings:
+            raise ValueError(
+                "Search node string fields are invalid: "
+                + ", ".join(invalid_strings)
+            )
+
+        for name in ("should_stop", "evaluation_valid", "had_error"):
+            if name in values and not isinstance(values[name], bool):
+                raise ValueError(f"Search node {name} must be a boolean")
+
+        score = values.get("score")
+        if score is not None and (
+            isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(float(score))
+        ):
+            raise ValueError("Search node score must be finite or null")
+        return cls(**values)
     
     def __str__(self) -> str:
         if self.had_error:
@@ -166,13 +237,13 @@ class SearchStrategy(ABC):
     - get_experiment_history(): Return all experiments
     - get_best_experiment(): Return best experiment so far
     - checkout_to_best_experiment_branch(): Checkout to best solution
-    - export_checkpoint(): Save state to disk
-    - import_checkpoint(): Load state from disk
+    - dump_state()/load_state(): Serialize versioned strategy state
     
     Shared infrastructure provided:
     - Workspace creation and management
     - RepoMemory bootstrap
     - Kapso directory setup (eval_dir, data_dir)
+    - Optional legacy checkpoint hooks for trusted migration
     """
     
     WORKSPACE_FOLDER_BASE = 'tmp/search_strategy_workspace'
@@ -230,9 +301,6 @@ class SearchStrategy(ABC):
         # Ensure baseline RepoMemory exists in the workspace repo.
         if not import_from_checkpoint:
             self._initialize_repo_memory()
-
-        if import_from_checkpoint:
-            self.import_checkpoint()
 
     # =========================================================================
     # Directory Setup
@@ -370,12 +438,26 @@ class SearchStrategy(ABC):
         """Checkout and return the best experiment branch, if one exists."""
         pass
 
-    @abstractmethod
-    def export_checkpoint(self) -> None:
-        """Export checkpoint to the workspace folder."""
-        pass
+    def dump_state(self) -> Dict[str, Any]:
+        """Return JSON-compatible strategy state for a run checkpoint."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support resumable state"
+        )
 
-    @abstractmethod
+    def load_state(self, state: Dict[str, Any]) -> None:
+        """Restore state produced by :meth:`dump_state`."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support resumable state"
+        )
+
+    def export_checkpoint(self) -> None:
+        """Export a legacy strategy-owned checkpoint."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no legacy checkpoint exporter"
+        )
+
     def import_checkpoint(self) -> None:
-        """Import checkpoint from the workspace folder."""
-        pass
+        """Import a trusted legacy strategy-owned checkpoint."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no legacy checkpoint importer"
+        )

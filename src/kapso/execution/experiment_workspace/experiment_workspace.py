@@ -300,7 +300,15 @@ class ExperimentWorkspace:
         #
         # IMPORTANT: Ordering matters in .gitignore.
         # The negation rule (`!changes.log`) must appear after `*.log`.
-        required_lines = ["sessions/*", "*.log", "!changes.log"]
+        required_lines = [
+            "sessions/*",
+            "*.log",
+            "!changes.log",
+            ".kapso/run_state.json",
+            ".kapso/.run_state.*.tmp",
+            "checkpoint.pkl",
+            "checkpoint.pkl.migrated",
+        ]
 
         existing = ""
         if os.path.exists(gitignore_path):

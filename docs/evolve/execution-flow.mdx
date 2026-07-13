@@ -226,7 +226,7 @@ When the loop ends, **Kapso** returns the best solution:
 
 ```python
 # Checkout to best solution branch
-orchestrator.search_strategy.checkout_to_best_experiment_branch()
+best_branch = orchestrator.search_strategy.checkout_to_best_experiment_branch()
 
 # Create result
 solution = SolutionResult(
@@ -237,6 +237,8 @@ solution = SolutionResult(
     metadata={
         "cost": f"${cost:.3f}",
         "iterations": iteration_count,
+        "cumulative_iterations": cumulative_iteration_count,
+        "best_branch": best_branch,
     }
 )
 

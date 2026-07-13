@@ -5,6 +5,13 @@
 
 # SolutionResult has minimal dependencies, import first
 from kapso.execution.solution import SolutionResult
+from kapso.execution.run_checkpoint import (
+    RunCheckpointCompletedError,
+    RunCheckpointCorruptError,
+    RunCheckpointError,
+    RunCheckpointIncompatibleError,
+    RunCheckpointMissingError,
+)
 
 # OrchestratorAgent has heavy dependencies (git, etc.), import lazily
 def __getattr__(name):
@@ -16,5 +23,9 @@ def __getattr__(name):
 __all__ = [
     "OrchestratorAgent",
     "SolutionResult",
+    "RunCheckpointError",
+    "RunCheckpointMissingError",
+    "RunCheckpointCorruptError",
+    "RunCheckpointIncompatibleError",
+    "RunCheckpointCompletedError",
 ]
-
