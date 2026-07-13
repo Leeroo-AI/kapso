@@ -198,6 +198,7 @@ def test_generic_strategy_returns_verified_best_branch(tmp_path: Path) -> None:
 
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.workspace = workspace
+    strategy.registered_evaluator_id = ""
     strategy.node_history = [
         SearchNode(node_id=0, branch_name="generic_exp_0", score=0.9)
     ]

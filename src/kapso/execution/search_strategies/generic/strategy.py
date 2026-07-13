@@ -33,6 +33,7 @@ from kapso.execution.fidelity import (
     EvaluationAttempt,
     FidelityDecision,
     project_score,
+    select_committed_candidate,
 )
 from kapso.execution.evaluation_maintainer.maintainer import (
     evaluation_command,
@@ -976,11 +977,33 @@ Problem: {problem}"""
             key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        """The committed-slot winner: evidence tiers, never raw scores.
+
+        Parent selection explores on projected scores (the four-bests
+        split); the deliverable follows the tier walk under the registered
+        evaluator, so an unvalidated fast leader cannot displace a
+        full-tier candidate at delivery. Without registered evidence the
+        score leader stands.
+        """
+        if self.registered_evaluator_id:
+            committed = select_committed_candidate(
+                self.node_history,
+                evaluator_id=self.registered_evaluator_id,
+                maximize=self.problem_handler.maximize_scoring,
+            )
+            if committed is not None:
+                return committed
+        return self.get_best_experiment()
+
     def checkout_to_best_experiment_branch(self) -> Optional[str]:
-        """Checkout and return the best node's branch."""
-        best = self.get_best_experiment()
+        """Checkout and return the deliverable node's branch."""
+        best = self.get_deliverable_experiment()
         if best:
-            print(f"[GenericSearch] Checking out to best branch: {best.branch_name} (score={best.score})")
+            print(
+                "[GenericSearch] Checking out deliverable branch: "
+                f"{best.branch_name} (score={best.score})"
+            )
             self.workspace.switch_branch(best.branch_name)
             return best.branch_name
         else:

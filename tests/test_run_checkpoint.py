@@ -140,6 +140,9 @@ class FakeStrategy:
     def get_best_experiment(self) -> Optional[SearchNode]:
         return self.node_history[-1] if self.node_history else None
 
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        return self.get_best_experiment()
+
     def run_bridge_evaluation(self, node, **kwargs) -> bool:
         self.bridge_calls.append({"node_id": node.node_id, **kwargs})
         return self.bridge_result

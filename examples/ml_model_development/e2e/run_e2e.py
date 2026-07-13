@@ -371,10 +371,22 @@ def check_best_is_full(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
     tier = (
         evidence_tier(winner, head_id) if winner is not None else None
     )
-    evidence.append(
-        f"committed_winner={getattr(winner, 'node_id', None)} tier={tier}"
+    head_branch = subprocess.run(
+        [
+            "git", "-C", str(run_dir / "workspace"),
+            "rev-parse", "--abbrev-ref", "HEAD",
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    delivered = (
+        winner is not None and head_branch == winner.branch_name
     )
-    return winner is not None and tier == TIER_FULL
+    evidence.append(
+        f"committed_winner={getattr(winner, 'node_id', None)} tier={tier} "
+        f"delivered_branch={head_branch}"
+    )
+    return winner is not None and tier == TIER_FULL and delivered
 
 
 def check_all_full_fidelity(nodes: list, evidence: list) -> bool:

@@ -1329,7 +1329,7 @@ class OrchestratorAgent:
                     pass
 
         return SolveResult(
-            best_experiment=self.search_strategy.get_best_experiment(),
+            best_experiment=self.search_strategy.get_deliverable_experiment(),
             final_feedback=self.last_feedback_result,
             stopped_reason=stopped_reason,
             iterations_run=iterations_run,

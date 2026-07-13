@@ -127,6 +127,9 @@ class TwoCandidateStrategy:
             return None
         return max(self.node_history, key=lambda node: node.score or 0.0)
 
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        return self.get_best_experiment()
+
     def dump_state(self) -> Dict[str, Any]:
         return {
             "node_history": [node.to_dict() for node in self.node_history]

@@ -762,7 +762,16 @@ class SearchStrategy(ABC):
     def get_best_experiment(self) -> Optional[SearchNode]:
         """Get the best experiment result so far."""
         pass
-    
+
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        """The node the campaign delivers as its result.
+
+        Default: the score leader. Strategies with versioned evidence
+        override this with the committed-slot selection so an unvalidated
+        fast leader can never displace a full-tier candidate at delivery.
+        """
+        return self.get_best_experiment()
+
     @abstractmethod
     def checkout_to_best_experiment_branch(self) -> Optional[str]:
         """Checkout and return the best experiment branch, if one exists."""

@@ -276,3 +276,33 @@ def test_projection_refresh_moves_the_frontier_to_the_new_ruler():
     assert old_leader.score is None
     assert anchored.score == 0.6
     assert strategy.get_best_experiment() is anchored
+
+
+def test_deliverable_prefers_committed_tier_over_fast_leader():
+    """The live campaign checked out the unvalidated fast leader (probe
+    0.87) over the TIER_FULL candidate (full 0.9). The deliverable slot
+    follows the tier walk; parent selection alone stays on projections.
+    """
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
+    strategy.registered_evaluator_id = "eval-v1"
+
+    full_tier = SearchNode(
+        node_id=0, branch_name="generic_exp_0", score=0.49,
+        build_fidelity="full",
+    )
+    full_tier.evaluation_attempts = [
+        attempt(fidelity="full", fraction=1.0, score=0.9)
+    ]
+    fast_leader = SearchNode(
+        node_id=1, branch_name="generic_exp_1", score=0.87,
+        build_fidelity="fast",
+    )
+    fast_leader.evaluation_attempts = [attempt(score=0.87)]
+    strategy.node_history = [full_tier, fast_leader]
+
+    assert strategy.get_deliverable_experiment() is full_tier
+
+    # Without registered evidence the score leader stands.
+    strategy.registered_evaluator_id = ""
+    assert strategy.get_deliverable_experiment() is fast_leader
