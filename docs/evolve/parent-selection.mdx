@@ -1,0 +1,88 @@
+---
+title: "Parent Selection"
+description: "Choose whether generic experiments build on the best candidate or the baseline"
+---
+
+Generic search can either refine the best valid candidate found so far or run
+every experiment independently from the campaign baseline. The choice is an
+explicit strategy parameter and is fixed for the campaign.
+
+## Configuration
+
+```yaml
+modes:
+  GENERIC:
+    search_strategy:
+      type: "generic"
+      params:
+        parent_policy: "best"
+```
+
+`parent_policy` accepts exactly two values:
+
+| Policy | Selected branch | Recorded `parent_node_id` | Use case |
+|--------|-----------------|---------------------------|----------|
+| `best` | Best valid candidate, or `main` before one exists | Selected candidate's node ID, or `null` for `main` | Iterative refinement and exploitation |
+| `baseline` | Always `main` | Always `null` | Independent experiments and broader exploration |
+
+The default is `best`, preserving the behavior of existing generic-search
+campaigns. Unknown values fail during strategy initialization. There is no
+environment-variable override, so the run configuration and its checkpoint
+fully describe the behavior.
+
+## One iteration
+
+```mermaid
+flowchart LR
+    A["Select parent once"] --> B["Materialize selected Git ref"]
+    B --> C["Ideate from read-only detached worktree"]
+    C --> D["Implement from selected branch"]
+    D --> E["Diff against selected branch"]
+    E --> F["Record branch and parent node together"]
+```
+
+Selection returns the branch name and node ID as one immutable pair. That pair
+is reused for ideation, implementation, diff generation, feedback's base ref,
+and the stored `SearchNode` lineage. Kapso does not independently recompute the
+best candidate between those steps.
+
+With `best`, only candidates that are not marked as failed and whose evaluation
+is valid are eligible. Selection uses Kapso's internal experiment score and the
+problem handler's maximize/minimize direction. Metrics from an optional external
+iteration evaluator remain observational and do not affect parent selection.
+
+## Ref-correct ideation
+
+The root experiment workspace may be checked out on a different branch from
+the selected parent. Before ideation, Kapso creates a temporary detached Git
+worktree at the selected ref. The Claude Code agent's read-only workspace and
+the RepoMemory MCP root both point to that worktree, while experiment history
+continues to use its absolute campaign path.
+
+The temporary worktree is removed after ideation, including when the agent
+fails. The root workspace checkout is not changed, and any unknown selected ref
+is reported as an error instead of silently falling back to `main`.
+
+## Lineage and resume guarantees
+
+Each node records both:
+
+- `parent_branch_name`: the exact Git branch used as its implementation base;
+- `parent_node_id`: the node that owns that branch, or `null` for `main`.
+
+Checkpoint state includes `parent_policy`. Resume rejects a state whose saved
+policy differs from the configured policy. It also rejects parent node IDs that
+do not reference an earlier node and branch/node pairs that disagree.
+
+For compatibility, checkpoint state created before this field existed is
+interpreted as `best`, which was the historical behavior. The campaign-level
+configuration fingerprint provides an additional guard against changing
+strategy parameters during resume.
+
+## Choosing a policy
+
+Use `best` when improvements are expected to compose and each iteration should
+start from the strongest known implementation. Use `baseline` when candidates
+should be directly comparable as independent changes, when early local optima
+are a concern, or when modifications from different ideas are likely to
+interfere with one another.

@@ -15,6 +15,7 @@ import logging
 import os
 import pickle
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from kapso.execution.search_strategies.base import (
@@ -30,6 +31,26 @@ if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 logger = logging.getLogger(__name__)
+
+PARENT_POLICIES = frozenset({"best", "baseline"})
+
+
+def normalize_parent_policy(value: Any) -> str:
+    """Validate a generic-search parent policy."""
+    if not isinstance(value, str) or value not in PARENT_POLICIES:
+        allowed = ", ".join(sorted(PARENT_POLICIES))
+        raise ValueError(
+            f"parent_policy must be one of: {allowed}"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class ParentSelection:
+    """A branch and node ID selected as one consistent parent."""
+
+    branch_name: str
+    node_id: Optional[int]
 
 
 @register_strategy("generic")
@@ -60,12 +81,16 @@ class GenericSearch(SearchStrategy):
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
         - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
           (default: warn)
+        - parent_policy: Parent branch selection: best or baseline (default: best)
         - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
         - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
     """
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
         """Initialize generic search strategy."""
+        parent_policy = normalize_parent_policy(
+            (config.params or {}).get("parent_policy", "best")
+        )
         super().__init__(config, workspace_dir, import_from_checkpoint)
         
         # Config params for ideation
@@ -94,6 +119,7 @@ class GenericSearch(SearchStrategy):
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
+        self.parent_policy = parent_policy
         
         # Experiment history path (set by orchestrator)
         self.experiment_history_path = self.params.get(
@@ -116,6 +142,7 @@ class GenericSearch(SearchStrategy):
         print(f"  - ideation_gates: {self.ideation_gates}")
         print(f"  - implementation_gates: {self.implementation_gates}")
         print(f"  - gate_failure_policy: {self.gate_failure_policy}")
+        print(f"  - parent_policy: {self.parent_policy}")
         print(f"  - experiment_history_path: {self.experiment_history_path}")
         print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
@@ -162,17 +189,21 @@ class GenericSearch(SearchStrategy):
         else:
             problem = str(getattr(context, "problem", context))
         
-        # Determine parent branch once at the start
-        parent_branch = self._get_best_branch()
+        # Select the branch and its node ID once so the recorded lineage, the
+        # ideation view, and the implementation base cannot diverge.
+        parent = self._select_parent()
         
         # Step 1: Generate solution (agent queries experiment history via MCP)
-        solution, ideation_sections = self._generate_solution(problem, parent_branch)
+        solution, ideation_sections = self._generate_solution(
+            problem,
+            parent.branch_name,
+        )
         print(f"[GenericSearch] Generated solution ({len(solution)} chars)")
         
         # Create node
         node = SearchNode(
             node_id=len(self.node_history),
-            parent_node_id=self._get_best_node_id(),
+            parent_node_id=parent.node_id,
             solution=solution,
             workspace_dir=self.workspace_dir,
         )
@@ -180,21 +211,24 @@ class GenericSearch(SearchStrategy):
         # Step 2: Implement - developer agent handles everything
         branch_name = f"generic_exp_{node.node_id}"
         
-        print(f"[GenericSearch] Implementing on branch: {branch_name} (from {parent_branch})")
+        print(
+            f"[GenericSearch] Implementing on branch: {branch_name} "
+            f"(from {parent.branch_name})"
+        )
         
         agent_output = self._implement(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
-            parent_branch_name=parent_branch,
+            parent_branch_name=parent.branch_name,
             ideation_repo_memory_sections_consulted=ideation_sections,
         )
         
         # Update node with implementation results
         node.branch_name = branch_name
-        node.parent_branch_name = parent_branch
+        node.parent_branch_name = parent.branch_name
         node.agent_output = agent_output
-        node.code_diff = self._get_code_diff(branch_name, parent_branch)
+        node.code_diff = self._get_code_diff(branch_name, parent.branch_name)
         
         # Step 3: Extract results from agent output JSON
         agent_result = self._extract_agent_result(agent_output)
@@ -257,68 +291,79 @@ class GenericSearch(SearchStrategy):
             repo_memory_doc, max_chars=2500
         )
         
-        # 2. Get MCP config for idea + code + research + experiment_history + repo_memory gates
-        mcp_servers, mcp_tools = get_mcp_config(
-            gates=self.ideation_gates,
-            experiment_history_path=self.experiment_history_path,
-            repo_root=self.workspace_dir,
-            include_base_tools=False,
-            gate_failure_policy=self.gate_failure_policy,
-        )
-        
-        # 3. Build restricted tool set (read-only for ideation)
-        # Only allow Read plus MCP tools (repo_memory is now via MCP)
-        ideation_allowed_tools = [
-            "Read",
-            *[t for t in mcp_tools if t.startswith("mcp__")],
-        ]
-        
-        logger.info(f"[GenericSearch] Ideation tools: {ideation_allowed_tools}")
-        
-        # 4. Configure Claude Code for ideation (read-only mode)
-        config = CodingAgentConfig(
-            agent_type="claude_code",
-            model=self.idea_generation_model,
-            debug_model=self.idea_generation_model,
-            agent_specific={
-                **self._claude_auth_settings,
-                "aws_region": self.aws_region,
-                "mcp_servers": mcp_servers,
-                "allowed_tools": ideation_allowed_tools,
-                "timeout": self.ideation_timeout,
-                "streaming": True,
-                "planning_mode": False,  # Direct execution for ideation
-            }
-        )
-        
-        # 5. Build ideation prompt
-        prompt = self._build_ideation_prompt(
-            problem=problem,
-            repo_memory_brief=repo_memory_brief,
-        )
-        
-        # 6. Run Claude Code for ideation
-        print(f"[GenericSearch] Running Claude Code ideation...")
-        agent = ClaudeCodeCodingAgent(config)
-        agent.initialize(self.workspace_dir)
-        
-        try:
-            result = agent.generate_code(prompt)
-            
-            if not result.success:
-                logger.warning(f"[GenericSearch] Ideation failed: {result.error}")
-                # Return a fallback solution
-                return self._fallback_solution(problem), []
-            
-            # Extract solution from output
-            solution = self._extract_solution_from_output(result.output)
-            sections_consulted = self._extract_sections_consulted(result.output)
-            
-            print(f"[GenericSearch] Ideation complete, sections consulted: {sections_consulted}")
-            return solution, sections_consulted
-            
-        finally:
-            agent.cleanup()
+        # Materialize the selected ref without changing the root workspace's
+        # checkout. Every read-only ideation surface points at this same tree.
+        with self.workspace.materialize_ref(parent_branch) as ideation_dir:
+            # 2. Configure gates against the selected parent tree. Keep the
+            # history path absolute because the MCP process may run elsewhere.
+            mcp_servers, mcp_tools = get_mcp_config(
+                gates=self.ideation_gates,
+                experiment_history_path=os.path.abspath(
+                    self.experiment_history_path
+                ),
+                repo_root=ideation_dir,
+                include_base_tools=False,
+                gate_failure_policy=self.gate_failure_policy,
+            )
+
+            # 3. Build restricted tool set (read-only for ideation).
+            ideation_allowed_tools = [
+                "Read",
+                *[t for t in mcp_tools if t.startswith("mcp__")],
+            ]
+
+            logger.info(
+                f"[GenericSearch] Ideation tools: {ideation_allowed_tools}"
+            )
+
+            # 4. Configure Claude Code for ideation (read-only mode).
+            config = CodingAgentConfig(
+                agent_type="claude_code",
+                model=self.idea_generation_model,
+                debug_model=self.idea_generation_model,
+                agent_specific={
+                    **self._claude_auth_settings,
+                    "aws_region": self.aws_region,
+                    "mcp_servers": mcp_servers,
+                    "allowed_tools": ideation_allowed_tools,
+                    "timeout": self.ideation_timeout,
+                    "streaming": True,
+                    "planning_mode": False,
+                },
+            )
+
+            # 5. Build the ideation prompt.
+            prompt = self._build_ideation_prompt(
+                problem=problem,
+                repo_memory_brief=repo_memory_brief,
+            )
+
+            # 6. Run Claude Code from the selected parent worktree.
+            print("[GenericSearch] Running Claude Code ideation...")
+            agent = ClaudeCodeCodingAgent(config)
+            agent.initialize(ideation_dir)
+
+            try:
+                result = agent.generate_code(prompt)
+
+                if not result.success:
+                    logger.warning(
+                        f"[GenericSearch] Ideation failed: {result.error}"
+                    )
+                    return self._fallback_solution(problem), []
+
+                solution = self._extract_solution_from_output(result.output)
+                sections_consulted = self._extract_sections_consulted(
+                    result.output
+                )
+
+                print(
+                    "[GenericSearch] Ideation complete, sections consulted: "
+                    f"{sections_consulted}"
+                )
+                return solution, sections_consulted
+            finally:
+                agent.cleanup()
     
     def _build_ideation_prompt(
         self,
@@ -544,19 +589,18 @@ Problem: {problem}"""
             },
         )
 
-    def _get_best_branch(self) -> str:
-        """Get the branch of the best node, or main if none."""
+    def _select_parent(self) -> ParentSelection:
+        """Select one consistent parent according to the configured policy."""
+        if self.parent_policy == "baseline":
+            return ParentSelection(branch_name="main", node_id=None)
+
         best = self.get_best_experiment()
-        if best:
-            return best.branch_name
-        return "main"
-    
-    def _get_best_node_id(self) -> Optional[int]:
-        """Get the node_id of the best node, or None if none."""
-        best = self.get_best_experiment()
-        if best:
-            return best.node_id
-        return None
+        if best is None:
+            return ParentSelection(branch_name="main", node_id=None)
+        return ParentSelection(
+            branch_name=best.branch_name,
+            node_id=best.node_id,
+        )
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Return all nodes, optionally sorted by score."""
@@ -747,6 +791,7 @@ Problem: {problem}"""
             "node_history": [node.to_dict() for node in self.node_history],
             "iteration_count": self.iteration_count,
             "previous_errors": list(self.previous_errors),
+            "parent_policy": getattr(self, "parent_policy", "best"),
             "evaluation_integrity": (
                 self.dump_evaluation_integrity_state()
             ),
@@ -797,6 +842,45 @@ Problem: {problem}"""
                 "GenericSearch checkpoint previous_errors must be strings"
             )
         self.previous_errors = list(previous_errors)
+
+        saved_parent_policy = normalize_parent_policy(
+            state.get("parent_policy", "best")
+        )
+        configured_parent_policy = getattr(
+            self,
+            "parent_policy",
+            saved_parent_policy,
+        )
+        if saved_parent_policy != configured_parent_policy:
+            raise ValueError(
+                "GenericSearch checkpoint parent_policy does not match "
+                "the configured policy"
+            )
+        self.parent_policy = saved_parent_policy
+
+        nodes_by_id = {node.node_id: node for node in self.node_history}
+        for node in self.node_history:
+            if node.parent_node_id is None:
+                if node.parent_branch_name not in {"", "main"}:
+                    raise ValueError(
+                        "GenericSearch checkpoint baseline parent branch "
+                        "must be main"
+                    )
+                continue
+            parent = nodes_by_id.get(node.parent_node_id)
+            if parent is None or parent.node_id >= node.node_id:
+                raise ValueError(
+                    "GenericSearch checkpoint parent_node_id must reference "
+                    "an earlier node"
+                )
+            if (
+                node.parent_branch_name
+                and node.parent_branch_name != parent.branch_name
+            ):
+                raise ValueError(
+                    "GenericSearch checkpoint parent node and branch do not "
+                    "match"
+                )
         self.load_evaluation_integrity_state(
             state.get("evaluation_integrity")
         )

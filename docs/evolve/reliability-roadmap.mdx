@@ -21,7 +21,7 @@ merged or cherry-picked wholesale.
 | 6. Claude Code authentication modes | Implemented |
 | 7. Capability-aware gates | Implemented |
 | 8. Model routing and retry policy | Implemented |
-| 9. Parent-selection policies | Planned |
+| 9. Parent-selection policies | Implemented |
 
 ## Goals
 
@@ -419,6 +419,21 @@ A later `ParentSelector` interface may support campaign-specific policies. The
 recorded `parent_node_id` must always correspond to the selected branch, and
 ideation must read the selected ref's code rather than the root workspace's
 current checkout.
+
+`best` remains the compatibility default. `baseline` always selects `main` and
+records a null parent node. Selection produces one branch/node pair that is
+reused by ideation, implementation, diffing, and feedback. Read-only ideation
+runs in a temporary detached worktree of the selected ref.
+
+### Acceptance tests
+
+- Unknown parent policies fail before an iteration starts.
+- Best selection excludes failed and evaluation-invalid candidates.
+- Baseline selection always returns `main` with no parent node.
+- One iteration uses the same branch for ideation, implementation, and diffing.
+- Ideation and its RepoMemory MCP gate inspect the selected detached ref.
+- Checkpoints persist the policy and reject inconsistent lineage or policy
+  changes; older state defaults to historical `best` behavior.
 
 ## Compatibility and migration
 
