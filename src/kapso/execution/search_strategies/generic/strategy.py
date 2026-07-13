@@ -26,6 +26,11 @@ from kapso.execution.search_strategies.base import (
     SearchNode,
 )
 from kapso.execution.search_strategies.factory import register_strategy
+from kapso.execution.fidelity import (
+    ComparabilityClass,
+    EvaluationAttempt,
+    project_score,
+)
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
 
@@ -273,6 +278,7 @@ class GenericSearch(SearchStrategy):
         # or feedback derived from them.
         if self.enforce_evaluation_integrity(node):
             self._generate_feedback(node)
+            self._record_evaluation_attempt(node)
         else:
             print(
                 "[GenericSearch] Rejected invalid provided evaluation: "
@@ -644,6 +650,45 @@ Problem: {problem}"""
                 "evaluation_instructions": self._evaluation_instructions(),
             },
         )
+
+    def _record_evaluation_attempt(self, node: SearchNode) -> None:
+        """Append the node's measurement under the registered evaluator.
+
+        Only trustworthy measurements become attempts: a registered
+        evaluator must exist and the node must carry a valid score.
+        """
+        if (
+            not self.registered_evaluator_id
+            or node.score is None
+            or node.had_error
+            or not node.evaluation_valid
+        ):
+            return
+        commit_sha = self.workspace.repo.commit(node.branch_name).hexsha
+        node.evaluation_attempts.append(
+            EvaluationAttempt(
+                commit_sha=commit_sha,
+                evaluator_id=self.registered_evaluator_id,
+                fidelity=node.eval_fidelity,
+                fraction=1.0,
+                seed=self.registered_subsample_seed,
+                score=node.score,
+                duration_seconds=node.phase_telemetry.get(
+                    "implementation", {}
+                ).get("duration_seconds"),
+            )
+        )
+
+    def refresh_score_projections(
+        self, comparability: ComparabilityClass
+    ) -> None:
+        """Re-project every node's score under one canonical ruler.
+
+        The selectors stay dumb: after an evaluator transition, nodes never
+        measured under the new ruler project None — and None never wins.
+        """
+        for node in self.node_history:
+            node.score = project_score(node, comparability)
 
     def _sync_registered_evaluation(self, session_folder: str) -> None:
         """Overwrite the session's evaluation tree with the registered one."""

@@ -23,6 +23,10 @@ from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.fidelity import (
+    FIDELITIES,
+    EvaluationAttempt,
+)
 from kapso.execution.evaluation_integrity import (
     AGENT_GENERATED,
     PROVIDED,
@@ -90,6 +94,13 @@ class SearchNode:
     started_at: str = ""  # ISO-8601 UTC
     phase_telemetry: Dict[str, Dict[str, float]] = field(default_factory=dict)
     # {"ideation": {"cost_usd": ..., "duration_seconds": ...}, "implementation": ..., "feedback": ...}
+
+    # Fidelity: the workload profile this node ran at, its promotion lineage,
+    # and its append-only versioned measurements (see execution/fidelity.py).
+    build_fidelity: str = "full"
+    eval_fidelity: str = "full"
+    promoted_from: Optional[int] = None
+    evaluation_attempts: List[EvaluationAttempt] = field(default_factory=list)
     
     # Metadata
     had_error: bool = False
@@ -107,6 +118,9 @@ class SearchNode:
                 values[item.name] = item.default
             elif item.default_factory is not MISSING:
                 values[item.name] = item.default_factory()
+        values["evaluation_attempts"] = [
+            attempt.to_dict() for attempt in values["evaluation_attempts"]
+        ]
         return values
 
     @classmethod
@@ -220,6 +234,32 @@ class SearchNode:
                         "Search node phase_telemetry values must be finite "
                         "and non-negative"
                     )
+
+        for name in ("build_fidelity", "eval_fidelity"):
+            if name in values and values[name] not in FIDELITIES:
+                raise ValueError(
+                    f"Search node {name} must be one of {sorted(FIDELITIES)}"
+                )
+        promoted_from = values.get("promoted_from")
+        if promoted_from is not None and (
+            isinstance(promoted_from, bool)
+            or not isinstance(promoted_from, int)
+            or promoted_from < 0
+        ):
+            raise ValueError(
+                "Search node promoted_from must be null or non-negative"
+            )
+        raw_attempts = values.get("evaluation_attempts", [])
+        if not isinstance(raw_attempts, list):
+            raise ValueError(
+                "Search node evaluation_attempts must be a list"
+            )
+        values["evaluation_attempts"] = [
+            attempt
+            if isinstance(attempt, EvaluationAttempt)
+            else EvaluationAttempt.from_dict(attempt)
+            for attempt in raw_attempts
+        ]
 
         from kapso.execution.iteration_evaluator import (
             normalize_metadata,
@@ -396,6 +436,8 @@ class SearchStrategy(ABC):
         # registered command instead of building their own evaluation.
         self.registered_evaluation_manifest: Dict[str, str] = {}
         self.registered_evaluation_command: str = ""
+        self.registered_evaluator_id: str = ""
+        self.registered_subsample_seed: int = 0
         self.repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 self.params.get(
@@ -619,10 +661,14 @@ class SearchStrategy(ABC):
         *,
         manifest: Dict[str, str],
         command: str,
+        evaluator_id: str,
+        subsample_seed: int,
     ) -> None:
         """Adopt a maintainer-registered evaluation as the enforced baseline."""
         self.registered_evaluation_manifest = dict(manifest)
         self.registered_evaluation_command = command
+        self.registered_evaluator_id = evaluator_id
+        self.registered_subsample_seed = subsample_seed
 
     def enforce_evaluation_integrity(self, node: SearchNode) -> bool:
         """Reject a candidate that changed the evaluator it was scored by.

@@ -601,6 +601,8 @@ class OrchestratorAgent:
             command=self.evaluation_maintainer.evaluation_command(
                 fidelity="full", fraction=1.0
             ),
+            evaluator_id=manifest_fingerprint(manifest),
+            subsample_seed=self.evaluation_maintainer.subsample_seed,
         )
 
     def _ensure_evaluation_registered(self) -> None:

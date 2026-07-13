@@ -110,10 +110,14 @@ class FakeStrategy:
     def observe_budget(self, snapshot: Any) -> None:
         self.budget_snapshot = snapshot
 
-    def set_registered_evaluation(self, *, manifest, command) -> None:
+    def set_registered_evaluation(
+        self, *, manifest, command, evaluator_id, subsample_seed
+    ) -> None:
         self.registered_evaluation = {
             "manifest": dict(manifest),
             "command": command,
+            "evaluator_id": evaluator_id,
+            "subsample_seed": subsample_seed,
         }
 
     def get_experiment_history(
