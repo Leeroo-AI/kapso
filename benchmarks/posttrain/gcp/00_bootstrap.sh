@@ -23,14 +23,21 @@ gcloud iam service-accounts describe "$SA_EMAIL" --project "$PROJECT" >/dev/null
         --display-name "PostTrainBench runner"
 
 gsutil iam ch "serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin" "gs://$BUCKET"
-gcloud projects add-iam-policy-binding "$PROJECT" --quiet \
-    --member "serviceAccount:$SA_EMAIL" --role roles/secretmanager.secretAccessor >/dev/null
-gcloud projects add-iam-policy-binding "$PROJECT" --quiet \
-    --member "serviceAccount:$SA_EMAIL" --role roles/logging.logWriter >/dev/null
+
+# A freshly created SA can take ~30s to propagate; retry the bindings.
+grant_role() {
+    for _ in 1 2 3 4; do
+        gcloud projects add-iam-policy-binding "$PROJECT" --quiet \
+            --member "serviceAccount:$SA_EMAIL" --role "$1" >/dev/null 2>&1 && return 0
+        sleep 15
+    done
+    echo "FAILED to grant $1" >&2; return 1
+}
+grant_role roles/secretmanager.secretAccessor
+grant_role roles/logging.logWriter
 # Lets a finished run VM delete itself (early stop => stop paying for the GPU).
 # Comment out if too broad for your project; max-run-duration cleans up anyway.
-gcloud projects add-iam-policy-binding "$PROJECT" --quiet \
-    --member "serviceAccount:$SA_EMAIL" --role roles/compute.instanceAdmin.v1 >/dev/null
+grant_role roles/compute.instanceAdmin.v1
 
 upsert_secret() {
     local name="$1" value="${2:-}"
