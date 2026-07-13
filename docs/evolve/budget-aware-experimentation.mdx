@@ -383,6 +383,97 @@ The maintainer is also the natural stepping stone to the deferred Kapso-owned ev
 command, process supervision, hard deadline) later upgrades fidelity enforcement from
 deterrence to containment without re-architecting.
 
+#### EvaluationMaintainer module design
+
+Follows the established agent-module pattern (a deterministic Python frame around scoped
+coding-agent calls, like the FeedbackGenerator), with one governing property: **every trust
+boundary is a mechanical post-condition in the frame, never an instruction to the agent.**
+
+```
+src/kapso/execution/evaluation_maintainer/
+  maintainer.py        # EvaluationMaintainer — the deterministic frame
+  registry.py          # EvaluatorVersion + EvaluationRegistry (append-only, atomic)
+  prompts/
+    setup_provided.md  # verify a caller's suite, derive the fast wrapper
+    setup_build.md     # build the full evaluator from the goal
+    change_request.md  # triage + implement an accepted change request
+```
+
+```python
+class EvaluationMaintainer:
+    def setup(goal, eval_dir, data_dir) -> EvaluatorVersion      # once, pre-loop
+    def handle_change_request(req) -> ChangeOutcome              # between iterations
+    def timing(evaluator_id, fidelity) -> TimingEstimate         # feeds FidelityPolicy
+    def record_run(evaluator_id, fidelity, seconds, n_items)     # refines the model
+
+@dataclass(frozen=True)
+class EvaluationChangeRequest:
+    iteration: int
+    requested_by: str        # "implementation" | "feedback" | "user"
+    summary: str
+    evidence: str            # logs / output excerpt, passed in full
+
+@dataclass(frozen=True)
+class ChangeOutcome:
+    accepted: bool
+    reason: str              # rejected requests are recorded too — the audit trail
+    new_version: Optional[EvaluatorVersion]
+    requires_reanchor: bool
+
+@dataclass(frozen=True)
+class TimingEstimate:
+    expected_seconds: float
+    upper_seconds: float     # quantile bound — what admission checks consume
+    basis: str               # "calibration" | "measured(n=...)"
+```
+
+**Setup transaction, precisely.** (1) Provided suite: one agent call verifies it runs (one
+item per suite); if the fidelity interface is absent, a second call derives the wrapper **as
+new files only** — then the frame re-hashes the provided files and requires byte-identity.
+Immutability is a post-condition that fails the transaction, not a request. (2) No suite:
+the agent builds the full evaluator from the goal and data layout, interface included.
+(3) **Calibration timing is not agent work**: the maintainer *module* runs the registered
+command itself via a deadline-bounded subprocess (`KAPSO_EVAL_FRACTION` ≈ 0.03), computing
+per-item rate and startup deterministically — the timing model cannot be hallucinated, and
+this small executor is deliberately the embryo of the future runner. (4) Fast variant
+derived iff measured full time exceeds `fast_variant_threshold_minutes`; register v1;
+commit. If the suite cannot be made runnable or timing cannot be established, **fail loud
+before the loop starts**.
+
+**Change-request governance.** Agents cannot edit (any diff under `kapso_evaluation/` fails
+the registry-manifest integrity check on that candidate); they can only file
+`<evaluation_change_request>`. The triage prompt includes the requester's context — its
+node's score, whether "the eval is too strict" comes from a losing candidate — because
+lobbying the referee is the obvious attack. Hard constraints live in the frame: provided
+logic edits rejected by the hash post-condition; accepted changes re-run the mechanical
+invariants (manifest == tree, interface responds, manifest line prints on a two-item dry
+run) before registering v(n+1) with `requires_reanchor=True`. A per-campaign
+`max_change_requests` cap turns a request storm into a visible signal, and rejection
+reasons feed the next implementation prompt's error context.
+
+**Integration points.** Orchestrator: constructs the maintainer from its config block, runs
+`setup()` after workspace init and before iteration 1, drains the request queue between
+iterations, and performs the re-anchor before the next selection. Integrity: the canonical
+manifest becomes the registry head's, in all modes. FidelityPolicy: consumes `timing()` for
+reserve sizing and VALIDATE admission; calls `record_run()` after every evaluation.
+Checkpoint: the registry head id joins resume validation, so a resumed campaign cannot
+silently run under a different evaluator. Ledger: every maintainer call is deadline-bounded
+and metered as `evaluation_maintenance`.
+
+**Behavior worth pinning in tests**: provided files byte-identical after wrapper
+derivation; an implementation agent's eval edit voided in agent-built mode; a change
+request yields a new version plus re-anchor, never an in-place mutation; rejected requests
+recorded; calibration extrapolation arithmetic; registry append-only atomicity;
+`record_run` tightening `upper_seconds`; resume with a mismatched registry head failing
+loudly.
+
+**Staged execution ownership.** During the loop, probes still run evaluation inside the
+implementation session (deterrence model). The natural next stage routes **VALIDATE and
+FULL evaluations through the maintainer's own executor** — they are eval-only, free of
+training entanglement, and exactly the runs whose integrity matters most — turning
+enforcement into containment for the decisions that spend real budget, before probes ever
+need it.
+
 ### Evaluation versioning and comparability classes
 
 A score is meaningless without the identity of the evaluator that produced it — and in kapso
