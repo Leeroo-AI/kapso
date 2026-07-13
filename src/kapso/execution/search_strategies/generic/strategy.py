@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -34,6 +35,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 PARENT_POLICIES = frozenset({"best", "baseline"})
+
+# Byte-identical to the pre-maintainer template text: rendered whenever no
+# maintainer-registered evaluation exists, keeping default prompts unchanged.
+DEFAULT_EVALUATION_INSTRUCTIONS = """You MUST build and run evaluation in `kapso_evaluation/` directory:
+
+1. **Create evaluation script**: `kapso_evaluation/evaluate.py` (or similar)
+2. **Evaluation should**:
+   - Test your solution against the goal criteria
+   - Output a clear score or success/failure indication
+   - Be fair and actually test what it claims to test
+   - NOT be hardcoded or trivially pass
+
+3. **Run the evaluation**: Execute your evaluation script and capture output.
+
+4. **Retry on crash**: If evaluation crashes, fix the issue and retry (max 3 attempts)."""
 
 
 def normalize_parent_policy(value: Any) -> str:
@@ -489,6 +505,13 @@ Problem: {problem}"""
         
         # Create experiment session (handles git branching)
         session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
+
+        # A maintainer-registered evaluation is versioned on the workspace
+        # root, but sessions inherit their parent branch's tree — which may
+        # predate a re-registration. Frame-sync the registered tree in so
+        # every candidate runs (and is integrity-checked against) the head.
+        if self.registered_evaluation_manifest:
+            self._sync_registered_evaluation(session.session_folder)
         
         # 1. Load RepoMemory
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
@@ -618,8 +641,34 @@ Problem: {problem}"""
                 "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
                 "previous_errors": previous_errors or "(No previous errors)",
                 "budget_status": self._render_budget_status(),
+                "evaluation_instructions": self._evaluation_instructions(),
             },
         )
+
+    def _sync_registered_evaluation(self, session_folder: str) -> None:
+        """Overwrite the session's evaluation tree with the registered one."""
+        source = os.path.join(self.workspace_dir, "kapso_evaluation")
+        destination = os.path.join(session_folder, "kapso_evaluation")
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.copytree(source, destination)
+
+    def _evaluation_instructions(self) -> str:
+        """Registered-evaluation contract when a maintainer owns evaluation;
+        the historical build-your-own instructions otherwise."""
+        if not self.registered_evaluation_command:
+            return DEFAULT_EVALUATION_INSTRUCTIONS
+        return f"""The evaluation is maintained by the system and is read-and-execute only.
+
+1. **Run the registered evaluation**: `{self.registered_evaluation_command}`
+   and capture its full output, including the KAPSO_EVAL_MANIFEST line.
+2. **Never modify anything under `kapso_evaluation/`** — any change there is
+   detected mechanically and voids this experiment's score.
+3. **If you believe the evaluation itself is broken**, do not fix it. File a
+   request by including this tag in your final response:
+   <evaluation_change_request>concrete description of the defect, with the
+   exact error output as evidence</evaluation_change_request>
+   Then still report your results from the run you attempted.
+4. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
     def _clamped_timeout(self, configured_seconds: float) -> float:
         """Bound an agent deadline by the searchable budget, when known."""

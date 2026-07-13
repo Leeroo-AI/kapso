@@ -84,6 +84,8 @@ class FakeStrategy:
         self.node_history: List[SearchNode] = []
         self.contexts: List[str] = []
         self.stop_next = stop_next
+        self.next_agent_output = ""
+        self.registered_evaluation: Dict[str, Any] = {}
 
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         node_id = len(self.node_history)
@@ -98,6 +100,7 @@ class FakeStrategy:
             score=0.1,
             feedback=f"feedback-{node_id}",
             should_stop=self.stop_next,
+            agent_output=self.next_agent_output,
         )
         self.contexts.append(context)
         self.node_history.append(node)
@@ -106,6 +109,12 @@ class FakeStrategy:
 
     def observe_budget(self, snapshot: Any) -> None:
         self.budget_snapshot = snapshot
+
+    def set_registered_evaluation(self, *, manifest, command) -> None:
+        self.registered_evaluation = {
+            "manifest": dict(manifest),
+            "command": command,
+        }
 
     def get_experiment_history(
         self,

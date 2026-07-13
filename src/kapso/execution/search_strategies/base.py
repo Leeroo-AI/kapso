@@ -390,6 +390,12 @@ class SearchStrategy(ABC):
             self.provided_evaluation_fingerprint = manifest_fingerprint(
                 self.provided_evaluation_manifest
             )
+        # Set by the orchestrator when an EvaluationMaintainer is active:
+        # the registered evaluation tree is then enforced for EVERY
+        # candidate, in every provenance mode, and candidates run the
+        # registered command instead of building their own evaluation.
+        self.registered_evaluation_manifest: Dict[str, str] = {}
+        self.registered_evaluation_command: str = ""
         self.repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 self.params.get(
@@ -608,13 +614,33 @@ class SearchStrategy(ABC):
         if manifest != self.provided_evaluation_manifest:
             raise ValueError("Provided evaluation suite changed on resume")
 
+    def set_registered_evaluation(
+        self,
+        *,
+        manifest: Dict[str, str],
+        command: str,
+    ) -> None:
+        """Adopt a maintainer-registered evaluation as the enforced baseline."""
+        self.registered_evaluation_manifest = dict(manifest)
+        self.registered_evaluation_command = command
+
     def enforce_evaluation_integrity(self, node: SearchNode) -> bool:
-        """Reject a candidate that changed its caller-provided evaluator."""
+        """Reject a candidate that changed the evaluator it was scored by.
+
+        With a maintainer-registered evaluation, the registered manifest is
+        enforced for every candidate regardless of provenance; otherwise the
+        caller-provided manifest is enforced and agent-generated evaluation
+        remains unchecked (the pre-maintainer regime).
+        """
         node._evaluation_integrity_checked = True
         node.evaluation_provenance = self.evaluation_provenance
         node.evaluation_integrity_error = ""
-        if self.evaluation_provenance == AGENT_GENERATED:
+        if self.registered_evaluation_manifest:
+            enforced_manifest = self.registered_evaluation_manifest
+        elif self.evaluation_provenance == AGENT_GENERATED:
             return True
+        else:
+            enforced_manifest = self.provided_evaluation_manifest
 
         try:
             with self.workspace.materialize_ref(
@@ -626,7 +652,7 @@ class SearchStrategy(ABC):
                 )
                 report = verify_evaluation_tree(
                     evaluation_dir,
-                    self.provided_evaluation_manifest,
+                    enforced_manifest,
                 )
         except Exception as exc:
             node.evaluation_integrity_error = (

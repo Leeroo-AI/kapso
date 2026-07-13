@@ -11,6 +11,7 @@
 # - Experiment history is accessed via MCP tools (not context managers)
 
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +55,18 @@ from kapso.execution.budget import (
     BudgetLedger,
     BudgetSnapshot,
     BudgetSpec,
+    CostEntry,
+)
+from kapso.execution.evaluation_maintainer import (
+    EvaluationChangeRequest,
+    EvaluationMaintainer,
+    EvaluationMaintainerError,
+)
+
+
+CHANGE_REQUEST_PATTERN = re.compile(
+    r"<evaluation_change_request>(.*?)</evaluation_change_request>",
+    re.DOTALL,
 )
 
 
@@ -264,6 +277,12 @@ class OrchestratorAgent:
             )
 
         self.budget_ledger = self._create_budget_ledger()
+
+        (
+            self.evaluation_maintainer,
+            self._max_change_requests,
+        ) = self._create_evaluation_maintainer()
+        self._change_requests_filed = 0
 
         # Now create experiment history store with the actual workspace path
         experiment_history_path = os.path.join(
@@ -534,6 +553,120 @@ class OrchestratorAgent:
                 )
         return live
 
+    def _create_evaluation_maintainer(self):
+        """Build the maintainer when the mode config declares one."""
+        block = self.mode_config.get("evaluation_maintainer")
+        if not block:
+            return None, 0
+        agent_config = CodingAgentFactory.build_config(
+            agent_type=block.get("type", "claude_code"),
+            model=block.get("model"),
+            debug_model=block.get("debug_model"),
+            agent_specific=block.get("agent_specific", {}),
+        )
+        maintainer = EvaluationMaintainer(
+            coding_agent_config=agent_config,
+            workspace_dir=self.search_strategy.workspace_dir,
+            fast_fraction=block.get("fast_fraction", 0.15),
+            subsample_seed=block.get("subsample_seed", 1337),
+            calibration_fraction=block.get("calibration_fraction", 0.03),
+            calibration_timeout_seconds=block.get(
+                "calibration_timeout_seconds", 900
+            ),
+            fast_variant_threshold_seconds=(
+                block.get("fast_variant_threshold_minutes", 20) * 60
+            ),
+            overhead_factor=block.get("overhead_factor", 1.25),
+        )
+        return maintainer, block.get("max_change_requests", 3)
+
+    def _record_maintainer_spend(self) -> None:
+        telemetry = self.evaluation_maintainer.last_transaction_telemetry
+        if telemetry is not None:
+            self.budget_ledger.record(
+                CostEntry(
+                    component="evaluation_maintenance",
+                    cost_usd=telemetry.cost_usd,
+                    duration_seconds=telemetry.duration_seconds,
+                )
+            )
+
+    def _adopt_registered_evaluation(self) -> None:
+        """Point the strategy at the registered evaluator head."""
+        manifest = build_evaluation_manifest(
+            self.evaluation_maintainer.evaluation_dir
+        )
+        self.search_strategy.set_registered_evaluation(
+            manifest=manifest,
+            command=self.evaluation_maintainer.evaluation_command(
+                fidelity="full", fraction=1.0
+            ),
+        )
+
+    def _ensure_evaluation_registered(self) -> None:
+        """Run the maintainer's setup once; validate consistency on resume."""
+        if self.evaluation_maintainer is None:
+            return
+        registry = self.evaluation_maintainer.registry
+        if registry.exists():
+            head = registry.head()
+            current = build_evaluation_manifest(
+                self.evaluation_maintainer.evaluation_dir
+            )
+            if manifest_fingerprint(current) != head.evaluator_id:
+                raise EvaluationMaintainerError(
+                    "Workspace evaluation tree does not match the registered "
+                    "evaluator head; the maintainer registry is the only "
+                    "sanctioned path for evaluation changes"
+                )
+        else:
+            self.evaluation_maintainer.setup(
+                goal=self.goal,
+                eval_dir=self.eval_dir,
+                data_dir=self.data_dir,
+            )
+            self._record_maintainer_spend()
+        self._adopt_registered_evaluation()
+
+    def _route_change_requests(self, candidates: List[SearchNode]) -> None:
+        """File explicit <evaluation_change_request> tags with the maintainer."""
+        if self.evaluation_maintainer is None:
+            return
+        for candidate in candidates:
+            match = CHANGE_REQUEST_PATTERN.search(candidate.agent_output or "")
+            if match is None:
+                continue
+            if self._change_requests_filed >= self._max_change_requests:
+                print(
+                    "[Orchestrator] Change-request cap reached "
+                    f"({self._max_change_requests}); not routing further "
+                    "requests this campaign"
+                )
+                return
+            self._change_requests_filed += 1
+            outcome = self.evaluation_maintainer.handle_change_request(
+                EvaluationChangeRequest(
+                    iteration=self.completed_iterations + 1,
+                    requested_by="implementation",
+                    summary=match.group(1).strip(),
+                    evidence=candidate.evaluation_output or "",
+                )
+            )
+            self._record_maintainer_spend()
+            print(
+                "[Orchestrator] Evaluation change request "
+                f"{'accepted' if outcome.accepted else 'rejected'}: "
+                f"{outcome.reason}"
+            )
+            if outcome.accepted:
+                self._adopt_registered_evaluation()
+                print(
+                    "[Orchestrator] Evaluator re-registered as "
+                    f"v{outcome.new_version.version}; prior scores remain on "
+                    "the old ruler (comparability classes land with the "
+                    "fidelity layer)"
+                )
+
     def _create_budget_ledger(self) -> BudgetLedger:
         """Wire the ledger: priors from the checkpoint, live meters, nodes."""
         ledger = BudgetLedger(
@@ -728,6 +861,9 @@ class OrchestratorAgent:
             finalization_reserve_minutes=finalization_reserve_minutes,
         )
         self.budget_ledger.start_clock()
+        # The maintainer's setup transaction runs inside the budgeted clock,
+        # before iteration 1; on resume it validates registry consistency.
+        self._ensure_evaluation_registered()
         stopped_reason = "max_iterations"  # default
         stop_detail: Optional[str] = None
         iterations_run = 0
@@ -850,6 +986,8 @@ class OrchestratorAgent:
                 if self.experiment_store:
                     for candidate in finalized_candidates:
                         self.experiment_store.add_experiment(candidate)
+
+                self._route_change_requests(finalized_candidates)
                 
                 # Log result
                 print(f"[Orchestrator] Iteration {i+1} result:")
