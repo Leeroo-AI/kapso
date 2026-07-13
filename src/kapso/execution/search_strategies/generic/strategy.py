@@ -15,7 +15,9 @@ import logging
 import os
 import pickle
 import re
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from kapso.execution.search_strategies.base import (
@@ -189,17 +191,20 @@ class GenericSearch(SearchStrategy):
         else:
             problem = str(getattr(context, "problem", context))
         
+        iteration_started_monotonic = time.monotonic()
+        iteration_started_at = datetime.now(timezone.utc).isoformat()
+
         # Select the branch and its node ID once so the recorded lineage, the
         # ideation view, and the implementation base cannot diverge.
         parent = self._select_parent()
-        
+
         # Step 1: Generate solution (agent queries experiment history via MCP)
-        solution, ideation_sections = self._generate_solution(
+        solution, ideation_sections, ideation_telemetry = self._generate_solution(
             problem,
             parent.branch_name,
         )
         print(f"[GenericSearch] Generated solution ({len(solution)} chars)")
-        
+
         # Create node
         node = SearchNode(
             node_id=len(self.node_history),
@@ -207,6 +212,8 @@ class GenericSearch(SearchStrategy):
             solution=solution,
             workspace_dir=self.workspace_dir,
         )
+        node.started_at = iteration_started_at
+        node.phase_telemetry["ideation"] = ideation_telemetry
         
         # Step 2: Implement - developer agent handles everything
         branch_name = f"generic_exp_{node.node_id}"
@@ -216,14 +223,15 @@ class GenericSearch(SearchStrategy):
             f"(from {parent.branch_name})"
         )
         
-        agent_output = self._implement(
+        agent_output, implementation_telemetry = self._implement(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
             parent_branch_name=parent.branch_name,
             ideation_repo_memory_sections_consulted=ideation_sections,
         )
-        
+        node.phase_telemetry["implementation"] = implementation_telemetry
+
         # Update node with implementation results
         node.branch_name = branch_name
         node.parent_branch_name = parent.branch_name
@@ -256,14 +264,24 @@ class GenericSearch(SearchStrategy):
                 f"{node.evaluation_integrity_error}"
             )
         
+        # Stamp iteration totals: wall-clock for the whole iteration, spend as
+        # the sum of attributed phase costs.
+        node.duration_seconds = time.monotonic() - iteration_started_monotonic
+        node.cost_usd = sum(
+            phase.get("cost_usd", 0.0)
+            for phase in node.phase_telemetry.values()
+        )
+
         # Store node
         self.node_history.append(node)
-        
+
         print(f"[GenericSearch] ✓ Node {node.node_id} completed: score={node.score}, should_stop={node.should_stop}")
-        
+
         return node
 
-    def _generate_solution(self, problem: str, parent_branch: str) -> Tuple[str, List[str]]:
+    def _generate_solution(
+        self, problem: str, parent_branch: str
+    ) -> Tuple[str, List[str], Dict[str, float]]:
         """
         Generate solution using Claude Code with MCP gates.
         
@@ -275,9 +293,10 @@ class GenericSearch(SearchStrategy):
         Args:
             problem: Problem description
             parent_branch: Git branch to base ideation on
-            
+
         Returns:
-            Tuple of (solution_text, sections_consulted)
+            Tuple of (solution_text, sections_consulted, phase_telemetry)
+            where phase_telemetry is {"cost_usd": ..., "duration_seconds": ...}
         """
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
@@ -343,14 +362,19 @@ class GenericSearch(SearchStrategy):
             agent = ClaudeCodeCodingAgent(config)
             agent.initialize(ideation_dir)
 
+            phase_started = time.monotonic()
             try:
                 result = agent.generate_code(prompt)
+                telemetry = {
+                    "cost_usd": agent.get_cumulative_cost(),
+                    "duration_seconds": time.monotonic() - phase_started,
+                }
 
                 if not result.success:
                     logger.warning(
                         f"[GenericSearch] Ideation failed: {result.error}"
                     )
-                    return self._fallback_solution(problem), []
+                    return self._fallback_solution(problem), [], telemetry
 
                 solution = self._extract_solution_from_output(result.output)
                 sections_consulted = self._extract_sections_consulted(
@@ -361,7 +385,7 @@ class GenericSearch(SearchStrategy):
                     "[GenericSearch] Ideation complete, sections consulted: "
                     f"{sections_consulted}"
                 )
-                return solution, sections_consulted
+                return solution, sections_consulted, telemetry
             finally:
                 agent.cleanup()
     
@@ -441,7 +465,7 @@ Problem: {problem}"""
         branch_name: str,
         parent_branch_name: str = "main",
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
-    ) -> str:
+    ) -> Tuple[str, Dict[str, float]]:
         """
         Implementation using Claude Code with MCP gates (code, research).
         
@@ -454,9 +478,9 @@ Problem: {problem}"""
             branch_name: Git branch for this experiment
             parent_branch_name: Parent branch to inherit code from
             ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
-            
+
         Returns:
-            The agent's output string
+            Tuple of (agent output string, phase telemetry with cost/duration)
         """
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
@@ -523,16 +547,23 @@ Problem: {problem}"""
         print(f"[GenericSearch] Running Claude Code implementation...")
         agent = ClaudeCodeCodingAgent(config)
         agent.initialize(session.session_folder)
-        
+
+        phase_started = time.monotonic()
+        phase_cost = 0.0
         try:
             result = agent.generate_code(prompt)
+            phase_cost = agent.get_cumulative_cost()
             agent_output = result.output if result.output else ""
-            
+
             if not result.success:
                 logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
                 agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
         finally:
             agent.cleanup()
+        telemetry = {
+            "cost_usd": phase_cost,
+            "duration_seconds": time.monotonic() - phase_started,
+        }
         
         # 7. Update RepoMemory for this experiment branch
         run_result_payload = {
@@ -563,8 +594,8 @@ Problem: {problem}"""
         
         # 8. Finalize session (commits changes)
         self.workspace.finalize_session(session)
-        
-        return agent_output
+
+        return agent_output, telemetry
     
     def _build_implementation_prompt(
         self,
@@ -688,6 +719,11 @@ Problem: {problem}"""
             node.should_stop = (
                 feedback_result.stop and feedback_result.evaluation_valid
             )
+            if feedback_result.duration_seconds is not None:
+                node.phase_telemetry["feedback"] = {
+                    "cost_usd": feedback_result.cost_usd,
+                    "duration_seconds": feedback_result.duration_seconds,
+                }
             
             print(f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}")
             

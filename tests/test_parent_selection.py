@@ -105,11 +105,11 @@ def test_iteration_uses_the_same_selected_parent_everywhere(
 
     def generate(problem, parent_branch):
         calls["ideation"] = parent_branch
-        return "solution", []
+        return "solution", [], {"cost_usd": 0.0, "duration_seconds": 0.0}
 
     def implement(**kwargs):
         calls["implementation"] = kwargs["parent_branch_name"]
-        return "agent output"
+        return "agent output", {"cost_usd": 0.0, "duration_seconds": 0.0}
 
     def code_diff(branch_name, parent_branch):
         calls["diff"] = parent_branch
@@ -163,6 +163,9 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
                 error=None,
             )
 
+        def get_cumulative_cost(self):
+            return 0.0
+
         def cleanup(self):
             events["cleaned"] = True
 
@@ -198,13 +201,15 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.aws_region = "us-east-1"
     strategy.ideation_timeout = 10
 
-    solution, sections = strategy._generate_solution(
+    solution, sections, telemetry = strategy._generate_solution(
         "problem",
         "candidate-7",
     )
 
     assert solution == "selected solution"
     assert sections == []
+    assert telemetry["cost_usd"] == 0.0
+    assert telemetry["duration_seconds"] >= 0
     assert events["ref"] == "candidate-7"
     assert events["agent_workspace"] == selected_dir
     assert events["mcp"]["repo_root"] == selected_dir

@@ -81,6 +81,14 @@ class SearchNode:
     primary_metric: Optional[str] = None
     external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
     external_evaluation_error: str = ""
+
+    # Per-iteration budget telemetry: what this experiment actually cost.
+    # Absent values stay None/empty — unknowns are never zero-filled.
+    duration_seconds: Optional[float] = None
+    cost_usd: Optional[float] = None
+    started_at: str = ""  # ISO-8601 UTC
+    phase_telemetry: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    # {"ideation": {"cost_usd": ..., "duration_seconds": ...}, "implementation": ..., "feedback": ...}
     
     # Metadata
     had_error: bool = False
@@ -140,6 +148,7 @@ class SearchNode:
             "code_diff",
             "external_evaluation_error",
             "evaluation_integrity_error",
+            "started_at",
         }
         invalid_strings = sorted(
             name
@@ -173,6 +182,43 @@ class SearchNode:
             or not math.isfinite(float(score))
         ):
             raise ValueError("Search node score must be finite or null")
+
+        for name in ("duration_seconds", "cost_usd"):
+            value = values.get(name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0
+            ):
+                raise ValueError(
+                    f"Search node {name} must be finite and non-negative "
+                    "or null"
+                )
+
+        phase_telemetry = values.get("phase_telemetry", {})
+        if not isinstance(phase_telemetry, dict):
+            raise ValueError("Search node phase_telemetry must be an object")
+        for phase_name, phase_values in phase_telemetry.items():
+            if not isinstance(phase_name, str) or not isinstance(
+                phase_values, dict
+            ):
+                raise ValueError(
+                    "Search node phase_telemetry must map phase names to "
+                    "objects"
+                )
+            for metric_name, metric_value in phase_values.items():
+                if (
+                    not isinstance(metric_name, str)
+                    or isinstance(metric_value, bool)
+                    or not isinstance(metric_value, (int, float))
+                    or not math.isfinite(float(metric_value))
+                    or float(metric_value) < 0
+                ):
+                    raise ValueError(
+                        "Search node phase_telemetry values must be finite "
+                        "and non-negative"
+                    )
 
         from kapso.execution.iteration_evaluator import (
             normalize_metadata,
