@@ -482,7 +482,6 @@ class Kapso:
         initial_repo: Optional[str] = None,
         max_iterations: int = 10,
         resume: bool = False,
-        allow_legacy_checkpoint: bool = False,
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
         # --- Configuration options ---
@@ -511,9 +510,6 @@ class Kapso:
             max_iterations: Maximum experiment iterations (default: 10)
             resume: Continue an existing campaign at ``output_path``. Resume
                 is strict: the workspace and compatible checkpoint must exist.
-            allow_legacy_checkpoint: Explicitly trust and migrate an old
-                ``checkpoint.pkl`` when no JSON run checkpoint exists. Pickle
-                must only be enabled for a trusted workspace.
             iteration_evaluator: Optional callback that evaluates each
                 finalized candidate in an isolated detached Git worktree.
             iteration_evaluator_failure_policy: ``record`` stores callback
@@ -531,10 +527,6 @@ class Kapso:
         Returns:
             SolutionResult with code_path, experiment_logs, and metadata
         """
-        if allow_legacy_checkpoint and not resume:
-            raise ValueError(
-                "allow_legacy_checkpoint requires resume=True"
-            )
         if resume:
             self._validate_resume_workspace(output_path)
         if eval_dir:
@@ -606,7 +598,6 @@ class Kapso:
             #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
             resume=resume,
-            allow_legacy_checkpoint=allow_legacy_checkpoint,
             iteration_evaluator=iteration_evaluator,
             iteration_evaluator_failure_policy=(
                 iteration_evaluator_failure_policy

@@ -309,8 +309,6 @@ class ExperimentWorkspace:
             "!changes.log",
             ".kapso/run_state.json",
             ".kapso/.run_state.*.tmp",
-            "checkpoint.pkl",
-            "checkpoint.pkl.migrated",
         ]
 
         existing = ""

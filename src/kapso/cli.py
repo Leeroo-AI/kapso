@@ -73,7 +73,6 @@ def cmd_evolve(args) -> None:
         data_dir=args.data_dir,
         initial_repo=args.initial_repo,
         resume=args.resume,
-        allow_legacy_checkpoint=args.allow_legacy_checkpoint,
     )
     
     # Print summary
@@ -375,12 +374,6 @@ Examples:
         action="store_true",
         help="Continue the compatible checkpoint in --output",
     )
-    evolve_parser.add_argument(
-        "--allow-legacy-checkpoint",
-        action="store_true",
-        help="Trust and migrate checkpoint.pkl during an explicit resume",
-    )
-    
     # Configuration options
     evolve_parser.add_argument("-m", "--mode", type=str, help="Config mode (GENERIC, MINIMAL)")
     evolve_parser.add_argument("-a", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, help="Coding agent")

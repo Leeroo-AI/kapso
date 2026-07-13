@@ -13,7 +13,6 @@
 import json
 import logging
 import os
-import pickle
 import re
 import time
 from dataclasses import dataclass
@@ -920,18 +919,3 @@ Problem: {problem}"""
         self.load_evaluation_integrity_state(
             state.get("evaluation_integrity")
         )
-
-    def export_checkpoint(self) -> None:
-        """Write the deprecated trusted-pickle checkpoint format."""
-        with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
-            pickle.dump(self.node_history, f)
-
-    def import_checkpoint(self) -> None:
-        """Import the deprecated trusted-pickle checkpoint format."""
-        try:
-            with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
-                self.node_history = pickle.load(f)
-            self.iteration_count = len(self.node_history)
-        except FileNotFoundError:
-            print("[GenericSearch] No checkpoint found")
-            raise FileNotFoundError(f"[GenericSearch] No checkpoint found in {self.workspace_dir}")

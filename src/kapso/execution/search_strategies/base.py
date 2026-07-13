@@ -684,14 +684,3 @@ class SearchStrategy(ABC):
             f"{type(self).__name__} does not support resumable state"
         )
 
-    def export_checkpoint(self) -> None:
-        """Export a legacy strategy-owned checkpoint."""
-        raise NotImplementedError(
-            f"{type(self).__name__} has no legacy checkpoint exporter"
-        )
-
-    def import_checkpoint(self) -> None:
-        """Import a trusted legacy strategy-owned checkpoint."""
-        raise NotImplementedError(
-            f"{type(self).__name__} has no legacy checkpoint importer"
-        )

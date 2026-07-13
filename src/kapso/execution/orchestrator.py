@@ -95,9 +95,7 @@ class OrchestratorAgent:
         is_kg_active: bool = False,
         knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
-        start_from_checkpoint: bool = False,
         resume: bool = False,
-        allow_legacy_checkpoint: bool = False,
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
         initial_repo: Optional[str] = None,
@@ -126,18 +124,11 @@ class OrchestratorAgent:
         # Optional: directories to copy into workspace
         self.eval_dir = eval_dir
         self.data_dir = data_dir
-        self.resume = resume or start_from_checkpoint
-        self.allow_legacy_checkpoint = (
-            allow_legacy_checkpoint or start_from_checkpoint
-        )
+        self.resume = resume
         self.iteration_evaluator = iteration_evaluator
         self.iteration_evaluator_failure_policy = normalize_failure_policy(
             iteration_evaluator_failure_policy
         )
-        if self.allow_legacy_checkpoint and not self.resume:
-            raise ValueError(
-                "allow_legacy_checkpoint requires resume=True"
-            )
         
         (
             self.strategy_type,
@@ -172,9 +163,13 @@ class OrchestratorAgent:
 
         self.checkpoint_store: Optional[RunCheckpointStore] = None
         self._resume_checkpoint: Optional[RunCheckpoint] = None
-        self._migrate_legacy_checkpoint = False
         self.completed_iterations = 0
         self._prior_cost = 0.0
+        self._prior_elapsed_seconds = 0.0
+        self._prior_cost_by_component: Dict[str, float] = {}
+        self._restored_node_count = 0
+        # Set when solve() starts; the live slice of the durable clock.
+        self._solve_start_monotonic: Optional[float] = None
 
         if workspace_dir is not None:
             self.checkpoint_store = RunCheckpointStore(workspace_dir)
@@ -187,24 +182,19 @@ class OrchestratorAgent:
             if self.checkpoint_store is None:
                 raise AssertionError("Checkpoint store was not initialized")
 
-            if self.checkpoint_store.exists():
-                checkpoint = self.checkpoint_store.load()
-                checkpoint.validate_resume(
-                    goal=self.goal,
-                    strategy_type=self.strategy_type,
-                    config_fingerprint=self.config_fingerprint,
-                )
-                self._resume_checkpoint = checkpoint
-                self.completed_iterations = checkpoint.completed_iterations
-                self._prior_cost = float(checkpoint.cumulative_cost)
-            elif (
-                self.allow_legacy_checkpoint
-                and self.checkpoint_store.legacy_path.is_file()
-            ):
-                self._migrate_legacy_checkpoint = True
-            else:
-                # Produce the strict missing-checkpoint error with its path.
-                self.checkpoint_store.load()
+            checkpoint = self.checkpoint_store.load()
+            checkpoint.validate_resume(
+                goal=self.goal,
+                strategy_type=self.strategy_type,
+                config_fingerprint=self.config_fingerprint,
+            )
+            self._resume_checkpoint = checkpoint
+            self.completed_iterations = checkpoint.completed_iterations
+            self._prior_cost = float(checkpoint.cumulative_cost)
+            self._prior_elapsed_seconds = float(checkpoint.elapsed_seconds)
+            self._prior_cost_by_component = dict(
+                checkpoint.cost_by_component
+            )
         elif self.checkpoint_store is not None and self.checkpoint_store.exists():
             raise RunCheckpointIncompatibleError(
                 "This workspace already contains a run checkpoint; pass "
@@ -246,20 +236,12 @@ class OrchestratorAgent:
                     "Could not restore search strategy state from the run "
                     "checkpoint"
                 ) from exc
-        elif self._migrate_legacy_checkpoint:
-            print(
-                "[Orchestrator] Warning: importing trusted legacy pickle "
-                "checkpoint and migrating it to JSON"
-            )
-            self.search_strategy.import_checkpoint()
-            self._validate_restored_branch_refs()
-            self.completed_iterations = len(
+            # Nodes restored from the checkpoint already carried their agent
+            # spend into cumulative_cost; only nodes created after this point
+            # contribute live phase costs.
+            self._restored_node_count = len(
                 self.search_strategy.get_experiment_history()
             )
-            self._save_run_checkpoint(status="running")
-            if self.checkpoint_store is None:
-                raise AssertionError("Checkpoint store was not initialized")
-            self.checkpoint_store.mark_legacy_migrated()
 
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
@@ -521,15 +503,53 @@ class OrchestratorAgent:
         # Default: disabled
         return KnowledgeSearchFactory.create_null()
 
+    def _live_phase_costs(self) -> Dict[str, float]:
+        """Attributed agent spend from nodes created in this process slice."""
+        live: Dict[str, float] = {}
+        history = self.search_strategy.get_experiment_history()
+        for node in history[self._restored_node_count:]:
+            for phase_name, phase_values in getattr(
+                node, "phase_telemetry", {}
+            ).items():
+                live[phase_name] = (
+                    live.get(phase_name, 0.0)
+                    + phase_values.get("cost_usd", 0.0)
+                )
+        return live
+
     def get_cumulative_cost(self) -> float:
-        """Get total cost from all components."""
+        """Get total cost from all components, attributed agents included."""
         return (
             self._prior_cost
             + self.llm.get_cumulative_cost()
             + self.search_strategy.workspace.get_cumulative_cost()
+            + sum(self._live_phase_costs().values())
         )
 
-    def _save_run_checkpoint(self, *, status: str) -> None:
+    def get_elapsed_seconds(self) -> float:
+        """The durable clock: prior slices plus the live one."""
+        live = (
+            time.monotonic() - self._solve_start_monotonic
+            if self._solve_start_monotonic is not None
+            else 0.0
+        )
+        return self._prior_elapsed_seconds + live
+
+    def _current_cost_by_component(self) -> Dict[str, float]:
+        """Prior per-component spend merged with this slice's meters."""
+        components = dict(self._prior_cost_by_component)
+        live = dict(self._live_phase_costs())
+        live["llm_backend"] = self.llm.get_cumulative_cost()
+        live["workspace_sessions"] = (
+            self.search_strategy.workspace.get_cumulative_cost()
+        )
+        for name, value in live.items():
+            components[name] = components.get(name, 0.0) + value
+        return components
+
+    def _save_run_checkpoint(
+        self, *, status: str, last_stop: Optional[str] = None
+    ) -> None:
         """Atomically persist orchestration and strategy state."""
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
@@ -544,6 +564,9 @@ class OrchestratorAgent:
             cumulative_cost=self.get_cumulative_cost(),
             current_feedback=self.current_feedback,
             strategy_state=self.search_strategy.dump_state(),
+            elapsed_seconds=self.get_elapsed_seconds(),
+            cost_by_component=self._current_cost_by_component(),
+            last_stop=last_stop,
         )
         self.checkpoint_store.save(checkpoint)
 
@@ -686,29 +709,48 @@ class OrchestratorAgent:
         Returns:
             SolveResult with best_experiment, final_feedback, stopped_reason
         """
-        start_time = time.time()
+        self._solve_start_monotonic = time.monotonic()
         stopped_reason = "max_iterations"  # default
         iterations_run = 0
-        
+
         # Get problem context once (experiment history is accessed via MCP)
         problem = self.problem_handler.get_problem_context()
-        
+
         try:
             for i in range(experiment_max_iter):
-                # Calculate budget progress (0-100)
-                # Only include time/cost if budgets are set
-                progress_factors = [i / experiment_max_iter]
-                if time_budget_minutes is not None:
-                    progress_factors.append((time.time() - start_time) / (time_budget_minutes * 60))
-                if cost_budget is not None:
-                    progress_factors.append(self.get_cumulative_cost() / cost_budget)
-                budget_progress = max(progress_factors) * 100
-                
-                # Check budget exhaustion
+                # Calculate budget progress (0-100) from the durable clock so
+                # a resumed campaign continues its budget instead of resetting.
+                # Only include time/cost if budgets are set.
+                time_fraction = (
+                    self.get_elapsed_seconds() / (time_budget_minutes * 60)
+                    if time_budget_minutes is not None
+                    else 0.0
+                )
+                cost_fraction = (
+                    self.get_cumulative_cost() / cost_budget
+                    if cost_budget is not None
+                    else 0.0
+                )
+                budget_progress = (
+                    max(i / experiment_max_iter, time_fraction, cost_fraction)
+                    * 100
+                )
+
+                # Check budget exhaustion. A budget stop is a pause, not a
+                # completion: the checkpoint stays resumable and records why
+                # in last_stop. Only goal achievement completes a campaign.
                 if budget_progress >= 100:
                     print("[Orchestrator] Stopping: budget exhausted")
                     stopped_reason = "budget_exhausted"
-                    self._save_run_checkpoint(status="completed")
+                    self._save_run_checkpoint(
+                        status="running",
+                        last_stop=(
+                            "time_budget"
+                            if time_fraction >= 1.0
+                            else "cost_budget" if cost_fraction >= 1.0
+                            else None
+                        ),
+                    )
                     break
 
                 iterations_run = i + 1
@@ -789,8 +831,7 @@ class OrchestratorAgent:
                 self.completed_iterations += 1
                 time_budget_exhausted = (
                     time_budget_minutes is not None
-                    and (time.time() - start_time)
-                    >= time_budget_minutes * 60
+                    and self.get_elapsed_seconds() >= time_budget_minutes * 60
                 )
                 cost_budget_exhausted = (
                     cost_budget is not None
@@ -799,12 +840,15 @@ class OrchestratorAgent:
                 budget_exhausted = (
                     time_budget_exhausted or cost_budget_exhausted
                 )
-                checkpoint_status = (
-                    "completed"
-                    if node.should_stop or budget_exhausted
-                    else "running"
+                self._save_run_checkpoint(
+                    status="completed" if node.should_stop else "running",
+                    last_stop=(
+                        "time_budget"
+                        if time_budget_exhausted
+                        else "cost_budget" if cost_budget_exhausted
+                        else None
+                    ),
                 )
-                self._save_run_checkpoint(status=checkpoint_status)
 
                 # Check if search strategy says stop
                 if node.should_stop:

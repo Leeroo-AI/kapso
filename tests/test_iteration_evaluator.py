@@ -1,6 +1,5 @@
 import json
 import os
-import pickle
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -131,10 +130,6 @@ class TwoCandidateStrategy:
             SearchNode.from_dict(item)
             for item in state.get("node_history", [])
         ]
-
-    def import_checkpoint(self) -> None:
-        with open(Path(self.workspace_dir, "checkpoint.pkl"), "rb") as handle:
-            self.node_history = pickle.load(handle)
 
 
 def _patch_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
