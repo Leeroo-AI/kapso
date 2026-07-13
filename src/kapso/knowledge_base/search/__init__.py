@@ -51,11 +51,26 @@ from kapso.knowledge_base.search.factory import (
     KnowledgeSearchFactory,
     register_knowledge_search,
 )
-from kapso.knowledge_base.search.kg_graph_search import (
-    KGGraphSearch,
-    parse_wiki_directory,
-    parse_wiki_file,
-)
+
+# KGGraphSearch and wiki parsers are loaded lazily.
+#
+# Why: kg_graph_search.py imports kapso.core.llm which triggers the full
+# execution stack (CodingAgentFactory, aider/litellm, etc.) — adding ~4-5
+# seconds to the MCP server cold start. The MCP server only needs the base
+# types above, not KGGraphSearch itself (backends.py handles that lazily).
+_LAZY = {
+    "KGGraphSearch":       ("kapso.knowledge_base.search.kg_graph_search", "KGGraphSearch"),
+    "parse_wiki_directory":("kapso.knowledge_base.search.kg_graph_search", "parse_wiki_directory"),
+    "parse_wiki_file":     ("kapso.knowledge_base.search.kg_graph_search", "parse_wiki_file"),
+}
+
+def __getattr__(name):
+    if name in _LAZY:
+        import importlib
+        module_path, attr = _LAZY[name]
+        mod = importlib.import_module(module_path)
+        return getattr(mod, attr)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Core classes

@@ -41,6 +41,7 @@ wfLoadExtension('PageForms');
 wfLoadExtension('Cargo');
 $wgCargoAllowedSQLFunctions[] = '_pageName';
 $wgCargoAllowedSQLFunctions[] = '_pageNamespace';
+$wgCargoAllowedSQLFunctions[] = 'RAND';
 $wgCargoIgnoreBacklinks = true;  // Disable backlinks to avoid SQL bug with table aliasing
 wfLoadExtension('VisualEditor');
 wfLoadExtension('SyntaxHighlight_GeSHi');
@@ -172,6 +173,15 @@ $wgNamespacesWithSubpages[NS_ARTIFACT] = true;
 $wgNamespacesWithSubpages[NS_HEURISTIC] = true;
 $wgNamespacesWithSubpages[NS_ENVIRONMENT] = true;
 $wgNamespacesWithSubpages[NS_RESOURCE] = true;
+
+# Mark custom namespaces as content (counted in NUMBEROFARTICLES)
+$wgContentNamespaces[] = NS_PRINCIPLE;
+$wgContentNamespaces[] = NS_WORKFLOW;
+$wgContentNamespaces[] = NS_IMPLEMENTATION;
+$wgContentNamespaces[] = NS_ARTIFACT;
+$wgContentNamespaces[] = NS_HEURISTIC;
+$wgContentNamespaces[] = NS_ENVIRONMENT;
+$wgContentNamespaces[] = NS_RESOURCE;
 
 # Enable Semantic MediaWiki in custom namespaces
 $smwgNamespacesWithSemanticLinks[NS_PRINCIPLE] = true;
@@ -317,9 +327,11 @@ EOF
 
 Browse implementation patterns, configuration guides, debugging heuristics, and battle-tested defaults for frameworks like vLLM, DeepSpeed, Megatron-LM, FlashAttention, Triton, Unsloth, LangChain, and many more. Every page is structured so both humans and AI agents can find what they need fast.
 
-'''Connect your AI coding agent.''' Plug Leeroopedia into your favorite coding agent with the [https://github.com/Leeroo-AI/leeroopedia-mcp Leeroopedia MCP setup guide]. Let it search docs, build plans, verify code, and diagnose failures on your behalf.
+'''Connect your AI coding agent.''' Plug Leeroopedia into your favorite coding agent, and let it build robust AI/ML systems autonomously:
 
-'''Go end-to-end.''' Leeroopedia gives your agent the '''knowledge'''. [https://github.com/leeroo-ai/kapso '''Kapso'''] gives it the '''ability to act on it''': research, experiment, and deploy.
+* [https://github.com/Leeroo-AI/superml '''SuperML plugin'''] — converts your AI coding agent into an expert ML engineer with agentic memory
+* [https://github.com/Leeroo-AI/leeroopedia-mcp '''Leeroopedia MCP'''] — search over best-practices and skills of ML/AI
+* [https://github.com/leeroo-ai/kapso '''Kapso'''] — experimentation platform for autonomous AI/ML software building
 
 == Browse by Category ==
 
@@ -495,6 +507,20 @@ COMMONJS
     rm /tmp/common_js.txt
     echo "✓ Common.js created"
 
+    # Create site-wide banner (Sitenotice) for MCP promotion
+    echo "📄 Creating site-wide banner..."
+    cat > /tmp/sitenotice.txt <<'SITENOTICE'
+<div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; padding: 14px 24px; border-radius: 8px; margin-bottom: 1em; font-size: 0.95em; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+'''Connect [https://github.com/Leeroo-AI/superml SuperML] | [https://github.com/Leeroo-AI/leeroopedia-mcp Leeroopedia MCP]:''' Equip your AI agents with best practices, code verification, and debugging knowledge. Powered by [https://leeroo.com Leeroo] — building Organizational Superintelligence. Contact us at [mailto:founders@leeroo.com founders@leeroo.com].
+</div>
+SITENOTICE
+    php maintenance/run.php edit.php \
+        --user "$MW_ADMIN_USER" \
+        --summary "Auto-created: Site-wide MCP banner" \
+        "MediaWiki:Sitenotice" < /tmp/sitenotice.txt
+    rm /tmp/sitenotice.txt
+    echo "✓ Site-wide banner created"
+
     # Create Common.css for UI customizations
     echo "📄 Creating Common.css..."
     cat > /tmp/common_css.txt <<'COMMONCSS'
@@ -513,6 +539,15 @@ COMMONJS
 #vector-page-tools-dropdown {
     display: none !important;
 }
+
+/* Site notice banner — make links visible on dark background */
+#siteNotice a {
+    color: #90CAF9;
+    text-decoration: underline;
+}
+#siteNotice a:hover {
+    color: #BBDEFB;
+}
 COMMONCSS
     php maintenance/run.php edit.php \
         --user "$MW_ADMIN_USER" \
@@ -524,6 +559,33 @@ else
     echo "✓ Wiki already initialized (LocalSettings.php exists)"
 fi
 
+# Apply Redis caching configuration
+echo "🔧 Applying Redis caching config..."
+if ! grep -q "Performance: Redis" /var/www/html/LocalSettings.php; then
+    cat >> /var/www/html/LocalSettings.php <<'REDISCONFIG'
+
+# ============================================
+# Performance: Redis caching
+# ============================================
+$wgObjectCaches['redis'] = [
+    'class' => 'RedisBagOStuff',
+    'servers' => ['redis:6379'],
+    'persistent' => true,
+];
+$wgMainCacheType = 'redis';
+$wgParserCacheType = 'redis';
+$wgSessionCacheType = 'redis';
+$wgMessageCacheType = 'redis';
+$wgLanguageConverterCacheType = 'redis';
+
+# Parser cache expiry (24 hours)
+$wgParserCacheExpireTime = 86400;
+REDISCONFIG
+    echo "✓ Redis caching configured"
+else
+    echo "✓ Redis caching already configured"
+fi
+
 # Apply wiki permissions (private wiki with tiered access)
 echo "🔒 Applying wiki permissions..."
 if ! grep -q "WIKI PERMISSIONS" /var/www/html/LocalSettings.php; then
@@ -532,19 +594,12 @@ if ! grep -q "WIKI PERMISSIONS" /var/www/html/LocalSettings.php; then
 # ============================================
 # WIKI PERMISSIONS
 # ============================================
-# Private wiki: login required to view
-$wgGroupPermissions['*']['read'] = false;
+# Public wiki: anyone can read, only admins can edit
+$wgGroupPermissions['*']['read'] = true;
 $wgGroupPermissions['*']['edit'] = false;
 $wgGroupPermissions['*']['createaccount'] = true;
 
-# Allow anonymous users to access login and account creation pages
-$wgWhitelistRead = [
-    'Special:UserLogin',
-    'Special:CreateAccount',
-    'Special:PasswordReset',
-];
-
-# Users: can read and edit (talk pages only due to namespace protection below)
+# Users: can read and edit talk pages only
 $wgGroupPermissions['user']['read'] = true;
 $wgGroupPermissions['user']['edit'] = true;
 $wgGroupPermissions['user']['createpage'] = false;
@@ -917,10 +972,10 @@ fi
 # Start background job to refresh site stats periodically (for accurate page counts)
 echo "🔄 Starting background stats refresh job..."
 (
-    sleep 60  # Wait for Apache to start and initial import to complete
+    sleep 120  # Wait for Apache to start and initial import to complete
     while true; do
         php /var/www/html/maintenance/run.php initSiteStats.php --update > /dev/null 2>&1
-        sleep 30
+        sleep 3600
     done
 ) &
 

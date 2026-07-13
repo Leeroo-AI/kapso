@@ -108,7 +108,7 @@ searches:
     # Claude Code agent configuration
     agent:
       agent_type: "claude_code"
-      model: "us.anthropic.claude-opus-4-6-v1"
+      model: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
       use_bedrock: true
       aws_region: "us-east-1"
       timeout: 300

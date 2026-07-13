@@ -14,6 +14,17 @@ RUN apt-get update \
     python3 python3-pygments nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 
+# Install Redis PHP extension and enable OPcache
+RUN pecl install redis && docker-php-ext-enable redis \
+ && docker-php-ext-enable opcache
+
+# Configure OPcache for production performance
+RUN echo "opcache.memory_consumption=256" >> /usr/local/etc/php/conf.d/docker-php-ext-opcache.ini \
+ && echo "opcache.max_accelerated_files=20000" >> /usr/local/etc/php/conf.d/docker-php-ext-opcache.ini \
+ && echo "opcache.validate_timestamps=0" >> /usr/local/etc/php/conf.d/docker-php-ext-opcache.ini \
+ && echo "opcache.revalidate_freq=0" >> /usr/local/etc/php/conf.d/docker-php-ext-opcache.ini \
+ && echo "opcache.interned_strings_buffer=16" >> /usr/local/etc/php/conf.d/docker-php-ext-opcache.ini
+
 # Install Composer for PHP dependencies
 RUN wget -O /usr/local/bin/composer https://getcomposer.org/download/latest-stable/composer.phar \
  && chmod +x /usr/local/bin/composer

@@ -19,21 +19,29 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
 
-# Light imports (no heavy dependencies)
-from kapso.knowledge_base.learners import Source
-from kapso.execution.solution import SolutionResult
-from kapso.deployment import (
-    Software,
-    DeployStrategy,
-    DeployConfig,
-    DeploymentFactory,
-)
+# All public symbols are loaded lazily via __getattr__.
+#
+# Why lazy? The MCP server subprocess (gated_mcp.server) imports from this
+# package on every cold start. Eager imports of Source, SolutionResult, and
+# DeployStrategy pull in the full execution stack (gitpython, weaviate, etc.)
+# and add ~8 seconds to that cold start. With lazy loading the MCP subprocess
+# boots in under 1 second and Claude Code's MCP connection check succeeds.
+_LAZY_IMPORTS = {
+    "Kapso":            ("kapso.kapso",              "Kapso"),
+    "Source":           ("kapso.knowledge_base.learners", "Source"),
+    "SolutionResult":   ("kapso.execution.solution", "SolutionResult"),
+    "Software":         ("kapso.deployment",          "Software"),
+    "DeployStrategy":   ("kapso.deployment",          "DeployStrategy"),
+    "DeployConfig":     ("kapso.deployment",          "DeployConfig"),
+    "DeploymentFactory":("kapso.deployment",          "DeploymentFactory"),
+}
 
-# Lazy load Kapso to avoid loading OrchestratorAgent (which has heavy deps)
 def __getattr__(name):
-    if name == "Kapso":
-        from kapso.kapso import Kapso
-        return Kapso
+    if name in _LAZY_IMPORTS:
+        module_path, attr = _LAZY_IMPORTS[name]
+        import importlib
+        mod = importlib.import_module(module_path)
+        return getattr(mod, attr)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
