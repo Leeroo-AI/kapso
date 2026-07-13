@@ -63,6 +63,7 @@ dev = [
 kapso = "kapso.cli:main"
 expert-mle = "benchmarks.mle.runner:main"
 expert-ale = "benchmarks.ale.runner:main"
+expert-posttrain = "benchmarks.posttrain.runner:main"
 
 [project.urls]
 Homepage = "https://leeroo.com"

@@ -1,0 +1,87 @@
+Bootstrap: docker
+From: nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
+
+# PostTrainBench agent container with Kapso.
+# Identical to containers/opus_4_8.def (pinned training/eval environment) plus
+# kapso installed in an isolated venv at /opt/kapso/venv — kapso's dependencies
+# (aider-chat pins, litellm, weaviate-client, ...) must never perturb the
+# pinned transformers/trl/vllm stack the agent trains with.
+#
+# Build via benchmarks/posttrain/ptb_adapter/build_kapso_container.sh, which
+# stages the kapso source at containers/kapso-src/ first.
+
+%files
+    containers/requirements-direct.txt /opt/requirements-direct.txt
+    containers/kapso-src /opt/kapso-src
+
+%post
+    chmod 1777 /tmp
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update && apt-get install -y \
+        python3.10 \
+        python3-dev \
+        git \
+        wget \
+        curl \
+        build-essential \
+        && rm -rf /var/lib/apt/lists/*
+
+    ln -sf /usr/bin/python3.10 /usr/bin/python3
+    ln -sf /usr/bin/python3.10 /usr/bin/python
+
+    # Node.js for the Claude Code CLI (kapso's coding agent)
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y nodejs
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="/root/.local/bin:$PATH"
+
+    uv pip install --system --no-cache vllm==0.11.0 --torch-backend=auto
+
+    uv pip install --system --no-cache -r /opt/requirements-direct.txt
+
+    uv pip install --system --no-cache flash-attn==2.8.3 --no-build-isolation
+
+    npm install -g \
+        @anthropic-ai/claude-code@2.1.157 \
+        @openai/codex@0.135.0 \
+        @google/gemini-cli@0.18.4 \
+        opencode-ai@1.1.59
+
+    # inspect evals (pinned) — used by the task evaluate.py scripts
+    mkdir -p /opt
+    cd /opt
+    git clone https://github.com/UKGovernmentBEIS/inspect_evals.git
+    cd /opt/inspect_evals
+    git checkout 06001a83e6d7c709c2ede0570dce7f1031a0bad8
+    uv pip install --system --no-cache .
+
+    cd /opt
+    git clone https://github.com/rank-and-file/inspect_ai_vllm_stdout.git
+    cd inspect_ai_vllm_stdout
+    uv pip install --system --no-cache .
+
+    # ---- Kapso (isolated venv) ----
+    uv venv /opt/kapso/venv --python /usr/bin/python3.10
+    uv pip install --python /opt/kapso/venv/bin/python --no-cache /opt/kapso-src
+
+    # Kapso's experiment workspace commits to git; the container home is a
+    # bind-mounted job dir with no identity configured.
+    git config --system user.name "kapso"
+    git config --system user.email "kapso@leeroo.com"
+
+%environment
+    export PATH="/root/.local/bin:$PATH"
+    export NO_PROXY="localhost,127.0.0.1"
+    export no_proxy="localhost,127.0.0.1"
+
+%runscript
+    exec python3 "$@"
+
+%labels
+    Version v1.0
+    Description PostTrainBench training/eval environment + Kapso autonomous agent
+
+%help
+    Use --nv for GPU support. Kapso entrypoint: /opt/kapso/venv/bin/expert-posttrain
