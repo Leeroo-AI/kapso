@@ -34,6 +34,26 @@ _LAZY_IMPORTS = {
     "DeployStrategy":   ("kapso.deployment",          "DeployStrategy"),
     "DeployConfig":     ("kapso.deployment",          "DeployConfig"),
     "DeploymentFactory":("kapso.deployment",          "DeploymentFactory"),
+    "RunCheckpointError": (
+        "kapso.execution.run_checkpoint",
+        "RunCheckpointError",
+    ),
+    "RunCheckpointMissingError": (
+        "kapso.execution.run_checkpoint",
+        "RunCheckpointMissingError",
+    ),
+    "RunCheckpointCorruptError": (
+        "kapso.execution.run_checkpoint",
+        "RunCheckpointCorruptError",
+    ),
+    "RunCheckpointIncompatibleError": (
+        "kapso.execution.run_checkpoint",
+        "RunCheckpointIncompatibleError",
+    ),
+    "RunCheckpointCompletedError": (
+        "kapso.execution.run_checkpoint",
+        "RunCheckpointCompletedError",
+    ),
 }
 
 def __getattr__(name):
@@ -54,6 +74,12 @@ __all__ = [
     "DeployStrategy",
     "DeployConfig",
     "DeploymentFactory",
+    # Resume errors
+    "RunCheckpointError",
+    "RunCheckpointMissingError",
+    "RunCheckpointCorruptError",
+    "RunCheckpointIncompatibleError",
+    "RunCheckpointCompletedError",
 ]
 
 __version__ = "0.1.0"

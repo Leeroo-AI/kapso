@@ -72,6 +72,8 @@ def cmd_evolve(args) -> None:
         eval_dir=args.eval_dir,
         data_dir=args.data_dir,
         initial_repo=args.initial_repo,
+        resume=args.resume,
+        allow_legacy_checkpoint=args.allow_legacy_checkpoint,
     )
     
     # Print summary
@@ -356,6 +358,7 @@ Examples:
   kapso evolve --goal "Build a web scraper for news articles"
   kapso evolve --goal-file problem.txt --iterations 20
   kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
+  kapso evolve --goal "Build a classifier" --output ./campaign --resume
 """
     )
     
@@ -367,6 +370,16 @@ Examples:
     # Basic options
     evolve_parser.add_argument("-i", "--iterations", type=int, default=10, help="Max iterations (default: 10)")
     evolve_parser.add_argument("-o", "--output", type=str, help="Output directory")
+    evolve_parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue the compatible checkpoint in --output",
+    )
+    evolve_parser.add_argument(
+        "--allow-legacy-checkpoint",
+        action="store_true",
+        help="Trust and migrate checkpoint.pkl during an explicit resume",
+    )
     
     # Configuration options
     evolve_parser.add_argument("-m", "--mode", type=str, help="Config mode (GENERIC, MINIMAL)")

@@ -90,8 +90,7 @@ class GenericSearch(SearchStrategy):
         )
         
         # State
-        if not import_from_checkpoint: 
-            self.node_history: List[SearchNode] = []
+        self.node_history: List[SearchNode] = []
         self.iteration_count = 0
         
         # Error tracking for implementation feedback
@@ -710,14 +709,65 @@ Problem: {problem}"""
     # Checkpoint Methods
     # =========================================================================
 
+    def dump_state(self) -> Dict[str, Any]:
+        """Return JSON-compatible generic-search state."""
+        return {
+            "node_history": [node.to_dict() for node in self.node_history],
+            "iteration_count": self.iteration_count,
+            "previous_errors": list(self.previous_errors),
+        }
+
+    def load_state(self, state: Dict[str, Any]) -> None:
+        """Restore generic-search state from a versioned run checkpoint."""
+        if not isinstance(state, dict):
+            raise ValueError("GenericSearch checkpoint state must be an object")
+        raw_history = state.get("node_history")
+        if not isinstance(raw_history, list):
+            raise ValueError(
+                "GenericSearch checkpoint node_history must be a list"
+            )
+        self.node_history = [
+            SearchNode.from_dict(node_data) for node_data in raw_history
+        ]
+
+        iteration_count = state.get(
+            "iteration_count", len(self.node_history)
+        )
+        if (
+            isinstance(iteration_count, bool)
+            or not isinstance(iteration_count, int)
+            or iteration_count < 0
+        ):
+            raise ValueError(
+                "GenericSearch checkpoint iteration_count must be non-negative"
+            )
+        if iteration_count != len(self.node_history):
+            raise ValueError(
+                "GenericSearch checkpoint iteration_count must match "
+                "node_history"
+            )
+        self.iteration_count = iteration_count
+
+        previous_errors = state.get("previous_errors", [])
+        if not isinstance(previous_errors, list) or not all(
+            isinstance(error, str) for error in previous_errors
+        ):
+            raise ValueError(
+                "GenericSearch checkpoint previous_errors must be strings"
+            )
+        self.previous_errors = list(previous_errors)
+
     def export_checkpoint(self) -> None:
+        """Write the deprecated trusted-pickle checkpoint format."""
         with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
             pickle.dump(self.node_history, f)
 
     def import_checkpoint(self) -> None:
+        """Import the deprecated trusted-pickle checkpoint format."""
         try:
             with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
                 self.node_history = pickle.load(f)
+            self.iteration_count = len(self.node_history)
         except FileNotFoundError:
             print("[GenericSearch] No checkpoint found")
             raise FileNotFoundError(f"[GenericSearch] No checkpoint found in {self.workspace_dir}")

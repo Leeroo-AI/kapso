@@ -470,6 +470,8 @@ class Kapso:
         output_path: Optional[str] = None,
         initial_repo: Optional[str] = None,
         max_iterations: int = 10,
+        resume: bool = False,
+        allow_legacy_checkpoint: bool = False,
         # --- Configuration options ---
         mode: Optional[str] = None,
         coding_agent: Optional[str] = None,
@@ -494,6 +496,11 @@ class Kapso:
                 - GitHub URL: "https://github.com/owner/repo" (will be cloned)
                 - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
+            resume: Continue an existing campaign at ``output_path``. Resume
+                is strict: the workspace and compatible checkpoint must exist.
+            allow_legacy_checkpoint: Explicitly trust and migrate an old
+                ``checkpoint.pkl`` when no JSON run checkpoint exists. Pickle
+                must only be enabled for a trusted workspace.
             
             mode: Configuration mode (GENERIC, MINIMAL, etc.)
             coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
@@ -507,10 +514,18 @@ class Kapso:
         Returns:
             SolutionResult with code_path, experiment_logs, and metadata
         """
+        if allow_legacy_checkpoint and not resume:
+            raise ValueError(
+                "allow_legacy_checkpoint requires resume=True"
+            )
+        if resume:
+            self._validate_resume_workspace(output_path)
+
         print(f"\n{'='*60}")
         print(f"EVOLVING: {goal}")
         print(f"{'='*60}")
         print(f"  Max iterations: {max_iterations}")
+        print(f"  Resume: {resume}")
         print(f"  Coding agent: {coding_agent or 'from config'}")
         if eval_dir:
             print(f"  Eval dir: {eval_dir}")
@@ -518,7 +533,11 @@ class Kapso:
             print(f"  Data dir: {data_dir}")
         
         # Resolve initial_repo: handle URLs, local paths, or workflow search
-        resolved_repo = self._resolve_initial_repo(initial_repo, goal)
+        resolved_repo = (
+            None
+            if resume
+            else self._resolve_initial_repo(initial_repo, goal)
+        )
         if resolved_repo:
             print(f"  Initial repo: {resolved_repo}")
         print()
@@ -565,6 +584,8 @@ class Kapso:
             # - Therefore, when `output_path` is provided, we must use it as the workspace directory
             #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
+            resume=resume,
+            allow_legacy_checkpoint=allow_legacy_checkpoint,
             initial_repo=resolved_repo,
             eval_dir=eval_dir,
             data_dir=data_dir,
@@ -596,9 +617,11 @@ class Kapso:
             final_feedback=solve_result.final_feedback,
             metadata={
                 "iterations": solve_result.iterations_run,
+                "cumulative_iterations": solve_result.cumulative_iterations,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
                 "best_branch": best_branch,
+                "resumed": resume,
             }
         )
         
@@ -614,6 +637,31 @@ class Kapso:
             print(f"Final score: {solution.final_score}")
         
         return solution
+
+    @staticmethod
+    def _validate_resume_workspace(output_path: Optional[str]) -> None:
+        """Reject resume requests before they can initialize or mutate a repo."""
+        if not output_path:
+            raise ValueError("resume=True requires an existing output_path")
+
+        path = Path(output_path).expanduser()
+        if not path.is_dir():
+            raise FileNotFoundError(
+                f"Resume workspace does not exist or is not a directory: {path}"
+            )
+
+        import git
+
+        try:
+            repo = git.Repo(str(path), search_parent_directories=False)
+        except (git.InvalidGitRepositoryError, git.NoSuchPathError) as exc:
+            raise ValueError(
+                f"Resume workspace is not a Git repository: {path}"
+            ) from exc
+        if repo.bare:
+            raise ValueError(
+                f"Resume workspace must be a non-bare Git repository: {path}"
+            )
     
     def deploy(
         self,

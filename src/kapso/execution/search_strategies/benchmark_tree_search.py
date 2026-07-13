@@ -126,9 +126,9 @@ class BenchmarkTreeSearch(SearchStrategy):
         # Tree state
         self.experimentation_count = 0
 
+        self.node_history: List[TreeSearchNode] = []
+        self.nodes: List[TreeSearchNode] = []
         if not import_from_checkpoint:
-            self.node_history: List[TreeSearchNode] = []  # All experimented nodes
-            self.nodes: List[TreeSearchNode] = []  # All tree nodes (including unexperimented)
             # Initialize root nodes
             for i in range(self.node_expansion_limit * 4):
                 self.nodes.append(TreeSearchNode(
@@ -820,18 +820,177 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
             json.dump(nodes_data, f, indent=2)
 
     def export_checkpoint(self) -> None:
+        """Write the deprecated trusted-pickle checkpoint format."""
         with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
             pickle.dump({
                 "node_history": self.node_history,
                 "nodes": self.nodes,
             }, f)
 
+    def dump_state(self) -> Dict[str, Any]:
+        """Return tree state without serializing circular references."""
+        serialized_nodes = []
+        for node in self.nodes:
+            node_data = node.to_dict()
+            node_data.update(
+                {
+                    "parent_id": (
+                        node.parent_node.node_id
+                        if node.parent_node is not None
+                        else None
+                    ),
+                    "children_ids": [
+                        child.node_id for child in node.children
+                    ],
+                    "is_terminated": node.is_terminated,
+                    "is_root": node.is_root,
+                    "node_event_history": node.node_event_history,
+                    "ideation_repo_memory_sections_consulted": list(
+                        node.ideation_repo_memory_sections_consulted
+                    ),
+                }
+            )
+            serialized_nodes.append(node_data)
+
+        return {
+            "nodes": serialized_nodes,
+            "node_history_ids": [
+                node.node_id for node in self.node_history
+            ],
+            "experimentation_count": self.experimentation_count,
+            "previous_errors": list(self.previous_errors),
+        }
+
+    def load_state(self, state: Dict[str, Any]) -> None:
+        """Rebuild tree nodes and references from JSON-compatible state."""
+        if not isinstance(state, dict):
+            raise ValueError(
+                "BenchmarkTreeSearch checkpoint state must be an object"
+            )
+        raw_nodes = state.get("nodes")
+        if not isinstance(raw_nodes, list):
+            raise ValueError(
+                "BenchmarkTreeSearch checkpoint nodes must be a list"
+            )
+
+        node_by_id: Dict[int, TreeSearchNode] = {}
+        relationship_data: Dict[int, Dict[str, Any]] = {}
+        for raw_node in raw_nodes:
+            base_node = SearchNode.from_dict(raw_node)
+            if base_node.node_id in node_by_id:
+                raise ValueError(
+                    "BenchmarkTreeSearch checkpoint contains duplicate node IDs"
+                )
+            node = TreeSearchNode(**base_node.to_dict())
+            is_terminated = raw_node.get("is_terminated", False)
+            if not isinstance(is_terminated, bool):
+                raise ValueError(
+                    "BenchmarkTreeSearch is_terminated must be a boolean"
+                )
+            node.is_terminated = is_terminated
+            node_event_history = raw_node.get("node_event_history", [])
+            if not isinstance(node_event_history, list):
+                raise ValueError(
+                    "BenchmarkTreeSearch node_event_history must be a list"
+                )
+            node.node_event_history = node_event_history
+            sections = raw_node.get(
+                "ideation_repo_memory_sections_consulted", []
+            )
+            if not isinstance(sections, list) or not all(
+                isinstance(section, str) for section in sections
+            ):
+                raise ValueError(
+                    "BenchmarkTreeSearch checkpoint section IDs must be strings"
+                )
+            node.ideation_repo_memory_sections_consulted = list(sections)
+            node_by_id[node.node_id] = node
+            relationship_data[node.node_id] = raw_node
+
+        for node_id, raw_node in relationship_data.items():
+            node = node_by_id[node_id]
+            parent_id = raw_node.get("parent_id")
+            if parent_id is not None and (
+                isinstance(parent_id, bool)
+                or not isinstance(parent_id, int)
+            ):
+                raise ValueError(
+                    "BenchmarkTreeSearch parent IDs must be integers or null"
+                )
+            if parent_id is not None and parent_id not in node_by_id:
+                raise ValueError(
+                    f"BenchmarkTreeSearch checkpoint has unknown parent {parent_id}"
+                )
+            children_ids = raw_node.get("children_ids", [])
+            if (
+                not isinstance(children_ids, list)
+                or any(
+                    isinstance(child_id, bool)
+                    or not isinstance(child_id, int)
+                    or child_id not in node_by_id
+                    for child_id in children_ids
+                )
+                or len(set(children_ids)) != len(children_ids)
+            ):
+                raise ValueError(
+                    "BenchmarkTreeSearch checkpoint has invalid child IDs"
+                )
+            node.parent_node = (
+                node_by_id[parent_id] if parent_id is not None else None
+            )
+            node.parent_node_id = parent_id
+            node.children = [node_by_id[child_id] for child_id in children_ids]
+            node.is_root = parent_id is None
+
+        history_ids = state.get("node_history_ids", [])
+        if (
+            not isinstance(history_ids, list)
+            or any(
+                isinstance(node_id, bool)
+                or not isinstance(node_id, int)
+                or node_id not in node_by_id
+                for node_id in history_ids
+            )
+            or len(set(history_ids)) != len(history_ids)
+        ):
+            raise ValueError(
+                "BenchmarkTreeSearch checkpoint has invalid node history IDs"
+            )
+        self.nodes = [
+            node_by_id[raw_node["node_id"]] for raw_node in raw_nodes
+        ]
+        self.node_history = [node_by_id[node_id] for node_id in history_ids]
+
+        experimentation_count = state.get(
+            "experimentation_count", len(self.node_history)
+        )
+        if (
+            isinstance(experimentation_count, bool)
+            or not isinstance(experimentation_count, int)
+            or experimentation_count < 0
+        ):
+            raise ValueError(
+                "BenchmarkTreeSearch experimentation_count must be non-negative"
+            )
+        self.experimentation_count = experimentation_count
+
+        previous_errors = state.get("previous_errors", [])
+        if not isinstance(previous_errors, list) or not all(
+            isinstance(error, str) for error in previous_errors
+        ):
+            raise ValueError(
+                "BenchmarkTreeSearch previous_errors must be strings"
+            )
+        self.previous_errors = list(previous_errors)
+
     def import_checkpoint(self) -> None:
+        """Import the deprecated trusted-pickle checkpoint format."""
         try:
             with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
                 checkpoint = pickle.load(f)
             self.node_history = checkpoint["node_history"]
             self.nodes = checkpoint["nodes"]
+            self.experimentation_count = len(self.node_history)
             print(f"[BenchmarkTreeSearch] Checkpoint imported successfully from {self.workspace_dir}")
             print(f"[BenchmarkTreeSearch] Node history: {len(self.node_history)}")
             print(f"[BenchmarkTreeSearch] Nodes: {len(self.nodes)}")
