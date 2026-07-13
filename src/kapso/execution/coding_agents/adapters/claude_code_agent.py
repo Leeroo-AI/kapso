@@ -23,6 +23,7 @@ import logging
 import os
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Shutdown mechanics for the streaming deadline: after SIGTERM, how long the
+# CLI gets to flush its final stream-json result event (which carries the real
+# cost) before SIGKILL. Process-teardown grace, not an operator knob.
+_DEADLINE_GRACE_SECONDS = 2.0
 
 # ANSI color codes for terminal output
 _COLORS = {
@@ -491,6 +497,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # - If we don't close them deterministically, Python can emit noisy
         #   `ResourceWarning: unclosed file <_io.TextIOWrapper ...>` at shutdown.
         # - This keeps logs clean and prevents leaking file descriptors in long runs.
+        # start_new_session puts the CLI in its own process group, so the
+        # deadline kill below can take down Bash-spawned grandchildren that
+        # would otherwise outlive the CLI and keep consuming the budget.
         process = subprocess.Popen(
             stream_cmd,
             cwd=self.workspace,
@@ -499,7 +508,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             text=True,
             env=self._get_env(),
             bufsize=1,
+            start_new_session=True,
         )
+        deadline_exceeded = False
         
         try:
             # Use select for non-blocking I/O on both stdout and stderr
@@ -565,7 +576,39 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         for err_line in process.stderr:
                             print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
                     break
-            
+
+                # Enforce the configured deadline. SIGTERM first so the CLI can
+                # flush its final result event (which carries the real cost),
+                # SIGKILL after the grace window. The group kill relies on
+                # start_new_session above; a target that exits between poll and
+                # killpg raises and fails loud (accepted race, see design doc).
+                if (
+                    self._timeout is not None
+                    and time.time() - start_time >= self._timeout
+                ):
+                    deadline_exceeded = True
+                    print(
+                        f"{c['yellow']}  Deadline of {self._timeout}s reached — "
+                        f"terminating Claude Code{c['reset']}",
+                        flush=True,
+                    )
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    grace_end = time.time() + _DEADLINE_GRACE_SECONDS
+                    while process.poll() is None and time.time() < grace_end:
+                        time.sleep(0.1)
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    break
+
+            if deadline_exceeded and process.stdout:
+                # Collect anything the CLI flushed during the grace window so a
+                # terminated call still reports the cost it managed to emit.
+                for line in process.stdout:
+                    line = line.rstrip('\n')
+                    raw_lines.append(line)
+                    self._display_stream_event(line, assistant_texts)
+
             elapsed = time.time() - start_time
             
             # Parse final result from last JSON line
@@ -612,13 +655,42 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             
             print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n", flush=True)
             
+            if deadline_exceeded:
+                # A terminated call still spent real money and real time —
+                # record both instead of dropping them with the failure.
+                self._cumulative_cost += total_cost
+                return CodingResult(
+                    success=False,
+                    output="\n".join(assistant_texts),
+                    error=(
+                        f"Claude Code CLI exceeded its {self._timeout}s "
+                        f"deadline and was terminated"
+                    ),
+                    cost=total_cost,
+                    metadata={
+                        "model": model,
+                        "auth_mode": self._auth_mode,
+                        "elapsed_seconds": elapsed,
+                        "deadline_exceeded": True,
+                        "tool_call_count": tool_call_count,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "raw_log_lines": raw_lines,
+                    },
+                )
+
             if retcode != 0 or is_error:
                 error_msg = result_text if is_error else f"CLI exited with code {retcode}"
+                # Failed calls report their parsed cost like successful ones do;
+                # expensive failures are exactly what a cost budget must see.
+                self._cumulative_cost += total_cost
                 return CodingResult(
                     success=False,
                     output="\n".join(assistant_texts),
                     error=error_msg,
+                    cost=total_cost,
                     metadata={
+                        "model": model,
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "tool_call_count": tool_call_count,
