@@ -54,6 +54,9 @@ rsync -a --delete --exclude .git --exclude archive --exclude tests \
 bash containers/build_container.sh kapso
 bash containers/build_container.sh vllm_debug
 gsutil cp containers/kapso.sif containers/vllm_debug.sif "gs://$BUCKET/assets/"
+# Also bake the containers onto the cache disk so run VMs skip the GCS pull.
+mkdir -p /mnt/hfcache/containers
+cp containers/kapso.sif containers/vllm_debug.sif /mnt/hfcache/containers/
 
 # --- HF cache ---
 # Gated models (gemma) need a token whose account accepted the license.

@@ -32,15 +32,16 @@ self_destruct() {
 }
 trap self_destruct EXIT
 
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y software-properties-common git rsync jq python3 uuid-runtime tree mdadm
-add-apt-repository -y ppa:apptainer/ppa
-apt-get update
-apt-get install -y apptainer fuse-overlayfs
-
-# --- NVIDIA driver (dkms build takes a few minutes) ---
-apt-get install -y nvidia-driver-570-server || apt-get install -y nvidia-driver-550-server
+# Skipped when booting from the golden image (02_build_image.sh).
+if [ ! -f /etc/ptb-image-ready ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y software-properties-common git rsync jq python3 uuid-runtime tree mdadm
+    add-apt-repository -y ppa:apptainer/ppa
+    apt-get update
+    apt-get install -y apptainer fuse-overlayfs
+    apt-get install -y nvidia-driver-570-server || apt-get install -y nvidia-driver-550-server
+fi
 for _ in $(seq 1 40); do nvidia-smi && break; sleep 15; done
 nvidia-smi || exit 1
 
@@ -83,15 +84,23 @@ if [ ! -f agents/kapso/solve.sh ]; then
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/containers/kapso.def containers/kapso.def
 fi
-gsutil cp "gs://$BUCKET/assets/kapso.sif" "gs://$BUCKET/assets/vllm_debug.sif" containers/
+# Containers: prefer the copies baked onto the cache-disk snapshot (zero
+# download); fall back to GCS (~2-3 min at the ~150 MiB/s we measured).
+if [ -f /mnt/hfcache/containers/kapso.sif ]; then
+    export POST_TRAIN_BENCH_CONTAINERS_DIR=/mnt/hfcache/containers
+else
+    gsutil cp "gs://$BUCKET/assets/kapso.sif" "gs://$BUCKET/assets/vllm_debug.sif" containers/
+    export POST_TRAIN_BENCH_CONTAINERS_DIR=containers
+fi
 
 export POST_TRAIN_BENCH_CONTAINER_NAME=kapso
-export POST_TRAIN_BENCH_CONTAINERS_DIR=containers
 export POST_TRAIN_BENCH_RESULTS_DIR=results
 export POST_TRAIN_BENCH_JOB_SCHEDULER=local
 
 # --- crash-safe periodic results upload ---
-( while sleep 600; do
+# Measured on spot: preemption grace is 29s and may be 0s mid-boot, and the
+# job dir sits on ephemeral local SSD — only what's already synced survives.
+( while sleep 300; do
       gsutil -m rsync -r results "$RESULTS_GS/results" >/dev/null 2>&1 || true
   done ) &
 UPLOADER=$!

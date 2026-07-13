@@ -48,9 +48,17 @@ else
     PROVISIONING=(--provisioning-model=FLEX_START --request-valid-for-duration=2h)
 fi
 
+# Golden image (02_build_image.sh) if present, else vanilla ubuntu + boot-time
+# installs (run_startup.sh handles both).
+if gcloud compute images describe-from-family ptb-runner --project "$PROJECT" >/dev/null 2>&1; then
+    IMAGE_ARGS=(--image-family ptb-runner --image-project "$PROJECT")
+else
+    IMAGE_ARGS=(--image-family ubuntu-2204-lts --image-project ubuntu-os-cloud)
+fi
+
 # Notes:
-#  - a3-highgpu-1g bundles its H100 (no --accelerator flag) and requires gVNIC.
-#  - If creation errors about local SSD, append: --local-ssd=interface=NVME (x2).
+#  - a3-highgpu-1g bundles its H100 (no --accelerator flag; 2x375GB local SSD
+#    included — verified empirically) and requires gVNIC.
 gcloud compute instances create "$VM" \
     --project "$PROJECT" --zone "$ZONE" \
     --machine-type a3-highgpu-1g \
@@ -60,7 +68,7 @@ gcloud compute instances create "$VM" \
     --maintenance-policy=TERMINATE \
     --reservation-affinity=none \
     --network-interface nic-type=GVNIC \
-    --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
+    "${IMAGE_ARGS[@]}" \
     --boot-disk-size 300GB --boot-disk-type pd-ssd \
     --disk "name=ptb-cache-${RUN_ID},device-name=hfcache,mode=rw,auto-delete=yes" \
     --service-account "$SA_EMAIL" --scopes cloud-platform \
