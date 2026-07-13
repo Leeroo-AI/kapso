@@ -15,9 +15,13 @@ source ./env.sh
 BUILDER="ptb-image-builder"
 IMAGE_FAMILY="ptb-runner"
 IMAGE_NAME="ptb-runner-$(date +%Y%m%d-%H%M)"
+SETUP_MARKER="gs://$BUCKET/assets/IMAGE_SETUP_DONE"
+
+gcloud compute instances delete "$BUILDER" --zone "$ZONE" --project "$PROJECT" --quiet 2>/dev/null || true
+gsutil -q rm "$SETUP_MARKER" 2>/dev/null || true
 
 SETUP=$(mktemp)
-cat > "$SETUP" <<'EOF'
+cat > "$SETUP" <<EOF
 #!/bin/bash
 set -x
 exec > /var/log/ptb-image-setup.log 2>&1
@@ -28,29 +32,25 @@ add-apt-repository -y ppa:apptainer/ppa
 apt-get update
 apt-get install -y apptainer fuse-overlayfs
 apt-get install -y nvidia-driver-570-server || apt-get install -y nvidia-driver-550-server
-touch /etc/ptb-image-ready   # run_startup.sh skips installs when this exists
+if dpkg -l apptainer fuse-overlayfs >/dev/null 2>&1 && ls /usr/bin/nvidia-smi >/dev/null 2>&1; then
+    touch /etc/ptb-image-ready   # run_startup.sh skips installs when this exists
+    echo done | gsutil cp - "$SETUP_MARKER"
+fi
 poweroff
 EOF
 
-CREATED=0
-for MACHINE_ARGS in \
-    "--machine-type=e2-standard-8 --provisioning-model=SPOT --instance-termination-action=STOP" \
-    "--machine-type=e2-standard-8"; do
-    # shellcheck disable=SC2086
-    if gcloud compute instances create "$BUILDER" \
-        --project "$PROJECT" --zone "$ZONE" \
-        $MACHINE_ARGS \
-        --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
-        --boot-disk-size 50GB --boot-disk-type pd-balanced \
-        --metadata-from-file startup-script="$SETUP"; then
-        CREATED=1; break
-    fi
-    echo "image-builder create failed with: $MACHINE_ARGS — trying next config"
-done
+# On-demand only: a preempted image build produces a silently corrupt image
+# (learned the hard way: TERMINATED cannot distinguish poweroff from preemption).
+gcloud compute instances create "$BUILDER" \
+    --project "$PROJECT" --zone "$ZONE" \
+    --machine-type e2-standard-8 \
+    --image-family ubuntu-2204-lts --image-project ubuntu-os-cloud \
+    --boot-disk-size 50GB --boot-disk-type pd-balanced \
+    --service-account "$SA_EMAIL" --scopes cloud-platform \
+    --metadata-from-file startup-script="$SETUP"
 rm -f "$SETUP"
-[ "$CREATED" = 1 ] || { echo "image-builder creation failed in every config"; exit 1; }
 
-echo "Waiting for image builder to power off..."
+echo "Waiting for image builder to finish (marker + poweroff)..."
 for _ in $(seq 1 60); do
     STATUS=$(gcloud compute instances describe "$BUILDER" --zone "$ZONE" --project "$PROJECT" \
         --format='value(status)')
@@ -58,6 +58,8 @@ for _ in $(seq 1 60); do
     sleep 20
 done
 [ "$STATUS" = "TERMINATED" ] || { echo "builder did not finish; inspect $BUILDER"; exit 1; }
+gsutil -q stat "$SETUP_MARKER" || {
+    echo "builder terminated WITHOUT the setup marker — not imaging a broken disk"; exit 1; }
 
 gcloud compute images create "$IMAGE_NAME" \
     --project "$PROJECT" \

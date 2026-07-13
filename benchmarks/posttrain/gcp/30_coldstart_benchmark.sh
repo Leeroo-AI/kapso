@@ -50,6 +50,7 @@ trap finish EXIT
 put image_prebaked "$([ -f /etc/ptb-image-ready ] && echo yes || echo no)"
 if [ ! -f /etc/ptb-image-ready ]; then
     export DEBIAN_FRONTEND=noninteractive
+    dpkg --configure -a || true   # self-heal a dpkg interrupted at image time
     apt-get update
     apt-get install -y software-properties-common git rsync jq python3 uuid-runtime tree mdadm
     add-apt-repository -y ppa:apptainer/ppa
