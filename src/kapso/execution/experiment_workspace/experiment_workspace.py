@@ -19,6 +19,7 @@ import git
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.experiment_workspace.experiment_session import ExperimentSession
+from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 
 class WorkspaceCheckoutError(RuntimeError):
@@ -63,6 +64,8 @@ class ExperimentWorkspace:
         coding_agent_config: CodingAgentConfig,
         workspace_dir: str,
         initial_repo: Optional[str] = None,
+        repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
+        repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
     ):
         """
         Initialize the Experiment Workspace.
@@ -72,12 +75,26 @@ class ExperimentWorkspace:
             workspace_dir: Path to the workspace directory (required)
             initial_repo: Optional local filesystem path to a repository to COPY/CLONE
                 into this workspace. This enables "improve an existing repo" workflows.
+            repo_memory_failure_policy: ``warn`` or ``fail`` for optional
+                RepoMemory enrichment failures
+            repo_memory_max_retries: Structured-response repair attempts after
+                the first RepoMemory response
         """
         
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
         self.initial_repo = os.path.abspath(initial_repo) if initial_repo else None
         self.is_seeded = self.initial_repo is not None
+        self.repo_memory_failure_policy = (
+            RepoMemoryManager.normalize_failure_policy(
+                repo_memory_failure_policy
+            )
+        )
+        self.repo_memory_max_retries = (
+            RepoMemoryManager.normalize_max_retries(
+                repo_memory_max_retries
+            )
+        )
         
         # Initialize git repository.
         #
@@ -328,6 +345,7 @@ class ExperimentWorkspace:
         Args:
             branch_name: Name for the experiment branch
             parent_branch_name: Branch to inherit code from
+            llm: Optional LLM used for RepoMemory enrichment
             
         Returns:
             ExperimentSession ready for code generation
@@ -344,6 +362,8 @@ class ExperimentWorkspace:
             parent_branch_name=parent_branch_name,
             branch_name=branch_name,
             repo_memory_llm=llm,
+            repo_memory_failure_policy=self.repo_memory_failure_policy,
+            repo_memory_max_retries=self.repo_memory_max_retries,
         )
         
         return session

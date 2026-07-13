@@ -112,6 +112,19 @@ already been implemented and evaluated.
 - Retry parse/schema failures only; propagate authentication, configuration,
   and programming errors.
 
+### Configuration
+
+```yaml
+search_strategy:
+  params:
+    repo_memory_failure_policy: warn  # warn | fail
+    repo_memory_max_retries: 2
+```
+
+`repo_memory_max_retries` counts repair attempts after the initial response.
+The failure policy is applied at the optional-enrichment lifecycle boundary;
+direct manager calls continue to raise their underlying errors.
+
 ### Acceptance tests
 
 - Invalid JSON followed by valid JSON succeeds.

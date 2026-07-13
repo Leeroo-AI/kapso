@@ -11,6 +11,7 @@
 import os
 import shutil
 import copy
+import logging
 from typing import Any, Dict, Optional
 
 import git
@@ -19,6 +20,9 @@ from kapso.execution.coding_agents.base import CodingAgentConfig, CodingResult
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.coding_agents.commit_message_generator import CommitMessageGenerator
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExperimentSession:
@@ -44,6 +48,8 @@ class ExperimentSession:
         parent_branch_name: str, 
         branch_name: str,
         repo_memory_llm: Any = None,
+        repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
+        repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
     ):
         """
         Initialize an experiment session.
@@ -54,6 +60,11 @@ class ExperimentSession:
             coding_agent_config: Configuration for the coding agent
             parent_branch_name: Branch to inherit code from
             branch_name: Name for this experiment's branch
+            repo_memory_llm: Optional LLM used for RepoMemory enrichment
+            repo_memory_failure_policy: ``warn`` or ``fail`` after enrichment
+                errors; push and cleanup run under either policy
+            repo_memory_max_retries: Structured-response repair attempts after
+                the first RepoMemory response
         """
         self.main_repo = main_repo
         self.session_folder = session_folder
@@ -66,6 +77,16 @@ class ExperimentSession:
         self._repo_memory_solution_spec: str = ""
         self._repo_memory_run_result: Dict[str, Any] = {}
         self._repo_memory_llm_model: Optional[str] = None
+        self._repo_memory_failure_policy = (
+            RepoMemoryManager.normalize_failure_policy(
+                repo_memory_failure_policy
+            )
+        )
+        self._repo_memory_max_retries = (
+            RepoMemoryManager.normalize_max_retries(
+                repo_memory_max_retries
+            )
+        )
         
         # === GIT SETUP ===
         os.makedirs(os.path.dirname(self.session_folder), exist_ok=True)
@@ -248,26 +269,41 @@ class ExperimentSession:
         # This enforces "latest commit semantics" for memory updates:
         # - The repo state we diff/inspect is fully committed (no dirty worktree).
         # - The memory file update itself is committed as the final metadata commit.
+        repo_memory_error: Optional[Exception] = None
         if self._repo_memory_update_scheduled and self._repo_memory_llm is not None:
-            RepoMemoryManager.update_after_experiment(
-                repo_root=self.session_folder,
-                llm=self._repo_memory_llm,
-                branch_name=self.branch_name,
-                parent_branch_name=self.parent_branch_name,
-                base_commit_sha=getattr(self, "base_commit_sha", ""),
-                solution_spec=self._repo_memory_solution_spec,
-                run_result=self._repo_memory_run_result,
-                llm_model=self._repo_memory_llm_model,
-            )
-
-            # Commit the memory update so child experiments inherit it via git.
-            self.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
             try:
-                self.repo.git.commit("-m", "chore(kapso): update repo memory")
-            except git.GitCommandError as e:
-                # Nothing to commit or commit failed. If nothing changed, keep going.
-                if "nothing to commit" not in str(e).lower():
-                    raise
+                RepoMemoryManager.update_after_experiment(
+                    repo_root=self.session_folder,
+                    llm=self._repo_memory_llm,
+                    branch_name=self.branch_name,
+                    parent_branch_name=self.parent_branch_name,
+                    base_commit_sha=getattr(self, "base_commit_sha", ""),
+                    solution_spec=self._repo_memory_solution_spec,
+                    run_result=self._repo_memory_run_result,
+                    llm_model=self._repo_memory_llm_model,
+                    max_retries=self._repo_memory_max_retries,
+                )
+
+                # Commit the memory update so child experiments inherit it.
+                self.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
+                try:
+                    self.repo.git.commit(
+                        "-m", "chore(kapso): update repo memory"
+                    )
+                except git.GitCommandError as exc:
+                    if "nothing to commit" not in str(exc).lower():
+                        raise
+            except Exception as exc:
+                repo_memory_error = exc
+                if self._repo_memory_failure_policy == "warn":
+                    logger.warning(
+                        "RepoMemory update failed for branch %s; the candidate "
+                        "will still be pushed: %s: %s",
+                        self.branch_name,
+                        type(exc).__name__,
+                        exc,
+                        exc_info=True,
+                    )
         
         # Push to origin (makes branch available for child nodes)
         try:
@@ -275,11 +311,24 @@ class ExperimentSession:
         except git.GitCommandError as e:
             print(f"[ExperimentSession] Push failed: {e}")
         
-        # Cleanup coding agent resources
-        self.coding_agent.cleanup()
-        
-        # Remove session folder
-        shutil.rmtree(self.session_folder, ignore_errors=True)
+        # Cleanup must run even when optional enrichment failed. Preserve a
+        # cleanup error unless strict RepoMemory mode needs to surface its
+        # original failure.
+        cleanup_error: Optional[Exception] = None
+        try:
+            self.coding_agent.cleanup()
+        except Exception as exc:
+            cleanup_error = exc
+        finally:
+            shutil.rmtree(self.session_folder, ignore_errors=True)
+
+        if (
+            repo_memory_error is not None
+            and self._repo_memory_failure_policy == "fail"
+        ):
+            raise repo_memory_error
+        if cleanup_error is not None:
+            raise cleanup_error
     
     def get_cumulative_cost(self) -> float:
         """
@@ -289,4 +338,3 @@ class ExperimentSession:
             Total cost in dollars
         """
         return self.coding_agent.get_cumulative_cost()
-
