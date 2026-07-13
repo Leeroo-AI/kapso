@@ -550,6 +550,73 @@ count (`max_full_evals`) bounds the adaptivity leak into the full suite, and the
 result is reported from the full suite with the campaign's total full-suite query count
 recorded alongside it — visible, if not eliminable, adaptivity.
 
+### Selection under versioned evaluation: the four "bests"
+
+(Adversarially reviewed 2026-07-13; the leaderboard architecture, calibration-gated
+parenting, transition state machine, matched replication, and escrowed endgame validation
+below all trace to that review's findings.)
+
+"Pick the best node" is four different questions, and versioning forces each consumer to
+answer within its own evidence:
+
+| Consumer | Question | Rule |
+|---|---|---|
+| **Parent selection** (next experiment) | Which lineage to extend now? | Current-class leader **subject to calibration-aware eligibility** (rule 2): paired fast ranking earns exploration authority only as far as calibration supports it. Valid, integrity-passing nodes only. |
+| **VALIDATE candidate** | Which probe earned a full eval? | Fast leader clearing `promotion_margin` under matched-replication comparison (rule 4), calibration-gated, not already validated. |
+| **Reserve / FULL candidate** | What gets the committed run? | **Tier order**: FULL attempt > VALIDATE attempt > probe-only; within tier by same-class score. An unconfirmed fast lead loses here, by design. |
+| **Final `SolutionResult`** | What do we ship and claim? | Best full-eval evidence (FULL tier, else VALIDATE), labeled `fidelity_of_best`; a probe-only campaign says so, and an `unvalidated_leader` left on the table is reported. |
+
+1. **Per-class leaderboards are the source of truth — projections are a compatibility
+   surface.** The policy state holds immutable leaderboards keyed by the complete
+   comparability class `(evaluator_id, fidelity, params, replication schedule)`, plus the
+   *persisted consumer selections* (current parent-leader, validated-leader, committed
+   candidate). Consumer views derive from leaderboards; `node.score` is populated *from*
+   the canonical class's leaderboard so the existing dumb selectors keep working, but no
+   decision reads a projection directly. **No score ever crosses an `evaluator_id`
+   boundary** — cross-version standing is only ever re-earned by an actual bridge
+   evaluation under the new head. The registry's semantic-change note is audit metadata,
+   never authorization to reuse a score: a manifest hash proves bytes changed, not that
+   rankings survived.
+2. **Parenting is calibration-gated with bounded unvalidated depth.** While fast ranking
+   is uncalibrated (pairs below `calibration_min_pairs` or Spearman below floor), the
+   parent defaults to the **validated leader**; an unvalidated fast leader may be extended
+   only to `max_unvalidated_depth` (default 2) consecutive probes before it must be
+   validated or exploration reverts to the validated lineage. A **failed validation is a
+   deterministic reset**: the refuted lineage keeps its class score but loses parent
+   eligibility, and the persisted parent-leader reverts. A lucky fast score can no longer
+   steer the whole campaign while the committed leader sits elsewhere.
+3. **Evaluator transitions are an idempotent, checkpointed state machine** — not a
+   blocking convention. Order: register new head → checkpoint `{transition: pending,
+   old_head, new_head}` → bridge evaluation of the incumbent (budgeted from searchable
+   time, bounded retries) → checkpoint `{transition: anchored}`. Resume validation accepts
+   a registry/checkpoint head mismatch **iff** a pending transition record explains it,
+   and replays the bridge idempotently — a crash between registration and anchoring can
+   no longer strand the campaign. Typed fallbacks replace deadlock: bridge fails or the
+   incumbent's artifact is gone → incumbent is invalidated for the new class and the
+   bridge falls to the next-best node with a live artifact; none exists → the frontier is
+   *legitimately* empty and the next iteration drafts from baseline. `max_change_requests`
+   plus the searchable-budget admission check cap how much a request storm can burn.
+4. **Replication comparisons are matched, scheduled, and dispersion-aware.** Candidates
+   compare only at equal replication counts with matched seeds, as paired seed-level
+   deltas; a one-run challenger is never weighed against a three-run incumbent's mean.
+   Promotion requires the paired delta to clear `promotion_margin` *plus* a dispersion
+   term, so the threshold tightens with variance; replication happens on a fixed finalist
+   schedule (never opportunistically, which would be optional stopping); a failed
+   replication carries worst-value semantics.
+5. **Endgame validation is escrowed ahead of the gate — the FULL reserve is untouchable.**
+   With `endgame_validate: true`, while an unvalidated fast leader exists and
+   `max_full_evals` has headroom, the escrow is *enlarged* to reserve(FULL) + one VALIDATE
+   cap — the validate is paid from searchable budget by holding it back early, never
+   squeezed in at the gate. It counts against `max_full_evals` explicitly, its admission
+   decision is persisted, and if the enlarged escrow stops fitting it is skipped (recorded)
+   rather than ever shaving the FULL attempt. It can flip the committed choice **only** on
+   the resulting same-class full-eval comparison — never on the fast margin that motivated
+   it.
+6. **It slots behind the existing seam.** These rules are the "best" policy inside the
+   landed `parent_policy` surface (and the roadmap's deferred `ParentSelector` interface):
+   `baseline` is untouched, both strategies keep the same `get_best_experiment()` shape,
+   and the leaderboard/tier-order walk is the one component that reads attempts directly.
+
 ### Who decides fidelity — and how budget connects
 
 A deterministic **FidelityPolicy** owned by the orchestrator decides the profile *before
@@ -683,6 +750,12 @@ modes:
         max_full_runs: 2
         max_full_evals: 3                  # bounds VALIDATE passes (adaptivity leak into
                                            # the full suite)
+        endgame_validate: true             # escrow one VALIDATE ahead of the reserve gate
+                                           # for an unvalidated fast leader; counts against
+                                           # max_full_evals; skipped (recorded) rather than
+                                           # ever shaving the FULL reserve
+        max_unvalidated_depth: 2           # probes that may extend an unvalidated fast
+                                           # leader before validation or reversion
         calibration_min_pairs: 3           # below this, fast scores prune only
         calibration_min_spearman: 0.5      # rank-agreement floor for auto-promotion
     evaluation_maintainer:                 # coding-agent module, like feedback_generator
