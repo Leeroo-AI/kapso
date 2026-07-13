@@ -20,6 +20,9 @@ tar -czf - -C "$KAPSO_ROOT" \
     --exclude=moltbook_bot --exclude=tmp . \
     | gsutil cp - "gs://$BUCKET/assets/kapso-src.tgz"
 
+# Stale markers from a previous attempt would end the poll loop instantly.
+gsutil -q rm "gs://$BUCKET/assets/BUILD_DONE" "gs://$BUCKET/assets/BUILD_FAILED" 2>/dev/null || true
+
 gcloud compute disks describe "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" >/dev/null 2>&1 || \
     gcloud compute disks create "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" \
         --size "${CACHE_DISK_SIZE_GB}GB" --type pd-balanced
@@ -54,6 +57,11 @@ for _ in $(seq 1 720); do   # up to 12h
     if gsutil -q stat "gs://$BUCKET/assets/BUILD_DONE" 2>/dev/null; then
         echo "Build finished."
         break
+    fi
+    if gsutil -q stat "gs://$BUCKET/assets/BUILD_FAILED" 2>/dev/null; then
+        echo "BUILD FAILED — log tail:"
+        gsutil cat "gs://$BUCKET/assets/build.log" 2>/dev/null | tail -40
+        exit 1
     fi
     sleep 60
 done

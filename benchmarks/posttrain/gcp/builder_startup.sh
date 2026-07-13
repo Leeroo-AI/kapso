@@ -49,12 +49,13 @@ else
 fi
 cd /opt/ptb
 
-# Apply the kapso adapter if this checkout doesn't carry it already
+# Apply the kapso adapter (defs always overwritten so def fixes propagate)
 ADAPTER=/opt/kapso-src/benchmarks/posttrain/ptb_adapter
-if [ ! -f agents/kapso/solve.sh ] && [ -d "$ADAPTER" ]; then
+if [ -d "$ADAPTER" ]; then
     mkdir -p agents/kapso
     cp "$ADAPTER/agents/kapso/solve.sh" agents/kapso/solve.sh
     cp "$ADAPTER/containers/kapso.def" containers/kapso.def
+    cp "$ADAPTER/containers/vllm_debug.def" containers/vllm_debug.def
 fi
 
 # --- containers ---
@@ -62,6 +63,13 @@ rsync -a --delete --exclude .git --exclude archive --exclude tests \
     /opt/kapso-src/ containers/kapso-src/
 bash containers/build_container.sh kapso
 bash containers/build_container.sh vllm_debug
+
+# Fail loudly: no BUILD_DONE (and no snapshot) unless both images exist.
+if [ ! -f containers/kapso.sif ] || [ ! -f containers/vllm_debug.sif ]; then
+    echo "container build failed" | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
+    exit 1
+fi
+
 gsutil cp containers/kapso.sif containers/vllm_debug.sif "gs://$BUCKET/assets/"
 # Also bake the containers onto the cache disk so run VMs skip the GCS pull.
 mkdir -p /mnt/hfcache/containers
