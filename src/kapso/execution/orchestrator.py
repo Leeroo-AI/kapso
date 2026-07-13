@@ -65,6 +65,7 @@ from kapso.execution.evaluation_maintainer import (
 from kapso.execution.fidelity import (
     FULL_PASSTHROUGH,
     TIER_FULL,
+    ComparabilityClass,
     FidelityPolicy,
     FidelitySpec,
     evidence_tier,
@@ -294,6 +295,7 @@ class OrchestratorAgent:
         self.fidelity_spec = FidelitySpec.resolve(
             self._config_budget.get("fidelity")
         )
+        self._fidelity_active = False
         if (
             self.fidelity_spec.mode != "off"
             and self.evaluation_maintainer is None
@@ -649,6 +651,106 @@ class OrchestratorAgent:
             self._record_maintainer_spend()
         self._adopt_registered_evaluation()
 
+    def _canonical_evaluation_params(self):
+        """(fidelity, fraction) of the class node.score projections use."""
+        if self._fidelity_active:
+            return "fast", self.fidelity_spec.eval_fast_fraction
+        return "full", 1.0
+
+    def _execute_evaluator_transition(self) -> None:
+        """Anchor the frontier on the new evaluator head.
+
+        Durable state machine: pending is checkpointed before the bridge
+        runs, anchored after — a crash in between replays the bridge
+        idempotently on resume. Fallbacks are mechanical: candidates whose
+        artifacts are gone or whose bridge fails fall through to the next;
+        with none left the frontier is legitimately empty and the next
+        iteration drafts from baseline.
+        """
+        strategy = self.search_strategy
+        new_evaluator_id = strategy.registered_evaluator_id
+        old_evaluator_id = strategy.scores_evaluator_id
+        fidelity, fraction = self._canonical_evaluation_params()
+        deadline = self.evaluation_maintainer.timing(fraction).upper_seconds
+
+        print(
+            "[Orchestrator] Evaluator transition: anchoring the frontier "
+            f"on {new_evaluator_id[:12]} (was "
+            f"{old_evaluator_id[:12] if old_evaluator_id else '<none>'})"
+        )
+        strategy.evaluator_transition = {
+            "old_evaluator_id": old_evaluator_id,
+            "new_evaluator_id": new_evaluator_id,
+            "status": "pending",
+        }
+        self._save_run_checkpoint(status="running")
+
+        candidates = sorted(
+            (
+                node
+                for node in strategy.get_experiment_history()
+                if not node.had_error
+                and node.evaluation_valid
+                and node.branch_name
+            ),
+            key=lambda node: node.score if node.score is not None else float(
+                "-inf"
+            ),
+            reverse=True,
+        )
+        bridged = False
+        for candidate in candidates:
+            bridged = strategy.run_bridge_evaluation(
+                candidate,
+                fidelity=fidelity,
+                fraction=fraction,
+                deadline_seconds=deadline,
+            )
+            if bridged:
+                print(
+                    "[Orchestrator] Bridge evaluation anchored node "
+                    f"{candidate.node_id} under the new evaluator"
+                )
+                break
+        if not bridged:
+            print(
+                "[Orchestrator] No candidate could bridge to the new "
+                "evaluator; the frontier restarts from baseline"
+            )
+
+        strategy.refresh_score_projections(
+            ComparabilityClass(
+                evaluator_id=new_evaluator_id,
+                fidelity=fidelity,
+                fraction=fraction,
+                seed=strategy.registered_subsample_seed,
+            )
+        )
+        strategy.scores_evaluator_id = new_evaluator_id
+        strategy.evaluator_transition = {
+            "old_evaluator_id": old_evaluator_id,
+            "new_evaluator_id": new_evaluator_id,
+            "status": "anchored",
+        }
+        self._save_run_checkpoint(status="running")
+
+    def _reconcile_evaluator_state(self) -> None:
+        """Adopt or replay transitions so scores match the registry head."""
+        if self.evaluation_maintainer is None:
+            return
+        strategy = self.search_strategy
+        head_id = strategy.registered_evaluator_id
+        transition = strategy.evaluator_transition
+        pending = (
+            transition is not None and transition.get("status") == "pending"
+        )
+        if not strategy.get_experiment_history():
+            # Nothing measured yet: adopt the head as the scoring ruler.
+            strategy.scores_evaluator_id = head_id
+            return
+        if pending or strategy.scores_evaluator_id != head_id:
+            self._execute_evaluator_transition()
+
     def _probe_estimate_seconds(self, budget_spec: BudgetSpec) -> float:
         """Measured mean probe duration; the iteration floor before data."""
         durations = [
@@ -695,10 +797,9 @@ class OrchestratorAgent:
                 self._adopt_registered_evaluation()
                 print(
                     "[Orchestrator] Evaluator re-registered as "
-                    f"v{outcome.new_version.version}; prior scores remain on "
-                    "the old ruler (comparability classes land with the "
-                    "fidelity layer)"
+                    f"v{outcome.new_version.version}"
                 )
+                self._execute_evaluator_transition()
 
     def _create_budget_ledger(self) -> BudgetLedger:
         """Wire the ledger: priors from the checkpoint, live meters, nodes."""
@@ -923,6 +1024,10 @@ class OrchestratorAgent:
             fidelity_active = fidelity_policy.enabled(
                 budget_spec.time_budget_seconds
             )
+        self._fidelity_active = fidelity_active
+        # Replay a pending transition or anchor restored scores on the
+        # current registry head before any selection happens.
+        self._reconcile_evaluator_state()
         reserve_run_pending = False
         effective_reserve_seconds = (
             fidelity_policy.reserve_seconds(budget_spec.time_budget_seconds)

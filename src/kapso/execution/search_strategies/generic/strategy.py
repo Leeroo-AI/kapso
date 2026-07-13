@@ -160,6 +160,11 @@ class GenericSearch(SearchStrategy):
         # State
         self.node_history: List[SearchNode] = []
         self.iteration_count = 0
+        # Which evaluator version node.score projections currently reflect,
+        # and the in-flight evaluator transition (pending until the bridge
+        # evaluation anchors the frontier on the new version).
+        self.scores_evaluator_id: str = ""
+        self.evaluator_transition: Optional[Dict[str, str]] = None
         
         # Error tracking for implementation feedback
         self.previous_errors: List[str] = []
@@ -701,23 +706,26 @@ Problem: {problem}"""
             )
         )
 
-    def _run_validate(self, decision: FidelityDecision) -> SearchNode:
-        """Frame-run the registered full evaluation on an existing artifact.
+    def _execute_registered_evaluation(
+        self,
+        target: SearchNode,
+        *,
+        fidelity: str,
+        fraction: float,
+        deadline_seconds: Optional[float],
+    ) -> Optional[float]:
+        """Frame-run the registered evaluation on an existing artifact.
 
         This is the staged-execution-ownership step from the design: the
         eval-only runs whose integrity matters most execute under Kapso's
         own deadline-bounded subprocess, not inside an agent session. A
-        deadline overrun raises and fails the campaign loud.
+        deadline overrun raises and fails the campaign loud. Returns the
+        measured score, or None when the run exited non-zero.
         """
-        target = self.node_history[decision.target_node_id]
-        print(
-            f"[GenericSearch] VALIDATE: full evaluation of node "
-            f"{target.node_id} ({target.branch_name})"
-        )
         command = shlex.split(
             evaluation_command(
-                fidelity="full",
-                fraction=1.0,
+                fidelity=fidelity,
+                fraction=fraction,
                 seed=self.registered_subsample_seed,
             )
         )
@@ -728,34 +736,79 @@ Problem: {problem}"""
                 cwd=worktree,
                 capture_output=True,
                 text=True,
-                timeout=decision.deadline_seconds,
+                timeout=deadline_seconds,
             )
         duration = time.monotonic() - run_started
         if completed.returncode != 0:
             print(
-                "[GenericSearch] VALIDATE failed "
+                "[GenericSearch] Registered evaluation failed "
                 f"(exit {completed.returncode}): {completed.stderr}"
             )
-            return target
+            return None
         manifest = parse_manifest_line(completed.stdout)
+        score = float(manifest["score"])
         target.evaluation_attempts.append(
             EvaluationAttempt(
                 commit_sha=self.workspace.repo.commit(
                     target.branch_name
                 ).hexsha,
                 evaluator_id=self.registered_evaluator_id,
-                fidelity="full",
-                fraction=1.0,
+                fidelity=fidelity,
+                fraction=fraction,
                 seed=self.registered_subsample_seed,
-                score=float(manifest["score"]),
+                score=score,
                 duration_seconds=duration,
             )
         )
+        return score
+
+    def _run_validate(self, decision: FidelityDecision) -> SearchNode:
+        """Execute a VALIDATE grant: one full measurement of the target."""
+        target = self.node_history[decision.target_node_id]
         print(
-            f"[GenericSearch] VALIDATE complete: node {target.node_id} "
-            f"full score {manifest['score']}"
+            f"[GenericSearch] VALIDATE: full evaluation of node "
+            f"{target.node_id} ({target.branch_name})"
         )
+        score = self._execute_registered_evaluation(
+            target,
+            fidelity="full",
+            fraction=1.0,
+            deadline_seconds=decision.deadline_seconds,
+        )
+        if score is not None:
+            print(
+                f"[GenericSearch] VALIDATE complete: node {target.node_id} "
+                f"full score {score}"
+            )
         return target
+
+    def run_bridge_evaluation(
+        self,
+        node: SearchNode,
+        *,
+        fidelity: str,
+        fraction: float,
+        deadline_seconds: Optional[float],
+    ) -> bool:
+        """Re-measure one artifact under the new evaluator head.
+
+        The artifact-gone fallback is mechanical: a branch that no longer
+        resolves cannot bridge, and the caller falls to the next candidate.
+        """
+        branch_names = {head.name for head in self.workspace.repo.heads}
+        if node.branch_name not in branch_names:
+            print(
+                f"[GenericSearch] Bridge skipped: branch "
+                f"{node.branch_name!r} no longer exists"
+            )
+            return False
+        score = self._execute_registered_evaluation(
+            node,
+            fidelity=fidelity,
+            fraction=fraction,
+            deadline_seconds=deadline_seconds,
+        )
+        return score is not None
 
     def refresh_score_projections(
         self, comparability: ComparabilityClass
@@ -1050,6 +1103,8 @@ Problem: {problem}"""
             "evaluation_integrity": (
                 self.dump_evaluation_integrity_state()
             ),
+            "scores_evaluator_id": self.scores_evaluator_id,
+            "evaluator_transition": self.evaluator_transition,
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -1139,3 +1194,22 @@ Problem: {problem}"""
         self.load_evaluation_integrity_state(
             state.get("evaluation_integrity")
         )
+
+        scores_evaluator_id = state.get("scores_evaluator_id", "")
+        if not isinstance(scores_evaluator_id, str):
+            raise ValueError(
+                "GenericSearch checkpoint scores_evaluator_id must be a "
+                "string"
+            )
+        self.scores_evaluator_id = scores_evaluator_id
+        transition = state.get("evaluator_transition")
+        if transition is not None and (
+            not isinstance(transition, dict)
+            or transition.get("status") not in {"pending", "anchored"}
+            or not isinstance(transition.get("old_evaluator_id"), str)
+            or not isinstance(transition.get("new_evaluator_id"), str)
+        ):
+            raise ValueError(
+                "GenericSearch checkpoint evaluator_transition is invalid"
+            )
+        self.evaluator_transition = transition

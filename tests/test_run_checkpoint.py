@@ -86,6 +86,11 @@ class FakeStrategy:
         self.stop_next = stop_next
         self.next_agent_output = ""
         self.registered_evaluation: Dict[str, Any] = {}
+        self.scores_evaluator_id = ""
+        self.evaluator_transition = None
+        self.bridge_calls: List[Dict[str, Any]] = []
+        self.bridge_result = True
+        self.refreshed_classes: List[Any] = []
 
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         node_id = len(self.node_history)
@@ -135,9 +140,18 @@ class FakeStrategy:
     def get_best_experiment(self) -> Optional[SearchNode]:
         return self.node_history[-1] if self.node_history else None
 
+    def run_bridge_evaluation(self, node, **kwargs) -> bool:
+        self.bridge_calls.append({"node_id": node.node_id, **kwargs})
+        return self.bridge_result
+
+    def refresh_score_projections(self, comparability) -> None:
+        self.refreshed_classes.append(comparability)
+
     def dump_state(self) -> Dict[str, Any]:
         return {
-            "node_history": [node.to_dict() for node in self.node_history]
+            "node_history": [node.to_dict() for node in self.node_history],
+            "scores_evaluator_id": self.scores_evaluator_id,
+            "evaluator_transition": self.evaluator_transition,
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -145,6 +159,8 @@ class FakeStrategy:
             SearchNode.from_dict(item)
             for item in state.get("node_history", [])
         ]
+        self.scores_evaluator_id = state.get("scores_evaluator_id", "")
+        self.evaluator_transition = state.get("evaluator_transition")
 
 
 def _patch_orchestrator(
@@ -305,6 +321,8 @@ def test_generic_strategy_state_round_trip() -> None:
     ]
     source.iteration_count = 1
     source.previous_errors = ["old error"]
+    source.scores_evaluator_id = ""
+    source.evaluator_transition = None
 
     restored = GenericSearch.__new__(GenericSearch)
     restored.load_state(source.dump_state())

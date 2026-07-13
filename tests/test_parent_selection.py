@@ -236,6 +236,8 @@ def test_checkpoint_preserves_policy_and_validates_lineage():
     ]
     source.iteration_count = 1
     source.previous_errors = []
+    source.scores_evaluator_id = ""
+    source.evaluator_transition = None
     state = source.dump_state()
 
     restored = GenericSearch.__new__(GenericSearch)
@@ -268,6 +270,8 @@ def test_checkpoint_without_policy_uses_historical_best_default():
     source.node_history = []
     source.iteration_count = 0
     source.previous_errors = []
+    source.scores_evaluator_id = ""
+    source.evaluator_transition = None
     state = source.dump_state()
     state.pop("parent_policy")
 
