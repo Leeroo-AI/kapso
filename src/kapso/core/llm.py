@@ -1,360 +1,478 @@
-# LLM Backend Module
-#
-# Unified LLM interface with support for completions, web search, and cost tracking.
+"""Unified LLM model routing, retry behavior, and cost tracking."""
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import random
 import time
-from litellm import completion, acompletion
-from typing import Optional, Dict, List
+from dataclasses import asdict, dataclass
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
-# Suppress verbose LiteLLM logs
+from litellm import acompletion, completion
+
+# Suppress verbose LiteLLM logs.
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 logging.getLogger("litellm").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
+
+
+MODEL_ROLES = frozenset({"utility", "reasoning", "web_search"})
+DEFAULT_MODEL_ROUTES: Dict[str, str] = {
+    "utility": "gpt-4.1-mini",
+    "reasoning": "gpt-5-mini",
+    "web_search": "openai/gpt-4o-search-preview",
+}
+
+# These inputs were historically rewritten by the web-search methods. They
+# remain aliases, but now target the configured web_search role.
+LEGACY_WEB_SEARCH_ALIASES = frozenset(
+    {"gpt-5", "gpt-5.1", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"}
+)
+
+
+class ModelRouter:
+    """Resolve semantic model roles while preserving explicit model strings."""
+
+    def __init__(self, routes: Optional[Mapping[str, str]] = None):
+        supplied = dict(routes or {})
+        unknown = sorted(set(supplied) - MODEL_ROLES)
+        if unknown:
+            raise ValueError(f"Unknown model role(s): {', '.join(unknown)}")
+
+        merged = dict(DEFAULT_MODEL_ROUTES)
+        for role, model in supplied.items():
+            if not isinstance(model, str) or not model.strip():
+                raise ValueError(f"Model route '{role}' must be a non-empty string")
+            merged[role] = model.strip()
+        self._routes = merged
+
+    def resolve(
+        self,
+        model: Optional[str],
+        *,
+        default_role: str = "utility",
+    ) -> str:
+        if default_role not in MODEL_ROLES:
+            raise ValueError(f"Unknown default model role: {default_role}")
+        if model is None:
+            return self._routes[default_role]
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("model must be a non-empty string or None")
+
+        requested = model.strip()
+        if requested in MODEL_ROLES:
+            return self._routes[requested]
+        if (
+            default_role == "web_search"
+            and requested in LEGACY_WEB_SEARCH_ALIASES
+        ):
+            return self._routes["web_search"]
+        return requested
+
+    def to_dict(self) -> Dict[str, str]:
+        return dict(self._routes)
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Bounded exponential backoff shared by every completion surface."""
+
+    max_attempts: int = 2
+    initial_delay_seconds: float = 5.0
+    max_delay_seconds: float = 60.0
+    multiplier: float = 2.0
+    jitter: bool = True
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_attempts, bool) or not isinstance(
+            self.max_attempts, int
+        ):
+            raise ValueError("retry.max_attempts must be a positive integer")
+        if self.max_attempts < 1:
+            raise ValueError("retry.max_attempts must be a positive integer")
+
+        numeric_fields = {
+            "initial_delay_seconds": self.initial_delay_seconds,
+            "max_delay_seconds": self.max_delay_seconds,
+            "multiplier": self.multiplier,
+        }
+        for name, value in numeric_fields.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"retry.{name} must be numeric")
+        if self.initial_delay_seconds < 0:
+            raise ValueError("retry.initial_delay_seconds must be non-negative")
+        if self.max_delay_seconds < self.initial_delay_seconds:
+            raise ValueError(
+                "retry.max_delay_seconds must be at least initial_delay_seconds"
+            )
+        if self.multiplier < 1:
+            raise ValueError("retry.multiplier must be at least 1")
+        if not isinstance(self.jitter, bool):
+            raise ValueError("retry.jitter must be a boolean")
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Optional[Mapping[str, Any] | "RetryPolicy"],
+    ) -> "RetryPolicy":
+        if config is None:
+            return cls()
+        if isinstance(config, cls):
+            return config
+        if not isinstance(config, Mapping):
+            raise ValueError("retry configuration must be a mapping")
+
+        allowed = set(cls.__dataclass_fields__)
+        unknown = sorted(set(config) - allowed)
+        if unknown:
+            raise ValueError(f"Unknown retry setting(s): {', '.join(unknown)}")
+        return cls(**dict(config))
+
+    def delay_for_retry(
+        self,
+        retry_number: int,
+        random_fn: Callable[[], float] = random.random,
+    ) -> float:
+        """Return delay before retry 1, 2, ... using capped full jitter."""
+        if retry_number < 1:
+            raise ValueError("retry_number must be at least 1")
+        delay = min(
+            self.max_delay_seconds,
+            self.initial_delay_seconds
+            * (self.multiplier ** (retry_number - 1)),
+        )
+        return delay * random_fn() if self.jitter else delay
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class LLMRetryError(RuntimeError):
+    """A transient LLM call exhausted its configured attempts."""
+
+    def __init__(self, operation: str, model: str, attempts: int, cause: Exception):
+        self.operation = operation
+        self.model = model
+        self.attempts = attempts
+        self.cause = cause
+        super().__init__(
+            f"Transient {operation} failed for model {model} after "
+            f"{attempts} attempt(s): {type(cause).__name__}"
+        )
+
+
+_TRANSIENT_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_TRANSIENT_EXCEPTION_NAMES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "InternalServerError",
+        "RateLimitError",
+        "ServiceUnavailableError",
+        "Timeout",
+    }
+)
+_NON_TRANSIENT_EXCEPTION_NAMES = frozenset(
+    {
+        "AuthenticationError",
+        "BadRequestError",
+        "ContextWindowExceededError",
+        "NotFoundError",
+        "PermissionDeniedError",
+        "UnprocessableEntityError",
+    }
+)
+
+
+def _status_code(error: Exception) -> Optional[int]:
+    status = getattr(error, "status_code", None)
+    if status is None:
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def is_transient_llm_error(error: Exception) -> bool:
+    """Classify retryable transport, throttling, and server failures."""
+    if isinstance(error, (TypeError, ValueError, AssertionError)):
+        return False
+
+    current: Optional[BaseException] = error
+    seen = set()
+    while isinstance(current, Exception) and id(current) not in seen:
+        seen.add(id(current))
+        status = _status_code(current)
+        if status is not None:
+            return status in _TRANSIENT_STATUS_CODES
+
+        name = type(current).__name__
+        if name in _NON_TRANSIENT_EXCEPTION_NAMES:
+            return False
+        if name in _TRANSIENT_EXCEPTION_NAMES:
+            return True
+        if isinstance(current, (TimeoutError, ConnectionError)):
+            return True
+
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class LLMBackend:
-    """
-    LLM backend with retry logic and cost tracking.
-    
-    Example:
-        llm = LLMBackend()
-        response = llm.llm_completion(
-            model="gpt-4.1-mini",
-            messages=[{"role": "user", "content": "Hello!"}]
+    """LLM completions with role routing, bounded retries, and cost tracking."""
+
+    def __init__(
+        self,
+        models: Optional[Mapping[str, str] | ModelRouter] = None,
+        retry_policy: Optional[Mapping[str, Any] | RetryPolicy] = None,
+        *,
+        sleep_fn: Optional[Callable[[float], None]] = None,
+        async_sleep_fn: Optional[Callable[[float], Awaitable[None]]] = None,
+        random_fn: Optional[Callable[[], float]] = None,
+    ):
+        self.model_router = (
+            models if isinstance(models, ModelRouter) else ModelRouter(models)
         )
-        print(llm.get_cumulative_cost())
-    """
-    
-    def __init__(self):
+        self.retry_policy = RetryPolicy.from_config(retry_policy)
+        self._sleep = sleep_fn or time.sleep
+        self._async_sleep = async_sleep_fn or asyncio.sleep
+        self._random = random_fn or random.random
         self._cumulative_cost = 0.0
 
     def get_cumulative_cost(self) -> float:
-        """Returns cumulative cost of all LLM calls made by this instance."""
         return self._cumulative_cost
-    
+
+    def resolve_model(
+        self,
+        model: Optional[str],
+        *,
+        default_role: str = "utility",
+    ) -> str:
+        return self.model_router.resolve(model, default_role=default_role)
+
+    def _record_cost(self, response: Any) -> None:
+        hidden = getattr(response, "_hidden_params", None)
+        if isinstance(hidden, Mapping):
+            cost = hidden.get("response_cost")
+            if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+                self._cumulative_cost += float(cost)
+
+    @staticmethod
+    def _content(response: Any) -> str:
+        return response.choices[0].message.content
+
+    def _run_sync(
+        self,
+        operation: str,
+        model: str,
+        call: Callable[[], Any],
+    ) -> Any:
+        for attempt in range(1, self.retry_policy.max_attempts + 1):
+            try:
+                response = call()
+                self._record_cost(response)
+                return response
+            except KeyboardInterrupt:
+                raise
+            except Exception as error:
+                if not is_transient_llm_error(error):
+                    raise
+                if attempt == self.retry_policy.max_attempts:
+                    raise LLMRetryError(
+                        operation, model, attempt, error
+                    ) from error
+                delay = self.retry_policy.delay_for_retry(
+                    attempt, self._random
+                )
+                logger.warning(
+                    "Transient %s failure for model %s (%d/%d, %s); "
+                    "retrying in %.2fs",
+                    operation,
+                    model,
+                    attempt,
+                    self.retry_policy.max_attempts,
+                    type(error).__name__,
+                    delay,
+                )
+                self._sleep(delay)
+        raise AssertionError("retry loop exited unexpectedly")
+
+    async def _run_async(
+        self,
+        operation: str,
+        model: str,
+        call: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        for attempt in range(1, self.retry_policy.max_attempts + 1):
+            try:
+                response = await call()
+                self._record_cost(response)
+                return response
+            except Exception as error:
+                if not is_transient_llm_error(error):
+                    raise
+                if attempt == self.retry_policy.max_attempts:
+                    raise LLMRetryError(
+                        operation, model, attempt, error
+                    ) from error
+                delay = self.retry_policy.delay_for_retry(
+                    attempt, self._random
+                )
+                logger.warning(
+                    "Transient %s failure for model %s (%d/%d, %s); "
+                    "retrying in %.2fs",
+                    operation,
+                    model,
+                    attempt,
+                    self.retry_policy.max_attempts,
+                    type(error).__name__,
+                    delay,
+                )
+                await self._async_sleep(delay)
+        raise AssertionError("retry loop exited unexpectedly")
+
     def llm_completion(
         self,
-        model: str,
+        model: Optional[str],
         messages: List[Dict[str, str]],
         temperature: float = 1,
         reasoning_effort: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> str:
-        """
-        Call LLM with messages. Retries once after 2 min on failure.
-        
-        Args:
-            model: Model name (e.g., "gpt-4.1-mini", "claude-sonnet-4-20250514")
-            messages: List of message dicts with role and content
-            temperature: Sampling temperature (default 1)
-            reasoning_effort: Optional reasoning effort level
-            
-        Returns:
-            Model response text
-            
-        Example:
-            llm = LLMBackend()
-            response = llm.llm_completion(
-                model="gpt-4.1-mini",
-                messages=[{"role": "user", "content": "What is 2+2?"}],
-                temperature=0
-            )
-        """
-        try:
-            response = completion(
-                model=model,
+        resolved_model = self.resolve_model(model, default_role="utility")
+        response = self._run_sync(
+            "completion",
+            resolved_model,
+            lambda: completion(
+                model=resolved_model,
                 messages=messages,
                 temperature=temperature,
                 reasoning_effort=reasoning_effort,
                 drop_params=True,
-                **kwargs
-            )
-            if hasattr(response, '_hidden_params') and 'response_cost' in response._hidden_params:
-                self._cumulative_cost += response._hidden_params['response_cost']
-            return response.choices[0].message.content
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            print("An error occured in calling LLMs, retrying in 2 minutes...")
-            time.sleep(120)
-            try:
-                response = completion(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    reasoning_effort=reasoning_effort,
-                    drop_params=True,
-                    **kwargs
-                )
-                if hasattr(response, '_hidden_params') and 'response_cost' in response._hidden_params:
-                    self._cumulative_cost += response._hidden_params['response_cost']
-                return response.choices[0].message.content
-            except Exception as retry_e:
-                raise Exception(f"Error calling model {model}: {str(retry_e)}")
+                **kwargs,
+            ),
+        )
+        return self._content(response)
 
     def llm_completion_with_system_prompt(
         self,
-        model: str,
+        model: Optional[str],
         system_prompt: str,
         user_message: str,
         temperature: float = 1,
         reasoning_effort: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> str:
-        """
-        Call LLM with a system prompt and user message.
-        
-        Args:
-            model: Model name
-            system_prompt: System prompt content
-            user_message: User message content
-            temperature: Sampling temperature (default 1)
-            reasoning_effort: Optional reasoning effort level
-            
-        Returns:
-            Model response text
-            
-        Example:
-            llm = LLMBackend()
-            response = llm.llm_completion_with_system_prompt(
-                model="gpt-4.1-mini",
-                system_prompt="You are a helpful assistant.",
-                user_message="Explain Python in one sentence."
-            )
-        """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
-        return self.llm_completion(model, messages, temperature, reasoning_effort=reasoning_effort, **kwargs)
+        return self.llm_completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            **kwargs,
+        )
 
     def llm_multiple_completions(
-        self, models: List[str], messages: List[Dict[str, str]], temperature: float = 1, reasoning_effort: Optional[str] = None, **kwargs
+        self,
+        models: Sequence[Optional[str]],
+        messages: List[Dict[str, str]],
+        temperature: float = 1,
+        reasoning_effort: Optional[str] = None,
+        **kwargs: Any,
     ) -> List[str]:
-        """
-        Call multiple models in parallel with the same messages.
-        
-        Args:
-            models: List of model names to call
-            messages: List of message dicts (same for all models)
-            temperature: Sampling temperature (default 1)
-            reasoning_effort: Optional reasoning effort level
-            
-        Returns:
-            List of model response texts (same order as models)
-            
-        Example:
-            llm = LLMBackend()
-            responses = llm.llm_multiple_completions(
-                models=["gpt-4.1-mini", "claude-sonnet-4-20250514"],
-                messages=[{"role": "user", "content": "Say hello"}]
-            )
-        """
-        async def _run():
-            try:
-                tasks = [
-                    acompletion(
-                        model=m, messages=messages, temperature=temperature, reasoning_effort=reasoning_effort, drop_params=True, **kwargs
-                    ) for m in models
-                ]
-                results = await asyncio.gather(*tasks)
-                for result in results:
-                    if hasattr(result, '_hidden_params') and 'response_cost' in result._hidden_params:
-                        self._cumulative_cost += result._hidden_params['response_cost']
-                return [r.choices[0].message.content for r in results]
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                print("An error occured in calling LLMs, retrying in 2 minutes...")
-                await asyncio.sleep(120)
-                try:
-                    tasks = [
-                        acompletion(
-                            model=m, messages=messages, temperature=temperature, reasoning_effort=reasoning_effort, drop_params=True, **kwargs
-                        ) for m in models
-                    ]
-                    results = await asyncio.gather(*tasks)
-                    for result in results:
-                        if hasattr(result, '_hidden_params') and 'response_cost' in result._hidden_params:
-                            self._cumulative_cost += result._hidden_params['response_cost']
-                    return [r.choices[0].message.content for r in results]
-                except Exception as retry_e:
-                    raise Exception(f"Error calling models {models}: {str(retry_e)}")
-            
+        resolved_models = [
+            self.resolve_model(model, default_role="utility") for model in models
+        ]
+
+        async def _run() -> List[str]:
+            tasks = [
+                self._run_async(
+                    "parallel completion",
+                    model,
+                    lambda model=model: acompletion(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        reasoning_effort=reasoning_effort,
+                        drop_params=True,
+                        **kwargs,
+                    ),
+                )
+                for model in resolved_models
+            ]
+            return [self._content(item) for item in await asyncio.gather(*tasks)]
+
         return asyncio.run(_run())
 
     def llm_completion_with_web_search(
         self,
-        model: str,
+        model: Optional[str],
         messages: List[Dict[str, str]],
         search_context_size: str = "medium",
         reasoning_effort: Optional[str] = None,
-        **kwargs
+        **kwargs: Any,
     ) -> str:
-        """
-        LLM completion with web search enabled via LiteLLM.
-        
-        Uses LiteLLM's web_search_options for unified provider support.
-        Supports: OpenAI, Gemini, Claude, Perplexity, xAI
-        
-        Args:
-            model: Model name (will be mapped to search-enabled variant if needed)
-            messages: List of message dicts with role and content
-            search_context_size: "low", "medium", or "high"
-            reasoning_effort: Optional reasoning effort level
-            
-        Returns:
-            Model response text
-            
-        Note:
-            Temperature is not passed to search-preview models as they don't support it.
-            
-        Example:
-            llm = LLMBackend()
-            response = llm.llm_completion_with_web_search(
-                model="gpt-4o-search-preview",
-                messages=[{"role": "user", "content": "What is today's date?"}],
-                search_context_size="low"
-            )
-        """
-        # Map models to their search-enabled variants
-        search_model_map = {
-            "gpt-5": "openai/gpt-4o-search-preview",
-            "gpt-5.1": "openai/gpt-4o-search-preview",
-            "gpt-5-mini": "openai/gpt-4o-search-preview",
-            "gpt-4.1": "openai/gpt-4o-search-preview",
-            "gpt-4.1-mini": "openai/gpt-4o-search-preview",
-        }
-        search_model = search_model_map.get(model, model)
-        
-        # Remove temperature from kwargs if present (search models don't support it)
-        kwargs.pop('temperature', None)
-        
-        try:
-            response = completion(
-                model=search_model,
+        resolved_model = self.resolve_model(model, default_role="web_search")
+        kwargs.pop("temperature", None)
+        response = self._run_sync(
+            "web-search completion",
+            resolved_model,
+            lambda: completion(
+                model=resolved_model,
                 messages=messages,
                 reasoning_effort=reasoning_effort,
                 web_search_options={"search_context_size": search_context_size},
                 drop_params=True,
-                **kwargs
-            )
-            if hasattr(response, '_hidden_params') and 'response_cost' in response._hidden_params:
-                self._cumulative_cost += response._hidden_params['response_cost']
-            return response.choices[0].message.content
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            print(f"Web search completion error: {e}, retrying in 2 minutes...")
-            time.sleep(120)
-            try:
-                response = completion(
-                    model=search_model,
-                    messages=messages,
-                    reasoning_effort=reasoning_effort,
-                    web_search_options={"search_context_size": search_context_size},
-                    drop_params=True,
-                    **kwargs
-                )
-                if hasattr(response, '_hidden_params') and 'response_cost' in response._hidden_params:
-                    self._cumulative_cost += response._hidden_params['response_cost']
-                return response.choices[0].message.content
-            except Exception as retry_e:
-                raise Exception(f"Error calling model {model} with web search: {str(retry_e)}")
+                **kwargs,
+            ),
+        )
+        return self._content(response)
 
     def llm_multiple_completions_with_web_search(
         self,
-        models: List[str],
+        models: Sequence[Optional[str]],
         messages: List[Dict[str, str]],
         search_context_size: str = "medium",
-        reasoning_efforts: Optional[List[str]] = None,
-        **kwargs
+        reasoning_efforts: Optional[Sequence[str]] = None,
+        **kwargs: Any,
     ) -> List[str]:
-        """
-        Parallel LLM completions with web search enabled.
-        
-        Args:
-            models: List of model names
-            messages: List of message dicts
-            search_context_size: "low", "medium", or "high"
-            reasoning_efforts: Optional list of reasoning efforts per model
-            
-        Returns:
-            List of model response texts
-            
-        Note:
-            Temperature is not passed to search-preview models as they don't support it.
-            
-        Example:
-            llm = LLMBackend()
-            responses = llm.llm_multiple_completions_with_web_search(
-                models=["gpt-4o-search-preview", "gpt-4o-search-preview"],
-                messages=[{"role": "user", "content": "What is the capital of France?"}],
-                search_context_size="low"
-            )
-        """
-        # Map models to search-enabled variants
-        search_model_map = {
-            "gpt-5": "openai/gpt-4o-search-preview",
-            "gpt-5.1": "openai/gpt-4o-search-preview",
-            "gpt-5-mini": "openai/gpt-4o-search-preview",
-            "gpt-4.1": "openai/gpt-4o-search-preview",
-            "gpt-4.1-mini": "openai/gpt-4o-search-preview",
-        }
-        search_models = [search_model_map.get(m, m) for m in models]
-        
-        # Remove temperature from kwargs if present (search models don't support it)
-        kwargs.pop('temperature', None)
-        
-        async def _run():
-            try:
-                tasks = []
-                for i, m in enumerate(search_models):
-                    effort = reasoning_efforts[i] if reasoning_efforts and i < len(reasoning_efforts) else None
-                    tasks.append(
-                        acompletion(
-                            model=m,
+        resolved_models = [
+            self.resolve_model(model, default_role="web_search") for model in models
+        ]
+        kwargs.pop("temperature", None)
+
+        async def _run() -> List[str]:
+            tasks = []
+            for index, model in enumerate(resolved_models):
+                effort = (
+                    reasoning_efforts[index]
+                    if reasoning_efforts and index < len(reasoning_efforts)
+                    else None
+                )
+                tasks.append(
+                    self._run_async(
+                        "parallel web-search completion",
+                        model,
+                        lambda model=model, effort=effort: acompletion(
+                            model=model,
                             messages=messages,
                             reasoning_effort=effort,
-                            web_search_options={"search_context_size": search_context_size},
+                            web_search_options={
+                                "search_context_size": search_context_size
+                            },
                             drop_params=True,
-                            **kwargs
-                        )
+                            **kwargs,
+                        ),
                     )
-                results = await asyncio.gather(*tasks)
-                for result in results:
-                    if hasattr(result, '_hidden_params') and 'response_cost' in result._hidden_params:
-                        self._cumulative_cost += result._hidden_params['response_cost']
-                return [r.choices[0].message.content for r in results]
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                print(f"Web search multiple completions error: {e}, retrying in 2 minutes...")
-                await asyncio.sleep(120)
-                try:
-                    tasks = []
-                    for i, m in enumerate(search_models):
-                        effort = reasoning_efforts[i] if reasoning_efforts and i < len(reasoning_efforts) else None
-                        tasks.append(
-                            acompletion(
-                                model=m,
-                                messages=messages,
-                                reasoning_effort=effort,
-                                web_search_options={"search_context_size": search_context_size},
-                                drop_params=True,
-                                **kwargs
-                            )
-                        )
-                    results = await asyncio.gather(*tasks)
-                    for result in results:
-                        if hasattr(result, '_hidden_params') and 'response_cost' in result._hidden_params:
-                            self._cumulative_cost += result._hidden_params['response_cost']
-                    return [r.choices[0].message.content for r in results]
-                except Exception as retry_e:
-                    raise Exception(f"Error calling models {models} with web search: {str(retry_e)}")
-        
+                )
+            return [self._content(item) for item in await asyncio.gather(*tasks)]
+
         return asyncio.run(_run())
 
     def create_embedding(
@@ -363,58 +481,35 @@ class LLMBackend:
         model: str = "text-embedding-3-large",
         max_chars: Optional[int] = None,
     ) -> List[float]:
-        """
-        Create embedding for text using OpenAI embeddings API.
-        
-        Args:
-            text: Text to embed
-            model: Embedding model name (default: "text-embedding-3-large")
-            max_chars: Optional truncation limit.
-                IMPORTANT: We do not hardcode truncation limits in code.
-                If you need a limit due to upstream API constraints, pass it in
-                explicitly or set `KAPSO_EMBEDDING_MAX_CHARS` in your `.env`.
-            
-        Returns:
-            List of embedding floats, or empty list on error
-        """
+        """Create an embedding, returning an empty list on provider failure."""
         try:
             import openai
-            
-            # Respect optional truncation limit from caller or environment.
-            # Default is NO truncation (safer for correctness; callers can tune).
+
             if max_chars is None:
                 env_val = os.getenv("KAPSO_EMBEDDING_MAX_CHARS")
                 if env_val:
                     try:
                         parsed = int(env_val)
                         max_chars = parsed if parsed > 0 else None
-                    except Exception:
+                    except (TypeError, ValueError):
                         max_chars = None
-            
-            input_text = text if (max_chars is None) else text[:max_chars]
-            response = openai.embeddings.create(
-                model=model,
-                input=input_text,
-            )
+
+            input_text = text if max_chars is None else text[:max_chars]
+            response = openai.embeddings.create(model=model, input=input_text)
             return response.data[0].embedding
         except Exception:
             return []
 
 
-def main():
+def main() -> None:
     llm = LLMBackend()
-    try:
-        response = llm.llm_completion(
-            model="gpt-5-mini",
-            messages=[{"role": "user", "content": "Say hello in one sentence."}],
-        )
-        if response is None or response == "":
-            print("Error: Received empty or None response")
-        else:
-            print(response)
-        print(f"Cost: ${llm.get_cumulative_cost():.6f}")
-    except Exception as e:
-        print(f"Error: {e}")
+    response = llm.llm_completion(
+        model="reasoning",
+        messages=[{"role": "user", "content": "Say hello in one sentence."}],
+    )
+    print(response)
+    print(f"Cost: ${llm.get_cumulative_cost():.6f}")
+
 
 if __name__ == "__main__":
     main()

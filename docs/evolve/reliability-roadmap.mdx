@@ -20,7 +20,7 @@ merged or cherry-picked wholesale.
 | 5. Evaluation integrity | Implemented |
 | 6. Claude Code authentication modes | Implemented |
 | 7. Capability-aware gates | Implemented |
-| 8. Model routing and retry policy | Planned |
+| 8. Model routing and retry policy | Implemented |
 | 9. Parent-selection policies | Planned |
 
 ## Goals
@@ -388,6 +388,21 @@ retry:
 Explicit aliases remain available for compatibility. Resolution and retry
 behavior must be shared by synchronous, parallel, and web-search calls. Only
 retryable provider and network errors are retried.
+
+Parallel retries are per model, so successful calls are not replayed when one
+peer fails. Backoff is capped exponential with optional full jitter, and
+`max_attempts` includes the initial request.
+
+### Acceptance tests
+
+- Partial model-role overrides resolve while explicit model strings pass through.
+- Historical web-search model aliases use the configured web-search route.
+- Invalid routes and retry settings fail during initialization.
+- Transient sync and web-search failures follow the configured delay schedule.
+- Authentication, request, and programming errors are never retried.
+- Parallel calls retry only failed models and preserve result order and cost.
+- Research and auxiliary experiment services receive the active mode's shared
+  routes and retry policy.
 
 ## Milestone 9: Parent-selection policies
 

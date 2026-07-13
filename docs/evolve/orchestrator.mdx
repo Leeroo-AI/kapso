@@ -222,6 +222,17 @@ modes:
         gate_failure_policy: "warn"
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
 
+    models:
+      utility: "gpt-4.1-mini"
+      reasoning: "gpt-5-mini"
+      web_search: "openai/gpt-4o-search-preview"
+    retry:
+      max_attempts: 2
+      initial_delay_seconds: 5
+      max_delay_seconds: 60
+      multiplier: 2
+      jitter: true
+
     coding_agent:
       type: "claude_code"
       model: "us.anthropic.claude-opus-4-5-20251101-v1:0"

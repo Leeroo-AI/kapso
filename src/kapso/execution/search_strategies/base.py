@@ -372,6 +372,7 @@ class SearchStrategy(ABC):
             initial_repo=config.initial_repo,
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
+            llm_backend=self.llm,
         )
 
         # Setup kapso directories (eval_dir -> kapso_evaluation/, data_dir -> kapso_datasets/)

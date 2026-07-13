@@ -112,10 +112,10 @@ class BenchmarkTreeSearch(SearchStrategy):
         self.experimentation_per_run = params.get("experimentation_per_run", 1)
         self.per_step_maximum_solution_count = params.get("per_step_maximum_solution_count", 10)
         self.exploration_budget_percent = params.get("exploration_budget_percent", 30)
-        self.idea_generation_model = params.get("idea_generation_model", "gpt-4.1-mini")
+        self.idea_generation_model = params.get("idea_generation_model", "reasoning")
         self.idea_generation_ensemble_models = params.get(
             "idea_generation_ensemble_models", 
-            ["gpt-4.1-mini"]
+            ["reasoning"]
         )
 
         print(f"[BenchmarkTreeSearch] Initialized with params:")

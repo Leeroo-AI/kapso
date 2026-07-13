@@ -10,8 +10,8 @@
 from typing import Optional
 from kapso.core.llm import LLMBackend
 
-# Lightweight model for commit messages (cheap & fast)
-COMMIT_MESSAGE_MODEL = "gpt-4.1-mini"
+# Lightweight semantic role for commit messages (cheap & fast).
+COMMIT_MESSAGE_MODEL = "utility"
 
 # Maximum diff length to send to LLM (to avoid token limits)
 MAX_DIFF_LENGTH = 4000
@@ -29,14 +29,20 @@ class CommitMessageGenerator:
     - Otherwise, generate from diff + solution context
     """
     
-    def __init__(self, llm: Optional[LLMBackend] = None):
+    def __init__(
+        self,
+        llm: Optional[LLMBackend] = None,
+        model: Optional[str] = None,
+    ):
         """
         Initialize the commit message generator.
         
         Args:
             llm: LLM backend for generating messages. If None, creates one.
+            model: Explicit model override. Defaults to the utility role.
         """
         self.llm = llm or LLMBackend()
+        self.model = model or COMMIT_MESSAGE_MODEL
     
     def generate(
         self,
@@ -124,7 +130,7 @@ Output ONLY the commit message, nothing else:"""
 
         try:
             message = self.llm.llm_completion(
-                model=COMMIT_MESSAGE_MODEL,
+                model=self.model,
                 messages=[{"role": "user", "content": prompt}]
             )
             return self._format_message(message.strip())
@@ -163,4 +169,3 @@ Output ONLY the commit message, nothing else:"""
             lines[0] = lines[0][:69] + '...'
         
         return '\n'.join(lines)
-

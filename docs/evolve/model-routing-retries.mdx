@@ -1,0 +1,140 @@
+---
+title: "Model Routing and Retries"
+description: "Configure semantic LLM roles and bounded transient-failure retries"
+---
+
+Kapso's internal LLM calls use semantic roles instead of embedding provider
+model names throughout the codebase. A single mode configuration selects the
+models used for lightweight utility work, deeper reasoning, and web search.
+The same retry policy applies to synchronous, parallel, and web-search
+completions.
+
+## Configuration
+
+```yaml
+modes:
+  GENERIC:
+    models:
+      utility: "gpt-4.1-mini"
+      reasoning: "gpt-5-mini"
+      web_search: "openai/gpt-4o-search-preview"
+
+    retry:
+      max_attempts: 2
+      initial_delay_seconds: 5
+      max_delay_seconds: 60
+      multiplier: 2
+      jitter: true
+```
+
+`max_attempts` includes the initial call. This example makes one retry after a
+transient failure. Configuration is validated when the shared LLM backend is
+created, before an experiment starts.
+
+## Model roles
+
+| Role | Intended work | Default |
+|------|---------------|---------|
+| `utility` | Commit messages, structured memory, insight extraction, reranking | `gpt-4.1-mini` |
+| `reasoning` | Search-strategy ideation and graph navigation | `gpt-5-mini` |
+| `web_search` | Public-web research and direct web-search completions | `openai/gpt-4o-search-preview` |
+
+Roles are resolved only by `LLMBackend`. Coding-agent models—such as the Claude
+Code model in `coding_agent.model`—remain explicit because their provider and
+authentication mode are part of that agent's configuration.
+
+Existing explicit LLM model strings also remain valid:
+
+```python
+llm.llm_completion(model="vendor/custom-model", messages=messages)
+llm.llm_completion(model="utility", messages=messages)
+```
+
+In the first call, the string passes through unchanged. In the second, Kapso
+uses the configured `utility` route. Historical web-search inputs such as
+`gpt-4.1-mini` and `gpt-5-mini` remain compatibility aliases and resolve to the
+configured `web_search` model when used with a web-search method.
+
+`Kapso.research()` uses the active mode's `web_search` route and retry policy.
+`depth="light"` requests medium search context; `depth="deep"` requests high
+search context. Constructing `Researcher(model="vendor/model")` still selects an
+explicit provider model, while `Researcher()` uses the default route.
+
+An evolution run constructs one configured backend and shares it with search
+strategies, RepoMemory, commit-message generation, and experiment insight
+extraction. Knowledge-search reranking and navigation construct equivalent
+backends from the same mode settings. This keeps route overrides consistent
+throughout the run and cost accounting centralized for its shared callers.
+
+Partial route overrides are supported; unspecified roles retain their defaults.
+Unknown role keys and empty model values are configuration errors.
+
+## Retry semantics
+
+Kapso retries only failures that are usually safe to repeat:
+
+- connection and timeout failures;
+- HTTP `408`, `409`, `425`, and `429` responses;
+- HTTP `500`, `502`, `503`, and `504` responses;
+- provider exceptions classified as rate limits, timeouts, connection errors,
+  service unavailability, or internal server errors.
+
+Authentication, permission, bad-request, context-window, invalid
+configuration, and programming errors are raised immediately. Kapso does not
+sleep and retry a bad API key or a malformed call.
+
+The delay before retry number `n` is capped exponential backoff:
+
+```text
+min(max_delay_seconds, initial_delay_seconds * multiplier ** (n - 1))
+```
+
+With `jitter: true`, Kapso uses full jitter—a random delay between zero and the
+calculated cap—to avoid synchronized retry storms. With `jitter: false`, the
+calculated delay is used exactly.
+
+When transient failures exhaust all attempts, `LLMRetryError` reports the
+operation, resolved model, and attempt count while preserving the provider
+exception as its cause.
+
+## Parallel calls
+
+Each model in a parallel request owns its retry loop. If one of five calls is
+temporarily rate-limited, the four successful calls are not submitted again.
+Successful call costs are recorded once, and returned response order continues
+to match input model order.
+
+Synchronous web search, parallel web search, standard synchronous completion,
+and standard parallel completion all share the same classifier and
+`RetryPolicy`.
+
+The `Researcher` API retains its existing best-effort contract: after the
+shared backend has exhausted a transient failure—or immediately rejects a
+non-transient one—the individual research mode logs the failure and returns an
+empty typed result.
+
+## Standalone use
+
+```python
+from kapso.core import LLMBackend, RetryPolicy
+
+llm = LLMBackend(
+    models={"utility": "vendor/fast", "reasoning": "vendor/deep"},
+    retry_policy=RetryPolicy(
+        max_attempts=3,
+        initial_delay_seconds=1,
+        max_delay_seconds=10,
+        multiplier=2,
+        jitter=True,
+    ),
+)
+
+response = llm.llm_completion(
+    model="reasoning",
+    messages=[{"role": "user", "content": "Analyze this design."}],
+)
+```
+
+`ModelRouter`, `RetryPolicy`, `LLMRetryError`, and
+`is_transient_llm_error` are public from `kapso.core` for components that need
+to inspect or compose the shared behavior.

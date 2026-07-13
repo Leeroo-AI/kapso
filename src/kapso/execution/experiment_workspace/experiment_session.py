@@ -50,6 +50,7 @@ class ExperimentSession:
         repo_memory_llm: Any = None,
         repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
         repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
+        llm_backend: Any = None,
     ):
         """
         Initialize an experiment session.
@@ -65,6 +66,7 @@ class ExperimentSession:
                 errors; push and cleanup run under either policy
             repo_memory_max_retries: Structured-response repair attempts after
                 the first RepoMemory response
+            llm_backend: Shared configured backend for utility completions
         """
         self.main_repo = main_repo
         self.session_folder = session_folder
@@ -131,7 +133,7 @@ class ExperimentSession:
         self._agent_handles_git = self.coding_agent.supports_native_git()
         
         # Initialize commit message generator
-        self.commit_generator = CommitMessageGenerator()
+        self.commit_generator = CommitMessageGenerator(llm=llm_backend)
         
         # Store solution context for richer commit messages
         self._current_solution_summary: Optional[str] = None

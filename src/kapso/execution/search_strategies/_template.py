@@ -163,7 +163,7 @@ class MyStrategy(SearchStrategy):
         """
         
         response = self.llm.llm_completion(
-            model="gpt-4.1-mini",  # Or use a param: self.params.get("model")
+            model="utility",  # Or use an explicit model from strategy params
             messages=[{"role": "user", "content": prompt}],
         )
         

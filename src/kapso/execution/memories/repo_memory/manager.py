@@ -44,7 +44,7 @@ class RepoMemoryManager:
     MEMORY_REL_PATH = os.path.join(KAPSO_DIR, MEMORY_FILE)
 
     # Default model for repo-model inference.
-    DEFAULT_REPO_MODEL_LLM = "gpt-4o-mini"
+    DEFAULT_REPO_MODEL_LLM = "utility"
     DEFAULT_FAILURE_POLICY = "warn"
     DEFAULT_MAX_RETRIES = 2
     FAILURE_POLICIES = {"warn", "fail"}

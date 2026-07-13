@@ -66,6 +66,7 @@ class ExperimentWorkspace:
         initial_repo: Optional[str] = None,
         repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
         repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
+        llm_backend=None,
     ):
         """
         Initialize the Experiment Workspace.
@@ -79,6 +80,7 @@ class ExperimentWorkspace:
                 RepoMemory enrichment failures
             repo_memory_max_retries: Structured-response repair attempts after
                 the first RepoMemory response
+            llm_backend: Shared configured backend for utility completions
         """
         
         self.workspace_dir = workspace_dir
@@ -95,6 +97,7 @@ class ExperimentWorkspace:
                 repo_memory_max_retries
             )
         )
+        self.llm_backend = llm_backend
         
         # Initialize git repository.
         #
@@ -369,9 +372,12 @@ class ExperimentWorkspace:
             coding_agent_config=self.coding_agent_config,
             parent_branch_name=parent_branch_name,
             branch_name=branch_name,
-            repo_memory_llm=llm,
+            repo_memory_llm=(
+                llm if llm is not None else self.llm_backend
+            ),
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
+            llm_backend=self.llm_backend,
         )
         
         return session

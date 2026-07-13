@@ -687,7 +687,10 @@ class KGGraphSearch(KnowledgeSearch):
     def _initialize_llm(self) -> None:
         """Initialize LLM backend for reranking."""
         if self.use_llm_reranker:
-            self._llm_backend = LLMBackend()
+            self._llm_backend = LLMBackend(
+                models=self.params.get("models"),
+                retry_policy=self.params.get("retry"),
+            )
             logger.info(f"LLM reranker initialized (model: {self.reranker_model})")
     
     # =========================================================================
@@ -2299,4 +2302,3 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     search.close()
     print("Test complete!")
-

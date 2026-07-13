@@ -106,10 +106,21 @@ class OrchestratorAgent:
         goal: Optional[str] = None,
     ):
         self.problem_handler = problem_handler
-        self.llm = LLMBackend()
         self.config_path = config_path
         self.mode = mode
         self.goal = goal or ""
+        # Load once before constructing shared services so model roles and retry
+        # behavior apply consistently across strategy, memory, and commit calls.
+        self.mode_config = load_mode_config(config_path, mode)
+        model_routes = self.mode_config.get("models")
+        retry_config = self.mode_config.get("retry")
+        if model_routes is None and retry_config is None:
+            self.llm = LLMBackend()
+        else:
+            self.llm = LLMBackend(
+                models=model_routes,
+                retry_policy=retry_config,
+            )
         # Optional: seed experiments from an existing local repo (copy/clone into workspace).
         self.initial_repo = initial_repo
         # Optional: directories to copy into workspace
@@ -128,8 +139,6 @@ class OrchestratorAgent:
                 "allow_legacy_checkpoint requires resume=True"
             )
         
-        # Load config once and store for reuse
-        self.mode_config = load_mode_config(config_path, mode)
         (
             self.strategy_type,
             self.strategy_params,
@@ -267,6 +276,7 @@ class OrchestratorAgent:
             json_path=experiment_history_path,
             weaviate_url=os.environ.get("WEAVIATE_URL"),
             goal=self.goal,
+            llm=self.llm,
         )
         
         # Create knowledge search backend (or use provided instance).
@@ -435,10 +445,10 @@ class OrchestratorAgent:
                     "exploration_budget_percent", 30
                 ),
                 "idea_generation_model": mode_config.get(
-                    "idea_generation_model", "gpt-4.1-mini"
+                    "idea_generation_model", "reasoning"
                 ),
                 "idea_generation_ensemble_models": mode_config.get(
-                    "idea_generation_ensemble_models", ["gpt-4.1-mini"]
+                    "idea_generation_ensemble_models", ["reasoning"]
                 ),
             },
         )
@@ -462,17 +472,25 @@ class OrchestratorAgent:
         ks_config = mode_config.get('knowledge_search', {})
         
         if ks_config:
-            return KnowledgeSearchFactory.create_from_config(ks_config)
+            resolved_config = dict(ks_config)
+            resolved_params = dict(resolved_config.get("params") or {})
+            resolved_params.setdefault("models", mode_config.get("models"))
+            resolved_params.setdefault("retry", mode_config.get("retry"))
+            resolved_config["params"] = resolved_params
+            return KnowledgeSearchFactory.create_from_config(resolved_config)
         
         # Check for legacy knowledge_retriever config
         kr_config = mode_config.get('knowledge_retriever', {})
         
         if kr_config:
             # Convert legacy config to new format
+            resolved_params = dict(kr_config.get("params") or {})
+            resolved_params.setdefault("models", mode_config.get("models"))
+            resolved_params.setdefault("retry", mode_config.get("retry"))
             return KnowledgeSearchFactory.create_from_config({
                 "type": "kg_llm_navigation",
                 "enabled": kr_config.get("enabled", True),
-                "params": kr_config.get("params"),
+                "params": resolved_params,
                 "preset": kr_config.get("preset"),
             })
         
@@ -482,6 +500,10 @@ class OrchestratorAgent:
             if kg_enabled or is_kg_active:
                 return KnowledgeSearchFactory.create(
                     search_type="kg_llm_navigation",
+                    params={
+                        "models": mode_config.get("models"),
+                        "retry": mode_config.get("retry"),
+                    },
                 )
             else:
                 return KnowledgeSearchFactory.create_null()
@@ -490,6 +512,10 @@ class OrchestratorAgent:
         if is_kg_active:
             return KnowledgeSearchFactory.create(
                 search_type="kg_llm_navigation",
+                params={
+                    "models": mode_config.get("models"),
+                    "retry": mode_config.get("retry"),
+                },
             )
         
         # Default: disabled

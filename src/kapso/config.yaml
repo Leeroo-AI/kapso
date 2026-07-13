@@ -44,6 +44,17 @@ modes:
         implementation_timeout: 600
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
+
+    models:
+      utility: "gpt-4.1-mini"
+      reasoning: "gpt-5-mini"
+      web_search: "openai/gpt-4o-search-preview"
+    retry:
+      max_attempts: 2
+      initial_delay_seconds: 5
+      max_delay_seconds: 60
+      multiplier: 2
+      jitter: true
     
     coding_agent:
       type: "claude_code"
@@ -108,6 +119,17 @@ modes:
         implementation_timeout: 300
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
+
+    models:
+      utility: "gpt-4.1-mini"
+      reasoning: "gpt-5-mini"
+      web_search: "openai/gpt-4o-search-preview"
+    retry:
+      max_attempts: 2
+      initial_delay_seconds: 5
+      max_delay_seconds: 60
+      multiplier: 2
+      jitter: true
     
     coding_agent:
       type: "claude_code"

@@ -107,6 +107,7 @@ class ExperimentHistoryStore:
         weaviate_url: Optional[str] = None,
         goal: Optional[str] = None,
         enable_insights: bool = True,
+        llm: Any = None,
     ):
         """
         Initialize experiment history store.
@@ -116,10 +117,12 @@ class ExperimentHistoryStore:
             weaviate_url: Optional Weaviate URL for semantic search
             goal: Goal description (used for insight extraction context)
             enable_insights: Whether to extract insights from experiments
+            llm: Shared configured backend for insight extraction
         """
         self.json_path = json_path
         self.goal = goal
         self.enable_insights = enable_insights
+        self._llm = llm
         self.experiments: List[ExperimentRecord] = []
         
         # Lazy-loaded insight extractor
@@ -146,7 +149,7 @@ class ExperimentHistoryStore:
         """Lazy-load insight extractor."""
         if self._insight_extractor is None:
             from kapso.execution.memories.experiment_memory.insight_extractor import InsightExtractor
-            self._insight_extractor = InsightExtractor()
+            self._insight_extractor = InsightExtractor(llm=self._llm)
         return self._insight_extractor
     
     def add_experiment(self, node: Any) -> None:

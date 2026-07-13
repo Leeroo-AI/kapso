@@ -188,6 +188,8 @@ class Kapso:
         # Merge backend_refs into params (backend_refs take precedence)
         params = search_config.get("params", {}).copy()
         params.update(metadata.backend_refs)
+        params.setdefault("models", mode_config.get("models"))
+        params.setdefault("retry", mode_config.get("retry"))
         
         # Create search backend
         self.knowledge_search = KnowledgeSearchFactory.create(
@@ -273,6 +275,8 @@ class Kapso:
         mode_config = self._config.get("modes", {}).get(mode, {})
         search_config = mode_config.get("knowledge_search", {})
         params = search_config.get("params", {}).copy()
+        params.setdefault("models", mode_config.get("models"))
+        params.setdefault("retry", mode_config.get("retry"))
         
         # Create search backend
         self.knowledge_search = KnowledgeSearchFactory.create(
@@ -351,7 +355,12 @@ class Kapso:
             - .report -> Source.ResearchReport (if mode="study")
         """
         if self._web_researcher is None:
-            self._web_researcher = Researcher()
+            configured_mode = self._config.get("default_mode", "GENERIC")
+            mode_config = self._config.get("modes", {}).get(configured_mode, {})
+            self._web_researcher = Researcher(
+                models=mode_config.get("models"),
+                retry_policy=mode_config.get("retry"),
+            )
 
         return self._web_researcher.research(objective, mode=mode, depth=depth)
     

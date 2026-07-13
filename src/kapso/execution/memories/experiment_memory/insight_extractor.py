@@ -84,7 +84,7 @@ class InsightExtractor:
         print(insight.lesson)
     """
     
-    DEFAULT_MODEL = "gpt-4o-mini"
+    DEFAULT_MODEL = "utility"
     
     def __init__(
         self,
@@ -96,7 +96,7 @@ class InsightExtractor:
         
         Args:
             llm: LLM backend (lazy-loaded if not provided)
-            model: Model to use for extraction (default: gpt-4o-mini)
+            model: Explicit model or role (default: utility)
         """
         self._llm = llm
         self.model = model or self.DEFAULT_MODEL

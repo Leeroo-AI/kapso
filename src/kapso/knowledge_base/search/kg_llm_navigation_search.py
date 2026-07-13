@@ -46,7 +46,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         self.navigation_steps = self.params.get("navigation_steps", 3)
         self.expansion_limit = self.params.get("expansion_limit", 3)
         self.search_node_type = self.params.get("search_node_type", "specialization")
-        self.navigations_model = self.params.get("navigations_model", "gpt-5-mini")
+        self.navigations_model = self.params.get("navigations_model", "reasoning")
         
         # Neo4j connection params
         self.neo4j_uri = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
@@ -67,7 +67,10 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 self.neo4j_uri, 
                 auth=(self.neo4j_user, self.neo4j_password)
             )
-            self._llm = LLMBackend()
+            self._llm = LLMBackend(
+                models=self.params.get("models"),
+                retry_policy=self.params.get("retry"),
+            )
             self._setup_constraints()
         except Exception:
             self._driver = None
@@ -605,4 +608,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

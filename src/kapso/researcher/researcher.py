@@ -11,12 +11,11 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Literal, Union, overload
+from typing import Any, List, Literal, Mapping, Optional, Union
 
-from openai import OpenAI
-
+from kapso.core.llm import LLMBackend, RetryPolicy
 from kapso.knowledge_base.types import Source, ResearchFindings
 from kapso.researcher.research_findings import (
     ResearchMode,
@@ -41,7 +40,7 @@ _PROMPTS_DIR = Path(__file__).parent / "prompts"
 @dataclass
 class Researcher:
     """
-    Deep public web research using OpenAI Responses API + `web_search`.
+    Deep public web research using the shared LLM web-search backend.
     
     Supports three research modes:
     - idea: Conceptual understanding, returns List[Source.Idea]
@@ -62,12 +61,18 @@ class Researcher:
             print(impl.to_string())
     """
 
-    # Model choice (internal, not exposed in public API)
-    model: str = "gpt-5.2"
+    # Explicit provider models remain supported for backwards compatibility.
+    # The semantic role makes the configured web-search route the default.
+    model: Optional[str] = "web_search"
+    models: Optional[Mapping[str, str]] = None
+    retry_policy: Optional[Mapping[str, Any] | RetryPolicy] = None
+    llm_backend: Optional[LLMBackend] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        # Create client once per instance
-        self._client = OpenAI()
+        self._llm = self.llm_backend or LLMBackend(
+            models=self.models,
+            retry_policy=self.retry_policy,
+        )
 
     def research(
         self,
@@ -104,6 +109,7 @@ class Researcher:
         
         # Map depth to reasoning effort
         reasoning_effort = self._get_reasoning_effort(depth)
+        search_context_size = self._get_search_context_size(depth)
         
         # Single mode - return direct type
         if len(modes) == 1:
@@ -113,6 +119,7 @@ class Researcher:
                 mode=modes[0],
                 top_k=top_k,
                 reasoning_effort=reasoning_effort,
+                search_context_size=search_context_size,
             )
         
         # Multiple modes - return ResearchFindings
@@ -125,6 +132,7 @@ class Researcher:
                 mode=m,
                 top_k=top_k,
                 reasoning_effort=reasoning_effort,
+                search_context_size=search_context_size,
             )
             
             if m == "idea":
@@ -159,12 +167,21 @@ class Researcher:
         else:
             raise ValueError(f"depth must be 'light' or 'deep' (got {depth!r})")
 
+    def _get_search_context_size(self, depth: ResearchDepth) -> str:
+        """Map research depth to the provider's web-search context size."""
+        if depth == "light":
+            return "medium"
+        if depth == "deep":
+            return "high"
+        raise ValueError(f"depth must be 'light' or 'deep' (got {depth!r})")
+
     def _run_single_mode(
         self,
         query: str,
         mode: ResearchMode,
         top_k: int,
         reasoning_effort: str,
+        search_context_size: str,
     ) -> ResearchResultSingle:
         """
         Run research for a single mode.
@@ -174,6 +191,7 @@ class Researcher:
             mode: The mode to run
             top_k: Max results (for idea/implementation modes)
             reasoning_effort: OpenAI reasoning effort level
+            search_context_size: Provider web-search context size
             
         Returns:
             List[Source.Idea], List[Source.Implementation], or Source.ResearchReport based on mode
@@ -182,21 +200,13 @@ class Researcher:
         prompt = self._build_research_prompt(query=query, mode=mode, top_k=top_k)
         
         try:
-            # Build request params
-            # Note: reasoning.effort is only supported by certain models (e.g., o1, o3)
-            request_params = {
-                "model": self.model,
-                "tools": [{"type": "web_search"}],
-                "input": prompt,
-                "max_output_tokens": 32000,
-            }
-            
-            # Only add reasoning for models that support it
-            if self.model.startswith("o1") or self.model.startswith("o3"):
-                request_params["reasoning"] = {"effort": reasoning_effort}
-            
-            response = self._client.responses.create(**request_params)
-            raw_text = response.output_text or ""
+            raw_text = self._llm.llm_completion_with_web_search(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                search_context_size=search_context_size,
+                reasoning_effort=reasoning_effort,
+                max_tokens=32000,
+            )
         except Exception as e:
             logger.exception(f"Research failed for mode '{mode}': {e}")
             # Return empty results on error
@@ -205,7 +215,7 @@ class Researcher:
             elif mode == "implementation":
                 return []
             else:  # study
-                return ResearchReport(query=query, content="")
+                return Source.ResearchReport(query=query, content="")
         
         # Parse based on mode
         if mode == "idea":
