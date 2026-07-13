@@ -633,10 +633,12 @@ The policy, in words:
    half is measured before the loop starts**: the EvaluationMaintainer's setup transaction
    times the registered evaluators (calibration slice → per-item rate → full/fast
    estimates), so full-eval duration is data from iteration 0 and is refined by every
-   VALIDATE and manifest echo thereafter. The **training half cannot be measured up front**
-   (the recipes don't exist yet), so it takes the one operator-declared ceiling the design
-   still needs: `train_run_cap_minutes` — "a legitimate full training run never exceeds
-   this" (required to enable fidelity; no defensible bound, no fidelity: fail closed).
+   VALIDATE and manifest echo thereafter. The **training half cannot be measured up
+   front** (the recipes don't exist yet) — but it is not guessed either: the train cap is
+   **derived by default** from budget shape, `train_cap = committed_run_fraction ×
+   time_budget − measured_full_eval − overhead`, with `train_run_cap_minutes` as an
+   explicit operator override ("Where the train cap comes from," below). Fail-closed rule:
+   with no time budget to derive from and no explicit cap, fidelity refuses to enable.
    Reserve = train cap + measured full-eval upper estimate + overhead factor, tightened by
    measured quantiles as full-size runs accumulate. The reserve is *escrowed*: every PROBE
    and VALIDATE admission is checked against `remaining − reserve`, and a VALIDATE is
@@ -652,6 +654,26 @@ The policy, in words:
 4. **Promote to FULL mid-campaign** only when `remaining_after_reserve` still covers a full
    run with margin (rare on a 10 h budget; common on a 48 h one), capped by `max_full_runs`.
 5. **The reserve run executes FULL** on the best-validated recipe when the gate trips.
+6. **The reserve converts rather than dissolves.** If a mid-campaign FULL was granted and
+   the committed candidate already holds its full-size result when the gate arrives, the
+   escrow is not silently released: it converts to the next-most-valuable full-size use —
+   matched-replication confirmation of the winner (the finalist schedule from the
+   replication rule), or a full attempt for a challenger that validated well in the
+   meantime. The reserve stays escrowed for as long as the committed candidate could still
+   change, because a later probe that wins will need *its* full run too.
+
+**Where the train cap comes from — an allocation and a contract, never a prediction.**
+Training duration in post-training is a dial of the recipe (data size, epochs, sequence
+lengths), not an unknown of nature, so the cap stacks four layers: the **executive
+derives** the default from pure budget arithmetic (fraction of total, minus the
+maintainer's *measured* eval time); the **operator may override** it — the one genuine
+judgment call, "one big bet vs. more search"; the **agents comply precisely** — the FULL
+implementation prompt states the window and the measured throughput from probe telemetry
+("200 min at ~2.2 min per percent of data: size data/epochs accordingly"), turning the cap
+into an engineering input; and the **deadline enforces** it for recipes that ignored their
+own arithmetic. Probe telemetry also buys early infeasibility detection: the moment
+extrapolated full-train time exceeds the cap (probe throughput × 100%), the campaign
+surfaces it — hours before the reserve run, instead of as a kill at the deadline.
 
 `BudgetSnapshot` carries the granted profile plus the current duration estimates, so both
 agents and the prompts see *why* this iteration is a probe. **All policy state persists in
@@ -739,11 +761,13 @@ modes:
         fast_train_fraction: 0.10
         fast_eval_fraction: 0.15
         eval_subsample_seed: 1337          # fixed so probe attempts share one item set
-        train_run_cap_minutes: 210         # REQUIRED to enable fidelity: hard ceiling on
-                                           # one legitimate full TRAINING run. Evaluation
-                                           # needs no declared bound - the maintainer
-                                           # measures it at setup; reserve = this cap +
-                                           # measured full-eval estimate + overhead
+        committed_run_fraction: 0.45       # budget share allocated to the one committed
+                                           # run; the executive derives the train cap from
+                                           # it: fraction x budget - measured eval - overhead
+        # train_run_cap_minutes: 210       # optional explicit override of the derived cap;
+                                           # evaluation needs no declared bound - the
+                                           # maintainer measures it at setup. reserve =
+                                           # train cap + measured full-eval + overhead
         fast_variant_threshold_minutes: 20 # maintainer derives a fast evaluator only when
                                            # measured full eval exceeds this
         promotion_margin: 0.02
