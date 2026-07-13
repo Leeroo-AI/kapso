@@ -10,13 +10,41 @@ import os
 import uuid
 import shutil
 import threading
-from typing import Optional
+import tempfile
+from contextlib import contextmanager
+from typing import Iterator, List, Optional
 
 import git
 
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.experiment_workspace.experiment_session import ExperimentSession
+from kapso.execution.memories.repo_memory import RepoMemoryManager
+
+
+class WorkspaceCheckoutError(RuntimeError):
+    """Raised when a branch checkout would require destructive cleanup."""
+
+    def __init__(
+        self,
+        workspace_dir: str,
+        branch_name: str,
+        status_lines: List[str],
+        git_error: str,
+    ):
+        self.workspace_dir = workspace_dir
+        self.branch_name = branch_name
+        self.status_lines = status_lines
+        self.git_error = git_error
+
+        status = "\n".join(f"  {line}" for line in status_lines)
+        if not status:
+            status = "  (working tree status unavailable or clean)"
+        super().__init__(
+            f"Could not checkout branch '{branch_name}' in {workspace_dir} without "
+            f"modifying local files. Resolve or move the listed changes and retry.\n"
+            f"Working tree status:\n{status}\nGit error: {git_error}"
+        )
 
 
 class ExperimentWorkspace:
@@ -36,6 +64,8 @@ class ExperimentWorkspace:
         coding_agent_config: CodingAgentConfig,
         workspace_dir: str,
         initial_repo: Optional[str] = None,
+        repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
+        repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
     ):
         """
         Initialize the Experiment Workspace.
@@ -45,12 +75,26 @@ class ExperimentWorkspace:
             workspace_dir: Path to the workspace directory (required)
             initial_repo: Optional local filesystem path to a repository to COPY/CLONE
                 into this workspace. This enables "improve an existing repo" workflows.
+            repo_memory_failure_policy: ``warn`` or ``fail`` for optional
+                RepoMemory enrichment failures
+            repo_memory_max_retries: Structured-response repair attempts after
+                the first RepoMemory response
         """
         
         self.workspace_dir = workspace_dir
         os.makedirs(self.workspace_dir, exist_ok=True)
         self.initial_repo = os.path.abspath(initial_repo) if initial_repo else None
         self.is_seeded = self.initial_repo is not None
+        self.repo_memory_failure_policy = (
+            RepoMemoryManager.normalize_failure_policy(
+                repo_memory_failure_policy
+            )
+        )
+        self.repo_memory_max_retries = (
+            RepoMemoryManager.normalize_max_retries(
+                repo_memory_max_retries
+            )
+        )
         
         # Initialize git repository.
         #
@@ -111,18 +155,58 @@ class ExperimentWorkspace:
     
     def switch_branch(self, branch_name: str) -> None:
         """
-        Switch to an existing branch.
+        Switch to an existing branch without deleting local files.
+
+        Git refuses a checkout when tracked or untracked files would be
+        overwritten. Preserve that safety boundary: callers receive a detailed
+        error instead of Kapso running ``git clean`` behind their back.
         
         Args:
             branch_name: Name of branch to switch to
         """
-        # Clean untracked files that might block checkout (e.g., __pycache__)
-        # Use -f to force, -d to remove directories, -x to remove ignored files too
         try:
-            self.repo.git.clean('-fdx')
-        except Exception:
-            pass  # Best effort - continue even if clean fails
-        self.repo.git.checkout(branch_name)
+            self.repo.git.checkout(branch_name)
+        except git.GitCommandError as exc:
+            try:
+                status_lines = self.repo.git.status(
+                    "--short", "--untracked-files=all"
+                ).splitlines()
+            except git.GitCommandError:
+                status_lines = []
+            raise WorkspaceCheckoutError(
+                workspace_dir=self.workspace_dir,
+                branch_name=branch_name,
+                status_lines=status_lines,
+                git_error=str(exc),
+            ) from exc
+
+    @contextmanager
+    def materialize_ref(self, ref: str) -> Iterator[str]:
+        """Yield a temporary detached worktree containing exactly ``ref``.
+
+        Evaluators and read-only agents can inspect a candidate without changing
+        the root workspace's active branch. The worktree is removed on exit,
+        including when the caller raises.
+        """
+        try:
+            self.repo.commit(ref)
+        except (git.BadName, ValueError) as exc:
+            raise ValueError(f"Unknown Git ref: {ref}") from exc
+
+        worktree_dir = tempfile.mkdtemp(prefix="kapso_candidate_")
+        os.rmdir(worktree_dir)
+        try:
+            self.repo.git.worktree("add", "--detach", worktree_dir, ref)
+            yield worktree_dir
+        finally:
+            try:
+                self.repo.git.worktree("remove", "--force", worktree_dir)
+            except git.GitCommandError:
+                shutil.rmtree(worktree_dir, ignore_errors=True)
+                try:
+                    self.repo.git.worktree("prune")
+                except git.GitCommandError:
+                    pass
     
     def create_branch(self, branch_name: str) -> None:
         """
@@ -180,18 +264,27 @@ class ExperimentWorkspace:
         This keeps downstream logic simple because ExperimentSession defaults to
         parent_branch_name="main".
         """
+        existing = {branch.name for branch in self.repo.branches}
+        if "main" in existing:
+            try:
+                current = self.repo.active_branch.name
+            except (TypeError, git.GitCommandError):
+                current = None
+            if current != "main":
+                self.switch_branch("main")
+            return
+
         try:
             current = self.repo.active_branch.name
-        except Exception:
-            # Detached HEAD or unusual repo state - create main at HEAD.
+        except (TypeError, git.GitCommandError):
+            # Detached HEAD or unusual repo state with no main ref: create main
+            # at the current commit without altering any existing branch.
             self.repo.git.checkout("-b", "main")
             return
 
         if current != "main":
-            # Force rename current branch to main (works even if current is "master").
+            # Only a fresh repository with no existing main reaches this path.
             self.repo.git.branch("-M", "main")
-        else:
-            self.repo.git.checkout("main")
 
     def _ensure_workspace_gitignore(self) -> None:
         """
@@ -252,6 +345,7 @@ class ExperimentWorkspace:
         Args:
             branch_name: Name for the experiment branch
             parent_branch_name: Branch to inherit code from
+            llm: Optional LLM used for RepoMemory enrichment
             
         Returns:
             ExperimentSession ready for code generation
@@ -268,6 +362,8 @@ class ExperimentWorkspace:
             parent_branch_name=parent_branch_name,
             branch_name=branch_name,
             repo_memory_llm=llm,
+            repo_memory_failure_policy=self.repo_memory_failure_policy,
+            repo_memory_max_retries=self.repo_memory_max_retries,
         )
         
         return session
@@ -326,4 +422,3 @@ if __name__ == "__main__":
     # Cleanup
     workspace.cleanup()
     print("Done!")
-

@@ -123,7 +123,8 @@ llm = LLMBackend()
 RepoMemoryManager.bootstrap_baseline_model(
     repo_root="/path/to/repo",
     llm=llm,
-    seed_repo_path="/original/repo",
+    initial_repo="/original/repo",
+    max_retries=2,
 )
 ```
 
@@ -141,8 +142,39 @@ RepoMemoryManager.update_after_experiment(
         "score": 0.85,
         "run_had_error": False,
     },
+    max_retries=2,
 )
 ```
+
+`max_retries` counts repair attempts after the first response. Kapso selects
+and reads repository files once, then asks the model to repair only malformed
+JSON or an invalid outer schema. Provider, authentication, transport, and
+configuration errors are not retried.
+
+## Failure Policy
+
+RepoMemory is optional enrichment; experiment code and evaluation results are
+the primary artifacts. Search strategies therefore default to warning when a
+baseline or per-experiment memory update fails:
+
+```yaml
+search_strategy:
+  type: generic
+  params:
+    repo_memory_failure_policy: warn  # warn | fail
+    repo_memory_max_retries: 2
+```
+
+- `warn` logs the enrichment error, then still pushes the candidate branch and
+  cleans up the coding agent session.
+- `fail` still performs branch push and cleanup, then re-raises the original
+  RepoMemory error.
+- Invalid policy values and negative or non-integer retry counts fail during
+  strategy/workspace setup.
+
+Direct calls to `RepoMemoryManager.bootstrap_baseline_model()` and
+`update_after_experiment()` always raise if structured-response repair is
+exhausted. The `warn`/`fail` policy is applied by the search/session lifecycle.
 
 ## File Location
 

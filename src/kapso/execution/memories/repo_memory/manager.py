@@ -21,7 +21,6 @@ import git
 from kapso.execution.memories.repo_memory.builders import (
     LLMLike,
     build_repo_map,
-    infer_repo_model_initial,
     infer_repo_model_update,
     infer_repo_model_with_retry,
 )
@@ -46,6 +45,9 @@ class RepoMemoryManager:
 
     # Default model for repo-model inference.
     DEFAULT_REPO_MODEL_LLM = "gpt-4o-mini"
+    DEFAULT_FAILURE_POLICY = "warn"
+    DEFAULT_MAX_RETRIES = 2
+    FAILURE_POLICIES = {"warn", "fail"}
 
     # Stable section IDs (contract). Keep these IDs stable across versions.
     #
@@ -103,6 +105,25 @@ class RepoMemoryManager:
     @staticmethod
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @classmethod
+    def normalize_failure_policy(cls, policy: str) -> str:
+        """Validate and normalize the optional-enrichment failure policy."""
+        if not isinstance(policy, str):
+            raise ValueError("RepoMemory failure policy must be 'warn' or 'fail'")
+        normalized = policy.strip().lower()
+        if normalized not in cls.FAILURE_POLICIES:
+            raise ValueError("RepoMemory failure policy must be 'warn' or 'fail'")
+        return normalized
+
+    @classmethod
+    def normalize_max_retries(cls, max_retries: int) -> int:
+        """Validate the number of structured-response repair attempts."""
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int):
+            raise ValueError("RepoMemory max retries must be a non-negative integer")
+        if max_retries < 0:
+            raise ValueError("RepoMemory max retries must be a non-negative integer")
+        return max_retries
 
     @classmethod
     def _memory_abs_path(cls, repo_root: str) -> str:
@@ -653,6 +674,7 @@ GeneratedAt: {doc.get('generated_at')}
         llm: LLMLike,
         initial_repo: Optional[str] = None,
         llm_model: Optional[str] = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         """
         Build baseline RepoMemory for an existing repository (seeded workspace).
@@ -661,9 +683,11 @@ GeneratedAt: {doc.get('generated_at')}
         actual architecture/algorithms with evidence links.
         
         Raises:
-            ValueError: If evidence validation fails (LLM produced hallucinated claims).
+            ValueError: If configuration is invalid or structured-response
+                repair is exhausted.
         """
         repo_root = os.path.abspath(repo_root)
+        max_retries = cls.normalize_max_retries(max_retries)
         doc = cls.ensure_exists_in_worktree(repo_root, initial_repo=initial_repo)
         doc["repo_map"] = build_repo_map(repo_root)
         doc["generated_at"] = cls._now_iso()
@@ -674,6 +698,7 @@ GeneratedAt: {doc.get('generated_at')}
             model=llm_model,
             repo_root=repo_root,
             repo_map=doc["repo_map"],
+            max_retries=max_retries,
         )
         # Note: With line-number-based evidence, validation is no longer needed.
         # The model is trusted as-is.
@@ -714,6 +739,7 @@ GeneratedAt: {doc.get('generated_at')}
         solution_spec: str,
         run_result: Dict[str, Any],
         llm_model: Optional[str] = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         """
         Update `.kapso/repo_memory.json` for the current repo state.
@@ -722,9 +748,11 @@ GeneratedAt: {doc.get('generated_at')}
         ExperimentSession is closed (so the file is committed into that branch).
         
         Raises:
-            ValueError: If evidence validation fails after retry (LLM produced hallucinated claims).
+            ValueError: If configuration is invalid or structured-response
+                repair is exhausted.
         """
         repo_root = os.path.abspath(repo_root)
+        max_retries = cls.normalize_max_retries(max_retries)
         repo = git.Repo(repo_root)
         head_commit_sha = repo.head.commit.hexsha
 
@@ -783,11 +811,12 @@ GeneratedAt: {doc.get('generated_at')}
         prev_sections = previous_model_v2.get("sections", {}) if isinstance(previous_model_v2.get("sections"), dict) else {}
         prev_claim_count = cls._count_claims_in_book_sections(prev_sections)
         if not (previous_model_v2.get("summary") or "").strip() and prev_claim_count == 0:
-            updated_model = infer_repo_model_initial(
+            updated_model = infer_repo_model_with_retry(
                 llm=llm,
                 model=llm_model,
                 repo_root=repo_root,
                 repo_map=doc["repo_map"],
+                max_retries=max_retries,
             )
         else:
             updated_model = infer_repo_model_update(
@@ -798,6 +827,7 @@ GeneratedAt: {doc.get('generated_at')}
                 previous_model=previous_model_v2,
                 diff_summary=diff_summary[:8000],
                 changed_files=changed_files,
+                max_retries=max_retries,
             )
 
         # Note: With line-number-based evidence, validation is no longer needed.
@@ -822,4 +852,3 @@ GeneratedAt: {doc.get('generated_at')}
         }
 
         cls.write_to_worktree(repo_root, doc)
-

@@ -16,6 +16,6 @@ The primary public entrypoint is `RepoMemoryManager`.
 """
 
 from kapso.execution.memories.repo_memory.manager import RepoMemoryManager
+from kapso.execution.memories.repo_memory.builders import RepoMemoryResponseError
 
-__all__ = ["RepoMemoryManager"]
-
+__all__ = ["RepoMemoryManager", "RepoMemoryResponseError"]

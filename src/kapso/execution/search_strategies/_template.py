@@ -211,7 +211,7 @@ class MyStrategy(SearchStrategy):
             key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
         )
     
-    def checkout_to_best_experiment_branch(self) -> None:
+    def checkout_to_best_experiment_branch(self) -> Optional[str]:
         """
         Checkout git to the best experiment's branch.
         
@@ -221,8 +221,10 @@ class MyStrategy(SearchStrategy):
         if best:
             print(f"[MyStrategy] Checking out to best branch: {best.branch_name}")
             self.workspace.switch_branch(best.branch_name)
+            return best.branch_name
         else:
             print("[MyStrategy] No successful experiments to checkout")
+            return None
 
 
 # =============================================================================
@@ -263,4 +265,3 @@ if __name__ == "__main__":
         print("✓ my_strategy is registered!")
     else:
         print("✗ my_strategy is NOT registered - check decorator name")
-

@@ -30,6 +30,10 @@ class LLMLike(Protocol):
     def llm_completion(self, model: str, messages: List[Dict[str, str]], **kwargs) -> str: ...
 
 
+class RepoMemoryResponseError(ValueError):
+    """Raised when an LLM response is not valid RepoMemory JSON."""
+
+
 _IGNORE_DIRS = {
     ".git",
     ".hg",
@@ -294,16 +298,99 @@ def _extract_json(text: str) -> Dict[str, Any]:
     - prefer full parse
     - otherwise try the first {...} block
     """
-    text = (text or "").strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
+    if not isinstance(text, str):
+        raise RepoMemoryResponseError("LLM response must be text")
 
-    m = re.search(r"\{[\s\S]*\}", text)
-    if not m:
-        raise ValueError("LLM did not return JSON")
-    return json.loads(m.group(0))
+    text = text.strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", text)
+        if not m:
+            raise RepoMemoryResponseError("LLM did not return JSON")
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError as exc:
+            raise RepoMemoryResponseError(
+                f"LLM returned malformed JSON: {exc.msg}"
+            ) from exc
+
+    if not isinstance(data, dict):
+        raise RepoMemoryResponseError("LLM JSON must be an object")
+    return data
+
+
+def _validate_repo_model(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate the stable outer shape used by RepoMemory builders."""
+    if not isinstance(model.get("summary"), str):
+        raise RepoMemoryResponseError(
+            "RepoMemory JSON requires a string 'summary'"
+        )
+
+    if "sections" in model:
+        if not isinstance(model["sections"], dict):
+            raise RepoMemoryResponseError(
+                "RepoMemory JSON field 'sections' must be an object"
+            )
+        return model
+
+    legacy_fields = {
+        "entrypoints": list,
+        "where_to_edit": list,
+        "claims": list,
+    }
+    if all(isinstance(model.get(key), expected) for key, expected in legacy_fields.items()):
+        return model
+
+    raise RepoMemoryResponseError(
+        "RepoMemory JSON requires V2 'sections' or the complete legacy fields"
+    )
+
+
+def _complete_repo_model(
+    *,
+    llm: LLMLike,
+    model: str,
+    prompt: str,
+    max_retries: int,
+) -> Dict[str, Any]:
+    """Complete and parse a RepoMemory model, repairing only bad responses."""
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int):
+        raise ValueError("max_retries must be a non-negative integer")
+    if max_retries < 0:
+        raise ValueError("max_retries must be a non-negative integer")
+
+    messages = [{"role": "user", "content": prompt}]
+    for attempt in range(max_retries + 1):
+        # Provider, authentication, and transport failures intentionally escape
+        # this loop. Only response parsing/schema failures are retryable.
+        response = llm.llm_completion(
+            model=model,
+            messages=messages,
+            temperature=0,
+        )
+        try:
+            return _validate_repo_model(_extract_json(response))
+        except RepoMemoryResponseError as exc:
+            if attempt >= max_retries:
+                raise
+
+            retry_template = load_prompt(
+                "execution/memories/repo_memory/prompts/"
+                "infer_repo_model_retry.md"
+            )
+            retry_prompt = render_prompt(
+                retry_template,
+                {"validation_error": str(exc)},
+            )
+            response_text = (
+                response if isinstance(response, str) else repr(response)
+            )
+            messages = [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": response_text[:20000]},
+                {"role": "user", "content": retry_prompt},
+            ]
 
 
 def plan_files_to_read(
@@ -368,13 +455,19 @@ def infer_repo_model_initial(
     repo_map: Dict[str, Any],
     max_file_chars: int = 20000,
     max_files_to_read: int = 20,
+    max_retries: int = 0,
 ) -> Dict[str, Any]:
     """
     Build a semantic repo model from scratch using agentic file selection.
     
     Output is JSON with evidence-backed claims.
     """
-    files_to_read = plan_files_to_read(llm, model=model, repo_map=repo_map, max_files_to_read=max_files_to_read)
+    files_to_read = plan_files_to_read(
+        llm,
+        model=model,
+        repo_map=repo_map,
+        max_files_to_read=max_files_to_read,
+    )
     file_blobs: List[Tuple[str, str]] = []
     for rel in files_to_read:
         abs_path = os.path.join(repo_root, rel)
@@ -391,15 +484,12 @@ def infer_repo_model_initial(
             "files_payload": files_payload,
         },
     )
-    # Deterministic: evidence quotes must be exact; reduce randomness to avoid drift.
-    repo_model = _extract_json(
-        llm.llm_completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
+    return _complete_repo_model(
+        llm=llm,
+        model=model,
+        prompt=prompt,
+        max_retries=max_retries,
     )
-    return repo_model
 
 
 def infer_repo_model_with_retry(
@@ -409,14 +499,13 @@ def infer_repo_model_with_retry(
     repo_map: Dict[str, Any],
     max_file_chars: int = 20000,
     max_files_to_read: int = 20,
-    max_retries: int = 4,  # Kept for API compatibility, but not used
+    max_retries: int = 4,
 ) -> Dict[str, Any]:
     """
-    Build a semantic repo model.
-    
-    Note: With line-number-based evidence, validation and retry are no longer needed.
-    This function now simply delegates to infer_repo_model_initial.
-    The max_retries parameter is kept for API compatibility but is not used.
+    Build a semantic repo model with bounded structured-response repair.
+
+    File selection and file reads happen once. A retry only asks the model to
+    repair malformed JSON or an invalid outer schema.
     """
     return infer_repo_model_initial(
         llm=llm,
@@ -425,6 +514,7 @@ def infer_repo_model_with_retry(
         repo_map=repo_map,
         max_file_chars=max_file_chars,
         max_files_to_read=max_files_to_read,
+        max_retries=max_retries,
     )
 
 
@@ -437,6 +527,7 @@ def infer_repo_model_update(
     diff_summary: str,
     changed_files: List[str],
     max_file_chars: int = 15000,
+    max_retries: int = 0,
 ) -> Dict[str, Any]:
     """
     Incrementally update RepoModel using the previous model + diffs + changed files.
@@ -459,11 +550,9 @@ def infer_repo_model_update(
             "changed_payload": changed_payload,
         },
     )
-    return _extract_json(
-        llm.llm_completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
+    return _complete_repo_model(
+        llm=llm,
+        model=model,
+        prompt=prompt,
+        max_retries=max_retries,
     )
-

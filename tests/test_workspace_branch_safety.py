@@ -1,0 +1,181 @@
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from kapso.execution.coding_agents.base import CodingAgentConfig
+from kapso.execution.experiment_workspace.experiment_workspace import (
+    ExperimentWorkspace,
+    WorkspaceCheckoutError,
+)
+from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
+
+
+def _agent_config() -> CodingAgentConfig:
+    return CodingAgentConfig(
+        agent_type="openhands",
+        model="test-model",
+        debug_model="test-model",
+        agent_specific={},
+    )
+
+
+def _workspace(tmp_path: Path) -> ExperimentWorkspace:
+    return ExperimentWorkspace(
+        coding_agent_config=_agent_config(),
+        workspace_dir=str(tmp_path / "workspace"),
+    )
+
+
+def _commit_file(
+    workspace: ExperimentWorkspace,
+    relative_path: str,
+    content: str,
+    message: str,
+) -> None:
+    path = Path(workspace.workspace_dir, relative_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    workspace.repo.git.add([relative_path])
+    workspace.repo.git.commit("-m", message)
+
+
+def test_fresh_workspace_uses_main(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    assert workspace.get_current_branch() == "main"
+    assert "main" in {branch.name for branch in workspace.repo.branches}
+
+
+def test_switch_branch_preserves_untracked_and_ignored_files(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    _commit_file(workspace, "version.txt", "main\n", "add main version")
+    _commit_file(workspace, ".gitignore", "*.cache\n", "ignore cache files")
+
+    workspace.create_branch("candidate")
+    _commit_file(workspace, "version.txt", "candidate\n", "update candidate")
+    workspace.switch_branch("main")
+
+    untracked = Path(workspace.workspace_dir, "notes.txt")
+    ignored = Path(workspace.workspace_dir, "runtime.cache")
+    untracked.write_text("keep me\n")
+    ignored.write_text("keep me too\n")
+
+    workspace.switch_branch("candidate")
+
+    assert untracked.read_text() == "keep me\n"
+    assert ignored.read_text() == "keep me too\n"
+    assert workspace.get_current_branch() == "candidate"
+
+
+def test_conflicting_untracked_file_raises_without_deleting_it(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    workspace.create_branch("candidate")
+    _commit_file(
+        workspace,
+        "conflict.txt",
+        "candidate version\n",
+        "add candidate file",
+    )
+    workspace.switch_branch("main")
+
+    conflict = Path(workspace.workspace_dir, "conflict.txt")
+    conflict.write_text("local version\n")
+
+    with pytest.raises(WorkspaceCheckoutError) as error:
+        workspace.switch_branch("candidate")
+
+    assert conflict.read_text() == "local version\n"
+    assert workspace.get_current_branch() == "main"
+    assert error.value.branch_name == "candidate"
+    assert any("conflict.txt" in line for line in error.value.status_lines)
+
+
+def test_reopening_workspace_preserves_experiment_branch_and_state(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    workspace.create_branch("generic_exp_0")
+    _commit_file(workspace, "candidate.py", "VALUE = 1\n", "add candidate")
+    checkpoint = Path(workspace.workspace_dir, "checkpoint.pkl")
+    checkpoint.write_bytes(b"checkpoint")
+
+    reopened = ExperimentWorkspace(
+        coding_agent_config=_agent_config(),
+        workspace_dir=workspace.workspace_dir,
+    )
+
+    branches = {branch.name for branch in reopened.repo.branches}
+    assert branches >= {"main", "generic_exp_0"}
+    assert reopened.get_current_branch() == "main"
+    assert checkpoint.read_bytes() == b"checkpoint"
+
+
+def test_detached_workspace_recreates_main_without_losing_head(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    head = workspace.repo.head.commit.hexsha
+    workspace.repo.git.checkout("--detach", head)
+    workspace.repo.git.branch("-D", "main")
+
+    reopened = ExperimentWorkspace(
+        coding_agent_config=_agent_config(),
+        workspace_dir=workspace.workspace_dir,
+    )
+
+    assert reopened.get_current_branch() == "main"
+    assert reopened.repo.head.commit.hexsha == head
+
+
+def test_materialize_ref_uses_exact_candidate_without_switching_root(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    _commit_file(workspace, "version.txt", "main\n", "add main version")
+    workspace.create_branch("candidate")
+    _commit_file(workspace, "version.txt", "candidate\n", "update candidate")
+    workspace.switch_branch("main")
+
+    with workspace.materialize_ref("candidate") as candidate_dir:
+        materialized_path = Path(candidate_dir)
+        assert (
+            materialized_path.joinpath("version.txt").read_text()
+            == "candidate\n"
+        )
+        assert workspace.get_current_branch() == "main"
+
+    assert not materialized_path.exists()
+    assert workspace.get_current_branch() == "main"
+
+
+def test_materialize_unknown_ref_fails_clearly(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    with pytest.raises(ValueError, match="Unknown Git ref"):
+        with workspace.materialize_ref("missing"):
+            pass
+
+
+def test_generic_strategy_returns_verified_best_branch(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    workspace.create_branch("generic_exp_0")
+    _commit_file(workspace, "candidate.py", "VALUE = 1\n", "add candidate")
+    workspace.switch_branch("main")
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.workspace = workspace
+    strategy.node_history = [
+        SearchNode(node_id=0, branch_name="generic_exp_0", score=0.9)
+    ]
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
+
+    selected = strategy.checkout_to_best_experiment_branch()
+
+    assert selected == "generic_exp_0"
+    assert workspace.get_current_branch() == selected

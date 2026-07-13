@@ -11,6 +11,7 @@
 import os
 import shutil
 import uuid
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -27,11 +28,14 @@ if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass
 class SearchNode:
     """
     Unified node structure for search strategies.
-    
+
     Accumulates data through the node lifecycle:
     1. Solution generation -> solution populated
     2. Implementation -> branch_name, code_changes_summary populated
@@ -185,6 +189,22 @@ class SearchStrategy(ABC):
         self.problem_handler = config.problem_handler
         self.llm = config.llm
         self.params = config.params
+        self.repo_memory_failure_policy = (
+            RepoMemoryManager.normalize_failure_policy(
+                self.params.get(
+                    "repo_memory_failure_policy",
+                    RepoMemoryManager.DEFAULT_FAILURE_POLICY,
+                )
+            )
+        )
+        self.repo_memory_max_retries = (
+            RepoMemoryManager.normalize_max_retries(
+                self.params.get(
+                    "repo_memory_max_retries",
+                    RepoMemoryManager.DEFAULT_MAX_RETRIES,
+                )
+            )
+        )
         
         # Feedback generator and goal for generating feedback after experiments
         self.feedback_generator = config.feedback_generator
@@ -199,6 +219,8 @@ class SearchStrategy(ABC):
             coding_agent_config=config.coding_agent_config,
             workspace_dir=self.workspace_dir,
             initial_repo=config.initial_repo,
+            repo_memory_failure_policy=self.repo_memory_failure_policy,
+            repo_memory_max_retries=self.repo_memory_max_retries,
         )
 
         # Setup kapso directories (eval_dir -> kapso_evaluation/, data_dir -> kapso_datasets/)
@@ -207,26 +229,49 @@ class SearchStrategy(ABC):
 
         # Ensure baseline RepoMemory exists in the workspace repo.
         if not import_from_checkpoint:
+            self._initialize_repo_memory()
+
+        if import_from_checkpoint:
+            self.import_checkpoint()
+
+    # =========================================================================
+    # Directory Setup
+    # =========================================================================
+
+    def _initialize_repo_memory(self) -> None:
+        """Create baseline memory without making enrichment mandatory."""
+        try:
             if self.workspace.is_seeded:
                 RepoMemoryManager.bootstrap_baseline_model(
                     repo_root=self.workspace_dir,
                     llm=self.llm,
                     initial_repo=self.workspace.initial_repo,
+                    max_retries=self.repo_memory_max_retries,
                 )
             else:
-                RepoMemoryManager.ensure_exists_in_worktree(self.workspace_dir)
+                RepoMemoryManager.ensure_exists_in_worktree(
+                    self.workspace_dir
+                )
+        except Exception as exc:
+            if self.repo_memory_failure_policy == "fail":
+                raise
+            logger.warning(
+                "RepoMemory bootstrap failed; continuing with the deterministic "
+                "repository map only: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            RepoMemoryManager.ensure_exists_in_worktree(
+                self.workspace_dir,
+                initial_repo=self.workspace.initial_repo,
+            )
 
-            # Commit baseline memory file if it is new/updated
-            self.workspace.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
-            if self.workspace.repo.is_dirty(untracked_files=True):
-                self.workspace.repo.git.commit("-m", "chore(kapso): add baseline repo memory")
-
-        if import_from_checkpoint:
-            self.import_checkpoint()
-    
-    # =========================================================================
-    # Directory Setup
-    # =========================================================================
+        self.workspace.repo.git.add([RepoMemoryManager.MEMORY_REL_PATH])
+        if self.workspace.repo.is_dirty(untracked_files=True):
+            self.workspace.repo.git.commit(
+                "-m", "chore(kapso): add baseline repo memory"
+            )
     
     def _setup_kapso_directories(
         self, 
@@ -247,7 +292,7 @@ class SearchStrategy(ABC):
         os.makedirs(kapso_eval, exist_ok=True)
         if eval_dir and os.path.exists(eval_dir):
             shutil.copytree(eval_dir, kapso_eval, dirs_exist_ok=True)
-            print(f"  Copied eval_dir to kapso_evaluation/")
+            print("  Copied eval_dir to kapso_evaluation/")
         dirs_created.append("kapso_evaluation")
         
         # Setup kapso_datasets/
@@ -255,7 +300,7 @@ class SearchStrategy(ABC):
         os.makedirs(kapso_data, exist_ok=True)
         if data_dir and os.path.exists(data_dir):
             shutil.copytree(data_dir, kapso_data, dirs_exist_ok=True)
-            print(f"  Copied data_dir to kapso_datasets/")
+            print("  Copied data_dir to kapso_datasets/")
         dirs_created.append("kapso_datasets")
         
         # Add placeholder files to empty directories so git tracks them
@@ -321,8 +366,8 @@ class SearchStrategy(ABC):
         pass
     
     @abstractmethod
-    def checkout_to_best_experiment_branch(self) -> None:
-        """Checkout git to the best experiment's branch."""
+    def checkout_to_best_experiment_branch(self) -> Optional[str]:
+        """Checkout and return the best experiment branch, if one exists."""
         pass
 
     @abstractmethod

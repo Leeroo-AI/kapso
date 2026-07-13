@@ -579,8 +579,11 @@ class Kapso:
         experiment_logs = self._extract_experiment_logs(orchestrator)
         workspace_path = orchestrator.search_strategy.workspace.workspace_dir
         
-        # Checkout to best solution
-        orchestrator.search_strategy.checkout_to_best_experiment_branch()
+        # Checkout to best solution. The returned ref makes the selected code
+        # state explicit and lets callers verify or materialize it independently.
+        best_branch = (
+            orchestrator.search_strategy.checkout_to_best_experiment_branch()
+        )
         
         # Use custom output path if provided
         code_path = output_path or workspace_path
@@ -595,6 +598,7 @@ class Kapso:
                 "iterations": solve_result.iterations_run,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
+                "best_branch": best_branch,
             }
         )
         

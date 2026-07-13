@@ -559,14 +559,16 @@ Problem: {problem}"""
             key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
-    def checkout_to_best_experiment_branch(self) -> None:
-        """Checkout to the best node's branch."""
+    def checkout_to_best_experiment_branch(self) -> Optional[str]:
+        """Checkout and return the best node's branch."""
         best = self.get_best_experiment()
         if best:
             print(f"[GenericSearch] Checking out to best branch: {best.branch_name} (score={best.score})")
             self.workspace.switch_branch(best.branch_name)
+            return best.branch_name
         else:
             print("[GenericSearch] No successful experiments to checkout")
+            return None
 
     # =========================================================================
     # Feedback and Result Extraction (Generic-specific)
