@@ -200,6 +200,8 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy._claude_auth_settings = {"auth_mode": "oauth"}
     strategy.aws_region = "us-east-1"
     strategy.ideation_timeout = 10
+    strategy.budget_snapshot = None
+    strategy.iteration_count = 0
 
     solution, sections, telemetry = strategy._generate_solution(
         "problem",
