@@ -28,10 +28,12 @@ The design adds one new module (`src/kapso/execution/budget.py` — `BudgetSpec`
 elapsed time, cost harvesting from the three agents whose spend is currently invisible, an
 advisory `{{budget_status}}` prompt block, budget-clamped agent deadlines, a mechanical
 finalization reserve — and, on top of that substrate, a **fidelity contract**
-(PROBE / VALIDATE / FULL): sanctioned fast variants of training and evaluation (deterministic
-data subsamples, everything else identical) with a deterministic policy that decides, from
-remaining budget and measured run costs, when an experiment runs fast and when the campaign
-spends a full run. When no budget is configured, behavior is unchanged.
+(PROBE / VALIDATE / FULL): sanctioned fast variants of an experiment's two cost-bearing
+phases, BUILD and EVAL (deterministic workload subsets, everything else identical), with a
+deterministic policy that decides, from remaining budget and measured run costs, when an
+experiment runs fast and when the campaign spends a full run. The contract is task-agnostic
+— training is just one domain's build phase. When no budget is configured, behavior is
+unchanged.
 
 ## Why now: the verified gaps
 
@@ -172,9 +174,9 @@ phase_telemetry: Dict[str, Dict[str, float]] = field(default_factory=dict)
 # {"ideation": {"cost_usd": ..., "duration_seconds": ...}, "implementation": ..., "feedback": ...}
 
 # Fidelity (Phase 5; defaults preserve full-size semantics for old nodes)
-train_fidelity: str = "full"
+build_fidelity: str = "full"
 eval_fidelity: str = "full"
-promoted_from: Optional[int] = None                 # probe node this FULL retrain came from
+promoted_from: Optional[int] = None                 # probe node this FULL rebuild came from
 evaluation_attempts: List[EvaluationAttempt] = field(default_factory=list)
 # append-only, versioned by evaluator_id — see "Evaluation versioning";
 # node.score is the canonical attempt's projection
@@ -299,25 +301,57 @@ One `solve()` iteration, with additions in bold:
 This is the layer that makes tight budgets *searchable* rather than merely metered. It is
 opt-in: with fidelity off (the default), every experiment runs full-size exactly as today.
 
-### The contract
+### The contract: BUILD × EVAL, task-agnostic by construction
 
-A **fidelity** is a declared, verifiable execution profile for one experiment, with two dials:
+Kapso's evolve loop is generic — post-training, kernel optimization, prompt engineering,
+agentic scaffolds, algorithm search — so the fidelity contract is defined over the two
+cost-bearing phases **every** experiment has, not over "training":
 
-- `train_fidelity: fast | full` — *fast* trains on a deterministic subsample of the training
-  data (fixed fraction, fixed seed) and/or a capped step count. **Everything else — recipe,
-  hyperparameters, code path — is identical**, and the implementation is required to make the
-  fast→full switch a configuration flip, not a rewrite.
-- `eval_fidelity: fast | full` — *fast* evaluates on a deterministic subsample of each eval
-  suite (fixed fraction, fixed seed, so fast scores are comparable **across experiments**),
-  with the same harness, metrics, and scoring.
+- **BUILD** — the artifact-producing step: training a model, compiling and running a kernel
+  sweep, executing a pipeline, running a scaffold over episodes — or nothing at all
+  (writing a prompt is free).
+- **EVAL** — the measurement: eval suites, timing harness, test cases, judged case sets.
+
+A **fidelity** is a declared, verifiable *workload profile* over these two dimensions.
+"Fast" always means **a deterministic subset of the workload units, everything else
+identical** — and what a *unit* is (rows, steps, benchmark shapes, episodes, instances,
+cases) is supplied by the domain, not by kapso:
+
+- `build_fidelity: fast | full` — *fast* consumes a deterministic fraction of the build
+  workload (fixed fraction, fixed seed / fixed subset rule). **Recipe, hyperparameters,
+  and code path are identical**, and the implementation must make the fast→full switch a
+  configuration flip, not a rewrite.
+- `eval_fidelity: fast | full` — *fast* measures on a deterministic subsample of the eval
+  workload (fixed fraction, fixed seed, so fast scores are comparable **across
+  experiments**), with the same harness, metrics, and scoring.
+
+| Domain | Fast BUILD means | Fast EVAL means |
+|---|---|---|
+| Post-training | data subsample / capped steps | subsample of each suite |
+| CUDA / PyTorch optimization | few benchmark shapes | subset of shapes, fewer timing reps |
+| Prompt engineering | — (build ≈ free) | fraction of the case set |
+| Agentic scaffold | shorter episode caps | subset of tasks |
+| Algorithm search (ALE-style) | smaller instances | fewer test instances |
+| Tabular ML | row subsample | fewer CV folds |
 
 Three sanctioned combinations keep the space tractable:
 
-| Profile | Train | Eval | Role | Typical cost (PostTrainBench) |
+| Profile | Build | Eval | Role | Typical cost (PostTrainBench instance) |
 |---|---|---|---|---|
-| **PROBE** | fast | fast | The search workhorse: cheap signal on a recipe | ~45 min |
-| **VALIDATE** | *reuse artifact* | full | Full-eval an existing probe's model — trust check before committing to a retrain; no training cost | ~1.5 h |
-| **FULL** | full | full | The deliverable; the only profile that can end a campaign | ~4.5 h |
+| **PROBE** | fast | fast | The search workhorse: cheap signal on a candidate | ~45 min |
+| **VALIDATE** | *reuse artifact* | full | Full-eval an existing artifact — trust check before committing to a rebuild; no build cost | ~1.5 h |
+| **FULL** | full | full | The deliverable, produced by the cheapest sound path (extend the artifact where the domain is incremental, rebuild where it isn't); the only profile that can end a campaign | ~4.5 h |
+
+**Degenerate cases handle themselves, because every decision reads measured phase costs —
+the design never asks "does this task have training?".** Zero-build tasks (prompt
+engineering): measured build ≈ 0, so the shots arithmetic yields many probes and the
+committed slot collapses to ≈ eval time — no special case, the numbers just come out that
+way. Irreducible-build tasks (a simulation meaningless at 10%): declare no fast build
+fraction, and fidelity degrades to eval-only tiers or `mode: auto` concludes tiers don't
+pay. The litmus test for any new task type is one question: *can your build and/or eval
+workload be deterministically subset?* Yes to either enables tiers on that dimension; no
+to both leaves fidelity off and the plain budget loop — which never assumed anything —
+runs as-is.
 
 ### The Evaluation Maintainer: one owner for the measuring instrument
 
@@ -496,7 +530,7 @@ class EvaluationAttempt:
     duration_seconds: float
 ```
 
-`SearchNode` gains `train_fidelity`, `eval_fidelity`, `promoted_from: Optional[int]`, and
+`SearchNode` gains `build_fidelity`, `eval_fidelity`, `promoted_from: Optional[int]`, and
 `evaluation_attempts: List[EvaluationAttempt]`. A VALIDATE pass **appends** an attempt; it
 never overwrites anything, so experiment history and checkpoints can never disagree about a
 finalized node. `SearchNode.score` keeps its binding single-scalar role as a *projection*:
@@ -633,13 +667,13 @@ The policy, in words:
    half is measured before the loop starts**: the EvaluationMaintainer's setup transaction
    times the registered evaluators (calibration slice → per-item rate → full/fast
    estimates), so full-eval duration is data from iteration 0 and is refined by every
-   VALIDATE and manifest echo thereafter. The **training half cannot be measured up
-   front** (the recipes don't exist yet) — but it is not guessed either: the train cap is
-   **derived by default** from budget shape, `train_cap = committed_run_fraction ×
-   time_budget − measured_full_eval − overhead`, with `train_run_cap_minutes` as an
-   explicit operator override ("Where the train cap comes from," below). Fail-closed rule:
+   VALIDATE and manifest echo thereafter. The **build half cannot be measured up
+   front** (the candidates don't exist yet) — but it is not guessed either: the build cap
+   is **derived by default** from budget shape, `build_cap = committed_run_fraction ×
+   time_budget − measured_full_eval − overhead`, with `build_run_cap_minutes` as an
+   explicit operator override ("Where the build cap comes from," below). Fail-closed rule:
    with no time budget to derive from and no explicit cap, fidelity refuses to enable.
-   Reserve = train cap + measured full-eval upper estimate + overhead factor, tightened by
+   Reserve = build cap + measured full-eval upper estimate + overhead factor, tightened by
    measured quantiles as full-size runs accumulate. The reserve is *escrowed*: every PROBE
    and VALIDATE admission is checked against `remaining − reserve`, and a VALIDATE is
    admitted only if its measured cap fits outside the escrow. The reserve run itself
@@ -650,7 +684,7 @@ The policy, in words:
    (measured probe EWMA after the first iteration).
 3. **Promote to VALIDATE** when the fast-score leader beats the incumbent by
    `promotion_margin` and a validate pass fits outside the reserve — buying trust in the
-   signal for one-third the cost of a retrain.
+   signal for a fraction of the cost of a rebuild.
 4. **Promote to FULL mid-campaign** only when `remaining_after_reserve` still covers a full
    run with margin (rare on a 10 h budget; common on a 48 h one), capped by `max_full_runs`.
 5. **The reserve run executes FULL** on the best-validated recipe when the gate trips.
@@ -662,18 +696,19 @@ The policy, in words:
    meantime. The reserve stays escrowed for as long as the committed candidate could still
    change, because a later probe that wins will need *its* full run too.
 
-**Where the train cap comes from — an allocation and a contract, never a prediction.**
-Training duration in post-training is a dial of the recipe (data size, epochs, sequence
-lengths), not an unknown of nature, so the cap stacks four layers: the **executive
-derives** the default from pure budget arithmetic (fraction of total, minus the
-maintainer's *measured* eval time); the **operator may override** it — the one genuine
-judgment call, "one big bet vs. more search"; the **agents comply precisely** — the FULL
-implementation prompt states the window and the measured throughput from probe telemetry
-("200 min at ~2.2 min per percent of data: size data/epochs accordingly"), turning the cap
-into an engineering input; and the **deadline enforces** it for recipes that ignored their
-own arithmetic. Probe telemetry also buys early infeasibility detection: the moment
-extrapolated full-train time exceeds the cap (probe throughput × 100%), the campaign
-surfaces it — hours before the reserve run, instead of as a kill at the deadline.
+**Where the build cap comes from — an allocation and a contract, never a prediction.**
+Build duration is a dial of the experiment, not an unknown of nature — the workload size
+is chosen (training data and epochs in post-training; instance counts in algorithm search;
+episode caps in scaffolds) — so the cap stacks four layers: the **executive derives** the
+default from pure budget arithmetic (fraction of total, minus the maintainer's *measured*
+eval time); the **operator may override** it — the one genuine judgment call, "one big bet
+vs. more search"; the **agents comply precisely** — the FULL implementation prompt states
+the window and the measured throughput from probe telemetry ("200 min at ~2.2 min per
+percent of workload: size it accordingly"), turning the cap into an engineering input; and
+the **deadline enforces** it for candidates that ignored their own arithmetic. Probe
+telemetry also buys early infeasibility detection: the moment extrapolated full-build time
+exceeds the cap (probe throughput × 100%), the campaign surfaces it — hours before the
+reserve run, instead of as a kill at the deadline.
 
 `BudgetSnapshot` carries the granted profile plus the current duration estimates, so both
 agents and the prompts see *why* this iteration is a probe. **All policy state persists in
@@ -684,8 +719,8 @@ instead of re-deriving a different plan from partial memory.
 ### Worked example: PostTrainBench, 10 h × 1 H100
 
 Full run ≈ 3 h SFT + 1.5 h seven-suite eval. Naive loop: 2 blind experiments. With fidelity
-(`fast_train_fraction 0.1`, `fast_eval_fraction 0.15`; at setup the maintainer times the
-suite — full eval ≈ 1.4 h measured, fast variant derived — so reserve = 3.5 h train cap +
+(`build.fast_fraction 0.1`, `eval.fast_fraction 0.15`; at setup the maintainer times the
+suite — full eval ≈ 1.4 h measured, fast variant derived — so reserve = 3.5 h build cap +
 1.4 h measured eval + overhead ≈ 5.2 h):
 
 ```
@@ -738,7 +773,7 @@ and layers it as a wrapper over provided ones, whose scoring logic stays immutab
 Implementation agents only *invoke* the registered command at the granted fidelity; editing
 `kapso_evaluation/` is an integrity violation in every mode. When a provided suite cannot
 support subsampling even via a wrapper (opaque scoring over the whole set), the maintainer
-registers that fact and the policy degrades to fast-train + full-eval and says so, rather
+registers that fact and the policy degrades to fast-build + full-eval and says so, rather
 than pretending.
 
 ## Configuration
@@ -758,16 +793,18 @@ modes:
                                            #   fewer than min_affordable_full_runs
                                            #   full experiments fit the time budget)
         min_affordable_full_runs: 4
-        fast_train_fraction: 0.10
-        fast_eval_fraction: 0.15
-        eval_subsample_seed: 1337          # fixed so probe attempts share one item set
+        build:                             # the artifact-producing phase; omit this block
+          fast_fraction: 0.10              # entirely for zero-build or irreducible tasks
+        eval:
+          fast_fraction: 0.15
+          subsample_seed: 1337             # fixed so probe attempts share one item set
         committed_run_fraction: 0.45       # budget share allocated to the one committed
-                                           # run; the executive derives the train cap from
+                                           # run; the executive derives the build cap from
                                            # it: fraction x budget - measured eval - overhead
-        # train_run_cap_minutes: 210       # optional explicit override of the derived cap;
+        # build_run_cap_minutes: 210       # optional explicit override of the derived cap;
                                            # evaluation needs no declared bound - the
                                            # maintainer measures it at setup. reserve =
-                                           # train cap + measured full-eval + overhead
+                                           # build cap + measured full-eval + overhead
         fast_variant_threshold_minutes: 20 # maintainer derives a fast evaluator only when
                                            # measured full eval exceeds this
         promotion_margin: 0.02
@@ -836,11 +873,11 @@ the full evaluator, calibration-slice timing, fast-variant derivation, registry 
 workspace commit; change-request routing between iterations; provided-logic immutability);
 integrity enforcement generalized to every mode against the registered manifest;
 `SearchNode` fidelity fields; append-only `EvaluationAttempt` records with `evaluator_id`
-versioning; the `FidelityPolicy` and its config block; the escrowed reserve (train cap +
+versioning; the `FidelityPolicy` and its config block; the escrowed reserve (build cap +
 measured eval); fidelity-aware feedback judging (probe results never set `should_stop`);
 comparability-class ranking with re-anchoring on maintainer re-registration; the
 calibration pair table gating promotion; `VALIDATE` (eval-only attempt append) and `FULL`
-(retrain, `promoted_from`) promotion paths. Acceptance: the maintainer's measured full-eval
+(rebuild, `promoted_from`) promotion paths. Acceptance: the maintainer's measured full-eval
 estimate is within tolerance of an actual full eval on the calibration workload; an
 implementation agent editing `kapso_evaluation/` is rejected in *agent-built* mode too; a
 change request produces a new registry version and a re-anchor, never an in-place edit; on
@@ -849,9 +886,9 @@ probe→validate→full timeline and the final artifact is full-evaluated; attem
 different comparability classes never appear in one ranking (pinned test); an evaluator
 change triggers re-anchoring and never mixes classes; interrupting and resuming mid-campaign
 reproduces the same schedule (policy state round-trips); a probe exceeding the FULL duration
-profile is flagged; enabling fidelity without `train_run_cap_minutes` fails loudly; with
+profile is flagged; enabling fidelity with neither a time budget to derive the build cap from nor an explicit `build_run_cap_minutes` fails loudly; with
 `fidelity.mode: off` the diff is behavior-neutral; a provided suite without the interface
-degrades to fast-train + full-eval with an explicit log line.
+degrades to fast-build + full-eval with an explicit log line.
 
 ## Explicitly rejected (for now), with evidence
 
@@ -907,7 +944,8 @@ Stated plainly because budget enforcement that overpromises is worse than none:
    value and revisit once tail telemetry accumulates; with fidelity on, the reserve is
    *derived* (full-run estimate × safety factor), which turns the folklore knob into
    measured arithmetic after the first full-size run — but the **first** full run still
-   rides on the operator's `train_run_cap_minutes` ceiling for its training half (the
+   rides on the committed build cap for its build half (derived, or the operator's
+   `build_run_cap_minutes` override; the
    evaluation half is measured at setup by the maintainer), bounded by the deadline clamp.
 5. **Fast scores are noisy proxies, and adaptive reuse biases them.** A 15% eval subsample
    ranks recipes imperfectly; a 10% training subsample can invert orderings that only emerge
