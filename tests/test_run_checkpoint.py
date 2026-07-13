@@ -554,6 +554,9 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
         def get_experiment_history(self) -> List[SearchNode]:
             return []
 
+        def get_deliverable_score(self):
+            return None
+
         def checkout_to_best_experiment_branch(self) -> None:
             return None
 

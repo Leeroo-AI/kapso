@@ -772,6 +772,11 @@ class SearchStrategy(ABC):
         """
         return self.get_best_experiment()
 
+    def get_deliverable_score(self) -> Optional[float]:
+        """The delivered node's authoritative measurement."""
+        node = self.get_deliverable_experiment()
+        return node.score if node is not None else None
+
     @abstractmethod
     def checkout_to_best_experiment_branch(self) -> Optional[str]:
         """Checkout and return the best experiment branch, if one exists."""

@@ -478,6 +478,9 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
         def get_experiment_history(self) -> List[SearchNode]:
             return [selected]
 
+        def get_deliverable_score(self):
+            return selected.score
+
         def checkout_to_best_experiment_branch(self) -> str:
             return "candidate_0"
 

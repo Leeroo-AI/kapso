@@ -996,6 +996,30 @@ Problem: {problem}"""
                 return committed
         return self.get_best_experiment()
 
+    def get_deliverable_score(self) -> Optional[float]:
+        """The deliverable's authoritative measurement.
+
+        Prefers the full-fidelity class under the registered evaluator —
+        the score the campaign actually vouches for — over the canonical
+        (possibly fast) projection stored on node.score.
+        """
+        node = self.get_deliverable_experiment()
+        if node is None:
+            return None
+        if self.registered_evaluator_id:
+            full_score = project_score(
+                node,
+                ComparabilityClass(
+                    evaluator_id=self.registered_evaluator_id,
+                    fidelity="full",
+                    fraction=1.0,
+                    seed=self.registered_subsample_seed,
+                ),
+            )
+            if full_score is not None:
+                return full_score
+        return node.score
+
     def checkout_to_best_experiment_branch(self) -> Optional[str]:
         """Checkout and return the deliverable node's branch."""
         best = self.get_deliverable_experiment()

@@ -645,6 +645,9 @@ class Kapso:
             code_path=code_path,
             experiment_logs=experiment_logs,
             final_feedback=solve_result.final_feedback,
+            delivered_score=(
+                orchestrator.search_strategy.get_deliverable_score()
+            ),
             metadata={
                 "iterations": solve_result.iterations_run,
                 "cumulative_iterations": solve_result.cumulative_iterations,

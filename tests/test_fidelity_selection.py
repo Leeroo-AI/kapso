@@ -302,7 +302,12 @@ def test_deliverable_prefers_committed_tier_over_fast_leader():
     strategy.node_history = [full_tier, fast_leader]
 
     assert strategy.get_deliverable_experiment() is full_tier
+    # Reported score is the authoritative full-class measurement, not the
+    # canonical (fast) projection stored on node.score.
+    strategy.registered_subsample_seed = 1337
+    assert strategy.get_deliverable_score() == 0.9
 
     # Without registered evidence the score leader stands.
     strategy.registered_evaluator_id = ""
     assert strategy.get_deliverable_experiment() is fast_leader
+    assert strategy.get_deliverable_score() == 0.87
