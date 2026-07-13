@@ -10,6 +10,7 @@
 
 import os
 import shutil
+import time
 import uuid
 import logging
 import math
@@ -415,8 +416,11 @@ class SearchStrategy(ABC):
         self.llm = config.llm
         self.params = config.params
         # The orchestrator's per-iteration budget view; strategies read it,
-        # only the orchestrator writes budget state.
+        # only the orchestrator writes budget state. The monotonic anchor
+        # lets sequential phases inside one iteration discount time already
+        # burned since the snapshot was taken.
         self.budget_snapshot: Optional["BudgetSnapshot"] = None
+        self.budget_snapshot_monotonic: Optional[float] = None
         # The executive's granted workload profile for this iteration.
         self.fidelity_decision: Optional["FidelityDecision"] = None
         self.evaluation_provenance = (
@@ -604,6 +608,7 @@ class SearchStrategy(ABC):
         attribute, and no run() signature changes across strategies.
         """
         self.budget_snapshot = snapshot
+        self.budget_snapshot_monotonic = time.monotonic()
 
     def observe_fidelity(self, decision: "FidelityDecision") -> None:
         """Store the executive's granted profile for this iteration."""

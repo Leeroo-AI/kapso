@@ -279,6 +279,11 @@ def test_snapshot_clamps_agent_deadlines_with_a_floor():
         finalization_reserve_seconds=0.0,
     )
     assert budgeted.clamp_timeout(600) == 120  # remaining bounds it
+    # Sequential phases discount intra-iteration drift: after an earlier
+    # phase burned 80s of the 120s remainder, only 40s is grantable —
+    # under the floor, so the floor holds; a smaller drift passes through.
+    assert budgeted.clamp_timeout(600, elapsed_since_snapshot=80) == 60
+    assert budgeted.clamp_timeout(600, elapsed_since_snapshot=30) == 90
 
     nearly_out = BudgetSnapshot(
         iteration_index=0,
@@ -351,12 +356,15 @@ def test_budget_status_block_renders_in_all_modes():
 
 
 def test_clamped_timeout_helper_uses_the_snapshot():
+    import time as time_module
+
     from kapso.execution.search_strategies.generic.strategy import (
         GenericSearch,
     )
 
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.budget_snapshot = None
+    strategy.budget_snapshot_monotonic = None
     assert strategy._clamped_timeout(600) == 600
 
     strategy.budget_snapshot = BudgetSnapshot(
@@ -368,3 +376,8 @@ def test_clamped_timeout_helper_uses_the_snapshot():
         finalization_reserve_seconds=120,
     )
     assert strategy._clamped_timeout(600) == 180
+
+    # The live-run overshoot this pins: ideation burned 100s of a 180s
+    # remainder, so implementation gets ~80s — never the stale 180.
+    strategy.budget_snapshot_monotonic = time_module.monotonic() - 100.0
+    assert strategy._clamped_timeout(600) == pytest.approx(80, abs=2)

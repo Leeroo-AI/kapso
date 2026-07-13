@@ -148,8 +148,10 @@ def kill_group(process: subprocess.Popen, sig: int) -> None:
         os.killpg(process.pid, sig)
 
 
-def run_walled_child(args: argparse.Namespace, wall_seconds: float) -> str:
-    """Returns 'exited', 'interrupted', or 'walled'."""
+def run_walled_child(
+    args: argparse.Namespace, wall_seconds: float
+) -> tuple:
+    """Returns (outcome, returncode): 'exited', 'interrupted', 'walled'."""
     command = [
         sys.executable, "-u", str(Path(__file__).resolve()), "--child",
         "--mode", args.mode,
@@ -186,11 +188,11 @@ def run_walled_child(args: argparse.Namespace, wall_seconds: float) -> str:
                 time.sleep(1.0)
             kill_group(process, signal.SIGKILL)
             process.wait()
-            return "walled"
+            return "walled", process.returncode
         time.sleep(2.0)
     if interrupted:
-        return "interrupted"
-    return "exited"
+        return "interrupted", process.returncode
+    return "exited", process.returncode
 
 
 # =========================================================================
@@ -361,20 +363,58 @@ def check_all_full_fidelity(nodes: list, evidence: list) -> bool:
     return not off_profile
 
 
-def check_artifact(run_dir: Path, evidence: list) -> bool:
+def check_child_exit(returncode, result, evidence: list) -> bool:
+    """A crash after the checkpoint is still a failed run, not a pass."""
+    evidence.append(
+        f"returncode={returncode} result_json={result is not None}"
+    )
+    return returncode in (None, 0) and result is not None
+
+
+def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
+    """The final checkout must actually land on an experiment branch.
+
+    File existence alone is not evidence — the baseline files exist on
+    main too, which is exactly how a crashed checkout previously slipped
+    past this check.
+    """
     workspace = run_dir / "workspace"
     present = [
         name
         for name in ("train.py", "evaluate.py")
         if (workspace / name).exists()
     ]
-    evidence.append(f"checked_out={present}")
-    return len(present) == 2
+    head = subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    nodes = checkpoint.get("strategy_state", {}).get("node_history", [])
+    any_scored = any(node.get("score") is not None for node in nodes)
+    evidence.append(f"checked_out={present} head={head} scored={any_scored}")
+    if len(present) != 2:
+        return False
+    if any_scored:
+        return head.startswith("generic_exp_")
+    return True
 
 
 def check_gate_wall(
-    checkpoint: dict, budget_seconds: float, nodes: list, evidence: list
+    checkpoint: dict, mode_block: dict, evidence: list
 ) -> bool:
+    """Elapsed is bounded by budget plus the enforcement residue.
+
+    The residue is derived, not guessed: the last admitted phase may run
+    its clamp floor, the feedback generator is unclamped by design (its
+    configured timeout bounds it), plus kill grace. Anything beyond that
+    means a clamp failed to bind.
+    """
+    budget_seconds = mode_block["budget"]["time_budget_minutes"] * 60.0
+    feedback_timeout = mode_block["feedback_generator"]["agent_specific"][
+        "timeout"
+    ]
+    residue = 60.0 + feedback_timeout + 60.0
+    nodes = checkpoint.get("strategy_state", {}).get("node_history", [])
     elapsed = checkpoint.get("elapsed_seconds", 0.0)
     slow_phases = [
         (node["node_id"], phase, values.get("duration_seconds", 0.0))
@@ -383,16 +423,20 @@ def check_gate_wall(
         if values.get("duration_seconds", 0.0) >= budget_seconds
     ]
     evidence.append(
-        f"elapsed={elapsed:.0f}s budget={budget_seconds:.0f}s "
+        f"elapsed={elapsed:.0f}s bound={budget_seconds + residue:.0f}s "
         f"unclamped_phases={slow_phases}"
     )
-    return elapsed <= budget_seconds + 180.0 and not slow_phases
+    return elapsed <= budget_seconds + residue and not slow_phases
 
 
-def verify(args: argparse.Namespace, run_dir: Path, outcome: str) -> int:
+def verify(
+    args: argparse.Namespace,
+    run_dir: Path,
+    outcome: str,
+    child_returncode=None,
+) -> int:
     mode_block = load_mode_block(args.mode)
     budget_block = mode_block["budget"]
-    budget_seconds = budget_block["time_budget_minutes"] * 60.0
     has_maintainer = "evaluation_maintainer" in mode_block
     fidelity_block = budget_block.get("fidelity") or {}
     fidelity_on = fidelity_block.get("mode", "off") != "off"
@@ -426,10 +470,17 @@ def verify(args: argparse.Namespace, run_dir: Path, outcome: str) -> int:
     else:
         checks += [
             (
+                "child_clean_exit",
+                lambda ev: check_child_exit(child_returncode, result, ev),
+            ),
+            (
                 "stop_semantics",
                 lambda ev: check_stop_semantics(checkpoint, result, ev),
             ),
-            ("artifact_checked_out", lambda ev: check_artifact(run_dir, ev)),
+            (
+                "artifact_checked_out",
+                lambda ev: check_artifact(run_dir, checkpoint, ev),
+            ),
         ]
     if has_maintainer:
         checks.append(
@@ -462,9 +513,7 @@ def verify(args: argparse.Namespace, run_dir: Path, outcome: str) -> int:
         checks.append(
             (
                 "gate_wall_and_clamps",
-                lambda ev: check_gate_wall(
-                    checkpoint, budget_seconds, nodes, ev
-                ),
+                lambda ev: check_gate_wall(checkpoint, mode_block, ev),
             )
         )
 
@@ -540,8 +589,8 @@ def main() -> None:
         f"[e2e] mode={args.mode} budget={budget_minutes}min "
         f"hard_wall={wall_seconds / 60:.0f}min"
     )
-    outcome = run_walled_child(args, wall_seconds)
-    raise SystemExit(verify(args, run_dir, outcome))
+    outcome, child_returncode = run_walled_child(args, wall_seconds)
+    raise SystemExit(verify(args, run_dir, outcome, child_returncode))
 
 
 if __name__ == "__main__":

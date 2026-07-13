@@ -847,10 +847,23 @@ Problem: {problem}"""
 4. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
     def _clamped_timeout(self, configured_seconds: float) -> float:
-        """Bound an agent deadline by the searchable budget, when known."""
+        """Bound an agent deadline by the searchable budget, when known.
+
+        The snapshot is frozen at iteration start; the monotonic anchor
+        discounts whatever this iteration's earlier phases already burned,
+        so implementation clamps against what actually remains after
+        ideation, not the iteration-start remainder.
+        """
         if self.budget_snapshot is None:
             return configured_seconds
-        return self.budget_snapshot.clamp_timeout(configured_seconds)
+        drift = (
+            time.monotonic() - self.budget_snapshot_monotonic
+            if self.budget_snapshot_monotonic is not None
+            else 0.0
+        )
+        return self.budget_snapshot.clamp_timeout(
+            configured_seconds, elapsed_since_snapshot=drift
+        )
 
     def _render_budget_status(self) -> str:
         """Deterministic budget block for prompts. Advisory only — never a

@@ -71,29 +71,57 @@ def test_switch_branch_preserves_untracked_and_ignored_files(
     assert workspace.get_current_branch() == "candidate"
 
 
-def test_conflicting_untracked_file_raises_without_deleting_it(
+def test_untracked_shadow_of_target_tracked_path_is_replaced(
     tmp_path: Path,
 ) -> None:
+    """A checkout materializes the branch: local shadows of branch-owned
+    paths (the __pycache__-kills-the-final-checkout failure) never abort
+    it, while untracked files the target does not track survive untouched.
+    """
     workspace = _workspace(tmp_path)
     workspace.create_branch("candidate")
     _commit_file(
         workspace,
-        "conflict.txt",
-        "candidate version\n",
-        "add candidate file",
+        "__pycache__/train.cpython-312.pyc",
+        "candidate bytecode\n",
+        "session committed interpreter junk",
     )
     workspace.switch_branch("main")
 
-    conflict = Path(workspace.workspace_dir, "conflict.txt")
-    conflict.write_text("local version\n")
+    shadow = Path(workspace.workspace_dir, "__pycache__/train.cpython-312.pyc")
+    shadow.parent.mkdir(exist_ok=True)
+    shadow.write_text("local junk\n")
+    novel = Path(workspace.workspace_dir, "notes.md")
+    novel.write_text("keep me\n")
+
+    workspace.switch_branch("candidate")
+
+    assert workspace.get_current_branch() == "candidate"
+    assert shadow.read_text() == "candidate bytecode\n"
+    assert novel.read_text() == "keep me\n"
+
+
+def test_modified_tracked_file_still_fails_checkout_loudly(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    _commit_file(workspace, "shared.txt", "main version\n", "add shared")
+    workspace.create_branch("candidate")
+    _commit_file(
+        workspace, "shared.txt", "candidate version\n", "candidate edit"
+    )
+    workspace.switch_branch("main")
+
+    shared = Path(workspace.workspace_dir, "shared.txt")
+    shared.write_text("uncommitted local edit\n")
 
     with pytest.raises(WorkspaceCheckoutError) as error:
         workspace.switch_branch("candidate")
 
-    assert conflict.read_text() == "local version\n"
+    assert shared.read_text() == "uncommitted local edit\n"
     assert workspace.get_current_branch() == "main"
     assert error.value.branch_name == "candidate"
-    assert any("conflict.txt" in line for line in error.value.status_lines)
+    assert any("shared.txt" in line for line in error.value.status_lines)
 
 
 def test_reopening_workspace_preserves_experiment_branch_and_state(

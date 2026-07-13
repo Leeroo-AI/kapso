@@ -251,8 +251,17 @@ class BudgetSnapshot:
     # direct construction in tests.
     min_agent_timeout_seconds: float = 60.0
 
-    def clamp_timeout(self, configured_seconds: float) -> float:
+    def clamp_timeout(
+        self,
+        configured_seconds: float,
+        elapsed_since_snapshot: float = 0.0,
+    ) -> float:
         """Bound an agent deadline by the budget remaining outside reserve.
+
+        ``elapsed_since_snapshot`` discounts time burned after this snapshot
+        was taken — sequential phases inside one iteration must not each
+        clamp against the iteration-start remainder, or the second phase
+        overshoots by the first phase's whole runtime.
 
         Enforcement floor: below min_agent_timeout_seconds an agent call
         cannot do useful work, so the clamp never goes lower.
@@ -262,7 +271,7 @@ class BudgetSnapshot:
             return configured_seconds
         return max(
             self.min_agent_timeout_seconds,
-            min(configured_seconds, remaining),
+            min(configured_seconds, remaining - elapsed_since_snapshot),
         )
 
     @property
