@@ -101,7 +101,7 @@ apptainer exec "$SIF" /opt/kapso/venv/bin/expert-posttrain --help >/dev/null && 
 # Snapshot lazy-hydration cost: first-touch vs cached read of model weights
 F=$(find /mnt/hfcache/huggingface -name "*.safetensors" -path "*Qwen3-1.7B*" 2>/dev/null | head -1)
 if [ -n "$F" ]; then
-    put model_file_gb "$(stat -c%s "$F" | awk '{printf "%.1f", $1/1e9}')"
+    put model_file_gb "$(stat -Lc%s "$F" | awk '{printf "%.1f", $1/1e9}')"   # -L: HF cache uses symlinks
     TA=$(date +%s.%N); cat "$F" > /dev/null; TB=$(date +%s.%N); cat "$F" > /dev/null; TC=$(date +%s.%N)
     put weights_first_read_secs "$(echo "$TB $TA" | awk '{printf "%.1f", $1-$2}')"
     put weights_cached_read_secs "$(echo "$TC $TB" | awk '{printf "%.1f", $1-$2}')"

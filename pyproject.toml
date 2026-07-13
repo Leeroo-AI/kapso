@@ -71,10 +71,14 @@ Documentation = "https://docs.leeroo.com"
 Repository = "https://github.com/leeroo-ai/kapso"
 Issues = "https://github.com/leeroo-ai/kapso/issues"
 
+# namespaces=true because benchmarks/ has no __init__.py files (PEP 420);
+# without packaging it, the expert-* console scripts crash with
+# ModuleNotFoundError in any pip-installed environment.
 [tool.setuptools.packages.find]
-where = ["src"]
-include = ["kapso*"]
-exclude = []
+where = ["src", "."]
+include = ["kapso*", "benchmarks*"]
+exclude = ["benchmarks.posttrain.gcp*", "benchmarks.posttrain.ptb_adapter*"]
+namespaces = true
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.json", "*.yaml", "*.yml", "*.md"]

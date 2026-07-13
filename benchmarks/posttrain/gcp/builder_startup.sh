@@ -70,6 +70,13 @@ if [ ! -f containers/kapso.sif ] || [ ! -f containers/vllm_debug.sif ]; then
     exit 1
 fi
 
+# Smoke-test the kapso entrypoint (no GPU needed) — an image that builds but
+# can't import the runner must never ship.
+if ! apptainer exec containers/kapso.sif /opt/kapso/venv/bin/expert-posttrain --help >/dev/null; then
+    echo "kapso CLI smoke test failed inside container" | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
+    exit 1
+fi
+
 gsutil cp containers/kapso.sif containers/vllm_debug.sif "gs://$BUCKET/assets/"
 # Also bake the containers onto the cache disk so run VMs skip the GCS pull.
 mkdir -p /mnt/hfcache/containers
