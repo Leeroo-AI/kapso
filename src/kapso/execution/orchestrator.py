@@ -654,6 +654,9 @@ class OrchestratorAgent:
             subsample_seed=self.evaluation_maintainer.subsample_seed,
             data_manifest=head.data_manifest,
         )
+        self.search_strategy.record_eval_duration = (
+            self.evaluation_maintainer.record_run
+        )
 
     def _ensure_evaluation_registered(self) -> None:
         """Run the maintainer's setup once; validate consistency on resume."""

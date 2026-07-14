@@ -754,6 +754,12 @@ admit full builds the window couldn't hold. Switching tiers *off mid-campaign* o
 price proves them unnecessary remains deferred: it flips the canonical comparability class
 and needs the same migration treatment as an evaluator transition.
 
+The eval half of the correction loop is closed the same way: every successful frame run
+(validate, bridge, reserve measurement) reports its measured duration into the registry's
+timing model (`record_run`), so `full_eval_upper` tightens from real full-scale
+evaluations instead of riding the baseline calibration forever — and because the policy
+reads timing through a live provider, the tightened upper takes effect the next decision.
+
 The timeline above assumes estimates hold; the schedule's *feasibility* rests on the
 mechanisms, not the arithmetic: probe overruns are cut by probe-sized deadlines, the
 VALIDATE is admitted only because its cap fits outside the escrowed reserve, and the final

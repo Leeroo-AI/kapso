@@ -342,6 +342,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
     (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
@@ -533,6 +534,7 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
     (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
@@ -774,3 +776,77 @@ def test_mid_campaign_full_affordability_is_priced_from_history():
         probe_estimate_seconds=400.0,
     )
     assert refused.profile == PROFILE_PROBE
+
+
+def test_frame_run_reports_its_duration_to_the_recorder(
+    tmp_path, monkeypatch
+):
+    """Successful frame runs feed the timing model (record_run); failures
+    and refusals report nothing.
+    """
+    from contextlib import contextmanager
+
+    target = probe_node(0, 0.48)
+    target.branch_name = "generic_exp_0"
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.node_history = [target]
+    strategy.registered_evaluator_id = "ev-1"
+    strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = {}
+    recorded = []
+    strategy.record_eval_duration = lambda *, fraction, duration_seconds: (
+        recorded.append((fraction, duration_seconds))
+    )
+    workspace_root = tmp_path / "workspace_root"
+    (workspace_root / "kapso_evaluation").mkdir(parents=True)
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
+        "HEAD = 1\n"
+    )
+    strategy.workspace_dir = str(workspace_root)
+    worktree = tmp_path / "frame_worktree"
+    worktree.mkdir()
+
+    class FakeWorkspace:
+        repo = SimpleNamespace(
+            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
+        )
+
+        @contextmanager
+        def materialize_ref(self, ref):
+            yield str(worktree)
+
+    strategy.workspace = FakeWorkspace()
+
+    payload = {
+        "fidelity": "full",
+        "fraction": 1.0,
+        "seed": 1337,
+        "items": 100,
+        "total_items": 100,
+        "score": 0.41,
+    }
+    monkeypatch.setattr(
+        strategy_module, "subprocess", fake_eval_subprocess(payload)
+    )
+    score = strategy._execute_registered_evaluation(
+        target, fidelity="full", fraction=1.0, deadline_seconds=None
+    )
+    assert score == 0.41
+    assert len(recorded) == 1
+    assert recorded[0][0] == 1.0
+    assert recorded[0][1] >= 0.0
+
+    # A failed run reports nothing.
+    monkeypatch.setattr(
+        strategy_module,
+        "subprocess",
+        fake_eval_subprocess(payload, returncode=1),
+    )
+    assert (
+        strategy._execute_registered_evaluation(
+            target, fidelity="full", fraction=1.0, deadline_seconds=None
+        )
+        is None
+    )
+    assert len(recorded) == 1
