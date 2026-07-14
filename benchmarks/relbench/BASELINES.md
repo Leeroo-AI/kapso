@@ -26,6 +26,35 @@ Verification performed:
    "Zero-Shot Foundational" section and match Kumo's in-context column numerically
    (e.g. driver-position MAE 2.747 = in-context; fine-tuned is 2.731).
 
+## Precise citations for KumoRFM (fine-tuned) numbers
+
+The **only publication** containing KumoRFM fine-tuned results is the Kumo technical
+report (Fey, Kocijan, Lopez, Lenssen, Leskovec, "KumoRFM: A Foundation Model for
+In-Context Learning on Relational Data", Kumo.AI online technical report, May 2025,
+18 pp. — **not on arXiv**; cite the PDF at
+kumo.ai/research/kumo_relational_foundation_model.pdf):
+
+- **Table 2, p. 11** — "Test results (AUROC) on the entity classification tasks in
+  RelBench" — column "KumoRFM (fine-tuned)", 12 v1 tasks, average 81.14.
+- **Table 3, p. 12** — "Test results (MAE) on the entity regression tasks in RelBench"
+  — column "(fine-tuned)", 9 v1 tasks, raw MAE; the report's own aggregate is
+  "Normalized Average w.r.t. RDL" = 0.862.
+- **Table 4, p. 13** — "Test results (MAP@k) on the recommendation tasks in RelBench"
+  — column "(fine-tuned)", 9 v1 tasks, average 8.82.
+
+The report contains exactly four tables (Table 1, p. 10, is dataset statistics) and no
+result tables after p. 13 — Tables 2-4 are exhaustive for fine-tuned numbers.
+Corroborating secondary source: the official leaderboard's "KumoRFM (fine-tuned)" rows
+in its Classification (mean 81.1) and Regression (NMAE mean 0.2604) tables — values
+equal the report's after rounding (checked cell-by-cell); it has no recommendation row.
+
+Verified absences (do not source fine-tuned numbers from these): the RelAgent paper
+(arXiv:2605.07840) contains no fine-tuned KumoRFM rows (its "KumoRFM-v1/-v2" are
+in-context); the KumoRFM-2 paper (arXiv:2604.12596) likewise lists only "KumoRFM-1"
+in-context in its RelBenchV1 Tables 3/7 (cells match the in-context column, e.g.
+driver-dnf 82.41, driver-position 2.747), and its only fine-tuning table (Table 9) is
+KumoRFM-2 on SALT.
+
 ## Which benchmark version did they evaluate?
 
 | Method | RelBench v1 (30 tasks) | RelBench v2 (66 tasks) | Other |
