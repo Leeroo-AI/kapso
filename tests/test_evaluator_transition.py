@@ -438,3 +438,62 @@ def test_pending_priority_replays_first_on_resume(tmp_path, monkeypatch):
     strategy = resumed.search_strategy
     assert strategy.evaluator_transition["status"] == "anchored"
     assert strategy.bridge_calls[0]["node_id"] == 0
+
+
+def test_unsound_measurement_bridges_but_tampering_never_does(
+    tmp_path, monkeypatch
+):
+    """The live CR campaign's requester was evaluation_valid=False because
+    the EVALUATION was defective — the old filter excluded it and the
+    frontier restarted from baseline for no reason. Unsound measurements
+    bridge (the artifact is fine); a non-empty integrity error (tampering)
+    stays exclusionary.
+    """
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    call_counter = {"count": 0}
+
+    def setup_then_edit(root: Path) -> None:
+        call_counter["count"] += 1
+        write_entrypoint(root)
+        if call_counter["count"] >= 2:
+            (root / "kapso_evaluation" / "kapso_eval.py").write_text(
+                "ENTRYPOINT = True\nFIXED = True\n"
+            )
+
+    patch_maintainer_environment(
+        monkeypatch,
+        ScriptedMaintainerAgent(
+            setup_then_edit,
+            output=(
+                "<change_verdict>accept</change_verdict>"
+                "<reason>defective guard confirmed</reason>"
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    # Iteration 1: a tampering node (integrity error). Iteration 2: the
+    # requester — measurement unsound (valid False, clean integrity)
+    # because the defective evaluator crashed on it.
+    strategy.agent_output_queue = [
+        "",
+        "<evaluation_change_request>guard rejects every honest model"
+        "</evaluation_change_request>",
+    ]
+    strategy.score_queue = [0.9, None]
+    strategy.valid_queue = [False, False]
+    strategy.integrity_queue = ["evaluation tree tampered", ""]
+
+    orchestrator.solve(experiment_max_iter=2)
+
+    assert strategy.evaluator_transition["status"] == "anchored"
+    assert strategy.evaluator_transition["priority_node_id"] == 1
+    # The tampering node (score 0.9) never bridges; the unsound-measurement
+    # requester does, and first.
+    assert [call["node_id"] for call in strategy.bridge_calls] == [1]

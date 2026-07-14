@@ -88,6 +88,8 @@ class FakeStrategy:
         # Per-iteration overrides; each run() pops one when available.
         self.agent_output_queue: List[str] = []
         self.score_queue: List[Optional[float]] = []
+        self.valid_queue: List[bool] = []
+        self.integrity_queue: List[str] = []
         self.registered_evaluation: Dict[str, Any] = {}
         self.scores_evaluator_id = ""
         self.evaluator_transition = None
@@ -116,6 +118,10 @@ class FakeStrategy:
                 else self.next_agent_output
             ),
         )
+        if self.valid_queue:
+            node.evaluation_valid = self.valid_queue.pop(0)
+        if self.integrity_queue:
+            node.evaluation_integrity_error = self.integrity_queue.pop(0)
         self.contexts.append(context)
         self.node_history.append(node)
         self.workspace.current_cost += 1.0

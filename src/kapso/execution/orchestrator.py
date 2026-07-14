@@ -749,13 +749,21 @@ class OrchestratorAgent:
         }
         self._save_run_checkpoint(status="running")
 
+        # Tampering (a non-empty integrity error) is a property of the
+        # candidate and stays exclusionary. evaluation_valid=False with a
+        # clean integrity record means only the OLD measurement was
+        # unsound — often because of the very defect this transition
+        # fixes — and a fresh measurement under the new head is exactly
+        # what the bridge exists to buy. The live CR campaign's requester
+        # was filtered out by the old evaluation_valid check and the
+        # frontier restarted from baseline for no reason.
         candidates = sorted(
             (
                 node
                 for node in strategy.get_experiment_history()
                 if not node.had_error
-                and node.evaluation_valid
                 and node.branch_name
+                and not node.evaluation_integrity_error
             ),
             key=lambda node: node.score if node.score is not None else float(
                 "-inf"
@@ -805,6 +813,11 @@ class OrchestratorAgent:
             "old_evaluator_id": old_evaluator_id,
             "new_evaluator_id": new_evaluator_id,
             "status": "anchored",
+            **(
+                {"priority_node_id": priority_node_id}
+                if priority_node_id is not None
+                else {}
+            ),
         }
         self._save_run_checkpoint(status="running")
 
