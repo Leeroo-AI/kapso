@@ -67,13 +67,15 @@ def cmd_evolve(args) -> None:
         goal=goal,
         output_path=args.output,
         max_iterations=args.iterations,
+        time_budget_minutes=args.time_budget_minutes,
+        cost_budget=args.cost_budget,
+        finalization_reserve_minutes=args.finalization_reserve_minutes,
         mode=args.mode,
         coding_agent=args.coding_agent,
         eval_dir=args.eval_dir,
         data_dir=args.data_dir,
         initial_repo=args.initial_repo,
         resume=args.resume,
-        allow_legacy_checkpoint=args.allow_legacy_checkpoint,
     )
     
     # Print summary
@@ -371,16 +373,28 @@ Examples:
     evolve_parser.add_argument("-i", "--iterations", type=int, default=10, help="Max iterations (default: 10)")
     evolve_parser.add_argument("-o", "--output", type=str, help="Output directory")
     evolve_parser.add_argument(
+        "--time-budget-minutes",
+        type=float,
+        default=None,
+        help="Wall-clock budget for the campaign (durable across resumes)",
+    )
+    evolve_parser.add_argument(
+        "--cost-budget",
+        type=float,
+        default=None,
+        help="Best-effort spend budget in USD",
+    )
+    evolve_parser.add_argument(
+        "--finalization-reserve-minutes",
+        type=float,
+        default=None,
+        help="Wall-clock escrowed for final checkout and evaluation",
+    )
+    evolve_parser.add_argument(
         "--resume",
         action="store_true",
         help="Continue the compatible checkpoint in --output",
     )
-    evolve_parser.add_argument(
-        "--allow-legacy-checkpoint",
-        action="store_true",
-        help="Trust and migrate checkpoint.pkl during an explicit resume",
-    )
-    
     # Configuration options
     evolve_parser.add_argument("-m", "--mode", type=str, help="Config mode (GENERIC, MINIMAL)")
     evolve_parser.add_argument("-a", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, help="Coding agent")

@@ -66,6 +66,12 @@ Your job is to propose a solution, not implement it.
 ### Goal
 {{problem}}
 
+### Budget
+{{budget_status}}
+This is advisory context: shape the ambition of your proposal to the remaining
+budget (early iterations can explore; late iterations should refine), but
+budget enforcement is handled mechanically by the system, not by you.
+
 ### Repository Memory (Summary + TOC)
 {{repo_memory_brief}}
 

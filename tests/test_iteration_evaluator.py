@@ -1,6 +1,5 @@
 import json
 import os
-import pickle
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -110,6 +109,13 @@ class TwoCandidateStrategy:
         self.workspace.current_cost += 1.0
         return self.node_history[-1]
 
+    def observe_budget(self, snapshot: Any) -> None:
+        self.budget_snapshot = snapshot
+
+    def observe_fidelity(self, decision: Any) -> None:
+        self.fidelity_decisions = getattr(self, "fidelity_decisions", [])
+        self.fidelity_decisions.append(decision)
+
     def get_experiment_history(
         self,
         best_last: bool = False,
@@ -121,6 +127,9 @@ class TwoCandidateStrategy:
             return None
         return max(self.node_history, key=lambda node: node.score or 0.0)
 
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        return self.get_best_experiment()
+
     def dump_state(self) -> Dict[str, Any]:
         return {
             "node_history": [node.to_dict() for node in self.node_history]
@@ -131,10 +140,6 @@ class TwoCandidateStrategy:
             SearchNode.from_dict(item)
             for item in state.get("node_history", [])
         ]
-
-    def import_checkpoint(self) -> None:
-        with open(Path(self.workspace_dir, "checkpoint.pkl"), "rb") as handle:
-            self.node_history = pickle.load(handle)
 
 
 def _patch_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -437,7 +442,11 @@ def test_raise_policy_stops_before_history_and_checkpoint_write(
         orchestrator.solve(experiment_max_iter=1)
 
     assert not (workspace / ".kapso" / "experiment_history.json").exists()
-    assert not RunCheckpointStore(str(workspace)).exists()
+    # The bootstrap checkpoint legitimately exists (pre-loop durable work);
+    # what must never persist is the poisoned candidate itself.
+    checkpoint = RunCheckpointStore(str(workspace)).load()
+    assert checkpoint.completed_iterations == 0
+    assert checkpoint.strategy_state.get("node_history", []) == []
     assert {head.name for head in git.Repo(workspace).heads} >= {
         "candidate_0",
         "candidate_1",
@@ -469,6 +478,9 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
         def get_experiment_history(self) -> List[SearchNode]:
             return [selected]
 
+        def get_deliverable_score(self):
+            return selected.score
+
         def checkout_to_best_experiment_branch(self) -> str:
             return "candidate_0"
 
@@ -477,7 +489,13 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
             captured.update(kwargs)
             self.search_strategy = PublicFakeStrategy()
 
-        def solve(self, experiment_max_iter: int) -> SolveResult:
+        def solve(
+            self,
+            experiment_max_iter: int,
+            time_budget_minutes=None,
+            cost_budget=None,
+            finalization_reserve_minutes=None,
+        ) -> SolveResult:
             return SolveResult(
                 best_experiment=selected,
                 final_feedback=None,

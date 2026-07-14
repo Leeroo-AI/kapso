@@ -15,6 +15,7 @@
 import json
 import os
 import subprocess
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -30,7 +31,10 @@ class FeedbackResult:
     evaluation_valid: bool          # Whether evaluation is fair/correct
     feedback: str                   # Actionable feedback for next iteration
     score: Optional[float] = None   # Extracted evaluation score (if any)
-    
+    # Budget telemetry for the feedback agent call itself.
+    cost_usd: float = 0.0
+    duration_seconds: Optional[float] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
@@ -38,6 +42,8 @@ class FeedbackResult:
             "evaluation_valid": self.evaluation_valid,
             "feedback": self.feedback,
             "score": self.score,
+            "cost_usd": self.cost_usd,
+            "duration_seconds": self.duration_seconds,
         }
 
 
@@ -138,12 +144,21 @@ class FeedbackGenerator:
             workspace_dir=workspace_dir,
         )
         
-        # Run the coding agent to analyze and generate feedback
+        # Run the coding agent to analyze and generate feedback. The agent is
+        # persistent across iterations, so this call's spend is the cumulative
+        # delta around it.
+        call_started = time.monotonic()
+        cost_before = self.agent.get_cumulative_cost()
         result = self.agent.generate_code(prompt)
         response = result.output
-        
+
         # Parse the response - expect XML tags
-        return self._parse_response(response)
+        feedback_result = self._parse_response(response)
+        feedback_result.cost_usd = (
+            self.agent.get_cumulative_cost() - cost_before
+        )
+        feedback_result.duration_seconds = time.monotonic() - call_started
+        return feedback_result
     
     def _build_prompt(
         self,

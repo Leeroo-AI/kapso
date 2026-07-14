@@ -10,6 +10,7 @@
 
 import os
 import shutil
+import time
 import uuid
 import logging
 import math
@@ -23,6 +24,10 @@ from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.fidelity import (
+    FIDELITIES,
+    EvaluationAttempt,
+)
 from kapso.execution.evaluation_integrity import (
     AGENT_GENERATED,
     PROVIDED,
@@ -34,6 +39,8 @@ from kapso.execution.evaluation_integrity import (
 
 # Avoid circular import - FeedbackGenerator is optional
 if TYPE_CHECKING:
+    from kapso.execution.budget import BudgetSnapshot
+    from kapso.execution.fidelity import FidelityDecision
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 
@@ -81,6 +88,21 @@ class SearchNode:
     primary_metric: Optional[str] = None
     external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
     external_evaluation_error: str = ""
+
+    # Per-iteration budget telemetry: what this experiment actually cost.
+    # Absent values stay None/empty — unknowns are never zero-filled.
+    duration_seconds: Optional[float] = None
+    cost_usd: Optional[float] = None
+    started_at: str = ""  # ISO-8601 UTC
+    phase_telemetry: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    # {"ideation": {"cost_usd": ..., "duration_seconds": ...}, "implementation": ..., "feedback": ...}
+
+    # Fidelity: the workload profile this node ran at, its promotion lineage,
+    # and its append-only versioned measurements (see execution/fidelity.py).
+    build_fidelity: str = "full"
+    eval_fidelity: str = "full"
+    promoted_from: Optional[int] = None
+    evaluation_attempts: List[EvaluationAttempt] = field(default_factory=list)
     
     # Metadata
     had_error: bool = False
@@ -98,6 +120,9 @@ class SearchNode:
                 values[item.name] = item.default
             elif item.default_factory is not MISSING:
                 values[item.name] = item.default_factory()
+        values["evaluation_attempts"] = [
+            attempt.to_dict() for attempt in values["evaluation_attempts"]
+        ]
         return values
 
     @classmethod
@@ -140,6 +165,7 @@ class SearchNode:
             "code_diff",
             "external_evaluation_error",
             "evaluation_integrity_error",
+            "started_at",
         }
         invalid_strings = sorted(
             name
@@ -173,6 +199,69 @@ class SearchNode:
             or not math.isfinite(float(score))
         ):
             raise ValueError("Search node score must be finite or null")
+
+        for name in ("duration_seconds", "cost_usd"):
+            value = values.get(name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0
+            ):
+                raise ValueError(
+                    f"Search node {name} must be finite and non-negative "
+                    "or null"
+                )
+
+        phase_telemetry = values.get("phase_telemetry", {})
+        if not isinstance(phase_telemetry, dict):
+            raise ValueError("Search node phase_telemetry must be an object")
+        for phase_name, phase_values in phase_telemetry.items():
+            if not isinstance(phase_name, str) or not isinstance(
+                phase_values, dict
+            ):
+                raise ValueError(
+                    "Search node phase_telemetry must map phase names to "
+                    "objects"
+                )
+            for metric_name, metric_value in phase_values.items():
+                if (
+                    not isinstance(metric_name, str)
+                    or isinstance(metric_value, bool)
+                    or not isinstance(metric_value, (int, float))
+                    or not math.isfinite(float(metric_value))
+                    or float(metric_value) < 0
+                ):
+                    raise ValueError(
+                        "Search node phase_telemetry values must be finite "
+                        "and non-negative"
+                    )
+
+        for name in ("build_fidelity", "eval_fidelity"):
+            if name in values and values[name] not in FIDELITIES:
+                raise ValueError(
+                    f"Search node {name} must be one of {sorted(FIDELITIES)}"
+                )
+        promoted_from = values.get("promoted_from")
+        if promoted_from is not None and (
+            isinstance(promoted_from, bool)
+            or not isinstance(promoted_from, int)
+            or promoted_from < 0
+        ):
+            raise ValueError(
+                "Search node promoted_from must be null or non-negative"
+            )
+        raw_attempts = values.get("evaluation_attempts", [])
+        if not isinstance(raw_attempts, list):
+            raise ValueError(
+                "Search node evaluation_attempts must be a list"
+            )
+        values["evaluation_attempts"] = [
+            attempt
+            if isinstance(attempt, EvaluationAttempt)
+            else EvaluationAttempt.from_dict(attempt)
+            for attempt in raw_attempts
+        ]
 
         from kapso.execution.iteration_evaluator import (
             normalize_metadata,
@@ -326,6 +415,14 @@ class SearchStrategy(ABC):
         self.problem_handler = config.problem_handler
         self.llm = config.llm
         self.params = config.params
+        # The orchestrator's per-iteration budget view; strategies read it,
+        # only the orchestrator writes budget state. The monotonic anchor
+        # lets sequential phases inside one iteration discount time already
+        # burned since the snapshot was taken.
+        self.budget_snapshot: Optional["BudgetSnapshot"] = None
+        self.budget_snapshot_monotonic: Optional[float] = None
+        # The executive's granted workload profile for this iteration.
+        self.fidelity_decision: Optional["FidelityDecision"] = None
         self.evaluation_provenance = (
             PROVIDED if config.eval_dir else AGENT_GENERATED
         )
@@ -340,6 +437,14 @@ class SearchStrategy(ABC):
             self.provided_evaluation_fingerprint = manifest_fingerprint(
                 self.provided_evaluation_manifest
             )
+        # Set by the orchestrator when an EvaluationMaintainer is active:
+        # the registered evaluation tree is then enforced for EVERY
+        # candidate, in every provenance mode, and candidates run the
+        # registered command instead of building their own evaluation.
+        self.registered_evaluation_manifest: Dict[str, str] = {}
+        self.registered_evaluation_command: str = ""
+        self.registered_evaluator_id: str = ""
+        self.registered_subsample_seed: int = 0
         self.repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 self.params.get(
@@ -496,6 +601,19 @@ class SearchStrategy(ABC):
             print(f"[SearchStrategy] Warning: Could not get diff: {e}")
             return ""
 
+    def observe_budget(self, snapshot: "BudgetSnapshot") -> None:
+        """Store the orchestrator's read-only budget view for this iteration.
+
+        Additive by design: strategies that ignore budgets inherit an inert
+        attribute, and no run() signature changes across strategies.
+        """
+        self.budget_snapshot = snapshot
+        self.budget_snapshot_monotonic = time.monotonic()
+
+    def observe_fidelity(self, decision: "FidelityDecision") -> None:
+        """Store the executive's granted profile for this iteration."""
+        self.fidelity_decision = decision
+
     def dump_evaluation_integrity_state(self) -> Dict[str, Any]:
         """Return the provided-suite baseline stored with strategy state."""
         return {
@@ -550,13 +668,37 @@ class SearchStrategy(ABC):
         if manifest != self.provided_evaluation_manifest:
             raise ValueError("Provided evaluation suite changed on resume")
 
+    def set_registered_evaluation(
+        self,
+        *,
+        manifest: Dict[str, str],
+        command: str,
+        evaluator_id: str,
+        subsample_seed: int,
+    ) -> None:
+        """Adopt a maintainer-registered evaluation as the enforced baseline."""
+        self.registered_evaluation_manifest = dict(manifest)
+        self.registered_evaluation_command = command
+        self.registered_evaluator_id = evaluator_id
+        self.registered_subsample_seed = subsample_seed
+
     def enforce_evaluation_integrity(self, node: SearchNode) -> bool:
-        """Reject a candidate that changed its caller-provided evaluator."""
+        """Reject a candidate that changed the evaluator it was scored by.
+
+        With a maintainer-registered evaluation, the registered manifest is
+        enforced for every candidate regardless of provenance; otherwise the
+        caller-provided manifest is enforced and agent-generated evaluation
+        remains unchecked (the pre-maintainer regime).
+        """
         node._evaluation_integrity_checked = True
         node.evaluation_provenance = self.evaluation_provenance
         node.evaluation_integrity_error = ""
-        if self.evaluation_provenance == AGENT_GENERATED:
+        if self.registered_evaluation_manifest:
+            enforced_manifest = self.registered_evaluation_manifest
+        elif self.evaluation_provenance == AGENT_GENERATED:
             return True
+        else:
+            enforced_manifest = self.provided_evaluation_manifest
 
         try:
             with self.workspace.materialize_ref(
@@ -568,7 +710,7 @@ class SearchStrategy(ABC):
                 )
                 report = verify_evaluation_tree(
                     evaluation_dir,
-                    self.provided_evaluation_manifest,
+                    enforced_manifest,
                 )
         except Exception as exc:
             node.evaluation_integrity_error = (
@@ -620,7 +762,21 @@ class SearchStrategy(ABC):
     def get_best_experiment(self) -> Optional[SearchNode]:
         """Get the best experiment result so far."""
         pass
-    
+
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        """The node the campaign delivers as its result.
+
+        Default: the score leader. Strategies with versioned evidence
+        override this with the committed-slot selection so an unvalidated
+        fast leader can never displace a full-tier candidate at delivery.
+        """
+        return self.get_best_experiment()
+
+    def get_deliverable_score(self) -> Optional[float]:
+        """The delivered node's authoritative measurement."""
+        node = self.get_deliverable_experiment()
+        return node.score if node is not None else None
+
     @abstractmethod
     def checkout_to_best_experiment_branch(self) -> Optional[str]:
         """Checkout and return the best experiment branch, if one exists."""
@@ -638,14 +794,3 @@ class SearchStrategy(ABC):
             f"{type(self).__name__} does not support resumable state"
         )
 
-    def export_checkpoint(self) -> None:
-        """Export a legacy strategy-owned checkpoint."""
-        raise NotImplementedError(
-            f"{type(self).__name__} has no legacy checkpoint exporter"
-        )
-
-    def import_checkpoint(self) -> None:
-        """Import a trusted legacy strategy-owned checkpoint."""
-        raise NotImplementedError(
-            f"{type(self).__name__} has no legacy checkpoint importer"
-        )

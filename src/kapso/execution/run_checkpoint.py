@@ -7,7 +7,7 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -62,9 +62,16 @@ class RunCheckpoint:
     cumulative_cost: float
     current_feedback: Optional[str]
     strategy_state: Dict[str, Any]
+    # v2: the durable clock and attributed spend. A campaign's elapsed time
+    # is prior slices plus the live one; budget stops record why in last_stop
+    # and stay status="running" — only goal achievement completes a campaign.
+    elapsed_seconds: float = 0.0
+    cost_by_component: Dict[str, float] = field(default_factory=dict)
+    last_stop: Optional[str] = None
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     VALID_STATUSES = {"running", "completed"}
+    VALID_LAST_STOPS = {"time_budget", "cost_budget", "finalization_reserve"}
 
     @classmethod
     def create(
@@ -78,6 +85,9 @@ class RunCheckpoint:
         cumulative_cost: float,
         current_feedback: Optional[str],
         strategy_state: Dict[str, Any],
+        elapsed_seconds: float = 0.0,
+        cost_by_component: Optional[Dict[str, float]] = None,
+        last_stop: Optional[str] = None,
     ) -> "RunCheckpoint":
         checkpoint = cls(
             schema_version=cls.SCHEMA_VERSION,
@@ -90,6 +100,9 @@ class RunCheckpoint:
             cumulative_cost=cumulative_cost,
             current_feedback=current_feedback,
             strategy_state=strategy_state,
+            elapsed_seconds=elapsed_seconds,
+            cost_by_component=dict(cost_by_component or {}),
+            last_stop=last_stop,
         )
         checkpoint.validate_structure()
         return checkpoint
@@ -99,6 +112,17 @@ class RunCheckpoint:
         if not isinstance(data, dict):
             raise RunCheckpointCorruptError(
                 "Run checkpoint must contain a JSON object"
+            )
+
+        # Reject other schema versions before field checks so a v1 file gets
+        # the clear story: pre-release formats are not migrated (CLAUDE.md
+        # Rule 7) — start a fresh campaign.
+        version = data.get("schema_version")
+        if version != cls.SCHEMA_VERSION:
+            raise RunCheckpointIncompatibleError(
+                f"Unsupported run checkpoint schema version {version!r}; "
+                f"expected {cls.SCHEMA_VERSION}. Pre-release checkpoint "
+                "formats are not migrated — start a fresh campaign."
             )
 
         required = {
@@ -112,6 +136,9 @@ class RunCheckpoint:
             "cumulative_cost",
             "current_feedback",
             "strategy_state",
+            "elapsed_seconds",
+            "cost_by_component",
+            "last_stop",
         }
         missing = sorted(required - set(data))
         if missing:
@@ -182,6 +209,36 @@ class RunCheckpoint:
             raise RunCheckpointCorruptError(
                 "Run checkpoint current_feedback must be a string or null"
             )
+        if (
+            isinstance(self.elapsed_seconds, bool)
+            or not isinstance(self.elapsed_seconds, (int, float))
+            or not math.isfinite(float(self.elapsed_seconds))
+            or self.elapsed_seconds < 0
+        ):
+            raise RunCheckpointCorruptError(
+                "Run checkpoint elapsed_seconds must be finite and "
+                "non-negative"
+            )
+        if not isinstance(self.cost_by_component, dict) or any(
+            not isinstance(name, str)
+            or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+            for name, value in self.cost_by_component.items()
+        ):
+            raise RunCheckpointCorruptError(
+                "Run checkpoint cost_by_component must map component names "
+                "to finite non-negative numbers"
+            )
+        if self.last_stop is not None and (
+            not isinstance(self.last_stop, str)
+            or self.last_stop not in self.VALID_LAST_STOPS
+        ):
+            raise RunCheckpointCorruptError(
+                "Run checkpoint last_stop must be one of "
+                f"{sorted(self.VALID_LAST_STOPS)} or null"
+            )
         if not isinstance(self.strategy_state, dict):
             raise RunCheckpointCorruptError(
                 "Run checkpoint strategy_state must be an object"
@@ -227,12 +284,10 @@ class RunCheckpointStore:
     """Read and atomically replace ``.kapso/run_state.json``."""
 
     RELATIVE_PATH = Path(".kapso") / "run_state.json"
-    LEGACY_RELATIVE_PATH = Path("checkpoint.pkl")
 
     def __init__(self, workspace_dir: str):
         self.workspace_dir = Path(workspace_dir)
         self.path = self.workspace_dir / self.RELATIVE_PATH
-        self.legacy_path = self.workspace_dir / self.LEGACY_RELATIVE_PATH
 
     def exists(self) -> bool:
         return self.path.is_file()
@@ -277,8 +332,3 @@ class RunCheckpointStore:
             except FileNotFoundError:
                 pass
             raise
-
-    def mark_legacy_migrated(self) -> Path:
-        destination = self.legacy_path.with_suffix(".pkl.migrated")
-        os.replace(self.legacy_path, destination)
-        return destination

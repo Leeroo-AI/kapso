@@ -222,8 +222,6 @@ moltbook_bot/start_server.sh
 
 .mcp.json
 
-CLAUDE.md
-
 services/wiki_service/state/sync.json
 scripts/evaluate_repos.py
 repos.json
@@ -236,3 +234,5 @@ leeroopedia_mcp_backend/
 services/leeroopedia-mcp/
 services/backend_search/
 services/wiki-service-backend/
+# E2E track run artifacts
+examples/ml_model_development/e2e/runs/

@@ -13,9 +13,12 @@
 import json
 import logging
 import os
-import pickle
 import re
+import shutil
+import signal
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from kapso.execution.search_strategies.base import (
@@ -24,6 +27,20 @@ from kapso.execution.search_strategies.base import (
     SearchNode,
 )
 from kapso.execution.search_strategies.factory import register_strategy
+from kapso.execution.fidelity import (
+    PROFILE_VALIDATE,
+    ComparabilityClass,
+    EvaluationAttempt,
+    FidelityDecision,
+    project_score,
+    select_committed_candidate,
+)
+from kapso.execution.evaluation_maintainer.maintainer import (
+    evaluation_command,
+    parse_manifest_line,
+)
+import shlex
+import subprocess
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
 
@@ -32,7 +49,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Enforcement mechanic (mirrors the coding-agent adapter's deadline grace):
+# time granted between SIGTERM and SIGKILL when a frame run overruns.
+_FRAME_RUN_KILL_GRACE_SECONDS = 2.0
+
 PARENT_POLICIES = frozenset({"best", "baseline"})
+
+# Byte-identical to the pre-maintainer template text: rendered whenever no
+# maintainer-registered evaluation exists, keeping default prompts unchanged.
+DEFAULT_EVALUATION_INSTRUCTIONS = """You MUST build and run evaluation in `kapso_evaluation/` directory:
+
+1. **Create evaluation script**: `kapso_evaluation/evaluate.py` (or similar)
+2. **Evaluation should**:
+   - Test your solution against the goal criteria
+   - Output a clear score or success/failure indication
+   - Be fair and actually test what it claims to test
+   - NOT be hardcoded or trivially pass
+
+3. **Run the evaluation**: Execute your evaluation script and capture output.
+
+4. **Retry on crash**: If evaluation crashes, fix the issue and retry (max 3 attempts)."""
 
 
 def normalize_parent_policy(value: Any) -> str:
@@ -130,6 +166,11 @@ class GenericSearch(SearchStrategy):
         # State
         self.node_history: List[SearchNode] = []
         self.iteration_count = 0
+        # Which evaluator version node.score projections currently reflect,
+        # and the in-flight evaluator transition (pending until the bridge
+        # evaluation anchors the frontier on the new version).
+        self.scores_evaluator_id: str = ""
+        self.evaluator_transition: Optional[Dict[str, str]] = None
         
         # Error tracking for implementation feedback
         self.previous_errors: List[str] = []
@@ -182,6 +223,13 @@ class GenericSearch(SearchStrategy):
         """
         self.iteration_count += 1
         print(f"\n[GenericSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
+
+        # An eval-only VALIDATE grant short-circuits the whole lifecycle:
+        # no ideation, no implementation — one full-fidelity measurement of
+        # an existing artifact, appended to its node.
+        decision = self.fidelity_decision
+        if decision is not None and decision.profile == PROFILE_VALIDATE:
+            return self._run_validate(decision)
         
         # Extract problem from context (support both string and ContextData)
         if isinstance(context, str):
@@ -189,17 +237,20 @@ class GenericSearch(SearchStrategy):
         else:
             problem = str(getattr(context, "problem", context))
         
+        iteration_started_monotonic = time.monotonic()
+        iteration_started_at = datetime.now(timezone.utc).isoformat()
+
         # Select the branch and its node ID once so the recorded lineage, the
         # ideation view, and the implementation base cannot diverge.
         parent = self._select_parent()
-        
+
         # Step 1: Generate solution (agent queries experiment history via MCP)
-        solution, ideation_sections = self._generate_solution(
+        solution, ideation_sections, ideation_telemetry = self._generate_solution(
             problem,
             parent.branch_name,
         )
         print(f"[GenericSearch] Generated solution ({len(solution)} chars)")
-        
+
         # Create node
         node = SearchNode(
             node_id=len(self.node_history),
@@ -207,6 +258,13 @@ class GenericSearch(SearchStrategy):
             solution=solution,
             workspace_dir=self.workspace_dir,
         )
+        node.started_at = iteration_started_at
+        node.phase_telemetry["ideation"] = ideation_telemetry
+        if decision is not None:
+            node.build_fidelity = decision.build_fidelity
+            node.eval_fidelity = decision.eval_fidelity
+            if decision.profile == "full":
+                node.promoted_from = decision.target_node_id
         
         # Step 2: Implement - developer agent handles everything
         branch_name = f"generic_exp_{node.node_id}"
@@ -216,14 +274,15 @@ class GenericSearch(SearchStrategy):
             f"(from {parent.branch_name})"
         )
         
-        agent_output = self._implement(
+        agent_output, implementation_telemetry = self._implement(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
             parent_branch_name=parent.branch_name,
             ideation_repo_memory_sections_consulted=ideation_sections,
         )
-        
+        node.phase_telemetry["implementation"] = implementation_telemetry
+
         # Update node with implementation results
         node.branch_name = branch_name
         node.parent_branch_name = parent.branch_name
@@ -250,20 +309,31 @@ class GenericSearch(SearchStrategy):
         # or feedback derived from them.
         if self.enforce_evaluation_integrity(node):
             self._generate_feedback(node)
+            self._record_evaluation_attempt(node)
         else:
             print(
                 "[GenericSearch] Rejected invalid provided evaluation: "
                 f"{node.evaluation_integrity_error}"
             )
         
+        # Stamp iteration totals: wall-clock for the whole iteration, spend as
+        # the sum of attributed phase costs.
+        node.duration_seconds = time.monotonic() - iteration_started_monotonic
+        node.cost_usd = sum(
+            phase.get("cost_usd", 0.0)
+            for phase in node.phase_telemetry.values()
+        )
+
         # Store node
         self.node_history.append(node)
-        
+
         print(f"[GenericSearch] ✓ Node {node.node_id} completed: score={node.score}, should_stop={node.should_stop}")
-        
+
         return node
 
-    def _generate_solution(self, problem: str, parent_branch: str) -> Tuple[str, List[str]]:
+    def _generate_solution(
+        self, problem: str, parent_branch: str
+    ) -> Tuple[str, List[str], Dict[str, float]]:
         """
         Generate solution using Claude Code with MCP gates.
         
@@ -275,9 +345,10 @@ class GenericSearch(SearchStrategy):
         Args:
             problem: Problem description
             parent_branch: Git branch to base ideation on
-            
+
         Returns:
-            Tuple of (solution_text, sections_consulted)
+            Tuple of (solution_text, sections_consulted, phase_telemetry)
+            where phase_telemetry is {"cost_usd": ..., "duration_seconds": ...}
         """
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
@@ -326,7 +397,7 @@ class GenericSearch(SearchStrategy):
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
-                    "timeout": self.ideation_timeout,
+                    "timeout": self._clamped_timeout(self.ideation_timeout),
                     "streaming": True,
                     "planning_mode": False,
                 },
@@ -343,14 +414,19 @@ class GenericSearch(SearchStrategy):
             agent = ClaudeCodeCodingAgent(config)
             agent.initialize(ideation_dir)
 
+            phase_started = time.monotonic()
             try:
                 result = agent.generate_code(prompt)
+                telemetry = {
+                    "cost_usd": agent.get_cumulative_cost(),
+                    "duration_seconds": time.monotonic() - phase_started,
+                }
 
                 if not result.success:
                     logger.warning(
                         f"[GenericSearch] Ideation failed: {result.error}"
                     )
-                    return self._fallback_solution(problem), []
+                    return self._fallback_solution(problem), [], telemetry
 
                 solution = self._extract_solution_from_output(result.output)
                 sections_consulted = self._extract_sections_consulted(
@@ -361,7 +437,7 @@ class GenericSearch(SearchStrategy):
                     "[GenericSearch] Ideation complete, sections consulted: "
                     f"{sections_consulted}"
                 )
-                return solution, sections_consulted
+                return solution, sections_consulted, telemetry
             finally:
                 agent.cleanup()
     
@@ -378,6 +454,7 @@ class GenericSearch(SearchStrategy):
             {
                 "problem": problem or "(No problem description provided)",
                 "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
+                "budget_status": self._render_budget_status(),
             },
         )
     
@@ -441,7 +518,7 @@ Problem: {problem}"""
         branch_name: str,
         parent_branch_name: str = "main",
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
-    ) -> str:
+    ) -> Tuple[str, Dict[str, float]]:
         """
         Implementation using Claude Code with MCP gates (code, research).
         
@@ -454,9 +531,9 @@ Problem: {problem}"""
             branch_name: Git branch for this experiment
             parent_branch_name: Parent branch to inherit code from
             ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
-            
+
         Returns:
-            The agent's output string
+            Tuple of (agent output string, phase telemetry with cost/duration)
         """
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
@@ -465,6 +542,13 @@ Problem: {problem}"""
         
         # Create experiment session (handles git branching)
         session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
+
+        # A maintainer-registered evaluation is versioned on the workspace
+        # root, but sessions inherit their parent branch's tree — which may
+        # predate a re-registration. Frame-sync the registered tree in so
+        # every candidate runs (and is integrity-checked against) the head.
+        if self.registered_evaluation_manifest:
+            self._sync_registered_evaluation(session.session_folder)
         
         # 1. Load RepoMemory
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
@@ -497,7 +581,7 @@ Problem: {problem}"""
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": implementation_allowed_tools,
-                "timeout": self.implementation_timeout,
+                "timeout": self._clamped_timeout(self.implementation_timeout),
                 "streaming": True,
             }
         )
@@ -523,16 +607,23 @@ Problem: {problem}"""
         print(f"[GenericSearch] Running Claude Code implementation...")
         agent = ClaudeCodeCodingAgent(config)
         agent.initialize(session.session_folder)
-        
+
+        phase_started = time.monotonic()
+        phase_cost = 0.0
         try:
             result = agent.generate_code(prompt)
+            phase_cost = agent.get_cumulative_cost()
             agent_output = result.output if result.output else ""
-            
+
             if not result.success:
                 logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
                 agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
         finally:
             agent.cleanup()
+        telemetry = {
+            "cost_usd": phase_cost,
+            "duration_seconds": time.monotonic() - phase_started,
+        }
         
         # 7. Update RepoMemory for this experiment branch
         run_result_payload = {
@@ -563,8 +654,8 @@ Problem: {problem}"""
         
         # 8. Finalize session (commits changes)
         self.workspace.finalize_session(session)
-        
-        return agent_output
+
+        return agent_output, telemetry
     
     def _build_implementation_prompt(
         self,
@@ -586,8 +677,266 @@ Problem: {problem}"""
                 "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
                 "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
                 "previous_errors": previous_errors or "(No previous errors)",
+                "budget_status": self._render_budget_status(),
+                "evaluation_instructions": self._evaluation_instructions(),
             },
         )
+
+    def _record_evaluation_attempt(self, node: SearchNode) -> None:
+        """Append the node's measurement under the registered evaluator.
+
+        Only trustworthy measurements become attempts: a registered
+        evaluator must exist and the node must carry a valid score.
+        """
+        if (
+            not self.registered_evaluator_id
+            or node.score is None
+            or node.had_error
+            or not node.evaluation_valid
+        ):
+            return
+        decision = self.fidelity_decision
+        fraction = decision.eval_fraction if decision is not None else 1.0
+        commit_sha = self.workspace.repo.commit(node.branch_name).hexsha
+        node.evaluation_attempts.append(
+            EvaluationAttempt(
+                commit_sha=commit_sha,
+                evaluator_id=self.registered_evaluator_id,
+                fidelity=node.eval_fidelity,
+                fraction=fraction,
+                seed=self.registered_subsample_seed,
+                score=node.score,
+                duration_seconds=node.phase_telemetry.get(
+                    "implementation", {}
+                ).get("duration_seconds"),
+            )
+        )
+
+    def _execute_registered_evaluation(
+        self,
+        target: SearchNode,
+        *,
+        fidelity: str,
+        fraction: float,
+        deadline_seconds: Optional[float],
+    ) -> Optional[float]:
+        """Frame-run the registered evaluation on an existing artifact.
+
+        This is the staged-execution-ownership step from the design: the
+        eval-only runs whose integrity matters most execute under Kapso's
+        own deadline-bounded subprocess, not inside an agent session. The
+        deadline is the affordability window and an overrun is an
+        operational outcome, never a campaign failure: the process group
+        is killed and the attempt reports None, exactly like a non-zero
+        exit. Timing estimates gate admission; they do not kill campaigns.
+        """
+        command = shlex.split(
+            evaluation_command(
+                fidelity=fidelity,
+                fraction=fraction,
+                seed=self.registered_subsample_seed,
+            )
+        )
+        run_started = time.monotonic()
+        with self.workspace.materialize_ref(target.branch_name) as worktree:
+            # The frame emits a handful of lines plus the manifest — far
+            # below pipe capacity — so draining once at exit cannot
+            # deadlock the child.
+            process = subprocess.Popen(
+                command,
+                cwd=worktree,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            while process.poll() is None:
+                overran = (
+                    deadline_seconds is not None
+                    and time.monotonic() - run_started >= deadline_seconds
+                )
+                if overran:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    grace = time.monotonic() + _FRAME_RUN_KILL_GRACE_SECONDS
+                    while process.poll() is None and time.monotonic() < grace:
+                        time.sleep(0.2)
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                    print(
+                        "[GenericSearch] Registered evaluation exceeded its "
+                        f"{deadline_seconds:.0f}s affordability window; "
+                        "recorded as a failed attempt"
+                    )
+                    return None
+                time.sleep(0.5)
+            stdout, stderr = process.communicate()
+        duration = time.monotonic() - run_started
+        if process.returncode != 0:
+            print(
+                "[GenericSearch] Registered evaluation failed "
+                f"(exit {process.returncode}): {stderr}"
+            )
+            return None
+        manifest = parse_manifest_line(stdout)
+        score = float(manifest["score"])
+        target.evaluation_attempts.append(
+            EvaluationAttempt(
+                commit_sha=self.workspace.repo.commit(
+                    target.branch_name
+                ).hexsha,
+                evaluator_id=self.registered_evaluator_id,
+                fidelity=fidelity,
+                fraction=fraction,
+                seed=self.registered_subsample_seed,
+                score=score,
+                duration_seconds=duration,
+            )
+        )
+        return score
+
+    def _run_validate(self, decision: FidelityDecision) -> SearchNode:
+        """Execute a VALIDATE grant: one full measurement of the target."""
+        target = self.node_history[decision.target_node_id]
+        print(
+            f"[GenericSearch] VALIDATE: full evaluation of node "
+            f"{target.node_id} ({target.branch_name})"
+        )
+        score = self._execute_registered_evaluation(
+            target,
+            fidelity="full",
+            fraction=1.0,
+            deadline_seconds=decision.deadline_seconds,
+        )
+        if score is not None:
+            print(
+                f"[GenericSearch] VALIDATE complete: node {target.node_id} "
+                f"full score {score}"
+            )
+        return target
+
+    def run_bridge_evaluation(
+        self,
+        node: SearchNode,
+        *,
+        fidelity: str,
+        fraction: float,
+        deadline_seconds: Optional[float],
+    ) -> bool:
+        """Re-measure one artifact under the new evaluator head.
+
+        The artifact-gone fallback is mechanical: a branch that no longer
+        resolves cannot bridge, and the caller falls to the next candidate.
+        """
+        branch_names = {head.name for head in self.workspace.repo.heads}
+        if node.branch_name not in branch_names:
+            print(
+                f"[GenericSearch] Bridge skipped: branch "
+                f"{node.branch_name!r} no longer exists"
+            )
+            return False
+        score = self._execute_registered_evaluation(
+            node,
+            fidelity=fidelity,
+            fraction=fraction,
+            deadline_seconds=deadline_seconds,
+        )
+        return score is not None
+
+    def refresh_score_projections(
+        self, comparability: ComparabilityClass
+    ) -> None:
+        """Re-project every node's score under one canonical ruler.
+
+        The selectors stay dumb: after an evaluator transition, nodes never
+        measured under the new ruler project None — and None never wins.
+        """
+        for node in self.node_history:
+            node.score = project_score(node, comparability)
+
+    def _sync_registered_evaluation(self, session_folder: str) -> None:
+        """Overwrite the session's evaluation tree with the registered one."""
+        source = os.path.join(self.workspace_dir, "kapso_evaluation")
+        destination = os.path.join(session_folder, "kapso_evaluation")
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.copytree(source, destination)
+
+    def _evaluation_instructions(self) -> str:
+        """Registered-evaluation contract when a maintainer owns evaluation;
+        the historical build-your-own instructions otherwise."""
+        if not self.registered_evaluation_command:
+            return DEFAULT_EVALUATION_INSTRUCTIONS
+        return f"""The evaluation is maintained by the system and is read-and-execute only.
+
+1. **Run the registered evaluation**: `{self.registered_evaluation_command}`
+   and capture its full output, including the KAPSO_EVAL_MANIFEST line.
+2. **Never modify anything under `kapso_evaluation/`** — any change there is
+   detected mechanically and voids this experiment's score.
+3. **If you believe the evaluation itself is broken**, do not fix it. File a
+   request by including this tag in your final response:
+   <evaluation_change_request>concrete description of the defect, with the
+   exact error output as evidence</evaluation_change_request>
+   Then still report your results from the run you attempted.
+4. **Retry on transient crashes** of your own code (max 3 attempts)."""
+
+    def _clamped_timeout(self, configured_seconds: float) -> float:
+        """Bound an agent deadline by the searchable budget, when known.
+
+        The snapshot is frozen at iteration start; the monotonic anchor
+        discounts whatever this iteration's earlier phases already burned,
+        so implementation clamps against what actually remains after
+        ideation, not the iteration-start remainder.
+        """
+        if self.budget_snapshot is None:
+            return configured_seconds
+        drift = (
+            time.monotonic() - self.budget_snapshot_monotonic
+            if self.budget_snapshot_monotonic is not None
+            else 0.0
+        )
+        return self.budget_snapshot.clamp_timeout(
+            configured_seconds, elapsed_since_snapshot=drift
+        )
+
+    def _render_budget_status(self) -> str:
+        """Deterministic budget block for prompts. Advisory only — never a
+        protection mechanism; enforcement is the deadline clamp and the
+        orchestrator's gates."""
+        snapshot = self.budget_snapshot
+        if snapshot is None:
+            return (
+                f"Iteration {self.iteration_count} — no budget information "
+                "available."
+            )
+        position = (
+            f"Iteration {snapshot.iteration_index + 1} of "
+            f"{snapshot.max_iterations}."
+        )
+        if (
+            snapshot.time_budget_seconds is None
+            and snapshot.cost_budget_usd is None
+        ):
+            return f"{position} No time or cost budget is set."
+        parts = [position]
+        if snapshot.time_budget_seconds is not None:
+            parts.append(
+                f"Elapsed {snapshot.elapsed_seconds / 60:.0f} of "
+                f"{snapshot.time_budget_seconds / 60:.0f} budgeted minutes."
+            )
+            if snapshot.finalization_reserve_seconds > 0:
+                searchable = max(snapshot.remaining_after_reserve, 0.0)
+                parts.append(
+                    "Finalization reserve escrowed: "
+                    f"{snapshot.finalization_reserve_seconds / 60:.0f} "
+                    "minutes; searchable time remaining: "
+                    f"{searchable / 60:.0f} minutes."
+                )
+        if snapshot.cost_budget_usd is not None:
+            parts.append(
+                f"Spent ${snapshot.cost_usd:.2f} of "
+                f"${snapshot.cost_budget_usd:.2f}."
+            )
+        return " ".join(parts)
 
     def _select_parent(self) -> ParentSelection:
         """Select one consistent parent according to the configured policy."""
@@ -628,11 +977,57 @@ Problem: {problem}"""
             key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
         )
 
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        """The committed-slot winner: evidence tiers, never raw scores.
+
+        Parent selection explores on projected scores (the four-bests
+        split); the deliverable follows the tier walk under the registered
+        evaluator, so an unvalidated fast leader cannot displace a
+        full-tier candidate at delivery. Without registered evidence the
+        score leader stands.
+        """
+        if self.registered_evaluator_id:
+            committed = select_committed_candidate(
+                self.node_history,
+                evaluator_id=self.registered_evaluator_id,
+                maximize=self.problem_handler.maximize_scoring,
+            )
+            if committed is not None:
+                return committed
+        return self.get_best_experiment()
+
+    def get_deliverable_score(self) -> Optional[float]:
+        """The deliverable's authoritative measurement.
+
+        Prefers the full-fidelity class under the registered evaluator —
+        the score the campaign actually vouches for — over the canonical
+        (possibly fast) projection stored on node.score.
+        """
+        node = self.get_deliverable_experiment()
+        if node is None:
+            return None
+        if self.registered_evaluator_id:
+            full_score = project_score(
+                node,
+                ComparabilityClass(
+                    evaluator_id=self.registered_evaluator_id,
+                    fidelity="full",
+                    fraction=1.0,
+                    seed=self.registered_subsample_seed,
+                ),
+            )
+            if full_score is not None:
+                return full_score
+        return node.score
+
     def checkout_to_best_experiment_branch(self) -> Optional[str]:
-        """Checkout and return the best node's branch."""
-        best = self.get_best_experiment()
+        """Checkout and return the deliverable node's branch."""
+        best = self.get_deliverable_experiment()
         if best:
-            print(f"[GenericSearch] Checking out to best branch: {best.branch_name} (score={best.score})")
+            print(
+                "[GenericSearch] Checking out deliverable branch: "
+                f"{best.branch_name} (score={best.score})"
+            )
             self.workspace.switch_branch(best.branch_name)
             return best.branch_name
         else:
@@ -688,6 +1083,11 @@ Problem: {problem}"""
             node.should_stop = (
                 feedback_result.stop and feedback_result.evaluation_valid
             )
+            if feedback_result.duration_seconds is not None:
+                node.phase_telemetry["feedback"] = {
+                    "cost_usd": feedback_result.cost_usd,
+                    "duration_seconds": feedback_result.duration_seconds,
+                }
             
             print(f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}")
             
@@ -795,6 +1195,8 @@ Problem: {problem}"""
             "evaluation_integrity": (
                 self.dump_evaluation_integrity_state()
             ),
+            "scores_evaluator_id": self.scores_evaluator_id,
+            "evaluator_transition": self.evaluator_transition,
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -827,10 +1229,10 @@ Problem: {problem}"""
             raise ValueError(
                 "GenericSearch checkpoint iteration_count must be non-negative"
             )
-        if iteration_count != len(self.node_history):
+        if iteration_count < len(self.node_history):
             raise ValueError(
-                "GenericSearch checkpoint iteration_count must match "
-                "node_history"
+                "GenericSearch checkpoint iteration_count cannot be smaller "
+                "than node_history: every node consumed an iteration"
             )
         self.iteration_count = iteration_count
 
@@ -885,17 +1287,21 @@ Problem: {problem}"""
             state.get("evaluation_integrity")
         )
 
-    def export_checkpoint(self) -> None:
-        """Write the deprecated trusted-pickle checkpoint format."""
-        with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
-            pickle.dump(self.node_history, f)
-
-    def import_checkpoint(self) -> None:
-        """Import the deprecated trusted-pickle checkpoint format."""
-        try:
-            with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
-                self.node_history = pickle.load(f)
-            self.iteration_count = len(self.node_history)
-        except FileNotFoundError:
-            print("[GenericSearch] No checkpoint found")
-            raise FileNotFoundError(f"[GenericSearch] No checkpoint found in {self.workspace_dir}")
+        scores_evaluator_id = state.get("scores_evaluator_id", "")
+        if not isinstance(scores_evaluator_id, str):
+            raise ValueError(
+                "GenericSearch checkpoint scores_evaluator_id must be a "
+                "string"
+            )
+        self.scores_evaluator_id = scores_evaluator_id
+        transition = state.get("evaluator_transition")
+        if transition is not None and (
+            not isinstance(transition, dict)
+            or transition.get("status") not in {"pending", "anchored"}
+            or not isinstance(transition.get("old_evaluator_id"), str)
+            or not isinstance(transition.get("new_evaluator_id"), str)
+        ):
+            raise ValueError(
+                "GenericSearch checkpoint evaluator_transition is invalid"
+            )
+        self.evaluator_transition = transition

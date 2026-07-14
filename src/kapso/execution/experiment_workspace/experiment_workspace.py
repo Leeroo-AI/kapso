@@ -158,15 +158,31 @@ class ExperimentWorkspace:
     
     def switch_branch(self, branch_name: str) -> None:
         """
-        Switch to an existing branch without deleting local files.
+        Switch to an existing branch.
 
-        Git refuses a checkout when tracked or untracked files would be
-        overwritten. Preserve that safety boundary: callers receive a detailed
-        error instead of Kapso running ``git clean`` behind their back.
-        
+        Untracked files that ``branch_name`` itself tracks are removed
+        first: a checkout's contract is to materialize the branch, so those
+        paths end up branch-owned either way — and their local shadows
+        (typically interpreter junk like ``__pycache__`` committed into an
+        experiment branch by a session) would otherwise abort the final
+        checkout, losing the campaign artifact. Every other local file
+        keeps git's safety boundary: genuinely novel untracked files are
+        never touched, and modified tracked files still fail the checkout
+        with a detailed error instead of Kapso running ``git clean`` behind
+        the caller's back.
+
         Args:
             branch_name: Name of branch to switch to
         """
+        target_tracked = set(
+            self.repo.git.ls_tree(
+                "-r", "--name-only", branch_name
+            ).splitlines()
+        )
+        for relative_path in sorted(
+            target_tracked.intersection(self.repo.untracked_files)
+        ):
+            os.remove(os.path.join(self.workspace_dir, relative_path))
         try:
             self.repo.git.checkout(branch_name)
         except git.GitCommandError as exc:
@@ -309,8 +325,6 @@ class ExperimentWorkspace:
             "!changes.log",
             ".kapso/run_state.json",
             ".kapso/.run_state.*.tmp",
-            "checkpoint.pkl",
-            "checkpoint.pkl.migrated",
         ]
 
         existing = ""

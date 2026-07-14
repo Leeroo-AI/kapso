@@ -21,6 +21,8 @@ from kapso.execution.search_strategies.generic.strategy import (
 def strategy_with_history(policy="best", *, maximize=True):
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.parent_policy = policy
+    strategy.registered_evaluator_id = ""
+    strategy.fidelity_decision = None
     strategy.problem_handler = SimpleNamespace(maximize_scoring=maximize)
     strategy.node_history = [
         SearchNode(node_id=0, branch_name="candidate-0", score=0.4),
@@ -105,11 +107,11 @@ def test_iteration_uses_the_same_selected_parent_everywhere(
 
     def generate(problem, parent_branch):
         calls["ideation"] = parent_branch
-        return "solution", []
+        return "solution", [], {"cost_usd": 0.0, "duration_seconds": 0.0}
 
     def implement(**kwargs):
         calls["implementation"] = kwargs["parent_branch_name"]
-        return "agent output"
+        return "agent output", {"cost_usd": 0.0, "duration_seconds": 0.0}
 
     def code_diff(branch_name, parent_branch):
         calls["diff"] = parent_branch
@@ -163,6 +165,9 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
                 error=None,
             )
 
+        def get_cumulative_cost(self):
+            return 0.0
+
         def cleanup(self):
             events["cleaned"] = True
 
@@ -197,14 +202,18 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy._claude_auth_settings = {"auth_mode": "oauth"}
     strategy.aws_region = "us-east-1"
     strategy.ideation_timeout = 10
+    strategy.budget_snapshot = None
+    strategy.iteration_count = 0
 
-    solution, sections = strategy._generate_solution(
+    solution, sections, telemetry = strategy._generate_solution(
         "problem",
         "candidate-7",
     )
 
     assert solution == "selected solution"
     assert sections == []
+    assert telemetry["cost_usd"] == 0.0
+    assert telemetry["duration_seconds"] >= 0
     assert events["ref"] == "candidate-7"
     assert events["agent_workspace"] == selected_dir
     assert events["mcp"]["repo_root"] == selected_dir
@@ -227,6 +236,8 @@ def test_checkpoint_preserves_policy_and_validates_lineage():
     ]
     source.iteration_count = 1
     source.previous_errors = []
+    source.scores_evaluator_id = ""
+    source.evaluator_transition = None
     state = source.dump_state()
 
     restored = GenericSearch.__new__(GenericSearch)
@@ -259,6 +270,8 @@ def test_checkpoint_without_policy_uses_historical_best_default():
     source.node_history = []
     source.iteration_count = 0
     source.previous_errors = []
+    source.scores_evaluator_id = ""
+    source.evaluator_transition = None
     state = source.dump_state()
     state.pop("parent_policy")
 

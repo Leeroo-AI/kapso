@@ -8,7 +8,6 @@
 
 import json
 import os
-import pickle
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -867,14 +866,6 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
         with open(filepath, 'w') as f:
             json.dump(nodes_data, f, indent=2)
 
-    def export_checkpoint(self) -> None:
-        """Write the deprecated trusted-pickle checkpoint format."""
-        with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'wb') as f:
-            pickle.dump({
-                "node_history": self.node_history,
-                "nodes": self.nodes,
-            }, f)
-
     def dump_state(self) -> Dict[str, Any]:
         """Return tree state without serializing circular references."""
         serialized_nodes = []
@@ -1036,19 +1027,3 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
         self.load_evaluation_integrity_state(
             state.get("evaluation_integrity")
         )
-
-    def import_checkpoint(self) -> None:
-        """Import the deprecated trusted-pickle checkpoint format."""
-        try:
-            with open(os.path.join(self.workspace_dir, 'checkpoint.pkl'), 'rb') as f:
-                checkpoint = pickle.load(f)
-            self.node_history = checkpoint["node_history"]
-            self.nodes = checkpoint["nodes"]
-            self.experimentation_count = len(self.node_history)
-            print(f"[BenchmarkTreeSearch] Checkpoint imported successfully from {self.workspace_dir}")
-            print(f"[BenchmarkTreeSearch] Node history: {len(self.node_history)}")
-            print(f"[BenchmarkTreeSearch] Nodes: {len(self.nodes)}")
-            print(f"[BenchmarkTreeSearch] last Node: {self.nodes[-1]}")
-        except FileNotFoundError:
-            print("[BenchmarkTreeSearch] No checkpoint found")
-            raise FileNotFoundError(f"[BenchmarkTreeSearch] No checkpoint found in {self.workspace_dir}")
