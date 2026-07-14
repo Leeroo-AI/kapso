@@ -21,6 +21,7 @@ fi
 rsync -a --delete \
     --exclude .git --exclude .claude --exclude archive --exclude tests \
     --exclude moltbook_bot --exclude 'tmp/' \
+    --exclude '.env' --exclude '*.env' --exclude '*.pem' --exclude '*token*' \
     "${KAPSO_SRC%/}/" containers/kapso-src/
 
 bash containers/build_container.sh kapso

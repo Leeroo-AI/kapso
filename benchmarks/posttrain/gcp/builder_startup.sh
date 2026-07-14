@@ -60,6 +60,7 @@ fi
 
 # --- containers ---
 rsync -a --delete --exclude .git --exclude archive --exclude tests \
+    --exclude '.env' --exclude '*.env' \
     /opt/kapso-src/ containers/kapso-src/
 bash containers/build_container.sh kapso
 bash containers/build_container.sh vllm_debug

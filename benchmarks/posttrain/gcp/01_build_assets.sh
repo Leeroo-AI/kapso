@@ -17,7 +17,8 @@ BUILDER="ptb-builder"
 KAPSO_ROOT="$(cd ../../.. && pwd)"
 tar -czf - -C "$KAPSO_ROOT" \
     --exclude=.git --exclude=.claude --exclude=archive --exclude=tests \
-    --exclude=moltbook_bot --exclude=tmp . \
+    --exclude=moltbook_bot --exclude=tmp \
+    --exclude='.env' --exclude='*.env' --exclude='*.pem' --exclude='*token*' . \
     | gsutil cp - "gs://$BUCKET/assets/kapso-src.tgz"
 
 # Stale markers from a previous attempt would end the poll loop instantly.
