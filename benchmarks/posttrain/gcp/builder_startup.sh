@@ -79,6 +79,16 @@ if ! apptainer exec containers/kapso.sif /opt/kapso/venv/bin/expert-posttrain --
     exit 1
 fi
 
+# Installed-vs-source integrity: a stale build/lib once shipped an outdated
+# config.yaml into the venv while the source tree looked correct.
+if ! apptainer exec containers/kapso.sif diff -q \
+    /opt/kapso-src/benchmarks/posttrain/config.yaml \
+    /opt/kapso/venv/lib/python3.10/site-packages/benchmarks/posttrain/config.yaml; then
+    echo "installed config.yaml differs from source (stale build artifacts?)" \
+        | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
+    exit 1
+fi
+
 gsutil cp containers/kapso.sif containers/vllm_debug.sif "gs://$BUCKET/assets/"
 # Also bake the containers onto the cache disk so run VMs skip the GCS pull.
 mkdir -p /mnt/hfcache/containers
