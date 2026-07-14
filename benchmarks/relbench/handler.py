@@ -135,6 +135,12 @@ class RelBenchHandler(ProblemHandler):
         # were loaded from the pristine cache above and are lru-cached in
         # memory.
         os.environ["RELBENCH_CACHE_DIR"] = str(self.sanitized_cache_dir)
+        # Coding-agent sessions run `python` from PATH; make sure that
+        # resolves to this interpreter's env (which has relbench + the
+        # modeling stack) rather than whatever the login profile puts first.
+        interpreter_bin = str(Path(sys.executable).parent)
+        if not os.environ.get("PATH", "").startswith(interpreter_bin):
+            os.environ["PATH"] = interpreter_bin + os.pathsep + os.environ.get("PATH", "")
 
         # Run bookkeeping.
         self._exec_lock = threading.Lock()
