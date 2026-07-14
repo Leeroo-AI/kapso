@@ -193,6 +193,15 @@ class BenchmarkTreeSearch(SearchStrategy):
                 kg_results="",
                 kg_code_results="",
             )
+
+        # Surface the experiment history to ideation/selection/pruning. Their
+        # prompts already consume `additional_info`, but the benchmark path
+        # always left it empty — so failures and scores never reached the
+        # LLMs steering the search (only the coding agent saw errors).
+        digest = self._experiment_history_digest()
+        if digest:
+            existing = str(getattr(context, "additional_info", "") or "")
+            context.additional_info = (existing + "\n\n" + digest).strip()
         
         # Prune after initial exploration
         if budget_progress >= 20:
@@ -230,6 +239,39 @@ class BenchmarkTreeSearch(SearchStrategy):
         
         # Return the best node from this iteration (for orchestrator to check should_stop)
         return self.get_best_experiment()
+
+    def _experiment_history_digest(self, max_entries: int = 12) -> str:
+        """Compact per-run digest for the ideation/selection prompts."""
+        with self.node_history_lock:
+            history = list(self.node_history)
+        if not history:
+            return ""
+        direction = (
+            "higher is better"
+            if self.problem_handler.maximize_scoring
+            else "lower is better"
+        )
+        lines = [
+            f"# Experiment history ({len(history)} run(s) so far; score: {direction}). "
+            "Do not repeat failure causes; build on what scored well:"
+        ]
+        for node in history[-max_entries:]:
+            summary = " ".join(str(node.solution or "").split())[:180]
+            if node.had_error:
+                reason = " ".join(str(node.error_message or "").split())[:240]
+                lines.append(
+                    f"- {node.branch_name} FAILED: {reason} || solution was: {summary}"
+                )
+            else:
+                metrics = ""
+                for out_line in str(node.evaluation_output or "").splitlines():
+                    if "OFFICIAL VALIDATION METRICS" in out_line:
+                        metrics = " | " + out_line.strip()[:220]
+                        break
+                lines.append(
+                    f"- {node.branch_name} score={node.score}{metrics} || solution was: {summary}"
+                )
+        return "\n".join(lines)
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Get all experiment results, optionally sorted by score."""

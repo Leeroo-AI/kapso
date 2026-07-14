@@ -245,3 +245,44 @@ class TestSandboxOnRealData:
         races = pd.read_parquet(dest / "rel-f1" / "db" / "races.parquet")
         assert str(races["date"].max()) < "2010-01-02"
         assert not os.access(dest / "rel-f1" / "db" / "races.parquet", os.W_OK)
+
+
+class TestExperimentHistoryDigest:
+    """Fix B: node history must reach ideation/selection via additional_info."""
+
+    def _strategy_with_history(self):
+        from kapso.execution.search_strategies.benchmark_tree_search import (
+            BenchmarkTreeSearch,
+        )
+        import threading
+
+        s = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
+        s.node_history_lock = threading.Lock()
+        s.problem_handler = SimpleNamespace(maximize_scoring=False)
+        failed = SimpleNamespace(
+            branch_name="experiment_0", node_id=13, had_error=True, score=1e18,
+            error_message="Debug execution took 900s (exceeded 15 minute limit).",
+            evaluation_output="", solution="Stacked LightGBM with cutoff emulation",
+        )
+        scored = SimpleNamespace(
+            branch_name="experiment_1", node_id=18, had_error=False, score=2.71,
+            error_message="",
+            evaluation_output="stuff\nOFFICIAL VALIDATION METRICS (harness-computed): "
+            '{"mae": 2.71}\nmore',
+            solution="CatBoost sequence + state-space model",
+        )
+        s.node_history = [failed, scored]
+        return s
+
+    def test_digest_contains_failures_scores_and_direction(self):
+        digest = self._strategy_with_history()._experiment_history_digest()
+        assert "lower is better" in digest
+        assert "experiment_0 FAILED" in digest and "15 minute limit" in digest
+        assert "experiment_1 score=2.71" in digest
+        assert "OFFICIAL VALIDATION METRICS" in digest
+        assert "Stacked LightGBM" in digest
+
+    def test_empty_history_yields_empty_digest(self):
+        s = self._strategy_with_history()
+        s.node_history = []
+        assert s._experiment_history_digest() == ""
