@@ -109,7 +109,9 @@ if [ "$CACHE_SCOPE" = "core" ]; then
     "HuggingFaceTB/SmolLM3-3B-Base",
     "google/gemma-3-4b-pt"
   ],
-  "datasets": []
+  "datasets": [
+    {"dataset": "openai/gsm8k", "configs": ["default", "main"], "splits": ["test", "train"]}
+  ]
 }
 EOF
 fi

@@ -34,6 +34,11 @@ export BASH_DEFAULT_TIMEOUT_MS="36000000"
 # --dangerously-skip-permissions under root unless it knows it's sandboxed.
 export IS_SANDBOX=1
 
+# HF hub clients hang forever on dropped CDN connections without these
+# (observed: futex-wait on CLOSE-WAIT sockets, 15 min of budget lost).
+export HF_HUB_DOWNLOAD_TIMEOUT=60
+export HF_HUB_ETAG_TIMEOUT=60
+
 exec /opt/kapso/venv/bin/expert-posttrain \
     --task-dir "$PWD" \
     --prompt-env PROMPT \
