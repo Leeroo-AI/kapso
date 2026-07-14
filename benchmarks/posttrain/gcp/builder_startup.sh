@@ -72,10 +72,12 @@ if [ ! -f containers/kapso.sif ] || [ ! -f containers/vllm_debug.sif ]; then
     exit 1
 fi
 
-# Smoke-test the kapso entrypoint (no GPU needed) — an image that builds but
-# can't import the runner must never ship.
-if ! apptainer exec containers/kapso.sif /opt/kapso/venv/bin/expert-posttrain --help >/dev/null; then
-    echo "kapso CLI smoke test failed inside container" | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
+# Smoke-test the kapso entrypoint AND the full runtime import chain (no GPU
+# needed) — --help alone missed a missing gated_mcp dependency once.
+if ! apptainer exec containers/kapso.sif /opt/kapso/venv/bin/expert-posttrain --help >/dev/null || \
+   ! apptainer exec containers/kapso.sif /opt/kapso/venv/bin/python -c \
+        "import benchmarks.posttrain.runner, kapso.execution.orchestrator, kapso.execution.search_strategies.generic.strategy, kapso.gated_mcp, kapso.execution.coding_agents.adapters.claude_code_agent"; then
+    echo "kapso smoke/import test failed inside container" | gsutil cp - "gs://$BUCKET/assets/BUILD_FAILED"
     exit 1
 fi
 
