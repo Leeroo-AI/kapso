@@ -73,16 +73,19 @@ mkdir -p /mnt/hfcache
 mount /dev/disk/by-id/google-hfcache /mnt/hfcache
 export HF_HOME=/mnt/hfcache/huggingface
 
-# --- secrets ---
+# --- secrets (xtrace off: values must never reach the log) ---
+set +x
 export ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret=anthropic-api-key 2>/dev/null || true)"
 CLAUDE_OAUTH="$(gcloud secrets versions access latest --secret=claude-oauth-token 2>/dev/null || true)"
 if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_OAUTH" ]; then
-    echo "FATAL: need claude-oauth-token or anthropic-api-key secret"; exit 1
+    echo "FATAL: need claude-oauth-token or anthropic-api-key secret"; set -x; exit 1
 fi
 export OPENAI_API_KEY="$(gcloud secrets versions access latest --secret=openai-api-key 2>/dev/null || true)"
 HF_TOKEN="$(gcloud secrets versions access latest --secret=hf-token 2>/dev/null || true)"
 # huggingface_hub reads $HF_HOME/token — makes gated models work in-container.
 [ -n "$HF_TOKEN" ] && printf '%s' "$HF_TOKEN" > "$HF_HOME/token"
+echo "secrets loaded: anthropic=$([ -n "$ANTHROPIC_API_KEY" ] && echo yes || echo no) oauth=$([ -n "$CLAUDE_OAUTH" ] && echo yes || echo no) openai=$([ -n "$OPENAI_API_KEY" ] && echo yes || echo no) hf=$([ -n "$HF_TOKEN" ] && echo yes || echo no)"
+set -x
 
 # --- PostTrainBench checkout + kapso adapter + containers ---
 git clone --depth 1 "$PTB_REPO" /opt/ptb
@@ -98,8 +101,10 @@ if [ ! -f agents/kapso/solve.sh ]; then
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
 fi
 # Claude Max subscription: run_task.sh copies this file into the job home and
-# solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN.
+# solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN. (xtrace off: secret value)
+set +x
 [ -n "$CLAUDE_OAUTH" ] && printf '%s' "$CLAUDE_OAUTH" > agents/kapso/oauth_token
+set -x
 # Containers: prefer the copies baked onto the cache-disk snapshot (zero
 # download); fall back to GCS (~2-3 min at the ~150 MiB/s we measured).
 if [ -f /mnt/hfcache/containers/kapso.sif ]; then

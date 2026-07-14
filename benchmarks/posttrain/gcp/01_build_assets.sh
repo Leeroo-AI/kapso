@@ -15,9 +15,13 @@ BUILDER="ptb-builder"
 # Ship the exact local kapso tree (this checkout, committed or not) so the
 # container gets our branch without requiring a push.
 KAPSO_ROOT="$(cd ../../.. && pwd)"
+# build/ and *.egg-info are poison: setuptools reuses a stale build/lib during
+# install, silently shipping outdated package files (bit us with an old
+# config.yaml inside the container).
 tar -czf - -C "$KAPSO_ROOT" \
     --exclude=.git --exclude=.claude --exclude=archive --exclude=tests \
     --exclude=moltbook_bot --exclude=tmp \
+    --exclude=build --exclude=dist --exclude='*.egg-info' \
     --exclude='.env' --exclude='*.env' --exclude='*.pem' --exclude='*token*' . \
     | gsutil cp - "gs://$BUCKET/assets/kapso-src.tgz"
 
