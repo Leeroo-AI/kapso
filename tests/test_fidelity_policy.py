@@ -564,3 +564,69 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     assert not any(
         attempt.fidelity == "full" for attempt in target.evaluation_attempts
     )
+
+
+def test_effective_reserve_shrinks_once_a_champion_exists():
+    """The escrow is insurance: once a full-measured champion exists, the
+    residual risk is one re-evaluation (an evaluator transition can retire
+    the measurement, never the artifact), so the reserve shrinks to the
+    full-eval estimate and the difference returns to the search window.
+    """
+    policy = make_policy()
+    budget = 3600.0
+    base = 0.45 * budget
+
+    assert policy.effective_reserve_seconds(budget, []) == pytest.approx(
+        base
+    )
+
+    champion = SearchNode(node_id=0, build_fidelity="full")
+    champion.evaluation_attempts = [
+        attempt(fidelity="full", fraction=1.0, score=0.6)
+    ]
+    assert policy.effective_reserve_seconds(
+        budget, [champion]
+    ) == pytest.approx(100.0)  # make_policy's full_eval_upper_seconds
+
+    # A flashy unvalidated probe is not a champion; neither is a
+    # champion measured under a retired evaluator version.
+    flashy = probe_node(1, 0.99)
+    assert policy.effective_reserve_seconds(
+        budget, [flashy]
+    ) == pytest.approx(base)
+    stale = SearchNode(node_id=2, build_fidelity="full")
+    stale.evaluation_attempts = [
+        attempt(
+            fidelity="full", fraction=1.0, score=0.9, evaluator="ev-old"
+        )
+    ]
+    assert policy.effective_reserve_seconds(
+        budget, [stale]
+    ) == pytest.approx(base)
+
+
+def test_champion_shrink_returns_escrow_to_the_search_window(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", fidelity_mode_config
+    )
+
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    # Iteration 1 lands a full-measured champion; iteration 2's snapshot
+    # must carry only the contingency residual as its reserve.
+    strategy.champion_queue = [True]
+    orchestrator.solve(experiment_max_iter=2, time_budget_minutes=60)
+
+    full_upper = orchestrator.evaluation_maintainer.timing(1.0).upper_seconds
+    final_snapshot = strategy.budget_snapshot
+    assert final_snapshot.finalization_reserve_seconds == pytest.approx(
+        min(0.45 * 3600, full_upper)
+    )

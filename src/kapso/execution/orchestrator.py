@@ -65,12 +65,9 @@ from kapso.execution.evaluation_maintainer import (
 )
 from kapso.execution.fidelity import (
     FULL_PASSTHROUGH,
-    TIER_FULL,
     ComparabilityClass,
     FidelityPolicy,
     FidelitySpec,
-    evidence_tier,
-    select_committed_candidate,
 )
 
 
@@ -1125,11 +1122,6 @@ class OrchestratorAgent:
         # current registry head before any selection happens.
         self._reconcile_evaluator_state()
         reserve_run_pending = False
-        effective_reserve_seconds = (
-            fidelity_policy.reserve_seconds(budget_spec.time_budget_seconds)
-            if fidelity_active and budget_spec.time_budget_seconds is not None
-            else budget_spec.finalization_reserve_seconds
-        )
 
         stopped_reason = "max_iterations"  # default
         stop_detail: Optional[str] = None
@@ -1145,6 +1137,20 @@ class OrchestratorAgent:
 
         try:
             for i in range(experiment_max_iter):
+                # The escrow is re-derived from history each round: once a
+                # full-measured champion exists, the reserve shrinks to the
+                # contingency residual and the freed time flows back into
+                # the searchable window. Resume-deterministic, like every
+                # other policy input.
+                effective_reserve_seconds = (
+                    fidelity_policy.effective_reserve_seconds(
+                        budget_spec.time_budget_seconds,
+                        self.search_strategy.get_experiment_history(),
+                    )
+                    if fidelity_active
+                    and budget_spec.time_budget_seconds is not None
+                    else budget_spec.finalization_reserve_seconds
+                )
                 # Build the per-iteration budget view from the durable clock,
                 # so a resumed campaign continues its budget instead of
                 # resetting it. Strategies get the snapshot read-only.
@@ -1193,24 +1199,14 @@ class OrchestratorAgent:
                     and remaining_after_reserve
                     <= budget_spec.min_iteration_seconds
                 ):
-                    committed = (
-                        select_committed_candidate(
-                            self.search_strategy.get_experiment_history(),
-                            evaluator_id=(
-                                self.search_strategy.registered_evaluator_id
-                            ),
+                    champion = (
+                        fidelity_policy.full_champion(
+                            self.search_strategy.get_experiment_history()
                         )
                         if fidelity_active
                         else None
                     )
-                    committed_has_full = committed is not None and (
-                        evidence_tier(
-                            committed,
-                            self.search_strategy.registered_evaluator_id,
-                        )
-                        == TIER_FULL
-                    )
-                    if fidelity_active and not committed_has_full:
+                    if fidelity_active and champion is None:
                         print(
                             "[Orchestrator] Reserve gate: executing the "
                             "escrowed full-size attempt before stopping"

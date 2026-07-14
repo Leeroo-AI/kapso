@@ -354,6 +354,33 @@ class FidelityPolicy:
         construction committed_run_fraction of the budget."""
         return self.spec.committed_run_fraction * time_budget_seconds
 
+    def full_champion(self, nodes: Iterable[Any]) -> Optional[Any]:
+        """The committed candidate at FULL tier under the head evaluator."""
+        committed = select_committed_candidate(
+            nodes, evaluator_id=self.evaluator_id
+        )
+        if committed is not None and (
+            evidence_tier(committed, self.evaluator_id) == TIER_FULL
+        ):
+            return committed
+        return None
+
+    def effective_reserve_seconds(
+        self, time_budget_seconds: float, nodes: Iterable[Any]
+    ) -> float:
+        """The escrow, shrunk once a full-measured champion exists.
+
+        Unchampioned: the full committed slot. Championed: only the
+        contingency residual — re-securing an already-built artifact under
+        a new evaluator head costs one full evaluation, not a build — and
+        the freed difference flows back into the searchable window. The
+        insurance stays exactly as large as the risk it still covers.
+        """
+        base = self.reserve_seconds(time_budget_seconds)
+        if self.full_champion(nodes) is not None:
+            return min(base, self.full_eval_upper_seconds)
+        return base
+
     def build_cap_seconds(self, time_budget_seconds: float) -> float:
         return max(
             0.0,

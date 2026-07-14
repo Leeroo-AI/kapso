@@ -688,13 +688,18 @@ The policy, in words:
 4. **Promote to FULL mid-campaign** only when `remaining_after_reserve` still covers a full
    run with margin (rare on a 10 h budget; common on a 48 h one), capped by `max_full_runs`.
 5. **The reserve run executes FULL** on the best-validated recipe when the gate trips.
-6. **The reserve converts rather than dissolves.** If a mid-campaign FULL was granted and
-   the committed candidate already holds its full-size result when the gate arrives, the
-   escrow is not silently released: it converts to the next-most-valuable full-size use —
-   matched-replication confirmation of the winner (the finalist schedule from the
-   replication rule), or a full attempt for a challenger that validated well in the
-   meantime. The reserve stays escrowed for as long as the committed candidate could still
-   change, because a later probe that wins will need *its* full run too.
+6. **The reserve shrinks once its purpose is met — insurance sized to residual risk.**
+   The escrow is re-derived from node history every round. While no full-measured
+   champion exists it is the full committed slot; the moment one exists it shrinks to
+   the contingency residual — one full-eval estimate — because the only event that can
+   retire a champion afterwards is an evaluator transition, which invalidates the
+   *measurement* but never the *artifact*: re-securing it costs one frame-run
+   re-evaluation, not a rebuild. The freed difference flows back into the searchable
+   window, where it funds exactly the right things organically: more probes, validations
+   for challengers, or a second full run that displaces the champion by the tier rules.
+   A campaign that buys certainty early is thereby rewarded with more exploration, not
+   merely permitted to end early. When the gate finally trips with a champion standing,
+   it stops directly; with none, the escrow converts into the final build-and-measure.
 
 **Where the build cap comes from — an allocation and a contract, never a prediction.**
 Build duration is a dial of the experiment, not an unknown of nature — the workload size
