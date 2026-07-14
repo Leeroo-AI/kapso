@@ -83,4 +83,7 @@ gcloud compute snapshots describe "$CACHE_SNAPSHOT" --project "$PROJECT" >/dev/n
 gcloud compute disks snapshot "$CACHE_DISK" --project "$PROJECT" --zone "$ZONE" \
     --snapshot-names "$CACHE_SNAPSHOT"
 
+# The snapshot is the canonical asset; the source disk costs ~$50/mo idle.
+gcloud compute disks delete "$CACHE_DISK" --zone "$ZONE" --project "$PROJECT" --quiet
+
 echo "Assets ready: gs://$BUCKET/assets/{kapso.sif,vllm_debug.sif}, snapshot $CACHE_SNAPSHOT"

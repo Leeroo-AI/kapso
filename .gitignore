@@ -236,3 +236,6 @@ services/backend_search/
 services/wiki-service-backend/
 # E2E track run artifacts
 examples/ml_model_development/e2e/runs/
+
+# fetched run artifacts (large, regenerable from GCS)
+benchmarks/posttrain/gcp/results_fetched/
