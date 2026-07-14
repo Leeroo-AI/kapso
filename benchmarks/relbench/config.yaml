@@ -20,7 +20,8 @@ modes:
     search_strategy:
       type: "benchmark_tree_search"
       params:
-        reasoning_effort: "high"
+        # reasoning_effort applies to ideation, selection, and pruning calls.
+        reasoning_effort: "xhigh"
         code_debug_tries: 10
         node_expansion_limit: 2
         node_expansion_new_childs_count: 5
@@ -29,17 +30,31 @@ modes:
         experimentation_per_run: 1
         per_step_maximum_solution_count: 10
         exploration_budget_percent: 40
-        idea_generation_model: "gpt-5"
+        # Selection + pruning use idea_generation_model; ideation generates
+        # with EVERY ensemble model and pools the solutions.
+        idea_generation_model: "gpt-5.6-sol"
         idea_generation_ensemble_models:
-          - "gpt-5"
-          - "gpt-5"
+          - "gpt-5.6-sol"
+          - "claude-opus-4-8"
 
     # claude_code executes and self-tests code during implementation (safe:
-    # the handler exports the sanitized cache env process-wide). Fallback:
-    # `-d aider` (gpt-5-mini, edit-only) if no Claude credentials exist.
+    # the handler exports the sanitized cache env process-wide). auth_mode
+    # oauth pins the agent to the CLI login even when ANTHROPIC_API_KEY is
+    # set for the LiteLLM ideation calls. Fallback: `-d aider`.
     coding_agent:
       type: "claude_code"
-      model: "claude-opus-4-5"
+      model: "claude-opus-4-8"
+      agent_specific:
+        effort: "xhigh"
+        auth_mode: "oauth"
+
+    # Role routes for everything that asks for a role rather than a model.
+    # Repo memory uses the `utility` role (RepoMemoryManager.DEFAULT_REPO_MODEL_LLM).
+    # Note: repo-memory call sites do not plumb a reasoning-effort parameter;
+    # the model applies, provider-default effort is used there.
+    models:
+      utility: "gpt-5.6-luna"
+      reasoning: "gpt-5.6-sol"
 
     knowledge_search:
       type: "kg_llm_navigation"

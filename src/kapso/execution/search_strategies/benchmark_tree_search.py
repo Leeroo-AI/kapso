@@ -796,12 +796,34 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
 
 {output_requirements}
 """
-            solutions = self.llm.llm_completion_with_system_prompt(
-                model=self.idea_generation_model,
-                system_prompt="You are a world class problem solver generating solutions.",
-                user_message=user_message,
-                reasoning_effort=self.reasoning_effort,
-            )
+            # True ensemble: every configured ideation model proposes solutions
+            # for this step; the pooled set feeds the next refinement step and
+            # the final selection. A single-model ensemble behaves as before,
+            # and one provider failing does not abort the step.
+            ensemble = list(self.idea_generation_ensemble_models or []) or [
+                self.idea_generation_model
+            ]
+            pooled: List[str] = []
+            for ensemble_model in ensemble:
+                try:
+                    pooled.append(
+                        self.llm.llm_completion_with_system_prompt(
+                            model=ensemble_model,
+                            system_prompt="You are a world class problem solver generating solutions.",
+                            user_message=user_message,
+                            reasoning_effort=self.reasoning_effort,
+                        )
+                    )
+                except Exception as exc:
+                    print(
+                        f"[BenchmarkTreeSearch] ideation model {ensemble_model} failed "
+                        f"({type(exc).__name__}: {exc}); continuing with the rest"
+                    )
+            if not pooled:
+                raise RuntimeError(
+                    "All ideation ensemble models failed for this step"
+                )
+            solutions = "\n\n".join(pooled)
         
         solutions_list = re.findall(r'<solution>(.*?)</solution>', solutions, re.DOTALL)
 

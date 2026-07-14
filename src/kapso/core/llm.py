@@ -25,6 +25,20 @@ DEFAULT_MODEL_ROUTES: Dict[str, str] = {
     "web_search": "openai/gpt-4o-search-preview",
 }
 
+
+def _effort_passthrough(reasoning_effort: Optional[str]) -> Dict[str, Any]:
+    """Force reasoning_effort past litellm's static capability map.
+
+    `drop_params=True` silently discards reasoning_effort for models newer
+    than the installed litellm's model registry (e.g. the gpt-5.6 family),
+    which would quietly ignore a configured effort level. Whitelisting the
+    parameter keeps it in the request while drop_params still prunes anything
+    else unsupported.
+    """
+    if reasoning_effort is None:
+        return {}
+    return {"allowed_openai_params": ["reasoning_effort"]}
+
 # These inputs were historically rewritten by the web-search methods. They
 # remain aliases, but now target the configured web_search role.
 LEGACY_WEB_SEARCH_ALIASES = frozenset(
@@ -353,6 +367,7 @@ class LLMBackend:
                 temperature=temperature,
                 reasoning_effort=reasoning_effort,
                 drop_params=True,
+                **_effort_passthrough(reasoning_effort),
                 **kwargs,
             ),
         )
@@ -401,6 +416,7 @@ class LLMBackend:
                         temperature=temperature,
                         reasoning_effort=reasoning_effort,
                         drop_params=True,
+                        **_effort_passthrough(reasoning_effort),
                         **kwargs,
                     ),
                 )
@@ -429,6 +445,7 @@ class LLMBackend:
                 reasoning_effort=reasoning_effort,
                 web_search_options={"search_context_size": search_context_size},
                 drop_params=True,
+                **_effort_passthrough(reasoning_effort),
                 **kwargs,
             ),
         )
@@ -467,6 +484,7 @@ class LLMBackend:
                                 "search_context_size": search_context_size
                             },
                             drop_params=True,
+                            **_effort_passthrough(effort),
                             **kwargs,
                         ),
                     )
