@@ -69,8 +69,11 @@ mount /dev/disk/by-id/google-hfcache /mnt/hfcache
 export HF_HOME=/mnt/hfcache/huggingface
 
 # --- secrets ---
-export ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret=anthropic-api-key)"
-[ -n "$ANTHROPIC_API_KEY" ] || { echo "FATAL: anthropic-api-key secret missing"; exit 1; }
+export ANTHROPIC_API_KEY="$(gcloud secrets versions access latest --secret=anthropic-api-key 2>/dev/null || true)"
+CLAUDE_OAUTH="$(gcloud secrets versions access latest --secret=claude-oauth-token 2>/dev/null || true)"
+if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_OAUTH" ]; then
+    echo "FATAL: need claude-oauth-token or anthropic-api-key secret"; exit 1
+fi
 export OPENAI_API_KEY="$(gcloud secrets versions access latest --secret=openai-api-key 2>/dev/null || true)"
 HF_TOKEN="$(gcloud secrets versions access latest --secret=hf-token 2>/dev/null || true)"
 # huggingface_hub reads $HF_HOME/token — makes gated models work in-container.
@@ -85,6 +88,9 @@ if [ ! -f agents/kapso/solve.sh ]; then
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/containers/kapso.def containers/kapso.def
 fi
+# Claude Max subscription: run_task.sh copies this file into the job home and
+# solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN.
+[ -n "$CLAUDE_OAUTH" ] && printf '%s' "$CLAUDE_OAUTH" > agents/kapso/oauth_token
 # Containers: prefer the copies baked onto the cache-disk snapshot (zero
 # download); fall back to GCS (~2-3 min at the ~150 MiB/s we measured).
 if [ -f /mnt/hfcache/containers/kapso.sif ]; then

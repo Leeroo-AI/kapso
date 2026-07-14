@@ -17,6 +17,15 @@
 unset GEMINI_API_KEY
 unset CODEX_API_KEY
 
+# Claude Max subscription auth: run_task.sh copies agents/kapso/oauth_token to
+# the job home when present (same mechanism as the upstream claude_non_api
+# agent). Prefer it over the API key to avoid auth conflicts.
+if [ -f /home/ben/oauth_token ]; then
+    CLAUDE_CODE_OAUTH_TOKEN="$(cat /home/ben/oauth_token)"
+    export CLAUDE_CODE_OAUTH_TOKEN
+    unset ANTHROPIC_API_KEY
+fi
+
 # Claude Code bash-tool ceiling: training commands run for hours.
 export BASH_MAX_TIMEOUT_MS="36000000"
 export BASH_DEFAULT_TIMEOUT_MS="36000000"

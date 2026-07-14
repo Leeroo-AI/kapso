@@ -48,7 +48,8 @@ upsert_secret() {
         printf '%s' "$value" | gcloud secrets create "$name" --project "$PROJECT" --data-file=-
     fi
 }
-upsert_secret anthropic-api-key "${ANTHROPIC_API_KEY:-}"
+upsert_secret claude-oauth-token "${CLAUDE_CODE_OAUTH_TOKEN:-}"   # Claude Max (preferred)
+upsert_secret anthropic-api-key "${ANTHROPIC_API_KEY:-}"          # or usage-billed API key
 upsert_secret openai-api-key "${OPENAI_API_KEY:-}"
 upsert_secret hf-token "${HF_TOKEN:-}"
 

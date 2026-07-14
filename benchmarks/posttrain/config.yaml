@@ -1,8 +1,11 @@
 # PostTrainBench Configuration
 #
 # Kapso runs INSIDE the PostTrainBench apptainer container (agents/kapso/solve.sh),
-# where the only guaranteed credentials are:
-#   - ANTHROPIC_API_KEY           (always)
+# where the available credentials are:
+#   - CLAUDE_CODE_OAUTH_TOKEN     (preferred: Claude Max subscription, exported by
+#                                  solve.sh from the harness-provided oauth_token
+#                                  file — the upstream claude_non_api mechanism)
+#   - ANTHROPIC_API_KEY           (alternative: usage-billed API key)
 #   - OPENAI_API_KEY              (ONLY for judge-scored tasks: arenahardwriting,
 #                                  healthbench — and PostTrainBench rules forbid
 #                                  using it for anything except evaluate.py)
@@ -27,7 +30,7 @@ modes:
         # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-6).
         idea_generation_model: "claude-opus-4-6"
         implementation_model: "claude-opus-4-6"
-        auth_mode: "api_key"
+        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
         # A single H100 and a hard deadline: never abort the campaign because a
         # knowledge gate backend (weaviate/neo4j/leeroopedia) is unreachable.
         gate_failure_policy: "skip"
@@ -60,7 +63,7 @@ modes:
       model: "claude-opus-4-6"
       debug_model: "claude-opus-4-6"
       agent_specific:
-        auth_mode: "api_key"
+        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
         streaming: true
         timeout: 18000
 
@@ -69,7 +72,7 @@ modes:
       model: "claude-opus-4-6"
       debug_model: "claude-opus-4-6"
       agent_specific:
-        auth_mode: "api_key"
+        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
         streaming: true
         timeout: 900
 
