@@ -30,6 +30,10 @@ fi
 export BASH_MAX_TIMEOUT_MS="36000000"
 export BASH_DEFAULT_TIMEOUT_MS="36000000"
 
+# The container runs as root and Claude Code refuses
+# --dangerously-skip-permissions under root unless it knows it's sandboxed.
+export IS_SANDBOX=1
+
 exec /opt/kapso/venv/bin/expert-posttrain \
     --task-dir "$PWD" \
     --prompt-env PROMPT \
