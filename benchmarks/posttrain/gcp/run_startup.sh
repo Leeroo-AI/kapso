@@ -44,6 +44,10 @@ if [ ! -f /etc/ptb-image-ready ]; then
     apt-get install -y apptainer fuse-overlayfs
     apt-get install -y nvidia-driver-570-server || apt-get install -y nvidia-driver-550-server
 fi
+# run_task.sh calls bare `python` on the host (prompt/judge/trace helpers);
+# Ubuntu ships only python3.
+command -v python >/dev/null || apt-get install -y python-is-python3
+
 for _ in $(seq 1 40); do nvidia-smi && break; sleep 15; done
 nvidia-smi || exit 1
 
@@ -115,6 +119,7 @@ PREFLIGHT=""
 [ -f "$POST_TRAIN_BENCH_CONTAINERS_DIR/kapso.sif" ] || PREFLIGHT="$PREFLIGHT kapso.sif"
 [ -f "$POST_TRAIN_BENCH_CONTAINERS_DIR/vllm_debug.sif" ] || PREFLIGHT="$PREFLIGHT vllm_debug.sif"
 [ -d "$HF_HOME/hub" ] || PREFLIGHT="$PREFLIGHT hf-cache"
+command -v python >/dev/null || PREFLIGHT="$PREFLIGHT host-python"
 if [ -n "$PREFLIGHT" ]; then
     echo "PREFLIGHT FAILED:$PREFLIGHT"
     RUN_EXIT=preflight

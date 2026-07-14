@@ -27,7 +27,7 @@ set -x
 exec > /var/log/ptb-image-setup.log 2>&1
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y software-properties-common git rsync jq python3 uuid-runtime tree mdadm
+apt-get install -y software-properties-common git rsync jq python3 python-is-python3 uuid-runtime tree mdadm
 add-apt-repository -y ppa:apptainer/ppa
 apt-get update
 apt-get install -y apptainer fuse-overlayfs
