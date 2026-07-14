@@ -170,6 +170,43 @@ MAE, when targeting the v2 paper use R².
   normalized average (÷RDL), the board's NMAE (÷train-std). Per-task raw MAE is the
   only safe common currency; the std divisors above convert to board NMAE.
 
+## How RelAgent structures its result tables (the reporting principle to mirror)
+
+Verified table-by-table from arXiv:2605.07840v1:
+
+| Table | Scope | Metric & precision | Method rows | Summary columns |
+|---|---|---|---|---|
+| 2 | RelBench**V1** classification, 12 tasks | test AUROC (%), 2 dp | grouped: *Sup. Tabular* (LightGBM, DS+LightGBM, DS+AutoGluon, DS+TabPFN-2.5) / *Sup. Relational* (GraphSAGE, HGT, HGT-PE, RelGNN, RelGT) / *Zero-Shot Foundational* (LLM₁, LLM₂, Rel-Zero, TabPFN-2.5, Griffin, RT-zero, GNN+TabPFN, RDBLearn, **KumoRFM-v1, KumoRFM-v2**) / *LLM-as-FE* (FeatLLM, ReFuGe) / RelAgent last | **Avg ↑** and **mean Rank ↓** ("average rank over methods with complete results"); bold best, underline second |
+| 3 | RelBench**V2** classification subset (4 tasks) | test AUROC (%) | only LightGBM, GraphSAGE, KumoRFM-v1/-v2, RelAgent | Avg + Rank |
+| 4 | 4DBInfer classification (5 tasks) | test AUROC (%) | Sup. Tab. (XGBoost, AutoGluon, DFS+XGBoost/AutoGluon) / Sup. Rel. (GAT, HGT, PNA, GraphSAGE) / Found. (RDBLearn, KumoRFM-v1 79.17, KumoRFM-v2 79.96) / RelAgent **81.38**, rank 1.00, best on all 5 | Avg + Rank |
+| 5 | RelBench**V1** regression, 9 tasks | test **raw MAE**, 3 dp; naive rows (Global/Entity Median) included | same grouping | **μn ↓** = average normalized to the LightGBM baseline (RelAgent 0.817 best; KumoRFM-v1 0.908, -v2 0.822) + mean Rank ↓ (RelAgent 2.83 best) |
+| 6 | RelBench**V2** regression subset (2 tasks) | test raw MAE + μn | Global/Entity Median, LightGBM, GraphSAGE, KumoRFM-v1/-v2, RelAgent | μn + Rank |
+
+The values in Tables 2-6 are the test score of the **validation-selected run**
+(cross-rollout selection over 5 searches); per-task std across the 5 searches lives in
+appendix Tables 13/14, and Table 15 adds mean±std over 3 repeated selections for the v2
+classification tasks.
+
+**How they handle KumoRFM specifically.** KumoRFM appears only as "KumoRFM-v1 [13] /
+KumoRFM-v2 [26]" inside the *zero-shot foundation model* group — i.e. the **in-context
+regime** (v1 cells equal the Kumo report's in-context column exactly). The word
+"fine-tuned" is never used in connection with KumoRFM anywhere in the paper: the
+fine-tuned variant — which at 81.14 mean AUROC beats RelAgent's 78.38 — is simply
+absent. When the in-context comparison still loses on the mean, the paper pivots to
+rank, verbatim: *"Only the closed-source KumoRFM-v2 achieves a higher average AUROC
+(79.60 vs. 78.38), while RelAgent obtains the best average rank (3.17 vs. 3.38)."*
+The paper also never states how its KumoRFM numbers for V2/4DBInfer were produced
+(Kumo published none; presumably run via Kumo's platform — undocumented).
+
+**What Kapso should copy vs. fix when reporting.** Copy the mechanics: test score of the
+validation-selected run (our harness's exact protocol), 5-search repetition with std in
+an appendix, per-family row grouping, Avg + mean-Rank columns, AUROC% at 2 dp / raw MAE
+at 3 dp, μn for RelAgent-comparability — and additionally NMAE (divisors above) for
+board-comparability. Fix the two weaknesses instead of inheriting them: include
+**KumoRFM (fine-tuned)** as a row — beating 81.14 is the actual #1 claim, and its
+omission is the most visible hole in RelAgent's tables — and state explicitly how every
+external baseline number was obtained (quoted from paper X / board / re-run by us).
+
 ## Are there other baselines worth adding? (incl. big tech)
 
 **Big tech:** exactly one exists — **Griffin (Amazon, ICML 2025**, arXiv:2505.05568;
