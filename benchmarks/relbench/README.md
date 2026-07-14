@@ -37,7 +37,8 @@ benchmarks/relbench/
 ├── sandbox.py       # sanitized read-only data cache builder (leak-proofing)
 ├── config.yaml      # search modes (RELBENCH_CONFIGS / HEAVY_EXPERIMENTATION / MINIMAL)
 ├── BASELINES.md     # verified per-task numbers + protocols for RelAgent & KumoRFM-ft
-├── scorecard.py     # category tables (clf/reg/rec) with Kapso ranked in the full field
+├── RESULTS.md       # THE reference: agent results vs baselines, hardware, status (auto-generated)
+├── scorecard.py     # category tables (clf/reg/rec) + RESULTS.md generator (--reference)
 └── data/
     ├── sota.json    # per-task best published numbers (the bar shown to ideation)
     ├── baselines.json # machine-readable verified baseline numbers (see BASELINES.md)

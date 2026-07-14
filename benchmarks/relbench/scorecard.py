@@ -190,11 +190,213 @@ def build_section(
     return "\n".join(lines), gates
 
 
+def _campaign_orders() -> Tuple[List[str], set]:
+    """ROI order + cpu-safe set, parsed from the campaign script (stays in sync)."""
+    import re
+
+    script = Path(__file__).parents[2] / "scripts" / "run_relbench_campaign.sh"
+    s = script.read_text() if script.exists() else ""
+
+    def arr(name: str) -> List[str]:
+        i = s.find(f"{name}=(")
+        if i < 0:
+            return []
+        j = s.find("\n)", i)
+        return [f"{d}/{t}" for d, t in re.findall(r'"(rel-\S+) (\S+)"', s[i:j])]
+
+    return arr("ROI"), set(arr("CPU_LOCAL"))
+
+
+def _kapso_primary(report: dict, spec) -> Optional[float]:
+    tm = report.get("test_metrics") or {}
+    v = tm.get(spec.primary_metric)
+    return None if v is None else float(v)
+
+
+def _to_sota_units(value: float, metric: str, divisors: Dict[str, float], task_id: str) -> Optional[float]:
+    """Convert a raw primary-metric value into the units used by sota.json."""
+    if metric == "auroc_pct" or metric == "accuracy_pct" or metric == "map_pct":
+        return value * 100
+    if metric == "nmae":
+        div = divisors.get(task_id)
+        return value / div if div else None
+    return value  # r2, raw mae
+
+
+def _family_and_metric(ds: str, task_name: str) -> Tuple[str, str]:
+    """Family + primary metric from registry metadata only (no data loading)."""
+    from relbench.base import AutoCompleteTask, RecommendationTask, TaskType
+
+    from benchmarks.relbench import task_specs as ts
+    from relbench.tasks import task_registry
+
+    cls, args, kwargs = task_registry[ds][task_name]
+    if cls is AutoCompleteTask or (isinstance(cls, type) and issubclass(cls, AutoCompleteTask)):
+        task_type = kwargs["task_type"]
+        family = {
+            TaskType.BINARY_CLASSIFICATION: ts.AUTOCOMPLETE_BINARY,
+            TaskType.MULTICLASS_CLASSIFICATION: ts.AUTOCOMPLETE_MULTICLASS,
+            TaskType.REGRESSION: ts.AUTOCOMPLETE_REGRESSION,
+        }[task_type]
+    elif issubclass(cls, RecommendationTask):
+        family = ts.RECOMMENDATION
+    else:
+        family = {
+            TaskType.BINARY_CLASSIFICATION: ts.ENTITY_BINARY,
+            TaskType.MULTICLASS_CLASSIFICATION: ts.ENTITY_MULTICLASS,
+            TaskType.REGRESSION: ts.ENTITY_REGRESSION,
+        }[cls.task_type]
+    metric, _ = ts.PRIMARY_METRIC_OVERRIDES.get(f"{ds}/{task_name}", ts.PRIMARY_METRIC[family])
+    return family, metric
+
+
+def build_reference(work_root: Path) -> str:
+    from relbench.tasks import get_task_names
+
+    from benchmarks.relbench.task_specs import NATIVE_DATASETS, SIZE_TIER
+
+    baselines = json.loads((DATA_DIR / "baselines.json").read_text())
+    sota = json.loads((DATA_DIR / "sota.json").read_text())
+    divisors = baselines["_meta"]["train_std_divisors_nmae"]
+    kapso = load_kapso_results(work_root)
+    roi_order, cpu_safe = _campaign_orders()
+
+    ra_clf = baselines["relagent"]["v1_classification_auroc_pct"]
+    ra_reg = baselines["relagent"]["v1_regression_mae"]
+    ra_v2 = baselines["relagent"]["v2_subset"]
+    ku_clf = baselines["kumorfm_fine_tuned"]["v1_classification_auroc_pct"]
+    ku_reg = baselines["kumorfm_fine_tuned"]["v1_regression_mae"]
+    ku_rec = baselines["kumorfm_fine_tuned"]["v1_recommendation_map_pct"]
+
+    rows = []
+    n_done = n_beats_sota = 0
+    for ds in NATIVE_DATASETS:
+        for task_name in get_task_names(ds):
+            task_id = f"{ds}/{task_name}"
+            if ds == "rel-mimic":
+                rows.append({"task": task_id, "family": "clf", "metric": "auroc_pct",
+                             "sota": sota.get(task_id, {}), "hw": "blocked",
+                             "status": "⛔ credentialed data", "roi": None})
+                continue
+            family, primary_metric = _family_and_metric(ds, task_name)
+            entry = sota.get(task_id, {})
+            fam_map = {"entity_binary_classification": "clf", "entity_multiclass_classification": "mc",
+                       "entity_regression": "reg", "recommendation": "rec"}
+            fam = fam_map.get(family) or "AC-" + family.split("_")[1][:3]
+
+            # Baseline cells in the same units as the best-known column: for
+            # v1 regression (nmae rows) use the verified board NMAE; RelAgent's
+            # v2-subset regression values are raw MAE while the row unit is R²
+            # — annotate rather than mix silently.
+            relagent = kumo = None
+            if task_id in ra_clf:
+                relagent = ra_clf[task_id]["test"]
+            elif task_id in ra_reg:
+                relagent = ra_reg[task_id]["board_nmae"]
+            elif task_id in ra_v2:
+                v = ra_v2[task_id].get("test_selected")
+                relagent = v if ra_v2[task_id].get("metric") != "mae" else f"{v:g} (MAE)"
+            if task_id in ku_clf:
+                kumo = ku_clf[task_id]
+            elif task_id in ku_reg:
+                kumo = ku_reg[task_id]["board_nmae"]
+            elif task_id in ku_rec:
+                kumo = ku_rec[task_id]
+
+            report = kapso.get(task_id)
+            kapso_val = beats = None
+            if report:
+                n_done += 1
+                raw = (report.get("test_metrics") or {}).get(primary_metric)
+                if raw is not None:
+                    kapso_val = _to_sota_units(float(raw), entry.get("metric", ""), divisors, task_id)
+                    if kapso_val is not None and entry.get("value") is not None:
+                        higher = entry["metric"] != "nmae"
+                        ok = kapso_val > entry["value"] if higher else kapso_val < entry["value"]
+                        beats = "✅ beats best-known" if ok else "below best-known"
+                        n_beats_sota += ok
+
+            rows.append({
+                "task": task_id, "family": fam, "metric": entry.get("metric", primary_metric),
+                "sota": entry, "relagent": relagent, "kumo": kumo,
+                "kapso": kapso_val, "beats": beats,
+                "hw": "CPU-ok" if task_id in cpu_safe else "GPU box",
+                "tier": {"small": "2h", "medium": "4h", "large": "8h"}.get(SIZE_TIER.get(ds, "medium"), "4h"),
+                "status": "✅ done" if report else "· pending",
+                "roi": roi_order.index(task_id) + 1 if task_id in roi_order else None,
+            })
+
+    rows.sort(key=lambda r: (r["roi"] is None, r["roi"] or 999))
+
+    def f(v, nd=3):
+        return "—" if v is None else (f"{v:.{nd}g}" if isinstance(v, float) else str(v))
+
+    lines = [
+        "# RelBench campaign reference — agent results, baselines, hardware, status",
+        "",
+        "**Auto-generated — do not edit by hand.** Regenerate with:",
+        "`PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`",
+        "",
+        f"Status: **{n_done}/66 tasks run**, {n_beats_sota} beating the best published number. "
+        "Category-level gates: run the scorecard (same module, no flags).",
+        "",
+        "## Hardware requirements",
+        "",
+        "- **CPU-ok** (39 tasks): rel-f1 (1 MB), rel-salt (34 MB), rel-event (100 MB), "
+        "rel-arxiv (145 MB), rel-avito (347 MB), rel-trial (548 MB db.zip). "
+        "Runs on an 8-core / 32 GB box; the handler steers agents to duckdb/GBDT when no GPU is present.",
+        "- **GPU box** (26 tasks): rel-stack (840 MB, text-heavy), rel-hm (31M-row transactions), "
+        "rel-ratebeer (2.2 GB), rel-amazon (6.1 GB). CUDA GPU + 64 GB RAM recommended; 8h full-run caps.",
+        "- **Blocked** (1 task): rel-mimic needs credentialed PhysioNet + BigQuery access.",
+        "- Per-run caps: 2h/4h/8h full, 15/20/30 min debug by DB tier "
+        "(override: RELBENCH_FULL_TIMEOUT / RELBENCH_DEBUG_TIMEOUT).",
+        "",
+        "## Baselines",
+        "",
+        "Verified primary-source numbers (see BASELINES.md for protocols and citations): "
+        "**RelAgent** (arXiv:2605.07840, val-selected test of 5 searches; v1 entity + 6-task v2 subset, "
+        "no recommendation), **KumoRFM fine-tuned** (Kumo tech report Tables 2-4, single values, all 30 v1 tasks), "
+        "full board field in `data/leaderboard_snapshot.json`, per-task best-known in `data/sota.json`.",
+        "",
+        "## Per-task table (ROI order)",
+        "",
+        "Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE). "
+        "'Best known' = strongest published result anywhere (board ∪ papers).",
+        "",
+        "| ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | Kapso | vs best | HW | Cap | Status |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        e = r["sota"]
+        best = f"{f(e.get('value'))} ({e.get('method', '?').split(' (')[0][:24]})" if e else "—"
+        lines.append(
+            f"| {f(r['roi'], 0)} | {r['task']} | {r['family']} | {best} "
+            f"| {f(r.get('relagent'))} | {f(r.get('kumo'))} | {f(r.get('kapso'))} "
+            f"| {r.get('beats') or '—'} | {r['hw']} | {r.get('tier', '—')} | {r['status']} |"
+        )
+    lines += [
+        "",
+        "Notes: RelAgent/KumoRFM-ft columns show their per-task values in the same units where they "
+        "published one (— where they did not evaluate). Current 'done' rows from harness-validation "
+        "runs are baseline-quality placeholders until the campaign proper replaces them.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-root", default="tmp/relbench")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--reference", action="store_true",
+                        help="regenerate benchmarks/relbench/RESULTS.md and exit")
     args = parser.parse_args()
+
+    if args.reference:
+        doc = build_reference(Path(args.work_root))
+        out = Path(__file__).parent / "RESULTS.md"
+        out.write_text(doc)
+        print(f"[scorecard] wrote {out}")
+        return
 
     board = json.loads((DATA_DIR / "leaderboard_snapshot.json").read_text())
     baselines = json.loads((DATA_DIR / "baselines.json").read_text())
