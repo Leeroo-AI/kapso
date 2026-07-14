@@ -114,14 +114,18 @@ fi
 
 # Gated models (google/gemma-3-4b-pt) fail without an accepted-license token;
 # keep gemma LAST in the core list and tolerate a partial download.
-apptainer exec \
+# Hard timeout + hub socket timeout: a dropped CDN connection once left the
+# downloader futex-waiting forever (CLOSE-WAIT sockets, zero progress).
+timeout --signal=TERM --kill-after=60s 45m apptainer exec \
     --bind "${HF_HOME}:${HF_HOME}" \
     --bind /opt/ptb:/opt/ptb \
     --env HF_HOME="${HF_HOME}" \
     --env HF_TOKEN="${HF_TOKEN}" \
+    --env HF_HUB_DOWNLOAD_TIMEOUT=60 \
+    --env HF_HUB_ETAG_TIMEOUT=60 \
     --pwd /opt/ptb \
-    containers/kapso.sif python containers/download_hf_cache/download_resources.py \
-    || echo "WARN: cache download incomplete (gated model without hf-token secret?)"
+    containers/kapso.sif python -u containers/download_hf_cache/download_resources.py \
+    || echo "WARN: cache download incomplete (timeout/gated model?)"
 
 du -sh "$HF_HOME" | gsutil cp - "gs://$BUCKET/assets/cache_size.txt" || true
 umount /mnt/hfcache
