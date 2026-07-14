@@ -96,6 +96,44 @@ modes:
 
     fetch_huggingface_models: false
 
+  # Fast system-debugging loop: production mechanics (claude_code coder,
+  # same contracts/handler) at ~5x lower latency. Pair with a tiny task,
+  # e.g.: -s rel-f1 -t driver-circuit-compete (27-row val/test, seconds-fast
+  # evals). Iterations ~15-20 min instead of ~90.
+  FAST_DEBUG:
+    search_strategy:
+      type: "benchmark_tree_search"
+      params:
+        reasoning_effort: "medium"
+        code_debug_tries: 5
+        node_expansion_limit: 2
+        node_expansion_new_childs_count: 3
+        idea_generation_steps: 1
+        first_experiment_factor: 1
+        experimentation_per_run: 1
+        per_step_maximum_solution_count: 6
+        exploration_budget_percent: 40
+        idea_generation_model: "gpt-5.6-sol"
+        idea_generation_ensemble_models:
+          - "gpt-5.6-sol"
+
+    coding_agent:
+      type: "claude_code"
+      model: "claude-opus-4-8"
+      agent_specific:
+        effort: "medium"
+        auth_mode: "oauth"
+
+    models:
+      utility: "gpt-5.6-luna"
+      reasoning: "gpt-5.6-sol"
+
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
+
+    fetch_huggingface_models: false
+
   # ===========================================
   # Quick smoke testing (rel-f1 scale)
   # ===========================================
