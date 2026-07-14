@@ -47,16 +47,25 @@ session's second action (21:11) was `Write PLAN.md` in the workspace root.
 leave the litellm side-channels dead under OAuth-only auth. Ideation relied
 on handler context + fresh reading instead; no visible struggle yet.
 
-**F5 (major, agent planning) — blocking 3h training in a 135-min session.**
-At 21:18 the implementation agent launched `python train.py` as a blocking
-foreground call: 7734 steps at 1.44s/it ≈ 3h06m of training against a session
-deadline 2h06m away (23:24) and a run budget ending 23:37. Two compounding
-errors: (a) no pre-flight duration estimate (steps × s/it was knowable after
-one logging interval), (b) a blocking call surrenders all agency — the agent
-cannot read its own train_log.txt, check timer.sh, or early-stop until the
-deadline kills the whole session at ~step 4600/7734 (~60% of the cosine
-schedule, LR not fully annealed). The budget clamp will contain the damage;
-the plan quality caused it.
+**F5 (agent planning, REVISED after live correction) — training config
+mis-sized, then self-corrected.** At 21:15 the agent launched `python
+train.py` sized at 7734 steps (~3h+ measured) against a 2h06m session cap —
+with no pre-flight duration estimate. It then sat **84 minutes blocked** in
+the foreground call (21:15→22:39) until Claude Code returned control with
+the process still running. At 22:40 the agent read its own log, computed
+"step 2172/7734, ~3 hours total — that's too long", and executed a textbook
+recovery: `pkill train.py` → verified GPU cleared → **copied
+checkpoint-2000 to final_model** → launched an eval on it, with ~40 min of
+session left to iterate. Verdict: the *sizing* error and the *foreground
+launch* are real (S2/S3 stand — a background launch would have enabled the
+same correction ~30-60 min earlier, around checkpoint-2000's creation);
+the recovery shows the handler's final_model/timer discipline working.
+
+**F9 (pass, big one) — mid-run checkpoint promotion is live.** The
+"maintain final_model as best-so-far at all times" instruction produced
+exactly the intended behavior under time pressure: an interrupted training
+run still yielded a submittable model *before* any deadline forced the
+issue, and the agent measured it rather than assuming.
 
 **F6 (pass, discipline) — durable state is excellent.** PLAN.md written as
 the second action; `train_log.txt` streamed; full-model checkpoints (with
