@@ -447,8 +447,15 @@ class EvaluationMaintainer:
         )
 
     def _commit_evaluation(self, message: str) -> None:
+        # The registry is deliberately NOT committed: a tracked registry
+        # rides into every session clone and experiment branch, and the
+        # final checkout then resurrects a stale version over the live
+        # one (observed live: a v2 campaign delivered with its registry
+        # time-traveled back to v1). Campaign state lives at the workspace
+        # root, outside version control; only the evaluation tree — which
+        # sessions and frame runs re-sync from the registered head anyway
+        # — is committed.
         repo = git.Repo(str(self.workspace_dir))
         repo.git.add("-f", [EVALUATION_DIR_NAME])
-        repo.git.add([str(EvaluationRegistry.RELATIVE_PATH)])
         if repo.is_dirty(untracked_files=True):
             repo.git.commit("-m", message)

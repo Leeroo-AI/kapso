@@ -740,6 +740,13 @@ Problem: {problem}"""
         )
         run_started = time.monotonic()
         with self.workspace.materialize_ref(target.branch_name) as worktree:
+            # The branch's own evaluation tree is whatever version its
+            # session ran under — a frame run trusting it would execute a
+            # RETIRED evaluator while labeling the attempt with the head's
+            # id (observed live: a bridge labeled v2 executed the branch's
+            # v1 tree). The registered head is the only ruler frame runs
+            # execute.
+            self._sync_registered_evaluation(worktree)
             if self.registered_data_manifest:
                 data_problem = verify_data_manifest(
                     worktree, self.registered_data_manifest

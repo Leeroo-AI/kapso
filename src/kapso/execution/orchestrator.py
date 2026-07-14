@@ -1374,6 +1374,35 @@ class OrchestratorAgent:
                     break
 
                 if reserve_run_pending:
+                    # The escrowed measurement is kapso-owned: whatever the
+                    # agent self-reported, the authoritative FULL score of
+                    # the reserve artifact comes from a frame run (the live
+                    # reserve run did real 0.9-class work whose self-report
+                    # died with a killed feedback call, landing score=None).
+                    if (
+                        node is not None
+                        and self.search_strategy.registered_evaluator_id
+                    ):
+                        measured = self.search_strategy.run_bridge_evaluation(
+                            node,
+                            fidelity="full",
+                            fraction=1.0,
+                            deadline_seconds=(
+                                max(
+                                    0.0,
+                                    self.budget_spec.time_budget_seconds
+                                    - self.get_elapsed_seconds(),
+                                )
+                                if self.budget_spec.time_budget_seconds
+                                is not None
+                                else None
+                            ),
+                        )
+                        print(
+                            "[Orchestrator] Reserve measurement "
+                            f"{'recorded' if measured else 'failed'} for "
+                            f"node {node.node_id}"
+                        )
                     print(
                         "[Orchestrator] Reserve run complete — stopping "
                         "with the finalization window honored"

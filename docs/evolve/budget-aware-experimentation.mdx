@@ -1042,6 +1042,19 @@ defects, every one found by an actual failing campaign and fixed with a pinned t
     (maintainer-as-runner); until then it is a registration contract plus prompt-level
     governance, and the vector is documented rather than assumed closed.
 
+11. **Evaluation state time-traveled through git.** The maintainer committed the
+    registry; session clones and experiment branches carried stale copies; the final
+    checkout then resurrected a v1 registry over the live v2 — and, deeper, frame runs
+    executed `kapso_evaluation/` from the *branch's* tree, so a bridge labeled with the
+    v2 id actually ran the branch's v1 evaluator, silently violating the comparability
+    class. Three-part fix: the registry is never tracked (campaign state lives at the
+    workspace root, outside version control); frame runs overlay the registered head
+    into the worktree before executing (the ruler is never the branch's copy); and the
+    escrowed reserve measurement is kapso-owned — after the reserve iteration, the
+    orchestrator frame-runs the FULL evaluation on the new artifact rather than trusting
+    the agent's self-report (whose feedback call had died at its timeout, landing the
+    reserve node scoreless despite real 0.9-class work).
+
 Two live observations recorded, not yet acted on: deadline-killed agent calls report $0
 (the CLI emits cost only in its terminal event — the cost floor is real and biased low
 exactly on kills), and the first campaign produced a wildly discordant calibration pair

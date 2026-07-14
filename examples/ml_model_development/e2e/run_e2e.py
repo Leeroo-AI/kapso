@@ -504,7 +504,7 @@ def check_artifact(
     nodes = checkpoint.get("strategy_state", {}).get("node_history", [])
     any_scored = any(node.get("score") is not None for node in nodes)
     evidence.append(f"checked_out={present} head={head} scored={any_scored}")
-    if len(present) != 2:
+    if len(present) != len(required):
         return False
     if any_scored:
         return head.startswith("generic_exp_")

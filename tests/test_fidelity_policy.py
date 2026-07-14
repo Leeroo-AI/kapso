@@ -252,6 +252,14 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    workspace_root = tmp_path / "workspace_root"
+    (workspace_root / "kapso_evaluation").mkdir(parents=True)
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
+        "HEAD = 1\n"
+    )
+    strategy.workspace_dir = str(workspace_root)
+    worktree = tmp_path / "frame_worktree"
+    worktree.mkdir()
 
     class FakeWorkspace:
         repo = SimpleNamespace(
@@ -260,7 +268,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
 
         @contextmanager
         def materialize_ref(self, ref):
-            yield str(tmp_path)
+            yield str(worktree)
 
     strategy.workspace = FakeWorkspace()
 
@@ -390,6 +398,13 @@ def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
     # minutes on the clock.
     reserve_snapshot = orchestrator.search_strategy.budget_snapshot
     assert reserve_snapshot.finalization_reserve_seconds == 0.0
+    # The escrowed measurement is kapso-owned: the reserve node's FULL
+    # score comes from a frame run, not the agent's self-report (the live
+    # reserve artifact did 0.9-class work whose self-report died with a
+    # killed feedback call).
+    reserve_measurement = orchestrator.search_strategy.bridge_calls[-1]
+    assert reserve_measurement["fidelity"] == "full"
+    assert reserve_measurement["fraction"] == 1.0
 
 
 def test_fidelity_off_grants_full_passthrough(tmp_path, monkeypatch):
@@ -422,6 +437,14 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    workspace_root = tmp_path / "workspace_root"
+    (workspace_root / "kapso_evaluation").mkdir(parents=True)
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
+        "HEAD = 1\n"
+    )
+    strategy.workspace_dir = str(workspace_root)
+    worktree = tmp_path / "frame_worktree"
+    worktree.mkdir()
 
     class FakeWorkspace:
         repo = SimpleNamespace(
@@ -430,7 +453,7 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
 
         @contextmanager
         def materialize_ref(self, ref):
-            yield str(tmp_path)
+            yield str(worktree)
 
     strategy.workspace = FakeWorkspace()
 
@@ -496,6 +519,12 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = build_data_manifest(honest, ["data"])
+    workspace_root = tmp_path / "workspace_root"
+    (workspace_root / "kapso_evaluation").mkdir(parents=True)
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
+        "HEAD = 1\n"
+    )
+    strategy.workspace_dir = str(workspace_root)
 
     rigged = tmp_path / "rigged"
     (rigged / "data").mkdir(parents=True)
