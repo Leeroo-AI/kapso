@@ -47,9 +47,53 @@ session's second action (21:11) was `Write PLAN.md` in the workspace root.
 leave the litellm side-channels dead under OAuth-only auth. Ideation relied
 on handler context + fresh reading instead; no visible struggle yet.
 
+**F5 (major, agent planning) — blocking 3h training in a 135-min session.**
+At 21:18 the implementation agent launched `python train.py` as a blocking
+foreground call: 7734 steps at 1.44s/it ≈ 3h06m of training against a session
+deadline 2h06m away (23:24) and a run budget ending 23:37. Two compounding
+errors: (a) no pre-flight duration estimate (steps × s/it was knowable after
+one logging interval), (b) a blocking call surrenders all agency — the agent
+cannot read its own train_log.txt, check timer.sh, or early-stop until the
+deadline kills the whole session at ~step 4600/7734 (~60% of the cosine
+schedule, LR not fully annealed). The budget clamp will contain the damage;
+the plan quality caused it.
+
+**F6 (pass, discipline) — durable state is excellent.** PLAN.md written as
+the second action; `train_log.txt` streamed; full-model checkpoints (with
+config.json + tokenizer) every 500 steps under
+`artifacts/exp1-metamathqa-sft/`. A deadline kill loses the process, not the
+weights: checkpoint-4500-ish will exist.
+
+**F7 (harness bug, found by this review) — consolidation scan too shallow.**
+`consolidate_final_model()` only checks `artifacts/*/` for `config.json`;
+Trainer checkpoints live one level deeper (`artifacts/<exp>/checkpoint-N/`),
+so the runner's fallback would MISS them in exactly this scenario. Recovery
+in run #7 depends on the agent (or a short iteration 2 driven by feedback)
+promoting a checkpoint to final_model. Fix queued: bounded-depth recursive
+scan preferring the newest loadable dir.
+
+**F8 (observability) — long tool calls blind the external trace.** 80+
+minutes of stream silence during training; only SSH + nvidia-smi + artifact
+listing distinguished "working" from "hung". The agent-side files (PLAN.md,
+train_log.txt) were the reliable signal — the monitor should read them.
+
 ## Suggestions backlog
 
 **S1.** Add a multi-zone/multi-region fallback ladder to `10_launch_run.sh`
 (us-central1-a/b/c → us-east4/5, us-west1/4) for evening-hours capacity;
 alternatively schedule sweeps in the UTC-morning window where the queue was
 ~50s.
+
+**S2 (handler prompt).** Long-running commands must not block the session:
+instruct the agent to launch training with `nohup … &`, then poll its log in
+a loop that also checks `timer.sh`, so it can early-stop, adjust, or promote
+a checkpoint when the clock demands it.
+
+**S3 (handler prompt).** Require a duration pre-flight before full training:
+run ~50 steps, measure s/it, set `max_steps` (or sample count) so projected
+time ≤ 60% of the session's remaining runway. (Same philosophy as kapso's
+new fidelity timing model, applied at the agent level.)
+
+**S4 (harness).** Fix `consolidate_final_model` depth (F7); extend the run
+monitor to report artifacts/ checkpoint count + train_log tail each beat
+(F8).
