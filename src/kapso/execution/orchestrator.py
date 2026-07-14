@@ -1216,6 +1216,27 @@ class OrchestratorAgent:
                             "escrowed full-size attempt before stopping"
                         )
                         reserve_run_pending = True
+                        # The reserve run SPENDS the escrow: its snapshot
+                        # releases the reserve so agent deadlines clamp
+                        # against the true remaining wall instead of
+                        # collapsing to the floor (observed live: the
+                        # escrowed iteration's ideation was killed at 60s
+                        # with 18 escrowed minutes on the clock).
+                        snapshot = BudgetSnapshot(
+                            iteration_index=i,
+                            max_iterations=experiment_max_iter,
+                            elapsed_seconds=self.get_elapsed_seconds(),
+                            cost_usd=self.get_cumulative_cost(),
+                            time_budget_seconds=(
+                                budget_spec.time_budget_seconds
+                            ),
+                            cost_budget_usd=budget_spec.cost_budget_usd,
+                            finalization_reserve_seconds=0.0,
+                            min_agent_timeout_seconds=(
+                                budget_spec.min_agent_timeout_seconds
+                            ),
+                        )
+                        self.search_strategy.observe_budget(snapshot)
                     else:
                         print(
                             "[Orchestrator] Stopping: finalization reserve "

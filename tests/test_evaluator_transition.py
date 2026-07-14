@@ -142,7 +142,12 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
     monkeypatch.setattr(
         strategy_module, "subprocess", fake_eval_subprocess(payload)
     )
-    alive = SearchNode(node_id=1, branch_name="generic_exp_1")
+    # The live requester arrived with evaluation_valid=False (the feedback
+    # generator had voided its measurement under the defective evaluator);
+    # a successful bridge is a fresh trustworthy measurement and restores it.
+    alive = SearchNode(
+        node_id=1, branch_name="generic_exp_1", evaluation_valid=False
+    )
     assert (
         strategy.run_bridge_evaluation(
             alive, fidelity="full", fraction=1.0, deadline_seconds=10
@@ -151,6 +156,7 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
     )
     assert alive.evaluation_attempts[0].evaluator_id == "ev-2"
     assert alive.evaluation_attempts[0].score == 0.37
+    assert alive.evaluation_valid is True
 
 
 # =========================================================================

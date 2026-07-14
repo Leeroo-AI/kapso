@@ -485,7 +485,9 @@ def check_change_request_flow(
     )
 
 
-def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
+def check_artifact(
+    run_dir: Path, checkpoint: dict, evidence: list, *, required: tuple
+) -> bool:
     """The final checkout must actually land on an experiment branch.
 
     File existence alone is not evidence — the baseline files exist on
@@ -493,11 +495,7 @@ def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
     past this check.
     """
     workspace = run_dir / "workspace"
-    present = [
-        name
-        for name in ("train.py", "evaluate.py")
-        if (workspace / name).exists()
-    ]
+    present = [name for name in required if (workspace / name).exists()]
     head = subprocess.run(
         ["git", "-C", str(workspace), "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True,
@@ -600,7 +598,18 @@ def verify(
             ),
             (
                 "artifact_checked_out",
-                lambda ev: check_artifact(run_dir, checkpoint, ev),
+                lambda ev: check_artifact(
+                    run_dir,
+                    checkpoint,
+                    ev,
+                    # The seeded-defect variant replaces evaluate.py with
+                    # the provided grader; it is legitimately absent.
+                    required=(
+                        ("train.py",)
+                        if args.seed_eval_defect
+                        else ("train.py", "evaluate.py")
+                    ),
+                ),
             ),
         ]
     if has_maintainer:

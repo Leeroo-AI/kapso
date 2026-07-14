@@ -852,7 +852,16 @@ Problem: {problem}"""
             fraction=fraction,
             deadline_seconds=deadline_seconds,
         )
-        return score is not None
+        if score is None:
+            return False
+        # A successful bridge is a fresh, frame-run measurement: it
+        # supersedes an evaluation_valid=False verdict that described the
+        # OLD (defective-evaluator) measurement. Without this the live
+        # requester stayed invalid forever — excluded from parenting and
+        # delivery despite carrying an honest new-head score. Tampering
+        # nodes never reach the bridge (integrity errors are filtered).
+        node.evaluation_valid = True
+        return True
 
     def refresh_score_projections(
         self, comparability: ComparabilityClass

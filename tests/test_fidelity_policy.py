@@ -384,6 +384,12 @@ def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
     assert result.iterations_run == 1
     assert result.stopped_reason == "budget_exhausted"
     assert result.stop_detail == "finalization_reserve"
+    # The reserve run SPENDS the escrow: its snapshot releases the reserve
+    # so agent deadlines clamp against the true remaining wall — the live
+    # escrowed iteration was killed at the 60s floor with 18 escrowed
+    # minutes on the clock.
+    reserve_snapshot = orchestrator.search_strategy.budget_snapshot
+    assert reserve_snapshot.finalization_reserve_seconds == 0.0
 
 
 def test_fidelity_off_grants_full_passthrough(tmp_path, monkeypatch):
