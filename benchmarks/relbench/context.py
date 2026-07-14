@@ -338,10 +338,13 @@ for the search is the VALIDATION {spec.primary_metric} ({'higher' if spec.maximi
 is better). Test metrics are computed but hidden from you.
 
 Run modes:
-- `python main.py --debug` must finish in under {spec.debug_timeout // 60} minutes: subsample
-  training work aggressively (e.g. a few thousand training rows, 1 epoch, small model) but
-  STILL produce both full-shape prediction files (cheap/constant predictions are fine for
-  rows you skip). This validates the pipeline end to end.
+- `python main.py --debug` must finish in under {spec.debug_timeout // 60} minutes — it is a
+  pipeline-correctness gate, not a mini training run. HARD RULES for debug mode: at most a
+  few thousand training rows, ONE small model (e.g. <=200 boosting rounds), NO ensembling/
+  stacking/extra folds, and skip any expensive feature block that full mode can rebuild.
+  It must STILL produce both full-shape prediction files (cheap/constant predictions are
+  fine for rows you skip). Exceeding the debug budget kills the run before it ever scores;
+  budget roughly half the limit to be safe.
 - `python main.py` (full mode) must finish in under {spec.full_timeout // 3600:.1f} hours
   including all embedding/feature computation. Budget time explicitly: print elapsed time
   after each phase; leave a safety margin to write predictions.
