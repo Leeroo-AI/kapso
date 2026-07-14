@@ -36,8 +36,10 @@ benchmarks/relbench/
 ├── task_specs.py    # task families, primary metrics (incl. R²/NMAE routing), timeouts
 ├── sandbox.py       # sanitized read-only data cache builder (leak-proofing)
 ├── config.yaml      # search modes (RELBENCH_CONFIGS / HEAVY_EXPERIMENTATION / MINIMAL)
+├── BASELINES.md     # verified per-task numbers + protocols for RelAgent & KumoRFM-ft
 └── data/
     ├── sota.json    # per-task best published numbers (the bar shown to ideation)
+    ├── baselines.json # machine-readable verified baseline numbers (see BASELINES.md)
     └── starter_kit/ # -> workspace kapso_datasets/: contract, self-check, helpers,
                      #    vendored official RelBench examples
 ```
