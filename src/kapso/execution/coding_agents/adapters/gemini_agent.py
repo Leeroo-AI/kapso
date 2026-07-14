@@ -80,7 +80,15 @@ class GeminiCodingAgent(CodingAgentInterface):
         """
         self.workspace = workspace
     
-    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
+    def generate_code(
+        self,
+        prompt: str,
+        debug_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
+        # timeout_seconds: accepted for interface parity; this adapter
+        # runs with its configured timeout (per-call clamping is only
+        # implemented for claude_code today).
         """
         Generate code using Gemini.
         

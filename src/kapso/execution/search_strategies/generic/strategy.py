@@ -37,6 +37,7 @@ from kapso.execution.fidelity import (
 )
 from kapso.execution.evaluation_integrity import verify_data_manifest
 from kapso.execution.evaluation_maintainer.maintainer import (
+    MANIFEST_MARKER,
     evaluation_command,
     parse_manifest_line,
 )
@@ -683,6 +684,52 @@ Problem: {problem}"""
             },
         )
 
+    def _manifest_score_of_record(self, node: SearchNode) -> Optional[float]:
+        """The granted-class score from the session's last manifest line.
+
+        Registered mode only: the wrapper contractually prints one
+        machine-readable KAPSO_EVAL_MANIFEST line per run, so an LLM never
+        has to be the parser of record (two live nodes lost real
+        measurements to a killed feedback call). The line is model
+        output: a present-but-malformed manifest raises. A well-formed
+        line for a different class — the agent ran a custom fraction or
+        the wrong fidelity — is not this node's canonical measurement and
+        returns None (documented default).
+        """
+        if not self.registered_evaluation_command:
+            return None
+        output = node.evaluation_output or ""
+        last_line = None
+        for line in output.splitlines():
+            if line.strip().startswith(MANIFEST_MARKER):
+                last_line = line.strip()
+        if last_line is None:
+            return None
+        manifest = parse_manifest_line(last_line)
+        decision = self.fidelity_decision
+        granted_fidelity = (
+            decision.eval_fidelity if decision is not None else "full"
+        )
+        granted_fraction = (
+            decision.eval_fraction if decision is not None else 1.0
+        )
+        if (
+            manifest["fidelity"] != granted_fidelity
+            or abs(float(manifest["fraction"]) - granted_fraction) > 1e-9
+            or int(manifest["seed"]) != self.registered_subsample_seed
+        ):
+            print(
+                "[GenericSearch] Manifest class mismatch: granted "
+                f"{granted_fidelity}/{granted_fraction}/"
+                f"{self.registered_subsample_seed}, session ran "
+                f"{manifest['fidelity']}/{manifest['fraction']}/"
+                f"{manifest['seed']} — no mechanical score of record"
+            )
+            return None
+        if "score" not in manifest:
+            return None
+        return float(manifest["score"])
+
     def _record_evaluation_attempt(self, node: SearchNode) -> None:
         """Append the node's measurement under the registered evaluator.
 
@@ -1104,8 +1151,11 @@ Problem: {problem}"""
                 evaluation_script_path=node.evaluation_script_path,
                 evaluation_result=node.evaluation_output,
                 workspace_dir=node.workspace_dir,
+                timeout_seconds=self._clamped_timeout(
+                    self.feedback_generator.configured_timeout_seconds
+                ),
             )
-            
+
             # Update node with feedback results
             node.feedback = feedback_result.feedback
             node.evaluation_valid = feedback_result.evaluation_valid
@@ -1114,6 +1164,22 @@ Problem: {problem}"""
                 if feedback_result.evaluation_valid
                 else None
             )
+            # In registered mode the manifest line is the score of record;
+            # the judge's extraction is a cross-check, and the judge keeps
+            # its validity power (an invalid evaluation stays scoreless).
+            manifest_score = self._manifest_score_of_record(node)
+            if manifest_score is not None and node.evaluation_valid:
+                if (
+                    node.score is not None
+                    and abs(node.score - manifest_score) > 1e-6
+                ):
+                    print(
+                        "[GenericSearch] Score cross-check: feedback "
+                        f"extracted {node.score}, the manifest says "
+                        f"{manifest_score}; the manifest is the score "
+                        "of record"
+                    )
+                node.score = manifest_score
             node.should_stop = (
                 feedback_result.stop and feedback_result.evaluation_valid
             )

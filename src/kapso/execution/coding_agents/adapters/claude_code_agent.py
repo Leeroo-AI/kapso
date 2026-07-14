@@ -375,14 +375,22 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         
         return config_path
     
-    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
+    def generate_code(
+        self,
+        prompt: str,
+        debug_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
         """
         Generate code using Claude Code CLI.
-        
+
         Args:
             prompt: The implementation or debugging instructions
             debug_mode: If True, use debug model
-            
+            timeout_seconds: Per-call deadline override; the configured
+                timeout applies when None. This is how budget clamps reach
+                individual calls on a long-lived agent.
+
         Returns:
             CodingResult with Claude Code's response
         """
@@ -392,24 +400,27 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 output="",
                 error="Agent not initialized. Call initialize() first."
             )
-        
+
         model = self.config.debug_model if debug_mode else self.config.model
-        
+        effective_timeout = (
+            timeout_seconds if timeout_seconds is not None else self._timeout
+        )
+
         try:
             # Use streaming or buffered mode
             if self._streaming:
                 # Build command inside _run_streaming with stream-json
                 cmd = self._build_command(prompt, model, use_stream_json=False)  # placeholder
-                return self._run_streaming(cmd, model)
+                return self._run_streaming(cmd, model, effective_timeout)
             else:
                 cmd = self._build_command(prompt, model, use_stream_json=False)
-                return self._run_buffered(cmd, model)
-            
+                return self._run_buffered(cmd, model, effective_timeout)
+
         except subprocess.TimeoutExpired:
             return CodingResult(
                 success=False,
                 output="",
-                error=f"Claude Code CLI timed out after {self._timeout} seconds"
+                error=f"Claude Code CLI timed out after {effective_timeout} seconds"
             )
         except Exception as e:
             return CodingResult(
@@ -418,14 +429,16 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 error=str(e)
             )
     
-    def _run_buffered(self, cmd: List[str], model: str) -> CodingResult:
+    def _run_buffered(
+        self, cmd: List[str], model: str, timeout_seconds: Optional[float]
+    ) -> CodingResult:
         """Run Claude Code CLI in buffered mode (no live output)."""
         result = subprocess.run(
             cmd,
             cwd=self.workspace,
             capture_output=True,
             text=True,
-            timeout=self._timeout,
+            timeout=timeout_seconds,
             env=self._get_env()
         )
         
@@ -463,7 +476,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             }
         )
     
-    def _run_streaming(self, cmd: List[str], model: str) -> CodingResult:
+    def _run_streaming(
+        self, cmd: List[str], model: str, timeout_seconds: Optional[float]
+    ) -> CodingResult:
         """
         Run Claude Code CLI with live streaming output using stream-json format.
         
@@ -583,12 +598,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 # start_new_session above; a target that exits between poll and
                 # killpg raises and fails loud (accepted race, see design doc).
                 if (
-                    self._timeout is not None
-                    and time.time() - start_time >= self._timeout
+                    timeout_seconds is not None
+                    and time.time() - start_time >= timeout_seconds
                 ):
                     deadline_exceeded = True
                     print(
-                        f"{c['yellow']}  Deadline of {self._timeout}s reached — "
+                        f"{c['yellow']}  Deadline of {timeout_seconds}s reached — "
                         f"terminating Claude Code{c['reset']}",
                         flush=True,
                     )
@@ -663,7 +678,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     success=False,
                     output="\n".join(assistant_texts),
                     error=(
-                        f"Claude Code CLI exceeded its {self._timeout}s "
+                        f"Claude Code CLI exceeded its {timeout_seconds}s "
                         f"deadline and was terminated"
                     ),
                     cost=total_cost,
