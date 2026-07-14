@@ -377,6 +377,20 @@ class RelBenchHandler(ProblemHandler):
 
     def _run_command(self, cwd, command, timeout, env) -> Tuple[bool, str, float]:
         start = time.time()
+
+        def _child_guard():
+            # Shared box: keep evaluation children polite and bounded.
+            # Low CPU priority + a hard address-space ceiling well under
+            # system RAM so a runaway candidate OOMs itself, not the host.
+            os.nice(10)
+            try:
+                import resource
+
+                limit = int(os.getenv("RELBENCH_CHILD_MEM_BYTES", 20 * 1024**3))
+                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+            except Exception:
+                pass
+
         process = subprocess.Popen(
             command,
             cwd=cwd,
@@ -388,6 +402,7 @@ class RelBenchHandler(ProblemHandler):
             env=env,
             bufsize=1,
             start_new_session=True,
+            preexec_fn=_child_guard,
         )
         lines: List[str] = []
         killed = False
