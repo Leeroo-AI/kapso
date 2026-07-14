@@ -31,16 +31,20 @@ modes:
         per_step_maximum_solution_count: 10
         exploration_budget_percent: 40
         # Selection + pruning use idea_generation_model; ideation generates
-        # with EVERY ensemble model and pools the solutions.
+        # with EVERY ensemble model and pools the solutions. The Opus leg
+        # routes through AWS Bedrock (auth: AWS_BEARER_TOKEN_BEDROCK +
+        # AWS_REGION in the environment; litellm reads the bearer token
+        # natively for bedrock/ model routes).
         idea_generation_model: "gpt-5.6-sol"
         idea_generation_ensemble_models:
           - "gpt-5.6-sol"
-          - "claude-opus-4-8"
+          - "bedrock/us.anthropic.claude-opus-4-8-v1"
 
     # claude_code executes and self-tests code during implementation (safe:
     # the handler exports the sanitized cache env process-wide). auth_mode
-    # oauth pins the agent to the CLI login even when ANTHROPIC_API_KEY is
-    # set for the LiteLLM ideation calls. Fallback: `-d aider`.
+    # oauth pins the agent to the CLI login (subscription); to bill the agent
+    # through Bedrock as well, switch to auth_mode: "bedrock" and model
+    # "us.anthropic.claude-opus-4-8-v1" (uses AWS_BEARER_TOKEN_BEDROCK).
     coding_agent:
       type: "claude_code"
       model: "claude-opus-4-8"
