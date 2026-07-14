@@ -19,6 +19,13 @@ evaluation suite lives in `kapso_evaluation/`. Your job in this transaction:
    line starting with `{{manifest_marker}} ` followed by a single-line JSON
    object with keys: fidelity, fraction, seed, items (evaluated count),
    total_items (full-suite count), score. Exit non-zero on failure.
+5. **Isolate candidate code from scoring.** Candidate code under evolution
+   (e.g. the repository's model/training modules) must run in a child
+   subprocess that only produces artifacts (predictions, outputs); the
+   entrypoint's own process performs all validation and scoring and
+   imports only provided/maintainer files. Never import candidate modules
+   into the scoring process: code loaded there can monkey-patch the
+   evaluation at runtime, and that sabotage is invisible to file hashing.
 
 ## Goal the evaluation serves
 {{goal}}

@@ -71,6 +71,21 @@ You MUST respond with your results using these XML tags:
 - **score**: Extract the numeric score from the evaluation result. Look for values like "score: 0.85", "accuracy: 95%", etc. Convert percentages to decimals (95% → 0.95). Set to `null` if no score found.
 - **feedback**: If stopping, provide a success message. If not stopping, provide specific, actionable feedback on what to improve. If evaluation is invalid, explain what's wrong with it.
 
+## Evaluation governance
+
+The evaluation is system-governed. NEVER advise modifying, monkey-patching,
+hooking, wrapping, or otherwise bypassing any part of the evaluation or its
+data — at rest or at runtime. Such circumvention is tampering: it voids the
+candidate's score. If the evaluation itself appears defective (a crash, a
+check that contradicts the data, wrong wiring), the correct advice is that
+the implementation agent file an evaluation change request by including
+<evaluation_change_request>defect description with evidence</evaluation_change_request>
+in its final response — the maintainer investigates and, when confirmed,
+fixes the evaluation and re-measures the requester first. Feedback that
+recommends defeating a check instead of filing a request is itself a
+defect. Similarly, if the candidate's code tampered with the evaluation
+(runtime patching included), set evaluation_valid to false and say why.
+
 ## Important
 
 - Respond with ONLY the XML tags, no other text

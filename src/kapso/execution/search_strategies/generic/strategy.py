@@ -881,13 +881,20 @@ Problem: {problem}"""
 
 1. **Run the registered evaluation**: `{self.registered_evaluation_command}`
    and capture its full output, including the KAPSO_EVAL_MANIFEST line.
-2. **Never modify anything under `kapso_evaluation/`** — any change there is
-   detected mechanically and voids this experiment's score.
-3. **If you believe the evaluation itself is broken**, do not fix it. File a
-   request by including this tag in your final response:
+2. **Never alter evaluation behavior — at rest or at runtime.** Editing
+   anything under `kapso_evaluation/`, rewriting protected data inputs,
+   monkey-patching or hooking evaluation modules from your own code
+   (e.g. via imports, `sys.modules`, or wrappers), or otherwise
+   circumventing any evaluation check all count as tampering: the score
+   is voided and the experiment loses. There is no sanctioned bypass.
+3. **If you believe the evaluation itself is broken**, do not fix it,
+   patch it, or route around it. File a request by including this tag in
+   your final response:
    <evaluation_change_request>concrete description of the defect, with the
    exact error output as evidence</evaluation_change_request>
-   Then still report your results from the run you attempted.
+   Then still report your results from the run you attempted. The
+   maintainer investigates immediately; a confirmed defect is fixed and
+   your work is re-measured first under the corrected evaluation.
 4. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
     def _clamped_timeout(self, configured_seconds: float) -> float:

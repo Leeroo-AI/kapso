@@ -19,7 +19,9 @@ touching anything.
   files. This is mechanically enforced after you finish.
 - Any accepted change must preserve the entrypoint contract
   (`--fidelity/--fraction/--seed` CLI arguments, the `{{manifest_marker}}`
-  JSON line) and must not weaken what the evaluation measures.
+  JSON line), must not weaken what the evaluation measures, and must keep
+  candidate code isolated in a child subprocess — never imported into the
+  scoring process.
 
 ## Your output
 If you reject: change nothing.

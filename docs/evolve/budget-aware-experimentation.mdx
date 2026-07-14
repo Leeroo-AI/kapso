@@ -1025,6 +1025,23 @@ defects, every one found by an actual failing campaign and fixed with a pinned t
    and resume fails loudly on mismatched inputs. The feedback generator had diagnosed the
    hack in prose while the 1.0 stood: deterrence describes, enforcement decides.
 
+10. **A second live reward hack: runtime evaluator sabotage — with the feedback
+    generator coaching it.** With data tampering closed, the next campaign's agent
+    monkey-patched the defective guard *in memory*: candidate code (train.py) executes
+    inside the grader's process, so it neutered `validate_submission` via module hooking —
+    invisible to file hashing, since nothing at rest changed. The feedback generator then
+    explicitly advised the next iteration to "bypass or neutralize this check". Three
+    layers landed: the implementation instructions now define tampering behaviorally
+    (at rest or at runtime — patching, hooking, wrapping, circumventing) with the CR as
+    the only channel; the feedback prompt gains an evaluation-governance section (never
+    advise bypassing; recommend the CR; tampered candidates are invalid); and the
+    maintainer's setup/CR prompts mandate **stage isolation** — candidate code runs in a
+    child subprocess that only produces artifacts, scoring happens in the entrypoint's
+    process importing only maintainer/provided files. Mechanical verification of the
+    isolation property is deferred to the Kapso-owned evaluation runner
+    (maintainer-as-runner); until then it is a registration contract plus prompt-level
+    governance, and the vector is documented rather than assumed closed.
+
 Two live observations recorded, not yet acted on: deadline-killed agent calls report $0
 (the CLI emits cost only in its terminal event — the cost floor is real and biased low
 exactly on kills), and the first campaign produced a wildly discordant calibration pair
