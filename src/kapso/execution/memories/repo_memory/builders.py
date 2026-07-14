@@ -364,10 +364,11 @@ def _complete_repo_model(
     for attempt in range(max_retries + 1):
         # Provider, authentication, and transport failures intentionally escape
         # this loop. Only response parsing/schema failures are retryable.
+        # temperature is left at the backend default: reasoning-first models
+        # (e.g. the gpt-5.6 family) reject explicit temperature=0.
         response = llm.llm_completion(
             model=model,
             messages=messages,
-            temperature=0,
         )
         try:
             return _validate_repo_model(_extract_json(response))
@@ -419,7 +420,6 @@ def plan_files_to_read(
         llm.llm_completion(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0,
         )
     )
     chosen = []
