@@ -336,16 +336,40 @@ class FidelityPolicy:
         self,
         *,
         spec: FidelitySpec,
-        evaluator_id: str,
-        subsample_seed: int,
-        full_eval_upper_seconds: float,
-        fast_eval_upper_seconds: float,
+        strategy: Any,
+        maintainer: Any,
     ):
+        """Providers, not frozen values.
+
+        The policy reads the evaluator head and the timing uppers LIVE
+        from the strategy and the maintainer: a mid-campaign change
+        request re-registers the evaluator and re-calibrates timing, and
+        a policy that froze either at construction keeps judging
+        champions, counters, and affordability under a retired ruler.
+        """
         self.spec = spec
-        self.evaluator_id = evaluator_id
-        self.subsample_seed = subsample_seed
-        self.full_eval_upper_seconds = float(full_eval_upper_seconds)
-        self.fast_eval_upper_seconds = float(fast_eval_upper_seconds)
+        self._strategy = strategy
+        self._maintainer = maintainer
+
+    @property
+    def evaluator_id(self) -> str:
+        return self._strategy.registered_evaluator_id
+
+    @property
+    def subsample_seed(self) -> int:
+        return self._strategy.registered_subsample_seed
+
+    @property
+    def full_eval_upper_seconds(self) -> float:
+        return float(self._maintainer.timing(1.0).upper_seconds)
+
+    @property
+    def fast_eval_upper_seconds(self) -> float:
+        return float(
+            self._maintainer.timing(
+                self.spec.eval_fast_fraction
+            ).upper_seconds
+        )
 
     # -- derived arithmetic ------------------------------------------------
 

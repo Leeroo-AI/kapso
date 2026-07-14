@@ -66,7 +66,11 @@ def validated_node(node_id, fast_score, full_score):
     return node
 
 
-def make_policy(**spec_overrides):
+def make_policy(
+    full_eval_upper_seconds=100.0,
+    fast_eval_upper_seconds=20.0,
+    **spec_overrides,
+):
     spec_kwargs = dict(
         mode="on",
         build_fast_fraction=0.10,
@@ -79,12 +83,28 @@ def make_policy(**spec_overrides):
     )
     spec_kwargs.update(spec_overrides)
     spec = FidelitySpec(**spec_kwargs)
+
+    # Provider stubs standing in for the strategy and maintainer: the
+    # policy reads the evaluator head and timing uppers live, never
+    # frozen copies.
+    strategy_stub = SimpleNamespace(
+        registered_evaluator_id="ev-1",
+        registered_subsample_seed=1337,
+    )
+
+    def timing(fraction):
+        upper = (
+            full_eval_upper_seconds
+            if abs(fraction - 1.0) < 1e-9
+            else fast_eval_upper_seconds
+        )
+        return SimpleNamespace(
+            expected_seconds=upper, upper_seconds=upper
+        )
+
+    maintainer_stub = SimpleNamespace(timing=timing)
     return FidelityPolicy(
-        spec=spec,
-        evaluator_id="ev-1",
-        subsample_seed=1337,
-        full_eval_upper_seconds=100.0,
-        fast_eval_upper_seconds=20.0,
+        spec=spec, strategy=strategy_stub, maintainer=maintainer_stub
     )
 
 
@@ -630,3 +650,32 @@ def test_champion_shrink_returns_escrow_to_the_search_window(
     assert final_snapshot.finalization_reserve_seconds == pytest.approx(
         min(0.45 * 3600, full_upper)
     )
+
+
+def test_policy_tracks_the_live_evaluator_head_and_timing():
+    """The policy reads providers, never frozen copies: after a change
+    request re-registers the evaluator and re-calibrates timing, champion
+    recognition and affordability must follow the new head immediately —
+    a frozen policy kept judging under the retired ruler.
+    """
+    policy = make_policy()
+
+    v1_champion = SearchNode(node_id=0, build_fidelity="full")
+    v1_champion.evaluation_attempts = [
+        attempt(fidelity="full", fraction=1.0, score=0.6)
+    ]
+    assert policy.full_champion([v1_champion]) is v1_champion
+
+    # The transition: strategy adopts the new head. The v1 champion's
+    # measurement is retired with it — and the escrow re-inflates.
+    policy._strategy.registered_evaluator_id = "ev-2"
+    assert policy.full_champion([v1_champion]) is None
+    assert policy.effective_reserve_seconds(
+        3600.0, [v1_champion]
+    ) == pytest.approx(0.45 * 3600)
+
+    # Re-calibration under v2 flows through the timing provider.
+    policy._maintainer.timing = lambda fraction: SimpleNamespace(
+        expected_seconds=300.0, upper_seconds=300.0
+    )
+    assert policy.full_eval_upper_seconds == 300.0

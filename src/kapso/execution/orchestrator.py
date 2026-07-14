@@ -1101,18 +1101,10 @@ class OrchestratorAgent:
             self.fidelity_spec.mode != "off"
             and self.evaluation_maintainer is not None
         ):
-            timing_full = self.evaluation_maintainer.timing(1.0)
-            timing_fast = self.evaluation_maintainer.timing(
-                self.fidelity_spec.eval_fast_fraction
-            )
             fidelity_policy = FidelityPolicy(
                 spec=self.fidelity_spec,
-                evaluator_id=(
-                    self.search_strategy.registered_evaluator_id
-                ),
-                subsample_seed=self.evaluation_maintainer.subsample_seed,
-                full_eval_upper_seconds=timing_full.upper_seconds,
-                fast_eval_upper_seconds=timing_fast.upper_seconds,
+                strategy=self.search_strategy,
+                maintainer=self.evaluation_maintainer,
             )
             fidelity_active = fidelity_policy.enabled(
                 budget_spec.time_budget_seconds
