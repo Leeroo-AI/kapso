@@ -57,10 +57,6 @@ _FRAME_RUN_KILL_GRACE_SECONDS = 2.0
 
 PARENT_POLICIES = frozenset({"best", "baseline"})
 
-# A deadline-killed ideation whose streamed text is shorter than this holds
-# no consumable plan; the explicit fallback is more honest than salvage.
-MIN_IDEATION_SALVAGE_CHARS = 200
-
 # Byte-identical to the pre-maintainer template text: rendered whenever no
 # maintainer-registered evaluation exists, keeping default prompts unchanged.
 DEFAULT_EVALUATION_INSTRUCTIONS = """You MUST build and run evaluation in `kapso_evaluation/` directory:
@@ -123,10 +119,7 @@ class GenericSearch(SearchStrategy):
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
         - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
           (default: warn)
-        - parent_policy: Parent branch selection: best or baseline (default: best).
-          Under `best`, before any validly evaluated node exists, the latest
-          committed non-error, non-tampered node is used so in-progress work
-          continues in place; `main` only when no committed work exists.
+        - parent_policy: Parent branch selection: best or baseline (default: best)
         - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
         - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
     """
@@ -435,18 +428,6 @@ class GenericSearch(SearchStrategy):
                     logger.warning(
                         f"[GenericSearch] Ideation failed: {result.error}"
                     )
-                    salvaged = self._salvage_ideation_output(result)
-                    if salvaged is not None:
-                        print(
-                            "[GenericSearch] Salvaged partial output "
-                            f"({len(salvaged)} chars) from the "
-                            "deadline-terminated ideation session"
-                        )
-                        return (
-                            salvaged,
-                            self._extract_sections_consulted(result.output),
-                            telemetry,
-                        )
                     return self._fallback_solution(problem), [], telemetry
 
                 solution = self._extract_solution_from_output(result.output)
@@ -513,30 +494,6 @@ class GenericSearch(SearchStrategy):
                 result.append(s)
         return result
     
-    def _salvage_ideation_output(self, result) -> Optional[str]:
-        """Recover a deadline-terminated ideation's partial output.
-
-        Only deadline kills are salvageable: the session was mid-work and
-        its streamed text is the research and draft plan produced so far —
-        discarding it forces the next phase to redo that work (a live run
-        lost 30 minutes of research exactly this way). Non-deadline
-        failures keep the fallback path: their output is error noise, not
-        a plan.
-        """
-        if not result.metadata.get("deadline_exceeded"):
-            return None
-        partial = (result.output or "").strip()
-        if len(partial) < MIN_IDEATION_SALVAGE_CHARS:
-            return None
-        return (
-            "# Salvaged from a deadline-terminated ideation session\n"
-            "The ideation agent hit its deadline before emitting a final "
-            "solution. The notes below are its partial output: treat them "
-            "as research findings plus a draft plan, and turn them into an "
-            "implementation directly instead of re-deriving them.\n\n"
-            f"{self._extract_solution_from_output(partial)}"
-        )
-
     def _fallback_solution(self, problem: str) -> str:
         """Generate a fallback solution when Claude Code ideation fails."""
         return f"""# Core Idea
@@ -1068,32 +1025,12 @@ Problem: {problem}"""
             return ParentSelection(branch_name="main", node_id=None)
 
         best = self.get_best_experiment()
-        if best is not None:
-            return ParentSelection(
-                branch_name=best.branch_name,
-                node_id=best.node_id,
-            )
-
-        # No validly evaluated node exists yet. Committed-but-unevaluated
-        # work (a deadline-killed implementation, an evaluation that never
-        # ran) is still real progress; branching from `main` strands it on
-        # its branch and the next iteration redoes it. Integrity-flagged
-        # candidates stay excluded — never build on an evaluator tamperer.
-        committed = [
-            node
-            for node in self.node_history
-            if not node.had_error
-            and not node.evaluation_integrity_error
-            and node.code_diff.strip()
-            and node.branch_name
-        ]
-        if committed:
-            latest = max(committed, key=lambda node: node.node_id)
-            return ParentSelection(
-                branch_name=latest.branch_name,
-                node_id=latest.node_id,
-            )
-        return ParentSelection(branch_name="main", node_id=None)
+        if best is None:
+            return ParentSelection(branch_name="main", node_id=None)
+        return ParentSelection(
+            branch_name=best.branch_name,
+            node_id=best.node_id,
+        )
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Return all nodes, optionally sorted by score."""

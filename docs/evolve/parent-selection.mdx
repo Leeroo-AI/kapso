@@ -22,7 +22,7 @@ modes:
 
 | Policy | Selected branch | Recorded `parent_node_id` | Use case |
 |--------|-----------------|---------------------------|----------|
-| `best` | Best valid candidate; before one exists, the latest committed non-error node (deadline-killed work continues in place); `main` only when nothing is committed | Selected candidate's node ID, or `null` for `main` | Iterative refinement and exploitation |
+| `best` | Best valid candidate, or `main` before one exists | Selected candidate's node ID, or `null` for `main` | Iterative refinement and exploitation |
 | `baseline` | Always `main` | Always `null` | Independent experiments and broader exploration |
 
 The default is `best`, preserving the behavior of existing generic-search
