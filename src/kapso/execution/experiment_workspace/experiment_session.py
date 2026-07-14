@@ -113,10 +113,14 @@ class ExperimentSession:
         # CRITICAL: Checkout parent branch first (inherit parent's code)
         self.repo.git.checkout(parent_branch_name)
 
-        # Create new branch from parent
-        if branch_name in [ref.name for ref in self.repo.heads]:
-            self.repo.git.branch("-D", branch_name)
-        self.repo.git.checkout('-b', branch_name)
+        # Create new branch from parent. When the session runs directly on the
+        # parent branch (e.g. the benchmark workspace bootstrap uses
+        # branch_name == parent_branch_name == "main"), there is no corpse to
+        # clear and deleting the checked-out branch is invalid — stay on it.
+        if branch_name != parent_branch_name:
+            if branch_name in [ref.name for ref in self.repo.heads]:
+                self.repo.git.branch("-D", branch_name)
+            self.repo.git.checkout('-b', branch_name)
         
         # Record the base commit SHA for this experiment branch.
         # This is the exact repo state we "started from" (inherited from parent_branch_name).

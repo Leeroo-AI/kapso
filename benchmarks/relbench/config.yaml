@@ -34,9 +34,12 @@ modes:
           - "gpt-5"
           - "gpt-5"
 
+    # claude_code executes and self-tests code during implementation (safe:
+    # the handler exports the sanitized cache env process-wide). Fallback:
+    # `-d aider` (gpt-5-mini, edit-only) if no Claude credentials exist.
     coding_agent:
-      type: "aider"
-      model: "gpt-5-mini"
+      type: "claude_code"
+      model: "claude-opus-4-5"
 
     knowledge_search:
       type: "kg_llm_navigation"
