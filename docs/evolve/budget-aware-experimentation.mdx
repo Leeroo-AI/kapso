@@ -1055,6 +1055,30 @@ defects, every one found by an actual failing campaign and fixed with a pinned t
     the agent's self-report (whose feedback call had died at its timeout, landing the
     reserve node scoreless despite real 0.9-class work).
 
+12. **The bridge filter conflated tampering with unsound measurements.** The CR
+    requester — voided *because* the evaluator was defective — was excluded from bridging
+    like a cheater, and the frontier restarted from baseline for no reason. Only a
+    non-empty integrity error (the candidate's own sin) is exclusionary; a successful
+    bridge is a fresh trustworthy measurement and restores `evaluation_valid`.
+13. **The registration commit crashed when the maintainer's own agent had already
+    committed its edit.** The `is_dirty(untracked_files=True)` guard answered True on
+    unrelated untracked files and drove git into an empty commit — masked for as long as
+    the always-staged registry file guaranteed commit content. Commit only on a staged
+    index delta.
+14. **The escrow funded the build and starved the measurement.** The reserve iteration's
+    agents spent the whole released escrow; the trailing kapso-owned measurement got 64
+    seconds against a multi-minute evaluation. The reserve run's snapshot keeps the
+    timing model's full-eval upper as its residual reserve, and the measurement's
+    deadline floors at that estimate.
+
+The change-request row closed at **10/10** on 2026-07-14: seeded defective grader →
+honest CR with evidence (three prior campaigns had instead falsified the data, runtime-
+patched the guard, and been coached to do so by feedback — findings 9 and 10) →
+maintainer investigation and accept → wrapper-side fix with provided files byte-intact →
+v2 registered and never time-traveling → requester bridged first with validity restored
+→ campaign continued on honest mixed-class scores → protected reserve measurement →
+TIER_FULL committed delivery.
+
 Two live observations recorded, not yet acted on: deadline-killed agent calls report $0
 (the CLI emits cost only in its terminal event — the cost floor is real and biased low
 exactly on kills), and the first campaign produced a wildly discordant calibration pair
