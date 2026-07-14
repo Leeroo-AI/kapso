@@ -320,3 +320,47 @@ def test_registry_enforces_sequence_and_uniqueness(tmp_path):
         registry.register(version(2, "id-a"))
     registry.register(version(2, "id-b"))
     assert [v.version for v in registry.versions()] == [1, 2]
+
+
+def test_accepted_change_already_committed_by_the_agent(
+    tmp_path, monkeypatch
+):
+    """The maintainer's own agent session may commit its edit itself; the
+    frame's registration commit then has no staged delta and must be a
+    no-op — not the crashed empty commit observed live after an accepted
+    change request had already registered v2.
+    """
+    workspace = _workspace(tmp_path)
+    patch_agent(monkeypatch, ScriptedAgent(write_wrapper))
+    maintainer = make_maintainer(workspace)
+    maintainer.setup(goal="g", eval_dir=str(workspace), data_dir=None)
+
+    def edit_and_self_commit(root: Path) -> None:
+        (root / "kapso_evaluation" / "kapso_eval.py").write_text(
+            "ENTRYPOINT = True\nFIXED = True\n"
+        )
+        repo = git.Repo(root)
+        repo.git.add(["kapso_evaluation"])
+        repo.git.commit("-m", "agent's own commit of the fix")
+
+    patch_agent(
+        monkeypatch,
+        ScriptedAgent(
+            edit_and_self_commit,
+            output=(
+                "<change_verdict>accept</change_verdict>"
+                "<reason>defect confirmed</reason>"
+            ),
+        ),
+    )
+    outcome = maintainer.handle_change_request(
+        EvaluationChangeRequest(
+            iteration=1,
+            requested_by="implementation",
+            summary="guard rejects every honest model",
+            evidence="IncorrectSubmissionError trace",
+        )
+    )
+
+    assert outcome.accepted is True
+    assert len(EvaluationRegistry(str(workspace)).versions()) == 2

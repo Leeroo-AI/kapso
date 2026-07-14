@@ -457,5 +457,11 @@ class EvaluationMaintainer:
         # — is committed.
         repo = git.Repo(str(self.workspace_dir))
         repo.git.add("-f", [EVALUATION_DIR_NAME])
-        if repo.is_dirty(untracked_files=True):
+        # Commit only when the INDEX holds a staged delta. The maintainer's
+        # own agent session may have committed its edit already (agents
+        # habitually commit), and is_dirty(untracked_files=True) answered
+        # True on unrelated untracked files — driving git into an empty
+        # commit that crashed an accepted change request after v2 was
+        # registered.
+        if repo.index.diff("HEAD"):
             repo.git.commit("-m", message)
