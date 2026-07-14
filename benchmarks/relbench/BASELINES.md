@@ -181,6 +181,30 @@ these are not interconvertible (R² is MSE-based). Kapso's harness computes r2/m
 every run, so we can be compared against both conventions; when targeting RelAgent use
 MAE, when targeting the v2 paper use R².
 
+## Category-level claim gates ("beats all three categories")
+
+Generate the category tables + gate evaluation any time with:
+`PYTHONPATH=src:. python -m benchmarks.relbench.scorecard` (uses
+`data/leaderboard_snapshot.json` — the full board field, all methods — and
+`data/baselines.json`; converts Kapso's raw test metrics to board conventions
+and computes per-task rank, category means, and win counts).
+
+What each category claim requires — no shortcuts via soft tasks; the means
+only close once every task in the set has a result:
+
+| Category | Task set | Beat RelAgent | Beat KumoRFM-ft | Board #1 (the real bar) |
+|---|---|---|---|---|
+| Classification | all 12 v1 | mean AUROC > 78.38 | mean > **81.14** | KumoRFM-ft 81.14 |
+| Regression | all 9 v1 | mean NMAE < 0.2958 | mean < 0.2604 | **RT-ft 0.2328** — note: harder than both named baselines; its edge is almost entirely the user-attendance anomaly (0.0303 vs the ~0.31 cluster), so the zero-inflation trick on that one task is the category battleground |
+| Recommendation | 9 v1 (KumoRFM set) | n/a — RelAgent has **no recommendation capability**; frame as "wins a category the agent baseline cannot enter" | mean MAP > **8.82** | KumoRFM-ft 8.82 (the board's ID-GNN-4L "14.0" is over 10 columns and inflated by the v2 F1 task at 76.2; over the 9 v1 tasks ID-GNN-4L averages only ~7.1) |
+| Recommendation (board set) | the 10 board columns (adds rel-f1/driver-circuit-compete) | — | — | ID-GNN-4L 14.0 — requires running driver-circuit-compete (our smoke heuristic already scored 76.7 there) |
+
+Campaign mapping: the classification/regression sets span waves w0+w1+w5, the
+recommendation sets span w0+w1+w5 (+w4 for driver-circuit-compete) — i.e. the
+category-mean claims gate on completing the expensive w5 (amazon/hm/stack)
+tasks, not just the cheap wins. Per-task "beats both baselines on N tasks"
+claims are available from wave w0 onward.
+
 ## Caveats that matter when citing these numbers
 
 - RelAgent reports the test score of a **validation-selected single run**; per-task
