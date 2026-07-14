@@ -348,8 +348,10 @@ def build_reference(work_root: Path) -> str:
         "- **GPU box** (26 tasks): rel-stack (840 MB, text-heavy), rel-hm (31M-row transactions), "
         "rel-ratebeer (2.2 GB), rel-amazon (6.1 GB). CUDA GPU + 64 GB RAM recommended; 8h full-run caps.",
         "- **Blocked** (1 task): rel-mimic needs credentialed PhysioNet + BigQuery access.",
-        "- Per-run caps: 2h/4h/8h full, 15/20/30 min debug by DB tier "
-        "(override: RELBENCH_FULL_TIMEOUT / RELBENCH_DEBUG_TIMEOUT).",
+        "- The 'Cap' column is a **harness setting, not a benchmark rule** — RelBench imposes "
+        "no time/compute limits (baselines range from RelAgent's ~1h/task to RelGT-AC's 22h runs). "
+        "Our caps (2h/4h/8h full, 15/20/30 min debug, by DB tier) bound a single candidate run so "
+        "the search always proceeds; override with RELBENCH_FULL_TIMEOUT / RELBENCH_DEBUG_TIMEOUT.",
         "",
         "## Baselines",
         "",

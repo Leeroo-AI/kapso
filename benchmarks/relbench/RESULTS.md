@@ -10,7 +10,7 @@ Status: **1/66 tasks run**, 0 beating the best published number. Category-level 
 - **CPU-ok** (39 tasks): rel-f1 (1 MB), rel-salt (34 MB), rel-event (100 MB), rel-arxiv (145 MB), rel-avito (347 MB), rel-trial (548 MB db.zip). Runs on an 8-core / 32 GB box; the handler steers agents to duckdb/GBDT when no GPU is present.
 - **GPU box** (26 tasks): rel-stack (840 MB, text-heavy), rel-hm (31M-row transactions), rel-ratebeer (2.2 GB), rel-amazon (6.1 GB). CUDA GPU + 64 GB RAM recommended; 8h full-run caps.
 - **Blocked** (1 task): rel-mimic needs credentialed PhysioNet + BigQuery access.
-- Per-run caps: 2h/4h/8h full, 15/20/30 min debug by DB tier (override: RELBENCH_FULL_TIMEOUT / RELBENCH_DEBUG_TIMEOUT).
+- The 'Cap' column is a **harness setting, not a benchmark rule** — RelBench imposes no time/compute limits (baselines range from RelAgent's ~1h/task to RelGT-AC's 22h runs). Our caps (2h/4h/8h full, 15/20/30 min debug, by DB tier) bound a single candidate run so the search always proceeds; override with RELBENCH_FULL_TIMEOUT / RELBENCH_DEBUG_TIMEOUT.
 
 ## Baselines
 
