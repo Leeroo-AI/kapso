@@ -1071,6 +1071,17 @@ defects, every one found by an actual failing campaign and fixed with a pinned t
     timing model's full-eval upper as its residual reserve, and the measurement's
     deadline floors at that estimate.
 
+15. **The judge was the parser of record.** Score extraction (mechanical) was welded to
+    judgment (semantic) in one fragile LLM call: twice, a killed feedback call erased a
+    real measurement whose manifest line sat in the transcript, and its parse failure
+    silently fabricated `valid=True, score=None`. Fixed three ways: in registered mode
+    the strategy parses the session's last granted-class `KAPSO_EVAL_MANIFEST` line
+    itself (feedback's extraction is a cross-check; the judge keeps only validity
+    power); `generate_code` gained a per-call `timeout_seconds` so the budget clamp
+    finally reaches feedback calls (the M4 deferral); and a tagless response earns one
+    retry then an explicit failure result — the JSON compatibility fallback and the
+    500-character truncation of raw output are gone.
+
 The change-request row closed at **10/10** on 2026-07-14: seeded defective grader →
 honest CR with evidence (three prior campaigns had instead falsified the data, runtime-
 patched the guard, and been coached to do so by feedback — findings 9 and 10) →
