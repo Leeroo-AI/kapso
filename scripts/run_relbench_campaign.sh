@@ -147,6 +147,55 @@ SMOKE=(
   "rel-f1 driver-position"
 )
 
+# CPU-local queue: the ROI order restricted to datasets that are safe on a
+# CPU-only box with ~32 GB RAM (db.zip sizes measured 2026-07-14: rel-f1 1MB,
+# rel-salt 34MB, rel-event 100MB, rel-arxiv 145MB, rel-avito 347MB,
+# rel-trial 548MB — all comfortably in-memory; excluded: rel-stack 840MB
+# text-heavy, rel-ratebeer 2.2GB, rel-amazon 6.1GB, rel-hm 31M-row modeling).
+# The handler detects the missing GPU and steers agents to duckdb/GBDT
+# pipelines automatically; note RelAgent's own method is pure SQL+GBDT, so
+# every cell where it is the bar is in principle CPU-winnable.
+CPU_LOCAL=(
+  "rel-event user-attendance"
+  "rel-f1 driver-circuit-compete"
+  "rel-f1 results-position"
+  "rel-f1 qualifying-position"
+  "rel-f1 driver-position"
+  "rel-event event_interest-interested"
+  "rel-event event_interest-not_interested"
+  "rel-event users-birthyear"
+  "rel-event user-repeat"
+  "rel-event user-ignore"
+  "rel-f1 driver-dnf"
+  "rel-salt sales-group"
+  "rel-salt sales-payterms"
+  "rel-salt sales-shipcond"
+  "rel-salt sales-incoterms"
+  "rel-salt item-incoterms"
+  "rel-trial studies-enrollment"
+  "rel-trial studies-has_dmc"
+  "rel-avito searchinfo-isuserloggedon"
+  "rel-avito searchstream-click"
+  "rel-trial study-adverse"
+  "rel-avito ad-ctr"
+  "rel-trial study-outcome"
+  "rel-trial condition-sponsor-run"
+  "rel-avito user-ad-visit"
+  "rel-avito user-clicks"
+  "rel-trial site-success"
+  "rel-trial site-sponsor-run"
+  "rel-arxiv author-publication"
+  "rel-arxiv paper-citation"
+  "rel-arxiv author-category"
+  "rel-arxiv paper-paper-cocitation"
+  "rel-trial eligibilities-adult"
+  "rel-trial eligibilities-child"
+  "rel-f1 driver-top3"
+  "rel-salt item-plant"
+  "rel-salt item-shippoint"
+  "rel-salt sales-office"
+)
+
 # ROI-sorted flat queue (recommended default): expected claim value x win
 # probability / compute cost. Tier S = tiny DBs, near-certain or
 # strategy-critical wins; Tier A = medium DBs, flagship takedowns + soft
@@ -227,6 +276,7 @@ ROI=(
 
 case "$WAVE" in
   roi)               TASKS=("${ROI[@]}") ;;
+  cpu-local)         TASKS=("${CPU_LOCAL[@]}") ;;
   w0-baseline-duel|baseline-duel) TASKS=("${W0_BASELINE_DUEL[@]}") ;;
   w1-v1-remainder)   TASKS=("${W1_V1_REMAINDER[@]}") ;;
   w2-relagent-v2)    TASKS=("${W2_RELAGENT_V2[@]}") ;;
