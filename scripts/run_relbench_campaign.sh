@@ -190,6 +190,7 @@ CPU_LOCAL=(
   "rel-arxiv paper-paper-cocitation"
   "rel-trial eligibilities-adult"
   "rel-trial eligibilities-child"
+  "rel-avito user-visits"
   "rel-f1 driver-top3"
   "rel-salt item-plant"
   "rel-salt item-shippoint"
