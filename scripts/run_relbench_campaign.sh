@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/run_relbench_campaign.sh <wave> [iterations] [mode]
-#   waves: autocomplete-soft | uncontested | recommendation | soft-cells | smoke
+#   waves: baseline-duel | autocomplete-soft | uncontested | recommendation | soft-cells | smoke
 #
 # Each task runs sequentially (one GPU). Results land in
 # tmp/relbench/<dataset>--<task>/final_report.json.
