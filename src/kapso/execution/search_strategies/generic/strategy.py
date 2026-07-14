@@ -35,6 +35,7 @@ from kapso.execution.fidelity import (
     project_score,
     select_committed_candidate,
 )
+from kapso.execution.evaluation_integrity import verify_data_manifest
 from kapso.execution.evaluation_maintainer.maintainer import (
     evaluation_command,
     parse_manifest_line,
@@ -739,6 +740,16 @@ Problem: {problem}"""
         )
         run_started = time.monotonic()
         with self.workspace.materialize_ref(target.branch_name) as worktree:
+            if self.registered_data_manifest:
+                data_problem = verify_data_manifest(
+                    worktree, self.registered_data_manifest
+                )
+                if data_problem:
+                    print(
+                        "[GenericSearch] Registered evaluation refused: "
+                        f"{data_problem}"
+                    )
+                    return None
             # The frame emits a handful of lines plus the manifest — far
             # below pipe capacity — so draining once at exit cannot
             # deadlock the child.

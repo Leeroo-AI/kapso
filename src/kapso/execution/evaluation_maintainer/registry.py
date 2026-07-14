@@ -131,6 +131,9 @@ class EvaluatorVersion:
     timing: TimingModel
     created_at_iteration: int
     reason: str
+    # The inputs half of evaluation identity: hashes of the protected
+    # data files the evaluation reads. Empty when no paths are protected.
+    data_manifest: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.evaluator_id, str) or not self.evaluator_id:
@@ -149,6 +152,13 @@ class EvaluatorVersion:
             )
         if not isinstance(self.reason, str) or not self.reason.strip():
             raise EvaluationRegistryError("reason must be a non-empty string")
+        if not isinstance(self.data_manifest, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in self.data_manifest.items()
+        ):
+            raise EvaluationRegistryError(
+                "data_manifest must map file paths to digests"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -229,6 +239,7 @@ class EvaluationRegistry:
             timing=timing,
             created_at_iteration=head.created_at_iteration,
             reason=head.reason,
+            data_manifest=head.data_manifest,
         )
         self._write([*versions[:-1], refined])
 

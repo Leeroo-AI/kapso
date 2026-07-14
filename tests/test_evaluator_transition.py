@@ -101,6 +101,7 @@ def make_bridge_strategy(tmp_path, *, branches):
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.registered_evaluator_id = "ev-2"
     strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = {}
 
     class FakeWorkspace:
         repo = SimpleNamespace(

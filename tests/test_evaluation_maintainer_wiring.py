@@ -205,6 +205,7 @@ def test_registered_integrity_enforced_in_agent_generated_mode(tmp_path):
     strategy.registered_evaluation_manifest = {
         "kapso_eval.py": "0" * 64  # differs from the candidate's tree
     }
+    strategy.registered_data_manifest = {}
 
     node = SearchNode(node_id=0, branch_name="generic_exp_0", score=0.9)
     assert strategy.enforce_evaluation_integrity(node) is False
@@ -317,3 +318,47 @@ def test_registration_is_checkpointed_before_the_first_iteration(
     assert checkpoint.completed_iterations == 0
     # The paid registration itself is durable on disk alongside it.
     assert orchestrator.evaluation_maintainer.registry.exists()
+
+
+def test_protected_data_is_registered_and_guarded_on_resume(
+    tmp_path, monkeypatch
+):
+    """Registration captures the inputs half of evaluation identity, and a
+    resume against tampered inputs fails loudly instead of silently
+    scoring a different evaluation set.
+    """
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    data_dir = workspace / "data"
+    data_dir.mkdir()
+    (data_dir / "train.csv").write_text("PassengerId,y\n1,False\n")
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "load_mode_config",
+        lambda config_path, mode: {
+            "search_strategy": {"type": "generic", "params": {}},
+            "evaluation_maintainer": dict(
+                MAINTAINER_BLOCK, protected_data_paths=["data"]
+            ),
+        },
+    )
+
+    orchestrator = _orchestrator(workspace)
+    orchestrator.solve(experiment_max_iter=1)
+
+    head = orchestrator.evaluation_maintainer.registry.head()
+    assert set(head.data_manifest) == {"data/train.csv"}
+    strategy = orchestrator.search_strategy
+    assert strategy.registered_data_manifest == head.data_manifest
+
+    # The live reward hack, replayed against resume: rig the inputs.
+    (data_dir / "train.csv").write_text("PassengerId,y\n1,True\n")
+    resumed = _orchestrator(workspace, resume=True)
+    with pytest.raises(
+        EvaluationMaintainerError, match="inputs do not match"
+    ):
+        resumed.solve(experiment_max_iter=1)

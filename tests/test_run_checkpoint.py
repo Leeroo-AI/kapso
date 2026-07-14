@@ -129,16 +129,19 @@ class FakeStrategy:
         self.fidelity_decisions.append(decision)
 
     def set_registered_evaluation(
-        self, *, manifest, command, evaluator_id, subsample_seed
+        self, *, manifest, command, evaluator_id, subsample_seed,
+        data_manifest,
     ) -> None:
         self.registered_evaluation = {
             "manifest": dict(manifest),
             "command": command,
             "evaluator_id": evaluator_id,
             "subsample_seed": subsample_seed,
+            "data_manifest": dict(data_manifest),
         }
         self.registered_evaluator_id = evaluator_id
         self.registered_subsample_seed = subsample_seed
+        self.registered_data_manifest = dict(data_manifest)
 
     def get_experiment_history(
         self,

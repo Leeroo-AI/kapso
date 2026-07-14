@@ -42,6 +42,7 @@ from kapso.execution.iteration_evaluator import (
 from kapso.execution.evaluation_integrity import (
     build_evaluation_manifest,
     manifest_fingerprint,
+    verify_data_manifest,
 )
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
@@ -91,6 +92,7 @@ _MAINTAINER_BLOCK_KEYS = {
     "fast_variant_threshold_minutes",
     "overhead_factor",
     "max_change_requests",
+    "protected_data_paths",
 }
 
 
@@ -625,6 +627,7 @@ class OrchestratorAgent:
                 block.get("fast_variant_threshold_minutes", 20) * 60
             ),
             overhead_factor=block.get("overhead_factor", 1.25),
+            protected_data_paths=block.get("protected_data_paths", []),
         )
         return maintainer, block.get("max_change_requests", 3)
 
@@ -644,6 +647,7 @@ class OrchestratorAgent:
         manifest = build_evaluation_manifest(
             self.evaluation_maintainer.evaluation_dir
         )
+        head = self.evaluation_maintainer.registry.head()
         self.search_strategy.set_registered_evaluation(
             manifest=manifest,
             command=self.evaluation_maintainer.evaluation_command(
@@ -651,6 +655,7 @@ class OrchestratorAgent:
             ),
             evaluator_id=manifest_fingerprint(manifest),
             subsample_seed=self.evaluation_maintainer.subsample_seed,
+            data_manifest=head.data_manifest,
         )
 
     def _ensure_evaluation_registered(self) -> None:
@@ -668,6 +673,14 @@ class OrchestratorAgent:
                     "Workspace evaluation tree does not match the registered "
                     "evaluator head; the maintainer registry is the only "
                     "sanctioned path for evaluation changes"
+                )
+            data_problem = verify_data_manifest(
+                self.search_strategy.workspace_dir, head.data_manifest
+            )
+            if data_problem:
+                raise EvaluationMaintainerError(
+                    "Workspace evaluation inputs do not match the registered "
+                    f"head: {data_problem}"
                 )
         else:
             self.evaluation_maintainer.setup(

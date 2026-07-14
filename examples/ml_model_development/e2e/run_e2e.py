@@ -62,6 +62,9 @@ implementation.
 The data/ directory contains:
 - train.csv: Training data with features and the Transported target
 - test.csv: Test data for final predictions (no target column)
+
+The data/ directory is a fixed evaluation input. Modifying any file in
+data/ is prohibited and mechanically voids the candidate's score.
 """
 
 GOAL_EVALUATION_BUILD = """
