@@ -21,11 +21,12 @@ RUN_ID=$(meta ptb_run_id)
 
 RESULTS_GS="gs://$BUCKET/results/$RUN_ID"
 
+RUN_EXIT="startup-died-early"
 self_destruct() {
     code=$?
     gsutil cp /var/log/ptb-run.log "$RESULTS_GS/ptb-run.log" || true
     [ -d /opt/ptb/results ] && gsutil -m rsync -r /opt/ptb/results "$RESULTS_GS/results" || true
-    echo "exit_code=$code" | gsutil cp - "$RESULTS_GS/RUN_DONE" || true
+    echo "exit_code=$code run_task_exit=$RUN_EXIT" | gsutil cp - "$RESULTS_GS/RUN_DONE" || true
     NAME=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/name)
     VMZONE=$(curl -sf -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/zone | awk -F/ '{print $NF}')
     gcloud compute instances delete "$NAME" --zone "$VMZONE" --quiet || poweroff
@@ -82,11 +83,15 @@ HF_TOKEN="$(gcloud secrets versions access latest --secret=hf-token 2>/dev/null 
 # --- PostTrainBench checkout + kapso adapter + containers ---
 git clone --depth 1 "$PTB_REPO" /opt/ptb
 cd /opt/ptb
+# Adapter comes from the same tarball the container was built from — never a
+# git branch (a clone of the default branch once shipped a checkout with no
+# agents/kapso/solve.sh and the run burned GPU time on a nonexistent agent).
 if [ ! -f agents/kapso/solve.sh ]; then
-    git clone --depth 1 "$KAPSO_REPO" /opt/kapso-src
+    gsutil cp "gs://$BUCKET/assets/kapso-src.tgz" /opt/kapso-src.tgz
+    mkdir -p /opt/kapso-src
+    tar -xzf /opt/kapso-src.tgz -C /opt/kapso-src
     mkdir -p agents/kapso
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
-    cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/containers/kapso.def containers/kapso.def
 fi
 # Claude Max subscription: run_task.sh copies this file into the job home and
 # solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN.
@@ -104,6 +109,18 @@ export POST_TRAIN_BENCH_CONTAINER_NAME=kapso
 export POST_TRAIN_BENCH_RESULTS_DIR=results
 export POST_TRAIN_BENCH_JOB_SCHEDULER=local
 
+# --- pre-flight: fail before the GPU phase, not during it ---
+PREFLIGHT=""
+[ -f agents/kapso/solve.sh ] || PREFLIGHT="$PREFLIGHT solve.sh"
+[ -f "$POST_TRAIN_BENCH_CONTAINERS_DIR/kapso.sif" ] || PREFLIGHT="$PREFLIGHT kapso.sif"
+[ -f "$POST_TRAIN_BENCH_CONTAINERS_DIR/vllm_debug.sif" ] || PREFLIGHT="$PREFLIGHT vllm_debug.sif"
+[ -d "$HF_HOME/hub" ] || PREFLIGHT="$PREFLIGHT hf-cache"
+if [ -n "$PREFLIGHT" ]; then
+    echo "PREFLIGHT FAILED:$PREFLIGHT"
+    RUN_EXIT=preflight
+    exit 1
+fi
+
 # --- crash-safe periodic results upload ---
 # Measured on spot: preemption grace is 29s and may be 0s mid-boot, and the
 # job dir sits on ephemeral local SSD — only what's already synced survives.
@@ -113,6 +130,7 @@ export POST_TRAIN_BENCH_JOB_SCHEDULER=local
 UPLOADER=$!
 
 bash src/run_task.sh "$EVAL" kapso "$MODEL" "$RUN_ID" "$HOURS" "$AGENT_CONFIG" 1
+RUN_EXIT=$?
 
 kill "$UPLOADER" 2>/dev/null || true
 # final sync happens in self_destruct
