@@ -447,6 +447,10 @@ class SearchStrategy(ABC):
         self.registered_evaluator_id: str = ""
         self.registered_subsample_seed: int = 0
         self.registered_data_manifest: Dict[str, str] = {}
+        # Orchestrator-wired callback (maintainer.record_run): frame runs
+        # report their measured duration so the timing model tightens from
+        # real full-scale evaluations instead of calibration extrapolation.
+        self.record_eval_duration: Optional[Any] = None
         self.repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 self.params.get(

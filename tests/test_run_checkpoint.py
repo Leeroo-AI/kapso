@@ -16,6 +16,7 @@ from kapso.execution.run_checkpoint import (
     RunCheckpointStore,
     config_fingerprint,
 )
+from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.benchmark_tree_search import (
     BenchmarkTreeSearch,
@@ -90,6 +91,7 @@ class FakeStrategy:
         self.score_queue: List[Optional[float]] = []
         self.valid_queue: List[bool] = []
         self.integrity_queue: List[str] = []
+        self.champion_queue: List[bool] = []
         self.registered_evaluation: Dict[str, Any] = {}
         self.scores_evaluator_id = ""
         self.evaluator_transition = None
@@ -122,6 +124,20 @@ class FakeStrategy:
             node.evaluation_valid = self.valid_queue.pop(0)
         if self.integrity_queue:
             node.evaluation_integrity_error = self.integrity_queue.pop(0)
+        if self.champion_queue and self.champion_queue.pop(0):
+            # A full-measured champion under the registered head.
+            node.build_fidelity = "full"
+            node.eval_fidelity = "full"
+            node.evaluation_attempts.append(
+                EvaluationAttempt(
+                    commit_sha="sha-champion",
+                    evaluator_id=self.registered_evaluator_id,
+                    fidelity="full",
+                    fraction=1.0,
+                    seed=self.registered_subsample_seed,
+                    score=node.score if node.score is not None else 0.5,
+                )
+            )
         self.contexts.append(context)
         self.node_history.append(node)
         self.workspace.current_cost += 1.0

@@ -102,6 +102,7 @@ def make_bridge_strategy(tmp_path, *, branches):
     strategy.registered_evaluator_id = "ev-2"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    strategy.record_eval_duration = None
     # The registered head the frame run must overlay into worktrees.
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)

@@ -688,13 +688,18 @@ The policy, in words:
 4. **Promote to FULL mid-campaign** only when `remaining_after_reserve` still covers a full
    run with margin (rare on a 10 h budget; common on a 48 h one), capped by `max_full_runs`.
 5. **The reserve run executes FULL** on the best-validated recipe when the gate trips.
-6. **The reserve converts rather than dissolves.** If a mid-campaign FULL was granted and
-   the committed candidate already holds its full-size result when the gate arrives, the
-   escrow is not silently released: it converts to the next-most-valuable full-size use —
-   matched-replication confirmation of the winner (the finalist schedule from the
-   replication rule), or a full attempt for a challenger that validated well in the
-   meantime. The reserve stays escrowed for as long as the committed candidate could still
-   change, because a later probe that wins will need *its* full run too.
+6. **The reserve shrinks once its purpose is met — insurance sized to residual risk.**
+   The escrow is re-derived from node history every round. While no full-measured
+   champion exists it is the full committed slot; the moment one exists it shrinks to
+   the contingency residual — one full-eval estimate — because the only event that can
+   retire a champion afterwards is an evaluator transition, which invalidates the
+   *measurement* but never the *artifact*: re-securing it costs one frame-run
+   re-evaluation, not a rebuild. The freed difference flows back into the searchable
+   window, where it funds exactly the right things organically: more probes, validations
+   for challengers, or a second full run that displaces the champion by the tier rules.
+   A campaign that buys certainty early is thereby rewarded with more exploration, not
+   merely permitted to end early. When the gate finally trips with a champion standing,
+   it stops directly; with none, the escrow converts into the final build-and-measure.
 
 **Where the build cap comes from — an allocation and a contract, never a prediction.**
 Build duration is a dial of the experiment, not an unknown of nature — the workload size
@@ -734,6 +739,26 @@ Five recipes explored, the winner trust-checked, and the deliverable full-traine
 two guesses. The same config with a 48 h budget naturally degrades to mostly-FULL runs
 (step 4 keeps affording them), which is why fidelity `mode: auto` enables the machinery only
 when the arithmetic says fewer than `min_affordable_full_runs` full experiments fit.
+
+That arithmetic prices a full experiment from **node history**, layered strongest-evidence
+first: the mean measured duration of full-profile nodes; else the probe-iteration mean plus
+the full-eval upper plus the build scale-up (`implementation phase / build fast_fraction`)
+when a build dial exists; else *unknown*. Unknown keeps tiers ON — wrongly-on costs
+ceremony, wrongly-off costs the protected endgame — so a fresh campaign is conservatively
+tiered and every resume re-prices from restored telemetry. (The original implementation
+priced a full run as the escrow itself, `f × budget`, so the budget cancelled and auto was
+a pure function of the fraction — an 8 h campaign with 10-minute full runs still enabled
+tiers. Caught in design review, not live.) The same price now gates the mid-campaign FULL
+(`2 × price ≤ remaining_after_reserve`); the old rule priced only the eval half and would
+admit full builds the window couldn't hold. Switching tiers *off mid-campaign* once the
+price proves them unnecessary remains deferred: it flips the canonical comparability class
+and needs the same migration treatment as an evaluator transition.
+
+The eval half of the correction loop is closed the same way: every successful frame run
+(validate, bridge, reserve measurement) reports its measured duration into the registry's
+timing model (`record_run`), so `full_eval_upper` tightens from real full-scale
+evaluations instead of riding the baseline calibration forever — and because the policy
+reads timing through a live provider, the tightened upper takes effect the next decision.
 
 The timeline above assumes estimates hold; the schedule's *feasibility* rests on the
 mechanisms, not the arithmetic: probe overruns are cut by probe-sized deadlines, the

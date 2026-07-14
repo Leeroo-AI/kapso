@@ -336,16 +336,40 @@ class FidelityPolicy:
         self,
         *,
         spec: FidelitySpec,
-        evaluator_id: str,
-        subsample_seed: int,
-        full_eval_upper_seconds: float,
-        fast_eval_upper_seconds: float,
+        strategy: Any,
+        maintainer: Any,
     ):
+        """Providers, not frozen values.
+
+        The policy reads the evaluator head and the timing uppers LIVE
+        from the strategy and the maintainer: a mid-campaign change
+        request re-registers the evaluator and re-calibrates timing, and
+        a policy that froze either at construction keeps judging
+        champions, counters, and affordability under a retired ruler.
+        """
         self.spec = spec
-        self.evaluator_id = evaluator_id
-        self.subsample_seed = subsample_seed
-        self.full_eval_upper_seconds = float(full_eval_upper_seconds)
-        self.fast_eval_upper_seconds = float(fast_eval_upper_seconds)
+        self._strategy = strategy
+        self._maintainer = maintainer
+
+    @property
+    def evaluator_id(self) -> str:
+        return self._strategy.registered_evaluator_id
+
+    @property
+    def subsample_seed(self) -> int:
+        return self._strategy.registered_subsample_seed
+
+    @property
+    def full_eval_upper_seconds(self) -> float:
+        return float(self._maintainer.timing(1.0).upper_seconds)
+
+    @property
+    def fast_eval_upper_seconds(self) -> float:
+        return float(
+            self._maintainer.timing(
+                self.spec.eval_fast_fraction
+            ).upper_seconds
+        )
 
     # -- derived arithmetic ------------------------------------------------
 
@@ -354,6 +378,33 @@ class FidelityPolicy:
         construction committed_run_fraction of the budget."""
         return self.spec.committed_run_fraction * time_budget_seconds
 
+    def full_champion(self, nodes: Iterable[Any]) -> Optional[Any]:
+        """The committed candidate at FULL tier under the head evaluator."""
+        committed = select_committed_candidate(
+            nodes, evaluator_id=self.evaluator_id
+        )
+        if committed is not None and (
+            evidence_tier(committed, self.evaluator_id) == TIER_FULL
+        ):
+            return committed
+        return None
+
+    def effective_reserve_seconds(
+        self, time_budget_seconds: float, nodes: Iterable[Any]
+    ) -> float:
+        """The escrow, shrunk once a full-measured champion exists.
+
+        Unchampioned: the full committed slot. Championed: only the
+        contingency residual — re-securing an already-built artifact under
+        a new evaluator head costs one full evaluation, not a build — and
+        the freed difference flows back into the searchable window. The
+        insurance stays exactly as large as the risk it still covers.
+        """
+        base = self.reserve_seconds(time_budget_seconds)
+        if self.full_champion(nodes) is not None:
+            return min(base, self.full_eval_upper_seconds)
+        return base
+
     def build_cap_seconds(self, time_budget_seconds: float) -> float:
         return max(
             0.0,
@@ -361,17 +412,89 @@ class FidelityPolicy:
             - self.full_eval_upper_seconds,
         )
 
-    def full_run_bound_seconds(self, time_budget_seconds: float) -> float:
-        return self.reserve_seconds(time_budget_seconds)
+    def full_run_price_seconds(
+        self,
+        nodes: Iterable[Any],
+        probe_estimate_seconds: float,
+    ) -> Optional[float]:
+        """History-derived price of one full-fidelity experiment.
 
-    def enabled(self, time_budget_seconds: Optional[float]) -> bool:
+        Layered, strongest evidence first — a pure function of node
+        history, so the price corrects itself every round and a resumed
+        campaign re-derives the identical number:
+
+        1. the mean measured duration of full-profile nodes (built and
+           evaluated at full scale);
+        2. else extrapolate from probe telemetry: mean probe iteration
+           plus the full-eval upper, plus the build scale-up when a
+           fast-build dial exists (the implementation phase contains the
+           fast build; ideation and feedback do not scale with workload);
+        3. else None — no telemetry yet, the price is unknown.
+        """
+        nodes = list(nodes)
+        measured_full = [
+            node.duration_seconds
+            for node in nodes
+            if getattr(node, "build_fidelity", "full") == "full"
+            and getattr(node, "eval_fidelity", "full") == "full"
+            and getattr(node, "duration_seconds", None) is not None
+            and not getattr(node, "had_error", False)
+        ]
+        if measured_full:
+            return sum(measured_full) / len(measured_full)
+
+        fast_nodes = [
+            node
+            for node in nodes
+            if getattr(node, "eval_fidelity", "full") == "fast"
+            and getattr(node, "duration_seconds", None) is not None
+        ]
+        if not fast_nodes:
+            return None
+        price = probe_estimate_seconds + self.full_eval_upper_seconds
+        if self.spec.build_fast_fraction is not None:
+            implementation_durations = [
+                node.phase_telemetry.get("implementation", {}).get(
+                    "duration_seconds"
+                )
+                for node in fast_nodes
+            ]
+            implementation_durations = [
+                duration
+                for duration in implementation_durations
+                if duration is not None
+            ]
+            if implementation_durations:
+                implementation_mean = sum(implementation_durations) / len(
+                    implementation_durations
+                )
+                price += implementation_mean * (
+                    1.0 / self.spec.build_fast_fraction - 1.0
+                )
+        return price
+
+    def enabled(
+        self,
+        time_budget_seconds: Optional[float],
+        nodes: Iterable[Any] = (),
+        probe_estimate_seconds: float = 0.0,
+    ) -> bool:
+        """Whether the tier machinery pays for this campaign.
+
+        mode=on/off are declarations. mode=auto prices a full run from
+        history: enough affordable full runs -> tiers are ceremony, stay
+        off. An UNKNOWN price (fresh campaign, no telemetry) keeps tiers
+        ON — wrongly-on costs ceremony, wrongly-off costs the protected
+        endgame.
+        """
         if self.spec.mode == "off" or time_budget_seconds is None:
             return False
         if self.spec.mode == "on":
             return True
-        affordable_full_runs = time_budget_seconds / self.full_run_bound_seconds(
-            time_budget_seconds
-        )
+        price = self.full_run_price_seconds(nodes, probe_estimate_seconds)
+        if price is None or price <= 0:
+            return True
+        affordable_full_runs = time_budget_seconds / price
         return affordable_full_runs < self.spec.min_affordable_full_runs
 
     # -- history-derived counters -------------------------------------------
@@ -516,7 +639,9 @@ class FidelityPolicy:
             and evidence_tier(committed, self.evaluator_id)
             == TIER_VALIDATED
             and remaining_after_reserve is not None
-            and self._mid_campaign_full_affordable(remaining_after_reserve)
+            and self._mid_campaign_full_affordable(
+                remaining_after_reserve, nodes, probe_estimate_seconds
+            )
             and self.full_runs_used(nodes) < spec.max_full_runs
             and self.calibration_pairs(nodes) >= spec.calibration_min_pairs
         ):
@@ -541,9 +666,20 @@ class FidelityPolicy:
         )
 
     def _mid_campaign_full_affordable(
-        self, remaining_after_reserve: float
+        self,
+        remaining_after_reserve: float,
+        nodes: Iterable[Any],
+        probe_estimate_seconds: float,
     ) -> bool:
-        # A mid-campaign full run must fit entirely outside the escrow.
-        return (
-            self.full_eval_upper_seconds * 2 <= remaining_after_reserve
-        )
+        # A mid-campaign full run must fit entirely outside the escrow —
+        # priced from history (the old rule priced only the eval half, so
+        # it admitted full builds that blew the window and died by clamp).
+        # Unpriceable -> deny: the escrowed endgame still guarantees the
+        # final run, so an unfundable discretionary grant is pure risk. No
+        # circularity in practice: the ladder's other gates (a validated
+        # committed candidate, calibration pairs) require probe telemetry,
+        # which is exactly what prices layer 2.
+        price = self.full_run_price_seconds(nodes, probe_estimate_seconds)
+        if price is None:
+            return False
+        return price * 2 <= remaining_after_reserve

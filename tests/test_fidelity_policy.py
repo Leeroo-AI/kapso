@@ -53,7 +53,9 @@ def attempt(*, fidelity="fast", fraction=0.15, score=0.5, evaluator="ev-1"):
 
 
 def probe_node(node_id, fast_score):
-    node = SearchNode(node_id=node_id, build_fidelity="fast")
+    node = SearchNode(
+        node_id=node_id, build_fidelity="fast", eval_fidelity="fast"
+    )
     node.evaluation_attempts = [attempt(score=fast_score)]
     return node
 
@@ -66,7 +68,11 @@ def validated_node(node_id, fast_score, full_score):
     return node
 
 
-def make_policy(**spec_overrides):
+def make_policy(
+    full_eval_upper_seconds=100.0,
+    fast_eval_upper_seconds=20.0,
+    **spec_overrides,
+):
     spec_kwargs = dict(
         mode="on",
         build_fast_fraction=0.10,
@@ -79,12 +85,28 @@ def make_policy(**spec_overrides):
     )
     spec_kwargs.update(spec_overrides)
     spec = FidelitySpec(**spec_kwargs)
+
+    # Provider stubs standing in for the strategy and maintainer: the
+    # policy reads the evaluator head and timing uppers live, never
+    # frozen copies.
+    strategy_stub = SimpleNamespace(
+        registered_evaluator_id="ev-1",
+        registered_subsample_seed=1337,
+    )
+
+    def timing(fraction):
+        upper = (
+            full_eval_upper_seconds
+            if abs(fraction - 1.0) < 1e-9
+            else fast_eval_upper_seconds
+        )
+        return SimpleNamespace(
+            expected_seconds=upper, upper_seconds=upper
+        )
+
+    maintainer_stub = SimpleNamespace(timing=timing)
     return FidelityPolicy(
-        spec=spec,
-        evaluator_id="ev-1",
-        subsample_seed=1337,
-        full_eval_upper_seconds=100.0,
-        fast_eval_upper_seconds=20.0,
+        spec=spec, strategy=strategy_stub, maintainer=maintainer_stub
     )
 
 
@@ -115,7 +137,26 @@ def test_spec_resolution_and_unknown_keys():
     ).is_unbudgeted
 
 
-def test_reserve_arithmetic_and_auto_enablement():
+def timed_node(
+    node_id,
+    *,
+    duration,
+    build="full",
+    eval_fidelity="fast",
+    implementation_seconds=None,
+):
+    node = SearchNode(
+        node_id=node_id, build_fidelity=build, eval_fidelity=eval_fidelity
+    )
+    node.duration_seconds = duration
+    if implementation_seconds is not None:
+        node.phase_telemetry = {
+            "implementation": {"duration_seconds": implementation_seconds}
+        }
+    return node
+
+
+def test_reserve_arithmetic():
     policy = make_policy()
     budget = 600 * 60.0
 
@@ -127,11 +168,57 @@ def test_reserve_arithmetic_and_auto_enablement():
     assert policy.enabled(budget)
     assert not policy.enabled(None)
 
+
+def test_full_run_price_layers():
+    policy = make_policy()
+
+    # L3: no telemetry -> unknown.
+    assert policy.full_run_price_seconds([], 60.0) is None
+
+    # L2, zero-build shape: probe iterations already build full; the
+    # price is the probe mean plus the full-eval upper.
+    probes = [
+        timed_node(0, duration=500.0),
+        timed_node(1, duration=700.0),
+    ]
+    assert policy.full_run_price_seconds(
+        probes, 600.0
+    ) == pytest.approx(600.0 + 100.0)
+
+    # L2 with a build dial: the implementation phase scales by 1/fraction.
+    dialed = [
+        timed_node(
+            0, duration=500.0, build="fast", implementation_seconds=200.0
+        )
+    ]
+    assert policy.full_run_price_seconds(dialed, 500.0) == pytest.approx(
+        500.0 + 100.0 + 200.0 * (1 / 0.10 - 1)
+    )
+
+    # L1: a measured full-profile run beats every extrapolation.
+    full_run = timed_node(2, duration=600.0, eval_fidelity="full")
+    assert policy.full_run_price_seconds(
+        probes + [full_run], 600.0
+    ) == pytest.approx(600.0)
+
+
+def test_auto_enablement_prices_from_history():
+    budget = 8 * 3600.0  # the motivating scenario: 8h budget
+
     auto = make_policy(mode="auto", min_affordable_full_runs=4)
-    # 1 / 0.45 ≈ 2.2 affordable full runs < 4 -> tiers pay.
+    # Fresh campaign, unknown price -> conservative: tiers on.
     assert auto.enabled(budget)
-    generous = make_policy(mode="auto", min_affordable_full_runs=2)
-    assert not generous.enabled(budget)
+
+    # History shows full runs cost ~10 min -> 48 affordable >= 4 -> off.
+    cheap = [timed_node(0, duration=600.0, eval_fidelity="full")]
+    assert not auto.enabled(budget, cheap, 500.0)
+
+    # Expensive full runs (3h) -> 2.7 affordable < 4 -> tiers pay.
+    costly = [timed_node(0, duration=3 * 3600.0, eval_fidelity="full")]
+    assert auto.enabled(budget, costly, 500.0)
+
+    # mode=on ignores pricing entirely.
+    assert make_policy().enabled(budget, cheap, 500.0)
 
 
 # =========================================================================
@@ -200,6 +287,7 @@ def test_endgame_validate_fires_near_the_gate_without_margin():
 
 def test_mid_campaign_full_is_calibration_gated():
     validated_leader = validated_node(0, 0.48, 0.42)
+    validated_leader.duration_seconds = 400.0
     one_pair = [validated_leader]
     gated = make_policy().decide(
         nodes=one_pair, remaining_after_reserve=10000.0,
@@ -207,7 +295,9 @@ def test_mid_campaign_full_is_calibration_gated():
     )
     assert gated.profile == PROFILE_PROBE  # pairs < calibration_min_pairs
 
-    two_pairs = [validated_leader, validated_node(1, 0.44, 0.39)]
+    second_pair = validated_node(1, 0.44, 0.39)
+    second_pair.duration_seconds = 400.0
+    two_pairs = [validated_leader, second_pair]
     granted = make_policy().decide(
         nodes=two_pairs, remaining_after_reserve=10000.0,
         probe_estimate_seconds=60.0,
@@ -252,6 +342,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
     (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
@@ -443,6 +534,7 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = {}
+    strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
     (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
@@ -564,3 +656,197 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     assert not any(
         attempt.fidelity == "full" for attempt in target.evaluation_attempts
     )
+
+
+def test_effective_reserve_shrinks_once_a_champion_exists():
+    """The escrow is insurance: once a full-measured champion exists, the
+    residual risk is one re-evaluation (an evaluator transition can retire
+    the measurement, never the artifact), so the reserve shrinks to the
+    full-eval estimate and the difference returns to the search window.
+    """
+    policy = make_policy()
+    budget = 3600.0
+    base = 0.45 * budget
+
+    assert policy.effective_reserve_seconds(budget, []) == pytest.approx(
+        base
+    )
+
+    champion = SearchNode(node_id=0, build_fidelity="full")
+    champion.evaluation_attempts = [
+        attempt(fidelity="full", fraction=1.0, score=0.6)
+    ]
+    assert policy.effective_reserve_seconds(
+        budget, [champion]
+    ) == pytest.approx(100.0)  # make_policy's full_eval_upper_seconds
+
+    # A flashy unvalidated probe is not a champion; neither is a
+    # champion measured under a retired evaluator version.
+    flashy = probe_node(1, 0.99)
+    assert policy.effective_reserve_seconds(
+        budget, [flashy]
+    ) == pytest.approx(base)
+    stale = SearchNode(node_id=2, build_fidelity="full")
+    stale.evaluation_attempts = [
+        attempt(
+            fidelity="full", fraction=1.0, score=0.9, evaluator="ev-old"
+        )
+    ]
+    assert policy.effective_reserve_seconds(
+        budget, [stale]
+    ) == pytest.approx(base)
+
+
+def test_champion_shrink_returns_escrow_to_the_search_window(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", fidelity_mode_config
+    )
+
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    # Iteration 1 lands a full-measured champion; iteration 2's snapshot
+    # must carry only the contingency residual as its reserve.
+    strategy.champion_queue = [True]
+    orchestrator.solve(experiment_max_iter=2, time_budget_minutes=60)
+
+    full_upper = orchestrator.evaluation_maintainer.timing(1.0).upper_seconds
+    final_snapshot = strategy.budget_snapshot
+    assert final_snapshot.finalization_reserve_seconds == pytest.approx(
+        min(0.45 * 3600, full_upper)
+    )
+
+
+def test_policy_tracks_the_live_evaluator_head_and_timing():
+    """The policy reads providers, never frozen copies: after a change
+    request re-registers the evaluator and re-calibrates timing, champion
+    recognition and affordability must follow the new head immediately —
+    a frozen policy kept judging under the retired ruler.
+    """
+    policy = make_policy()
+
+    v1_champion = SearchNode(node_id=0, build_fidelity="full")
+    v1_champion.evaluation_attempts = [
+        attempt(fidelity="full", fraction=1.0, score=0.6)
+    ]
+    assert policy.full_champion([v1_champion]) is v1_champion
+
+    # The transition: strategy adopts the new head. The v1 champion's
+    # measurement is retired with it — and the escrow re-inflates.
+    policy._strategy.registered_evaluator_id = "ev-2"
+    assert policy.full_champion([v1_champion]) is None
+    assert policy.effective_reserve_seconds(
+        3600.0, [v1_champion]
+    ) == pytest.approx(0.45 * 3600)
+
+    # Re-calibration under v2 flows through the timing provider.
+    policy._maintainer.timing = lambda fraction: SimpleNamespace(
+        expected_seconds=300.0, upper_seconds=300.0
+    )
+    assert policy.full_eval_upper_seconds == 300.0
+
+
+def test_mid_campaign_full_affordability_is_priced_from_history():
+    policy = make_policy()
+    # Ladder preconditions met: validated committed + 2 calibration pairs.
+    nodes = [validated_node(0, 0.48, 0.42), validated_node(1, 0.44, 0.39)]
+    for node in nodes:
+        node.duration_seconds = 400.0
+
+    # Price = probe 400 + eval upper 100 + build scale 0 (no impl
+    # telemetry) = 500; a 10000s window affords it with 2x margin.
+    granted = policy.decide(
+        nodes=nodes, remaining_after_reserve=10000.0,
+        probe_estimate_seconds=400.0,
+    )
+    assert granted.profile == PROFILE_FULL
+
+    # The same window under the OLD eval-only rule (2x100=200 <= 900)
+    # would still grant; the priced rule refuses a window a full run
+    # would blow.
+    refused = policy.decide(
+        nodes=nodes, remaining_after_reserve=900.0,
+        probe_estimate_seconds=400.0,
+    )
+    assert refused.profile == PROFILE_PROBE
+
+
+def test_frame_run_reports_its_duration_to_the_recorder(
+    tmp_path, monkeypatch
+):
+    """Successful frame runs feed the timing model (record_run); failures
+    and refusals report nothing.
+    """
+    from contextlib import contextmanager
+
+    target = probe_node(0, 0.48)
+    target.branch_name = "generic_exp_0"
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.node_history = [target]
+    strategy.registered_evaluator_id = "ev-1"
+    strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = {}
+    recorded = []
+    strategy.record_eval_duration = lambda *, fraction, duration_seconds: (
+        recorded.append((fraction, duration_seconds))
+    )
+    workspace_root = tmp_path / "workspace_root"
+    (workspace_root / "kapso_evaluation").mkdir(parents=True)
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
+        "HEAD = 1\n"
+    )
+    strategy.workspace_dir = str(workspace_root)
+    worktree = tmp_path / "frame_worktree"
+    worktree.mkdir()
+
+    class FakeWorkspace:
+        repo = SimpleNamespace(
+            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
+        )
+
+        @contextmanager
+        def materialize_ref(self, ref):
+            yield str(worktree)
+
+    strategy.workspace = FakeWorkspace()
+
+    payload = {
+        "fidelity": "full",
+        "fraction": 1.0,
+        "seed": 1337,
+        "items": 100,
+        "total_items": 100,
+        "score": 0.41,
+    }
+    monkeypatch.setattr(
+        strategy_module, "subprocess", fake_eval_subprocess(payload)
+    )
+    score = strategy._execute_registered_evaluation(
+        target, fidelity="full", fraction=1.0, deadline_seconds=None
+    )
+    assert score == 0.41
+    assert len(recorded) == 1
+    assert recorded[0][0] == 1.0
+    assert recorded[0][1] >= 0.0
+
+    # A failed run reports nothing.
+    monkeypatch.setattr(
+        strategy_module,
+        "subprocess",
+        fake_eval_subprocess(payload, returncode=1),
+    )
+    assert (
+        strategy._execute_registered_evaluation(
+            target, fidelity="full", fraction=1.0, deadline_seconds=None
+        )
+        is None
+    )
+    assert len(recorded) == 1
