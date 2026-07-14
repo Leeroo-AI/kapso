@@ -71,29 +71,57 @@ def test_switch_branch_preserves_untracked_and_ignored_files(
     assert workspace.get_current_branch() == "candidate"
 
 
-def test_conflicting_untracked_file_raises_without_deleting_it(
+def test_untracked_shadow_of_target_tracked_path_is_replaced(
     tmp_path: Path,
 ) -> None:
+    """A checkout materializes the branch: local shadows of branch-owned
+    paths (the __pycache__-kills-the-final-checkout failure) never abort
+    it, while untracked files the target does not track survive untouched.
+    """
     workspace = _workspace(tmp_path)
     workspace.create_branch("candidate")
     _commit_file(
         workspace,
-        "conflict.txt",
-        "candidate version\n",
-        "add candidate file",
+        "__pycache__/train.cpython-312.pyc",
+        "candidate bytecode\n",
+        "session committed interpreter junk",
     )
     workspace.switch_branch("main")
 
-    conflict = Path(workspace.workspace_dir, "conflict.txt")
-    conflict.write_text("local version\n")
+    shadow = Path(workspace.workspace_dir, "__pycache__/train.cpython-312.pyc")
+    shadow.parent.mkdir(exist_ok=True)
+    shadow.write_text("local junk\n")
+    novel = Path(workspace.workspace_dir, "notes.md")
+    novel.write_text("keep me\n")
+
+    workspace.switch_branch("candidate")
+
+    assert workspace.get_current_branch() == "candidate"
+    assert shadow.read_text() == "candidate bytecode\n"
+    assert novel.read_text() == "keep me\n"
+
+
+def test_modified_tracked_file_still_fails_checkout_loudly(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    _commit_file(workspace, "shared.txt", "main version\n", "add shared")
+    workspace.create_branch("candidate")
+    _commit_file(
+        workspace, "shared.txt", "candidate version\n", "candidate edit"
+    )
+    workspace.switch_branch("main")
+
+    shared = Path(workspace.workspace_dir, "shared.txt")
+    shared.write_text("uncommitted local edit\n")
 
     with pytest.raises(WorkspaceCheckoutError) as error:
         workspace.switch_branch("candidate")
 
-    assert conflict.read_text() == "local version\n"
+    assert shared.read_text() == "uncommitted local edit\n"
     assert workspace.get_current_branch() == "main"
     assert error.value.branch_name == "candidate"
-    assert any("conflict.txt" in line for line in error.value.status_lines)
+    assert any("shared.txt" in line for line in error.value.status_lines)
 
 
 def test_reopening_workspace_preserves_experiment_branch_and_state(
@@ -170,6 +198,7 @@ def test_generic_strategy_returns_verified_best_branch(tmp_path: Path) -> None:
 
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.workspace = workspace
+    strategy.registered_evaluator_id = ""
     strategy.node_history = [
         SearchNode(node_id=0, branch_name="generic_exp_0", score=0.9)
     ]
@@ -179,3 +208,47 @@ def test_generic_strategy_returns_verified_best_branch(tmp_path: Path) -> None:
 
     assert selected == "generic_exp_0"
     assert workspace.get_current_branch() == selected
+
+
+def test_session_creation_clears_crash_corpses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A crashed attempt leaves a session folder (and, if it died between
+    push and checkpoint, a workspace branch) under the redo's name. Session
+    creation owns both: the redo clones fresh and branches from the parent,
+    never from the corpse.
+    """
+    from kapso.execution.experiment_workspace import (
+        experiment_session as session_module,
+    )
+
+    workspace = _workspace(tmp_path)
+    _commit_file(workspace, "train.py", "parent version\n", "baseline")
+
+    # Corpse branch: a pushed attempt whose node never landed in history.
+    workspace.create_branch("generic_exp_0")
+    _commit_file(workspace, "train.py", "corpse version\n", "dead attempt")
+    workspace.switch_branch("main")
+
+    # Corpse session folder from the same dead attempt.
+    corpse_dir = Path(workspace.workspace_dir, "sessions", "generic_exp_0")
+    corpse_dir.mkdir(parents=True)
+    (corpse_dir / "leftover.txt").write_text("junk\n")
+
+    monkeypatch.setattr(
+        session_module.CodingAgentFactory,
+        "create",
+        classmethod(
+            lambda cls, config: SimpleNamespace(
+                initialize=lambda folder: None,
+                cleanup=lambda: None,
+                supports_native_git=lambda: False,
+            )
+        ),
+    )
+    session = workspace.create_experiment_session("generic_exp_0", "main")
+
+    assert not (Path(session.session_folder) / "leftover.txt").exists()
+    session_train = Path(session.session_folder, "train.py")
+    assert session_train.read_text() == "parent version\n"
+    assert session.repo.active_branch.name == "generic_exp_0"

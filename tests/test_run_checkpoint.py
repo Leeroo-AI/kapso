@@ -1,4 +1,3 @@
-import pickle
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -85,6 +84,13 @@ class FakeStrategy:
         self.node_history: List[SearchNode] = []
         self.contexts: List[str] = []
         self.stop_next = stop_next
+        self.next_agent_output = ""
+        self.registered_evaluation: Dict[str, Any] = {}
+        self.scores_evaluator_id = ""
+        self.evaluator_transition = None
+        self.bridge_calls: List[Dict[str, Any]] = []
+        self.bridge_result = True
+        self.refreshed_classes: List[Any] = []
 
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         node_id = len(self.node_history)
@@ -99,11 +105,31 @@ class FakeStrategy:
             score=0.1,
             feedback=f"feedback-{node_id}",
             should_stop=self.stop_next,
+            agent_output=self.next_agent_output,
         )
         self.contexts.append(context)
         self.node_history.append(node)
         self.workspace.current_cost += 1.0
         return node
+
+    def observe_budget(self, snapshot: Any) -> None:
+        self.budget_snapshot = snapshot
+
+    def observe_fidelity(self, decision: Any) -> None:
+        self.fidelity_decisions = getattr(self, "fidelity_decisions", [])
+        self.fidelity_decisions.append(decision)
+
+    def set_registered_evaluation(
+        self, *, manifest, command, evaluator_id, subsample_seed
+    ) -> None:
+        self.registered_evaluation = {
+            "manifest": dict(manifest),
+            "command": command,
+            "evaluator_id": evaluator_id,
+            "subsample_seed": subsample_seed,
+        }
+        self.registered_evaluator_id = evaluator_id
+        self.registered_subsample_seed = subsample_seed
 
     def get_experiment_history(
         self,
@@ -114,9 +140,21 @@ class FakeStrategy:
     def get_best_experiment(self) -> Optional[SearchNode]:
         return self.node_history[-1] if self.node_history else None
 
+    def get_deliverable_experiment(self) -> Optional[SearchNode]:
+        return self.get_best_experiment()
+
+    def run_bridge_evaluation(self, node, **kwargs) -> bool:
+        self.bridge_calls.append({"node_id": node.node_id, **kwargs})
+        return self.bridge_result
+
+    def refresh_score_projections(self, comparability) -> None:
+        self.refreshed_classes.append(comparability)
+
     def dump_state(self) -> Dict[str, Any]:
         return {
-            "node_history": [node.to_dict() for node in self.node_history]
+            "node_history": [node.to_dict() for node in self.node_history],
+            "scores_evaluator_id": self.scores_evaluator_id,
+            "evaluator_transition": self.evaluator_transition,
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -124,10 +162,8 @@ class FakeStrategy:
             SearchNode.from_dict(item)
             for item in state.get("node_history", [])
         ]
-
-    def import_checkpoint(self) -> None:
-        with open(Path(self.workspace_dir, "checkpoint.pkl"), "rb") as handle:
-            self.node_history = pickle.load(handle)
+        self.scores_evaluator_id = state.get("scores_evaluator_id", "")
+        self.evaluator_transition = state.get("evaluator_transition")
 
 
 def _patch_orchestrator(
@@ -171,13 +207,11 @@ def _orchestrator(
     workspace: Path,
     *,
     resume: bool = False,
-    allow_legacy_checkpoint: bool = False,
 ) -> OrchestratorAgent:
     return OrchestratorAgent(
         FakeProblemHandler(),
         workspace_dir=str(workspace),
         resume=resume,
-        allow_legacy_checkpoint=allow_legacy_checkpoint,
         knowledge_search=FakeKnowledgeSearch(),
         goal="Improve support",
     )
@@ -290,6 +324,8 @@ def test_generic_strategy_state_round_trip() -> None:
     ]
     source.iteration_count = 1
     source.previous_errors = ["old error"]
+    source.scores_evaluator_id = ""
+    source.evaluator_transition = None
 
     restored = GenericSearch.__new__(GenericSearch)
     restored.load_state(source.dump_state())
@@ -298,9 +334,17 @@ def test_generic_strategy_state_round_trip() -> None:
     assert restored.iteration_count == 1
     assert restored.previous_errors == ["old error"]
 
+    # A VALIDATE short-circuit consumes an iteration without minting a
+    # node, so iteration_count may legitimately exceed node_history —
+    # the live top-up leg was unresumable under the old equality check.
+    validate_consumed = source.dump_state()
+    validate_consumed["iteration_count"] = 3
+    restored.load_state(validate_consumed)
+    assert restored.iteration_count == 3
+
     invalid = source.dump_state()
-    invalid["iteration_count"] = 2
-    with pytest.raises(ValueError, match="must match node_history"):
+    invalid["iteration_count"] = 0
+    with pytest.raises(ValueError, match="cannot be smaller"):
         restored.load_state(invalid)
 
 
@@ -391,7 +435,7 @@ def test_goal_achieved_checkpoint_is_saved_before_stop(
         _orchestrator(workspace, resume=True)
 
 
-def test_budget_exhaustion_marks_the_same_iteration_completed(
+def test_budget_exhaustion_pauses_resumably_with_last_stop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -406,11 +450,44 @@ def test_budget_exhaustion_marks_the_same_iteration_completed(
     checkpoint = RunCheckpointStore(str(workspace)).load()
 
     assert result.stopped_reason == "budget_exhausted"
-    assert checkpoint.status == "completed"
+    # A budget stop is a pause, not a completion: only goal achievement
+    # completes a campaign.
+    assert checkpoint.status == "running"
+    assert checkpoint.last_stop == "cost_budget"
     assert checkpoint.completed_iterations == 1
+    assert checkpoint.elapsed_seconds > 0
+    assert checkpoint.cost_by_component["workspace_sessions"] == 1.0
 
-    with pytest.raises(RunCheckpointCompletedError):
-        _orchestrator(workspace, resume=True)
+    resumed = _orchestrator(workspace, resume=True)
+    assert resumed.completed_iterations == 1
+
+
+def test_durable_clock_continues_across_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    _orchestrator(workspace).solve(experiment_max_iter=1)
+    first = RunCheckpointStore(str(workspace)).load()
+    assert first.elapsed_seconds > 0
+    assert first.last_stop is None
+    assert set(first.cost_by_component) >= {
+        "llm_backend",
+        "workspace_sessions",
+    }
+
+    resumed = _orchestrator(workspace, resume=True)
+    assert resumed._prior_elapsed_seconds == first.elapsed_seconds
+    resumed.solve(experiment_max_iter=1)
+    second = RunCheckpointStore(str(workspace)).load()
+
+    assert second.elapsed_seconds > first.elapsed_seconds
+    # 1.0 carried in from the prior slice's component record + 1.0 live.
+    assert second.cost_by_component["workspace_sessions"] == 2.0
+    assert second.cumulative_cost == 2.0
 
 
 def test_resume_rejects_missing_candidate_branch(
@@ -430,31 +507,20 @@ def test_resume_rejects_missing_candidate_branch(
         _orchestrator(workspace, resume=True)
 
 
-def test_legacy_pickle_requires_explicit_trust_and_migrates_once(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = tmp_path / "workspace"
-    repo = _init_git_workspace(workspace)
-    repo.create_head("generic_exp_0")
-    legacy_nodes = [SearchNode(node_id=0, branch_name="generic_exp_0")]
-    with open(workspace / "checkpoint.pkl", "wb") as handle:
-        pickle.dump(legacy_nodes, handle)
-    _patch_orchestrator(monkeypatch)
+def test_v1_checkpoint_is_rejected_without_migration(tmp_path: Path) -> None:
+    store = RunCheckpointStore(str(tmp_path))
+    v1_data = _checkpoint().to_dict()
+    v1_data["schema_version"] = 1
+    for v2_field in ("elapsed_seconds", "cost_by_component", "last_stop"):
+        del v1_data[v2_field]
+    store.path.parent.mkdir(parents=True)
+    store.path.write_text(checkpoint_module.json.dumps(v1_data))
 
-    with pytest.raises(RunCheckpointMissingError):
-        _orchestrator(workspace, resume=True)
-
-    migrated = _orchestrator(
-        workspace,
-        resume=True,
-        allow_legacy_checkpoint=True,
-    )
-
-    assert len(migrated.search_strategy.node_history) == 1
-    assert RunCheckpointStore(str(workspace)).exists()
-    assert not (workspace / "checkpoint.pkl").exists()
-    assert (workspace / "checkpoint.pkl.migrated").exists()
+    with pytest.raises(
+        RunCheckpointIncompatibleError,
+        match="not migrated",
+    ):
+        store.load()
 
 
 def test_public_resume_workspace_validation_is_strict(tmp_path: Path) -> None:
@@ -488,6 +554,9 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
         def get_experiment_history(self) -> List[SearchNode]:
             return []
 
+        def get_deliverable_score(self):
+            return None
+
         def checkout_to_best_experiment_branch(self) -> None:
             return None
 
@@ -496,7 +565,13 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
             captured.update(kwargs)
             self.search_strategy = PublicFakeStrategy()
 
-        def solve(self, experiment_max_iter: int) -> SolveResult:
+        def solve(
+            self,
+            experiment_max_iter: int,
+            time_budget_minutes=None,
+            cost_budget=None,
+            finalization_reserve_minutes=None,
+        ) -> SolveResult:
             assert experiment_max_iter == 1
             return SolveResult(
                 best_experiment=None,
@@ -521,11 +596,9 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
         output_path=str(workspace),
         max_iterations=1,
         resume=True,
-        allow_legacy_checkpoint=True,
     )
 
     assert captured["resume"] is True
-    assert captured["allow_legacy_checkpoint"] is True
     assert captured["initial_repo"] is None
     assert result.metadata["iterations"] == 1
     assert result.metadata["cumulative_iterations"] == 4

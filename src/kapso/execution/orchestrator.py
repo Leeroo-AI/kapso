@@ -11,6 +11,7 @@
 # - Experiment history is accessed via MCP tools (not context managers)
 
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,47 @@ from kapso.execution.run_checkpoint import (
     RunCheckpointStore,
     config_fingerprint,
 )
+from kapso.execution.budget import (
+    BudgetLedger,
+    BudgetSnapshot,
+    BudgetSpec,
+    CostEntry,
+)
+from kapso.execution.evaluation_maintainer import (
+    EvaluationChangeRequest,
+    EvaluationMaintainer,
+    EvaluationMaintainerError,
+)
+from kapso.execution.fidelity import (
+    FULL_PASSTHROUGH,
+    TIER_FULL,
+    ComparabilityClass,
+    FidelityPolicy,
+    FidelitySpec,
+    evidence_tier,
+    select_committed_candidate,
+)
+
+
+CHANGE_REQUEST_PATTERN = re.compile(
+    r"<evaluation_change_request>(.*?)</evaluation_change_request>",
+    re.DOTALL,
+)
+
+# The fast fraction is deliberately absent: it is single-sourced in the
+# fidelity block (budget.fidelity.eval.fast_fraction).
+_MAINTAINER_BLOCK_KEYS = {
+    "type",
+    "model",
+    "debug_model",
+    "agent_specific",
+    "subsample_seed",
+    "calibration_fraction",
+    "calibration_timeout_seconds",
+    "fast_variant_threshold_minutes",
+    "overhead_factor",
+    "max_change_requests",
+}
 
 
 @dataclass
@@ -61,6 +103,9 @@ class SolveResult:
     iterations_run: int
     total_cost: float
     cumulative_iterations: int = 0
+    # Which budget dial triggered a budget_exhausted stop:
+    # "time_budget" | "cost_budget" | "finalization_reserve" | None
+    stop_detail: Optional[str] = None
 
 
 class OrchestratorAgent:
@@ -95,9 +140,7 @@ class OrchestratorAgent:
         is_kg_active: bool = False,
         knowledge_search: Optional[KnowledgeSearch] = None,
         workspace_dir: Optional[str] = None,
-        start_from_checkpoint: bool = False,
         resume: bool = False,
-        allow_legacy_checkpoint: bool = False,
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
         initial_repo: Optional[str] = None,
@@ -126,28 +169,30 @@ class OrchestratorAgent:
         # Optional: directories to copy into workspace
         self.eval_dir = eval_dir
         self.data_dir = data_dir
-        self.resume = resume or start_from_checkpoint
-        self.allow_legacy_checkpoint = (
-            allow_legacy_checkpoint or start_from_checkpoint
-        )
+        self.resume = resume
         self.iteration_evaluator = iteration_evaluator
         self.iteration_evaluator_failure_policy = normalize_failure_policy(
             iteration_evaluator_failure_policy
         )
-        if self.allow_legacy_checkpoint and not self.resume:
-            raise ValueError(
-                "allow_legacy_checkpoint requires resume=True"
-            )
         
         (
             self.strategy_type,
             self.strategy_params,
         ) = self._resolve_search_strategy_config()
+        # Budgets are operator dials, not campaign identity — like
+        # max_iterations (a solve() argument that was never fingerprinted).
+        # Excluding the budget block keeps "resume with a bigger budget"
+        # possible under strict resume validation.
+        self._config_budget = dict(self.mode_config.get("budget") or {})
         fingerprint_config = {
             "strategy_type": self.strategy_type,
             "strategy_params": self.strategy_params,
             "mode": self.mode,
-            "mode_config": self.mode_config,
+            "mode_config": {
+                key: value
+                for key, value in self.mode_config.items()
+                if key != "budget"
+            },
             "coding_agent_override": coding_agent,
         }
         self._provided_evaluation_manifest: Optional[Dict[str, str]] = None
@@ -172,9 +217,11 @@ class OrchestratorAgent:
 
         self.checkpoint_store: Optional[RunCheckpointStore] = None
         self._resume_checkpoint: Optional[RunCheckpoint] = None
-        self._migrate_legacy_checkpoint = False
         self.completed_iterations = 0
         self._prior_cost = 0.0
+        self._prior_elapsed_seconds = 0.0
+        self._prior_cost_by_component: Dict[str, float] = {}
+        self._restored_node_count = 0
 
         if workspace_dir is not None:
             self.checkpoint_store = RunCheckpointStore(workspace_dir)
@@ -187,24 +234,19 @@ class OrchestratorAgent:
             if self.checkpoint_store is None:
                 raise AssertionError("Checkpoint store was not initialized")
 
-            if self.checkpoint_store.exists():
-                checkpoint = self.checkpoint_store.load()
-                checkpoint.validate_resume(
-                    goal=self.goal,
-                    strategy_type=self.strategy_type,
-                    config_fingerprint=self.config_fingerprint,
-                )
-                self._resume_checkpoint = checkpoint
-                self.completed_iterations = checkpoint.completed_iterations
-                self._prior_cost = float(checkpoint.cumulative_cost)
-            elif (
-                self.allow_legacy_checkpoint
-                and self.checkpoint_store.legacy_path.is_file()
-            ):
-                self._migrate_legacy_checkpoint = True
-            else:
-                # Produce the strict missing-checkpoint error with its path.
-                self.checkpoint_store.load()
+            checkpoint = self.checkpoint_store.load()
+            checkpoint.validate_resume(
+                goal=self.goal,
+                strategy_type=self.strategy_type,
+                config_fingerprint=self.config_fingerprint,
+            )
+            self._resume_checkpoint = checkpoint
+            self.completed_iterations = checkpoint.completed_iterations
+            self._prior_cost = float(checkpoint.cumulative_cost)
+            self._prior_elapsed_seconds = float(checkpoint.elapsed_seconds)
+            self._prior_cost_by_component = dict(
+                checkpoint.cost_by_component
+            )
         elif self.checkpoint_store is not None and self.checkpoint_store.exists():
             raise RunCheckpointIncompatibleError(
                 "This workspace already contains a run checkpoint; pass "
@@ -246,26 +288,40 @@ class OrchestratorAgent:
                     "Could not restore search strategy state from the run "
                     "checkpoint"
                 ) from exc
-        elif self._migrate_legacy_checkpoint:
-            print(
-                "[Orchestrator] Warning: importing trusted legacy pickle "
-                "checkpoint and migrating it to JSON"
-            )
-            self.search_strategy.import_checkpoint()
-            self._validate_restored_branch_refs()
-            self.completed_iterations = len(
+            # Nodes restored from the checkpoint already carried their agent
+            # spend into cumulative_cost; only nodes created after this point
+            # contribute live phase costs.
+            self._restored_node_count = len(
                 self.search_strategy.get_experiment_history()
             )
-            self._save_run_checkpoint(status="running")
-            if self.checkpoint_store is None:
-                raise AssertionError("Checkpoint store was not initialized")
-            self.checkpoint_store.mark_legacy_migrated()
 
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
                 self.search_strategy.workspace_dir
             )
-        
+
+        self.budget_ledger = self._create_budget_ledger()
+
+        # Resolved before the maintainer: the fast fraction is single-sourced
+        # in the fidelity block and the maintainer calibrates at that value.
+        self.fidelity_spec = FidelitySpec.resolve(
+            self._config_budget.get("fidelity")
+        )
+        (
+            self.evaluation_maintainer,
+            self._max_change_requests,
+        ) = self._create_evaluation_maintainer()
+        self._change_requests_filed = 0
+        self._fidelity_active = False
+        if (
+            self.fidelity_spec.mode != "off"
+            and self.evaluation_maintainer is None
+        ):
+            raise ValueError(
+                "Fidelity requires an evaluation_maintainer block: the "
+                "policy's timing model comes from measured evaluation runs"
+            )
+
         # Now create experiment history store with the actual workspace path
         experiment_history_path = os.path.join(
             self.search_strategy.workspace_dir, 
@@ -521,15 +577,281 @@ class OrchestratorAgent:
         # Default: disabled
         return KnowledgeSearchFactory.create_null()
 
-    def get_cumulative_cost(self) -> float:
-        """Get total cost from all components."""
-        return (
-            self._prior_cost
-            + self.llm.get_cumulative_cost()
-            + self.search_strategy.workspace.get_cumulative_cost()
+    def _live_phase_costs(self) -> Dict[str, float]:
+        """Attributed agent spend from nodes created in this process slice."""
+        live: Dict[str, float] = {}
+        history = self.search_strategy.get_experiment_history()
+        for node in history[self._restored_node_count:]:
+            for phase_name, phase_values in getattr(
+                node, "phase_telemetry", {}
+            ).items():
+                live[phase_name] = (
+                    live.get(phase_name, 0.0)
+                    + phase_values.get("cost_usd", 0.0)
+                )
+        return live
+
+    def _create_evaluation_maintainer(self):
+        """Build the maintainer when the mode config declares one."""
+        block = self.mode_config.get("evaluation_maintainer")
+        if not block:
+            return None, 0
+        unknown = sorted(set(block) - _MAINTAINER_BLOCK_KEYS)
+        if unknown:
+            raise ValueError(
+                "Unknown evaluation_maintainer config keys: "
+                + ", ".join(unknown)
+            )
+        agent_config = CodingAgentFactory.build_config(
+            agent_type=block.get("type", "claude_code"),
+            model=block.get("model"),
+            debug_model=block.get("debug_model"),
+            agent_specific=block.get("agent_specific", {}),
+        )
+        maintainer = EvaluationMaintainer(
+            coding_agent_config=agent_config,
+            workspace_dir=self.search_strategy.workspace_dir,
+            # Single-sourced in the fidelity block: the fraction the policy
+            # requests is the fraction the maintainer calibrates and registers.
+            fast_fraction=self.fidelity_spec.eval_fast_fraction,
+            subsample_seed=block.get("subsample_seed", 1337),
+            calibration_fraction=block.get("calibration_fraction", 0.03),
+            calibration_timeout_seconds=block.get(
+                "calibration_timeout_seconds", 900
+            ),
+            fast_variant_threshold_seconds=(
+                block.get("fast_variant_threshold_minutes", 20) * 60
+            ),
+            overhead_factor=block.get("overhead_factor", 1.25),
+        )
+        return maintainer, block.get("max_change_requests", 3)
+
+    def _record_maintainer_spend(self) -> None:
+        telemetry = self.evaluation_maintainer.last_transaction_telemetry
+        if telemetry is not None:
+            self.budget_ledger.record(
+                CostEntry(
+                    component="evaluation_maintenance",
+                    cost_usd=telemetry.cost_usd,
+                    duration_seconds=telemetry.duration_seconds,
+                )
+            )
+
+    def _adopt_registered_evaluation(self) -> None:
+        """Point the strategy at the registered evaluator head."""
+        manifest = build_evaluation_manifest(
+            self.evaluation_maintainer.evaluation_dir
+        )
+        self.search_strategy.set_registered_evaluation(
+            manifest=manifest,
+            command=self.evaluation_maintainer.evaluation_command(
+                fidelity="full", fraction=1.0
+            ),
+            evaluator_id=manifest_fingerprint(manifest),
+            subsample_seed=self.evaluation_maintainer.subsample_seed,
         )
 
-    def _save_run_checkpoint(self, *, status: str) -> None:
+    def _ensure_evaluation_registered(self) -> None:
+        """Run the maintainer's setup once; validate consistency on resume."""
+        if self.evaluation_maintainer is None:
+            return
+        registry = self.evaluation_maintainer.registry
+        if registry.exists():
+            head = registry.head()
+            current = build_evaluation_manifest(
+                self.evaluation_maintainer.evaluation_dir
+            )
+            if manifest_fingerprint(current) != head.evaluator_id:
+                raise EvaluationMaintainerError(
+                    "Workspace evaluation tree does not match the registered "
+                    "evaluator head; the maintainer registry is the only "
+                    "sanctioned path for evaluation changes"
+                )
+        else:
+            self.evaluation_maintainer.setup(
+                goal=self.goal,
+                eval_dir=self.eval_dir,
+                data_dir=self.data_dir,
+            )
+            self._record_maintainer_spend()
+        self._adopt_registered_evaluation()
+
+    def _canonical_evaluation_params(self):
+        """(fidelity, fraction) of the class node.score projections use."""
+        if self._fidelity_active:
+            return "fast", self.fidelity_spec.eval_fast_fraction
+        return "full", 1.0
+
+    def _execute_evaluator_transition(self) -> None:
+        """Anchor the frontier on the new evaluator head.
+
+        Durable state machine: pending is checkpointed before the bridge
+        runs, anchored after — a crash in between replays the bridge
+        idempotently on resume. Fallbacks are mechanical: candidates whose
+        artifacts are gone or whose bridge fails fall through to the next;
+        with none left the frontier is legitimately empty and the next
+        iteration drafts from baseline.
+        """
+        strategy = self.search_strategy
+        new_evaluator_id = strategy.registered_evaluator_id
+        old_evaluator_id = strategy.scores_evaluator_id
+        fidelity, fraction = self._canonical_evaluation_params()
+        deadline = self.evaluation_maintainer.timing(fraction).upper_seconds
+
+        print(
+            "[Orchestrator] Evaluator transition: anchoring the frontier "
+            f"on {new_evaluator_id[:12]} (was "
+            f"{old_evaluator_id[:12] if old_evaluator_id else '<none>'})"
+        )
+        strategy.evaluator_transition = {
+            "old_evaluator_id": old_evaluator_id,
+            "new_evaluator_id": new_evaluator_id,
+            "status": "pending",
+        }
+        self._save_run_checkpoint(status="running")
+
+        candidates = sorted(
+            (
+                node
+                for node in strategy.get_experiment_history()
+                if not node.had_error
+                and node.evaluation_valid
+                and node.branch_name
+            ),
+            key=lambda node: node.score if node.score is not None else float(
+                "-inf"
+            ),
+            reverse=True,
+        )
+        bridged = False
+        for candidate in candidates:
+            bridged = strategy.run_bridge_evaluation(
+                candidate,
+                fidelity=fidelity,
+                fraction=fraction,
+                deadline_seconds=deadline,
+            )
+            if bridged:
+                print(
+                    "[Orchestrator] Bridge evaluation anchored node "
+                    f"{candidate.node_id} under the new evaluator"
+                )
+                break
+        if not bridged:
+            print(
+                "[Orchestrator] No candidate could bridge to the new "
+                "evaluator; the frontier restarts from baseline"
+            )
+
+        strategy.refresh_score_projections(
+            ComparabilityClass(
+                evaluator_id=new_evaluator_id,
+                fidelity=fidelity,
+                fraction=fraction,
+                seed=strategy.registered_subsample_seed,
+            )
+        )
+        strategy.scores_evaluator_id = new_evaluator_id
+        strategy.evaluator_transition = {
+            "old_evaluator_id": old_evaluator_id,
+            "new_evaluator_id": new_evaluator_id,
+            "status": "anchored",
+        }
+        self._save_run_checkpoint(status="running")
+
+    def _reconcile_evaluator_state(self) -> None:
+        """Adopt or replay transitions so scores match the registry head."""
+        if self.evaluation_maintainer is None:
+            return
+        strategy = self.search_strategy
+        head_id = strategy.registered_evaluator_id
+        transition = strategy.evaluator_transition
+        pending = (
+            transition is not None and transition.get("status") == "pending"
+        )
+        if not strategy.get_experiment_history():
+            # Nothing measured yet: adopt the head as the scoring ruler.
+            strategy.scores_evaluator_id = head_id
+            return
+        if pending or strategy.scores_evaluator_id != head_id:
+            self._execute_evaluator_transition()
+
+    def _probe_estimate_seconds(self, budget_spec: BudgetSpec) -> float:
+        """Measured mean probe duration; the iteration floor before data."""
+        durations = [
+            node.duration_seconds
+            for node in self.search_strategy.get_experiment_history()
+            if getattr(node, "eval_fidelity", "full") == "fast"
+            and node.duration_seconds is not None
+        ]
+        if durations:
+            return sum(durations) / len(durations)
+        return budget_spec.min_iteration_seconds
+
+    def _route_change_requests(self, candidates: List[SearchNode]) -> None:
+        """File explicit <evaluation_change_request> tags with the maintainer."""
+        if self.evaluation_maintainer is None:
+            return
+        for candidate in candidates:
+            match = CHANGE_REQUEST_PATTERN.search(candidate.agent_output or "")
+            if match is None:
+                continue
+            if self._change_requests_filed >= self._max_change_requests:
+                print(
+                    "[Orchestrator] Change-request cap reached "
+                    f"({self._max_change_requests}); not routing further "
+                    "requests this campaign"
+                )
+                return
+            self._change_requests_filed += 1
+            outcome = self.evaluation_maintainer.handle_change_request(
+                EvaluationChangeRequest(
+                    iteration=self.completed_iterations + 1,
+                    requested_by="implementation",
+                    summary=match.group(1).strip(),
+                    evidence=candidate.evaluation_output or "",
+                )
+            )
+            self._record_maintainer_spend()
+            print(
+                "[Orchestrator] Evaluation change request "
+                f"{'accepted' if outcome.accepted else 'rejected'}: "
+                f"{outcome.reason}"
+            )
+            if outcome.accepted:
+                self._adopt_registered_evaluation()
+                print(
+                    "[Orchestrator] Evaluator re-registered as "
+                    f"v{outcome.new_version.version}"
+                )
+                self._execute_evaluator_transition()
+
+    def _create_budget_ledger(self) -> BudgetLedger:
+        """Wire the ledger: priors from the checkpoint, live meters, nodes."""
+        ledger = BudgetLedger(
+            prior_elapsed_seconds=self._prior_elapsed_seconds,
+            prior_cost_usd=self._prior_cost,
+            prior_cost_by_component=self._prior_cost_by_component,
+        )
+        ledger.set_meter("llm_backend", self.llm.get_cumulative_cost)
+        ledger.set_meter(
+            "workspace_sessions",
+            self.search_strategy.workspace.get_cumulative_cost,
+        )
+        ledger.set_phase_cost_provider(self._live_phase_costs)
+        return ledger
+
+    def get_cumulative_cost(self) -> float:
+        """Get total cost from all components, attributed agents included."""
+        return self.budget_ledger.total_cost()
+
+    def get_elapsed_seconds(self) -> float:
+        """The durable clock: prior slices plus the live one."""
+        return self.budget_ledger.elapsed_seconds()
+
+    def _save_run_checkpoint(
+        self, *, status: str, last_stop: Optional[str] = None
+    ) -> None:
         """Atomically persist orchestration and strategy state."""
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
@@ -544,6 +866,9 @@ class OrchestratorAgent:
             cumulative_cost=self.get_cumulative_cost(),
             current_feedback=self.current_feedback,
             strategy_state=self.search_strategy.dump_state(),
+            elapsed_seconds=self.get_elapsed_seconds(),
+            cost_by_component=self.budget_ledger.cost_by_component(),
+            last_stop=last_stop,
         )
         self.checkpoint_store.save(checkpoint)
 
@@ -658,10 +983,11 @@ class OrchestratorAgent:
                 )
 
     def solve(
-        self, 
-        experiment_max_iter: int = 20, 
-        time_budget_minutes: Optional[int] = None, 
-        cost_budget: Optional[float] = None
+        self,
+        experiment_max_iter: int = 20,
+        time_budget_minutes: Optional[float] = None,
+        cost_budget: Optional[float] = None,
+        finalization_reserve_minutes: Optional[float] = None,
     ) -> SolveResult:
         """
         Run the main experimentation loop.
@@ -686,30 +1012,166 @@ class OrchestratorAgent:
         Returns:
             SolveResult with best_experiment, final_feedback, stopped_reason
         """
-        start_time = time.time()
+        # Explicit arguments win over the mode config's optional budget block.
+        budget_spec = BudgetSpec.resolve(
+            config_block=self._config_budget,
+            time_budget_minutes=time_budget_minutes,
+            cost_budget=cost_budget,
+            finalization_reserve_minutes=finalization_reserve_minutes,
+        )
+        self.budget_ledger.start_clock()
+        # The maintainer's setup transaction runs inside the budgeted clock,
+        # before iteration 1; on resume it validates registry consistency.
+        self._ensure_evaluation_registered()
+
+        # The fidelity policy: deterministic profile grants over measured
+        # evaluation timing. Enabled by mode (or auto-affordability); the
+        # escrowed reserve becomes the committed-run slot when active.
+        fidelity_policy: Optional[FidelityPolicy] = None
+        fidelity_active = False
+        if (
+            self.fidelity_spec.mode != "off"
+            and self.evaluation_maintainer is not None
+        ):
+            timing_full = self.evaluation_maintainer.timing(1.0)
+            timing_fast = self.evaluation_maintainer.timing(
+                self.fidelity_spec.eval_fast_fraction
+            )
+            fidelity_policy = FidelityPolicy(
+                spec=self.fidelity_spec,
+                evaluator_id=(
+                    self.search_strategy.registered_evaluator_id
+                ),
+                subsample_seed=self.evaluation_maintainer.subsample_seed,
+                full_eval_upper_seconds=timing_full.upper_seconds,
+                fast_eval_upper_seconds=timing_fast.upper_seconds,
+            )
+            fidelity_active = fidelity_policy.enabled(
+                budget_spec.time_budget_seconds
+            )
+        self._fidelity_active = fidelity_active
+        # Replay a pending transition or anchor restored scores on the
+        # current registry head before any selection happens.
+        self._reconcile_evaluator_state()
+        reserve_run_pending = False
+        effective_reserve_seconds = (
+            fidelity_policy.reserve_seconds(budget_spec.time_budget_seconds)
+            if fidelity_active and budget_spec.time_budget_seconds is not None
+            else budget_spec.finalization_reserve_seconds
+        )
+
         stopped_reason = "max_iterations"  # default
+        stop_detail: Optional[str] = None
         iterations_run = 0
-        
+
+        # Bootstrap checkpoint: registration and reconciliation are paid,
+        # durable work — a crash at any later point must resume instead of
+        # restarting the campaign (and re-buying the maintainer setup).
+        self._save_run_checkpoint(status="running")
+
         # Get problem context once (experiment history is accessed via MCP)
         problem = self.problem_handler.get_problem_context()
-        
+
         try:
             for i in range(experiment_max_iter):
-                # Calculate budget progress (0-100)
-                # Only include time/cost if budgets are set
-                progress_factors = [i / experiment_max_iter]
-                if time_budget_minutes is not None:
-                    progress_factors.append((time.time() - start_time) / (time_budget_minutes * 60))
-                if cost_budget is not None:
-                    progress_factors.append(self.get_cumulative_cost() / cost_budget)
-                budget_progress = max(progress_factors) * 100
-                
-                # Check budget exhaustion
-                if budget_progress >= 100:
+                # Build the per-iteration budget view from the durable clock,
+                # so a resumed campaign continues its budget instead of
+                # resetting it. Strategies get the snapshot read-only.
+                snapshot = BudgetSnapshot(
+                    iteration_index=i,
+                    max_iterations=experiment_max_iter,
+                    elapsed_seconds=self.get_elapsed_seconds(),
+                    cost_usd=self.get_cumulative_cost(),
+                    time_budget_seconds=budget_spec.time_budget_seconds,
+                    cost_budget_usd=budget_spec.cost_budget_usd,
+                    finalization_reserve_seconds=effective_reserve_seconds,
+                    min_agent_timeout_seconds=(
+                        budget_spec.min_agent_timeout_seconds
+                    ),
+                )
+                self.search_strategy.observe_budget(snapshot)
+                budget_progress = snapshot.progress_percent
+
+                # Check budget exhaustion. A budget stop is a pause, not a
+                # completion: the checkpoint stays resumable and records why
+                # in last_stop. Only goal achievement completes a campaign.
+                if snapshot.exhausted:
                     print("[Orchestrator] Stopping: budget exhausted")
                     stopped_reason = "budget_exhausted"
-                    self._save_run_checkpoint(status="completed")
+                    stop_detail = (
+                        "time_budget"
+                        if snapshot.time_fraction >= 1.0
+                        else "cost_budget"
+                        if snapshot.cost_fraction >= 1.0
+                        else None
+                    )
+                    self._save_run_checkpoint(
+                        status="running",
+                        last_stop=stop_detail,
+                    )
                     break
+
+                # The reserve gate: refuse admission when what remains
+                # outside the escrowed finalization reserve cannot hold one
+                # more iteration. Hard arithmetic only — no estimation. With
+                # fidelity active and no full-size result yet, the trip does
+                # not merely stop: it grants the guaranteed reserve run.
+                remaining_after_reserve = snapshot.remaining_after_reserve
+                if (
+                    remaining_after_reserve is not None
+                    and remaining_after_reserve
+                    <= budget_spec.min_iteration_seconds
+                ):
+                    committed = (
+                        select_committed_candidate(
+                            self.search_strategy.get_experiment_history(),
+                            evaluator_id=(
+                                self.search_strategy.registered_evaluator_id
+                            ),
+                        )
+                        if fidelity_active
+                        else None
+                    )
+                    committed_has_full = committed is not None and (
+                        evidence_tier(
+                            committed,
+                            self.search_strategy.registered_evaluator_id,
+                        )
+                        == TIER_FULL
+                    )
+                    if fidelity_active and not committed_has_full:
+                        print(
+                            "[Orchestrator] Reserve gate: executing the "
+                            "escrowed full-size attempt before stopping"
+                        )
+                        reserve_run_pending = True
+                    else:
+                        print(
+                            "[Orchestrator] Stopping: finalization reserve "
+                            "reached — protecting the endgame window"
+                        )
+                        stopped_reason = "budget_exhausted"
+                        stop_detail = "finalization_reserve"
+                        self._save_run_checkpoint(
+                            status="running",
+                            last_stop=stop_detail,
+                        )
+                        break
+
+                if fidelity_active:
+                    decision = fidelity_policy.decide(
+                        nodes=self.search_strategy.get_experiment_history(),
+                        remaining_after_reserve=(
+                            snapshot.remaining_after_reserve
+                        ),
+                        probe_estimate_seconds=(
+                            self._probe_estimate_seconds(budget_spec)
+                        ),
+                        reserve_run=reserve_run_pending,
+                    )
+                else:
+                    decision = FULL_PASSTHROUGH
+                self.search_strategy.observe_fidelity(decision)
 
                 iterations_run = i + 1
                 
@@ -767,6 +1229,8 @@ class OrchestratorAgent:
                 if self.experiment_store:
                     for candidate in finalized_candidates:
                         self.experiment_store.add_experiment(candidate)
+
+                self._route_change_requests(finalized_candidates)
                 
                 # Log result
                 print(f"[Orchestrator] Iteration {i+1} result:")
@@ -788,28 +1252,46 @@ class OrchestratorAgent:
                 self.current_feedback = node.feedback
                 self.completed_iterations += 1
                 time_budget_exhausted = (
-                    time_budget_minutes is not None
-                    and (time.time() - start_time)
-                    >= time_budget_minutes * 60
+                    budget_spec.time_budget_seconds is not None
+                    and self.get_elapsed_seconds()
+                    >= budget_spec.time_budget_seconds
                 )
                 cost_budget_exhausted = (
-                    cost_budget is not None
-                    and self.get_cumulative_cost() >= cost_budget
+                    budget_spec.cost_budget_usd is not None
+                    and self.get_cumulative_cost()
+                    >= budget_spec.cost_budget_usd
                 )
                 budget_exhausted = (
                     time_budget_exhausted or cost_budget_exhausted
                 )
-                checkpoint_status = (
-                    "completed"
-                    if node.should_stop or budget_exhausted
-                    else "running"
+                if budget_exhausted:
+                    stop_detail = (
+                        "time_budget"
+                        if time_budget_exhausted
+                        else "cost_budget"
+                    )
+                self._save_run_checkpoint(
+                    status="completed" if node.should_stop else "running",
+                    last_stop=stop_detail if budget_exhausted else None,
                 )
-                self._save_run_checkpoint(status=checkpoint_status)
 
                 # Check if search strategy says stop
                 if node.should_stop:
                     print("[Orchestrator] Stopping: goal achieved")
                     stopped_reason = "goal_achieved"
+                    break
+
+                if reserve_run_pending:
+                    print(
+                        "[Orchestrator] Reserve run complete — stopping "
+                        "with the finalization window honored"
+                    )
+                    stopped_reason = "budget_exhausted"
+                    stop_detail = "finalization_reserve"
+                    self._save_run_checkpoint(
+                        status="running",
+                        last_stop=stop_detail,
+                    )
                     break
 
                 if budget_exhausted:
@@ -847,10 +1329,11 @@ class OrchestratorAgent:
                     pass
 
         return SolveResult(
-            best_experiment=self.search_strategy.get_best_experiment(),
+            best_experiment=self.search_strategy.get_deliverable_experiment(),
             final_feedback=self.last_feedback_result,
             stopped_reason=stopped_reason,
             iterations_run=iterations_run,
             total_cost=self.get_cumulative_cost(),
             cumulative_iterations=self.completed_iterations,
+            stop_detail=stop_detail,
         )

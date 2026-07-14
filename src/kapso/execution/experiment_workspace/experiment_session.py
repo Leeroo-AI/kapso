@@ -92,24 +92,31 @@ class ExperimentSession:
         
         # === GIT SETUP ===
         os.makedirs(os.path.dirname(self.session_folder), exist_ok=True)
-        
+
+        # Session creation owns its directory and branch name: a completed
+        # session pushes and removes its folder on close, and branch names
+        # are minted from node history — so a surviving folder or a
+        # same-named branch is always the corpse of a crashed attempt.
+        # Clear both so the redo starts from the parent, not the corpse.
+        if os.path.isdir(self.session_folder):
+            shutil.rmtree(self.session_folder)
+
         # Clone from main repo to isolated session folder
         self.repo = git.Repo.clone_from(
-            f"file://{main_repo.working_dir}", 
+            f"file://{main_repo.working_dir}",
             self.session_folder
         )
         with self.repo.config_writer() as git_config:
             git_config.set_value("user", "name", branch_name)
             git_config.set_value("user", "email", branch_name+"@experiment.com")
-        
+
         # CRITICAL: Checkout parent branch first (inherit parent's code)
         self.repo.git.checkout(parent_branch_name)
-        
+
         # Create new branch from parent
         if branch_name in [ref.name for ref in self.repo.heads]:
-            self.repo.git.checkout(branch_name)
-        else:
-            self.repo.git.checkout('-b', branch_name)
+            self.repo.git.branch("-D", branch_name)
+        self.repo.git.checkout('-b', branch_name)
         
         # Record the base commit SHA for this experiment branch.
         # This is the exact repo state we "started from" (inherited from parent_branch_name).
@@ -307,9 +314,12 @@ class ExperimentSession:
                         exc_info=True,
                     )
         
-        # Push to origin (makes branch available for child nodes)
+        # Push to origin (makes branch available for child nodes). Forced:
+        # this session is the branch name's only owner, and a redo after a
+        # crash-between-push-and-checkpoint must replace the corpse ref
+        # instead of dying on a non-fast-forward.
         try:
-            self.repo.git.push('origin', self.branch_name)
+            self.repo.git.push('--force', 'origin', self.branch_name)
         except git.GitCommandError as e:
             print(f"[ExperimentSession] Push failed: {e}")
         

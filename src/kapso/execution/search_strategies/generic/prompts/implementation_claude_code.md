@@ -55,18 +55,7 @@ You are a world class developer and programmer. Your task is to implement the pr
 
 ## Evaluation Requirements
 
-You MUST build and run evaluation in `kapso_evaluation/` directory:
-
-1. **Create evaluation script**: `kapso_evaluation/evaluate.py` (or similar)
-2. **Evaluation should**:
-   - Test your solution against the goal criteria
-   - Output a clear score or success/failure indication
-   - Be fair and actually test what it claims to test
-   - NOT be hardcoded or trivially pass
-
-3. **Run the evaluation**: Execute your evaluation script and capture output.
-
-4. **Retry on crash**: If evaluation crashes, fix the issue and retry (max 3 attempts).
+{{evaluation_instructions}}
 
 ## Directories
 
@@ -88,6 +77,12 @@ OBSERVABILITY REQUIREMENT (do not skip):
   RepoMemory sections consulted: core.architecture, core.where_to_edit
 - If you did not consult repo memory, write:
   RepoMemory sections consulted: none
+
+## Budget
+
+{{budget_status}}
+Advisory context: size your work to fit — the system enforces deadlines
+mechanically.
 
 ## Problem
 

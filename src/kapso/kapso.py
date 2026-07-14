@@ -481,8 +481,10 @@ class Kapso:
         output_path: Optional[str] = None,
         initial_repo: Optional[str] = None,
         max_iterations: int = 10,
+        time_budget_minutes: Optional[float] = None,
+        cost_budget: Optional[float] = None,
+        finalization_reserve_minutes: Optional[float] = None,
         resume: bool = False,
-        allow_legacy_checkpoint: bool = False,
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
         # --- Configuration options ---
@@ -509,11 +511,14 @@ class Kapso:
                 - GitHub URL: "https://github.com/owner/repo" (will be cloned)
                 - None: Will search for relevant workflow repo in KG
             max_iterations: Maximum experiment iterations (default: 10)
+            time_budget_minutes: Wall-clock budget for the campaign. The
+                durable clock continues across resumes.
+            cost_budget: Best-effort spend budget in USD (cost metering is a
+                floor, not a meter — see the budget design doc).
+            finalization_reserve_minutes: Wall-clock escrowed so the campaign
+                always ends with checkout and final evaluation inside budget.
             resume: Continue an existing campaign at ``output_path``. Resume
                 is strict: the workspace and compatible checkpoint must exist.
-            allow_legacy_checkpoint: Explicitly trust and migrate an old
-                ``checkpoint.pkl`` when no JSON run checkpoint exists. Pickle
-                must only be enabled for a trusted workspace.
             iteration_evaluator: Optional callback that evaluates each
                 finalized candidate in an isolated detached Git worktree.
             iteration_evaluator_failure_policy: ``record`` stores callback
@@ -531,10 +536,6 @@ class Kapso:
         Returns:
             SolutionResult with code_path, experiment_logs, and metadata
         """
-        if allow_legacy_checkpoint and not resume:
-            raise ValueError(
-                "allow_legacy_checkpoint requires resume=True"
-            )
         if resume:
             self._validate_resume_workspace(output_path)
         if eval_dir:
@@ -606,7 +607,6 @@ class Kapso:
             #   so `solution.code_path` points at a real git repo (with `.kapso/repo_memory.json`).
             workspace_dir=output_path,
             resume=resume,
-            allow_legacy_checkpoint=allow_legacy_checkpoint,
             iteration_evaluator=iteration_evaluator,
             iteration_evaluator_failure_policy=(
                 iteration_evaluator_failure_policy
@@ -619,7 +619,12 @@ class Kapso:
         
         # Run experimentation
         print("Running experiments...")
-        solve_result = orchestrator.solve(experiment_max_iter=max_iterations)
+        solve_result = orchestrator.solve(
+            experiment_max_iter=max_iterations,
+            time_budget_minutes=time_budget_minutes,
+            cost_budget=cost_budget,
+            finalization_reserve_minutes=finalization_reserve_minutes,
+        )
         
         # Collect results
         experiment_logs = self._extract_experiment_logs(orchestrator)
@@ -640,11 +645,15 @@ class Kapso:
             code_path=code_path,
             experiment_logs=experiment_logs,
             final_feedback=solve_result.final_feedback,
+            delivered_score=(
+                orchestrator.search_strategy.get_deliverable_score()
+            ),
             metadata={
                 "iterations": solve_result.iterations_run,
                 "cumulative_iterations": solve_result.cumulative_iterations,
                 "cost": f"${solve_result.total_cost:.3f}",
                 "stopped_reason": solve_result.stopped_reason,
+                "stop_detail": solve_result.stop_detail,
                 "best_branch": best_branch,
                 "resumed": resume,
                 "external_metrics": dict(

@@ -35,15 +35,21 @@ class SolutionResult:
     experiment_logs: List[str] = field(default_factory=list)
     final_feedback: Optional[FeedbackResult] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+    # The delivered node's authoritative measurement. The last feedback's
+    # score describes the last EXPERIMENT, which is not necessarily the
+    # artifact this result checked out.
+    delivered_score: Optional[float] = None
+
     @property
     def succeeded(self) -> bool:
         """True if goal was achieved (feedback generator said stop)."""
         return self.final_feedback is not None and self.final_feedback.stop
-    
+
     @property
     def final_score(self) -> Optional[float]:
-        """Final evaluation score if available."""
+        """The score of the delivered artifact, if measured."""
+        if self.delivered_score is not None:
+            return self.delivered_score
         if self.final_feedback:
             return self.final_feedback.score
         return None

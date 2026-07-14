@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+submission.csv
+catboost_info/

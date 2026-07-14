@@ -89,6 +89,7 @@ class StubStrategy(SearchStrategy):
 def _provided_strategy(workspace: Path) -> GenericSearch:
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.workspace = MaterializingWorkspace(workspace)
+    strategy.registered_evaluation_manifest = {}
     strategy.evaluation_provenance = PROVIDED
     strategy.provided_evaluation_manifest = build_evaluation_manifest(
         workspace / "kapso_evaluation"
@@ -242,6 +243,7 @@ def test_unchanged_candidate_and_agent_generated_evaluation_are_valid(
     assert node.evaluation_provenance == PROVIDED
 
     generated = GenericSearch.__new__(GenericSearch)
+    generated.registered_evaluation_manifest = {}
     generated.evaluation_provenance = AGENT_GENERATED
     generated_node = SearchNode(node_id=1, score=0.5)
     assert generated.enforce_evaluation_integrity(generated_node) is True
