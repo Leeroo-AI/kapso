@@ -53,7 +53,9 @@ def attempt(*, fidelity="fast", fraction=0.15, score=0.5, evaluator="ev-1"):
 
 
 def probe_node(node_id, fast_score):
-    node = SearchNode(node_id=node_id, build_fidelity="fast")
+    node = SearchNode(
+        node_id=node_id, build_fidelity="fast", eval_fidelity="fast"
+    )
     node.evaluation_attempts = [attempt(score=fast_score)]
     return node
 
@@ -135,7 +137,26 @@ def test_spec_resolution_and_unknown_keys():
     ).is_unbudgeted
 
 
-def test_reserve_arithmetic_and_auto_enablement():
+def timed_node(
+    node_id,
+    *,
+    duration,
+    build="full",
+    eval_fidelity="fast",
+    implementation_seconds=None,
+):
+    node = SearchNode(
+        node_id=node_id, build_fidelity=build, eval_fidelity=eval_fidelity
+    )
+    node.duration_seconds = duration
+    if implementation_seconds is not None:
+        node.phase_telemetry = {
+            "implementation": {"duration_seconds": implementation_seconds}
+        }
+    return node
+
+
+def test_reserve_arithmetic():
     policy = make_policy()
     budget = 600 * 60.0
 
@@ -147,11 +168,57 @@ def test_reserve_arithmetic_and_auto_enablement():
     assert policy.enabled(budget)
     assert not policy.enabled(None)
 
+
+def test_full_run_price_layers():
+    policy = make_policy()
+
+    # L3: no telemetry -> unknown.
+    assert policy.full_run_price_seconds([], 60.0) is None
+
+    # L2, zero-build shape: probe iterations already build full; the
+    # price is the probe mean plus the full-eval upper.
+    probes = [
+        timed_node(0, duration=500.0),
+        timed_node(1, duration=700.0),
+    ]
+    assert policy.full_run_price_seconds(
+        probes, 600.0
+    ) == pytest.approx(600.0 + 100.0)
+
+    # L2 with a build dial: the implementation phase scales by 1/fraction.
+    dialed = [
+        timed_node(
+            0, duration=500.0, build="fast", implementation_seconds=200.0
+        )
+    ]
+    assert policy.full_run_price_seconds(dialed, 500.0) == pytest.approx(
+        500.0 + 100.0 + 200.0 * (1 / 0.10 - 1)
+    )
+
+    # L1: a measured full-profile run beats every extrapolation.
+    full_run = timed_node(2, duration=600.0, eval_fidelity="full")
+    assert policy.full_run_price_seconds(
+        probes + [full_run], 600.0
+    ) == pytest.approx(600.0)
+
+
+def test_auto_enablement_prices_from_history():
+    budget = 8 * 3600.0  # the motivating scenario: 8h budget
+
     auto = make_policy(mode="auto", min_affordable_full_runs=4)
-    # 1 / 0.45 ≈ 2.2 affordable full runs < 4 -> tiers pay.
+    # Fresh campaign, unknown price -> conservative: tiers on.
     assert auto.enabled(budget)
-    generous = make_policy(mode="auto", min_affordable_full_runs=2)
-    assert not generous.enabled(budget)
+
+    # History shows full runs cost ~10 min -> 48 affordable >= 4 -> off.
+    cheap = [timed_node(0, duration=600.0, eval_fidelity="full")]
+    assert not auto.enabled(budget, cheap, 500.0)
+
+    # Expensive full runs (3h) -> 2.7 affordable < 4 -> tiers pay.
+    costly = [timed_node(0, duration=3 * 3600.0, eval_fidelity="full")]
+    assert auto.enabled(budget, costly, 500.0)
+
+    # mode=on ignores pricing entirely.
+    assert make_policy().enabled(budget, cheap, 500.0)
 
 
 # =========================================================================
@@ -220,6 +287,7 @@ def test_endgame_validate_fires_near_the_gate_without_margin():
 
 def test_mid_campaign_full_is_calibration_gated():
     validated_leader = validated_node(0, 0.48, 0.42)
+    validated_leader.duration_seconds = 400.0
     one_pair = [validated_leader]
     gated = make_policy().decide(
         nodes=one_pair, remaining_after_reserve=10000.0,
@@ -227,7 +295,9 @@ def test_mid_campaign_full_is_calibration_gated():
     )
     assert gated.profile == PROFILE_PROBE  # pairs < calibration_min_pairs
 
-    two_pairs = [validated_leader, validated_node(1, 0.44, 0.39)]
+    second_pair = validated_node(1, 0.44, 0.39)
+    second_pair.duration_seconds = 400.0
+    two_pairs = [validated_leader, second_pair]
     granted = make_policy().decide(
         nodes=two_pairs, remaining_after_reserve=10000.0,
         probe_estimate_seconds=60.0,
@@ -679,3 +749,28 @@ def test_policy_tracks_the_live_evaluator_head_and_timing():
         expected_seconds=300.0, upper_seconds=300.0
     )
     assert policy.full_eval_upper_seconds == 300.0
+
+
+def test_mid_campaign_full_affordability_is_priced_from_history():
+    policy = make_policy()
+    # Ladder preconditions met: validated committed + 2 calibration pairs.
+    nodes = [validated_node(0, 0.48, 0.42), validated_node(1, 0.44, 0.39)]
+    for node in nodes:
+        node.duration_seconds = 400.0
+
+    # Price = probe 400 + eval upper 100 + build scale 0 (no impl
+    # telemetry) = 500; a 10000s window affords it with 2x margin.
+    granted = policy.decide(
+        nodes=nodes, remaining_after_reserve=10000.0,
+        probe_estimate_seconds=400.0,
+    )
+    assert granted.profile == PROFILE_FULL
+
+    # The same window under the OLD eval-only rule (2x100=200 <= 900)
+    # would still grant; the priced rule refuses a window a full run
+    # would blow.
+    refused = policy.decide(
+        nodes=nodes, remaining_after_reserve=900.0,
+        probe_estimate_seconds=400.0,
+    )
+    assert refused.profile == PROFILE_PROBE

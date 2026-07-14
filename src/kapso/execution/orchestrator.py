@@ -1106,8 +1106,12 @@ class OrchestratorAgent:
                 strategy=self.search_strategy,
                 maintainer=self.evaluation_maintainer,
             )
+            # Auto mode prices a full run from restored history: a fresh
+            # campaign is conservatively tiered; every resume re-prices.
             fidelity_active = fidelity_policy.enabled(
-                budget_spec.time_budget_seconds
+                budget_spec.time_budget_seconds,
+                self.search_strategy.get_experiment_history(),
+                self._probe_estimate_seconds(budget_spec),
             )
         self._fidelity_active = fidelity_active
         # Replay a pending transition or anchor restored scores on the

@@ -740,6 +740,20 @@ two guesses. The same config with a 48 h budget naturally degrades to mostly-FUL
 (step 4 keeps affording them), which is why fidelity `mode: auto` enables the machinery only
 when the arithmetic says fewer than `min_affordable_full_runs` full experiments fit.
 
+That arithmetic prices a full experiment from **node history**, layered strongest-evidence
+first: the mean measured duration of full-profile nodes; else the probe-iteration mean plus
+the full-eval upper plus the build scale-up (`implementation phase / build fast_fraction`)
+when a build dial exists; else *unknown*. Unknown keeps tiers ON — wrongly-on costs
+ceremony, wrongly-off costs the protected endgame — so a fresh campaign is conservatively
+tiered and every resume re-prices from restored telemetry. (The original implementation
+priced a full run as the escrow itself, `f × budget`, so the budget cancelled and auto was
+a pure function of the fraction — an 8 h campaign with 10-minute full runs still enabled
+tiers. Caught in design review, not live.) The same price now gates the mid-campaign FULL
+(`2 × price ≤ remaining_after_reserve`); the old rule priced only the eval half and would
+admit full builds the window couldn't hold. Switching tiers *off mid-campaign* once the
+price proves them unnecessary remains deferred: it flips the canonical comparability class
+and needs the same migration treatment as an evaluator transition.
+
 The timeline above assumes estimates hold; the schedule's *feasibility* rests on the
 mechanisms, not the arithmetic: probe overruns are cut by probe-sized deadlines, the
 VALIDATE is admitted only because its cap fits outside the escrowed reserve, and the final
