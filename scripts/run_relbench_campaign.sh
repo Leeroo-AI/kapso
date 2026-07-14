@@ -14,6 +14,29 @@ WAVE="${1:-smoke}"
 ITER="${2:-20}"
 MODE="${3:-RELBENCH_CONFIGS}"
 
+# Wave 0: head-to-head duel vs RelAgent + KumoRFM-ft (see BASELINES.md).
+# All are v1 tasks where BOTH baselines report numbers (any win counts twice),
+# on small/medium databases (cheap iterations). Bars to beat, from
+# data/baselines.json (RelAgent | KumoRFM-ft):
+#   user-attendance  MAE  0.241 | 0.238   (zero-inflated label; RT-ft anomaly shows huge headroom)
+#   driver-position  MAE  4.019 | 2.731   (tiny DB; overall #1 needs < 2.63)
+#   ad-ctr           MAE  0.033 | 0.034   (RelAgent's flagship board #1 — beat the agent archetype)
+#   study-adverse    MAE 37.194 | 44.225  (RelAgent's 2nd flagship)
+#   study-outcome  AUROC  71.86 | 71.16   (honest overall bar ~72.5 GelGT)
+#   user-repeat    AUROC  78.20 | 80.64   (overall bar 83.6 GelGT)
+# Rec add-ons cover KumoRFM-ft where RelAgent has no results:
+#   condition-sponsor-run MAP 11.65 | user-ad-visit MAP 4.17 (best known anywhere)
+BASELINE_DUEL=(
+  "rel-event user-attendance"
+  "rel-f1 driver-position"
+  "rel-avito ad-ctr"
+  "rel-trial study-adverse"
+  "rel-trial study-outcome"
+  "rel-event user-repeat"
+  "rel-trial condition-sponsor-run"
+  "rel-avito user-ad-visit"
+)
+
 # Wave 1: autocomplete tasks with near-random published baselines (no leaderboard).
 AUTOCOMPLETE_SOFT=(
   "rel-salt sales-group"
@@ -82,6 +105,7 @@ SMOKE=(
 )
 
 case "$WAVE" in
+  baseline-duel)     TASKS=("${BASELINE_DUEL[@]}") ;;
   autocomplete-soft) TASKS=("${AUTOCOMPLETE_SOFT[@]}") ;;
   uncontested)       TASKS=("${UNCONTESTED[@]}") ;;
   recommendation)    TASKS=("${RECOMMENDATION[@]}") ;;
