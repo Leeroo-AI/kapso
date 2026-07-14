@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/run_relbench_campaign.sh <wave> [iterations] [mode]
-#   waves (in intended order):
+#   waves: roi (recommended flat ROI-sorted queue, all 65 tasks) or thematic:
 #     w0-baseline-duel   8 tasks  v1, small/med DBs; every entity win beats BOTH
 #                                 RelAgent and KumoRFM-ft (see BASELINES.md)
 #     w1-v1-remainder    5 tasks  rest of v1 on small/med DBs
@@ -147,7 +147,86 @@ SMOKE=(
   "rel-f1 driver-position"
 )
 
+# ROI-sorted flat queue (recommended default): expected claim value x win
+# probability / compute cost. Tier S = tiny DBs, near-certain or
+# strategy-critical wins; Tier A = medium DBs, flagship takedowns + soft
+# uncontested cells; Tier B = 8h-tier DBs needed for the category-mean gates;
+# Tier C = outlier/saturated cells, match-only. Same 65-task coverage as the
+# thematic waves.
+ROI=(
+  # --- Tier S: rel-f1 + rel-event (minutes-per-iteration DBs) ---
+  "rel-event user-attendance"            # beats both baselines AND the regression-category keystone (RT anomaly)
+  "rel-f1 driver-circuit-compete"        # smoke heuristic already beat SOTA (76.7 > 76.18) — bank it
+  "rel-f1 results-position"              # uncontested AC, bar R2 0.528
+  "rel-f1 qualifying-position"           # uncontested AC, bar R2 0.239
+  "rel-f1 driver-position"               # beats RelAgent at 4.019; Kumo 2.731 is the stretch
+  "rel-event event_interest-interested"  # AC bar ~ coin-flip
+  "rel-event event_interest-not_interested"
+  "rel-event users-birthyear"            # AC bar R2 < 0
+  "rel-event user-repeat"                # beats both at >80.64
+  "rel-event user-ignore"                # beats both at >89.43
+  "rel-f1 driver-dnf"                    # stretch 82.63, nearly free to try
+  # --- Tier A: salt/trial/avito/ratebeer/arxiv (medium DBs) ---
+  "rel-salt sales-group"                 # AC bar 15.8 acc — join-lookup giveaway
+  "rel-salt sales-payterms"              # AC bar 37.5
+  "rel-salt sales-shipcond"              # AC bar 56.9
+  "rel-salt sales-incoterms"             # AC bar 62.2
+  "rel-salt item-incoterms"              # AC bar 69.4
+  "rel-trial studies-enrollment"         # AC bar R2 0.436 (v2 baselines at 0)
+  "rel-trial studies-has_dmc"            # AC bar 78.5
+  "rel-avito searchinfo-isuserloggedon"  # AC bar 73.0 (LightGBM at 50)
+  "rel-avito searchstream-click"         # AC bar 55.9 ~ random
+  "rel-trial study-adverse"              # RelAgent's board-#1 flagship takedown
+  "rel-avito ad-ctr"                     # RelAgent's other board-#1 flagship
+  "rel-trial study-outcome"              # beats both + honest overall #1 at >72.5
+  "rel-trial condition-sponsor-run"      # rec, best-known 11.65
+  "rel-avito user-ad-visit"              # rec, best-known 4.17
+  "rel-avito user-clicks"                # beats RelAgent >68.36; overall 69.4
+  "rel-trial site-success"               # beats both at <0.301 MAE
+  "rel-trial site-sponsor-run"           # rec 28.02 — riskier, biggest rec headline
+  "rel-ratebeer user-count"              # RelAgent v2 duel (MAE 6.021 / R2 0.625)
+  "rel-arxiv author-publication"         # RelAgent v2 duel (MAE 0.462 / R2 0.249)
+  "rel-ratebeer beer-churn"              # RelAgent v2 duel 84.70
+  "rel-ratebeer brewer-dormant"          # 83.33
+  "rel-arxiv paper-citation"             # 82.62
+  "rel-ratebeer user-churn"              # 98.63 — near-saturated duel cell
+  "rel-ratebeer beer_ratings-total_score" # AC bar R2 0.394
+  "rel-ratebeer user-beer-liked"         # rec bar 1.46 — very soft
+  "rel-ratebeer user-place-liked"        # rec bar 1.85
+  "rel-ratebeer user-beer-favorite"      # rec bar 1.89
+  "rel-arxiv author-category"            # multiclass bar 50.74
+  "rel-arxiv paper-paper-cocitation"     # rec bar 35.4
+  "rel-trial eligibilities-adult"        # AC, strong bar 93.7 — hardest AC cells last
+  "rel-trial eligibilities-child"        # AC, bar 87.3
+  # --- Tier B: stack/hm/amazon (8h-tier; required for category-mean gates) ---
+  "rel-stack badges-class"               # AC bar 82.8
+  "rel-hm transactions-price"            # AC bar R2 0.736
+  "rel-amazon review-rating"             # AC bar R2 < 0 — soft but big DB
+  "rel-hm user-churn"                    # beating both = overall #1 (>71.23)
+  "rel-hm item-sales"                    # tight (<0.034 MAE)
+  "rel-hm user-item-purchase"            # rec 3.14 — Kaggle-proven recipe
+  "rel-stack user-engagement"            # >90.70
+  "rel-stack user-badge"                 # >89.86
+  "rel-stack post-votes"                 # tight (<=0.064 MAE)
+  "rel-stack user-post-comment"          # rec 13.34 (Kumo) / 14.0 (RelGNN)
+  "rel-stack post-post-related"          # rec 12.5
+  "rel-amazon user-churn"                # tight 70.78
+  "rel-amazon item-churn"                # tight 82.84
+  "rel-amazon user-ltv"                  # 13.949
+  "rel-amazon item-ltv"                  # 41.765
+  "rel-amazon user-item-purchase"        # rec 2.93
+  "rel-amazon user-item-rate"            # rec 2.25
+  "rel-amazon user-item-review"          # rec 1.63
+  # --- Tier C: outliers + saturated (match, don't chase) ---
+  "rel-avito user-visits"                # KumoRFM-ft outlier 78.3
+  "rel-f1 driver-top3"                   # 99.62 saturated
+  "rel-salt item-plant"                  # 99.46
+  "rel-salt item-shippoint"              # 98.39
+  "rel-salt sales-office"                # 99.88
+)
+
 case "$WAVE" in
+  roi)               TASKS=("${ROI[@]}") ;;
   w0-baseline-duel|baseline-duel) TASKS=("${W0_BASELINE_DUEL[@]}") ;;
   w1-v1-remainder)   TASKS=("${W1_V1_REMAINDER[@]}") ;;
   w2-relagent-v2)    TASKS=("${W2_RELAGENT_V2[@]}") ;;
