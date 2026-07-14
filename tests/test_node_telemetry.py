@@ -133,7 +133,7 @@ class CountingAgent:
     def initialize(self, workspace):
         pass
 
-    def generate_code(self, prompt):
+    def generate_code(self, prompt, debug_mode=False, timeout_seconds=None):
         self.cumulative += self.delta
         return SimpleNamespace(
             output=(

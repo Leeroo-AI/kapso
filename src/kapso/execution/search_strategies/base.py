@@ -34,6 +34,7 @@ from kapso.execution.evaluation_integrity import (
     VALID_PROVENANCE,
     build_evaluation_manifest,
     manifest_fingerprint,
+    verify_data_manifest,
     verify_evaluation_tree,
 )
 
@@ -445,6 +446,7 @@ class SearchStrategy(ABC):
         self.registered_evaluation_command: str = ""
         self.registered_evaluator_id: str = ""
         self.registered_subsample_seed: int = 0
+        self.registered_data_manifest: Dict[str, str] = {}
         self.repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 self.params.get(
@@ -675,12 +677,14 @@ class SearchStrategy(ABC):
         command: str,
         evaluator_id: str,
         subsample_seed: int,
+        data_manifest: Dict[str, str],
     ) -> None:
         """Adopt a maintainer-registered evaluation as the enforced baseline."""
         self.registered_evaluation_manifest = dict(manifest)
         self.registered_evaluation_command = command
         self.registered_evaluator_id = evaluator_id
         self.registered_subsample_seed = subsample_seed
+        self.registered_data_manifest = dict(data_manifest)
 
     def enforce_evaluation_integrity(self, node: SearchNode) -> bool:
         """Reject a candidate that changed the evaluator it was scored by.
@@ -712,12 +716,23 @@ class SearchStrategy(ABC):
                     evaluation_dir,
                     enforced_manifest,
                 )
+                # The inputs half of evaluation identity: a candidate
+                # that rewrote protected data scored itself on a
+                # different evaluation set (the live reward hack set
+                # every label True and "scored" 1.0).
+                data_error = (
+                    verify_data_manifest(
+                        candidate_dir, self.registered_data_manifest
+                    )
+                    if self.registered_data_manifest
+                    else ""
+                )
         except Exception as exc:
             node.evaluation_integrity_error = (
                 f"{type(exc).__name__}: {exc}"
             )
         else:
-            node.evaluation_integrity_error = report.error
+            node.evaluation_integrity_error = report.error or data_error
 
         if node.evaluation_integrity_error:
             node.evaluation_valid = False

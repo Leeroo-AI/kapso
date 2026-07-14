@@ -101,6 +101,16 @@ def make_bridge_strategy(tmp_path, *, branches):
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.registered_evaluator_id = "ev-2"
     strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = {}
+    # The registered head the frame run must overlay into worktrees.
+    workspace_root = tmp_path / "workspace_root"
+    (workspace_root / "kapso_evaluation").mkdir(parents=True)
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
+        "REGISTERED_HEAD = True\n"
+    )
+    strategy.workspace_dir = str(workspace_root)
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
 
     class FakeWorkspace:
         repo = SimpleNamespace(
@@ -110,9 +120,10 @@ def make_bridge_strategy(tmp_path, *, branches):
 
         @contextmanager
         def materialize_ref(self, ref):
-            yield str(tmp_path)
+            yield str(worktree)
 
     strategy.workspace = FakeWorkspace()
+    strategy.bridge_worktree = worktree
     return strategy
 
 
@@ -141,7 +152,12 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
     monkeypatch.setattr(
         strategy_module, "subprocess", fake_eval_subprocess(payload)
     )
-    alive = SearchNode(node_id=1, branch_name="generic_exp_1")
+    # The live requester arrived with evaluation_valid=False (the feedback
+    # generator had voided its measurement under the defective evaluator);
+    # a successful bridge is a fresh trustworthy measurement and restores it.
+    alive = SearchNode(
+        node_id=1, branch_name="generic_exp_1", evaluation_valid=False
+    )
     assert (
         strategy.run_bridge_evaluation(
             alive, fidelity="full", fraction=1.0, deadline_seconds=10
@@ -150,6 +166,13 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
     )
     assert alive.evaluation_attempts[0].evaluator_id == "ev-2"
     assert alive.evaluation_attempts[0].score == 0.37
+    assert alive.evaluation_valid is True
+    # The frame run executed the REGISTERED head, not whatever evaluation
+    # tree the branch carried (the live bridge labeled v2 ran a v1 tree).
+    overlaid = (
+        strategy.bridge_worktree / "kapso_evaluation" / "kapso_eval.py"
+    )
+    assert overlaid.read_text() == "REGISTERED_HEAD = True\n"
 
 
 # =========================================================================
@@ -221,15 +244,14 @@ def test_accepted_change_request_runs_the_full_transition(
         strategy.evaluator_transition["new_evaluator_id"]
     )
     # The bridge ran against the node under the new head at full fidelity
-    # (fidelity is off, so the canonical class is full/1.0).
+    # (fidelity is off, so the canonical class is full/1.0); unbudgeted
+    # campaign -> the affordability deadline is unbounded.
     assert strategy.bridge_calls == [
         {
             "node_id": 0,
             "fidelity": "full",
             "fraction": 1.0,
-            "deadline_seconds": pytest.approx(
-                strategy.bridge_calls[0]["deadline_seconds"]
-            ),
+            "deadline_seconds": None,
         }
     ]
     assert len(strategy.refreshed_classes) == 1
@@ -338,3 +360,162 @@ def test_failed_bridges_anchor_an_empty_frontier(tmp_path, monkeypatch):
     assert strategy.evaluator_transition["status"] == "anchored"
     assert len(strategy.refreshed_classes) == 1
     assert strategy.scores_evaluator_id == strategy.registered_evaluator_id
+
+
+def test_accepted_request_bridges_the_requester_first(tmp_path, monkeypatch):
+    """The CR filer's old score is unsound by the maintainer's own verdict
+    (often None because of the very defect confirmed), so it must be
+    bridged first — never ranked by the ruler that just got retired.
+    """
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    call_counter = {"count": 0}
+
+    def setup_then_edit(root: Path) -> None:
+        call_counter["count"] += 1
+        write_entrypoint(root)
+        if call_counter["count"] >= 2:
+            (root / "kapso_evaluation" / "kapso_eval.py").write_text(
+                "ENTRYPOINT = True\nFIXED = True\n"
+            )
+
+    patch_maintainer_environment(
+        monkeypatch,
+        ScriptedMaintainerAgent(
+            setup_then_edit,
+            output=(
+                "<change_verdict>accept</change_verdict>"
+                "<reason>grader rejects every mixed submission</reason>"
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    # Iteration 1: healthy node, high score, no complaint. Iteration 2:
+    # the requester — zeroed out by the defective evaluator.
+    strategy.agent_output_queue = [
+        "",
+        "<evaluation_change_request>grader crashes on mixed labels"
+        "</evaluation_change_request>",
+    ]
+    strategy.score_queue = [0.9, None]
+
+    orchestrator.solve(experiment_max_iter=2)
+
+    assert strategy.evaluator_transition["status"] == "anchored"
+    # Old order would bridge node 0 (score 0.9) first; the requester wins.
+    assert strategy.bridge_calls[0]["node_id"] == 1
+    assert len(strategy.bridge_calls) == 1  # its bridge succeeded: done
+
+
+def test_pending_priority_replays_first_on_resume(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    first = _orchestrator(workspace)
+    # Node 0 scoreless, node 1 scored: without priority, replay would
+    # bridge node 1 first.
+    first.search_strategy.score_queue = [None, 0.5]
+    first.solve(experiment_max_iter=2)
+
+    store = RunCheckpointStore(str(workspace))
+    checkpoint = store.load()
+    state = dict(checkpoint.strategy_state)
+    state["scores_evaluator_id"] = "stale-head"
+    state["evaluator_transition"] = {
+        "old_evaluator_id": "stale-head",
+        "new_evaluator_id": "whatever-registered",
+        "status": "pending",
+        "priority_node_id": 0,
+    }
+    store.save(
+        RunCheckpoint.create(
+            strategy_type=checkpoint.strategy_type,
+            goal=checkpoint.goal,
+            config_fingerprint=checkpoint.config_fingerprint,
+            status="running",
+            completed_iterations=checkpoint.completed_iterations,
+            cumulative_cost=checkpoint.cumulative_cost,
+            current_feedback=checkpoint.current_feedback,
+            strategy_state=state,
+            elapsed_seconds=checkpoint.elapsed_seconds,
+            cost_by_component=checkpoint.cost_by_component,
+        )
+    )
+
+    resumed = _orchestrator(workspace, resume=True)
+    resumed.solve(experiment_max_iter=1)
+
+    strategy = resumed.search_strategy
+    assert strategy.evaluator_transition["status"] == "anchored"
+    assert strategy.bridge_calls[0]["node_id"] == 0
+
+
+def test_unsound_measurement_bridges_but_tampering_never_does(
+    tmp_path, monkeypatch
+):
+    """The live CR campaign's requester was evaluation_valid=False because
+    the EVALUATION was defective — the old filter excluded it and the
+    frontier restarted from baseline for no reason. Unsound measurements
+    bridge (the artifact is fine); a non-empty integrity error (tampering)
+    stays exclusionary.
+    """
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    call_counter = {"count": 0}
+
+    def setup_then_edit(root: Path) -> None:
+        call_counter["count"] += 1
+        write_entrypoint(root)
+        if call_counter["count"] >= 2:
+            (root / "kapso_evaluation" / "kapso_eval.py").write_text(
+                "ENTRYPOINT = True\nFIXED = True\n"
+            )
+
+    patch_maintainer_environment(
+        monkeypatch,
+        ScriptedMaintainerAgent(
+            setup_then_edit,
+            output=(
+                "<change_verdict>accept</change_verdict>"
+                "<reason>defective guard confirmed</reason>"
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    # Iteration 1: a tampering node (integrity error). Iteration 2: the
+    # requester — measurement unsound (valid False, clean integrity)
+    # because the defective evaluator crashed on it.
+    strategy.agent_output_queue = [
+        "",
+        "<evaluation_change_request>guard rejects every honest model"
+        "</evaluation_change_request>",
+    ]
+    strategy.score_queue = [0.9, None]
+    strategy.valid_queue = [False, False]
+    strategy.integrity_queue = ["evaluation tree tampered", ""]
+
+    orchestrator.solve(experiment_max_iter=2)
+
+    assert strategy.evaluator_transition["status"] == "anchored"
+    assert strategy.evaluator_transition["priority_node_id"] == 1
+    # The tampering node (score 0.9) never bridges; the unsound-measurement
+    # requester does, and first.
+    assert [call["node_id"] for call in strategy.bridge_calls] == [1]

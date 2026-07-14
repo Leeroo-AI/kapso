@@ -39,7 +39,9 @@ def run_fake_cli(agent, monkeypatch, script, extra_args=()):
         "_build_command",
         lambda prompt, model, use_stream_json=False: fake_cmd,
     )
-    return agent._run_streaming(["claude", "-p", "prompt"], "test-model")
+    return agent._run_streaming(
+        ["claude", "-p", "prompt"], "test-model", agent._timeout
+    )
 
 
 def stream_event(payload):
@@ -173,3 +175,28 @@ def test_deadline_kill_takes_the_whole_process_group(tmp_path, monkeypatch):
             break
         time.sleep(0.1)
     assert not Path(f"/proc/{grandchild_pid}").exists()
+
+
+def test_generate_code_threads_the_per_call_timeout(tmp_path, monkeypatch):
+    """Budget clamps reach individual calls on a long-lived agent through
+    generate_code's timeout_seconds; the configured timeout stands when
+    the caller passes nothing.
+    """
+    agent = make_agent(tmp_path, monkeypatch, timeout=300)
+    agent.workspace = "/tmp/nowhere"
+    seen = []
+    monkeypatch.setattr(
+        agent,
+        "_build_command",
+        lambda prompt, model, use_stream_json=False: ["true"],
+    )
+    monkeypatch.setattr(
+        agent,
+        "_run_streaming",
+        lambda cmd, model, timeout_seconds: seen.append(timeout_seconds),
+    )
+
+    agent.generate_code("p", timeout_seconds=7.0)
+    agent.generate_code("p")
+
+    assert seen == [7.0, 300]

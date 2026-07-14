@@ -114,18 +114,26 @@ class CodingAgentInterface(ABC):
         pass
     
     @abstractmethod
-    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
+    def generate_code(
+        self,
+        prompt: str,
+        debug_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
         """
         Generate or modify code based on the prompt.
-        
+
         This is the main method that generates code. The agent should:
         1. Process the prompt
         2. Generate/edit code files
         3. Return a CodingResult with changed files
-        
+
         Args:
             prompt: The implementation or debugging instructions
             debug_mode: If True, use debug model and debugging behavior
+            timeout_seconds: Per-call deadline override; the adapter's
+                configured timeout applies when None. Budget clamps use
+                this to bound individual calls on a long-lived agent.
             
         Returns:
             CodingResult with success status, output, files changed, and cost

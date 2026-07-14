@@ -85,6 +85,11 @@ class FakeStrategy:
         self.contexts: List[str] = []
         self.stop_next = stop_next
         self.next_agent_output = ""
+        # Per-iteration overrides; each run() pops one when available.
+        self.agent_output_queue: List[str] = []
+        self.score_queue: List[Optional[float]] = []
+        self.valid_queue: List[bool] = []
+        self.integrity_queue: List[str] = []
         self.registered_evaluation: Dict[str, Any] = {}
         self.scores_evaluator_id = ""
         self.evaluator_transition = None
@@ -102,11 +107,21 @@ class FakeStrategy:
             node_id=node_id,
             branch_name=branch_name,
             solution=f"solution-{node_id}",
-            score=0.1,
+            score=(
+                self.score_queue.pop(0) if self.score_queue else 0.1
+            ),
             feedback=f"feedback-{node_id}",
             should_stop=self.stop_next,
-            agent_output=self.next_agent_output,
+            agent_output=(
+                self.agent_output_queue.pop(0)
+                if self.agent_output_queue
+                else self.next_agent_output
+            ),
         )
+        if self.valid_queue:
+            node.evaluation_valid = self.valid_queue.pop(0)
+        if self.integrity_queue:
+            node.evaluation_integrity_error = self.integrity_queue.pop(0)
         self.contexts.append(context)
         self.node_history.append(node)
         self.workspace.current_cost += 1.0
@@ -120,16 +135,19 @@ class FakeStrategy:
         self.fidelity_decisions.append(decision)
 
     def set_registered_evaluation(
-        self, *, manifest, command, evaluator_id, subsample_seed
+        self, *, manifest, command, evaluator_id, subsample_seed,
+        data_manifest,
     ) -> None:
         self.registered_evaluation = {
             "manifest": dict(manifest),
             "command": command,
             "evaluator_id": evaluator_id,
             "subsample_seed": subsample_seed,
+            "data_manifest": dict(data_manifest),
         }
         self.registered_evaluator_id = evaluator_id
         self.registered_subsample_seed = subsample_seed
+        self.registered_data_manifest = dict(data_manifest)
 
     def get_experiment_history(
         self,

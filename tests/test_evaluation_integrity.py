@@ -15,6 +15,7 @@ from kapso.execution.evaluation_integrity import (
     AGENT_GENERATED,
     PROVIDED,
     EvaluationIntegrityError,
+    build_data_manifest,
     build_evaluation_manifest,
     manifest_fingerprint,
     verify_evaluation_tree,
@@ -90,6 +91,7 @@ def _provided_strategy(workspace: Path) -> GenericSearch:
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.workspace = MaterializingWorkspace(workspace)
     strategy.registered_evaluation_manifest = {}
+    strategy.registered_data_manifest = {}
     strategy.evaluation_provenance = PROVIDED
     strategy.provided_evaluation_manifest = build_evaluation_manifest(
         workspace / "kapso_evaluation"
@@ -244,6 +246,7 @@ def test_unchanged_candidate_and_agent_generated_evaluation_are_valid(
 
     generated = GenericSearch.__new__(GenericSearch)
     generated.registered_evaluation_manifest = {}
+    generated.registered_data_manifest = {}
     generated.evaluation_provenance = AGENT_GENERATED
     generated_node = SearchNode(node_id=1, score=0.5)
     assert generated.enforce_evaluation_integrity(generated_node) is True
@@ -294,13 +297,19 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
 def test_feedback_invalidity_cannot_stop_or_retain_a_score() -> None:
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.goal = "Improve support"
+    strategy.budget_snapshot = None
+    strategy.budget_snapshot_monotonic = None
+    strategy.registered_evaluation_command = ""
     strategy.feedback_generator = SimpleNamespace(
+        configured_timeout_seconds=120.0,
         generate=lambda **kwargs: SimpleNamespace(
             feedback="evaluation is not valid",
             score=100.0,
             stop=True,
             evaluation_valid=False,
-        )
+            duration_seconds=None,
+            cost_usd=0.0,
+        ),
     )
     node = SearchNode(
         node_id=0,
@@ -376,3 +385,51 @@ def test_provided_evaluation_prompt_warns_against_modification(
 
     assert "Do not modify, delete, replace" in context
     assert "result.json" in context
+
+
+def test_data_tampering_voids_the_score(tmp_path: Path) -> None:
+    """The live reward hack: the candidate rewrote data/train.csv so a
+    degenerate model scored 1.0 against rigged labels — same evaluator_id,
+    different evaluation set. Protected-input enforcement voids it.
+    """
+    workspace = tmp_path / "workspace"
+    repo = _init_candidate_repo(workspace)
+    data_dir = workspace / "data"
+    data_dir.mkdir()
+    (data_dir / "train.csv").write_text("PassengerId,Transported\n1,False\n")
+    repo.git.add(["data"])
+    repo.git.commit("-m", "evaluation inputs")
+
+    repo.git.checkout("-b", "honest")
+    (workspace / "model.py").write_text("WEIGHTS = 2\n")
+    repo.git.add("-A")
+    repo.git.commit("-m", "honest work")
+    repo.git.checkout("main")
+
+    repo.git.checkout("-b", "rigged")
+    (data_dir / "train.csv").write_text("PassengerId,Transported\n1,True\n")
+    repo.git.add("-A")
+    repo.git.commit("-m", "align data with grader constraints")
+    repo.git.checkout("main")
+
+    strategy = _provided_strategy(workspace)
+    strategy.registered_evaluation_manifest = (
+        strategy.provided_evaluation_manifest
+    )
+    strategy.registered_data_manifest = build_data_manifest(
+        workspace, ["data"]
+    )
+
+    honest = SearchNode(node_id=0, branch_name="honest", score=0.8)
+    assert strategy.enforce_evaluation_integrity(honest) is True
+    assert honest.evaluation_valid is True
+    assert honest.score == 0.8
+
+    rigged = SearchNode(
+        node_id=1, branch_name="rigged", score=1.0, should_stop=True
+    )
+    assert strategy.enforce_evaluation_integrity(rigged) is False
+    assert rigged.evaluation_valid is False
+    assert rigged.score is None
+    assert rigged.should_stop is False
+    assert "modified:data/train.csv" in rigged.evaluation_integrity_error
