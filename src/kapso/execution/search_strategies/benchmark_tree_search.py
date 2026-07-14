@@ -494,6 +494,12 @@ class BenchmarkTreeSearch(SearchStrategy):
         if self.enforce_evaluation_integrity(node):
             self._evaluate_with_handler(node, node.solution)
             node.should_stop = self._check_handler_stop_condition()
+            if node.had_error and node.error_message:
+                # Surface recent failures to subsequent implement prompts
+                # (rendered via the `previous_errors` template variable).
+                self.previous_errors.append(
+                    f"[{branch_name}] {str(node.error_message)[:800]}"
+                )
         else:
             node.is_terminated = True
         
@@ -657,15 +663,11 @@ class BenchmarkTreeSearch(SearchStrategy):
         # Prepare run directory
         run_data_dir = os.path.join(self.workspace_dir, "kapso_evaluation")
         os.makedirs(run_data_dir, exist_ok=True)
-        
+
         # Call handler's run()
         try:
             print(f"[BenchmarkTreeSearch] Calling handler.run() for evaluation...")
-            result: ProblemRunResult = self.problem_handler.run(
-                file_path=self.workspace_dir,
-                run_data_dir=run_data_dir,
-                solution=solution,
-            )
+            result: ProblemRunResult = self._run_handler_on_candidate(node, solution, run_data_dir)
             
             # Map ProblemRunResult fields to SearchNode
             node.score = result.score
@@ -682,6 +684,36 @@ class BenchmarkTreeSearch(SearchStrategy):
             node.error_message = str(e)
         
         return node
+
+    def _run_handler_on_candidate(self, node: SearchNode, solution: str, run_data_dir: str):
+        """Run the handler against the candidate's committed code.
+
+        Experiment code is committed and pushed to the node's branch by the
+        session, but never checked out into the root working tree during the
+        search. Materialize the branch into a temporary worktree (same pattern
+        as enforce_evaluation_integrity) so `file_path` actually contains the
+        candidate's files. Falls back to the root workspace dir when the branch
+        ref is unavailable.
+        """
+        branch_name = getattr(node, "branch_name", None)
+        if branch_name:
+            try:
+                with self.workspace.materialize_ref(branch_name) as candidate_dir:
+                    return self.problem_handler.run(
+                        file_path=candidate_dir,
+                        run_data_dir=run_data_dir,
+                        solution=solution,
+                    )
+            except ValueError:
+                print(
+                    f"[BenchmarkTreeSearch] Branch {branch_name} not materializable, "
+                    "falling back to workspace dir"
+                )
+        return self.problem_handler.run(
+            file_path=self.workspace_dir,
+            run_data_dir=run_data_dir,
+            solution=solution,
+        )
 
     def _check_handler_stop_condition(self) -> bool:
         """

@@ -1,0 +1,22 @@
+# RelBench-specific dependencies
+#
+# Prerequisites:
+# 1. Install core Kapso dependencies first (from repo root):
+#      pip install -r requirements.txt
+# 2. Install the evaluation layer (required by the handler):
+#      pip install relbench duckdb pooch pyarrow scikit-learn
+# 3. Install the modeling stack used by generated solutions (GPU machine):
+#      pip install torch --index-url https://download.pytorch.org/whl/cu124
+#      pip install relbench[full] sentence-transformers lightgbm xgboost catboost tqdm
+#    (relbench[full] pulls pytorch_frame and torch_geometric.)
+#
+# The generated code runs with the same interpreter as the handler, so the
+# modeling stack must live in the same environment.
+#
+# rel-mimic additionally requires credentialed PhysioNet access and Google
+# BigQuery credentials — see https://relbench.stanford.edu/datasets/rel-mimic/
+
+relbench>=2.1.2
+duckdb
+pooch
+pyarrow
