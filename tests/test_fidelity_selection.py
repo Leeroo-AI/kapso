@@ -311,3 +311,69 @@ def test_deliverable_prefers_committed_tier_over_fast_leader():
     strategy.registered_evaluator_id = ""
     assert strategy.get_deliverable_experiment() is fast_leader
     assert strategy.get_deliverable_score() == 0.87
+
+
+def test_manifest_line_is_the_score_of_record(tmp_path):
+    """Two live nodes lost real measurements when the feedback call died:
+    the manifest line the wrapper contractually prints is machine-readable,
+    so the LLM judge is never the parser of record. Class-mismatched lines
+    (custom fractions, wrong fidelity) are not the canonical measurement.
+    """
+    from kapso.execution.fidelity import FidelityDecision
+
+    strategy = make_strategy()
+    strategy.registered_evaluation_command = (
+        "python kapso_evaluation/kapso_eval.py --fidelity fast "
+        "--fraction 0.2 --seed 1337"
+    )
+    strategy.fidelity_decision = FidelityDecision(
+        profile="probe",
+        build_fidelity="fast",
+        eval_fidelity="fast",
+        eval_fraction=0.2,
+    )
+
+    def manifest_line(fraction, score):
+        return (
+            'KAPSO_EVAL_MANIFEST {"fidelity": "fast", '
+            f'"fraction": {fraction}, "seed": 1337, "items": 40, '
+            f'"total_items": 200, "score": {score}}}'
+        )
+
+    node = SearchNode(node_id=0, branch_name="generic_exp_0")
+    # Several runs in-session: the LAST granted-class line wins.
+    node.evaluation_output = "\n".join(
+        [
+            "exploring...",
+            manifest_line(0.2, 0.61),
+            "tuning...",
+            manifest_line(0.2, 0.87),
+        ]
+    )
+    assert strategy._manifest_score_of_record(node) == 0.87
+
+    # A custom-fraction run is a different comparability class.
+    node.evaluation_output = manifest_line(0.5, 0.91)
+    assert strategy._manifest_score_of_record(node) is None
+
+    # No manifest at all: nothing mechanical to say.
+    node.evaluation_output = "the evaluation crashed before printing"
+    assert strategy._manifest_score_of_record(node) is None
+
+    # Unregistered mode: the manifest contract does not exist.
+    strategy.registered_evaluation_command = ""
+    node.evaluation_output = manifest_line(0.2, 0.9)
+    assert strategy._manifest_score_of_record(node) is None
+
+
+def test_malformed_manifest_line_raises(tmp_path):
+    import pytest as pytest_module
+
+    strategy = make_strategy()
+    strategy.registered_evaluation_command = "python kapso_eval.py"
+    strategy.fidelity_decision = None
+
+    node = SearchNode(node_id=0, branch_name="generic_exp_0")
+    node.evaluation_output = "KAPSO_EVAL_MANIFEST {not valid json"
+    with pytest_module.raises(Exception):
+        strategy._manifest_score_of_record(node)

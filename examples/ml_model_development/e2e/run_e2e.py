@@ -454,9 +454,12 @@ def check_child_exit(returncode, result, evidence: list) -> bool:
 def check_change_request_flow(
     run_dir: Path, checkpoint: dict, evidence: list
 ) -> bool:
-    """The seeded-defect leg must fire the whole CR chain: a second
-    registered version, an anchored transition carrying the requester's
-    priority, and the requester actually measured under the new head.
+    """The seeded-defect leg must fire the CR chain: a second registered
+    version, and the frontier consistently on the new head. Two legitimate
+    shapes exist: a transition anchored with the requester's priority and
+    the requester measured under the new head (the CR fired mid-campaign),
+    or no transition at all because the CR fired before any node existed —
+    then every recorded attempt must already be new-head-native.
     """
     registry_path = (
         run_dir / "workspace" / ".kapso" / "evaluation_registry.json"
@@ -467,25 +470,42 @@ def check_change_request_flow(
     head_id = versions[-1]["evaluator_id"]
     priority = transition.get("priority_node_id")
     nodes = strategy_state.get("node_history", [])
-    requester_measured = any(
-        attempt["evaluator_id"] == head_id
+    attempts = [
+        attempt
         for node in nodes
-        if node["node_id"] == priority
         for attempt in node.get("evaluation_attempts") or []
+    ]
+    if transition:
+        requester_measured = any(
+            attempt["evaluator_id"] == head_id
+            for node in nodes
+            if node["node_id"] == priority
+            for attempt in node.get("evaluation_attempts") or []
+        )
+        evidence.append(
+            f"versions={len(versions)} transition={transition.get('status')} "
+            f"priority_node={priority} "
+            f"requester_measured={requester_measured}"
+        )
+        return (
+            len(versions) >= 2
+            and transition.get("status") == "anchored"
+            and priority is not None
+            and requester_measured
+        )
+    head_native = all(
+        attempt["evaluator_id"] == head_id for attempt in attempts
     )
     evidence.append(
-        f"versions={len(versions)} transition={transition.get('status')} "
-        f"priority_node={priority} requester_measured={requester_measured}"
+        f"versions={len(versions)} transition=None (pre-node CR) "
+        f"attempts={len(attempts)} head_native={head_native}"
     )
-    return (
-        len(versions) >= 2
-        and transition.get("status") == "anchored"
-        and priority is not None
-        and requester_measured
-    )
+    return len(versions) >= 2 and len(attempts) > 0 and head_native
 
 
-def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
+def check_artifact(
+    run_dir: Path, checkpoint: dict, evidence: list, *, required: tuple
+) -> bool:
     """The final checkout must actually land on an experiment branch.
 
     File existence alone is not evidence — the baseline files exist on
@@ -493,11 +513,7 @@ def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
     past this check.
     """
     workspace = run_dir / "workspace"
-    present = [
-        name
-        for name in ("train.py", "evaluate.py")
-        if (workspace / name).exists()
-    ]
+    present = [name for name in required if (workspace / name).exists()]
     head = subprocess.run(
         ["git", "-C", str(workspace), "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True,
@@ -506,7 +522,7 @@ def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
     nodes = checkpoint.get("strategy_state", {}).get("node_history", [])
     any_scored = any(node.get("score") is not None for node in nodes)
     evidence.append(f"checked_out={present} head={head} scored={any_scored}")
-    if len(present) != 2:
+    if len(present) != len(required):
         return False
     if any_scored:
         return head.startswith("generic_exp_")
@@ -600,7 +616,18 @@ def verify(
             ),
             (
                 "artifact_checked_out",
-                lambda ev: check_artifact(run_dir, checkpoint, ev),
+                lambda ev: check_artifact(
+                    run_dir,
+                    checkpoint,
+                    ev,
+                    # The seeded-defect variant replaces evaluate.py with
+                    # the provided grader; it is legitimately absent.
+                    required=(
+                        ("train.py",)
+                        if args.seed_eval_defect
+                        else ("train.py", "evaluate.py")
+                    ),
+                ),
             ),
         ]
     if has_maintainer:

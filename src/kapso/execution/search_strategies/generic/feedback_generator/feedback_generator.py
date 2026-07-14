@@ -12,7 +12,6 @@
 # 3. Extracting the evaluation score (if any)
 # 4. Generating actionable feedback for the next iteration
 
-import json
 import os
 import subprocess
 import time
@@ -64,6 +63,17 @@ class FeedbackGenerator:
     
     # Default prompt path
     PROMPT_PATH = "execution/search_strategies/generic/feedback_generator/prompts/feedback_generator.md"
+
+    # Single source for the module's default call timeout; live runs get
+    # theirs from the mode config's feedback_generator block.
+    DEFAULT_TIMEOUT_SECONDS = 120.0
+
+    RETRY_PROMPT = (
+        "Your previous response did not contain the required tags. Respond "
+        "now with ONLY the four tags — <stop>, <evaluation_valid>, <score>, "
+        "<feedback> — filled in for the iteration you just analyzed. No "
+        "other text."
+    )
     
     def __init__(
         self,
@@ -85,14 +95,23 @@ class FeedbackGenerator:
                     "auth_mode": "bedrock",
                     "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
                     "streaming": True,
-                    "timeout": 120,
+                    "timeout": self.DEFAULT_TIMEOUT_SECONDS,
                 }
             )
-        
+
         self.coding_agent_config = coding_agent_config
-        
+
         # Create the coding agent
         self.agent = CodingAgentFactory.create(coding_agent_config)
+
+    @property
+    def configured_timeout_seconds(self) -> float:
+        """The block-configured call timeout, for budget clamping."""
+        return float(
+            self.coding_agent_config.agent_specific.get(
+                "timeout", self.DEFAULT_TIMEOUT_SECONDS
+            )
+        )
     
     def generate(
         self,
@@ -104,6 +123,7 @@ class FeedbackGenerator:
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
+        timeout_seconds: Optional[float] = None,
     ) -> FeedbackResult:
         """
         Generate feedback for the iteration.
@@ -146,14 +166,35 @@ class FeedbackGenerator:
         
         # Run the coding agent to analyze and generate feedback. The agent is
         # persistent across iterations, so this call's spend is the cumulative
-        # delta around it.
+        # delta around it (retry included).
         call_started = time.monotonic()
         cost_before = self.agent.get_cumulative_cost()
-        result = self.agent.generate_code(prompt)
+        result = self.agent.generate_code(
+            prompt, timeout_seconds=timeout_seconds
+        )
         response = result.output
 
-        # Parse the response - expect XML tags
         feedback_result = self._parse_response(response)
+        if feedback_result is None:
+            # One in-session nudge: the judge failing to emit tags loses
+            # the whole iteration's verdict, so a cheap retry earns its
+            # cost. Still tagless after that -> an explicit failure result,
+            # never a fabricated verdict.
+            result = self.agent.generate_code(
+                self.RETRY_PROMPT, timeout_seconds=timeout_seconds
+            )
+            response = result.output
+            feedback_result = self._parse_response(response)
+        if feedback_result is None:
+            feedback_result = FeedbackResult(
+                stop=False,
+                evaluation_valid=True,
+                feedback=(
+                    "Feedback generation failed: the required tags were "
+                    "missing after a retry.\n\nRaw output:\n" + response
+                ),
+                score=None,
+            )
         feedback_result.cost_usd = (
             self.agent.get_cumulative_cost() - cost_before
         )
@@ -214,18 +255,21 @@ class FeedbackGenerator:
             print(f"[FeedbackGenerator] Warning: Could not get commit message: {e}")
         return ""
     
-    def _parse_response(self, response: str) -> FeedbackResult:
+    def _parse_response(self, response: str) -> Optional[FeedbackResult]:
         """
         Parse the agent's response into a FeedbackResult.
-        
+
         Expects XML tags format from the agent:
         <stop>true/false</stop>
         <evaluation_valid>true/false</evaluation_valid>
         <score>numeric or null</score>
         <feedback>...</feedback>
+
+        Returns None when no tag is present — the caller owns the retry
+        and the explicit failure result.
         """
         import re
-        
+
         # Extract values from XML tags
         def extract_tag(tag: str, text: str) -> Optional[str]:
             pattern = rf'<{tag}>\s*(.*?)\s*</{tag}>'
@@ -260,39 +304,4 @@ class FeedbackGenerator:
                 score=score,
             )
         
-        # Fallback: try JSON parsing for backward compatibility
-        return self._parse_response_json_fallback(response)
-    
-    def _parse_response_json_fallback(self, response: str) -> FeedbackResult:
-        """
-        Fallback JSON parsing for backward compatibility.
-        """
-        try:
-            # Look for JSON block in markdown code fence
-            if "```json" in response:
-                start = response.find("```json") + 7
-                end = response.find("```", start)
-                json_str = response[start:end].strip()
-            elif "```" in response:
-                start = response.find("```") + 3
-                end = response.find("```", start)
-                json_str = response[start:end].strip()
-            else:
-                json_str = response.strip()
-            
-            data = json.loads(json_str)
-            
-            return FeedbackResult(
-                stop=data.get("stop", False),
-                evaluation_valid=data.get("evaluation_valid", True),
-                feedback=data.get("feedback", ""),
-                score=data.get("score"),
-            )
-        except (json.JSONDecodeError, KeyError):
-            # If parsing fails, return a default result with the raw response as feedback
-            return FeedbackResult(
-                stop=False,
-                evaluation_valid=True,
-                feedback=f"Failed to parse feedback response. Raw output: {response[:500]}",
-                score=None,
-            )
+        return None

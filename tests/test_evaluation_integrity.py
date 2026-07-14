@@ -297,13 +297,19 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
 def test_feedback_invalidity_cannot_stop_or_retain_a_score() -> None:
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.goal = "Improve support"
+    strategy.budget_snapshot = None
+    strategy.budget_snapshot_monotonic = None
+    strategy.registered_evaluation_command = ""
     strategy.feedback_generator = SimpleNamespace(
+        configured_timeout_seconds=120.0,
         generate=lambda **kwargs: SimpleNamespace(
             feedback="evaluation is not valid",
             score=100.0,
             stop=True,
             evaluation_valid=False,
-        )
+            duration_seconds=None,
+            cost_usd=0.0,
+        ),
     )
     node = SearchNode(
         node_id=0,

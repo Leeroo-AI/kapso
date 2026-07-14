@@ -1216,6 +1216,36 @@ class OrchestratorAgent:
                             "escrowed full-size attempt before stopping"
                         )
                         reserve_run_pending = True
+                        # The reserve run SPENDS the escrow — except the
+                        # measurement's slice. Its snapshot releases the
+                        # campaign reserve (the live escrowed iteration was
+                        # once killed at the 60s floor with 18 escrowed
+                        # minutes on the clock) but keeps the timing
+                        # model's full-eval upper as the residual reserve,
+                        # so the build cannot starve the frame measurement
+                        # that follows it (also observed live: the build
+                        # spent the whole escrow and the measurement got
+                        # 64 seconds).
+                        measurement_slice = (
+                            self.evaluation_maintainer.timing(
+                                1.0
+                            ).upper_seconds
+                        )
+                        snapshot = BudgetSnapshot(
+                            iteration_index=i,
+                            max_iterations=experiment_max_iter,
+                            elapsed_seconds=self.get_elapsed_seconds(),
+                            cost_usd=self.get_cumulative_cost(),
+                            time_budget_seconds=(
+                                budget_spec.time_budget_seconds
+                            ),
+                            cost_budget_usd=budget_spec.cost_budget_usd,
+                            finalization_reserve_seconds=measurement_slice,
+                            min_agent_timeout_seconds=(
+                                budget_spec.min_agent_timeout_seconds
+                            ),
+                        )
+                        self.search_strategy.observe_budget(snapshot)
                     else:
                         print(
                             "[Orchestrator] Stopping: finalization reserve "
@@ -1353,6 +1383,41 @@ class OrchestratorAgent:
                     break
 
                 if reserve_run_pending:
+                    # The escrowed measurement is kapso-owned: whatever the
+                    # agent self-reported, the authoritative FULL score of
+                    # the reserve artifact comes from a frame run (the live
+                    # reserve run did real 0.9-class work whose self-report
+                    # died with a killed feedback call, landing score=None).
+                    if (
+                        node is not None
+                        and self.search_strategy.registered_evaluator_id
+                    ):
+                        # Floored at the timing estimate: an endgame the
+                        # build overran still grants the measurement its
+                        # estimated slice — delivery-critical work, the
+                        # same license the transition bridge has.
+                        measured = self.search_strategy.run_bridge_evaluation(
+                            node,
+                            fidelity="full",
+                            fraction=1.0,
+                            deadline_seconds=(
+                                max(
+                                    self.budget_spec.time_budget_seconds
+                                    - self.get_elapsed_seconds(),
+                                    self.evaluation_maintainer.timing(
+                                        1.0
+                                    ).upper_seconds,
+                                )
+                                if self.budget_spec.time_budget_seconds
+                                is not None
+                                else None
+                            ),
+                        )
+                        print(
+                            "[Orchestrator] Reserve measurement "
+                            f"{'recorded' if measured else 'failed'} for "
+                            f"node {node.node_id}"
+                        )
                     print(
                         "[Orchestrator] Reserve run complete — stopping "
                         "with the finalization window honored"

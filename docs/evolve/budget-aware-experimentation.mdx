@@ -1042,6 +1042,54 @@ defects, every one found by an actual failing campaign and fixed with a pinned t
     (maintainer-as-runner); until then it is a registration contract plus prompt-level
     governance, and the vector is documented rather than assumed closed.
 
+11. **Evaluation state time-traveled through git.** The maintainer committed the
+    registry; session clones and experiment branches carried stale copies; the final
+    checkout then resurrected a v1 registry over the live v2 — and, deeper, frame runs
+    executed `kapso_evaluation/` from the *branch's* tree, so a bridge labeled with the
+    v2 id actually ran the branch's v1 evaluator, silently violating the comparability
+    class. Three-part fix: the registry is never tracked (campaign state lives at the
+    workspace root, outside version control); frame runs overlay the registered head
+    into the worktree before executing (the ruler is never the branch's copy); and the
+    escrowed reserve measurement is kapso-owned — after the reserve iteration, the
+    orchestrator frame-runs the FULL evaluation on the new artifact rather than trusting
+    the agent's self-report (whose feedback call had died at its timeout, landing the
+    reserve node scoreless despite real 0.9-class work).
+
+12. **The bridge filter conflated tampering with unsound measurements.** The CR
+    requester — voided *because* the evaluator was defective — was excluded from bridging
+    like a cheater, and the frontier restarted from baseline for no reason. Only a
+    non-empty integrity error (the candidate's own sin) is exclusionary; a successful
+    bridge is a fresh trustworthy measurement and restores `evaluation_valid`.
+13. **The registration commit crashed when the maintainer's own agent had already
+    committed its edit.** The `is_dirty(untracked_files=True)` guard answered True on
+    unrelated untracked files and drove git into an empty commit — masked for as long as
+    the always-staged registry file guaranteed commit content. Commit only on a staged
+    index delta.
+14. **The escrow funded the build and starved the measurement.** The reserve iteration's
+    agents spent the whole released escrow; the trailing kapso-owned measurement got 64
+    seconds against a multi-minute evaluation. The reserve run's snapshot keeps the
+    timing model's full-eval upper as its residual reserve, and the measurement's
+    deadline floors at that estimate.
+
+15. **The judge was the parser of record.** Score extraction (mechanical) was welded to
+    judgment (semantic) in one fragile LLM call: twice, a killed feedback call erased a
+    real measurement whose manifest line sat in the transcript, and its parse failure
+    silently fabricated `valid=True, score=None`. Fixed three ways: in registered mode
+    the strategy parses the session's last granted-class `KAPSO_EVAL_MANIFEST` line
+    itself (feedback's extraction is a cross-check; the judge keeps only validity
+    power); `generate_code` gained a per-call `timeout_seconds` so the budget clamp
+    finally reaches feedback calls (the M4 deferral); and a tagless response earns one
+    retry then an explicit failure result — the JSON compatibility fallback and the
+    500-character truncation of raw output are gone.
+
+The change-request row closed at **10/10** on 2026-07-14: seeded defective grader →
+honest CR with evidence (three prior campaigns had instead falsified the data, runtime-
+patched the guard, and been coached to do so by feedback — findings 9 and 10) →
+maintainer investigation and accept → wrapper-side fix with provided files byte-intact →
+v2 registered and never time-traveling → requester bridged first with validity restored
+→ campaign continued on honest mixed-class scores → protected reserve measurement →
+TIER_FULL committed delivery.
+
 Two live observations recorded, not yet acted on: deadline-killed agent calls report $0
 (the CLI emits cost only in its terminal event — the cost floor is real and biased low
 exactly on kills), and the first campaign produced a wildly discordant calibration pair

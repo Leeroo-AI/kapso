@@ -362,3 +362,27 @@ def test_protected_data_is_registered_and_guarded_on_resume(
         EvaluationMaintainerError, match="inputs do not match"
     ):
         resumed.solve(experiment_max_iter=1)
+
+
+def test_registry_is_never_tracked_in_git(tmp_path, monkeypatch):
+    """A tracked registry rides into session clones and experiment
+    branches, and the final checkout resurrects a stale version over the
+    live one (observed live: a v2 campaign delivered with its registry
+    time-traveled back to v1). Campaign state stays out of version control.
+    """
+    import git
+
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    orchestrator = _orchestrator(workspace)
+    orchestrator.solve(experiment_max_iter=1)
+
+    assert orchestrator.evaluation_maintainer.registry.exists()
+    tracked = git.Repo(workspace).git.ls_files(
+        ".kapso/evaluation_registry.json"
+    )
+    assert tracked == ""
