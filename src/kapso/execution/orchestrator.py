@@ -301,6 +301,8 @@ class OrchestratorAgent:
             )
 
         self.budget_ledger = self._create_budget_ledger()
+        # Config-only view until solve() re-resolves with explicit args.
+        self.budget_spec = BudgetSpec.resolve(config_block=self._config_budget)
 
         # Resolved before the maintainer: the fast fraction is single-sourced
         # in the fidelity block and the maintainer calibrates at that value.
@@ -682,7 +684,9 @@ class OrchestratorAgent:
             return "fast", self.fidelity_spec.eval_fast_fraction
         return "full", 1.0
 
-    def _execute_evaluator_transition(self) -> None:
+    def _execute_evaluator_transition(
+        self, priority_node_id: Optional[int] = None
+    ) -> None:
         """Anchor the frontier on the new evaluator head.
 
         Durable state machine: pending is checkpointed before the bridge
@@ -691,12 +695,29 @@ class OrchestratorAgent:
         artifacts are gone or whose bridge fails fall through to the next;
         with none left the frontier is legitimately empty and the next
         iteration drafts from baseline.
+
+        ``priority_node_id`` bridges first: an accepted change request is
+        the maintainer certifying that the requester's old measurement was
+        unsound, so that node has the strongest claim to a new-ruler
+        measurement — its old score (often None, because of the very
+        defect just confirmed) must not decide the order. Persisted in the
+        pending record so a crash replays the same priority.
         """
         strategy = self.search_strategy
         new_evaluator_id = strategy.registered_evaluator_id
         old_evaluator_id = strategy.scores_evaluator_id
         fidelity, fraction = self._canonical_evaluation_params()
-        deadline = self.evaluation_maintainer.timing(fraction).upper_seconds
+        # Affordability window, not the timing estimate: the bridge is
+        # delivery-critical and may legitimately run inside the reserve.
+        deadline = (
+            max(
+                0.0,
+                self.budget_spec.time_budget_seconds
+                - self.get_elapsed_seconds(),
+            )
+            if self.budget_spec.time_budget_seconds is not None
+            else None
+        )
 
         print(
             "[Orchestrator] Evaluator transition: anchoring the frontier "
@@ -707,6 +728,11 @@ class OrchestratorAgent:
             "old_evaluator_id": old_evaluator_id,
             "new_evaluator_id": new_evaluator_id,
             "status": "pending",
+            **(
+                {"priority_node_id": priority_node_id}
+                if priority_node_id is not None
+                else {}
+            ),
         }
         self._save_run_checkpoint(status="running")
 
@@ -723,6 +749,16 @@ class OrchestratorAgent:
             ),
             reverse=True,
         )
+        if priority_node_id is not None:
+            candidates = [
+                node
+                for node in candidates
+                if node.node_id == priority_node_id
+            ] + [
+                node
+                for node in candidates
+                if node.node_id != priority_node_id
+            ]
         bridged = False
         for candidate in candidates:
             bridged = strategy.run_bridge_evaluation(
@@ -774,7 +810,11 @@ class OrchestratorAgent:
             strategy.scores_evaluator_id = head_id
             return
         if pending or strategy.scores_evaluator_id != head_id:
-            self._execute_evaluator_transition()
+            self._execute_evaluator_transition(
+                priority_node_id=(
+                    transition.get("priority_node_id") if pending else None
+                )
+            )
 
     def _probe_estimate_seconds(self, budget_spec: BudgetSpec) -> float:
         """Measured mean probe duration; the iteration floor before data."""
@@ -824,7 +864,9 @@ class OrchestratorAgent:
                     "[Orchestrator] Evaluator re-registered as "
                     f"v{outcome.new_version.version}"
                 )
-                self._execute_evaluator_transition()
+                self._execute_evaluator_transition(
+                    priority_node_id=candidate.node_id
+                )
 
     def _create_budget_ledger(self) -> BudgetLedger:
         """Wire the ledger: priors from the checkpoint, live meters, nodes."""
@@ -1019,6 +1061,9 @@ class OrchestratorAgent:
             cost_budget=cost_budget,
             finalization_reserve_minutes=finalization_reserve_minutes,
         )
+        # Pinned for components that run outside the iteration loop (the
+        # evaluator-transition bridge derives its deadline from it).
+        self.budget_spec = budget_spec
         self.budget_ledger.start_clock()
         # The maintainer's setup transaction runs inside the budgeted clock,
         # before iteration 1; on resume it validates registry consistency.

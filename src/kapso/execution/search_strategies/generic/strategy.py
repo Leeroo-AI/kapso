@@ -1300,6 +1300,13 @@ Problem: {problem}"""
             or transition.get("status") not in {"pending", "anchored"}
             or not isinstance(transition.get("old_evaluator_id"), str)
             or not isinstance(transition.get("new_evaluator_id"), str)
+            or (
+                "priority_node_id" in transition
+                and (
+                    isinstance(transition["priority_node_id"], bool)
+                    or not isinstance(transition["priority_node_id"], int)
+                )
+            )
         ):
             raise ValueError(
                 "GenericSearch checkpoint evaluator_transition is invalid"

@@ -221,15 +221,14 @@ def test_accepted_change_request_runs_the_full_transition(
         strategy.evaluator_transition["new_evaluator_id"]
     )
     # The bridge ran against the node under the new head at full fidelity
-    # (fidelity is off, so the canonical class is full/1.0).
+    # (fidelity is off, so the canonical class is full/1.0); unbudgeted
+    # campaign -> the affordability deadline is unbounded.
     assert strategy.bridge_calls == [
         {
             "node_id": 0,
             "fidelity": "full",
             "fraction": 1.0,
-            "deadline_seconds": pytest.approx(
-                strategy.bridge_calls[0]["deadline_seconds"]
-            ),
+            "deadline_seconds": None,
         }
     ]
     assert len(strategy.refreshed_classes) == 1
@@ -338,3 +337,103 @@ def test_failed_bridges_anchor_an_empty_frontier(tmp_path, monkeypatch):
     assert strategy.evaluator_transition["status"] == "anchored"
     assert len(strategy.refreshed_classes) == 1
     assert strategy.scores_evaluator_id == strategy.registered_evaluator_id
+
+
+def test_accepted_request_bridges_the_requester_first(tmp_path, monkeypatch):
+    """The CR filer's old score is unsound by the maintainer's own verdict
+    (often None because of the very defect confirmed), so it must be
+    bridged first — never ranked by the ruler that just got retired.
+    """
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+
+    call_counter = {"count": 0}
+
+    def setup_then_edit(root: Path) -> None:
+        call_counter["count"] += 1
+        write_entrypoint(root)
+        if call_counter["count"] >= 2:
+            (root / "kapso_evaluation" / "kapso_eval.py").write_text(
+                "ENTRYPOINT = True\nFIXED = True\n"
+            )
+
+    patch_maintainer_environment(
+        monkeypatch,
+        ScriptedMaintainerAgent(
+            setup_then_edit,
+            output=(
+                "<change_verdict>accept</change_verdict>"
+                "<reason>grader rejects every mixed submission</reason>"
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    # Iteration 1: healthy node, high score, no complaint. Iteration 2:
+    # the requester — zeroed out by the defective evaluator.
+    strategy.agent_output_queue = [
+        "",
+        "<evaluation_change_request>grader crashes on mixed labels"
+        "</evaluation_change_request>",
+    ]
+    strategy.score_queue = [0.9, None]
+
+    orchestrator.solve(experiment_max_iter=2)
+
+    assert strategy.evaluator_transition["status"] == "anchored"
+    # Old order would bridge node 0 (score 0.9) first; the requester wins.
+    assert strategy.bridge_calls[0]["node_id"] == 1
+    assert len(strategy.bridge_calls) == 1  # its bridge succeeded: done
+
+
+def test_pending_priority_replays_first_on_resume(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    first = _orchestrator(workspace)
+    # Node 0 scoreless, node 1 scored: without priority, replay would
+    # bridge node 1 first.
+    first.search_strategy.score_queue = [None, 0.5]
+    first.solve(experiment_max_iter=2)
+
+    store = RunCheckpointStore(str(workspace))
+    checkpoint = store.load()
+    state = dict(checkpoint.strategy_state)
+    state["scores_evaluator_id"] = "stale-head"
+    state["evaluator_transition"] = {
+        "old_evaluator_id": "stale-head",
+        "new_evaluator_id": "whatever-registered",
+        "status": "pending",
+        "priority_node_id": 0,
+    }
+    store.save(
+        RunCheckpoint.create(
+            strategy_type=checkpoint.strategy_type,
+            goal=checkpoint.goal,
+            config_fingerprint=checkpoint.config_fingerprint,
+            status="running",
+            completed_iterations=checkpoint.completed_iterations,
+            cumulative_cost=checkpoint.cumulative_cost,
+            current_feedback=checkpoint.current_feedback,
+            strategy_state=state,
+            elapsed_seconds=checkpoint.elapsed_seconds,
+            cost_by_component=checkpoint.cost_by_component,
+        )
+    )
+
+    resumed = _orchestrator(workspace, resume=True)
+    resumed.solve(experiment_max_iter=1)
+
+    strategy = resumed.search_strategy
+    assert strategy.evaluator_transition["status"] == "anchored"
+    assert strategy.bridge_calls[0]["node_id"] == 0
