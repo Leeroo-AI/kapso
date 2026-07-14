@@ -392,19 +392,25 @@ def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
     assert result.iterations_run == 1
     assert result.stopped_reason == "budget_exhausted"
     assert result.stop_detail == "finalization_reserve"
-    # The reserve run SPENDS the escrow: its snapshot releases the reserve
-    # so agent deadlines clamp against the true remaining wall — the live
-    # escrowed iteration was killed at the 60s floor with 18 escrowed
-    # minutes on the clock.
+    # The reserve run SPENDS the escrow — except the measurement's slice:
+    # the campaign reserve is released (the live escrowed iteration was
+    # once killed at the 60s floor) and the timing model's full-eval upper
+    # remains as the residual reserve, so the build cannot starve the
+    # frame measurement that follows it.
+    full_upper = orchestrator.evaluation_maintainer.timing(1.0).upper_seconds
     reserve_snapshot = orchestrator.search_strategy.budget_snapshot
-    assert reserve_snapshot.finalization_reserve_seconds == 0.0
+    assert reserve_snapshot.finalization_reserve_seconds == pytest.approx(
+        full_upper
+    )
+    assert reserve_snapshot.finalization_reserve_seconds < 0.45 * 120
     # The escrowed measurement is kapso-owned: the reserve node's FULL
     # score comes from a frame run, not the agent's self-report (the live
     # reserve artifact did 0.9-class work whose self-report died with a
-    # killed feedback call).
+    # killed feedback call) — with its deadline floored at the estimate.
     reserve_measurement = orchestrator.search_strategy.bridge_calls[-1]
     assert reserve_measurement["fidelity"] == "full"
     assert reserve_measurement["fraction"] == 1.0
+    assert reserve_measurement["deadline_seconds"] >= full_upper
 
 
 def test_fidelity_off_grants_full_passthrough(tmp_path, monkeypatch):

@@ -1216,12 +1216,21 @@ class OrchestratorAgent:
                             "escrowed full-size attempt before stopping"
                         )
                         reserve_run_pending = True
-                        # The reserve run SPENDS the escrow: its snapshot
-                        # releases the reserve so agent deadlines clamp
-                        # against the true remaining wall instead of
-                        # collapsing to the floor (observed live: the
-                        # escrowed iteration's ideation was killed at 60s
-                        # with 18 escrowed minutes on the clock).
+                        # The reserve run SPENDS the escrow — except the
+                        # measurement's slice. Its snapshot releases the
+                        # campaign reserve (the live escrowed iteration was
+                        # once killed at the 60s floor with 18 escrowed
+                        # minutes on the clock) but keeps the timing
+                        # model's full-eval upper as the residual reserve,
+                        # so the build cannot starve the frame measurement
+                        # that follows it (also observed live: the build
+                        # spent the whole escrow and the measurement got
+                        # 64 seconds).
+                        measurement_slice = (
+                            self.evaluation_maintainer.timing(
+                                1.0
+                            ).upper_seconds
+                        )
                         snapshot = BudgetSnapshot(
                             iteration_index=i,
                             max_iterations=experiment_max_iter,
@@ -1231,7 +1240,7 @@ class OrchestratorAgent:
                                 budget_spec.time_budget_seconds
                             ),
                             cost_budget_usd=budget_spec.cost_budget_usd,
-                            finalization_reserve_seconds=0.0,
+                            finalization_reserve_seconds=measurement_slice,
                             min_agent_timeout_seconds=(
                                 budget_spec.min_agent_timeout_seconds
                             ),
@@ -1383,15 +1392,21 @@ class OrchestratorAgent:
                         node is not None
                         and self.search_strategy.registered_evaluator_id
                     ):
+                        # Floored at the timing estimate: an endgame the
+                        # build overran still grants the measurement its
+                        # estimated slice — delivery-critical work, the
+                        # same license the transition bridge has.
                         measured = self.search_strategy.run_bridge_evaluation(
                             node,
                             fidelity="full",
                             fraction=1.0,
                             deadline_seconds=(
                                 max(
-                                    0.0,
                                     self.budget_spec.time_budget_seconds
                                     - self.get_elapsed_seconds(),
+                                    self.evaluation_maintainer.timing(
+                                        1.0
+                                    ).upper_seconds,
                                 )
                                 if self.budget_spec.time_budget_seconds
                                 is not None
