@@ -325,6 +325,12 @@ the directory given by the environment variable KAPSO_RUN_DATA_DIR:
   with row i of `task.get_table("test")` in its original order.
 - {dtype_line}.
 - Save with np.save; never reorder, drop, or deduplicate task-table rows.
+- CRITICAL — val predictions must be OUT-OF-SAMPLE: the model that produces
+  val_predictions.npy must never have seen val labels during training or tuning-fit.
+  Training on train+val is allowed ONLY for the model producing test_predictions.npy
+  (the two-model pattern: model A trained on train -> val preds; model B trained on
+  train+val -> test preds). Val predictions from a val-trained model inflate the
+  selection signal and the solution will collapse at the final test evaluation.
 - Optionally write metrics.json with any self-measured diagnostics.
 
 The evaluation harness computes the official metrics itself from these files. Your score
@@ -374,8 +380,9 @@ Data access (read carefully — violations invalidate the run):
   aggregation, join, or sampled neighborhood for a seed row at time t must only use
   rows with time <= t. The starter kit's samplers/SQL templates do this correctly.
 - Validation labels are for model selection AND may be used as training data for the
-  final test-prediction model (they lie before the test cutoff). Test rows expose only
-  ({spec.time_col}, {'src id' if spec.is_recommendation else 'entity id'}).
+  model that produces TEST predictions (they lie before the test cutoff) — but never
+  for the model that produces VAL predictions (see the prediction contract). Test rows
+  expose only ({spec.time_col}, {'src id' if spec.is_recommendation else 'entity id'}).
 - Do not call task.stats(), mask_input_cols=False on the test split, or
   db.table_dict[...].removed_cols — they either crash on the sanitized cache or are
   off-limits.

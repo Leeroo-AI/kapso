@@ -14,6 +14,9 @@ Rules:
 
 1. Both files must exist after EVERY run (debug included), with rows aligned
    positionally to `task.get_table("val")` / `task.get_table("test")`.
+   Val predictions must be OUT-OF-SAMPLE: produced by a model that never saw
+   val labels in training. Training on train+val is allowed only for the
+   model that produces test predictions (two-model pattern).
 2. Shapes/dtypes — binary: float (N,) probabilities in [0,1]; regression: float (N,);
    multiclass: float (N, C) scores; recommendation: int (N, K) ranked distinct
    destination ids in [0, num_dst).

@@ -128,6 +128,14 @@ class RelBenchHandler(ProblemHandler):
             extra_knowledge=extra_knowledge,
         )
 
+        # Harden the whole process tree: coding agents (e.g. claude_code) can
+        # execute code during development sessions, and those subprocesses
+        # inherit this environment — point them at the sanitized cache too.
+        # The handler's own evaluation is unaffected: its task tables and db
+        # were loaded from the pristine cache above and are lru-cached in
+        # memory.
+        os.environ["RELBENCH_CACHE_DIR"] = str(self.sanitized_cache_dir)
+
         # Run bookkeeping.
         self._exec_lock = threading.Lock()
         self._run_counter = self._existing_run_count()
@@ -269,6 +277,13 @@ class RelBenchHandler(ProblemHandler):
             print(f"[RelBenchHandler] PRIVATE test scoring failed (not shown to agent): {e}")
 
         score = val_metrics[self.spec.primary_metric]
+        if self._val_score_suspicious(score, val_metrics):
+            val_warn = list(val_warn) + [
+                "validation score is near-perfect — if val_predictions came from a model "
+                "that saw val labels in training, the selection signal is void and the "
+                "solution will collapse at final test; use the two-model pattern "
+                "(val preds from a train-only model, test preds may use train+val)"
+            ]
         self._archive_run(run_index, file_path, run_data_dir, solution, val_metrics, test_metrics)
 
         improved = self._best_val is None or self._is_better(score, self._best_val)
@@ -557,6 +572,17 @@ class RelBenchHandler(ProblemHandler):
             return a >= b if self.spec.maximize else a <= b
         return a > b if self.spec.maximize else a < b
 
+    def _val_score_suspicious(self, score: float, val_metrics: Dict[str, float]) -> bool:
+        """Near-perfect validation usually means the model trained on val."""
+        m = self.spec.primary_metric
+        if m in ("roc_auc", "accuracy", "link_prediction_map") and score >= 0.9995:
+            return True
+        if m == "r2" and score >= 0.9999:
+            return True
+        if m == "mae" and score <= 1e-9:
+            return True
+        return False
+
     # ======================================================================
     # Anti-leak audit
     # ======================================================================
@@ -581,6 +607,8 @@ class RelBenchHandler(ProblemHandler):
         (r"download\s*=\s*True", "attempts dataset re-download"),
         (r"relbench\.stanford\.edu|pooch", "fetches benchmark files directly"),
         (r"_get_table\s*\(", "calls private table builders"),
+        (r"tmp[/\\]relbench", "hardcodes the handler work directory (private archives)"),
+        (r"private[/\\]metrics\.json", "probes quarantined test metrics"),
     ]
 
     def _audit_code(self, code_dir: Path) -> Dict:
