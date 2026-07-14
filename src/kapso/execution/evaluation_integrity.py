@@ -158,3 +158,58 @@ def verify_evaluation_tree(
         valid=True,
         fingerprint=manifest_fingerprint(current),
     )
+
+
+def build_data_manifest(
+    root: str | Path, paths: "list[str]"
+) -> Dict[str, str]:
+    """Hash the protected evaluation-input files under workspace paths.
+
+    Evaluation identity has two halves: the logic (the evaluation tree,
+    fingerprinted into evaluator_id) and the inputs it reads. This is the
+    inputs half — the files a candidate must never rewrite, because a
+    score measured on rewritten inputs belongs to a different evaluation
+    set while sitting in the same comparability class.
+    """
+    base = Path(root).expanduser()
+    manifest: Dict[str, str] = {}
+    for raw_path in paths:
+        target = base / raw_path
+        if not target.exists():
+            raise EvaluationIntegrityError(
+                f"Protected data path does not exist: {target}"
+            )
+        files = (
+            sorted(target.rglob("*")) if target.is_dir() else [target]
+        )
+        for path in files:
+            if path.is_symlink():
+                raise EvaluationIntegrityError(
+                    f"Protected data cannot contain symlinks: {path}"
+                )
+            if path.is_file():
+                relative = path.relative_to(base).as_posix()
+                manifest[relative] = hashlib.sha256(
+                    path.read_bytes()
+                ).hexdigest()
+    return manifest
+
+
+def verify_data_manifest(
+    root: str | Path, expected: Mapping[str, str]
+) -> str:
+    """Empty string when every protected input matches; else the defect."""
+    base = Path(root)
+    problems = []
+    for relative, digest in sorted(expected.items()):
+        path = base / relative
+        if not path.is_file():
+            problems.append(f"missing:{relative}")
+        elif hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            problems.append(f"modified:{relative}")
+    if problems:
+        return (
+            "Protected evaluation data changed by the candidate: "
+            + ", ".join(problems)
+        )
+    return ""

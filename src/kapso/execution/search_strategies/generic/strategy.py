@@ -35,6 +35,7 @@ from kapso.execution.fidelity import (
     project_score,
     select_committed_candidate,
 )
+from kapso.execution.evaluation_integrity import verify_data_manifest
 from kapso.execution.evaluation_maintainer.maintainer import (
     evaluation_command,
     parse_manifest_line,
@@ -739,6 +740,16 @@ Problem: {problem}"""
         )
         run_started = time.monotonic()
         with self.workspace.materialize_ref(target.branch_name) as worktree:
+            if self.registered_data_manifest:
+                data_problem = verify_data_manifest(
+                    worktree, self.registered_data_manifest
+                )
+                if data_problem:
+                    print(
+                        "[GenericSearch] Registered evaluation refused: "
+                        f"{data_problem}"
+                    )
+                    return None
             # The frame emits a handful of lines plus the manifest — far
             # below pipe capacity — so draining once at exit cannot
             # deadlock the child.
@@ -870,13 +881,20 @@ Problem: {problem}"""
 
 1. **Run the registered evaluation**: `{self.registered_evaluation_command}`
    and capture its full output, including the KAPSO_EVAL_MANIFEST line.
-2. **Never modify anything under `kapso_evaluation/`** — any change there is
-   detected mechanically and voids this experiment's score.
-3. **If you believe the evaluation itself is broken**, do not fix it. File a
-   request by including this tag in your final response:
+2. **Never alter evaluation behavior — at rest or at runtime.** Editing
+   anything under `kapso_evaluation/`, rewriting protected data inputs,
+   monkey-patching or hooking evaluation modules from your own code
+   (e.g. via imports, `sys.modules`, or wrappers), or otherwise
+   circumventing any evaluation check all count as tampering: the score
+   is voided and the experiment loses. There is no sanctioned bypass.
+3. **If you believe the evaluation itself is broken**, do not fix it,
+   patch it, or route around it. File a request by including this tag in
+   your final response:
    <evaluation_change_request>concrete description of the defect, with the
    exact error output as evidence</evaluation_change_request>
-   Then still report your results from the run you attempted.
+   Then still report your results from the run you attempted. The
+   maintainer investigates immediately; a confirmed defect is fixed and
+   your work is re-measured first under the corrected evaluation.
 4. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
     def _clamped_timeout(self, configured_seconds: float) -> float:
@@ -1300,6 +1318,13 @@ Problem: {problem}"""
             or transition.get("status") not in {"pending", "anchored"}
             or not isinstance(transition.get("old_evaluator_id"), str)
             or not isinstance(transition.get("new_evaluator_id"), str)
+            or (
+                "priority_node_id" in transition
+                and (
+                    isinstance(transition["priority_node_id"], bool)
+                    or not isinstance(transition["priority_node_id"], int)
+                )
+            )
         ):
             raise ValueError(
                 "GenericSearch checkpoint evaluator_transition is invalid"

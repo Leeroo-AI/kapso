@@ -251,6 +251,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     strategy.node_history = [target]
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = {}
 
     class FakeWorkspace:
         repo = SimpleNamespace(
@@ -414,6 +415,7 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     strategy.node_history = [target]
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = {}
 
     class FakeWorkspace:
         repo = SimpleNamespace(
@@ -465,3 +467,59 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     assert kills[0] == (424242, strategy_module.signal.SIGTERM)
     assert kills[-1] == (424242, strategy_module.signal.SIGKILL)
 
+
+
+def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
+    """Frame runs (validate/bridge/reserve) never score a worktree whose
+    protected inputs differ from the registered manifest — refusal happens
+    before any subprocess spawns.
+    """
+    from contextlib import contextmanager
+
+    from kapso.execution.evaluation_integrity import build_data_manifest
+
+    honest = tmp_path / "honest"
+    (honest / "data").mkdir(parents=True)
+    (honest / "data" / "train.csv").write_text("PassengerId,y\n1,False\n")
+
+    target = probe_node(0, 0.48)
+    target.branch_name = "generic_exp_0"
+
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.node_history = [target]
+    strategy.registered_evaluator_id = "ev-1"
+    strategy.registered_subsample_seed = 1337
+    strategy.registered_data_manifest = build_data_manifest(honest, ["data"])
+
+    rigged = tmp_path / "rigged"
+    (rigged / "data").mkdir(parents=True)
+    (rigged / "data" / "train.csv").write_text("PassengerId,y\n1,True\n")
+
+    class FakeWorkspace:
+        repo = SimpleNamespace(
+            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
+        )
+
+        @contextmanager
+        def materialize_ref(self, ref):
+            yield str(rigged)
+
+    strategy.workspace = FakeWorkspace()
+
+    def refuse_spawn(*args, **kwargs):
+        raise AssertionError("subprocess must not spawn on tampered data")
+
+    monkeypatch.setattr(
+        strategy_module,
+        "subprocess",
+        SimpleNamespace(PIPE=-1, Popen=refuse_spawn),
+    )
+
+    score = strategy._execute_registered_evaluation(
+        target, fidelity="full", fraction=1.0, deadline_seconds=None
+    )
+
+    assert score is None
+    assert not any(
+        attempt.fidelity == "full" for attempt in target.evaluation_attempts
+    )

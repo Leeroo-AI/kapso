@@ -65,6 +65,7 @@ x-e2e-anchors:
       timeout: 600
     subsample_seed: 1337
     calibration_timeout_seconds: 300
+    protected_data_paths: ["data"]
 
 modes:
   # The standing full-track run: 45 minutes, fidelity on, reserve derived

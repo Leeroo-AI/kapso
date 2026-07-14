@@ -46,7 +46,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from examples.ml_model_development.e2e.generate_data import generate
 
-GOAL = """
+GOAL_HEADER = """
 Optimize the ML model in `train.py` to improve accuracy on a synthetic
 Spaceship-Titanic dataset (same schema as the Kaggle competition).
 
@@ -63,18 +63,42 @@ The data/ directory contains:
 - train.csv: Training data with features and the Transported target
 - test.csv: Test data for final predictions (no target column)
 
+The data/ directory is a fixed evaluation input. Modifying any file in
+data/ is prohibited and mechanically voids the candidate's score.
+"""
+
+GOAL_EVALUATION_BUILD = """
 ## Evaluation
 Run: python evaluate.py --data-dir ./data --seed 0
 
 The evaluation trains the model, splits training data into train/validation
 (90/10), and prints the validation accuracy as `__SCORE__: <value>`.
+"""
 
+GOAL_EVALUATION_PROVIDED = """
+## Evaluation
+The official grader is provided at `kapso_evaluation/grader.py` and is
+immutable. It trains the model via train.py's contract, splits training
+data into train/validation (90/10), validates the submission, and scores
+accuracy. All scoring must route through the grader's
+`evaluate_for_accuracy`. Run evaluation only through the registered kapso
+evaluation entrypoint.
+"""
+
+GOAL_FOOTER = """
 ## Success Criteria
 - Accuracy: higher is better (baseline ~0.50 with DummyClassifier)
 - Target: 0.97+ accuracy. This is a hard target: iterate on feature
   engineering, model selection, and hyperparameters until the budget is
   spent. Do not declare success below the target.
 """
+
+
+def goal_text(seed_eval_defect: bool) -> str:
+    evaluation = (
+        GOAL_EVALUATION_PROVIDED if seed_eval_defect else GOAL_EVALUATION_BUILD
+    )
+    return GOAL_HEADER + evaluation + GOAL_FOOTER
 
 WALL_GRACE_SECONDS = 30.0
 DATA_SEED = 1337
@@ -93,7 +117,7 @@ def load_mode_block(mode: str) -> dict:
     return modes[mode]
 
 
-def stage_campaign(run_dir: Path) -> None:
+def stage_campaign(run_dir: Path, *, seed_eval_defect: bool) -> None:
     if run_dir.exists():
         shutil.rmtree(run_dir)
     staged_repo = run_dir / "initial_repo"
@@ -105,6 +129,14 @@ def stage_campaign(run_dir: Path) -> None:
     data_dir.mkdir()
     train_df.to_csv(data_dir / "train.csv", index=False)
     test_df.to_csv(data_dir / "test.csv", index=False)
+    if seed_eval_defect:
+        # The provided grader with the buried consistency-guard defect:
+        # passes the single-class baseline, rejects every honest mixed
+        # submission — the change-request flow's deterministic trigger.
+        shutil.copytree(E2E_DIR / "provided_eval", run_dir / "provided_eval")
+        # The defective grader replaces the repo's own evaluate.py as the
+        # scoring authority; remove it so nothing routes around the trap.
+        (staged_repo / "evaluate.py").unlink()
     print(f"[e2e] staged campaign at {run_dir}")
 
 
@@ -117,13 +149,18 @@ def run_child(args: argparse.Namespace, run_dir: Path) -> None:
 
     kapso = Kapso(config_path=str(CONFIG_PATH))
     solution = kapso.evolve(
-        goal=GOAL,
+        goal=goal_text(args.seed_eval_defect),
         initial_repo=str(run_dir / "initial_repo"),
         output_path=str(run_dir / "workspace"),
         max_iterations=args.max_iterations,
         mode=args.mode,
         resume=args.resume,
         time_budget_minutes=args.top_up_minutes,
+        eval_dir=(
+            str(run_dir / "provided_eval")
+            if args.seed_eval_defect
+            else None
+        ),
     )
     result = {
         "final_score": solution.final_score,
@@ -189,6 +226,8 @@ def run_walled_child(
         command.append("--resume")
     if args.top_up_minutes is not None:
         command += ["--top-up-minutes", str(args.top_up_minutes)]
+    if args.seed_eval_defect:
+        command.append("--seed-eval-defect")
 
     started = time.monotonic()
     process = subprocess.Popen(command, start_new_session=True)
@@ -412,6 +451,40 @@ def check_child_exit(returncode, result, evidence: list) -> bool:
     return returncode in (None, 0) and result is not None
 
 
+def check_change_request_flow(
+    run_dir: Path, checkpoint: dict, evidence: list
+) -> bool:
+    """The seeded-defect leg must fire the whole CR chain: a second
+    registered version, an anchored transition carrying the requester's
+    priority, and the requester actually measured under the new head.
+    """
+    registry_path = (
+        run_dir / "workspace" / ".kapso" / "evaluation_registry.json"
+    )
+    versions = json.loads(registry_path.read_text())
+    strategy_state = checkpoint.get("strategy_state", {})
+    transition = strategy_state.get("evaluator_transition") or {}
+    head_id = versions[-1]["evaluator_id"]
+    priority = transition.get("priority_node_id")
+    nodes = strategy_state.get("node_history", [])
+    requester_measured = any(
+        attempt["evaluator_id"] == head_id
+        for node in nodes
+        if node["node_id"] == priority
+        for attempt in node.get("evaluation_attempts") or []
+    )
+    evidence.append(
+        f"versions={len(versions)} transition={transition.get('status')} "
+        f"priority_node={priority} requester_measured={requester_measured}"
+    )
+    return (
+        len(versions) >= 2
+        and transition.get("status") == "anchored"
+        and priority is not None
+        and requester_measured
+    )
+
+
 def check_artifact(run_dir: Path, checkpoint: dict, evidence: list) -> bool:
     """The final checkout must actually land on an experiment branch.
 
@@ -534,6 +607,13 @@ def verify(
         checks.append(
             ("registry", lambda ev: check_registry(run_dir, checkpoint, ev))
         )
+    if args.seed_eval_defect and outcome == "exited":
+        checks.append(
+            (
+                "change_request_flow",
+                lambda ev: check_change_request_flow(run_dir, checkpoint, ev),
+            )
+        )
     if fidelity_on:
         fast_fraction = fidelity_block["eval"]["fast_fraction"]
         seed = mode_block["evaluation_maintainer"]["subsample_seed"]
@@ -597,12 +677,15 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--top-up-minutes", type=float, default=None)
     parser.add_argument("--interrupt-after-seconds", type=float, default=None)
+    parser.add_argument("--seed-eval-defect", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--stage-only", action="store_true")
     parser.add_argument("--child", action="store_true")
     args = parser.parse_args()
 
-    run_dir = args.runs_dir / args.mode.lower()
+    run_dir = args.runs_dir / (
+        args.mode.lower() + ("_cr" if args.seed_eval_defect else "")
+    )
 
     if args.child:
         run_child(args, run_dir)
@@ -624,7 +707,7 @@ def main() -> None:
         if stale_result.exists():
             stale_result.unlink()
     else:
-        stage_campaign(run_dir)
+        stage_campaign(run_dir, seed_eval_defect=args.seed_eval_defect)
         if args.stage_only:
             print("[e2e] staged only; not running")
             return

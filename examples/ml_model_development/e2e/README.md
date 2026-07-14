@@ -32,6 +32,13 @@ python examples/ml_model_development/e2e/run_e2e.py --mode GATE_BUDGET
 # M6 byte-equivalence row: fidelity off is a full passthrough
 python examples/ml_model_development/e2e/run_e2e.py --mode E2E_BUDGET_FIDELITY_OFF
 
+# Change-request row: a provided grader with a buried defect (rejects any
+# submission mixing True/False — passes the single-class baseline, kills
+# every honest model). The agent's only recourse is an
+# <evaluation_change_request>; the leg verifies accept -> v2 -> the
+# requester bridges first -> re-anchor.
+python examples/ml_model_development/e2e/run_e2e.py --mode E2E_BUDGET --seed-eval-defect
+
 # Re-run the checks on an existing run without spawning anything
 python examples/ml_model_development/e2e/run_e2e.py --mode E2E_BUDGET --verify-only
 ```

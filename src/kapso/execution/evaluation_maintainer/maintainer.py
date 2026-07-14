@@ -22,7 +22,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import git
 
@@ -30,6 +30,7 @@ from kapso.core.prompt_loader import load_prompt, render_prompt
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.evaluation_integrity import (
+    build_data_manifest,
     build_evaluation_manifest,
     manifest_fingerprint,
 )
@@ -129,6 +130,7 @@ class EvaluationMaintainer:
         calibration_timeout_seconds: float,
         fast_variant_threshold_seconds: float,
         overhead_factor: float,
+        protected_data_paths: Optional[List[str]] = None,
         command_runner: Optional[Callable[..., Any]] = None,
     ):
         self.workspace_dir = Path(workspace_dir)
@@ -143,6 +145,7 @@ class EvaluationMaintainer:
             fast_variant_threshold_seconds
         )
         self.overhead_factor = float(overhead_factor)
+        self.protected_data_paths = list(protected_data_paths or [])
         # Injectable for hermetic tests, like core.llm's sleep_fn seam.
         self._run_command = command_runner or subprocess.run
         self._provided_baseline: Dict[str, str] = {}
@@ -225,6 +228,9 @@ class EvaluationMaintainer:
             timing=timing,
             created_at_iteration=0,
             reason="setup",
+            data_manifest=build_data_manifest(
+                self.workspace_dir, self.protected_data_paths
+            ),
         )
         self.registry.register(version)
         self._commit_evaluation("chore(kapso): register evaluator v1")
@@ -315,6 +321,9 @@ class EvaluationMaintainer:
             timing=timing,
             created_at_iteration=request.iteration,
             reason=f"CR@iteration {request.iteration}: {reason}",
+            # The inputs half never changes through a CR: an accepted
+            # fix edits evaluation logic, not the protected data.
+            data_manifest=head.data_manifest,
         )
         self.registry.register(version)
         self._commit_evaluation(
