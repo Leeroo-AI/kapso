@@ -38,23 +38,48 @@ from benchmarks.posttrain.handler import PostTrainBenchHandler, ITERATION_EVAL_L
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
-# How much wall-clock to hold back from the orchestrator budget so the final
-# consolidation (verify/copy final_model) always has room before the harness's
-# hard `timeout` kills the process tree.
-DEFAULT_RESERVE_MINUTES = 20
-
 
 def parse_timer(task_dir: str):
     """Extract the absolute deadline from the harness-generated timer.sh."""
     timer_path = os.path.join(task_dir, "timer.sh")
     if not os.path.isfile(timer_path):
         return None, None
-    text = open(timer_path).read()
+    with open(timer_path) as timer_file:
+        text = timer_file.read()
     hours = re.search(r"^NUM_HOURS=(\d+)", text, re.M)
     created = re.search(r"^CREATION_DATE=(\d+)", text, re.M)
     if hours and created:
         return int(created.group(1)) + int(hours.group(1)) * 3600, int(hours.group(1))
     return None, None
+
+
+def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
+    """Scale per-session deadlines to the run size.
+
+    A fixed cap dominates short runs (live run #6: the 30-minute ideation
+    cap consumed 77% of a 39-minute budget); fractions of the run keep the
+    ratio sane at every scale while the config caps still bound long runs.
+    Derived from the run's TOTAL budget, not live remaining, so a resumed
+    campaign recomputes identical values and passes strict resume checks.
+    """
+    knobs = mode_cfg["session_budget"]
+    params = mode_cfg["search_strategy"]["params"]
+    return {
+        "ideation_timeout": int(min(
+            params["ideation_timeout"],
+            max(
+                knobs["ideation_min_seconds"],
+                total_run_seconds * knobs["ideation_fraction"],
+            ),
+        )),
+        "implementation_timeout": int(min(
+            params["implementation_timeout"],
+            max(
+                knobs["implementation_min_seconds"],
+                total_run_seconds * knobs["implementation_fraction"],
+            ),
+        )),
+    }
 
 
 # Substring (of the normalized benchmark name) -> eval task id. Order matters.
@@ -91,17 +116,24 @@ def resolve_benchmark_id(name: str) -> str:
     return ""
 
 
-def build_runtime_config(mode: str, coding_model: str, task_dir: str) -> str:
-    """Write a config copy with every agent model set to the requested one."""
+def build_runtime_config(
+    mode: str,
+    coding_model: "str | None",
+    task_dir: str,
+    session_timeouts: dict,
+) -> str:
+    """Write the per-run config: shaped session deadlines + model override."""
     with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f)
     mode_cfg = config["modes"][mode]
     params = mode_cfg["search_strategy"]["params"]
-    params["idea_generation_model"] = coding_model
-    params["implementation_model"] = coding_model
-    for section in ("coding_agent", "feedback_generator"):
-        mode_cfg[section]["model"] = coding_model
-        mode_cfg[section]["debug_model"] = coding_model
+    params.update(session_timeouts)
+    if coding_model:
+        params["idea_generation_model"] = coding_model
+        params["implementation_model"] = coding_model
+        for section in ("coding_agent", "feedback_generator"):
+            mode_cfg[section]["model"] = coding_model
+            mode_cfg[section]["debug_model"] = coding_model
 
     runtime_dir = os.path.join(task_dir, ".kapso_runtime")
     os.makedirs(runtime_dir, exist_ok=True)
@@ -170,7 +202,10 @@ def main():
                         help="Task id, e.g. gsm8k (else inferred from prompt)")
     parser.add_argument("--hours", type=float, default=None,
                         help="Budget if timer.sh is absent (default 10)")
-    parser.add_argument("--reserve-minutes", type=int, default=DEFAULT_RESERVE_MINUTES)
+    parser.add_argument("--guard-minutes", type=int, default=None,
+                        help="Wall-clock held outside the orchestrator budget "
+                             "for final consolidation (default: config "
+                             "session_budget.guard_minutes)")
     parser.add_argument("--iterations", type=int, default=40,
                         help="Iteration ceiling; the time budget is the real governor")
     parser.add_argument("--mode", default="POSTTRAIN")
@@ -196,22 +231,44 @@ def main():
     benchmark_id = args.benchmark_id or resolve_benchmark_id(parsed_benchmark)
 
     deadline_ts, timer_hours = parse_timer(task_dir)
+    total_run_hours = timer_hours
     if deadline_ts is None:
-        hours = args.hours if args.hours is not None else 10.0
-        deadline_ts = time.time() + hours * 3600
-    budget_minutes = max(5, int((deadline_ts - time.time()) / 60) - args.reserve_minutes)
+        total_run_hours = args.hours if args.hours is not None else 10.0
+        deadline_ts = time.time() + total_run_hours * 3600
+    total_run_seconds = total_run_hours * 3600
+
+    with open(CONFIG_PATH) as f:
+        mode_cfg = yaml.safe_load(f)["modes"][args.mode]
+    knobs = mode_cfg["session_budget"]
+
+    guard_minutes = (
+        args.guard_minutes if args.guard_minutes is not None
+        else knobs["guard_minutes"]
+    )
+    budget_minutes = max(5, int((deadline_ts - time.time()) / 60) - guard_minutes)
+    reserve_minutes = min(
+        knobs["finalization_reserve_max_minutes"],
+        max(
+            knobs["finalization_reserve_min_minutes"],
+            budget_minutes * knobs["finalization_reserve_fraction"],
+        ),
+    )
+    session_timeouts = shape_session_timeouts(mode_cfg, total_run_seconds)
 
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")):
         print("WARNING: neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set")
 
-    config_path = CONFIG_PATH
-    if args.coding_model:
-        config_path = build_runtime_config(args.mode, args.coding_model, task_dir)
+    config_path = build_runtime_config(
+        args.mode, args.coding_model, task_dir, session_timeouts
+    )
 
     print(f"task_dir={task_dir}")
     print(f"model={model_id!r} benchmark={parsed_benchmark!r} (id={benchmark_id!r})")
-    print(f"deadline in {budget_minutes} min (timer hours={timer_hours}, "
-          f"reserve={args.reserve_minutes} min), iterations<={args.iterations}")
+    print(f"budget={budget_minutes} min of a {total_run_hours}h run "
+          f"(guard={guard_minutes} min, finalization reserve={reserve_minutes:.0f} min), "
+          f"iterations<={args.iterations}")
+    print(f"session caps: ideation={session_timeouts['ideation_timeout']}s "
+          f"implementation={session_timeouts['implementation_timeout']}s")
     print(f"config={config_path} mode={args.mode} coding_model={args.coding_model}")
 
     handler = PostTrainBenchHandler(
@@ -244,6 +301,7 @@ def main():
             experiment_max_iter=args.iterations,
             time_budget_minutes=budget_minutes,
             cost_budget=args.cost_budget,
+            finalization_reserve_minutes=reserve_minutes,
         )
     finally:
         print("\n=== consolidation ===")

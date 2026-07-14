@@ -149,6 +149,15 @@ put it there — a mediocre model beats an empty directory.
   appropriate to the model family. READ that template before building training
   data, and render your SFT examples with the exact same template.
 
+## Session discipline (any session can be hard-killed at its deadline)
+- Your FIRST write in every implementation session: create or refresh PLAN.md
+  at the workspace root with the chosen approach and dataset, the exact next
+  command to run, and current status. Update it whenever the plan changes — a
+  killed session must leave a consumable plan behind.
+- Prefer resumable work: save training checkpoints under
+  {self.artifacts_dir}, log long-running progress to files, and commit code
+  early and often so nothing important lives only in your session context.
+
 ## Rules you must never break (violations get judged and zero the run)
 1. Do not train on {self.benchmark_name or 'the target benchmark'} test data —
    no questions, no answers, no paraphrases of specific test items.

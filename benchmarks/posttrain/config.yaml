@@ -45,6 +45,25 @@ modes:
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
 
+    # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
+    # kapso core): per-session deadlines scale with the run size so a fixed
+    # cap can never dominate a short run (live run #6: the 30-minute
+    # ideation cap consumed 77% of a 39-minute budget). The strategy
+    # timeouts above act as the ceilings; these fractions/floors shrink
+    # them for small budgets. The orchestrator's live budget clamp still
+    # bounds every session by what actually remains.
+    session_budget:
+      ideation_fraction: 0.15
+      ideation_min_seconds: 300
+      implementation_fraction: 0.75
+      implementation_min_seconds: 1800
+      finalization_reserve_fraction: 0.10
+      finalization_reserve_min_minutes: 5
+      finalization_reserve_max_minutes: 15
+      # Held OUTSIDE the orchestrator budget for the runner's finally-block
+      # (final_model verify/copy) before the harness hard-kills the process.
+      guard_minutes: 5
+
     models:
       utility: "anthropic/claude-haiku-4-5-20251001"
       reasoning: "anthropic/claude-sonnet-5"
