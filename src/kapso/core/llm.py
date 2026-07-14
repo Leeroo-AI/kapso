@@ -39,6 +39,37 @@ def _effort_passthrough(reasoning_effort: Optional[str]) -> Dict[str, Any]:
         return {}
     return {"allowed_openai_params": ["reasoning_effort"]}
 
+
+_ANTHROPIC_ROUTE_HINTS = ("anthropic", "claude")
+
+
+def _prepare_effort(
+    model: Optional[str],
+    reasoning_effort: Optional[str],
+    kwargs: Dict[str, Any],
+) -> Tuple[Optional[str], Dict[str, Any]]:
+    """Translate effort levels litellm's Anthropic mapper does not know.
+
+    litellm maps reasoning_effort for Anthropic-routed models but raises on
+    levels outside {low, medium, high} (e.g. "xhigh"). Current Claude models
+    (Opus 4.8+) control this natively via adaptive thinking plus
+    output_config.effort — send those verbatim through Bedrock's request
+    pass-through so litellm neither validates nor rewrites them.
+    Non-Anthropic models pass through unchanged.
+    """
+    if reasoning_effort != "xhigh":
+        return reasoning_effort, kwargs
+    lowered = (model or "").lower()
+    if not any(hint in lowered for hint in _ANTHROPIC_ROUTE_HINTS):
+        return reasoning_effort, kwargs
+    # litellm forwards these into the provider request body verbatim
+    # (unknown kwargs are collected into Bedrock's additionalModelRequestFields).
+    kwargs = dict(kwargs)
+    kwargs.setdefault("thinking", {"type": "adaptive"})
+    kwargs.setdefault("output_config", {"effort": "xhigh"})
+    kwargs.setdefault("max_tokens", 16384)
+    return None, kwargs
+
 # These inputs were historically rewritten by the web-search methods. They
 # remain aliases, but now target the configured web_search role.
 LEGACY_WEB_SEARCH_ALIASES = frozenset(
@@ -358,6 +389,9 @@ class LLMBackend:
         **kwargs: Any,
     ) -> str:
         resolved_model = self.resolve_model(model, default_role="utility")
+        effective_effort, kwargs = _prepare_effort(
+            resolved_model, reasoning_effort, kwargs
+        )
         response = self._run_sync(
             "completion",
             resolved_model,
@@ -365,9 +399,9 @@ class LLMBackend:
                 model=resolved_model,
                 messages=messages,
                 temperature=temperature,
-                reasoning_effort=reasoning_effort,
+                reasoning_effort=effective_effort,
                 drop_params=True,
-                **_effort_passthrough(reasoning_effort),
+                **_effort_passthrough(effective_effort),
                 **kwargs,
             ),
         )
@@ -406,22 +440,26 @@ class LLMBackend:
         ]
 
         async def _run() -> List[str]:
-            tasks = [
-                self._run_async(
-                    "parallel completion",
-                    model,
-                    lambda model=model: acompletion(
-                        model=model,
-                        messages=messages,
-                        temperature=temperature,
-                        reasoning_effort=reasoning_effort,
-                        drop_params=True,
-                        **_effort_passthrough(reasoning_effort),
-                        **kwargs,
-                    ),
+            tasks = []
+            for model in resolved_models:
+                model_effort, model_kwargs = _prepare_effort(
+                    model, reasoning_effort, kwargs
                 )
-                for model in resolved_models
-            ]
+                tasks.append(
+                    self._run_async(
+                        "parallel completion",
+                        model,
+                        lambda model=model, model_effort=model_effort, model_kwargs=model_kwargs: acompletion(
+                            model=model,
+                            messages=messages,
+                            temperature=temperature,
+                            reasoning_effort=model_effort,
+                            drop_params=True,
+                            **_effort_passthrough(model_effort),
+                            **model_kwargs,
+                        ),
+                    )
+                )
             return [self._content(item) for item in await asyncio.gather(*tasks)]
 
         return asyncio.run(_run())
