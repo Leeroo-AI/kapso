@@ -1,92 +1,107 @@
-# F5 fix proposal — the agent must own its clock
+# F5 fix proposal — REFINED (v2)
 
-Status: DRAFT for review. Nothing here is applied.
+Status: awaiting approval. Nothing applied.
 
-## The verified causal chain (run #7 evidence)
+Review provenance: Codex review was attempted twice (first attempt could not
+read the un-pushed file; the resumed attempt showed zero tool activity for
+46 minutes and was cancelled). The adversarial pass below was performed
+in-session against the same five questions, grounded in run #7 trace
+forensics that arrived after v1 (finding F14).
 
-1. **Information gap.** The agent knows the RUN deadline (`timer.sh`: "10h
-   left" style) but is never told its SESSION deadline. In run #7 it planned
-   training against ~3h of run budget while its implementation session had a
-   135-minute cap (which kapso enforces with a process-group kill). Neither
-   kapso's implementation prompt (`implementation_claude_code.md` — zero
-   mentions of backgrounding/timeouts/session limits) nor our handler
-   context states the cap.
-2. **No sizing discipline.** `train.py` was launched with 7,734 steps at a
-   measurable 1.44 s/it ≈ 3.1h — knowable after the first logging interval
-   (~1 min), never computed before launch.
-3. **Blocking-launch trap (our own foot-gun).** `solve.sh` exports
-   `BASH_DEFAULT_TIMEOUT_MS=36000000` (10h), so a foreground training call
-   may legally block the agent for hours. Trace lines 1376-1380: the call
-   blocked 84.5 min until Claude Code *auto-backgrounded* it ("Command
-   running in background with ID: …") — an undocumented rescue with
-   uncontrollable timing. During those 84 minutes the agent could not read
-   its log, check timer.sh, or early-stop; checkpoint-2000 (the eventual
-   final model) had existed on disk for ~30+ of them.
-4. Post-rescue friction (minor): `sleep 60 && tail` was blocked by the CLI's
-   sleep-chain guard; a 342KB Read and an 82KB tail hit size caps. The agent
-   adapted, losing ~1 min.
+## Revised causal model (what actually cost what)
 
-## P1 — handler context: session caps + long-process contract (ours)
+| Cost | Cause | Fixable by |
+|---|---|---|
+| ~2 min | blocking `python train.py` until Claude Code's ~2-min auto-backgrounding kicked in (verified: `system:task_started` fires ~2 min after every long eval call in the trace) | P2′ (teach the behavior), P1 (explicit background launch) |
+| **~80 min** | **Claude Max rate-limit stall of the model's next API turn** (zero model turns 21:15→22:39; the trace's only mid-session `rate_limit_event` at the wake-up; event density 128/5min → 39/85min) | P4 |
+| the whole hazard | training sized at 7,734 steps ≈ 3.1h against a 135-min session cap the agent was never told about, with no pre-flight arithmetic | P1 |
+
+Key reframe: with correct sizing (P1), the stall would have been *harmless*
+— training would have completed within the cap and the wake-up would have
+found it done. Sizing is the fix; the stall is a separate channel.
+
+## P1 — handler contract: session caps, sizing, detached launches (APPLY)
 
 Wiring: `runner.main()` already computes `session_timeouts`; pass them into
-`PostTrainBenchHandler(..., session_caps=session_timeouts)` and render them.
+`PostTrainBenchHandler(..., session_caps=...)` and render real numbers.
 
-New handler section (replaces/extends "Session discipline"):
+Replace/extend the handler's "Session discipline" section with:
 
-```
-## Session discipline & long-running processes
-You operate in bounded SESSIONS inside the overall run. Hard caps, enforced
-by a process-group kill that takes down EVERY process you started
-(including training): implementation sessions ≈ {impl_min} minutes,
-ideation ≈ {idea_min} minutes. Only files on disk survive a session kill.
-- First action of every implementation session: run `date -u` and write the
-  session start time + your session deadline into PLAN.md, alongside the
-  run-level time from `bash timer.sh`.
-- NEVER run a command expected to exceed 10 minutes in the foreground.
-  Launch it detached and log to a file:
-      nohup python train.py > {artifacts}/train_log.txt 2>&1 &
-      echo $! > {artifacts}/train.pid
-  then poll in BOUNDED waits (one wait ≤ 5 minutes, e.g.
-  `sleep 240 && tail -5 {artifacts}/train_log.txt && bash timer.sh`).
-  Do useful work between polls (prepare eval scripts, update PLAN.md).
-- SIZE BEFORE YOU COMMIT: before any training run projected >15 minutes,
-  measure throughput (≤50 steps or one logging interval), compute
-  total_steps × seconds_per_step, and choose max_steps/dataset size so the
-  projected duration fits within 60% of YOUR SESSION's remaining time.
-  Write the arithmetic into PLAN.md.
-- At every poll apply the rule: if projected completion exceeds your
-  session's remaining time minus 20 minutes (reserve for merge+eval+
-  promotion), kill training, promote the best checkpoint to final_model,
-  and evaluate it.
-- Checkpoint at least every ~15 minutes of training (size save_steps
-  accordingly) so a kill never loses more than one interval.
-```
+1. **State the caps**: "implementation sessions are hard-killed at
+   ~{impl_min} min, ideation at ~{idea_min} min; the kill takes down every
+   process you started, including training. Only files survive."
+2. **Clock anchoring**: first action of every implementation session — run
+   `date -u`, write session start + session deadline into PLAN.md next to
+   the run-level `timer.sh` reading.
+3. **Size before you commit**: before any run projected >15 min, measure
+   throughput (≤50 steps or one logging interval), compute
+   `total_steps × s_per_step`, and choose max_steps/dataset so projected
+   duration ≤ 60% of the session's remaining time (the other 40% covers
+   merge + eval + promotion + one corrective action). Write the arithmetic
+   into PLAN.md.
+4. **Detached launches**: never block on a command expected to exceed
+   10 min. `nohup python train.py > {artifacts}/train_log.txt 2>&1 &
+   echo $! > {artifacts}/train.pid` (plain nohup — no setsid, so the
+   session kill still reaps it), then poll in bounded waits (≤5 min each:
+   tail the log, `bash timer.sh`, compare against PLAN.md's deadline) and
+   do useful work between polls.
+5. **Kill-and-promote rule**: at any poll, if projected completion exceeds
+   session-remaining minus 20 min, kill training, promote the best
+   checkpoint to final_model, evaluate it.
+6. **Checkpoint cadence**: ≤15 min of work between checkpoints.
 
-## P2 — solve.sh: stop legalizing multi-hour blocking calls (ours)
+## P2 — WITHDRAWN (was: lower BASH_DEFAULT_TIMEOUT_MS to 15 min)
 
-`BASH_DEFAULT_TIMEOUT_MS`: 36000000 → **900000** (15 min).
-`BASH_MAX_TIMEOUT_MS` stays 36000000 (agent may still explicitly request
-long foreground waits when it has a reason).
+Auto-backgrounding already unblocks foreground calls at ~2 min — far
+tighter than any safe default timeout — and a 15-min default would
+timeout-kill legitimate 10–20-min foreground evals. Worst of both worlds;
+dropped.
 
-Effect: an un-annotated blocking call now fails fast at 15 min with a
-timeout error (which itself teaches the contract) instead of freezing the
-session for an undocumented rescue to end. Properly detached launches
-(`nohup … &`) return in <1s and are unaffected. Risk: a legitimately long
-foreground call (a full evaluate.py pass can exceed 15 min) gets killed if
-the agent ignores the prompt — recoverable (re-run backgrounded), and P1
-explicitly teaches both patterns.
+**P2′ (APPLY, prompt-only)**: one paragraph teaching the observed CLI
+behavior so the agent isn't surprised by it: "a long foreground command
+returns after ~2 min as a background task with an output-file path — poll
+that file; prefer explicit `nohup … &` so you control the pattern instead
+of relying on the automatic conversion."
 
-## P3 — kapso core (DEFERRED, separate approval needed)
+## P4 — the rate-limit stall channel (NEW)
 
-Dynamic per-session countdown in `_render_budget_status()` ("this session
-terminates in N minutes") + an adapter-injected T-minus-10 warning line.
-Deferred: P1's static caps + agent-side clock cover most of the value
-without touching `src/kapso`.
+- **(a) Operational, apply now**: do not use the Max account interactively
+  while a scored run is live (this dev session shares the same plan);
+  start official runs on a fresh rolling window.
+- **(b) Monitoring, apply now**: the run monitor treats >10 min of trace
+  silence *combined with* an idle GPU as a stall alarm; silence with a busy
+  GPU is a working state (long tool call), silence with idle GPU is a
+  stalled agent.
+- **(c) Decision for official runs (user call)**: API-key billing makes
+  model-turn capacity deterministic. Run #7's notional usage was $36.77;
+  at that scale the 28-combo sweep costs ~$1.0–1.5k in API spend versus
+  free-but-throttlable Max. Recommendation: Max for dev runs, API key for
+  the official 10h sweep.
+- **(d) Deferred kapso-core candidates (separate written proposals)**:
+  stall-aware deadline crediting (pause the session-deadline clock while
+  the CLI streams zero events — run #7's session paid its full 135-min cap
+  but received ~50 min of usable agent time), and a per-session countdown
+  line in `_render_budget_status()`.
+
+## Process-group safety check (Codex question 3, self-verified)
+
+kapso starts the Claude CLI with `start_new_session=True` (CLI = process
+group leader) and enforces the session deadline with `os.killpg`
+(claude_code_agent.py:515-614). A `nohup … &` child stays in that group
+(nohup does not setsid), so detached training dies at session kill — by
+design, since the next session must own the GPU — and checkpoints on disk
+carry the work forward. The harness's outer apptainer `--pid` namespace
+guarantees nothing outlives the run. The launching Bash call itself exits
+in <1s, so tool timeouts never touch the training process. Safe in both
+directions; the prompt deliberately never mentions setsid.
 
 ## Validation (run #8 trace assertions)
 
-1. No single Bash tool call spans >15 minutes.
-2. PLAN.md contains session start/deadline and the sizing arithmetic.
-3. Poll cadence visible (bounded waits, timer checks between them).
-4. If training is killed (by agent or session), a checkpoint promotion to
-   final_model happens inside the same session.
+1. PLAN.md contains session start/deadline + sizing arithmetic.
+2. Every training launch matches `nohup … &`; no foreground call blocks
+   >3 min except explicitly-chosen evals.
+3. Bounded-poll cadence visible between training start and end.
+4. If training is killed by anything, checkpoint promotion to final_model
+   occurs in the same session.
+5. Monitor emits no stall alarms — or, if one fires, the post-run report
+   quantifies the stall window against the Max plan's state.
