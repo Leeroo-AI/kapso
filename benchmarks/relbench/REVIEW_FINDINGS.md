@@ -87,6 +87,14 @@ Runs reviewed:
    memory is not inert — but detail access is dead and unobservable.
    Proposed: gate the MCP instruction on MCP actually being configured.
    Core change — needs written-proposal approval. Status: OPEN.
+   Cross-track: PostTrainBench run7 review F4 reports the same marker
+   ("sections consulted: []") but attributes it to dead litellm
+   side-channels under OAuth-only auth (their writes genuinely fail — the
+   accepted trade-off there). Our track proves that diagnosis incomplete:
+   with writes fully working (52KB enriched memory), the channel still
+   reads "none". Two independent, stacking causes — write-side credentials
+   (theirs) and read-side MCP mis-wiring (both tracks). Fixing their
+   credentials alone will not light the channel.
 
 ## R2 outcome (for the record)
 
