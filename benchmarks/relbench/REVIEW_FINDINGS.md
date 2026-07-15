@@ -85,8 +85,13 @@ Runs reviewed:
    R3, and the consulted-sections extractor only detects MCP usage. The
    2.5KB summary+TOC is still injected into every implement prompt, so the
    memory is not inert — but detail access is dead and unobservable.
-   Proposed: gate the MCP instruction on MCP actually being configured.
-   Core change — needs written-proposal approval. Status: OPEN.
+   Status: FIXED 2026-07-15 (user chose mounting over instruction-gating):
+   ExperimentSession now mounts the repo-memory MCP gate against the
+   session's own clone for MCP-capable agents (REPO_MEMORY_ROOT = session
+   folder; generic-path sessions with their own gate set pass through
+   untouched), and the implement prompt selects MCP vs JSON-file
+   instructions from the session's actual mount state. Live verification:
+   see V1 below.
    Cross-track: PostTrainBench run7 review F4 reports the same marker
    ("sections consulted: []") but attributes it to dead litellm
    side-channels under OAuth-only auth (their writes genuinely fail — the

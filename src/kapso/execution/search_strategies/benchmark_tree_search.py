@@ -612,9 +612,9 @@ class BenchmarkTreeSearch(SearchStrategy):
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
         repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
 
-        # By default, agents can read the JSON file directly.
-        agent_type = getattr(getattr(self.workspace, "coding_agent_config", None), "agent_type", "")
-        if agent_type == "claude_code":
+        # Instructions must match the session's actual toolset: the MCP tool
+        # only exists when the session mounted the repo-memory gate.
+        if getattr(session, "repo_memory_mcp_mounted", False):
             repo_memory_detail_access_instructions = (
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
                 "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"

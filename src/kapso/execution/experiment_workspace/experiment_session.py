@@ -20,6 +20,7 @@ from kapso.execution.coding_agents.base import CodingAgentConfig, CodingResult
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.coding_agents.commit_message_generator import CommitMessageGenerator
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.gated_mcp import get_mcp_config
 
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,14 @@ class ExperimentSession:
         # Create a deep copy of config with workspace set (don't mutate original)
         session_config = copy.deepcopy(coding_agent_config)
         session_config.workspace = self.session_folder
-        
+
+        # MCP-capable agents get the repo-memory gate mounted against this
+        # session's clone, so the memory-access instructions in the implement
+        # prompts reference tools that actually exist.
+        self.repo_memory_mcp_mounted = self._mount_repo_memory_mcp(
+            session_config, self.session_folder
+        )
+
         # Create agent via factory
         self.coding_agent = CodingAgentFactory.create(session_config)
         self.coding_agent.initialize(self.session_folder)
@@ -148,6 +156,40 @@ class ExperimentSession:
         
         # Store solution context for richer commit messages
         self._current_solution_summary: Optional[str] = None
+
+    @staticmethod
+    def _mount_repo_memory_mcp(
+        session_config: CodingAgentConfig, session_folder: str
+    ) -> bool:
+        """Mount the repo-memory MCP gate for MCP-capable agents.
+
+        Callers that already wired mcp_servers (the generic strategy passes
+        its own gate set) are left untouched. Returns whether the session's
+        agent has MCP servers configured after this call, so prompt builders
+        can keep memory-access instructions truthful.
+        """
+        if session_config.agent_type != "claude_code":
+            return False
+        if session_config.agent_specific.get("mcp_servers"):
+            return True
+        mcp_servers, mcp_tools = get_mcp_config(
+            gates=["repo_memory"],
+            repo_root=session_folder,
+            include_base_tools=False,
+            # Missing deps must never block a coding session; the prompt
+            # falls back to the JSON-file instruction when unmounted.
+            gate_failure_policy="warn",
+        )
+        if not mcp_servers:
+            return False
+        session_config.agent_specific["mcp_servers"] = mcp_servers
+        session_config.agent_specific["allowed_tools"] = [
+            *session_config.agent_specific.get(
+                "allowed_tools", ["Edit", "Read", "Write", "Bash"]
+            ),
+            *[tool for tool in mcp_tools if tool.startswith("mcp__")],
+        ]
+        return True
 
     def schedule_repo_memory_update(
         self,

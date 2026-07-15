@@ -362,3 +362,80 @@ class TestSelectionLineageAndReasoning:
         )
         assert child_b.is_terminated and not child_a.is_terminated
         assert "pruning reasoning" in capsys.readouterr().out
+
+
+class TestRepoMemoryMcpMount:
+    """Finding 9: sessions mount the repo-memory MCP gate for MCP-capable agents."""
+
+    def _config(self, agent_type="claude_code", agent_specific=None):
+        from kapso.execution.coding_agents.base import CodingAgentConfig
+
+        return CodingAgentConfig(
+            agent_type=agent_type, model="m", debug_model="m",
+            agent_specific=agent_specific if agent_specific is not None else {},
+        )
+
+    def test_claude_code_gets_gate_mounted(self, tmp_path):
+        from kapso.execution.experiment_workspace.experiment_session import (
+            ExperimentSession,
+        )
+
+        config = self._config()
+        mounted = ExperimentSession._mount_repo_memory_mcp(config, str(tmp_path))
+        assert mounted is True
+        servers = config.agent_specific["mcp_servers"]
+        (server_conf,) = servers.values()
+        assert server_conf["env"]["REPO_MEMORY_ROOT"] == str(tmp_path)
+        tools = config.agent_specific["allowed_tools"]
+        assert "Bash" in tools
+        assert any("get_repo_memory_section" in t for t in tools)
+        assert any("get_repo_memory_summary" in t for t in tools)
+
+    def test_preset_mcp_servers_passthrough(self, tmp_path):
+        from kapso.execution.experiment_workspace.experiment_session import (
+            ExperimentSession,
+        )
+
+        preset = {"mcp_servers": {"custom": {"command": "x"}}}
+        config = self._config(agent_specific=dict(preset))
+        mounted = ExperimentSession._mount_repo_memory_mcp(config, str(tmp_path))
+        assert mounted is True
+        assert config.agent_specific["mcp_servers"] == preset["mcp_servers"]
+        assert "allowed_tools" not in config.agent_specific
+
+    def test_non_mcp_agent_untouched(self, tmp_path):
+        from kapso.execution.experiment_workspace.experiment_session import (
+            ExperimentSession,
+        )
+
+        config = self._config(agent_type="aider")
+        mounted = ExperimentSession._mount_repo_memory_mcp(config, str(tmp_path))
+        assert mounted is False
+        assert "mcp_servers" not in config.agent_specific
+
+    def test_implement_instructions_follow_mount_state(self, tmp_path):
+        from kapso.execution.search_strategies.benchmark_tree_search import (
+            BenchmarkTreeSearch,
+        )
+
+        strategy = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
+        strategy.previous_errors = []
+        strategy.recent_error_count = 10
+        context = SimpleNamespace(problem="p", kg_code_results="")
+        prompts = {}
+
+        def session(mounted):
+            return SimpleNamespace(
+                session_folder=str(tmp_path),
+                branch_name="experiment_x",
+                repo_memory_mcp_mounted=mounted,
+                generate_code=lambda prompt: (
+                    prompts.__setitem__("last", prompt),
+                    SimpleNamespace(output="done"),
+                )[1],
+            )
+
+        strategy.implement_solution("sol", context, session(True))
+        assert "use the MCP tool" in prompts["last"]
+        strategy.implement_solution("sol", context, session(False))
+        assert "read: `.kapso/repo_memory.json`" in prompts["last"]
