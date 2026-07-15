@@ -1,6 +1,12 @@
 # F5 fix proposal — REFINED (v2)
 
-Status: awaiting approval. Nothing applied.
+Status: RESOLVED 2026-07-15. The user selected the v1 shape — P1 + P2
+(BASH_DEFAULT_TIMEOUT_MS 10h → 15 min as a mechanical backstop beneath the
+undocumented ~2-min auto-backgrounding), P3 deferred, and explicitly
+declined the v2 rate-limit hygiene carry-over (P4). Applied after merging
+main (237-test gate green): handler session-caps contract + runner wiring
+(fail-loud constructor), solve.sh timeout backstop. The v2 analysis below
+is retained as the record of the evidence and the trade-offs.
 
 Review provenance: Codex review was attempted twice (first attempt could not
 read the un-pushed file; the resumed attempt showed zero tool activity for

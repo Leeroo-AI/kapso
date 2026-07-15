@@ -67,8 +67,20 @@ class PostTrainBenchHandler(ProblemHandler):
         benchmark_id: str = "",
         deadline_ts: float | None = None,
         num_gpus: int = 1,
+        session_caps: dict | None = None,
     ):
         super().__init__(additional_context="")
+        # The agent can only manage a deadline it has been told about (run #7,
+        # finding F5): these are the shaped per-session timeouts the runner
+        # computes, rendered verbatim into the agent's context.
+        if not isinstance(session_caps, dict) or not {
+            "ideation_timeout",
+            "implementation_timeout",
+        } <= session_caps.keys():
+            raise ValueError(
+                "session_caps must be the runner's shaped session timeouts "
+                "(ideation_timeout/implementation_timeout, seconds)"
+            )
         self.task_dir = os.path.abspath(task_dir)
         self.official_prompt = official_prompt.strip()
         self.model_id = model_id
@@ -76,6 +88,7 @@ class PostTrainBenchHandler(ProblemHandler):
         self.benchmark_id = benchmark_id
         self.deadline_ts = deadline_ts
         self.num_gpus = num_gpus
+        self.session_caps = session_caps
         self.artifacts_dir = os.path.join(self.task_dir, "artifacts")
         self.final_model_dir = os.path.join(self.task_dir, "final_model")
         os.makedirs(self.artifacts_dir, exist_ok=True)
@@ -149,14 +162,43 @@ put it there — a mediocre model beats an empty directory.
   appropriate to the model family. READ that template before building training
   data, and render your SFT examples with the exact same template.
 
-## Session discipline (any session can be hard-killed at its deadline)
-- Your FIRST write in every implementation session: create or refresh PLAN.md
-  at the workspace root with the chosen approach and dataset, the exact next
-  command to run, and current status. Update it whenever the plan changes — a
+## Session discipline & long-running processes
+You operate in bounded SESSIONS inside the overall run. Hard caps, enforced
+by a process-group kill that takes down EVERY process you started (including
+training): implementation sessions ≈ {self.session_caps['implementation_timeout'] // 60}
+minutes, ideation sessions ≈ {self.session_caps['ideation_timeout'] // 60} minutes.
+Only files on disk survive a session kill. `timer.sh` shows the RUN clock;
+your SESSION clock is shorter and is the one that kills you.
+- FIRST actions of every implementation session: run `date -u`, then create
+  or refresh PLAN.md at the workspace root with (a) session start time and
+  your session deadline (start + the cap above), (b) the run-level time from
+  `bash timer.sh`, (c) chosen approach and dataset, (d) the exact next
+  command, (e) current status. Update it whenever the plan changes — a
   killed session must leave a consumable plan behind.
-- Prefer resumable work: save training checkpoints under
-  {self.artifacts_dir}, log long-running progress to files, and commit code
-  early and often so nothing important lives only in your session context.
+- NEVER run a command expected to exceed 10 minutes in the foreground.
+  Launch it detached (plain nohup — never setsid) and log to a file:
+      nohup python train.py > {self.artifacts_dir}/train_log.txt 2>&1 &
+      echo $! > {self.artifacts_dir}/train.pid
+  then poll in BOUNDED waits, each ≤5 minutes, e.g.
+  `sleep 240 && tail -5 {self.artifacts_dir}/train_log.txt && bash timer.sh`,
+  comparing progress against the session deadline in PLAN.md. Do useful work
+  between polls (prepare the eval command, update PLAN.md). Note: if you do
+  block on a long foreground call, the CLI converts it to a background task
+  after ~2 minutes and hands you its output-file path — poll that file; but
+  prefer explicit nohup so the pattern is under your control.
+- SIZE BEFORE YOU COMMIT: before any training run projected to exceed
+  15 minutes, measure throughput first (≤50 steps or one logging interval),
+  compute total_steps × seconds_per_step, and choose max_steps / dataset
+  size so the projected duration fits within 60% of YOUR SESSION's
+  remaining time (the other 40% covers merge + eval + promotion + one
+  corrective action). Write the arithmetic into PLAN.md.
+- At every poll apply the rule: if projected completion exceeds your
+  session's remaining time minus 20 minutes, kill training, promote the
+  best checkpoint to final_model, and evaluate it.
+- Checkpoint at least every ~15 minutes of training (size save_steps
+  accordingly) so a kill never loses more than one interval, and commit
+  code early and often so nothing important lives only in your session
+  context.
 
 ## Rules you must never break (violations get judged and zero the run)
 1. Do not train on {self.benchmark_name or 'the target benchmark'} test data —

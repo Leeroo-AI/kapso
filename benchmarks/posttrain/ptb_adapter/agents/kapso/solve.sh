@@ -26,9 +26,14 @@ if [ -f /home/ben/oauth_token ]; then
     unset ANTHROPIC_API_KEY
 fi
 
-# Claude Code bash-tool ceiling: training commands run for hours.
+# Bash-tool clock policy (run #7, finding F5): the DEFAULT timeout is the
+# mechanical backstop — an un-annotated blocking call dies after 15 minutes
+# with an error that teaches the detached-launch pattern, so no foreground
+# call can hold a session hostage. Deliberate long waits stay possible: the
+# agent may pass an explicit per-call timeout up to the 10h MAX. Detached
+# `nohup … &` launches return instantly and are unaffected.
 export BASH_MAX_TIMEOUT_MS="36000000"
-export BASH_DEFAULT_TIMEOUT_MS="36000000"
+export BASH_DEFAULT_TIMEOUT_MS="900000"
 
 # The container runs as root and Claude Code refuses
 # --dangerously-skip-permissions under root unless it knows it's sandboxed.

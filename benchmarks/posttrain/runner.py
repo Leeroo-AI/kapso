@@ -284,6 +284,7 @@ def main():
         benchmark_id=benchmark_id,
         deadline_ts=deadline_ts,
         num_gpus=int(os.environ.get("NUM_GPUS", "1")),
+        session_caps=session_timeouts,
     )
 
     orchestrator = OrchestratorAgent(
