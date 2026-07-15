@@ -122,6 +122,24 @@ code); it is persisted into every checkpoint write and flows toward
 feedback/history surfaces. Candidate upstream issue: exclude obvious
 non-code artifacts or window the diff for prompt use.
 
+**F14 (major, REVISES F5's causal weighting) — an ~80-minute Claude Max
+rate-limit stall, not the blocking call, ate the blind window.** Deeper
+trace forensics: Claude Code auto-backgrounds long foreground Bash calls
+after ~2 minutes (system:task_started fires ~2 min after every eval call in
+this trace), so the blocking `python train.py` should have cost ~2 minutes.
+Its task_started instead fired 84 minutes late (21:15:18 → 22:39:45) with
+ZERO model turns in between (event density: 128/5min before the gap vs
+39/85min during it, nearly all in the wake-up burst) and the trace's only
+mid-session rate_limit_event at exactly 22:39:49. Most consistent reading:
+the model's next API turn was throttled by the Max plan's rolling window
+for ~80 minutes. GPU training continued unsupervised (compute not wasted;
+decision latency was — checkpoint-2000 sat promotable for ~30+ min).
+Implications: (a) a correctly-sized training run (F5's sizing discipline)
+would have made the stall harmless; (b) the benchmark container shares the
+SAME Max account as interactive dev sessions — concurrent usage competes
+with scored runs; (c) session caps currently charge stall time against the
+agent.
+
 ## Suggestions backlog
 
 **S1.** Add a multi-zone/multi-region fallback ladder to `10_launch_run.sh`
