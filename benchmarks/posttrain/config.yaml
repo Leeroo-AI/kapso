@@ -1,0 +1,100 @@
+# PostTrainBench Configuration
+#
+# Kapso runs INSIDE the PostTrainBench apptainer container (agents/kapso/solve.sh),
+# where the available credentials are:
+#   - CLAUDE_CODE_OAUTH_TOKEN     (preferred: Claude Max subscription, exported by
+#                                  solve.sh from the harness-provided oauth_token
+#                                  file — the upstream claude_non_api mechanism)
+#   - ANTHROPIC_API_KEY           (alternative: usage-billed API key)
+#   - OPENAI_API_KEY              (ONLY for judge-scored tasks: arenahardwriting,
+#                                  healthbench — and PostTrainBench rules forbid
+#                                  using it for anything except evaluate.py)
+#
+# Therefore every kapso LLM role below must resolve to Anthropic. Do not point
+# any role at an OpenAI model: that would violate the benchmark rules and be
+# flagged by the contamination judge.
+#
+# Wall-clock budgeting is handled by the runner (orchestrator.solve
+# time_budget_minutes), not by this file. Timeouts here are per-session upper
+# bounds and are intentionally long: one implementation session may research,
+# write a training pipeline, train for a couple of hours and self-evaluate.
+
+default_mode: POSTTRAIN
+
+modes:
+  POSTTRAIN:
+    search_strategy:
+      type: "generic"
+      params:
+        # Overridden at runtime by `expert-posttrain --coding-model` (which
+        # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-6).
+        idea_generation_model: "claude-opus-4-6"
+        implementation_model: "claude-opus-4-6"
+        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        # A single H100 and a hard deadline: never abort the campaign because a
+        # knowledge gate backend (weaviate/neo4j/leeroopedia) is unreachable.
+        gate_failure_policy: "skip"
+        parent_policy: "best"
+        ideation_timeout: 1800
+        # One experiment = write pipeline + train + evaluate. Multi-hour.
+        implementation_timeout: 18000
+        # Only local, dependency-free gates. `research` needs OpenAI web-search
+        # models (forbidden here); `leeroopedia` needs an external API. The
+        # coding agent still has Claude Code's built-in WebSearch/WebFetch,
+        # which is allowed (internet access is unrestricted in the benchmark).
+        ideation_gates: ["experiment_history", "repo_memory"]
+        implementation_gates: ["repo_memory"]
+
+    # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
+    # kapso core): per-session deadlines scale with the run size so a fixed
+    # cap can never dominate a short run (live run #6: the 30-minute
+    # ideation cap consumed 77% of a 39-minute budget). The strategy
+    # timeouts above act as the ceilings; these fractions/floors shrink
+    # them for small budgets. The orchestrator's live budget clamp still
+    # bounds every session by what actually remains.
+    session_budget:
+      ideation_fraction: 0.15
+      ideation_min_seconds: 300
+      implementation_fraction: 0.75
+      implementation_min_seconds: 1800
+      finalization_reserve_fraction: 0.10
+      finalization_reserve_min_minutes: 5
+      finalization_reserve_max_minutes: 15
+      # Held OUTSIDE the orchestrator budget for the runner's finally-block
+      # (final_model verify/copy) before the harness hard-kills the process.
+      guard_minutes: 5
+
+    models:
+      utility: "anthropic/claude-haiku-4-5-20251001"
+      reasoning: "anthropic/claude-sonnet-5"
+      # The research gate is disabled; this role must still never resolve to
+      # an OpenAI model, so pin it to Anthropic as a safety net.
+      web_search: "anthropic/claude-sonnet-5"
+    retry:
+      max_attempts: 5
+      initial_delay_seconds: 5
+      max_delay_seconds: 120
+      multiplier: 2
+      jitter: true
+
+    coding_agent:
+      type: "claude_code"
+      model: "claude-opus-4-6"
+      debug_model: "claude-opus-4-6"
+      agent_specific:
+        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        streaming: true
+        timeout: 18000
+
+    feedback_generator:
+      type: "claude_code"
+      model: "claude-opus-4-6"
+      debug_model: "claude-opus-4-6"
+      agent_specific:
+        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        streaming: true
+        timeout: 900
+
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
