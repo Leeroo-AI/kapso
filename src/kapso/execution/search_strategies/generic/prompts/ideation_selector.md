@@ -30,4 +30,5 @@ their best parts — and output it.
 
 First a brief comparison inside <selection_reasoning> and
 </selection_reasoning> tags, then EXACTLY ONE final, self-contained solution
-between <solution> and </solution> tags.
+inside a solution block (opened with the solution start tag and closed
+with the solution end tag).

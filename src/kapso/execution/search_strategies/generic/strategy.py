@@ -71,6 +71,10 @@ ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
 ENSEMBLE_SELECTOR_MIN_SECONDS = 240
 ENSEMBLE_CANDIDATES_PER_MEMBER = 2
 
+# Extraction artifacts (prompt echoes, stream duplicates) are shorter than
+# any real plan; drop them before the selector sees the pool.
+MIN_ENSEMBLE_CANDIDATE_CHARS = 80
+
 ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex"})
 _ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
 
@@ -670,10 +674,16 @@ class GenericSearch(SearchStrategy):
                 if section not in sections:
                     sections.append(section)
             for candidate in member_result["candidates"]:
-                if candidate:
-                    pool.append(
-                        {"source": member_result["label"], "cli": member_result["cli"], "text": candidate}
-                    )
+                # Hygiene observed live: codex echoes the prompt (the tag
+                # phrase used to self-match) and duplicates its final
+                # message — drop degenerate and already-pooled candidates.
+                if len(candidate.strip()) < MIN_ENSEMBLE_CANDIDATE_CHARS:
+                    continue
+                if any(candidate == pooled["text"] for pooled in pool):
+                    continue
+                pool.append(
+                    {"source": member_result["label"], "cli": member_result["cli"], "text": candidate}
+                )
 
         telemetry = {
             "cost_usd": total_cost,

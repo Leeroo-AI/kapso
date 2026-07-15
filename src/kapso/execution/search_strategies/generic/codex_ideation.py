@@ -41,12 +41,22 @@ def run_codex_ideation(
             "Codex CLI not found. Install with: npm install -g @openai/codex"
         )
 
+    # --output-last-message isolates the agent's final answer from the
+    # transcript stream, which echoes the prompt (whose tag examples would
+    # otherwise self-match candidate extraction) and duplicates the final
+    # message. The merged stream is kept only as timeout-salvage material.
+    last_fd, last_path = tempfile.mkstemp(
+        prefix="codex_ideation_", suffix=".last"
+    )
+    os.close(last_fd)
     cmd = [
         "codex",
         "exec",
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
+        "--output-last-message",
+        last_path,
         "-m",
         model,
     ]
@@ -87,8 +97,13 @@ def run_codex_ideation(
             process.wait()
 
     out_file.close()
+    with open(last_path, "r", encoding="utf-8", errors="replace") as fh:
+        last_message = fh.read().strip()
+    os.unlink(last_path)
     with open(out_path, "r", encoding="utf-8", errors="replace") as fh:
-        output = fh.read()
+        stream = fh.read()
     os.unlink(out_path)
 
+    # Prefer the clean final message; a killed run has only its stream.
+    output = last_message if last_message else stream
     return output, timed_out, time.monotonic() - started

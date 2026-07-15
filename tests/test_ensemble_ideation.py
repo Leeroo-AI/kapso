@@ -25,6 +25,12 @@ CODEX_MEMBER = {"cli": "codex", "model": "gpt-5.6-sol", "effort": "xhigh", "lens
 CLAUDE_MEMBER = {"cli": "claude_code", "model": "claude-fable-5", "effort": "xhigh", "lens": "recipe"}
 SELECTOR = {"cli": "claude_code", "model": "claude-fable-5", "effort": "xhigh"}
 
+# Real candidates are plans, not phrases; keep test candidates above the
+# degenerate-artifact floor.
+def _plan(name):
+    return (f"# Core Idea\n{name}: " + "concrete codable step. " * 5).strip()
+
+
 
 # ---------------------------------------------------------------------------
 # Config validation
@@ -174,8 +180,9 @@ def test_fanout_pools_candidates_and_selector_choice_wins(tmp_path, monkeypatch)
         tmp_path, monkeypatch,
         ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
         selector=dict(SELECTOR),
-        claude_output="<solution>claude A</solution><solution>claude B</solution>",
-        codex_output="noise <solution>codex A</solution> noise",
+        claude_output=f"<solution>{_plan('claude A')}</solution>"
+                      f"<solution>{_plan('claude B')}</solution>",
+        codex_output=f"noise <solution>{_plan('codex A')}</solution> noise",
         selector_output=(
             "<selection_reasoning>codex A is time-fit</selection_reasoning>"
             "<solution>the synthesized winner</solution>"
@@ -187,7 +194,7 @@ def test_fanout_pools_candidates_and_selector_choice_wins(tmp_path, monkeypatch)
     # selector prompt carried every pooled candidate
     selector_prompts = [p for is_sel, p in events["claude_prompts"] if is_sel]
     assert len(selector_prompts) == 1
-    for text in ("codex A", "claude A", "claude B"):
+    for text in (_plan("codex A"), _plan("claude A"), _plan("claude B")):
         assert text in selector_prompts[0]
     # member + selector costs both counted
     assert telemetry["cost_usd"] == pytest.approx(2.0)
@@ -201,13 +208,13 @@ def test_selector_failure_falls_back_to_first_claude_candidate(tmp_path, monkeyp
         tmp_path, monkeypatch,
         ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
         selector=dict(SELECTOR),
-        claude_output="<solution>claude first</solution>",
-        codex_output="<solution>codex first</solution>",
+        claude_output=f"<solution>{_plan('claude first')}</solution>",
+        codex_output=f"<solution>{_plan('codex first')}</solution>",
         selector_output="",
         selector_success=False,
     )
     solution, _, _ = strategy._generate_solution("problem", "main")
-    assert solution == "claude first"
+    assert solution == _plan("claude first")
 
 
 def test_all_members_failing_falls_back_to_template(tmp_path, monkeypatch):
@@ -231,11 +238,11 @@ def test_single_candidate_skips_selector(tmp_path, monkeypatch):
         ensemble=[dict(CODEX_MEMBER)],
         selector=dict(SELECTOR),
         claude_output="unused",
-        codex_output="<solution>only codex</solution>",
+        codex_output=f"<solution>{_plan('only codex')}</solution>",
         selector_output="unused",
     )
     solution, _, _ = strategy._generate_solution("problem", "main")
-    assert solution == "only codex"
+    assert solution == _plan("only codex")
     assert not [p for is_sel, p in events["claude_prompts"] if is_sel]
 
 
@@ -288,7 +295,10 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
 
     def fake_popen(cmd, cwd, env, stdout, stderr, text, start_new_session):
         captured.update(cmd=cmd, cwd=cwd, env=env, start_new_session=start_new_session)
-        stdout.write("<solution>from codex</solution>")
+        stdout.write("transcript echo of the prompt, then duplicates")
+        last_path = cmd[cmd.index("--output-last-message") + 1]
+        with open(last_path, "w") as fh:
+            fh.write("<solution>from codex</solution>")
         return FakeProcess()
 
     monkeypatch.setattr(codex_module.shutil, "which", lambda name: "/usr/bin/codex")
@@ -306,9 +316,10 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
     assert output == "<solution>from codex</solution>"
     assert timed_out is False
     assert duration >= 0
-    assert captured["cmd"][:6] == [
-        "codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-m",
+    assert captured["cmd"][:5] == [
+        "codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
     ]
+    assert "--output-last-message" in captured["cmd"]
     assert "gpt-5.6-sol" in captured["cmd"]
     assert 'model_reasoning_effort="xhigh"' in captured["cmd"]
     assert captured["cmd"][-1] == "the prompt"
@@ -323,3 +334,25 @@ def test_codex_runner_missing_cli_fails_loud(monkeypatch, tmp_path):
         codex_module.run_codex_ideation(
             prompt="p", model="m", cwd=str(tmp_path), timeout_seconds=1
         )
+
+
+def test_pool_hygiene_drops_degenerate_and_duplicate_candidates(tmp_path, monkeypatch):
+    real_plan = "# Core Idea\nswap the dataset for in-domain CoT " + "x" * 80
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector=dict(SELECTOR),
+        # codex echo artifacts: a tag-phrase fragment and a duplicate of the
+        # claude candidate must both be dropped before the selector runs.
+        codex_output=(
+            "<solution> and </solution>"
+            f"<solution>{real_plan}</solution>"
+            f"<solution>{real_plan}</solution>"
+        ),
+        claude_output=f"<solution>{real_plan}</solution>",
+        selector_output="unused",
+    )
+    solution, _, _ = strategy._generate_solution("problem", "main")
+    # after hygiene only ONE candidate remains -> selector skipped entirely
+    assert solution == real_plan
+    assert not [p for is_sel, p in events["claude_prompts"] if is_sel]

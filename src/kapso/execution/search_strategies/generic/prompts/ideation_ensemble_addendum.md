@@ -13,7 +13,8 @@ Produce exactly {{candidate_count}} candidate solutions. Each candidate must:
 - be fully self-contained (no references to your other candidate or to
   "the parent" without restating what is kept),
 - state concrete, codable steps and a runtime expectation,
-- sit between its own <solution> and </solution> tags.
+- sit inside its own solution block: open the block with the
+  solution start tag, close it with the solution end tag.
 
 Make the candidates meaningfully different from each other: pick two distinct
 moves from {extend the current approach, remove/replace a weak part, large
