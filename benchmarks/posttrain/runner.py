@@ -129,6 +129,9 @@ def build_runtime_config(
     params = mode_cfg["search_strategy"]["params"]
     params.update(session_timeouts)
     if coding_model:
+        # Ensemble members/selector are pinned by the config on purpose:
+        # --coding-model (the harness $AGENT_CONFIG) labels and drives the
+        # implementation/feedback agents, not the ideation ensemble.
         params["idea_generation_model"] = coding_model
         params["implementation_model"] = coding_model
         for section in ("coding_agent", "feedback_generator"):

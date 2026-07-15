@@ -47,6 +47,25 @@ modes:
         # which is allowed (internet access is unrestricted in the benchmark).
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # Ensemble ideation: parallel CLI members + selector-critic. The codex
+        # member authenticates via the codex-auth-json secret (ChatGPT login
+        # file, shipped by run_startup.sh through the harness's auth.json
+        # mechanism) — NEVER via the harness's OPENAI_API_KEY, which on
+        # judge-scored tasks is reserved for evaluate.py. Members are pinned
+        # here and intentionally NOT overridden by --coding-model.
+        ideation_ensemble:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            effort: "xhigh"
+            lens: "data & distillation strategy first"
+          - cli: "claude_code"
+            model: "claude-fable-5"
+            effort: "xhigh"
+            lens: "training recipe & eval-format exploitation first"
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "xhigh"
 
     # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
     # kapso core): per-session deadlines scale with the run size so a fixed
