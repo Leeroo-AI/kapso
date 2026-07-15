@@ -1,0 +1,7 @@
+
+# Kapso experimentation engine
+sessions/*
+*.log
+!changes.log
+.kapso/run_state.json
+.kapso/.run_state.*.tmp

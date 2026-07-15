@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "gated-knowledge": {
+      "command": "/home/ubuntu/miniconda3/envs/kapso_conda/bin/python",
+      "args": [
+        "-m",
+        "kapso.gated_mcp.server"
+      ],
+      "cwd": "/home/ubuntu/kapso/.claude/worktrees/relbench",
+      "env": {
+        "PYTHONPATH": "/home/ubuntu/kapso/.claude/worktrees/relbench/src",
+        "MCP_ENABLED_GATES": "repo_memory",
+        "MCP_GATE_FAILURE_POLICY": "error",
+        "REPO_MEMORY_ROOT": "tmp/search_strategy_workspace/cdcaf1b3-9a19-4393-b2ad-82368233b8c3/sessions/experiment_1"
+      }
+    }
+  }
+}

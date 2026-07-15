@@ -1,0 +1,36 @@
+Joint calendar + driver-attendance forecasting for rel-f1/driver-circuit-compete.
+
+Implemented (replacing the earlier single-file heuristic):
+- calendar_forecast.py: season representations (per-year circuit sets, round-position
+  fractions, bounds, round counts); circuit-year presence features (8-season lags, streak,
+  years-since, exp-decayed frequency, last/median round fraction, round-position stability,
+  disappeared-and-returned flag); a shallow strongly-regularized LightGBM presence model
+  and a round-position regressor; a calendar blend P_cal = w1*learned + w2*recent-persistence
+  + w3*long-run recurrence.
+- driver_attendance.py: participation events; per-driver features at the seed (recency,
+  starts over 90/180/365/730d, prev-season first/last round, fraction of prev-season rounds,
+  constructor count, career starts, age, debut recency, prior gap, incumbent/rookie/returnee)
+  plus cohort features (recent-starts / recency ranks, incumbent & rookie counts); a LightGBM
+  round-attendance model P_attend(d, round) trained on historical cohorts.
+- scoring.py: score(d,c) = P_cal(c) * eff_attend(d, round_of(c)) + affinity + tie-break,
+  with attendance gated by incumbency (full-season incumbents rank purely by calendar
+  certainty; rookies/substitutes get round-shaped attendance). Leave-one-season-out
+  (out-of-fold) rolling-origin MAP@10 backtest with recent-window scoring, latest-season
+  upweighting, and mean+worst-season objective.
+- main.py: two-model pattern. Model A tunes on out-of-fold historical seasons ending <= val
+  cutoff -> out-of-sample val predictions; Model B tunes on all seasons ending <= test cutoff
+  (incl. val year) -> test predictions. Grid over decay/blend/affinity/gamma selected by the
+  OOF LOO backtest with a parsimony tie-break favouring less attendance modulation when the
+  honest metric can't distinguish (val-blind). Debug mode uses logistic/ridge models, fixed
+  weights, and the most recent 6 seasons.
+
+Key finding: 2005 (val) is an outlier calendar year (Turkey newly added, several nominally
+full-season drivers ran partial seasons) where round-attendance modulation backfires; in-sample
+backtest over-rewarded it. Switching to proper out-of-fold calibration (as the solution
+prescribes) removed the spurious gain and the honest selection converged on a calendar-dominant
+model. Removing LightGBM bagging on the tiny (~1.9k-row) presence data made runs deterministic.
+
+Results: val link_prediction_map@10 = 0.6964 (69.64 map_pct), up from 0.6938. Debug ~1.5s,
+full run ~50s. Deterministic (seed 13, random_state pinned, no bagging).
+
+RepoMemory sections consulted: none

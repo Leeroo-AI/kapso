@@ -1,0 +1,28 @@
+{
+  "dataset": "rel-f1",
+  "task": "driver-circuit-compete",
+  "family": "recommendation",
+  "primary_metric": "link_prediction_map",
+  "selected_by": "best validation link_prediction_map",
+  "run": "run_0002",
+  "val_metrics": {
+    "link_prediction_precision": 0.7222222222222222,
+    "link_prediction_recall": 0.48572384946653957,
+    "link_prediction_map": 0.6964043209876544
+  },
+  "test_metrics": {
+    "link_prediction_precision": 0.8814814814814814,
+    "link_prediction_recall": 0.5109254618026547,
+    "link_prediction_map": 0.8633509700176366
+  },
+  "audit": {
+    "clean": true,
+    "findings": [],
+    "note": "static scan; manually review flagged lines before publishing results"
+  },
+  "code_path": "/home/ubuntu/kapso/.claude/worktrees/relbench/tmp/relbench/rel-f1--driver-circuit-compete/runs/run_0002/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/.claude/worktrees/relbench/tmp/relbench/rel-f1--driver-circuit-compete/runs/run_0002/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/.claude/worktrees/relbench/tmp/relbench/rel-f1--driver-circuit-compete/runs/run_0002/test_predictions.npy"
+  }
+}

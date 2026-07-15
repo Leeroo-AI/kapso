@@ -1,0 +1,1502 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-15T11:41:47.864628+00:00",
+  "baseline": {
+    "initial_repo": null
+  },
+  "repo_map": {
+    "repo_root": ".",
+    "file_count": 31,
+    "files": [
+      ".claude_mcp/mcp_config.json",
+      ".gitignore",
+      "calendar_forecast.py",
+      "driver_attendance.py",
+      "kapso_datasets/CONTRACT.md",
+      "kapso_datasets/README.md",
+      "kapso_datasets/__init__.py",
+      "kapso_datasets/__pycache__/__init__.cpython-312.pyc",
+      "kapso_datasets/__pycache__/common.cpython-312.pyc",
+      "kapso_datasets/check_predictions.py",
+      "kapso_datasets/common.py",
+      "kapso_datasets/recommendation_heuristics.py",
+      "kapso_datasets/vendored_examples/__init__.py",
+      "kapso_datasets/vendored_examples/baseline_entity.py",
+      "kapso_datasets/vendored_examples/gnn_autocomplete.py",
+      "kapso_datasets/vendored_examples/gnn_entity.py",
+      "kapso_datasets/vendored_examples/gnn_recommendation.py",
+      "kapso_datasets/vendored_examples/idgnn_recommendation.py",
+      "kapso_datasets/vendored_examples/lightgbm_autocomplete.py",
+      "kapso_datasets/vendored_examples/lightgbm_entity.py",
+      "kapso_datasets/vendored_examples/lightgbm_recommendation.py",
+      "kapso_datasets/vendored_examples/model.py",
+      "kapso_datasets/vendored_examples/text_embedder.py",
+      "kapso_evaluation/.gitkeep",
+      "kapso_evaluation/evaluate.py",
+      "main.py",
+      "output_data_experiment_0/test_predictions.npy",
+      "output_data_experiment_0/val_predictions.npy",
+      "output_data_experiment_1/test_predictions.npy",
+      "output_data_experiment_1/val_predictions.npy",
+      "scoring.py"
+    ],
+    "languages_by_extension": {
+      ".py": 20,
+      ".npy": 4,
+      ".md": 2,
+      ".pyc": 2,
+      ".json": 1
+    },
+    "key_files": [],
+    "entrypoints": [
+      "main.py"
+    ]
+  },
+  "repo_model": {
+    "summary": "This repository implements a temporal RelBench Formula 1 driver-circuit recommendation system. It combines learned calendar presence and round-position forecasts with driver attendance, driver-circuit affinity, and deterministic tie-breaking; model selection uses leave-one-season-out rolling-origin MAP@10, and the pipeline writes validated validation and test predictions.",
+    "entrypoints": [
+      {
+        "path": "main.py",
+        "how_to_run": "Use `python main.py --debug` for the fixed-parameter debug run, or `python main.py` for full leave-one-season-out grid selection.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 148,
+            "description": "Determines debug mode from command-line handling."
+          },
+          {
+            "path": "main.py",
+            "line": 99,
+            "description": "Debug mode bypasses metadata selection."
+          }
+        ]
+      },
+      {
+        "path": "kapso_datasets/check_predictions.py",
+        "how_to_run": "Run `python kapso_datasets/check_predictions.py` after prediction files are written."
+      },
+      {
+        "path": "kapso_evaluation/evaluate.py",
+        "how_to_run": "Run `python kapso_evaluation/evaluate.py` for local validation metrics and SCORE reporting."
+      }
+    ],
+    "where_to_edit": [
+      {
+        "path": "main.py",
+        "role": "Dataset loading, model-A/model-B split flow, metadata grid selection, prediction validation, and output writing.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 186,
+            "description": "Defines the validation Model A flow."
+          },
+          {
+            "path": "main.py",
+            "line": 211,
+            "description": "Defines the test Model B flow."
+          }
+        ]
+      },
+      {
+        "path": "calendar_forecast.py",
+        "role": "Season representation, calendar feature engineering, presence modeling, round modeling, and calendar probability generation.",
+        "evidence": [
+          {
+            "path": "calendar_forecast.py",
+            "line": 38,
+            "description": "Season representation builder."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 193,
+            "description": "Calendar forecast entrypoint."
+          }
+        ]
+      },
+      {
+        "path": "driver_attendance.py",
+        "role": "Participation history, seed-time driver/cohort features, attendance training, and attendance prediction.",
+        "evidence": [
+          {
+            "path": "driver_attendance.py",
+            "line": 27,
+            "description": "Participation builder."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 194,
+            "description": "Attendance training builder."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 226,
+            "description": "Attendance prediction entrypoint."
+          }
+        ]
+      },
+      {
+        "path": "scoring.py",
+        "role": "Calendar-attendance-affinity ranking, deterministic tie-breaking, MAP@K, and leave-one-season-out evaluation.",
+        "evidence": [
+          {
+            "path": "scoring.py",
+            "line": 69,
+            "description": "Cohort ranking entrypoint."
+          },
+          {
+            "path": "scoring.py",
+            "line": 119,
+            "description": "MAP@K helper."
+          },
+          {
+            "path": "scoring.py",
+            "line": 129,
+            "description": "Rolling-origin evaluation entrypoint."
+          }
+        ]
+      }
+    ],
+    "claims": [
+      {
+        "kind": "architecture",
+        "statement": "main.py orchestrates the end-to-end pipeline: it loads the RelBench dataset/task and database tables, builds season, driver-participation, and driver-circuit structures, fits models, predicts validation and test splits, validates outputs, and saves predictions.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 151,
+            "description": "Loads the rel-f1 dataset and driver-circuit task."
+          },
+          {
+            "path": "main.py",
+            "line": 162,
+            "description": "Builds season representations."
+          },
+          {
+            "path": "main.py",
+            "line": 163,
+            "description": "Builds driver participation structures."
+          },
+          {
+            "path": "main.py",
+            "line": 236,
+            "description": "Validates both prediction splits."
+          },
+          {
+            "path": "main.py",
+            "line": 238,
+            "description": "Saves validation and test predictions."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "calendar_forecast.py represents each season with circuit membership, normalized round positions, date bounds, and round counts, then derives circuit-year lag, streak, recurrence, recency, round-position, and return-after-absence features.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "calendar_forecast.py",
+            "line": 38,
+            "description": "Builds season circuit, round-position, bounds, and round-count representations."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 80,
+            "description": "Builds circuit temporal features."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 117,
+            "description": "Assembles the calendar feature vector."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The calendar model trains a circuit presence classifier and an optional round-position regressor over rolling target years; debug mode uses logistic regression and ridge, while full mode uses regularized LightGBM models.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "calendar_forecast.py",
+            "line": 138,
+            "description": "Builds rolling-origin presence and round training matrices."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 157,
+            "description": "Selects logistic regression or LightGBM for presence."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 167,
+            "description": "Selects ridge or LightGBM for round prediction."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "driver_attendance.py constructs participation events and per-driver historical features, including recent starts, prior-season coverage, career and age information, and incumbent/rookie/returnee status, then augments them with cohort ranks and round interactions.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "driver_attendance.py",
+            "line": 27,
+            "description": "Builds participation events and driver-year structures."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 75,
+            "description": "Computes seed-time driver features."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 143,
+            "description": "Computes cohort-relative features."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 162,
+            "description": "Combines driver, cohort, and round features."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "scoring.py ranks each driver's circuits by combining calendar probability, round-specific attendance modulation, decayed driver-circuit affinity, and a global historical tie score; ranking is deterministic through a tiny circuit-ID adjustment.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "scoring.py",
+            "line": 74,
+            "description": "Generates calendar probabilities and round predictions."
+          },
+          {
+            "path": "scoring.py",
+            "line": 101,
+            "description": "Computes driver-circuit affinity."
+          },
+          {
+            "path": "scoring.py",
+            "line": 109,
+            "description": "Combines calendar, attendance, affinity, and tie components."
+          },
+          {
+            "path": "scoring.py",
+            "line": 114,
+            "description": "Applies deterministic score ordering."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "Full-mode parameter selection uses leave-one-season-out models and rolling-origin MAP scoring over a recent selection window, optimizing a weighted mean/worst-season objective with a parsimony term; debug mode bypasses the grid and uses DEFAULT_META.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 99,
+            "description": "Debug selection returns fixed DEFAULT_META and refitted models."
+          },
+          {
+            "path": "main.py",
+            "line": 102,
+            "description": "Restricts scoring to the recent selection window."
+          },
+          {
+            "path": "main.py",
+            "line": 106,
+            "description": "Iterates over the metadata grid."
+          },
+          {
+            "path": "main.py",
+            "line": 108,
+            "description": "Scores candidates with leave-one-out rolling-origin evaluation."
+          },
+          {
+            "path": "scoring.py",
+            "line": 129,
+            "description": "Implements the leave-one-season-out rolling-origin backtest."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The pipeline predicts K=10 distinct destination IDs from the NUM_DST=77 circuit range and validates integer dtype, row shape, uniqueness, and ID bounds before saving.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 32,
+            "description": "Sets K to 10."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 8,
+            "description": "Sets NUM_DST to 77."
+          },
+          {
+            "path": "main.py",
+            "line": 138,
+            "description": "Defines prediction validation."
+          },
+          {
+            "path": "main.py",
+            "line": 142,
+            "description": "Checks per-row uniqueness."
+          },
+          {
+            "path": "main.py",
+            "line": 143,
+            "description": "Checks destination ID range."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Validation and test predictions are generated in the input split's row order, validated, and both are saved on every completed run.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 123,
+            "description": "Defines split prediction generation."
+          },
+          {
+            "path": "main.py",
+            "line": 133,
+            "description": "Writes predictions by enumerating split rows."
+          },
+          {
+            "path": "main.py",
+            "line": 236,
+            "description": "Validates validation and test predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 238,
+            "description": "Saves both prediction arrays."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The internal ranking and model-selection metric is MAP@K, with the leave-one-season-out evaluator aggregating per-driver MAP values by weighted mean and worst-season score.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "scoring.py",
+            "line": 119,
+            "description": "Defines MAP@K for a ranked prediction and truth set."
+          },
+          {
+            "path": "scoring.py",
+            "line": 148,
+            "description": "Computes per-driver MAP values."
+          },
+          {
+            "path": "scoring.py",
+            "line": 160,
+            "description": "Computes weighted mean MAP."
+          },
+          {
+            "path": "scoring.py",
+            "line": 161,
+            "description": "Computes worst-season MAP."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Feature construction respects the prediction seed cutoff: driver events used for features are restricted to dates no later than seed_time.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "driver_attendance.py",
+            "line": 85,
+            "description": "Filters driver events at the seed timestamp."
+          },
+          {
+            "path": "scoring.py",
+            "line": 39,
+            "description": "Restricts affinity history to events at or before the seed."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Debug mode uses fixed metadata and simpler logistic/ridge models while still executing both split predictions, validation, and saving.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 99,
+            "description": "Uses DEFAULT_META in debug mode."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 158,
+            "description": "Uses logistic regression for debug presence models."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 170,
+            "description": "Uses ridge for debug round models."
+          },
+          {
+            "path": "main.py",
+            "line": 236,
+            "description": "Validates both outputs."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The checked-in experiment prediction arrays demonstrate the expected NumPy int64 shape of (27, 10) for both validation and test outputs.",
+        "confidence": 0.95,
+        "evidence": [
+          {
+            "path": "output_data_experiment_1/val_predictions.npy",
+            "line": 1,
+            "description": "Prediction header declares int64 shape (27, 10)."
+          },
+          {
+            "path": "output_data_experiment_1/test_predictions.npy",
+            "line": 1,
+            "description": "Prediction header declares int64 shape (27, 10)."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Full mode can be expensive because it constructs leave-one-season-out models and evaluates every metadata-grid candidate over a recent year window.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 103,
+            "description": "Builds leave-one-out models for each decay and score year."
+          },
+          {
+            "path": "main.py",
+            "line": 106,
+            "description": "Evaluates every metadata-grid candidate."
+          },
+          {
+            "path": "scoring.py",
+            "line": 129,
+            "description": "Defines the per-candidate rolling-origin evaluation."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The prediction validator requires exactly 27 rows for every split, so changing the task split size requires updating validate_preds.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 139,
+            "description": "Hard-codes the required row count to 27."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Unknown or pre-seed drivers receive default cold-start attendance features such as zero historical starts, age 25, and rookie status; their ranking is consequently driven largely by calendar, affinity, and tie components.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "driver_attendance.py",
+            "line": 79,
+            "description": "Defines defaults for unknown drivers."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 87,
+            "description": "Uses the same fallback when no event is before the seed."
+          },
+          {
+            "path": "scoring.py",
+            "line": 109,
+            "description": "Shows attendance is only one component of the final score."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "If no round model is available, calendar_forecast falls back to the historical median round fraction feature and clips round predictions to the [0, 1] interval.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "calendar_forecast.py",
+            "line": 207,
+            "description": "Handles a missing round model."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 209,
+            "description": "Uses median round fraction as the fallback."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 210,
+            "description": "Clips round predictions to [0, 1]."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The application requires RelBench dataset/task APIs and loads the rel-f1 dataset and driver-circuit-compete task with downloading disabled.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 11,
+            "description": "Imports RelBench dataset loading."
+          },
+          {
+            "path": "main.py",
+            "line": 12,
+            "description": "Imports RelBench task loading."
+          },
+          {
+            "path": "main.py",
+            "line": 151,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "main.py",
+            "line": 152,
+            "description": "Loads the task with download=False."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "NumPy and pandas provide numerical arrays, timestamps, and tabular transformations; scikit-learn supplies logistic regression and ridge models; LightGBM supplies full-mode presence, round, and attendance models.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "calendar_forecast.py",
+            "line": 3,
+            "description": "Imports NumPy."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 4,
+            "description": "Imports pandas."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 5,
+            "description": "Imports LightGBM."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 6,
+            "description": "Imports scikit-learn linear models."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 5,
+            "description": "Imports LightGBM for attendance modeling."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The pipeline uses a fixed random seed of 13 and pins model random_state and single-threaded execution in its LightGBM configurations for deterministic behavior.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 29,
+            "description": "Defines the global seed."
+          },
+          {
+            "path": "main.py",
+            "line": 30,
+            "description": "Seeds NumPy."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 19,
+            "description": "Pins calendar model random_state."
+          },
+          {
+            "path": "calendar_forecast.py",
+            "line": 20,
+            "description": "Pins calendar model n_jobs to 1."
+          },
+          {
+            "path": "driver_attendance.py",
+            "line": 20,
+            "description": "Pins attendance model random_state."
+          }
+        ]
+      }
+    ]
+  },
+  "book": {
+    "summary": "This repository implements a temporal RelBench Formula 1 driver-circuit recommendation system. It combines learned calendar presence and round-position forecasts with driver attendance, driver-circuit affinity, and deterministic tie-breaking; model selection uses leave-one-season-out rolling-origin MAP@10, and the pipeline writes validated validation and test predictions.",
+    "toc": [
+      {
+        "id": "core.architecture",
+        "title": "Architecture",
+        "one_liner": "Historical race data is transformed into calendar and driver-attendance features, modeled separately, combined into cohort-specific circuit rankings, and persisted as task predictions."
+      },
+      {
+        "id": "core.entrypoints",
+        "title": "Entrypoints",
+        "one_liner": "Run the root pipeline in debug or full model-selection mode."
+      },
+      {
+        "id": "core.where_to_edit",
+        "title": "Where to edit",
+        "one_liner": "Change orchestration in main.py, feature/model construction in calendar_forecast.py or driver_attendance.py, and ranking or evaluation logic in scoring.py."
+      },
+      {
+        "id": "core.invariants",
+        "title": "Invariants",
+        "one_liner": "Predictions are integer ranked circuit IDs with fixed width, valid destination range, unique row entries, and split-order alignment."
+      },
+      {
+        "id": "core.testing",
+        "title": "Testing",
+        "one_liner": "Use debug mode for a fast deterministic pipeline check, then validate prediction files and run local evaluation."
+      },
+      {
+        "id": "core.gotchas",
+        "title": "Gotchas",
+        "one_liner": "Model selection is substantially more expensive than debug mode, the validation shape is hard-coded, and cold-start drivers rely on fallback features."
+      },
+      {
+        "id": "core.dependencies",
+        "title": "Dependencies",
+        "one_liner": "Runtime dependencies include RelBench, NumPy, pandas, scikit-learn, and LightGBM."
+      }
+    ],
+    "sections": {
+      "core.architecture": {
+        "title": "Architecture",
+        "one_liner": "Historical race data is transformed into calendar and driver-attendance features, modeled separately, combined into cohort-specific circuit rankings, and persisted as task predictions.",
+        "claims": [
+          {
+            "kind": "architecture",
+            "statement": "main.py orchestrates the end-to-end pipeline: it loads the RelBench dataset/task and database tables, builds season, driver-participation, and driver-circuit structures, fits models, predicts validation and test splits, validates outputs, and saves predictions.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 151,
+                "description": "Loads the rel-f1 dataset and driver-circuit task."
+              },
+              {
+                "path": "main.py",
+                "line": 162,
+                "description": "Builds season representations."
+              },
+              {
+                "path": "main.py",
+                "line": 163,
+                "description": "Builds driver participation structures."
+              },
+              {
+                "path": "main.py",
+                "line": 236,
+                "description": "Validates both prediction splits."
+              },
+              {
+                "path": "main.py",
+                "line": 238,
+                "description": "Saves validation and test predictions."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "calendar_forecast.py represents each season with circuit membership, normalized round positions, date bounds, and round counts, then derives circuit-year lag, streak, recurrence, recency, round-position, and return-after-absence features.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "calendar_forecast.py",
+                "line": 38,
+                "description": "Builds season circuit, round-position, bounds, and round-count representations."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 80,
+                "description": "Builds circuit temporal features."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 117,
+                "description": "Assembles the calendar feature vector."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The calendar model trains a circuit presence classifier and an optional round-position regressor over rolling target years; debug mode uses logistic regression and ridge, while full mode uses regularized LightGBM models.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "calendar_forecast.py",
+                "line": 138,
+                "description": "Builds rolling-origin presence and round training matrices."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 157,
+                "description": "Selects logistic regression or LightGBM for presence."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 167,
+                "description": "Selects ridge or LightGBM for round prediction."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "driver_attendance.py constructs participation events and per-driver historical features, including recent starts, prior-season coverage, career and age information, and incumbent/rookie/returnee status, then augments them with cohort ranks and round interactions.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "driver_attendance.py",
+                "line": 27,
+                "description": "Builds participation events and driver-year structures."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 75,
+                "description": "Computes seed-time driver features."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 143,
+                "description": "Computes cohort-relative features."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 162,
+                "description": "Combines driver, cohort, and round features."
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "scoring.py ranks each driver's circuits by combining calendar probability, round-specific attendance modulation, decayed driver-circuit affinity, and a global historical tie score; ranking is deterministic through a tiny circuit-ID adjustment.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "scoring.py",
+                "line": 74,
+                "description": "Generates calendar probabilities and round predictions."
+              },
+              {
+                "path": "scoring.py",
+                "line": 101,
+                "description": "Computes driver-circuit affinity."
+              },
+              {
+                "path": "scoring.py",
+                "line": 109,
+                "description": "Combines calendar, attendance, affinity, and tie components."
+              },
+              {
+                "path": "scoring.py",
+                "line": 114,
+                "description": "Applies deterministic score ordering."
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "Full-mode parameter selection uses leave-one-season-out models and rolling-origin MAP scoring over a recent selection window, optimizing a weighted mean/worst-season objective with a parsimony term; debug mode bypasses the grid and uses DEFAULT_META.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 99,
+                "description": "Debug selection returns fixed DEFAULT_META and refitted models."
+              },
+              {
+                "path": "main.py",
+                "line": 102,
+                "description": "Restricts scoring to the recent selection window."
+              },
+              {
+                "path": "main.py",
+                "line": 106,
+                "description": "Iterates over the metadata grid."
+              },
+              {
+                "path": "main.py",
+                "line": 108,
+                "description": "Scores candidates with leave-one-out rolling-origin evaluation."
+              },
+              {
+                "path": "scoring.py",
+                "line": 129,
+                "description": "Implements the leave-one-season-out rolling-origin backtest."
+              }
+            ]
+          }
+        ]
+      },
+      "core.entrypoints": {
+        "title": "Entrypoints",
+        "one_liner": "Run the root pipeline in debug or full model-selection mode.",
+        "content": [
+          {
+            "path": "main.py",
+            "how_to_run": "Use `python main.py --debug` for the fixed-parameter debug run, or `python main.py` for full leave-one-season-out grid selection.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 148,
+                "description": "Determines debug mode from command-line handling."
+              },
+              {
+                "path": "main.py",
+                "line": 99,
+                "description": "Debug mode bypasses metadata selection."
+              }
+            ]
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "how_to_run": "Run `python kapso_datasets/check_predictions.py` after prediction files are written."
+          },
+          {
+            "path": "kapso_evaluation/evaluate.py",
+            "how_to_run": "Run `python kapso_evaluation/evaluate.py` for local validation metrics and SCORE reporting."
+          }
+        ]
+      },
+      "core.where_to_edit": {
+        "title": "Where to edit",
+        "one_liner": "Change orchestration in main.py, feature/model construction in calendar_forecast.py or driver_attendance.py, and ranking or evaluation logic in scoring.py.",
+        "content": [
+          {
+            "path": "main.py",
+            "role": "Dataset loading, model-A/model-B split flow, metadata grid selection, prediction validation, and output writing.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 186,
+                "description": "Defines the validation Model A flow."
+              },
+              {
+                "path": "main.py",
+                "line": 211,
+                "description": "Defines the test Model B flow."
+              }
+            ]
+          },
+          {
+            "path": "calendar_forecast.py",
+            "role": "Season representation, calendar feature engineering, presence modeling, round modeling, and calendar probability generation.",
+            "evidence": [
+              {
+                "path": "calendar_forecast.py",
+                "line": 38,
+                "description": "Season representation builder."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 193,
+                "description": "Calendar forecast entrypoint."
+              }
+            ]
+          },
+          {
+            "path": "driver_attendance.py",
+            "role": "Participation history, seed-time driver/cohort features, attendance training, and attendance prediction.",
+            "evidence": [
+              {
+                "path": "driver_attendance.py",
+                "line": 27,
+                "description": "Participation builder."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 194,
+                "description": "Attendance training builder."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 226,
+                "description": "Attendance prediction entrypoint."
+              }
+            ]
+          },
+          {
+            "path": "scoring.py",
+            "role": "Calendar-attendance-affinity ranking, deterministic tie-breaking, MAP@K, and leave-one-season-out evaluation.",
+            "evidence": [
+              {
+                "path": "scoring.py",
+                "line": 69,
+                "description": "Cohort ranking entrypoint."
+              },
+              {
+                "path": "scoring.py",
+                "line": 119,
+                "description": "MAP@K helper."
+              },
+              {
+                "path": "scoring.py",
+                "line": 129,
+                "description": "Rolling-origin evaluation entrypoint."
+              }
+            ]
+          }
+        ]
+      },
+      "core.invariants": {
+        "title": "Invariants",
+        "one_liner": "Predictions are integer ranked circuit IDs with fixed width, valid destination range, unique row entries, and split-order alignment.",
+        "claims": [
+          {
+            "kind": "contract",
+            "statement": "The pipeline predicts K=10 distinct destination IDs from the NUM_DST=77 circuit range and validates integer dtype, row shape, uniqueness, and ID bounds before saving.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 32,
+                "description": "Sets K to 10."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 8,
+                "description": "Sets NUM_DST to 77."
+              },
+              {
+                "path": "main.py",
+                "line": 138,
+                "description": "Defines prediction validation."
+              },
+              {
+                "path": "main.py",
+                "line": 142,
+                "description": "Checks per-row uniqueness."
+              },
+              {
+                "path": "main.py",
+                "line": 143,
+                "description": "Checks destination ID range."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Validation and test predictions are generated in the input split's row order, validated, and both are saved on every completed run.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 123,
+                "description": "Defines split prediction generation."
+              },
+              {
+                "path": "main.py",
+                "line": 133,
+                "description": "Writes predictions by enumerating split rows."
+              },
+              {
+                "path": "main.py",
+                "line": 236,
+                "description": "Validates validation and test predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 238,
+                "description": "Saves both prediction arrays."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The internal ranking and model-selection metric is MAP@K, with the leave-one-season-out evaluator aggregating per-driver MAP values by weighted mean and worst-season score.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "scoring.py",
+                "line": 119,
+                "description": "Defines MAP@K for a ranked prediction and truth set."
+              },
+              {
+                "path": "scoring.py",
+                "line": 148,
+                "description": "Computes per-driver MAP values."
+              },
+              {
+                "path": "scoring.py",
+                "line": 160,
+                "description": "Computes weighted mean MAP."
+              },
+              {
+                "path": "scoring.py",
+                "line": 161,
+                "description": "Computes worst-season MAP."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Feature construction respects the prediction seed cutoff: driver events used for features are restricted to dates no later than seed_time.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "driver_attendance.py",
+                "line": 85,
+                "description": "Filters driver events at the seed timestamp."
+              },
+              {
+                "path": "scoring.py",
+                "line": 39,
+                "description": "Restricts affinity history to events at or before the seed."
+              }
+            ]
+          }
+        ]
+      },
+      "core.testing": {
+        "title": "Testing",
+        "one_liner": "Use debug mode for a fast deterministic pipeline check, then validate prediction files and run local evaluation.",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "Debug mode uses fixed metadata and simpler logistic/ridge models while still executing both split predictions, validation, and saving.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 99,
+                "description": "Uses DEFAULT_META in debug mode."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 158,
+                "description": "Uses logistic regression for debug presence models."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 170,
+                "description": "Uses ridge for debug round models."
+              },
+              {
+                "path": "main.py",
+                "line": 236,
+                "description": "Validates both outputs."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The checked-in experiment prediction arrays demonstrate the expected NumPy int64 shape of (27, 10) for both validation and test outputs.",
+            "confidence": 0.95,
+            "evidence": [
+              {
+                "path": "output_data_experiment_1/val_predictions.npy",
+                "line": 1,
+                "description": "Prediction header declares int64 shape (27, 10)."
+              },
+              {
+                "path": "output_data_experiment_1/test_predictions.npy",
+                "line": 1,
+                "description": "Prediction header declares int64 shape (27, 10)."
+              }
+            ]
+          }
+        ]
+      },
+      "core.gotchas": {
+        "title": "Gotchas",
+        "one_liner": "Model selection is substantially more expensive than debug mode, the validation shape is hard-coded, and cold-start drivers rely on fallback features.",
+        "claims": [
+          {
+            "kind": "other",
+            "statement": "Full mode can be expensive because it constructs leave-one-season-out models and evaluates every metadata-grid candidate over a recent year window.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 103,
+                "description": "Builds leave-one-out models for each decay and score year."
+              },
+              {
+                "path": "main.py",
+                "line": 106,
+                "description": "Evaluates every metadata-grid candidate."
+              },
+              {
+                "path": "scoring.py",
+                "line": 129,
+                "description": "Defines the per-candidate rolling-origin evaluation."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The prediction validator requires exactly 27 rows for every split, so changing the task split size requires updating validate_preds.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 139,
+                "description": "Hard-codes the required row count to 27."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Unknown or pre-seed drivers receive default cold-start attendance features such as zero historical starts, age 25, and rookie status; their ranking is consequently driven largely by calendar, affinity, and tie components.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "driver_attendance.py",
+                "line": 79,
+                "description": "Defines defaults for unknown drivers."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 87,
+                "description": "Uses the same fallback when no event is before the seed."
+              },
+              {
+                "path": "scoring.py",
+                "line": 109,
+                "description": "Shows attendance is only one component of the final score."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "If no round model is available, calendar_forecast falls back to the historical median round fraction feature and clips round predictions to the [0, 1] interval.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "calendar_forecast.py",
+                "line": 207,
+                "description": "Handles a missing round model."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 209,
+                "description": "Uses median round fraction as the fallback."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 210,
+                "description": "Clips round predictions to [0, 1]."
+              }
+            ]
+          }
+        ]
+      },
+      "core.dependencies": {
+        "title": "Dependencies",
+        "one_liner": "Runtime dependencies include RelBench, NumPy, pandas, scikit-learn, and LightGBM.",
+        "claims": [
+          {
+            "kind": "deployment",
+            "statement": "The application requires RelBench dataset/task APIs and loads the rel-f1 dataset and driver-circuit-compete task with downloading disabled.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 11,
+                "description": "Imports RelBench dataset loading."
+              },
+              {
+                "path": "main.py",
+                "line": 12,
+                "description": "Imports RelBench task loading."
+              },
+              {
+                "path": "main.py",
+                "line": 151,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "main.py",
+                "line": 152,
+                "description": "Loads the task with download=False."
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "NumPy and pandas provide numerical arrays, timestamps, and tabular transformations; scikit-learn supplies logistic regression and ridge models; LightGBM supplies full-mode presence, round, and attendance models.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "calendar_forecast.py",
+                "line": 3,
+                "description": "Imports NumPy."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 4,
+                "description": "Imports pandas."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 5,
+                "description": "Imports LightGBM."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 6,
+                "description": "Imports scikit-learn linear models."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 5,
+                "description": "Imports LightGBM for attendance modeling."
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "The pipeline uses a fixed random seed of 13 and pins model random_state and single-threaded execution in its LightGBM configurations for deterministic behavior.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 29,
+                "description": "Defines the global seed."
+              },
+              {
+                "path": "main.py",
+                "line": 30,
+                "description": "Seeds NumPy."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 19,
+                "description": "Pins calendar model random_state."
+              },
+              {
+                "path": "calendar_forecast.py",
+                "line": 20,
+                "description": "Pins calendar model n_jobs to 1."
+              },
+              {
+                "path": "driver_attendance.py",
+                "line": 20,
+                "description": "Pins attendance model random_state."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "experiments": [
+    {
+      "recorded_at": "2026-07-15T11:03:44.748681+00:00",
+      "branch": "experiment_0",
+      "parent_branch": "main",
+      "base_commit": "7f728df31dd944942e9f76f1c24e5d8c048db83b",
+      "head_commit": "f3235bb21707e4b92de44d9468a4123bdd801008",
+      "code_head_commit": "f3235bb21707e4b92de44d9468a4123bdd801008",
+      "solution_spec": "\n# Core Idea: Season-calendar forecasting with driver-specific participation spans\n\nThe target is largely determined by the next Formula 1 calendar. Forecast which circuits will appear in the next season, then adjust their ranking for drivers likely to enter late, leave early, or participate only sporadically. Select all parameters through historical rolling-origin backtests, never from the validation labels used for `val_predictions.npy`.\n\n# Body:\n\n1. **Load data and preserve row order**\n   - Use only:\n     ```python\n     dataset = get_dataset(\"rel-f1\", download=False)\n     task = get_task(\"rel-f1\", \"driver-circuit-compete\", download=False)\n     db = dataset.get_db()\n     train = task.get_table(\"train\").df\n     val = task.get_table(\"val\").df\n     test = task.get_table(\"test\").df\n     ```\n   - Read `races`, `results`, and `standings`.\n   - Record the original index/order of every validation and test row.\n   - Assert that circuit IDs are integers in `[0, 77)`.\n\n2. **Construct historical season representations**\n   - For every year, create:\n     - Ordered circuit sequence by race date and round.\n     - Binary vector of circuits present that season.\n     - Number of races held at each circuit.\n     - Opening and closing round/date.\n   - For every driver-season, create:\n     - Circuits competed on.\n     - First and last round.\n     - Number and fraction of calendar rounds entered.\n     - Constructor at the most recent race.\n     - Starts in the final 3, 5, and 10 races.\n     - Whether the driver appeared in the immediately preceding season.\n\n3. **Calendar persistence score**\n   - At seed time `t`, use races only with `date <= t`.\n   - For each circuit `c`, calculate:\n     - Presence in the latest completed season.\n     - Presence in each of the previous 2–5 seasons.\n     - Exponentially decayed season count.\n     - Years since last appearance.\n     - Consecutive-season streak.\n     - Whether it appeared in the last 3 races.\n     - Typical annual round position.\n     - Long-run recurrence rate.\n   - Use a calendar score such as:\n     ```text\n     calendar(c) =\n         w1 * I[present last season]\n       + w2 * I[present two seasons ago]\n       + w3 * exp-decayed appearances\n       + w4 * consecutive-season streak\n       - w5 * years-since-last-appearance\n     ```\n   - Include an interaction giving especially high weight to circuits present in both of the last two seasons.\n\n4. **Driver participation score**\n   - Estimate whether each driver will compete through the whole coming season:\n     - Recent driver activity: starts in last 90, 180, and 365 days.\n     - Number of starts in the latest season.\n     - Recency of last result and last standing.\n     - Whether the driver ended the latest season active.\n     - Historical fraction of the season completed.\n   - For a driver with recent starts, assign higher probability to the standard calendar.\n   - For sporadic or mid-season drivers, favor circuits whose expected round position overlaps the driver’s historically predicted active span.\n   - Estimate first and last expected round using empirical transition tables conditioned on:\n     - Starts in the latest season.\n     - Last observed round.\n     - Previous-season participation fraction.\n     - Rookie/returning status.\n   - Back off to the global calendar score for drivers with no useful history.\n\n5. **Rolling-origin parameter selection**\n   - Build synthetic January 1 seed tasks for historical target seasons.\n   - For validation model A, only use target windows whose full one-year label interval ends on or before the validation seed time.\n   - Derive labels from `races` joined to `results` exactly as in `make_table`.\n   - Grid-search approximately 100 cheap combinations over:\n     - Calendar decay: `{0.55, 0.7, 0.82, 0.9}`.\n     - Last-season weight.\n     - Two-season persistence bonus.\n     - Driver-specific weight: `{0, 0.05, 0.1, 0.2, 0.3}`.\n     - Active-span penalty.\n   - Optimize mean rolling-origin MAP@10, with the latest 4 historical seasons weighted 2–4 times more heavily.\n   - Do not inspect or use official validation labels for this selection.\n\n6. **Generate validation predictions**\n   - For each validation row at time `t`, compute:\n     ```text\n     score(driver, circuit) =\n         calendar_score(circuit, t)\n       + driver_weight * driver_circuit_history(driver, circuit, t)\n       + span_weight * expected_round_overlap(driver, circuit, t)\n     ```\n   - `driver_circuit_history` includes decayed counts and recency but has a capped contribution so that calendar persistence dominates.\n   - Rank all 77 circuits and emit the first 10 distinct IDs.\n   - This predictor has seen only historical windows ending no later than the validation cutoff.\n\n7. **Generate test predictions**\n   - Re-run rolling-origin selection with all legally available windows whose label horizon ends on or before the test cutoff.\n   - Official validation rows and labels may now be included.\n   - Add 2006–2009 synthetic annual windows derived from the database.\n   - Weight 2007–2009 most strongly because calendar persistence is nonstationary.\n   - At the test seed time, use all database events with `date <= test seed time`.\n   - Rank and emit 10 circuits for every test row.\n\n8. **Robustness ensemble within the heuristic**\n   - Compute three deterministic rankings:\n     - Latest-season calendar.\n     - Two-season persistence.\n     - Five-season exponentially decayed recurrence.\n   - Combine normalized ranks using weights chosen only by legal historical rolling backtests.\n   - Apply the driver-specific adjustment after calendar rank aggregation.\n\n9. **Output validation**\n   - Assert:\n     ```python\n     val_pred.shape == (27, 10)\n     test_pred.shape == (27, 10)\n     np.issubdtype(val_pred.dtype, np.integer)\n     ```\n   - Assert every row contains 10 distinct IDs in `[0, 77)`.\n   - Save using `np.save` to `KAPSO_RUN_DATA_DIR`.\n   - In debug mode, skip grid search and use fixed weights, while still producing both full prediction arrays.\n\n# Runtime expectation:\n20–60 seconds in debug mode and 2–5 minutes in full mode.\n",
+      "changed_files": [
+        ".claude_mcp/mcp_config.json",
+        "__pycache__/season_forecast.cpython-312.pyc",
+        "changes.log",
+        "kapso_datasets/__pycache__/__init__.cpython-312.pyc",
+        "kapso_datasets/__pycache__/common.cpython-312.pyc",
+        "kapso_evaluation/evaluate.py",
+        "main.py",
+        "output_data_experiment_0/test_predictions.npy",
+        "output_data_experiment_0/val_predictions.npy",
+        "season_forecast.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "1",
+          "deleted": "1",
+          "path": ".claude_mcp/mcp_config.json"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "__pycache__/season_forecast.cpython-312.pyc"
+        },
+        {
+          "added": "18",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "kapso_datasets/__pycache__/__init__.cpython-312.pyc"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "kapso_datasets/__pycache__/common.cpython-312.pyc"
+        },
+        {
+          "added": "80",
+          "deleted": "0",
+          "path": "kapso_evaluation/evaluate.py"
+        },
+        {
+          "added": "149",
+          "deleted": "1",
+          "path": "main.py"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "output_data_experiment_0/test_predictions.npy"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "output_data_experiment_0/val_predictions.npy"
+        },
+        {
+          "added": "210",
+          "deleted": "0",
+          "path": "season_forecast.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": []
+      }
+    },
+    {
+      "recorded_at": "2026-07-15T11:41:47.877968+00:00",
+      "branch": "experiment_1",
+      "parent_branch": "experiment_0",
+      "base_commit": "7ddc3ac33517b331acaffcee428f0add4b4f394e",
+      "head_commit": "beaf477873a52a63d56c37a04f5517846a705294",
+      "code_head_commit": "beaf477873a52a63d56c37a04f5517846a705294",
+      "solution_spec": "\n# Core Idea: Jointly forecast the next calendar and each seeded driver’s race-by-race participation\n\nTreat the target as two coupled problems: determine which circuits will be on the upcoming Formula 1 calendar and estimate the rounds during which each driver will have a seat. Use the complete set of seeded drivers as legal transductive information: every listed driver is known to participate at least once during the forecast horizon.\n\n# Body:\n\n1. **Load and validate data**\n   - Load the dataset, task splits, and database only through the prescribed RelBench API with `download=False`.\n   - Preserve validation and test row order exactly.\n   - Build chronologically ordered race seasons from `races`.\n   - Join `results` to `races` to obtain `(date, year, round, circuitId, driverId, constructorId)` participation events.\n\n2. **Build legal rolling-origin training cases**\n   - Create historical January 1 prediction cases for all years with a complete following season.\n   - For model A, retain only cases whose entire 365-day target interval ends on or before the validation timestamp.\n   - For model B, retain all cases whose target interval ends on or before the test cutoff, including the official validation examples.\n   - Reconstruct each historical seed cohort as the distinct drivers who compete in the following 365 days. This mirrors the information contained in the validation/test source rows without exposing future circuits.\n\n3. **Forecast the upcoming calendar as circuit-round probabilities**\n   - For every circuit and future round position, calculate:\n     - Presence in each of the previous 1–8 seasons.\n     - Consecutive appearance streak.\n     - Years since last appearance.\n     - Exponentially decayed appearance frequency.\n     - Last observed round and median round over recent seasons.\n     - Round-position stability.\n     - Whether the circuit disappeared and later returned historically.\n     - Country and geographic redundancy with other likely circuits.\n   - Fit two small calibrated models using historical rolling origins:\n     - A binary circuit-presence model.\n     - A conditional round-position model for circuits predicted present.\n   - Use LightGBM or CatBoost with shallow trees and strong regularization because there are few seasons.\n   - Blend model probabilities with an explicit persistence prior:\n     ```text\n     P_calendar(c) =\n         0.55 * learned_presence_probability\n       + 0.30 * recent-season persistence\n       + 0.15 * long-run recurrence\n     ```\n   - Generate an expected ordered calendar by assigning likely circuits to rounds with maximum-weight bipartite matching, using predicted presence and round-position probabilities.\n\n4. **Infer driver status from the full seed cohort**\n   - For each seeded driver, compute features at the seed time:\n     - Days since last start, qualifying appearance, and standing.\n     - Starts in the previous 90, 180, 365, and 730 days.\n     - Previous-season first and last rounds.\n     - Fraction of previous-season rounds entered.\n     - Number of constructors represented recently.\n     - Career starts, age, debut recency, and prior gaps between seasons.\n     - Last constructor and whether multiple seeded drivers share that constructor.\n   - Add cohort-level features:\n     - Number of incumbent drivers with very recent starts.\n     - Number of rookies or returnees.\n     - Drivers per last-known constructor.\n     - Rank among seeded drivers by recent starts and recency.\n   - The cohort features distinguish likely full-season incumbents from reserve drivers and mid-season substitutes better than independent driver scoring.\n\n5. **Learn race-round attendance probabilities**\n   - On historical cohorts, label every `(driver, future_round)` pair according to whether the driver competed in that round.\n   - Fit a compact gradient-boosted binary model or regularized logistic model with:\n     - Driver and cohort features.\n     - Future round index and normalized round position.\n     - Interactions between round and incumbent/rookie/returning status.\n     - Historical first-round and last-round transition statistics.\n   - Use grouped rolling-origin out-of-fold predictions for calibration.\n   - Apply isotonic or Platt calibration fitted only on legal historical out-of-fold predictions.\n\n6. **Convert calendar and attendance forecasts to circuit relevance**\n   - For every driver and circuit, compute:\n     ```text\n     score(d, c) =\n         sum_r P_calendar(c at round r) * P_attend(d, r)\n       + 0.08 * driver_historical_affinity(d, c)\n       + 0.03 * circuit_global_tie_break(c)\n     ```\n   - Cap driver-circuit affinity so it cannot override strong calendar evidence.\n   - For full-season incumbents, rank mainly by calendar certainty.\n   - For rookies and long-absence returnees, favor early rounds.\n   - For drivers classified as likely substitutes, favor rounds with the highest learned substitution hazard.\n\n7. **Tune only through historical rolling backtests**\n   - Optimize MAP@10 across historical target seasons.\n   - Weight the latest four legal seasons approximately `1, 1.5, 2, 3`.\n   - Search:\n     - Calendar persistence/model blend.\n     - Number of expected calendar rounds.\n     - Attendance-model regularization.\n     - Cohort-feature strength.\n     - Driver-affinity cap.\n   - Choose robust parameters by leave-one-season-out mean MAP and worst-season MAP, not a single season.\n   - Do not use official validation labels to fit or select model A.\n\n8. **Train the two required models**\n   - Model A uses only historical cases ending by the validation seed time and produces `val_predictions.npy`.\n   - Model B uses all legally available history plus validation labels and produces `test_predictions.npy`.\n   - Refit the same selected architecture rather than retuning against hidden test behavior.\n\n9. **Debug and output**\n   - Debug mode uses fixed blend weights, a logistic attendance model, and at most the most recent six historical seasons.\n   - Full mode performs the rolling-origin search and shallow boosted fitting.\n   - Assert shape `(27, 10)`, integer dtype, ten unique circuit IDs per row, and values in `[0, 77)`.\n   - Save both arrays with `np.save` in `KAPSO_RUN_DATA_DIR`.\n\n# Runtime expectation:\nDebug: 20–60 seconds. Full: 3–10 minutes.\n",
+      "changed_files": [
+        ".claude_mcp/mcp_config.json",
+        "__pycache__/calendar_forecast.cpython-312.pyc",
+        "__pycache__/driver_attendance.cpython-312.pyc",
+        "__pycache__/main.cpython-312.pyc",
+        "__pycache__/scoring.cpython-312.pyc",
+        "calendar_forecast.py",
+        "changes.log",
+        "driver_attendance.py",
+        "kapso_datasets/__pycache__/__init__.cpython-312.pyc",
+        "kapso_datasets/__pycache__/common.cpython-312.pyc",
+        "main.py",
+        "output_data_experiment_1/test_predictions.npy",
+        "output_data_experiment_1/val_predictions.npy",
+        "scoring.py",
+        "season_forecast.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "1",
+          "deleted": "1",
+          "path": ".claude_mcp/mcp_config.json"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "__pycache__/calendar_forecast.cpython-312.pyc"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "__pycache__/driver_attendance.cpython-312.pyc"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "__pycache__/main.cpython-312.pyc"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "__pycache__/scoring.cpython-312.pyc"
+        },
+        {
+          "added": "211",
+          "deleted": "0",
+          "path": "calendar_forecast.py"
+        },
+        {
+          "added": "32",
+          "deleted": "14",
+          "path": "changes.log"
+        },
+        {
+          "added": "228",
+          "deleted": "0",
+          "path": "driver_attendance.py"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "kapso_datasets/__pycache__/__init__.cpython-312.pyc"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "kapso_datasets/__pycache__/common.cpython-312.pyc"
+        },
+        {
+          "added": "174",
+          "deleted": "85",
+          "path": "main.py"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "output_data_experiment_1/test_predictions.npy"
+        },
+        {
+          "added": "-",
+          "deleted": "-",
+          "path": "output_data_experiment_1/val_predictions.npy"
+        },
+        {
+          "added": "162",
+          "deleted": "0",
+          "path": "scoring.py"
+        },
+        {
+          "added": "0",
+          "deleted": "210",
+          "path": "season_forecast.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": []
+      }
+    }
+  ],
+  "quality": {
+    "evidence_ok": true,
+    "missing_evidence": [],
+    "section_count": 7,
+    "claim_count": 19
+  }
+}
