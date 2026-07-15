@@ -43,6 +43,8 @@ from kapso.execution.evaluation_maintainer.maintainer import (
 )
 import shlex
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from kapso.execution.search_strategies.generic import codex_ideation
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
 
@@ -60,6 +62,49 @@ PARENT_POLICIES = frozenset({"best", "baseline"})
 # A deadline-killed ideation whose streamed text is shorter than this holds
 # no consumable plan; the explicit fallback is more honest than salvage.
 MIN_IDEATION_SALVAGE_CHARS = 200
+
+# Ensemble ideation: members run in parallel, so the member share is
+# wall-clock for the whole fan-out; the selector gets the remainder with a
+# floor below which a read-verify-choose session cannot do useful work.
+ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
+ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
+ENSEMBLE_SELECTOR_MIN_SECONDS = 240
+ENSEMBLE_CANDIDATES_PER_MEMBER = 2
+
+ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex"})
+_ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
+
+
+def normalize_ensemble_member(value: Any, role: str) -> Dict[str, str]:
+    """Validate one ideation-ensemble member (or selector) config entry."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{role} must be a mapping, got {type(value).__name__}")
+    unknown = sorted(set(value) - _ENSEMBLE_MEMBER_KEYS)
+    if unknown:
+        raise ValueError(f"{role} has unknown keys: {', '.join(unknown)}")
+    cli = value.get("cli")
+    if cli not in ENSEMBLE_MEMBER_CLIS:
+        allowed = ", ".join(sorted(ENSEMBLE_MEMBER_CLIS))
+        raise ValueError(f"{role}.cli must be one of: {allowed}")
+    model = value.get("model")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError(f"{role}.model must be a non-empty string")
+    return dict(value)
+
+
+def normalize_ideation_ensemble(value: Any) -> Optional[List[Dict[str, str]]]:
+    """Validate the ideation_ensemble param (None keeps single-session mode)."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or not value:
+        raise ValueError(
+            "ideation_ensemble must be a non-empty list of member mappings "
+            "(omit it entirely for single-session ideation)"
+        )
+    return [
+        normalize_ensemble_member(member, role=f"ideation_ensemble[{i}]")
+        for i, member in enumerate(value)
+    ]
 
 # Byte-identical to the pre-maintainer template text: rendered whenever no
 # maintainer-registered evaluation exists, keeping default prompts unchanged.
@@ -125,6 +170,11 @@ class GenericSearch(SearchStrategy):
           (default: warn)
         - effort: Optional reasoning effort for both agent sessions
           (low|medium|high|xhigh); None keeps the CLI default
+        - ideation_ensemble: Optional list of parallel ideation members,
+          each {cli: claude_code|codex, model, effort?, lens?}; omit for
+          single-session ideation (default)
+        - ideation_selector: Required with ideation_ensemble — the
+          selector-critic session {cli: claude_code, model, effort?}
         - parent_policy: Parent branch selection: best or baseline (default: best).
           Under `best`, before any validly evaluated node exists, the latest
           committed non-error, non-tampered node is used so in-progress work
@@ -158,6 +208,25 @@ class GenericSearch(SearchStrategy):
         # Optional reasoning-effort for BOTH agent sessions (ideation and
         # implementation); None keeps the CLI's default.
         self.session_effort = self.params.get("effort")
+        # Optional ensemble ideation: N parallel CLI members + a selector.
+        self.ideation_ensemble = normalize_ideation_ensemble(
+            self.params.get("ideation_ensemble")
+        )
+        raw_selector = self.params.get("ideation_selector")
+        self.ideation_selector = (
+            normalize_ensemble_member(raw_selector, role="ideation_selector")
+            if raw_selector is not None
+            else None
+        )
+        if self.ideation_ensemble and self.ideation_selector is None:
+            raise ValueError(
+                "ideation_ensemble requires an ideation_selector member"
+            )
+        if self.ideation_selector and self.ideation_selector["cli"] != "claude_code":
+            raise ValueError(
+                "ideation_selector.cli must be claude_code (the selector "
+                "reads the worktree to verify candidates)"
+            )
         # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
         self.ideation_gates = self.params.get("ideation_gates", ["research", "experiment_history", "repo_memory", "leeroopedia"])
         
@@ -401,6 +470,15 @@ class GenericSearch(SearchStrategy):
                 f"[GenericSearch] Ideation tools: {ideation_allowed_tools}"
             )
 
+            if self.ideation_ensemble:
+                return self._generate_solution_ensemble(
+                    problem=problem,
+                    repo_memory_brief=repo_memory_brief,
+                    ideation_dir=ideation_dir,
+                    mcp_servers=mcp_servers,
+                    ideation_allowed_tools=ideation_allowed_tools,
+                )
+
             # 4. Configure Claude Code for ideation (read-only mode).
             config = CodingAgentConfig(
                 agent_type="claude_code",
@@ -468,6 +546,235 @@ class GenericSearch(SearchStrategy):
             finally:
                 agent.cleanup()
     
+    def _generate_solution_ensemble(
+        self,
+        problem: str,
+        repo_memory_brief: str,
+        ideation_dir: str,
+        mcp_servers: Dict[str, Any],
+        ideation_allowed_tools: List[str],
+    ) -> Tuple[str, List[str], Dict[str, float]]:
+        """Fan out ideation across CLI members, then select one solution.
+
+        Members run in parallel (they are API-bound, never GPU-bound) inside
+        the same read-only worktree; a selector-critic session chooses among
+        the pooled <solution> candidates. Fail-soft ladder: selector failure
+        -> first claude_code candidate -> any candidate -> template fallback.
+        """
+        phase_started = time.monotonic()
+        clamp = self._clamped_timeout(self.ideation_timeout)
+        member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
+        selector_deadline = max(
+            ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
+        )
+
+        base_prompt = self._build_ideation_prompt(
+            problem=problem, repo_memory_brief=repo_memory_brief
+        )
+        addendum_template = load_prompt(
+            "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
+        )
+
+        def run_member(member: Dict[str, str]) -> Dict[str, Any]:
+            prompt = base_prompt + "\n\n" + render_prompt(
+                addendum_template,
+                {
+                    "lens": member.get("lens", "no specific lens — judge freely"),
+                    "candidate_count": str(ENSEMBLE_CANDIDATES_PER_MEMBER),
+                },
+            )
+            label = f"{member['cli']}:{member['model']}"
+            print(f"[GenericSearch] Ensemble ideation member starting: {label}")
+            if member["cli"] == "codex":
+                output, timed_out, _duration = codex_ideation.run_codex_ideation(
+                    prompt=prompt,
+                    model=member["model"],
+                    cwd=ideation_dir,
+                    timeout_seconds=member_deadline,
+                    effort=member.get("effort"),
+                )
+                candidates = re.findall(
+                    r"<solution>(.*?)</solution>", output, re.DOTALL
+                )
+                if (
+                    not candidates
+                    and timed_out
+                    and len(output.strip()) >= MIN_IDEATION_SALVAGE_CHARS
+                ):
+                    candidates = [
+                        "# Salvaged from a deadline-terminated ideation session\n"
+                        + self._extract_solution_from_output(output.strip())
+                    ]
+                return {
+                    "label": label,
+                    "cli": "codex",
+                    "candidates": [c.strip() for c in candidates],
+                    "sections": [],
+                    "cost_usd": 0.0,
+                }
+
+            from kapso.execution.coding_agents.base import CodingAgentConfig
+            from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+
+            config = CodingAgentConfig(
+                agent_type="claude_code",
+                model=member["model"],
+                debug_model=member["model"],
+                agent_specific={
+                    **self._claude_auth_settings,
+                    "aws_region": self.aws_region,
+                    "mcp_servers": mcp_servers,
+                    "allowed_tools": ideation_allowed_tools,
+                    "timeout": member_deadline,
+                    "streaming": True,
+                    "planning_mode": False,
+                    "effort": member.get("effort", self.session_effort),
+                },
+            )
+            agent = ClaudeCodeCodingAgent(config)
+            agent.initialize(ideation_dir)
+            result = agent.generate_code(prompt)
+            cost = agent.get_cumulative_cost()
+            agent.cleanup()
+            if not result.success:
+                logger.warning(
+                    f"[GenericSearch] Ensemble member {label} failed: {result.error}"
+                )
+                salvaged = self._salvage_ideation_output(result)
+                candidates = [salvaged] if salvaged is not None else []
+            else:
+                candidates = [
+                    c.strip()
+                    for c in re.findall(
+                        r"<solution>(.*?)</solution>", result.output, re.DOTALL
+                    )
+                ] or [self._extract_solution_from_output(result.output)]
+            return {
+                "label": label,
+                "cli": "claude_code",
+                "candidates": candidates,
+                "sections": self._extract_sections_consulted(result.output),
+                "cost_usd": cost,
+            }
+
+        members = self.ideation_ensemble
+        with ThreadPoolExecutor(max_workers=len(members)) as executor:
+            member_results = list(executor.map(run_member, members))
+
+        pool: List[Dict[str, str]] = []
+        sections: List[str] = []
+        total_cost = 0.0
+        for member_result in member_results:
+            total_cost += member_result["cost_usd"]
+            for section in member_result["sections"]:
+                if section not in sections:
+                    sections.append(section)
+            for candidate in member_result["candidates"]:
+                if candidate:
+                    pool.append(
+                        {"source": member_result["label"], "cli": member_result["cli"], "text": candidate}
+                    )
+
+        telemetry = {
+            "cost_usd": total_cost,
+            "duration_seconds": time.monotonic() - phase_started,
+        }
+        print(
+            f"[GenericSearch] Ensemble ideation pooled {len(pool)} candidates "
+            f"from {len(members)} members"
+        )
+        if not pool:
+            return self._fallback_solution(problem), sections, telemetry
+        if len(pool) == 1:
+            print("[GenericSearch] Single candidate — selector skipped")
+            return pool[0]["text"], sections, telemetry
+
+        chosen = self._select_from_candidates(
+            problem=problem,
+            repo_memory_brief=repo_memory_brief,
+            pool=pool,
+            ideation_dir=ideation_dir,
+            selector_deadline=selector_deadline,
+        )
+        telemetry["cost_usd"] += chosen["cost_usd"]
+        telemetry["duration_seconds"] = time.monotonic() - phase_started
+        return chosen["solution"], sections, telemetry
+
+    def _select_from_candidates(
+        self,
+        problem: str,
+        repo_memory_brief: str,
+        pool: List[Dict[str, str]],
+        ideation_dir: str,
+        selector_deadline: float,
+    ) -> Dict[str, Any]:
+        """Run the selector-critic session over the pooled candidates."""
+        from kapso.execution.coding_agents.base import CodingAgentConfig
+        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+
+        candidates_block = "\n\n".join(
+            f"### Candidate {i} (from {c['source']})\n{c['text']}"
+            for i, c in enumerate(pool, 1)
+        )
+        prompt = render_prompt(
+            load_prompt(
+                "execution/search_strategies/generic/prompts/ideation_selector.md"
+            ),
+            {
+                "problem": problem,
+                "repo_memory_brief": repo_memory_brief
+                or "(No repo memory available)",
+                "candidates": candidates_block,
+            },
+        )
+        selector = self.ideation_selector
+        config = CodingAgentConfig(
+            agent_type="claude_code",
+            model=selector["model"],
+            debug_model=selector["model"],
+            agent_specific={
+                **self._claude_auth_settings,
+                "aws_region": self.aws_region,
+                "allowed_tools": ["Read"],
+                "timeout": selector_deadline,
+                "streaming": True,
+                "planning_mode": False,
+                "effort": selector.get("effort", self.session_effort),
+            },
+        )
+        agent = ClaudeCodeCodingAgent(config)
+        agent.initialize(ideation_dir)
+        result = agent.generate_code(prompt)
+        cost = agent.get_cumulative_cost()
+        agent.cleanup()
+
+        reasoning = re.search(
+            r"<selection_reasoning>(.*?)</selection_reasoning>",
+            result.output or "",
+            re.DOTALL,
+        )
+        if reasoning:
+            print(
+                "[GenericSearch] Selector reasoning:\n"
+                + reasoning.group(1).strip()
+            )
+        match = re.search(
+            r"<solution>(.*?)</solution>", result.output or "", re.DOTALL
+        )
+        if result.success and match:
+            return {"solution": match.group(1).strip(), "cost_usd": cost}
+
+        # Fail-soft: the pooled work must not die with the selector.
+        logger.warning(
+            "[GenericSearch] Selector failed "
+            f"({result.error or 'no <solution> tag'}); falling back to the "
+            "first claude candidate"
+        )
+        for candidate in pool:
+            if candidate["cli"] == "claude_code":
+                return {"solution": candidate["text"], "cost_usd": cost}
+        return {"solution": pool[0]["text"], "cost_usd": cost}
+
     def _build_ideation_prompt(
         self,
         problem: str,
