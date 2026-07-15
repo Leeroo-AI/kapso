@@ -115,7 +115,11 @@ else
 fi
 
 export POST_TRAIN_BENCH_CONTAINER_NAME=kapso
-export POST_TRAIN_BENCH_RESULTS_DIR=results
+# MUST be absolute: the final evaluation resolves --model-path from a
+# different cwd (src/eval/tasks/<task>), so a relative results dir makes
+# vLLM treat "results/.../final_model" as a hub repo id and die on startup.
+# This killed the official eval in every run until #7 produced a model.
+export POST_TRAIN_BENCH_RESULTS_DIR=/opt/ptb/results
 export POST_TRAIN_BENCH_JOB_SCHEDULER=local
 
 # --- pre-flight: fail before the GPU phase, not during it ---

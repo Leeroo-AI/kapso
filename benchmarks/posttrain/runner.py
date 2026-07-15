@@ -171,13 +171,18 @@ def consolidate_final_model(task_dir: str) -> str:
                     break
 
     if not candidates and os.path.isdir(artifacts):
-        dirs = [
-            os.path.join(artifacts, d)
-            for d in os.listdir(artifacts)
-            if is_loadable_model_dir(os.path.join(artifacts, d))
-        ]
-        if dirs:
-            candidates.append(max(dirs, key=os.path.getmtime))
+        # Trainer checkpoints live nested (artifacts/<exp>/checkpoint-N/), so
+        # walk a few levels instead of only the top (run #7 review, F7).
+        found = []
+        for root, dirs, files in os.walk(artifacts):
+            if os.path.relpath(root, artifacts).count(os.sep) > 2:
+                dirs[:] = []
+                continue
+            if "config.json" in files:
+                found.append(root)
+                dirs[:] = []  # a model dir; don't descend further
+        if found:
+            candidates.append(max(found, key=os.path.getmtime))
 
     if not candidates:
         return "WARNING: no loadable model found anywhere — final_model missing"

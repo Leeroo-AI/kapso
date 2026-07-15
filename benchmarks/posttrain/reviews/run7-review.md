@@ -86,6 +86,34 @@ minutes of stream silence during training; only SSH + nvidia-smi + artifact
 listing distinguished "working" from "hung". The agent-side files (PLAN.md,
 train_log.txt) were the reliable signal — the monitor should read them.
 
+**F10 (harness bug, critical, found at run end) — relative RESULTS_DIR broke
+the official eval in every run to date.** run_startup.sh exported
+`POST_TRAIN_BENCH_RESULTS_DIR=results`; the harness eval runs with cwd
+`src/eval/tasks/<task>` and passes `--model-path $EVAL_DIR/final_model`, so
+the path resolved to a nonexistent location, vLLM treated it as a hub repo
+id, and the server exited 1 within seconds — 9/9 attempts, `metrics.json`
+absent. Latent since run #1; only observable once a real final_model
+existed. Fixed: absolute `/opt/ptb/results`. The 58% model survives in GCS;
+rescored via the new `40_eval_only.sh`.
+
+**F11 (pass, selection discipline) — the agent kept the better model.** Its
+training continuation scored 54% vs the checkpoint's 58%; `best_score.log`
+records both and final_model retained the 58% checkpoint. Exactly the
+"best-so-far, atomically" contract.
+
+**F12 (pass, machinery) — reserve gate, lineage, honest feedback failure.**
+`last_stop: finalization_reserve` (native reserve fired); iteration 2 ran
+inside the reserved envelope and branched from `generic_exp_0`
+(parent=node 0) — work continued in place; the final feedback call failed
+tags-after-retry and was recorded as an explicit failure (main's fix)
+instead of a fabricated verdict. Agent cost telemetry intact: $39.43.
+
+**F13 (observation, kapso core) — node.code_diff is unbounded.** Node 0's
+recorded diff is 6.48M chars (the agent committed eval logs/JSONs beside
+code); it is persisted into every checkpoint write and flows toward
+feedback/history surfaces. Candidate upstream issue: exclude obvious
+non-code artifacts or window the diff for prompt use.
+
 ## Suggestions backlog
 
 **S1.** Add a multi-zone/multi-region fallback ladder to `10_launch_run.sh`
