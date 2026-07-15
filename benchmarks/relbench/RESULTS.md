@@ -3,7 +3,7 @@
 **Auto-generated — do not edit by hand.** Regenerate with:
 `PYTHONPATH=src:. python -m benchmarks.relbench.scorecard --reference`
 
-Status: **1/66 tasks run**, 0 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
+Status: **2/66 tasks run**, 1 beating the best published number. Category-level gates: run the scorecard (same module, no flags).
 
 ## Hardware requirements
 
@@ -23,10 +23,10 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | rel-event/user-attendance | reg | 0.0303 (RT-ft) | 0.315 | 0.311 | — | — | CPU-ok | 2h | · pending |
-| 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | — | — | CPU-ok | 2h | · pending |
+| 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | 88 | ✅ beats best-known | CPU-ok | 2h | ✅ done |
 | 3 | rel-f1/results-position | AC-reg | 0.528 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
 | 4 | rel-f1/qualifying-position | AC-reg | 0.239 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
-| 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.63 | below best-known | CPU-ok | 2h | ✅ done |
+| 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.538 | below best-known | CPU-ok | 2h | ✅ done |
 | 6 | rel-event/event_interest-interested | AC-bin | 49.6 (LightGBM) | — | — | — | — | CPU-ok | 2h | · pending |
 | 7 | rel-event/event_interest-not_interested | AC-bin | 60.4 (GraphSAGE) | — | — | — | — | CPU-ok | 2h | · pending |
 | 8 | rel-event/users-birthyear | AC-reg | -0.03 (GraphSAGE) | — | — | — | — | CPU-ok | 2h | · pending |

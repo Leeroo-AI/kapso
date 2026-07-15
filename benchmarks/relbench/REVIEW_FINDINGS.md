@@ -38,18 +38,34 @@ Runs reviewed:
    Proposed: print the selector's raw reasoning block (or store on the node).
    Core change (benchmark_tree_search) — needs approval. Status: OPEN.
 
-6. **History digest fired only from iteration 3 (R2).** Fix B injects the
-   digest at the top of run(); iteration 2's ideation happened in the same
-   run() call as iteration 1's evaluation (expansion precedes evaluation in
-   the loop), so the first digest the LLMs saw was in iteration 3's expansion.
-   Semantics are correct from iter 3 onward (exploitation correctly chose the
-   scored node 9 as parent); just be aware the first two iterations of any run
-   are digest-blind. Minor; no change proposed. Status: NOTED.
+6. **History digest lags candidate generation (CORRECTED after R3).** The
+   digest is injected at the top of each run() call, so ideation/selection in
+   call N see every evaluation from calls 1..N-1 — it is live from iteration 2
+   onward (this note originally claimed iteration 3; that was wrong). The
+   residual lag: candidates GENERATED in call 1 (digest-blind) remain in the
+   selection pool alongside digest-aware ones, and children generated within a
+   call never see that same call's evaluation. Minor; no change proposed.
+   Status: NOTED (corrected 2026-07-15).
 
 7. **Val-selected ≠ test-best is real and visible (R2).** run_0002 won on val
    (0.7314 vs 0.7275) and scored test 0.8804; iteration 3's fancier ensemble
    dropped val to 0.6769 (over-engineering on 27 rows) and was correctly NOT
    selected. Protocol behaved exactly as designed. Status: WORKING AS INTENDED.
+
+8. **Selection prompt carries no lineage — the selector cannot exploit
+   scores-by-ancestry (R3).** Iteration 3's exploitation correctly expanded
+   BOTH scored nodes (checkpoint ground truth: children 20-22 under node 11
+   [GBDT panel, val MAE 2.983]; children 23-25 under node 9 [state-space,
+   val 2.684, best]). The LLM selector then chose node 22 — a child of the
+   WEAKER lineage — over all three children of the val-best lineage. Root
+   cause: select()/prune candidates are rendered as "id + solution text"
+   only; parent identity and parent score are absent, so the selector cannot
+   tie a candidate to the history digest entries (and per finding 5 its
+   stated reasons are discarded, making the choice unauditable). The winning
+   state-space insight survived only because the chosen spec textually
+   borrowed it. Proposed: render each candidate with its parent branch +
+   parent score in both prompts. Core change — needs written-proposal
+   approval. Status: OPEN (proposal in chat 2026-07-15).
 
 ## R2 outcome (for the record)
 
@@ -60,3 +76,17 @@ pristine cache: 0.8804 — handler and recompute agree).
 Published test bar (v2-paper ID-GNN): 0.7618. Our val-selected test result
 exceeds it by +11.9 MAP points on this task. Wall-clock ~65 min for 3
 iterations (FAST_DEBUG, medium effort); ~$2-3 total.
+
+## R3 outcome (for the record)
+
+rel-f1/driver-position (KumoRFM-ft's flagship regression cell), FAST_DEBUG,
+3 iterations, ~70 min, ~$3: 3/3 scored, zero contract violations, clean audit,
+debug gate held for all three candidates (R1's lesson confirmed at medium
+effort). Val MAE: 2.983 (GBDT panel) -> 2.684 (hierarchical state-space —
+winner) -> 2.749 (quantile ensemble, child of the GBDT lineage; see finding 8).
+final_evaluate selected run_0002: **TEST MAE 3.779** (independently recomputed
+from archived predictions: 3.779; r2 0.242). Baselines: beats RelAgent 4.019
+and RDL 4.022; KumoRFM-ft 2.731 stands (gap 1.05). Val->test drift +1.10 to
++1.58 MAE across the three runs (2010+ era shift); the state-space model
+degraded least — dynamical/extrapolating designs handle this task's
+distribution shift best, a concrete lead for the campaign-config run.
