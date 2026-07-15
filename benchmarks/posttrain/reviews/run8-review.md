@@ -83,10 +83,57 @@ work.
 duplicate "MCP config written" line; Bash command display truncated ~90
 chars (hampers audit).
 
+### Segment 3 (t+20–40 min, baseline → data prep → probe → session death)
+
+**R8-F8 (critical, root-caused) — iteration 1's implementation killed
+ITSELF at 29.4 min via its own GPU-cleanup command.** Sequence: baseline
+eval 0.0 (correct: base model emits no valid tool calls) → built a
+contamination-clean 40,775-example SFT set (xlam-hermes + ToolACE +
+Synth-APIGen; two loader bugs fixed fast; template/token round-trip
+verified; EOS pitfall `<|endoftext|>` vs `<|im_end|>` caught preemptively)
+→ throughput probe OOM'd at bs16 → while "ensuring GPU free" ran
+`kill $…` (display-truncated) → 3s later the CLI exited 143 (SIGTERM).
+Adapter exonerated: its deadline kill prints a "Deadline of Xs reached"
+marker — absent. Mechanism: under the F5 contract nohup'd children stay in
+the CLI's process group (deliberately, so session kills reap training) —
+a group-style kill (`kill -- -PID` / `kill 0` / broad pkill) therefore
+nukes the agent's own session. Reviewer's "harness per-node timeout"
+theory is wrong; the plan-vs-clock contradiction is self-inflicted.
+Deliverable lost: training never launched; no checkpoint banked.
+
+**R8-F9 (major, consequence) — feedback missed the kill's root cause.**
+The judge told iteration 2 "SIGTERM ~30 min in … ample budget" without
+diagnosing WHY — so iteration 2 may repeat the same cleanup footgun.
+Watch: if implementation #2 also dies right after a kill-style cleanup,
+the run degrades into ~30-min guillotine loops (decision point: stop the
+run and fix the prompt vs ride it out on checkpoint discipline).
+
+**R8-F10 (minor) — PLAN.md never updated after milestones** (baseline
+number, data-prep completion, probe result all missing at death);
+iteration 2 inherits stale checkboxes. **R8-F11 (minor)** — data-prep
+split logic saved an untrainable train=0 dataset on its first pass (no
+min-split assertion). **R8-F12 (minor)** — probe started at bs16 (OOM)
+instead of conservative-and-step-up; cost ~90s per retry and collided
+with the death. **R8-F13 (info, known-accepted)** — repo-memory update
+crashes on missing ANTHROPIC_API_KEY every iteration (user's accepted
+trade-off; reviewer independently flags it as the dead knowledge loop).
+**R8-F14 (info, known)** — killed sessions report $0.00 cost (CLI emits
+usage only in its terminal event). **R8-F15 (pass)** — contamination
+clean (judge verified evaluate.py/templates untouched; training data from
+permitted sources only); GPU contention clean; baseline interpretation
+correct.
+
 ## Suggestions backlog
 
 **S1 (needs approval, src/kapso):** placeholder-aware candidate degeneracy
 filter + under-count warning (R8-F1). **S2 (needs approval, src/kapso):**
 per-member ensemble telemetry line (R8-F2). **S3:** enforce or relabel
 ideation tool restriction (R8-F3). **S4:** trace log polish batch
-(thinking-token collapse, full command text, rate-limit payloads).
+(thinking-token collapse, FULL command text — its truncation nearly hid
+R8-F8's root cause, rate-limit payloads). **S5 (handler prompt, ours):**
+process-kill discipline — "kill specific PIDs only (`kill $(cat x.pid)`);
+NEVER group kills (`kill -- -PID`, `kill 0`) or pattern kills
+(`pkill -f python`): everything you launch shares your session's process
+group, so group/pattern kills terminate YOUR OWN session" (R8-F8). **S6
+(handler prompt):** update PLAN.md after every milestone (R8-F10) — plus
+minimum-split assertions guidance for data prep (R8-F11).
