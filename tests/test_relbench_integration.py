@@ -286,3 +286,79 @@ class TestExperimentHistoryDigest:
         s = self._strategy_with_history()
         s.node_history = []
         assert s._experiment_history_digest() == ""
+
+
+class TestSelectionLineageAndReasoning:
+    """Findings 5+8: candidates carry lineage; LLM reasoning is logged."""
+
+    def _tree(self):
+        from kapso.execution.search_strategies.benchmark_tree_search import (
+            BenchmarkTreeSearch,
+            TreeSearchNode,
+        )
+
+        parent_scored = TreeSearchNode(
+            node_id=1, branch_name="experiment_1", solution="scored parent"
+        )
+        parent_scored.score = 2.684
+        parent_unscored = TreeSearchNode(node_id=2, solution="unscored parent")
+        child_a = TreeSearchNode(
+            node_id=10, parent_node=parent_scored, solution="child of the winner"
+        )
+        child_b = TreeSearchNode(
+            node_id=11, parent_node=parent_unscored, solution="child of unknown"
+        )
+        parent_scored.children.append(child_a)
+        parent_unscored.children.append(child_b)
+
+        strategy = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
+        strategy.nodes = [parent_scored, parent_unscored, child_a, child_b]
+        strategy.idea_generation_model = "test-model"
+        strategy.reasoning_effort = "low"
+        strategy.experimentation_count = 3
+        return strategy, child_a, child_b
+
+    def test_candidate_line_lineage_cases(self):
+        strategy, child_a, child_b = self._tree()
+        root_line = strategy._candidate_line(strategy.nodes[0])
+        assert "[root]" in root_line
+        scored_line = strategy._candidate_line(child_a)
+        assert "child of experiment_1, parent score 2.684" in scored_line
+        unscored_line = strategy._candidate_line(child_b)
+        assert "child of unscored node 2" in unscored_line
+
+    def test_select_prompt_carries_lineage_and_logs_reasoning(self, capsys):
+        strategy, child_a, child_b = self._tree()
+        captured = {}
+
+        def fake_llm(**kwargs):
+            captured.update(kwargs)
+            return (
+                "Reason for solution id 10: strongest lineage.\n"
+                "<output>\n[10]\n</output>"
+            )
+
+        strategy.llm = SimpleNamespace(llm_completion_with_system_prompt=fake_llm)
+        picked = strategy.select(
+            SimpleNamespace(problem="p", additional_info="", kg_results=""),
+            top_k=1,
+        )
+        assert picked == [child_a]
+        assert "parent score 2.684" in captured["user_message"]
+        assert "child of unscored node 2" in captured["user_message"]
+        out = capsys.readouterr().out
+        assert "selection (top_k=1) reasoning" in out
+        assert "strongest lineage" in out
+
+    def test_prune_logs_reasoning_and_terminates(self, capsys):
+        strategy, child_a, child_b = self._tree()
+
+        def fake_llm(**kwargs):
+            return "Reason 11: dead end.\n<output>\n[11]\n</output>"
+
+        strategy.llm = SimpleNamespace(llm_completion_with_system_prompt=fake_llm)
+        strategy.prune_bad_solutions(
+            SimpleNamespace(problem="p", additional_info="", kg_results="")
+        )
+        assert child_b.is_terminated and not child_a.is_terminated
+        assert "pruning reasoning" in capsys.readouterr().out

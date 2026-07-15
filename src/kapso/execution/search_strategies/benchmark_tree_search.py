@@ -381,10 +381,35 @@ class BenchmarkTreeSearch(SearchStrategy):
         if new_solutions:
             node.node_event_history.append([self.experimentation_count, "expand"])
 
+    def _candidate_line(self, node: TreeSearchNode) -> str:
+        """Render a candidate with its lineage for selection/pruning prompts.
+
+        Parent identity and parent score let the LLM connect a candidate to
+        the experiment-history digest; without them the selector cannot
+        prefer children of stronger lineages (it once picked a child of a
+        weaker scored parent over three children of the best one).
+        """
+        parent = node.parent_node
+        if parent is None:
+            lineage = "root"
+        elif parent.score is not None:
+            parent_name = parent.branch_name or f"node {parent.node_id}"
+            lineage = f"child of {parent_name}, parent score {parent.score:.4g}"
+        else:
+            lineage = f"child of unscored node {parent.node_id}"
+        return f" id: {node.node_id} [{lineage}], solution: {node.solution}"
+
+    @staticmethod
+    def _log_llm_reasoning(output: str, label: str) -> None:
+        """Print the reasoning the LLM emits before its <output> id list."""
+        reasoning = output.split("<output>")[0].strip()
+        if reasoning:
+            print(f"[BenchmarkTreeSearch] {label} reasoning:\n{reasoning}")
+
     def select(
-        self, 
-        context: ContextData, 
-        top_k: int = 1, 
+        self,
+        context: ContextData,
+        top_k: int = 1,
         selection_criteria: str = "Best expected score, speed, and diversity.",
         exclude_experimented_nodes: bool = False,
         exclude_root_nodes: bool = True,
@@ -418,18 +443,19 @@ class BenchmarkTreeSearch(SearchStrategy):
         user_prompt = (
             f"Problem: {context.problem} \n\n Additional information: {context.additional_info} \n\n"
             + f"Reliable knowledge base information: {context.kg_results} \n\n"
-            + "Candidate Solutions for selection:\n" 
-            + "\n\n".join([f" id: {node.node_id}, solution: {node.solution}" for node in leaf_nodes])
+            + "Candidate Solutions for selection:\n"
+            + "\n\n".join([self._candidate_line(node) for node in leaf_nodes])
             + f'\n\n Provide the list of top {top_k} ids between <output> and </output> tags.'
         )
-        
+
         output = self.llm.llm_completion_with_system_prompt(
             model=self.idea_generation_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
             reasoning_effort=self.reasoning_effort,
         )
-        
+
+        self._log_llm_reasoning(output, f"selection (top_k={top_k})")
         selected_node_ids = eval(re.findall(r'<output>(.*?)</output>', output, re.DOTALL)[0].strip())
         return [node for node in leaf_nodes if node.node_id in selected_node_ids]
 
@@ -464,16 +490,17 @@ class BenchmarkTreeSearch(SearchStrategy):
             f"Additional information: {context.additional_info} \n\n "
             f"Reliable knowledge base information: {context.kg_results} \n\n "
             f"Candidate Solutions for deletion:\n"
-            + "\n\n".join([f" id: {node.node_id}, solution: {node.solution}" for node in leaf_nodes])
+            + "\n\n".join([self._candidate_line(node) for node in leaf_nodes])
         )
-        
+
         output = self.llm.llm_completion_with_system_prompt(
             model=self.idea_generation_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
             reasoning_effort=self.reasoning_effort,
         )
-        
+
+        self._log_llm_reasoning(output, "pruning")
         selected_node_ids = eval(re.findall(r'<output>(.*?)</output>', output, re.DOTALL)[0].strip())
         
         for node in leaf_nodes:

@@ -36,7 +36,8 @@ Runs reviewed:
    demands per-choice one-line reasons; only the parsed id list is used, the
    reasons are discarded. We cannot audit *why* the search picked a node.
    Proposed: print the selector's raw reasoning block (or store on the node).
-   Core change (benchmark_tree_search) — needs approval. Status: OPEN.
+   Status: FIXED 2026-07-15 on written-proposal approval — select() and
+   prune_bad_solutions() log the reasoning emitted before <output>.
 
 6. **History digest lags candidate generation (CORRECTED after R3).** The
    digest is injected at the top of each run() call, so ideation/selection in
@@ -63,9 +64,10 @@ Runs reviewed:
    tie a candidate to the history digest entries (and per finding 5 its
    stated reasons are discarded, making the choice unauditable). The winning
    state-space insight survived only because the chosen spec textually
-   borrowed it. Proposed: render each candidate with its parent branch +
-   parent score in both prompts. Core change — needs written-proposal
-   approval. Status: OPEN (proposal in chat 2026-07-15).
+   borrowed it. Status: FIXED 2026-07-15 on written-proposal approval —
+   _candidate_line() renders every select/prune candidate with its lineage
+   ("root" / "child of <branch>, parent score X" / "child of unscored node
+   N"); unit tests cover the three cases, prompt content, and id parsing.
 
 ## R2 outcome (for the record)
 
