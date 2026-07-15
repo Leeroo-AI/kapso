@@ -47,48 +47,81 @@ any leaderboard agent has actually achieved in a 10h run.
 | 6 | ArenaHard | .0904 | 1.3 | 45.2 (fable-5) | 70.2 | **3.97** | judge-scored (OPENAI_API_KEY) |
 | 7 | AIME | .2265 | 1.7 | 10.8 (opus-4.8-max) | 29.2 | **2.08** | heaviest weight, but nobody cracks it in 10h |
 
-## Campaign table — 28 cells sorted by per-cell ROI
+## Campaign table — per-cell reference vs ours
 
-Cell ROI = (weight/4) × (best-proven-cell − base-cell): the aggregate points
-a single run is proven able to add. "Ours" fills in as runs complete.
-Campaign aggregate if submitted today: **8.48** (base 7.53 + our one cell).
+For every cell (benchmark × base model): its base score, the top-3 proven
+agent results from the leaderboard, human (official instruct), then ours and
+status. Campaign aggregate if submitted today: **8.48** (base 7.53 + our one
+completed cell). Cells needing unlocks are marked: [J] = judge-scored,
+needs `openai-api-key` secret; [G] = gated model, needs HF `hf-token` with
+the Gemma license accepted.
 
-| # | Cell (benchmark × model) | Base | Best proven (agent) | Human | ROI | Ours | Status / details |
-|---:|---|---:|---:|---:|---:|---:|---|
-| 1 | arenahard × Qwen3-4B | 3.4 | 86.2 (fable-5) | 86.8 | 1.87 | — | pending |
-| 2 | bfcl × SmolLM3-3B | 0.0 | 100.0 (gpt-5.5-xh-rp) | 84.0 | 1.87 | — | pending |
-| 3 | bfcl × Qwen3-4B | 0.0 | 100.0 (gpt-5.4-h-rp) | 95.0 | 1.87 | — | pending |
-| 4 | bfcl × Qwen3-1.7B | 0.0 | 100.0 (gpt-5.5-xh-rp) | 94.0 | 1.87 | — | pending |
-| 5 | healthbench × SmolLM3-3B | 0.0 | 38.4 (opus-4.8) | 29.6 | 1.77 | — | pending; needs OPENAI_API_KEY |
-| 6 | bfcl × gemma-3-4b | 6.0 | 100.0 (gpt-5.4-h-rp) | 67.0 | 1.75 | — | pending; gemma needs HF license/token |
-| 7 | gsm8k × Qwen3-1.7B | 12.7 | 86.3 (fable-5) | 88.5 | 1.72 | **53.4** | ✅ run #7 (3h validation, 2026-07-15); details below |
-| 8 | gsm8k × gemma-3-4b | 6.1 | 75.7 (fable-5) | 83.5 | 1.63 | — | pending; gemma token |
-| 9 | gpqa × gemma-3-4b | 1.6 | 29.5 (gpt-5.4-h) | 31.5 | 1.57 | — | pending; gemma token |
-| 10 | humaneval × Qwen3-1.7B | 7.9 | 62.8 (fable-5) | 68.9 | 1.46 | — | pending |
-| 11 | gpqa × SmolLM3-3B | 4.9 | 30.6 (gpt-5.5-xh-rp) | 33.3 | 1.44 | — | pending |
-| 12 | humaneval × gemma-3-4b | 0.6 | 54.9 (fable-5) | 69.5 | 1.44 | — | pending; gemma token |
-| 13 | healthbench × gemma-3-4b | 17.0 | 46.3 (fable-5) | 46.1 | 1.35 | — | pending; gemma + OpenAI key |
-| 14 | healthbench × Qwen3-4B | 13.4 | 41.8 (opus-4.8-max) | 52.7 | 1.31 | — | pending; OpenAI key |
-| 15 | humaneval × SmolLM3-3B | 6.1 | 55.2 (opus-4.8) | 70.1 | 1.30 | — | pending |
-| 16 | gsm8k × SmolLM3-3B | 21.1 | 76.7 (opus-4.8) | 82.2 | 1.30 | — | pending |
-| 17 | arenahard × Qwen3-1.7B | 0.9 | 57.1 (fable-5) | 50.0 | 1.27 | — | pending; OpenAI key |
-| 18 | healthbench × Qwen3-1.7B | 7.5 | 34.5 (fable-5) | 44.9 | 1.24 | — | pending; OpenAI key |
-| 19 | gpqa × Qwen3-4B | 13.4 | 34.1 (gpt-5.4-h-rp) | 44.6 | 1.17 | — | pending |
-| 20 | gsm8k × Qwen3-4B | 41.9 | 90.7 (fable-5) | 93.8 | 1.14 | — | pending |
-| 21 | aime × Qwen3-4B | 3.3 | 23.3 (opus-4.8) | 53.3 | 1.13 | — | pending |
-| 22 | humaneval × Qwen3-4B | 36.6 | 78.0 (fable-5) | 77.4 | 1.10 | — | pending |
-| 23 | arenahard × gemma-3-4b | 0.3 | 47.4 (opus-4.8-max) | 94.8 | 1.06 | — | pending; gemma + OpenAI key |
-| 24 | gpqa × Qwen3-1.7B | 14.1 | 29.5 (gpt-5.2-codex) | 35.5 | 0.87 | — | pending |
-| 25 | arenahard × SmolLM3-3B | 0.4 | 37.2 (opus-4.8-max) | 49.2 | 0.83 | — | pending; OpenAI key |
-| 26 | aime × SmolLM3-3B | 3.3 | 16.7 (opus-4.8-max) | 26.7 | 0.76 | — | pending |
-| 27 | aime × Qwen3-1.7B | 0.0 | 6.7 (opus-4.7) | 26.7 | 0.38 | — | pending |
-| 28 | aime × gemma-3-4b | 0.0 | 3.3 (gpt-5.4-h-rp) | 10.0 | 0.19 | — | pending |
+### AIME 2025 (weight .2265)
 
-Reading: the top-6 pending cells are dominated by BFCL (three cells where
-agents hit 100 while humans stopped at 67–95) plus the two judge-scored
-surprises (ArenaHard × Qwen3-4B, HealthBench × SmolLM3 where the best agent
-*beats* human). Our completed cell was #7 by ROI. AIME occupies the four
-worst slots — its big weight never pays off within 10h.
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 0.0 | opus-4.7 · 6.7 | opus-4.6-1m · 5.6 | sonnet-4.6 · 3.3 | 26.7 | — | pending |
+| Qwen3-4B | 3.3 | opus-4.8-max · 23.3 | opus-4.8 · 23.3 | fable-5 · 20.0 | 53.3 | — | pending |
+| SmolLM3-3B | 3.3 | opus-4.8-max · 16.7 | fable-5 · 16.7 | opus-4.6 · 14.4 | 26.7 | — | pending |
+| gemma-3-4b | 0.0 | gpt-5.4-h-rp · 3.3 | opus-4.7 · 1.1 | gpt-5.3-codex · 1.1 | 10.0 | — | pending [G] |
+
+### Arena Hard Writing (weight .0904)
+
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 0.9 | fable-5 · 57.1 | opus-4.8 · 45.0 | opus-4.7 · 33.8 | 50.0 | — | pending [J] |
+| Qwen3-4B | 3.4 | fable-5 · 86.2 | glm-5.2 · 54.2 | gpt-5.4-h-rp · 49.5 | 86.8 | — | pending [J] |
+| SmolLM3-3B | 0.4 | opus-4.8-max · 37.2 | fable-5 · 37.2 | glm-5.2 · 22.7 | 49.2 | — | pending [J] |
+| gemma-3-4b | 0.3 | opus-4.8-max · 47.4 | opus-4.7 · 30.9 | gpt-5.5-xh-rp · 27.9 | 94.8 | — | pending [J][G] |
+
+### BFCL (weight .0746)
+
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | — | pending |
+| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | — | pending |
+| SmolLM3-3B | 0.0 | gpt-5.5-xh-rp · 100.0 | opus-4.8 · 97.0 | opus-4.6 · 86.7 | 84.0 | — | pending |
+| gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | pending [G] |
+
+### GPQA Main (weight .2246)
+
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 14.1 | gpt-5.2-codex · 29.5 | gpt-5.5-xh-rp · 29.5 | gpt-5.4-high · 29.4 | 35.5 | — | pending |
+| Qwen3-4B | 13.4 | gpt-5.4-h-rp · 34.1 | gpt-5.5-xhigh · 34.0 | gpt-5.5-xh-rp · 33.9 | 44.6 | — | pending |
+| SmolLM3-3B | 4.9 | gpt-5.5-xh-rp · 30.6 | glm-5.2 · 29.8 | gpt-5.4-high · 29.0 | 33.3 | — | pending |
+| gemma-3-4b | 1.6 | gpt-5.4-high · 29.5 | opus-4.7 · 28.7 | opus-4.8 · 28.7 | 31.5 | — | pending [G] |
+
+### GSM8K (weight .0936)
+
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 12.7 | fable-5 · 86.3 | glm-5.2 · 79.6 | gpt-5.4-h-rp · 73.9 | 88.5 | **53.4** | ✅ run #7, 3h validation (2026-07-15) |
+| Qwen3-4B | 41.9 | fable-5 · 90.7 | opus-4.8-max · 89.9 | glm-5.2 · 85.3 | 93.8 | — | pending |
+| SmolLM3-3B | 21.1 | opus-4.8 · 76.7 | gpt-5.4-h-rp · 73.3 | gpt-5.5-xh-rp · 72.4 | 82.2 | — | pending |
+| gemma-3-4b | 6.1 | fable-5 · 75.7 | opus-4.8-max · 69.7 | glm-5.2 · 61.9 | 83.5 | — | pending [G] |
+
+### HealthBench (weight .1841)
+
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 7.5 | fable-5 · 34.5 | opus-4.8 · 31.2 | gpt-5.4-h-rp · 29.4 | 44.9 | — | pending [J] |
+| Qwen3-4B | 13.4 | opus-4.8-max · 41.8 | opus-4.8 · 41.6 | gpt-5.5-xh-rp · 33.7 | 52.7 | — | pending [J] |
+| SmolLM3-3B | 0.0 | opus-4.8 · 38.4 | opus-4.8-max · 32.6 | fable-5 · 32.6 | 29.6 | — | pending [J] |
+| gemma-3-4b | 17.0 | fable-5 · 46.3 | opus-4.8-max · 42.0 | opus-4.8 · 29.9 | 46.1 | — | pending [J][G] |
+
+### HumanEval (weight .1061)
+
+| Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
+|---|---:|---|---|---|---:|---:|---|
+| Qwen3-1.7B | 7.9 | fable-5 · 62.8 | gpt-5.5-xh-rp · 61.0 | glm-5.2 · 55.3 | 68.9 | — | pending |
+| Qwen3-4B | 36.6 | fable-5 · 78.0 | glm-5.2 · 76.0 | opus-4.8 · 71.3 | 77.4 | — | pending |
+| SmolLM3-3B | 6.1 | opus-4.8 · 55.2 | gpt-5.5-xh-rp · 43.9 | gpt-5.4-h-rp · 42.7 | 70.1 | — | pending |
+| gemma-3-4b | 0.6 | fable-5 · 54.9 | opus-4.8 · 48.2 | gemini-3-pro-oc · 45.7 | 69.5 | — | pending [G] |
+
+Abbreviations: h-rp / xh-rp = high/xhigh reprompted variants; oc = OpenCode
+scaffold. The benchmark-level ROI table above remains the prioritization
+guide; this table is the per-cell scoreboard.
 
 ## Our runs
 
