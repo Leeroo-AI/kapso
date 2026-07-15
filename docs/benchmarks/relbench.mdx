@@ -1,0 +1,76 @@
+---
+title: "RelBench"
+description: "Relational deep learning over multi-table temporal databases"
+---
+
+[RelBench](https://relbench.stanford.edu) (Stanford/Kumo) benchmarks supervised prediction
+over temporal relational databases: **11 databases, 66 tasks** across entity
+classification (AUROC), entity regression (MAE/NMAE, R²), recommendation (MAP@K), and the
+new v2 autocomplete family. A model receives a multi-table database plus seed rows
+(entity id, seed time) and predicts future outcomes, missing attributes, or ranked future
+links — with every feature and neighborhood censored at each row's seed time.
+
+## How Kapso runs it
+
+Each experiment in the tree search is implemented by the coding agent on a git branch and
+then evaluated by `RelBenchHandler`:
+
+1. The candidate's `main.py` runs against a **sanitized, read-only RelBench cache**:
+   the database is physically truncated at the test cutoff (or, for autocomplete,
+   post-cutoff target values are blanked), and the test task table carries only entity
+   ids and timestamps — test labels are physically absent from the candidate's process.
+2. The candidate writes `val_predictions.npy` and `test_predictions.npy` to
+   `$KAPSO_RUN_DATA_DIR` (contract validated: shapes, dtypes, ranges).
+3. The handler computes **official validation metrics** — the search score — and
+   computes test metrics privately (quarantined until `final_evaluate`).
+4. `final_evaluate` picks the best-by-validation run, audits its code for forbidden
+   access patterns, and writes a leaderboard-ready `final_report.json`.
+
+This is exactly the RelBench protocol: tune on validation, report test once.
+
+The problem context injected into ideation includes the database schema, the task's
+label-generating SQL, per-family playbooks (temporal GNNs, censored SQL feature
+engineering + GBDT, repeat-behavior recommendation heuristics, hybrid rankers), and the
+current published state of the art for the task (`benchmarks/relbench/data/sota.json`).
+A starter kit with the official RelBench reference implementations is seeded into every
+workspace under `kapso_datasets/`.
+
+## Usage
+
+```bash
+# List all native tasks
+PYTHONPATH=. python -m benchmarks.relbench.runner --list
+
+# Smoke test on the smallest database
+PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-f1 -t driver-position -i 3 -m MINIMAL
+
+# Full run
+PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-hm -t user-item-purchase -i 25
+
+# Heavy mode with Claude Code
+PYTHONPATH=. python -m benchmarks.relbench.runner \
+    -s rel-trial -t site-sponsor-run -i 30 -m HEAVY_EXPERIMENTATION -d claude_code
+```
+
+## CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-s, --dataset` / `-t, --task` | RelBench dataset/task | Required |
+| `-i, --iterations` | Max search iterations | 20 |
+| `-m, --mode` | Config mode | `RELBENCH_CONFIGS` |
+| `-d, --coding-agent` | aider, gemini, claude_code, openhands | from config |
+| `--target-val` | Early-stop validation bar | none |
+| `--rebuild-cache` | Rebuild the sanitized data cache | cached |
+
+## Setup
+
+```bash
+pip install relbench duckdb pooch pyarrow            # evaluation layer
+pip install "relbench[full]" sentence-transformers \
+    lightgbm xgboost catboost tqdm                   # modeling stack (GPU machine)
+```
+
+Datasets download automatically to `~/.cache/relbench` on first use. See
+`benchmarks/relbench/README.md` for the campaign plan, protocol guarantees, and
+per-family strategy notes.

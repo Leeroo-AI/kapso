@@ -149,6 +149,7 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 |-----------|-------------|
 | [**MLE-Bench**](benchmarks/mle/README.md) | Kaggle ML competitions — tabular, image, text, audio problems |
 | [**ALE-Bench**](benchmarks/ale/README.md) | AtCoder algorithmic optimization — C++ solution generation |
+| [**RelBench**](benchmarks/relbench/README.md) | Relational deep learning — multi-table temporal databases, 66 tasks (classification, regression, recommendation, autocomplete) |
 
 ## 📚 Documentation & Support
 

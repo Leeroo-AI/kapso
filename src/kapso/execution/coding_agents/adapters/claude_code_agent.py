@@ -159,7 +159,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Optional system prompt to append to Claude Code's default system prompt.
         # Useful for injecting workspace restrictions, project rules, etc.
         self._append_system_prompt: Optional[str] = config.agent_specific.get("append_system_prompt")
-        
+
+        # Optional reasoning-effort level forwarded to the CLI (--effort).
+        self._effort: Optional[str] = config.agent_specific.get("effort")
+
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
     
@@ -879,6 +882,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Add model if specified
         if model:
             cmd.extend(["--model", model])
+
+        # Reasoning effort for the session (CLI >= 2.x supports --effort)
+        if self._effort:
+            cmd.extend(["--effort", str(self._effort)])
         
         # Add allowed tools
         if self._allowed_tools:

@@ -193,6 +193,15 @@ class BenchmarkTreeSearch(SearchStrategy):
                 kg_results="",
                 kg_code_results="",
             )
+
+        # Surface the experiment history to ideation/selection/pruning. Their
+        # prompts already consume `additional_info`, but the benchmark path
+        # always left it empty — so failures and scores never reached the
+        # LLMs steering the search (only the coding agent saw errors).
+        digest = self._experiment_history_digest()
+        if digest:
+            existing = str(getattr(context, "additional_info", "") or "")
+            context.additional_info = (existing + "\n\n" + digest).strip()
         
         # Prune after initial exploration
         if budget_progress >= 20:
@@ -230,6 +239,39 @@ class BenchmarkTreeSearch(SearchStrategy):
         
         # Return the best node from this iteration (for orchestrator to check should_stop)
         return self.get_best_experiment()
+
+    def _experiment_history_digest(self, max_entries: int = 12) -> str:
+        """Compact per-run digest for the ideation/selection prompts."""
+        with self.node_history_lock:
+            history = list(self.node_history)
+        if not history:
+            return ""
+        direction = (
+            "higher is better"
+            if self.problem_handler.maximize_scoring
+            else "lower is better"
+        )
+        lines = [
+            f"# Experiment history ({len(history)} run(s) so far; score: {direction}). "
+            "Do not repeat failure causes; build on what scored well:"
+        ]
+        for node in history[-max_entries:]:
+            summary = " ".join(str(node.solution or "").split())[:180]
+            if node.had_error:
+                reason = " ".join(str(node.error_message or "").split())[:240]
+                lines.append(
+                    f"- {node.branch_name} FAILED: {reason} || solution was: {summary}"
+                )
+            else:
+                metrics = ""
+                for out_line in str(node.evaluation_output or "").splitlines():
+                    if "OFFICIAL VALIDATION METRICS" in out_line:
+                        metrics = " | " + out_line.strip()[:220]
+                        break
+                lines.append(
+                    f"- {node.branch_name} score={node.score}{metrics} || solution was: {summary}"
+                )
+        return "\n".join(lines)
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Get all experiment results, optionally sorted by score."""
@@ -339,10 +381,35 @@ class BenchmarkTreeSearch(SearchStrategy):
         if new_solutions:
             node.node_event_history.append([self.experimentation_count, "expand"])
 
+    def _candidate_line(self, node: TreeSearchNode) -> str:
+        """Render a candidate with its lineage for selection/pruning prompts.
+
+        Parent identity and parent score let the LLM connect a candidate to
+        the experiment-history digest; without them the selector cannot
+        prefer children of stronger lineages (it once picked a child of a
+        weaker scored parent over three children of the best one).
+        """
+        parent = node.parent_node
+        if parent is None:
+            lineage = "root"
+        elif parent.score is not None:
+            parent_name = parent.branch_name or f"node {parent.node_id}"
+            lineage = f"child of {parent_name}, parent score {parent.score:.4g}"
+        else:
+            lineage = f"child of unscored node {parent.node_id}"
+        return f" id: {node.node_id} [{lineage}], solution: {node.solution}"
+
+    @staticmethod
+    def _log_llm_reasoning(output: str, label: str) -> None:
+        """Print the reasoning the LLM emits before its <output> id list."""
+        reasoning = output.split("<output>")[0].strip()
+        if reasoning:
+            print(f"[BenchmarkTreeSearch] {label} reasoning:\n{reasoning}")
+
     def select(
-        self, 
-        context: ContextData, 
-        top_k: int = 1, 
+        self,
+        context: ContextData,
+        top_k: int = 1,
         selection_criteria: str = "Best expected score, speed, and diversity.",
         exclude_experimented_nodes: bool = False,
         exclude_root_nodes: bool = True,
@@ -376,18 +443,19 @@ class BenchmarkTreeSearch(SearchStrategy):
         user_prompt = (
             f"Problem: {context.problem} \n\n Additional information: {context.additional_info} \n\n"
             + f"Reliable knowledge base information: {context.kg_results} \n\n"
-            + "Candidate Solutions for selection:\n" 
-            + "\n\n".join([f" id: {node.node_id}, solution: {node.solution}" for node in leaf_nodes])
+            + "Candidate Solutions for selection:\n"
+            + "\n\n".join([self._candidate_line(node) for node in leaf_nodes])
             + f'\n\n Provide the list of top {top_k} ids between <output> and </output> tags.'
         )
-        
+
         output = self.llm.llm_completion_with_system_prompt(
             model=self.idea_generation_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
             reasoning_effort=self.reasoning_effort,
         )
-        
+
+        self._log_llm_reasoning(output, f"selection (top_k={top_k})")
         selected_node_ids = eval(re.findall(r'<output>(.*?)</output>', output, re.DOTALL)[0].strip())
         return [node for node in leaf_nodes if node.node_id in selected_node_ids]
 
@@ -422,16 +490,17 @@ class BenchmarkTreeSearch(SearchStrategy):
             f"Additional information: {context.additional_info} \n\n "
             f"Reliable knowledge base information: {context.kg_results} \n\n "
             f"Candidate Solutions for deletion:\n"
-            + "\n\n".join([f" id: {node.node_id}, solution: {node.solution}" for node in leaf_nodes])
+            + "\n\n".join([self._candidate_line(node) for node in leaf_nodes])
         )
-        
+
         output = self.llm.llm_completion_with_system_prompt(
             model=self.idea_generation_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
             reasoning_effort=self.reasoning_effort,
         )
-        
+
+        self._log_llm_reasoning(output, "pruning")
         selected_node_ids = eval(re.findall(r'<output>(.*?)</output>', output, re.DOTALL)[0].strip())
         
         for node in leaf_nodes:
@@ -493,6 +562,12 @@ class BenchmarkTreeSearch(SearchStrategy):
         if self.enforce_evaluation_integrity(node):
             self._evaluate_with_handler(node, node.solution)
             node.should_stop = self._check_handler_stop_condition()
+            if node.had_error and node.error_message:
+                # Surface recent failures to subsequent implement prompts
+                # (rendered via the `previous_errors` template variable).
+                self.previous_errors.append(
+                    f"[{branch_name}] {str(node.error_message)[:800]}"
+                )
         else:
             node.is_terminated = True
         
@@ -537,9 +612,9 @@ class BenchmarkTreeSearch(SearchStrategy):
         repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
         repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
 
-        # By default, agents can read the JSON file directly.
-        agent_type = getattr(getattr(self.workspace, "coding_agent_config", None), "agent_type", "")
-        if agent_type == "claude_code":
+        # Instructions must match the session's actual toolset: the MCP tool
+        # only exists when the session mounted the repo-memory gate.
+        if getattr(session, "repo_memory_mcp_mounted", False):
             repo_memory_detail_access_instructions = (
                 "For detailed section content (architecture, gotchas, invariants, etc.),\n"
                 "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
@@ -656,15 +731,11 @@ class BenchmarkTreeSearch(SearchStrategy):
         # Prepare run directory
         run_data_dir = os.path.join(self.workspace_dir, "kapso_evaluation")
         os.makedirs(run_data_dir, exist_ok=True)
-        
+
         # Call handler's run()
         try:
             print(f"[BenchmarkTreeSearch] Calling handler.run() for evaluation...")
-            result: ProblemRunResult = self.problem_handler.run(
-                file_path=self.workspace_dir,
-                run_data_dir=run_data_dir,
-                solution=solution,
-            )
+            result: ProblemRunResult = self._run_handler_on_candidate(node, solution, run_data_dir)
             
             # Map ProblemRunResult fields to SearchNode
             node.score = result.score
@@ -681,6 +752,36 @@ class BenchmarkTreeSearch(SearchStrategy):
             node.error_message = str(e)
         
         return node
+
+    def _run_handler_on_candidate(self, node: SearchNode, solution: str, run_data_dir: str):
+        """Run the handler against the candidate's committed code.
+
+        Experiment code is committed and pushed to the node's branch by the
+        session, but never checked out into the root working tree during the
+        search. Materialize the branch into a temporary worktree (same pattern
+        as enforce_evaluation_integrity) so `file_path` actually contains the
+        candidate's files. Falls back to the root workspace dir when the branch
+        ref is unavailable.
+        """
+        branch_name = getattr(node, "branch_name", None)
+        if branch_name:
+            try:
+                with self.workspace.materialize_ref(branch_name) as candidate_dir:
+                    return self.problem_handler.run(
+                        file_path=candidate_dir,
+                        run_data_dir=run_data_dir,
+                        solution=solution,
+                    )
+            except ValueError:
+                print(
+                    f"[BenchmarkTreeSearch] Branch {branch_name} not materializable, "
+                    "falling back to workspace dir"
+                )
+        return self.problem_handler.run(
+            file_path=self.workspace_dir,
+            run_data_dir=run_data_dir,
+            solution=solution,
+        )
 
     def _check_handler_stop_condition(self) -> bool:
         """
@@ -764,12 +865,34 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
 
 {output_requirements}
 """
-            solutions = self.llm.llm_completion_with_system_prompt(
-                model=self.idea_generation_model,
-                system_prompt="You are a world class problem solver generating solutions.",
-                user_message=user_message,
-                reasoning_effort=self.reasoning_effort,
-            )
+            # True ensemble: every configured ideation model proposes solutions
+            # for this step; the pooled set feeds the next refinement step and
+            # the final selection. A single-model ensemble behaves as before,
+            # and one provider failing does not abort the step.
+            ensemble = list(self.idea_generation_ensemble_models or []) or [
+                self.idea_generation_model
+            ]
+            pooled: List[str] = []
+            for ensemble_model in ensemble:
+                try:
+                    pooled.append(
+                        self.llm.llm_completion_with_system_prompt(
+                            model=ensemble_model,
+                            system_prompt="You are a world class problem solver generating solutions.",
+                            user_message=user_message,
+                            reasoning_effort=self.reasoning_effort,
+                        )
+                    )
+                except Exception as exc:
+                    print(
+                        f"[BenchmarkTreeSearch] ideation model {ensemble_model} failed "
+                        f"({type(exc).__name__}: {exc}); continuing with the rest"
+                    )
+            if not pooled:
+                raise RuntimeError(
+                    "All ideation ensemble models failed for this step"
+                )
+            solutions = "\n\n".join(pooled)
         
         solutions_list = re.findall(r'<solution>(.*?)</solution>', solutions, re.DOTALL)
 

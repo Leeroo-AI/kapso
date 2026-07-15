@@ -89,7 +89,8 @@
             "group": "Benchmarks",
             "pages": [
               "docs/benchmarks/mle-bench",
-              "docs/benchmarks/ale-bench"
+              "docs/benchmarks/ale-bench",
+              "docs/benchmarks/relbench"
             ]
           }
         ]

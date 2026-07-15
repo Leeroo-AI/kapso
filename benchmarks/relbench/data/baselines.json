@@ -1,0 +1,149 @@
+{
+  "_meta": {
+    "verified": "2026-07-14",
+    "method": "Extracted from primary sources (RelAgent arXiv:2605.07840v1 HTML; KumoRFM tech report PDF, kumo.ai, May 2025; official leaderboard HTML) and cross-checked: board cells equal paper values after rounding; NMAE divisors consistent across methods to 4 significant digits and verified against std(train) computed from the actual rel-f1/driver-position task table (7.0253).",
+    "conventions": {
+      "classification": "test AUROC in percent",
+      "regression": "test raw MAE in original target space; board NMAE = MAE / std(train targets)",
+      "recommendation": "test MAP@k in percent, official per-task k"
+    },
+    "train_std_divisors_nmae": {
+      "rel-f1/driver-position": 7.025,
+      "rel-avito/ad-ctr": 0.0957,
+      "rel-event/user-attendance": 0.7652,
+      "rel-trial/study-adverse": 339.1,
+      "rel-trial/site-success": 0.4758,
+      "rel-amazon/user-ltv": 57.5,
+      "rel-amazon/item-ltv": 590.8,
+      "rel-stack/post-votes": 0.5106,
+      "rel-hm/item-sales": 0.4955
+    }
+  },
+  "relagent": {
+    "full_name": "RelAgent (GPT-5.2 agent)",
+    "source": "arXiv:2605.07840v1 (2026-05-08), Tables 2/5 (main), 13/14 (val/test/std), 3/6/15 (v2)",
+    "regime": "task-specific",
+    "benchmark_versions": ["v1 (12 classification + 9 regression; NO recommendation)", "v2 subset (4 classification + 2 regression)", "4DBInfer (5 classification)"],
+    "protocol": "5 independent searches x <=60 agent turns per task; cross-rollout selection by best validation score; test score of the selected single program reported; std across the 5 searches in appendix. Models: GBDT variants only, L1 objective for regression, per-task log-transforms.",
+    "v1_classification_auroc_pct": {
+      "rel-f1/driver-dnf": {"test": 78.34, "val": 66.44, "std_5_searches": 3.72},
+      "rel-f1/driver-top3": {"test": 85.23, "val": 74.74, "std_5_searches": 6.89},
+      "rel-avito/user-clicks": {"test": 68.36, "val": 67.11, "std_5_searches": 1.69},
+      "rel-avito/user-visits": {"test": 67.79, "val": 71.29, "std_5_searches": 0.12},
+      "rel-event/user-repeat": {"test": 78.20, "val": 78.21, "std_5_searches": 2.94},
+      "rel-event/user-ignore": {"test": 87.25, "val": 76.66, "std_5_searches": 1.30},
+      "rel-trial/study-outcome": {"test": 71.86, "val": 66.19, "std_5_searches": 2.18},
+      "rel-amazon/user-churn": {"test": 70.78, "val": 70.65, "std_5_searches": 0.51},
+      "rel-amazon/item-churn": {"test": 82.84, "val": 82.39, "std_5_searches": 0.23},
+      "rel-stack/user-engagement": {"test": 90.41, "val": 90.33, "std_5_searches": 0.19},
+      "rel-stack/user-badge": {"test": 88.42, "val": 89.65, "std_5_searches": 1.27},
+      "rel-hm/user-churn": {"test": 71.07, "val": 71.50, "std_5_searches": 0.27},
+      "_average": 78.38
+    },
+    "v1_regression_mae": {
+      "rel-f1/driver-position": {"test": 4.019, "val": 3.598, "std_5_searches": 0.153, "board_nmae": 0.5720},
+      "rel-avito/ad-ctr": {"test": 0.033, "val": 0.030, "std_5_searches": 0.000, "board_nmae": 0.3449},
+      "rel-event/user-attendance": {"test": 0.241, "val": 0.238, "std_5_searches": 0.009, "board_nmae": 0.3150},
+      "rel-trial/study-adverse": {"test": 37.194, "val": 37.439, "std_5_searches": 3.553, "board_nmae": 0.1097},
+      "rel-trial/site-success": {"test": 0.386, "val": 0.400, "std_5_searches": 0.018, "board_nmae": 0.8112},
+      "rel-amazon/user-ltv": {"test": 13.949, "val": 11.771, "std_5_searches": 0.060, "board_nmae": 0.2426},
+      "rel-amazon/item-ltv": {"test": 41.765, "val": 36.370, "std_5_searches": 0.332, "board_nmae": 0.0707},
+      "rel-stack/post-votes": {"test": 0.064, "val": 0.058, "std_5_searches": 0.001, "board_nmae": 0.1254},
+      "rel-hm/item-sales": {"test": 0.035, "val": 0.043, "std_5_searches": 0.001, "board_nmae": 0.0707},
+      "_board_nmae_mean": 0.2958
+    },
+    "v2_subset": {
+      "rel-ratebeer/beer-churn": {"metric": "auroc_pct", "test_selected": 84.70, "mean_3_selections": 84.55, "std": 0.135},
+      "rel-ratebeer/user-churn": {"metric": "auroc_pct", "test_selected": 98.63, "mean_3_selections": 98.54, "std": 0.072},
+      "rel-ratebeer/brewer-dormant": {"metric": "auroc_pct", "test_selected": 83.33, "mean_3_selections": 83.01, "std": 0.239},
+      "rel-arxiv/paper-citation": {"metric": "auroc_pct", "test_selected": 82.62, "mean_3_selections": 82.59, "std": 0.031},
+      "rel-ratebeer/user-count": {"metric": "mae", "test_selected": 6.021, "val": 4.367, "std_5_searches": 0.107, "note": "v2 paper reports this task in R2 - not interconvertible"},
+      "rel-arxiv/author-publication": {"metric": "mae", "test_selected": 0.462, "val": 0.420, "std_5_searches": 0.016, "note": "v2 paper reports this task in R2 - not interconvertible"}
+    }
+  },
+  "kumorfm_fine_tuned": {
+    "full_name": "KumoRFM (fine-tuned)",
+    "source": "KumoRFM technical report (kumo.ai, May 2025), Tables 2/3/4",
+    "regime": "task-specific (fine-tuned per dataset+task following the RDL blueprint on a pre-generated training table; recommendation fine-tuning is transductive with shallow embeddings)",
+    "benchmark_versions": ["v1 only (12 classification + 9 regression + 9 recommendation); v2 postdates the report"],
+    "protocol": "Single reported value per task; no seeds or variance disclosed.",
+    "v1_classification_auroc_pct": {
+      "rel-amazon/user-churn": 70.47, "rel-amazon/item-churn": 82.83,
+      "rel-avito/user-visits": 78.30, "rel-avito/user-clicks": 66.83,
+      "rel-event/user-repeat": 80.64, "rel-event/user-ignore": 89.43,
+      "rel-f1/driver-dnf": 82.63, "rel-f1/driver-top3": 99.62,
+      "rel-hm/user-churn": 71.23, "rel-stack/user-engagement": 90.70,
+      "rel-stack/user-badge": 89.86, "rel-trial/study-outcome": 71.16,
+      "_average": 81.14
+    },
+    "v1_regression_mae": {
+      "rel-amazon/user-ltv": {"test": 14.226, "board_nmae": 0.2474},
+      "rel-amazon/item-ltv": {"test": 48.670, "board_nmae": 0.0824},
+      "rel-avito/ad-ctr": {"test": 0.034, "board_nmae": 0.3554},
+      "rel-event/user-attendance": {"test": 0.238, "board_nmae": 0.3110},
+      "rel-f1/driver-position": {"test": 2.731, "board_nmae": 0.3887},
+      "rel-hm/item-sales": {"test": 0.034, "board_nmae": 0.0686},
+      "rel-stack/post-votes": {"test": 0.065, "board_nmae": 0.1273},
+      "rel-trial/study-adverse": {"test": 44.225, "board_nmae": 0.1304},
+      "rel-trial/site-success": {"test": 0.301, "board_nmae": 0.6325},
+      "_board_nmae_mean": 0.2604
+    },
+    "v1_recommendation_map_pct": {
+      "rel-amazon/user-item-purchase": 2.93, "rel-amazon/user-item-rate": 2.25,
+      "rel-amazon/user-item-review": 1.63, "rel-avito/user-ad-visit": 4.17,
+      "rel-hm/user-item-purchase": 3.14, "rel-stack/user-post-comment": 13.34,
+      "rel-stack/post-post-related": 12.21, "rel-trial/condition-sponsor-run": 11.65,
+      "rel-trial/site-sponsor-run": 28.02,
+      "_average": 8.82
+    }
+  },
+  "kumorfm_in_context": {
+    "full_name": "KumoRFM (in-context)",
+    "source": "KumoRFM technical report (kumo.ai, May 2025), Tables 2/3/4",
+    "regime": "zero-shot (no training on the task or dataset; in-context examples with historical context only)",
+    "v1_classification_auroc_pct": {
+      "rel-amazon/user-churn": 67.29, "rel-amazon/item-churn": 79.93,
+      "rel-avito/user-visits": 64.85, "rel-avito/user-clicks": 64.11,
+      "rel-event/user-repeat": 76.08, "rel-event/user-ignore": 89.20,
+      "rel-f1/driver-dnf": 82.41, "rel-f1/driver-top3": 91.07,
+      "rel-hm/user-churn": 67.71, "rel-stack/user-engagement": 87.09,
+      "rel-stack/user-badge": 80.00, "rel-trial/study-outcome": 70.79,
+      "_average": 76.71
+    },
+    "v1_regression_mae": {
+      "rel-amazon/user-ltv": 16.161, "rel-amazon/item-ltv": 55.254,
+      "rel-avito/ad-ctr": 0.035, "rel-event/user-attendance": 0.264,
+      "rel-f1/driver-position": 2.747, "rel-hm/item-sales": 0.040,
+      "rel-stack/post-votes": 0.065, "rel-trial/study-adverse": 58.231,
+      "rel-trial/site-success": 0.417
+    },
+    "v1_recommendation_map_pct": {
+      "rel-amazon/user-item-purchase": 1.72, "rel-amazon/user-item-rate": 1.14,
+      "rel-amazon/user-item-review": 0.22, "rel-avito/user-ad-visit": 4.02,
+      "rel-hm/user-item-purchase": 2.73, "rel-stack/user-post-comment": 11.83,
+      "rel-stack/post-post-related": 11.80, "rel-trial/condition-sponsor-run": 11.29,
+      "rel-trial/site-sponsor-run": 20.83,
+      "_average": 7.29
+    },
+    "note": "The 'KumoRFM-v1' rows in RelAgent's paper are THIS regime (verified numerically), not fine-tuned."
+  },
+  "rdl_graphsage_reference": {
+    "source": "Consistent across RelAgent Table 2/5 and KumoRFM report Tables 2/3",
+    "v1_classification_auroc_pct": {
+      "rel-f1/driver-dnf": 72.62, "rel-f1/driver-top3": 75.54,
+      "rel-avito/user-clicks": 65.90, "rel-avito/user-visits": 66.20,
+      "rel-event/user-repeat": 76.89, "rel-event/user-ignore": 81.62,
+      "rel-trial/study-outcome": 68.60, "rel-amazon/user-churn": 70.42,
+      "rel-amazon/item-churn": 82.81, "rel-stack/user-engagement": 90.59,
+      "rel-stack/user-badge": 88.86, "rel-hm/user-churn": 69.88,
+      "_average": 75.83
+    },
+    "v1_regression_mae": {
+      "rel-amazon/user-ltv": 14.313, "rel-amazon/item-ltv": 50.053,
+      "rel-avito/ad-ctr": 0.041, "rel-event/user-attendance": 0.258,
+      "rel-f1/driver-position": 4.022, "rel-hm/item-sales": 0.056,
+      "rel-stack/post-votes": 0.065, "rel-trial/study-adverse": 44.473,
+      "rel-trial/site-success": 0.400
+    }
+  }
+}
