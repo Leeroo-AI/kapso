@@ -22,8 +22,71 @@ issues), findings recorded here with evidence and severity.
 
 ## Findings
 
-(populated as the run progresses)
+### Segment 1 (t+0–10 min, boot → ensemble → selector → implementation start)
+
+**R8-F1 (major, ensemble) — codex member contributed 1 blank-template
+candidate; pool was 3/4.** `pooled 3 candidates from 2 members`; selector:
+"Candidate 1 is an unfilled template — no content, immediate
+disqualification." Claude member's 2 solutions are fully present, so codex
+emitted exactly one skeleton. Correction to the reviewer's inference: the
+degeneracy filter DOES exist (80-char floor + dedup, d535443c) — a
+format-skeleton candidate (~300 chars of headers/placeholders) legally
+passes it. With --output-last-message in play, the skeleton was the model's
+own final message, not a prompt echo. Proposed fixes (src/kapso, awaiting
+approval): placeholder-aware degeneracy check (strip `#` headers and
+`[...]` placeholders; require ≥40 chars of real content) + a warning when
+a member returns fewer candidates than instructed.
+
+**R8-F2 (major, observability) — the codex member is invisible in the
+trace.** One log line total ("member starting"); no duration, no cost, no
+candidate count — the claude member logs a full banner
+(366.0s, $0.8120, 17 tools). Root-causing R8-F1 from the trace alone is
+impossible. Proposed fix (src/kapso, awaiting approval): per-member
+completion line (label, duration, timed_out, candidates, bytes) at pool
+time.
+
+**R8-F3 (minor, kapso-wide) — declared ideation toolset ≠ actual.** Log
+says `Ideation tools: ['Read', mcp__…]` but the session initialized with
+31 tools and used Bash + ToolSearch freely (read-only research — used
+WELL: HF gating checks, version verification). `--allowedTools` is a
+pre-approval list, not a restriction, under skip-permissions. Mitigation
+already in place: ideation runs in a DETACHED materialized worktree, so
+mutations can't propagate. Backlog: enforce via --disallowedTools or
+relabel the log line.
+
+**R8-F4 (resolved, not an issue) — "prior-run insights" provenance.** The
+reviewer flagged candidates citing "prior-run insights" never retrieved
+via tools as possible fabricated provenance. They are real: the handler
+injects a PRIOR_RUN_INSIGHTS block (paper-derived) into the problem
+context. Provenance is legitimate.
+
+**R8-F5 (minor) — HF datasets-server API returned 500** when the ideation
+member tried to count eval samples; it proceeded without the count.
+Transient external; plans assume `--limit 200` unverified. Watch item.
+
+**R8-F6 (pass) — quality signals.** Selector independently re-verified
+load-bearing claims with its own tool calls (template reading confirmed
+correct by the reviewer), rejected the blank, and synthesized: candidate
+2's SFT plan + candidate 3's reward stage demoted to a gated
+rejection-sampling phase — better than either input ($0.19, 89s).
+Contamination discipline explicit and correct ("read logs only, never
+BFCL data itself"). Plan-vs-clock arithmetic sound (Phase 1 sized ~3h of
+a 300-min session, 50-step throughput probe before committing, nohup+PID
++≤5-min polls specified). Ensemble ideation total: ~6 min, ~$1.01.
+
+**R8-F7 (watch) — PLAN.md not yet written** at segment end (~2 min into
+implementation, still in recon). Confirm in segment 2 it lands before real
+work.
+
+**Log-quality backlog (info):** ~12% of trace is contentless
+`[system:thinking_tokens]` lines; empty `rate_limit_event:` payloads;
+duplicate "MCP config written" line; Bash command display truncated ~90
+chars (hampers audit).
 
 ## Suggestions backlog
 
-(populated as the run progresses)
+**S1 (needs approval, src/kapso):** placeholder-aware candidate degeneracy
+filter + under-count warning (R8-F1). **S2 (needs approval, src/kapso):**
+per-member ensemble telemetry line (R8-F2). **S3:** enforce or relabel
+ideation tool restriction (R8-F3). **S4:** trace log polish batch
+(thinking-token collapse, full command text, rate-limit payloads).
