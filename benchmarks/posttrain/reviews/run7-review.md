@@ -1,5 +1,13 @@
 # Run #7 review log — gsm8k × Qwen3-1.7B-Base, 3h, flex-start
 
+**OFFICIAL RESULT: 53.37% ± 1.37 accuracy, full 1319-problem GSM8K test set**
+(rescored via 40_eval_only.sh after fixing F10; the agent's in-run estimate
+was 58% on a subsample). Reference points: base model ≈10-20%; the public
+leaderboard's GSM8K column across 10-HOUR runs tops out at 55.9 (GPT-5.2)
+with Opus 4.6/Claude Code at 41.0 — those cells average 4 base models, so
+not exactly comparable, but a 3-hour kapso run landing at 53.4 on its first
+functional attempt is a strong signal.
+
 Live review of the kapso loop under the newly applied fixes. Monitored every
 10 minutes; each finding records evidence (trace/checkpoint), severity, and a
 suggestion. Written as the run progresses.
