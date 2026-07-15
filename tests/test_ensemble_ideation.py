@@ -316,8 +316,9 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
     assert output == "<solution>from codex</solution>"
     assert timed_out is False
     assert duration >= 0
-    assert captured["cmd"][:5] == [
-        "codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check",
+    assert captured["cmd"][:6] == [
+        "codex", "--search", "exec", "--sandbox", "read-only",
+        "--skip-git-repo-check",
     ]
     assert "--output-last-message" in captured["cmd"]
     assert "gpt-5.6-sol" in captured["cmd"]

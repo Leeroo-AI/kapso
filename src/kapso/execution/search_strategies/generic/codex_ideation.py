@@ -49,8 +49,11 @@ def run_codex_ideation(
         prefix="codex_ideation_", suffix=".last"
     )
     os.close(last_fd)
+    # --search (global flag, pre-subcommand): ideation members research the
+    # web like their Claude counterparts; without it codex ideates blind.
     cmd = [
         "codex",
+        "--search",
         "exec",
         "--sandbox",
         "read-only",
