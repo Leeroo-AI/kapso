@@ -858,6 +858,14 @@ Problem: {problem}"""
                 duration_seconds=duration,
             )
         )
+        if self.record_eval_duration is not None:
+            # Feed the measured duration back into the timing model: real
+            # full-scale runs replace calibration extrapolation (samples
+            # persist in the registry; the provider-backed policy sees the
+            # tightened upper immediately).
+            self.record_eval_duration(
+                fraction=fraction, duration_seconds=duration
+            )
         return score
 
     def _run_validate(self, decision: FidelityDecision) -> SearchNode:

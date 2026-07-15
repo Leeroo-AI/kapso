@@ -123,6 +123,11 @@ def test_setup_runs_once_and_is_budgeted(tmp_path, monkeypatch):
     registered = orchestrator.search_strategy.registered_evaluation
     assert "kapso_eval.py" in " ".join(registered["manifest"])
     assert "--fidelity full" in registered["command"]
+    # Frame runs report durations straight into the maintainer's timing
+    # model; adoption wires the callback.
+    assert orchestrator.search_strategy.record_eval_duration == (
+        orchestrator.evaluation_maintainer.record_run
+    )
     checkpoint = RunCheckpointStore(str(workspace)).load()
     assert checkpoint.cost_by_component["evaluation_maintenance"] == 0.25
 
