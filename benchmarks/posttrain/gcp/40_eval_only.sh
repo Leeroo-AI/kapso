@@ -63,9 +63,10 @@ cd /opt/ptb
 
 MODEL_DIR=/opt/ptb/rescore_final_model
 mkdir -p "$MODEL_DIR"
-SRC=$(gsutil ls -d "gs://$BUCKET/results/$RUN_ID/results/**/final_model/" | head -1)
-[ -n "$SRC" ] || { echo "no final_model found for $RUN_ID"; exit 1; }
-gsutil -m rsync -r "$SRC" "$MODEL_DIR"
+# gsutil's ** only matches OBJECTS; anchor on config.json and take its dir.
+ANCHOR=$(gsutil ls "gs://$BUCKET/results/$RUN_ID/results/**/final_model/config.json" | head -1)
+[ -n "$ANCHOR" ] || { echo "no final_model found for $RUN_ID"; exit 1; }
+gsutil -m rsync -r "${ANCHOR%config.json}" "$MODEL_DIR"
 
 SIF=/mnt/hfcache/containers/vllm_debug.sif
 [ -f "$SIF" ] || { gsutil cp "gs://$BUCKET/assets/vllm_debug.sif" /opt/vllm_debug.sif; SIF=/opt/vllm_debug.sif; }
