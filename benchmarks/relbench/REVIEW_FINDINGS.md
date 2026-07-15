@@ -69,6 +69,25 @@ Runs reviewed:
    ("root" / "child of <branch>, parent score X" / "child of unscored node
    N"); unit tests cover the three cases, prompt content, and id parsing.
 
+9. **Repo memory: writes fine — the READ path is mis-wired (investigated
+   2026-07-15 on user report).** Suspected credential failure ruled out:
+   every R2/R3 experiment branch carries its "chore(kapso): update repo
+   memory" commit, zero failure warnings, file grew 3.6KB baseline -> 52KB
+   with all 7 book sections populated (gpt-5.6-luna via OPENAI key working;
+   the R1 temperature=0 breakage stayed fixed). What made it look unwritten:
+   (a) the workspace's main branch never gets update commits (by design —
+   updates land on experiment branches at session close); (b) every session
+   logs "RepoMemory sections consulted: none". Root cause of (b): the
+   implement prompt's claude_code branch advertises the MCP tool
+   `get_repo_memory_section(...)`, but the benchmark path never mounts any
+   MCP server (no mcp_servers in config; zero mcp__ calls in logs) — the
+   advertised tool does not exist, the JSON fallback was used once in all of
+   R3, and the consulted-sections extractor only detects MCP usage. The
+   2.5KB summary+TOC is still injected into every implement prompt, so the
+   memory is not inert — but detail access is dead and unobservable.
+   Proposed: gate the MCP instruction on MCP actually being configured.
+   Core change — needs written-proposal approval. Status: OPEN.
+
 ## R2 outcome (for the record)
 
 3/3 iterations completed, all scored, zero contract violations, clean audit.
