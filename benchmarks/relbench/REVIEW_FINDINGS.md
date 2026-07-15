@@ -90,8 +90,17 @@ Runs reviewed:
    session's own clone for MCP-capable agents (REPO_MEMORY_ROOT = session
    folder; generic-path sessions with their own gate set pass through
    untouched), and the implement prompt selects MCP vs JSON-file
-   instructions from the session's actual mount state. Live verification:
-   see V1 below.
+   instructions from the session's actual mount state. Live verification
+   (V1, 2026-07-15, 2-iter FAST_DEBUG on driver-circuit-compete): wiring
+   proven at every layer — per-session mcp_config.json written, --mcp-config
+   + all three mcp__gated-knowledge__ tools on the live CLI cmdline, server
+   starts clean with the configured env. Note: the adapter's "[init]
+   tools=N" count excludes MCP tools (red herring). Behavioral outcome:
+   zero tool calls in this run — with wiring proven, non-usage is now a
+   content/emphasis signal (the 2.5KB summary+TOC already in the prompt
+   evidently sufficed for a 27-row ranking task), cleanly separated from
+   the wiring question for the first time. Run itself: 2/2 scored (val MAP
+   0.6938/0.6964), test MAP 0.8634, clean audit.
    Cross-track: PostTrainBench run7 review F4 reports the same marker
    ("sections consulted: []") but attributes it to dead litellm
    side-channels under OAuth-only auth (their writes genuinely fail — the
