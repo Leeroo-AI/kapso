@@ -27,14 +27,17 @@ modes:
       type: "generic"
       params:
         # Overridden at runtime by `expert-posttrain --coding-model` (which
-        # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-6).
-        idea_generation_model: "claude-opus-4-6"
-        implementation_model: "claude-opus-4-6"
+        # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-8).
+        idea_generation_model: "claude-opus-4-8"
+        implementation_model: "claude-opus-4-8"
         auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
         # A single H100 and a hard deadline: never abort the campaign because a
         # knowledge gate backend (weaviate/neo4j/leeroopedia) is unreachable.
         gate_failure_policy: "skip"
         parent_policy: "best"
+        # xhigh for both agent sessions (ideation + implementation), matching
+        # the relbench production mode; plumbed via generic-strategy `effort`.
+        effort: "xhigh"
         ideation_timeout: 1800
         # One experiment = write pipeline + train + evaluate. Multi-hour.
         implementation_timeout: 18000
@@ -79,19 +82,21 @@ modes:
 
     coding_agent:
       type: "claude_code"
-      model: "claude-opus-4-6"
-      debug_model: "claude-opus-4-6"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
       agent_specific:
         auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        effort: "xhigh"
         streaming: true
         timeout: 18000
 
     feedback_generator:
       type: "claude_code"
-      model: "claude-opus-4-6"
-      debug_model: "claude-opus-4-6"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
       agent_specific:
         auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        effort: "xhigh"
         streaming: true
         timeout: 900
 

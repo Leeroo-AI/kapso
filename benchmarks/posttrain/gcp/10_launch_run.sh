@@ -19,7 +19,7 @@ MODEL="${2:?missing model (e.g. Qwen/Qwen3-4B-Base)}"
 shift 2
 
 HOURS=10
-AGENT_CONFIG="claude-opus-4-6"
+AGENT_CONFIG="claude-opus-4-8"
 SPOT=0
 # 10h agent + eval retries + contamination judge + uploads, with margin.
 MAX_RUN_DURATION="18h"

@@ -123,6 +123,8 @@ class GenericSearch(SearchStrategy):
         - implementation_timeout: Timeout for implementation in seconds (default: 600)
         - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
           (default: warn)
+        - effort: Optional reasoning effort for both agent sessions
+          (low|medium|high|xhigh); None keeps the CLI default
         - parent_policy: Parent branch selection: best or baseline (default: best).
           Under `best`, before any validly evaluated node exists, the latest
           committed non-error, non-tampered node is used so in-progress work
@@ -153,6 +155,9 @@ class GenericSearch(SearchStrategy):
             self._claude_auth_settings = {"auth_mode": "bedrock"}
         self.aws_region = self.params.get("aws_region", "us-east-1")
         self.ideation_timeout = self.params.get("ideation_timeout", 300)
+        # Optional reasoning-effort for BOTH agent sessions (ideation and
+        # implementation); None keeps the CLI's default.
+        self.session_effort = self.params.get("effort")
         # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
         self.ideation_gates = self.params.get("ideation_gates", ["research", "experiment_history", "repo_memory", "leeroopedia"])
         
@@ -409,6 +414,7 @@ class GenericSearch(SearchStrategy):
                     "timeout": self._clamped_timeout(self.ideation_timeout),
                     "streaming": True,
                     "planning_mode": False,
+                    "effort": self.session_effort,
                 },
             )
 
@@ -628,6 +634,7 @@ Problem: {problem}"""
                 "allowed_tools": implementation_allowed_tools,
                 "timeout": self._clamped_timeout(self.implementation_timeout),
                 "streaming": True,
+                "effort": self.session_effort,
             }
         )
         
