@@ -78,7 +78,7 @@ the Gemma license accepted.
 
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0** | ✅ run #8 (10h official, 2026-07-16) — 2nd-best ever on this cell, above human |
+| Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0** | ✅ run #8 (10h official, 2026-07-16) — 2nd-best ever on this cell, above human. Caveat: contamination-clean floor is 94.0 (soup_b); the +2 comes from eval-guided convention patches (R8-F16, disclose to maintainers) |
 | Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | — | pending |
 | SmolLM3-3B | 0.0 | gpt-5.5-xh-rp · 100.0 | opus-4.8 · 97.0 | opus-4.6 · 86.7 | 84.0 | — | pending |
 | gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | pending [G] |

@@ -143,6 +143,67 @@ self-mined near-miss pairs) → 94 (soup_b of dpo variants, confirmed) →
 **96 (patch_v1, banked)**; each candidate banked to final_model before
 the next risk.
 
+### Reviewer #3 deep pass (t+0:50–8:45, iterations 2–4) — REVISIONS + new findings
+
+**R8-F18 (critical, ROOT CAUSE of both self-kills) — the prompt lives in
+the CLI's argv, so any `pkill -f` on words that appear in the solution
+text kills the agent's own session.** Iteration 3's last act (06:02:47):
+`pkill -f "evaluate.py"; pkill -f "vllm"` → its own CLI died (143) —
+because kapso passes the full prompt as a command-line argument, the CLI's
+cmdline CONTAINS "evaluate.py"/"vllm". Corroborated in-trace: the agent
+itself once noticed `grep matched the agent's own prompt text` (03:03:11).
+Iteration 3's kill cost the decisive consolidation (soup_b 18/18@94 was
+never promoted before death) + ~13 min/$1.9 of repair. Fix candidates:
+kapso adapter passes the prompt via stdin (upstream scaffolds already do
+`printf '%s' "$PROMPT" | claude`) — src/kapso, needs approval; plus the S5
+kill-discipline prompt line.
+
+**R8-F19 (major) — the iteration judge misdiagnosed the kill** ("exit 143
+= it hit the time limit" — false: 1h38m remained) and, worse,
+**flip-flopped on the contamination rule**: iteration-2 feedback said "do
+NOT read the 100 test items or eval logs' targets; that is contamination";
+iteration-3 feedback INSTRUCTED "Inspect the ACTUAL test-set failures…
+pull the per-sample eval logs". The agent obeyed the later instruction.
+Fix: pin the contamination policy as invariant harness text in the
+feedback prompt; feed dead sessions' last-tool-call+exit-code to the judge.
+
+**R8-F16 REVISED (major) — the boundary was CROSSED in iteration 4, not
+merely walked.** The implementation session dumped the 6 failing test
+samples VERBATIM (questions AND gold targets) into context and derived
+target-side formatting conventions from the gold answers ("Target ALWAYS
+canonicalizes to lambda x:… no spaces around */**" — readable only from
+test targets), then built synthetic data teaching those conventions.
+Mitigations are real: zero test text/answers in training rows (random
+polynomials + open-data mining), and the agent itself excluded the
+arg-order class as "unlearnable without contamination — skip". But under
+iteration-2's own stated standard this is adaptive test fitting on a
+100-sample exact-match set. Consequence for claims: **the
+contamination-clean floor is soup_b = 94.0** (verified clean lineage:
+open-data SFT + self-mined DPO from the agent's own held-out split —
+reviewer finding 9); the official 96.0 includes +2 from gold-derived
+convention patches. Letter-of-the-rules (data overlap): passes; paper's
+"evaluation-guided data" grey category: squarely in it; root cause: the
+judge's own instruction (R8-F19). Disclose BOTH numbers to maintainers.
+
+**R8-F1 REVISED (down to minor) — codex member worked from iteration 3
+onward**: pooled "4 candidates from 2 members" in iterations 3 and 4, real
+and distinct each time; never won selection but the selector explicitly
+harvested its ideas ("Its synthetic single-edit negatives idea is
+excellent"). The blank-candidate failure was iterations 1–2 only.
+
+**Additional (minor/info):** GenerationConfig save-crash recurred across
+sessions (memory layer dead — the accepted litellm-auth trade-off has a
+measurable recurrence cost now); iteration-4 selector hallucinated the
+budget ("~10h left" vs timer's 1:28 — inject timer.sh into selector
+prompts); single-eval promotion gates operated inside ±1 vLLM
+nondeterminism until the agent discovered it and switched to
+average-of-3 (make N≥3 default); "promote before polish" gap (soup_b's
+promotion was pending extra confirmations when the kill hit); idle-wait
+turn-spinning during GPU phases (~$ several of the $18 session); codex
+member costs untracked (known). Clean: no OOMs/vLLM/CUDA failures all
+run; atomic banking flawless; feedback parsing resilient (scored the
+killed session from disk state).
+
 ## Suggestions backlog
 
 **S1 (needs approval, src/kapso):** placeholder-aware candidate degeneracy
