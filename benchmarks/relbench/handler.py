@@ -135,6 +135,20 @@ class RelBenchHandler(ProblemHandler):
         # were loaded from the pristine cache above and are lru-cached in
         # memory.
         os.environ["RELBENCH_CACHE_DIR"] = str(self.sanitized_cache_dir)
+        # The generic-search provided grader (data/generic_eval/grader.py)
+        # runs inside coding-agent sessions and reads its configuration from
+        # the environment — export the full contract at startup.
+        os.environ.update(
+            {
+                "RELBENCH_DATASET": self.dataset_name,
+                "RELBENCH_TASK": self.task_name,
+                "RELBENCH_PRIMARY_METRIC": self.spec.primary_metric,
+                "RELBENCH_WORK_DIR": str(self.work_dir),
+                "RELBENCH_FULL_TIMEOUT": str(self.full_timeout),
+                "RELBENCH_DEBUG_TIMEOUT": str(self.debug_timeout),
+                "KAPSO_SHARED_CACHE_DIR": str(self.shared_cache_dir),
+            }
+        )
         # Coding-agent sessions run `python` from PATH; make sure that
         # resolves to this interpreter's env (which has relbench + the
         # modeling stack) rather than whatever the login profile puts first.
@@ -183,6 +197,18 @@ class RelBenchHandler(ProblemHandler):
             return {"error": "no successful runs archived"}
 
         val_primary, run_dir, metrics = best
+        if not metrics.get("test"):
+            # Generic-search archives carry val only (the in-loop grader runs
+            # against the sanitized cache and cannot score test). Compute the
+            # selected run's test metrics here, exactly once, from its
+            # archived predictions.
+            test_pred = np.load(run_dir / "test_predictions.npy", allow_pickle=False)
+            metrics["test"] = {
+                k: float(v) for k, v in self.task.evaluate(test_pred).items()
+            }
+            (run_dir / "private" / "metrics.json").write_text(
+                json.dumps(metrics, indent=2)
+            )
         audit = self._audit_code(run_dir / "code")
         report = {
             "dataset": self.dataset_name,
