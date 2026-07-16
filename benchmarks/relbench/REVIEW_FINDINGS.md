@@ -122,6 +122,46 @@ Runs reviewed:
    a runnable candidate and parent_policy=best a legitimate first parent.
    Status: FIXED; re-shakedown pending.
 
+11. **Generic archives are not 1:1 with nodes (R4, minor).** The provided
+   grader archives every full-fidelity invocation; the iteration-1 agent ran
+   the registered evaluation twice, producing duplicate archives
+   (run_0003/run_0004, identical val 0.7585). Harmless for selection
+   (best-by-val) and claims, but inflates archive counts; a dedup by
+   prediction hash in the grader would tidy it. Status: NOTED.
+
+## R4 live review — generic-mode shakedown (2026-07-16, in progress)
+
+rel-f1/driver-circuit-compete, RELBENCH_GENERIC, 2 iterations, first run on
+the experiment OAuth token. Reviewer observations at iteration-2 midpoint:
+
+- **Registration/calibration**: maintainer authored the delegating
+  kapso_eval.py (228s, $0.95), calibration passed on the seeded baseline
+  (finding 10 fix verified live). No immutability violations by any session.
+- **Score-of-record mechanics**: manifest parsed at the strategy layer;
+  official val 0.7585 recorded; archives land val-only (in-loop grader
+  physically cannot score test — quarantine-by-construction confirmed).
+- **Knowledge channels ALIVE — the headline contrast with the tree path**:
+  30 MCP gate calls in two iterations (9x get_repo_memory_section, 4x
+  summaries/listings, 13x experiment-history queries incl. semantic
+  search). The tree path made zero such calls across three full runs.
+- **The pull-model loop works end to end**: feedback generator read the
+  champion's code and root-caused a real defect (additive-dominance
+  M_REPEAT=1e6 renders survival term inert); iteration-2 ideation quoted
+  that feedback verbatim and proposed the targeted fix. This is the
+  mechanism finding 8 could only approximate with lineage annotations.
+- **Quality signal**: iteration 1 official val MAP 0.7585 — above the tree
+  strategy's best-ever on this task (0.7314) in ONE iteration; its
+  debug-mode self-estimate (0.758) matched the official score, i.e. the
+  agent's internal measurement discipline is calibrated.
+- **Cost profile as predicted**: ~$12-13/iteration (ideation $1.4-2.6 +
+  implementation ~$8.9 + feedback $0.6) vs ~$1.5-2 tree FAST_DEBUG — the
+  breadth-vs-depth economics are real; deploy generic where per-step
+  quality pays (escalations).
+- Iteration 2 midpoint: replacement scoring initially regressed
+  (~0.71-0.72), agent self-diagnosing and pulling back toward the
+  champion's career-frequency ingredient — parent_policy=best protects the
+  0.7585 champion regardless of iteration-2's outcome.
+
 ## R2 outcome (for the record)
 
 3/3 iterations completed, all scored, zero contract violations, clean audit.
