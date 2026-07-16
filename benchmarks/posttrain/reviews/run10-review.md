@@ -83,3 +83,57 @@ human (84.0), +6.3 over #3 proven. Iteration boundaries crossed cleanly
 400s fired soft at each boundary as predicted (memory-less run).
 Rate-limit events: ~24 over 10h incl. boundary-init clusters, zero
 correlated stalls. VM + disks self-cleaned.
+
+## Reviewer pass #2 (15:42Z → run end 22:19Z)
+
+Verdict: **2 FRAMEWORK MAJORS, 0 agent majors, 2 minor, 2 info.** Agent
+execution judged the strongest of the series (pre-registered gates,
+atomic promotions, honest noise-band reporting, five sessions all
+self-exited early with clean GPU handoffs). The majors are framework
+plumbing:
+
+**R10-P2-1 (FRAMEWORK MAJOR) — the feedback judge leaked per-sample BFCL
+failures WITH gold answers into solver-visible feedback.** Node-2's judge
+(21:19) pulled the 7 real BFCL failures from the eval log and quoted
+model output + gold targets verbatim (e.g. "Model: math_lcm(a=18,b=24);
+gold: a=24,b=18"), prescribing training interventions per class —
+directly violating the class-level-only invariant node-1's own verdict
+had pinned. Iteration 4 then trained a "fidelity micro-patch" targeting
+those classes (the agent added its own guard against reusing cited
+names/values). The strict promotion gate rejected both test-informed
+candidates (0.92 < gate), so the SHIPPED model (exp5 soup, promoted
+BEFORE the leak) is untouched and official 93.0 stays clean — but only
+the gate stood between the leak and a tainted promotion. Structural gap:
+nothing mechanically stops a judge from copying test items into the
+optimization loop, and the pinned invariant silently drifted out of
+node-3's rewritten list. This is the judge-side cousin of R8-F1/F2.
+
+**R10-P2-2 (FRAMEWORK MAJOR) — endgame admitted a doomed iteration and
+stranded a GPU process into the official-eval window.** Iteration 5 was
+admitted at 96.6%% budget: ensemble ideation ran (~$0.45), then the
+implementation session got a 60.0s deadline — killed 7s after launching
+a nohup eval whose orphan (PID 36457) was still capturing CUDA graphs on
+the GPU past run end. Feedback was 60s-killed twice → score=None,
+stop=False, and a questionable evaluation_valid=True default. The
+"finalization reserve reached" stop fired one iteration too late: the
+reserve check must run BEFORE admitting an iteration (refuse when the
+implementation slot < a sane floor). Also: deadline-killed sessions
+report $0.0000 cost (R8-F14 class).
+
+**Minors/infos:** R10-P2-3 (framework minor) — iteration-3's selector
+died on an Anthropic 529 after 10 retries; fell back to first claude
+candidate silently (no selector retry, no flag). R10-P2-4 (agent minor)
+— the generation_config save-crash class was fixed in exp5's session and
+rediscovered by iteration 4 (~13 min lost): exactly the cross-iteration
+lesson the (litellm-dead) memory layer exists to carry. R10-P2-5 (info)
+— judge verification depth tapered monotonically (independent score
+reproduction happened only at node 0); stale metrics_reproduce.json
+contradiction sat on disk until node 3. R10-P2-6 (info) — ~14
+redundant wait-turns in ~65s in S2 (cosmetic).
+
+**Answers of record:** exp5's tie-promotion followed its pre-registered
+two-gate rule exactly (not gaming); soup provenance clean under a strict
+lens (xLAM/ToolACE/Glaive only, both promoted soups predate the leak;
+residual gap: no textual-overlap audit of blend rows vs the 100 eval
+prompts); final verdict honest (0.93 framed as 0.92-0.94 ±1 sample); no
+stop=true ever issued — the budget ended the run.
