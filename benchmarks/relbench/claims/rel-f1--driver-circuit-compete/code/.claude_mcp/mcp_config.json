@@ -11,7 +11,7 @@
         "PYTHONPATH": "/home/ubuntu/kapso/.claude/worktrees/relbench/src",
         "MCP_ENABLED_GATES": "repo_memory",
         "MCP_GATE_FAILURE_POLICY": "error",
-        "REPO_MEMORY_ROOT": "tmp/search_strategy_workspace/cdcaf1b3-9a19-4393-b2ad-82368233b8c3/sessions/experiment_1"
+        "REPO_MEMORY_ROOT": "tmp/search_strategy_workspace/8ca5c60d-d7cf-4dc7-854d-50b1d50e712c/sessions/generic_exp_0"
       }
     }
   }

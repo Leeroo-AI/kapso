@@ -23,7 +23,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | rel-event/user-attendance | reg | 0.0303 (RT-ft) | 0.315 | 0.311 | — | — | CPU-ok | 2h | · pending |
-| 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | 86.3 | ✅ beats best-known | CPU-ok | 2h | ✅ done |
+| 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | 82.9 | ✅ beats best-known | CPU-ok | 2h | ✅ done |
 | 3 | rel-f1/results-position | AC-reg | 0.528 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
 | 4 | rel-f1/qualifying-position | AC-reg | 0.239 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
 | 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.538 | below best-known | CPU-ok | 2h | ✅ done |
@@ -97,4 +97,4 @@ Each claimed cell's evidence is copied from the box-local run archive into `benc
 
 | Task | Run | Evidence dir | val preds sha256 | test preds sha256 |
 |---|---|---|---|---|
-| rel-f1/driver-circuit-compete | run_0002 | `benchmarks/relbench/claims/rel-f1--driver-circuit-compete/` | `57fd5c25d36b42da` | `f4bb11e11b0e0c31` |
+| rel-f1/driver-circuit-compete | run_0003 | `benchmarks/relbench/claims/rel-f1--driver-circuit-compete/` | `c5f4b50f98e135b7` | `aea8daefdaf0b944` |

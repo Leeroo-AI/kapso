@@ -129,7 +129,7 @@ Runs reviewed:
    (best-by-val) and claims, but inflates archive counts; a dedup by
    prediction hash in the grader would tidy it. Status: NOTED.
 
-## R4 live review — generic-mode shakedown (2026-07-16, in progress)
+## R4 review — generic-mode shakedown (2026-07-16, COMPLETED)
 
 rel-f1/driver-circuit-compete, RELBENCH_GENERIC, 2 iterations, first run on
 the experiment OAuth token. Reviewer observations at iteration-2 midpoint:
@@ -161,6 +161,19 @@ the experiment OAuth token. Reviewer observations at iteration-2 midpoint:
   (~0.71-0.72), agent self-diagnosing and pulling back toward the
   champion's career-frequency ingredient — parent_policy=best protects the
   0.7585 champion regardless of iteration-2's outcome.
+
+**Completion verdict:** 2/2 iterations, COMPLETED cleanly, $24.44 total
+(~$12/iteration as predicted). Iteration 2 never beat the champion (its
+final evaluations landed at champion parity, 0.7585). final_evaluate
+selected run_0003 (best val 0.7585 across the task's whole archive) and
+filled test ONCE: **test MAP 0.8289** (independently recomputed: 0.8289
+exact). Protocol note: earlier archived runs carry lower val but higher
+test (0.6938/0.8687, 0.6964/0.8634) — tune-on-val discipline makes 0.8289
+the claimable number, still +6.7 MAP over the published 0.7618. The 27-row
+val split is too noisy to referee tree-vs-generic on test here; generic
+decisively won VAL (0.7585 vs tree's 0.7314 best-ever, in one iteration).
+The A/B on driver-position (760 test rows) remains the real referee.
+Machinery verdict: every new component passed — Phase 4 CLOSED.
 
 ## R2 outcome (for the record)
 

@@ -1,22 +1,17 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-15T11:41:47.864628+00:00",
+  "generated_at": "2026-07-16T09:44:11.807509+00:00",
   "baseline": {
-    "initial_repo": null
+    "initial_repo": "/tmp/relbench_baseline_ebkewwfp"
   },
   "repo_map": {
     "repo_root": ".",
-    "file_count": 31,
+    "file_count": 21,
     "files": [
-      ".claude_mcp/mcp_config.json",
       ".gitignore",
-      "calendar_forecast.py",
-      "driver_attendance.py",
       "kapso_datasets/CONTRACT.md",
       "kapso_datasets/README.md",
       "kapso_datasets/__init__.py",
-      "kapso_datasets/__pycache__/__init__.cpython-312.pyc",
-      "kapso_datasets/__pycache__/common.cpython-312.pyc",
       "kapso_datasets/check_predictions.py",
       "kapso_datasets/common.py",
       "kapso_datasets/recommendation_heuristics.py",
@@ -31,21 +26,13 @@
       "kapso_datasets/vendored_examples/lightgbm_recommendation.py",
       "kapso_datasets/vendored_examples/model.py",
       "kapso_datasets/vendored_examples/text_embedder.py",
-      "kapso_evaluation/.gitkeep",
-      "kapso_evaluation/evaluate.py",
-      "main.py",
-      "output_data_experiment_0/test_predictions.npy",
-      "output_data_experiment_0/val_predictions.npy",
-      "output_data_experiment_1/test_predictions.npy",
-      "output_data_experiment_1/val_predictions.npy",
-      "scoring.py"
+      "kapso_evaluation/README.md",
+      "kapso_evaluation/grader.py",
+      "main.py"
     ],
     "languages_by_extension": {
-      ".py": 20,
-      ".npy": 4,
-      ".md": 2,
-      ".pyc": 2,
-      ".json": 1
+      ".py": 17,
+      ".md": 3
     },
     "key_files": [],
     "entrypoints": [
@@ -53,793 +40,866 @@
     ]
   },
   "repo_model": {
-    "summary": "This repository implements a temporal RelBench Formula 1 driver-circuit recommendation system. It combines learned calendar presence and round-position forecasts with driver attendance, driver-circuit affinity, and deterministic tie-breaking; model selection uses leave-one-season-out rolling-origin MAP@10, and the pipeline writes validated validation and test predictions.",
+    "summary": "Kapso is a RelBench starter repository for generic-search experiments. The root candidate loads a sanitized task cache, produces task-family-specific validation and test predictions, and relies on an immutable grader to score official validation metrics.",
     "entrypoints": [
       {
         "path": "main.py",
-        "how_to_run": "Use `python main.py --debug` for the fixed-parameter debug run, or `python main.py` for full leave-one-season-out grid selection.",
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 148,
-            "description": "Determines debug mode from command-line handling."
-          },
-          {
-            "path": "main.py",
-            "line": 99,
-            "description": "Debug mode bypasses metadata selection."
-          }
-        ]
+        "how_to_run": "The harness invokes `python main.py --debug` for a fast contract run and `python main.py` for a full run."
       },
       {
-        "path": "kapso_datasets/check_predictions.py",
-        "how_to_run": "Run `python kapso_datasets/check_predictions.py` after prediction files are written."
-      },
-      {
-        "path": "kapso_evaluation/evaluate.py",
-        "how_to_run": "Run `python kapso_evaluation/evaluate.py` for local validation metrics and SCORE reporting."
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "Run `python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]`."
       }
     ],
     "where_to_edit": [
       {
         "path": "main.py",
-        "role": "Dataset loading, model-A/model-B split flow, metadata grid selection, prediction validation, and output writing.",
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 186,
-            "description": "Defines the validation Model A flow."
-          },
-          {
-            "path": "main.py",
-            "line": 211,
-            "description": "Defines the test Model B flow."
-          }
-        ]
+        "role": "Primary candidate implementation: task dispatch, model or heuristic integration, and prediction artifact generation."
       },
       {
-        "path": "calendar_forecast.py",
-        "role": "Season representation, calendar feature engineering, presence modeling, round modeling, and calendar probability generation.",
-        "evidence": [
-          {
-            "path": "calendar_forecast.py",
-            "line": 38,
-            "description": "Season representation builder."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 193,
-            "description": "Calendar forecast entrypoint."
-          }
-        ]
+        "path": "kapso_datasets/common.py",
+        "role": "Shared RelBench loading, output saving, temporal-safety, and recommendation-metric utilities."
       },
       {
-        "path": "driver_attendance.py",
-        "role": "Participation history, seed-time driver/cohort features, attendance training, and attendance prediction.",
-        "evidence": [
-          {
-            "path": "driver_attendance.py",
-            "line": 27,
-            "description": "Participation builder."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 194,
-            "description": "Attendance training builder."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 226,
-            "description": "Attendance prediction entrypoint."
-          }
-        ]
+        "path": "kapso_datasets/recommendation_heuristics.py",
+        "role": "Recommendation ranking and co-occurrence candidate-generation algorithms."
       },
       {
-        "path": "scoring.py",
-        "role": "Calendar-attendance-affinity ranking, deterministic tie-breaking, MAP@K, and leave-one-season-out evaluation.",
-        "evidence": [
-          {
-            "path": "scoring.py",
-            "line": 69,
-            "description": "Cohort ranking entrypoint."
-          },
-          {
-            "path": "scoring.py",
-            "line": 119,
-            "description": "MAP@K helper."
-          },
-          {
-            "path": "scoring.py",
-            "line": 129,
-            "description": "Rolling-origin evaluation entrypoint."
-          }
-        ]
+        "path": "kapso_datasets/vendored_examples/model.py",
+        "role": "Reusable heterogeneous temporal GNN model used by the vendored examples."
+      },
+      {
+        "path": "kapso_datasets/vendored_examples/gnn_entity.py",
+        "role": "Reference entity classification/regression GNN training pipeline to adapt into main.py."
+      },
+      {
+        "path": "kapso_datasets/vendored_examples/idgnn_recommendation.py",
+        "role": "Stronger official ID-aware recommendation reference implementation."
       }
     ],
     "claims": [
       {
         "kind": "architecture",
-        "statement": "main.py orchestrates the end-to-end pipeline: it loads the RelBench dataset/task and database tables, builds season, driver-participation, and driver-circuit structures, fits models, predicts validation and test splits, validates outputs, and saves predictions.",
+        "statement": "The root candidate boundary reads the dataset and task identity from environment variables, loads the RelBench task with downloads disabled, determines validation/test sizes, and writes both prediction arrays under KAPSO_RUN_DATA_DIR.",
         "confidence": 0.99,
         "evidence": [
           {
             "path": "main.py",
-            "line": 151,
-            "description": "Loads the rel-f1 dataset and driver-circuit task."
+            "line": 18,
+            "description": "Defines the candidate main function."
           },
           {
             "path": "main.py",
-            "line": 162,
-            "description": "Builds season representations."
+            "line": 19,
+            "description": "Loads dataset/task identity from RELBENCH_DATASET and RELBENCH_TASK with download=False."
           },
           {
             "path": "main.py",
-            "line": 163,
-            "description": "Builds driver participation structures."
+            "line": 22,
+            "description": "Reads validation and test table lengths."
           },
           {
             "path": "main.py",
-            "line": 236,
-            "description": "Validates both prediction splits."
-          },
-          {
-            "path": "main.py",
-            "line": 238,
-            "description": "Saves validation and test predictions."
+            "line": 43,
+            "description": "Uses KAPSO_RUN_DATA_DIR and saves validation/test prediction files."
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "calendar_forecast.py represents each season with circuit membership, normalized round positions, date bounds, and round counts, then derives circuit-year lag, streak, recurrence, recency, round-position, and return-after-absence features.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "calendar_forecast.py",
-            "line": 38,
-            "description": "Builds season circuit, round-position, bounds, and round-count representations."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 80,
-            "description": "Builds circuit temporal features."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 117,
-            "description": "Assembles the calendar feature vector."
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "The calendar model trains a circuit presence classifier and an optional round-position regressor over rolling target years; debug mode uses logistic regression and ridge, while full mode uses regularized LightGBM models.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "calendar_forecast.py",
-            "line": 138,
-            "description": "Builds rolling-origin presence and round training matrices."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 157,
-            "description": "Selects logistic regression or LightGBM for presence."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 167,
-            "description": "Selects ridge or LightGBM for round prediction."
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "driver_attendance.py constructs participation events and per-driver historical features, including recent starts, prior-season coverage, career and age information, and incumbent/rookie/returnee status, then augments them with cohort ranks and round interactions.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "driver_attendance.py",
-            "line": 27,
-            "description": "Builds participation events and driver-year structures."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 75,
-            "description": "Computes seed-time driver features."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 143,
-            "description": "Computes cohort-relative features."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 162,
-            "description": "Combines driver, cohort, and round features."
-          }
-        ]
-      },
-      {
-        "kind": "algorithm",
-        "statement": "scoring.py ranks each driver's circuits by combining calendar probability, round-specific attendance modulation, decayed driver-circuit affinity, and a global historical tie score; ranking is deterministic through a tiny circuit-ID adjustment.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "scoring.py",
-            "line": 74,
-            "description": "Generates calendar probabilities and round predictions."
-          },
-          {
-            "path": "scoring.py",
-            "line": 101,
-            "description": "Computes driver-circuit affinity."
-          },
-          {
-            "path": "scoring.py",
-            "line": 109,
-            "description": "Combines calendar, attendance, affinity, and tie components."
-          },
-          {
-            "path": "scoring.py",
-            "line": 114,
-            "description": "Applies deterministic score ordering."
-          }
-        ]
-      },
-      {
-        "kind": "algorithm",
-        "statement": "Full-mode parameter selection uses leave-one-season-out models and rolling-origin MAP scoring over a recent selection window, optimizing a weighted mean/worst-season objective with a parsimony term; debug mode bypasses the grid and uses DEFAULT_META.",
+        "statement": "The baseline dispatches by task family: recommendation tasks receive tiled ranked destination IDs, binary classification receives 0.5 probabilities, multiclass classification receives uniform class scores, and all remaining task types receive the training-target median.",
         "confidence": 0.99,
         "evidence": [
           {
             "path": "main.py",
-            "line": 99,
-            "description": "Debug selection returns fixed DEFAULT_META and refitted models."
-          },
-          {
-            "path": "main.py",
-            "line": 102,
-            "description": "Restricts scoring to the recent selection window."
-          },
-          {
-            "path": "main.py",
-            "line": 106,
-            "description": "Iterates over the metadata grid."
-          },
-          {
-            "path": "main.py",
-            "line": 108,
-            "description": "Scores candidates with leave-one-out rolling-origin evaluation."
-          },
-          {
-            "path": "scoring.py",
-            "line": 129,
-            "description": "Implements the leave-one-season-out rolling-origin backtest."
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "The pipeline predicts K=10 distinct destination IDs from the NUM_DST=77 circuit range and validates integer dtype, row shape, uniqueness, and ID bounds before saving.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 32,
-            "description": "Sets K to 10."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 8,
-            "description": "Sets NUM_DST to 77."
-          },
-          {
-            "path": "main.py",
-            "line": 138,
-            "description": "Defines prediction validation."
-          },
-          {
-            "path": "main.py",
-            "line": 142,
-            "description": "Checks per-row uniqueness."
-          },
-          {
-            "path": "main.py",
-            "line": 143,
-            "description": "Checks destination ID range."
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "Validation and test predictions are generated in the input split's row order, validated, and both are saved on every completed run.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 123,
-            "description": "Defines split prediction generation."
-          },
-          {
-            "path": "main.py",
-            "line": 133,
-            "description": "Writes predictions by enumerating split rows."
-          },
-          {
-            "path": "main.py",
-            "line": 236,
-            "description": "Validates validation and test predictions."
-          },
-          {
-            "path": "main.py",
-            "line": 238,
-            "description": "Saves both prediction arrays."
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "The internal ranking and model-selection metric is MAP@K, with the leave-one-season-out evaluator aggregating per-driver MAP values by weighted mean and worst-season score.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "scoring.py",
-            "line": 119,
-            "description": "Defines MAP@K for a ranked prediction and truth set."
-          },
-          {
-            "path": "scoring.py",
-            "line": 148,
-            "description": "Computes per-driver MAP values."
-          },
-          {
-            "path": "scoring.py",
-            "line": 160,
-            "description": "Computes weighted mean MAP."
-          },
-          {
-            "path": "scoring.py",
-            "line": 161,
-            "description": "Computes worst-season MAP."
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "Feature construction respects the prediction seed cutoff: driver events used for features are restricted to dates no later than seed_time.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "driver_attendance.py",
-            "line": 85,
-            "description": "Filters driver events at the seed timestamp."
-          },
-          {
-            "path": "scoring.py",
-            "line": 39,
-            "description": "Restricts affinity history to events at or before the seed."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "Debug mode uses fixed metadata and simpler logistic/ridge models while still executing both split predictions, validation, and saving.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 99,
-            "description": "Uses DEFAULT_META in debug mode."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 158,
-            "description": "Uses logistic regression for debug presence models."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 170,
-            "description": "Uses ridge for debug round models."
-          },
-          {
-            "path": "main.py",
-            "line": 236,
-            "description": "Validates both outputs."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "The checked-in experiment prediction arrays demonstrate the expected NumPy int64 shape of (27, 10) for both validation and test outputs.",
-        "confidence": 0.95,
-        "evidence": [
-          {
-            "path": "output_data_experiment_1/val_predictions.npy",
-            "line": 1,
-            "description": "Prediction header declares int64 shape (27, 10)."
-          },
-          {
-            "path": "output_data_experiment_1/test_predictions.npy",
-            "line": 1,
-            "description": "Prediction header declares int64 shape (27, 10)."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "Full mode can be expensive because it constructs leave-one-season-out models and evaluates every metadata-grid candidate over a recent year window.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 103,
-            "description": "Builds leave-one-out models for each decay and score year."
-          },
-          {
-            "path": "main.py",
-            "line": 106,
-            "description": "Evaluates every metadata-grid candidate."
-          },
-          {
-            "path": "scoring.py",
-            "line": 129,
-            "description": "Defines the per-candidate rolling-origin evaluation."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "The prediction validator requires exactly 27 rows for every split, so changing the task split size requires updating validate_preds.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 139,
-            "description": "Hard-codes the required row count to 27."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "Unknown or pre-seed drivers receive default cold-start attendance features such as zero historical starts, age 25, and rookie status; their ranking is consequently driven largely by calendar, affinity, and tie components.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "driver_attendance.py",
-            "line": 79,
-            "description": "Defines defaults for unknown drivers."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 87,
-            "description": "Uses the same fallback when no event is before the seed."
-          },
-          {
-            "path": "scoring.py",
-            "line": 109,
-            "description": "Shows attendance is only one component of the final score."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "If no round model is available, calendar_forecast falls back to the historical median round fraction feature and clips round predictions to the [0, 1] interval.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "calendar_forecast.py",
-            "line": 207,
-            "description": "Handles a missing round model."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 209,
-            "description": "Uses median round fraction as the fallback."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 210,
-            "description": "Clips round predictions to [0, 1]."
-          }
-        ]
-      },
-      {
-        "kind": "deployment",
-        "statement": "The application requires RelBench dataset/task APIs and loads the rel-f1 dataset and driver-circuit-compete task with downloading disabled.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 11,
-            "description": "Imports RelBench dataset loading."
-          },
-          {
-            "path": "main.py",
-            "line": 12,
-            "description": "Imports RelBench task loading."
-          },
-          {
-            "path": "main.py",
-            "line": 151,
-            "description": "Loads the dataset with download=False."
-          },
-          {
-            "path": "main.py",
-            "line": 152,
-            "description": "Loads the task with download=False."
-          }
-        ]
-      },
-      {
-        "kind": "deployment",
-        "statement": "NumPy and pandas provide numerical arrays, timestamps, and tabular transformations; scikit-learn supplies logistic regression and ridge models; LightGBM supplies full-mode presence, round, and attendance models.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "calendar_forecast.py",
-            "line": 3,
-            "description": "Imports NumPy."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 4,
-            "description": "Imports pandas."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 5,
-            "description": "Imports LightGBM."
-          },
-          {
-            "path": "calendar_forecast.py",
-            "line": 6,
-            "description": "Imports scikit-learn linear models."
-          },
-          {
-            "path": "driver_attendance.py",
-            "line": 5,
-            "description": "Imports LightGBM for attendance modeling."
-          }
-        ]
-      },
-      {
-        "kind": "deployment",
-        "statement": "The pipeline uses a fixed random seed of 13 and pins model random_state and single-threaded execution in its LightGBM configurations for deterministic behavior.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 29,
-            "description": "Defines the global seed."
+            "line": 25,
+            "description": "Begins the RecommendationTask branch."
           },
           {
             "path": "main.py",
             "line": 30,
-            "description": "Seeds NumPy."
+            "description": "Creates constant binary predictions."
           },
           {
-            "path": "calendar_forecast.py",
+            "path": "main.py",
+            "line": 33,
+            "description": "Creates uniform multiclass predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 37,
+            "description": "Falls back to a median target prediction for other task types."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The evaluation layer runs main.py in an isolated subprocess, validates prediction artifacts, computes official RelBench validation metrics, archives full-fidelity runs, and emits a machine-readable manifest containing the score of record.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 60,
+            "description": "Runs the candidate from the repository root."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 77,
+            "description": "Starts the candidate as a separate subprocess."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 117,
+            "description": "Checks that both prediction files exist."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 140,
+            "description": "Computes task evaluation metrics on validation predictions."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 193,
+            "description": "Archives full-fidelity runs."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 198,
+            "description": "Prints the manifest with the primary validation score."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "common.py provides the intended solution adapter: it constructs a TaskContext containing dataset, task, database, and train/val/test tables; saves predictions using the contract paths; and exposes temporal-safety and fast MAP@K helpers.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 44,
+            "description": "Defines TaskContext."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Loads the sanitized dataset/task and constructs the context."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Defines the shared prediction-saving function."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 97,
+            "description": "Defines the temporal leakage assertion."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 106,
+            "description": "Defines the MAP@K helper."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "The recommendation heuristic ranks each source's historical destinations using exponentially time-decayed interaction counts, uses recent or historical global popularity as a fallback, and fills remaining slots with distinct IDs while respecting the seed-time cutoff.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "line": 44,
+            "description": "Documents the ranked output and temporal seed behavior."
+          },
+          {
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "line": 52,
+            "description": "Censors interaction history at the seed time."
+          },
+          {
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "line": 55,
+            "description": "Builds a recent-window popularity fallback."
+          },
+          {
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "line": 61,
+            "description": "Computes exponential time-decay weights."
+          },
+          {
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "line": 72,
+            "description": "Combines per-source history with popularity candidates."
+          },
+          {
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "line": 83,
+            "description": "Uses a distinct-ID pathological fallback."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The vendored examples cover official RelBench reference families including entity GNNs, ID-GNN and two-tower recommendation models, autocomplete GNNs, LightGBM baselines, and trivial entity baselines.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 13,
+            "description": "Maps the vendored entity GNN implementation."
+          },
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 17,
+            "description": "Maps ID-GNN and two-tower recommendation examples."
+          },
+          {
+            "path": "kapso_datasets/README.md",
             "line": 19,
-            "description": "Pins calendar model random_state."
+            "description": "Maps the autocomplete GNN."
           },
           {
-            "path": "calendar_forecast.py",
+            "path": "kapso_datasets/README.md",
             "line": 20,
-            "description": "Pins calendar model n_jobs to 1."
+            "description": "Maps LightGBM baselines."
           },
           {
-            "path": "driver_attendance.py",
+            "path": "kapso_datasets/README.md",
+            "line": 21,
+            "description": "Maps the trivial entity baseline."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Every run, including debug mode, must write val_predictions.npy and test_predictions.npy with rows positionally aligned to the corresponding RelBench validation and test tables; validation predictions must come from a model that did not train on validation labels.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both prediction files after every run and positional row alignment."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Requires validation predictions to be out-of-sample."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Shared saver writes both required files."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Prediction formats are task-specific: binary outputs are float probabilities in [0,1] with shape (N,), regression outputs are float (N,), multiclass outputs are float (N,C), and recommendation outputs are integer ranked distinct destination IDs with shape (N,K) and IDs in [0,num_dst).",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
             "line": 20,
-            "description": "Pins attendance model random_state."
+            "description": "Defines the required prediction shapes, dtypes, ranges, and recommendation ranking constraints."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 37,
+            "description": "Validates recommendation shape and integer dtype."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 42,
+            "description": "Checks recommendation destination ID bounds and duplicate warnings."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 49,
+            "description": "Determines multiclass expected shape."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 58,
+            "description": "Validates binary probability range."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "All RelBench data access must use download=False against the sanitized read-only cache; test labels are physically absent and must not be probed.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 24,
+            "description": "Requires download=False and forbids probing for test labels."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 60,
+            "description": "Documents sanitized-cache loading without downloads."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Calls get_dataset with download=False."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Calls get_task with download=False."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The search score is the official validation primary metric; the complete validation split is always scored, while fraction and seed are only echoed in the manifest and must not reduce the scored item set.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 24,
+            "description": "States that fast and full fidelity score the complete validation split."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 27,
+            "description": "Says fraction and seed are manifest metadata only."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 41,
+            "description": "Defines the manifest score as the official validation primary metric."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 140,
+            "description": "Computes validation metrics."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 204,
+            "description": "Places the primary validation metric in the manifest score."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Test predictions are collected as artifacts but cannot be scored inside the loop because the sanitized cache contains no test labels; final test evaluation occurs outside the search loop.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 47,
+            "description": "States that test predictions are collected but cannot be scored in the grader."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 49,
+            "description": "Places final test evaluation outside the loop."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 159,
+            "description": "Archives test predictions while leaving private test metrics empty."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The required sanity check is to run both `python main.py --debug` and `python main.py`; debug must finish quickly while still producing both prediction files.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 3,
+            "description": "States that the harness runs the program twice."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Specifies the debug command."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 6,
+            "description": "Specifies the full command."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires artifacts after every run, including debug."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py` to validate files, shapes, finite values, binary ranges, and recommendation ID constraints before invoking the harness.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Recommends the local prediction checker."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 30,
+            "description": "Checks both validation and test splits."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 35,
+            "description": "Loads prediction arrays without pickle."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Validates non-recommendation shapes."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Prints successful split checks."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "A grader dry run can be performed with `python kapso_evaluation/grader.py --fidelity fast`; success includes official validation metrics and a KAPSO_EVAL_MANIFEST line containing the score.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 35,
+            "description": "Recommends verifying the suite with a fast-fidelity dry run."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 180,
+            "description": "Defines the fast/full fidelity CLI."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 195,
+            "description": "Prints official validation metrics."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 205,
+            "description": "Prints the machine-readable manifest score."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "In the current root baseline, --debug is only reported in the final log line; it does not select a cheaper training or inference path, so replacing the baseline with real training must explicitly implement debug subsampling or reduced epochs.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "The only main execution path is defined here."
+          },
+          {
+            "path": "main.py",
+            "line": 47,
+            "description": "Uses the debug flag only in the printed diagnostic."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Requires debug mode to finish fast."
+          },
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 33,
+            "description": "Requires aggressive debug subsampling and a short build for adapted examples."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The fallback branch is broad: any task that is not a RecommendationTask, binary classification, or multiclass classification is treated as a median-target prediction, with no explicit regression-type check.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 30,
+            "description": "Handles binary classification."
+          },
+          {
+            "path": "main.py",
+            "line": 33,
+            "description": "Handles multiclass classification."
+          },
+          {
+            "path": "main.py",
+            "line": 37,
+            "description": "Routes every remaining task type to the fallback."
+          },
+          {
+            "path": "main.py",
+            "line": 39,
+            "description": "Computes the training target median."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The recommendation baseline assumes eval_k does not exceed the destination-ID space: it emits arange(k) without checking num_dst, while the contract requires every ID to be below num_dst.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 26,
+            "description": "Reads task.eval_k."
+          },
+          {
+            "path": "main.py",
+            "line": 27,
+            "description": "Creates recommendation IDs with arange(k)."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Requires recommendation IDs to lie in [0,num_dst)."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Direct manual execution of the root baseline requires KAPSO_RUN_DATA_DIR to be set because main.py indexes that environment variable directly, even though the shared helper offers a local default directory.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 43,
+            "description": "Directly requires KAPSO_RUN_DATA_DIR."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 32,
+            "description": "Provides a default ./kapso_output directory in the helper layer."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The root candidate depends on RelBench and NumPy; the evaluation suite documents that no setup beyond Python with relbench and numpy is needed for the baseline grader path.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 12,
+            "description": "Imports NumPy."
+          },
+          {
+            "path": "main.py",
+            "line": 14,
+            "description": "Imports RelBench task classes and task loader."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 36,
+            "description": "Documents the Python, relbench, and numpy runtime requirement."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The vendored neural and feature-model examples add heavier optional dependencies including PyTorch, PyTorch Geometric, torch-frame, tqdm, and sentence-transformers for text embeddings.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/vendored_examples/model.py",
+            "line": 3,
+            "description": "Imports PyTorch."
+          },
+          {
+            "path": "kapso_datasets/vendored_examples/model.py",
+            "line": 7,
+            "description": "Imports PyTorch Geometric data structures."
+          },
+          {
+            "path": "kapso_datasets/vendored_examples/model.py",
+            "line": 6,
+            "description": "Imports torch-frame statistics."
+          },
+          {
+            "path": "kapso_datasets/vendored_examples/gnn_entity.py",
+            "line": 19,
+            "description": "Imports tqdm and graph neighbor-loading components."
+          },
+          {
+            "path": "kapso_datasets/vendored_examples/text_embedder.py",
+            "line": 6,
+            "description": "Imports sentence-transformers."
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "Runtime configuration is environment-driven: the harness supplies dataset/task identity, primary metric, cache and work directories, timeouts, and the per-run output directory; shared candidate caches use KAPSO_SHARED_CACHE_DIR when configured.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 21,
+            "description": "Lists dataset/task, metric, work directory, timeouts, and cache environment variables."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 27,
+            "description": "Lists KAPSO_SHARED_CACHE_DIR."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 38,
+            "description": "Defines the shared cache directory environment behavior."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 43,
+            "description": "Creates the shared cache directory."
           }
         ]
       }
     ]
   },
   "book": {
-    "summary": "This repository implements a temporal RelBench Formula 1 driver-circuit recommendation system. It combines learned calendar presence and round-position forecasts with driver attendance, driver-circuit affinity, and deterministic tie-breaking; model selection uses leave-one-season-out rolling-origin MAP@10, and the pipeline writes validated validation and test predictions.",
+    "summary": "Kapso is a RelBench starter repository for generic-search experiments. The root candidate loads a sanitized task cache, produces task-family-specific validation and test predictions, and relies on an immutable grader to score official validation metrics.",
     "toc": [
       {
         "id": "core.architecture",
         "title": "Architecture",
-        "one_liner": "Historical race data is transformed into calendar and driver-attendance features, modeled separately, combined into cohort-specific circuit rankings, and persisted as task predictions."
+        "one_liner": "Task loading, prediction generation, contract validation, and reusable baseline modules"
       },
       {
         "id": "core.entrypoints",
         "title": "Entrypoints",
-        "one_liner": "Run the root pipeline in debug or full model-selection mode."
+        "one_liner": "Run the candidate directly or invoke the official grader"
       },
       {
         "id": "core.where_to_edit",
         "title": "Where to edit",
-        "one_liner": "Change orchestration in main.py, feature/model construction in calendar_forecast.py or driver_attendance.py, and ranking or evaluation logic in scoring.py."
+        "one_liner": "Primary candidate logic and reusable starter-kit components"
       },
       {
         "id": "core.invariants",
         "title": "Invariants",
-        "one_liner": "Predictions are integer ranked circuit IDs with fixed width, valid destination range, unique row entries, and split-order alignment."
+        "one_liner": "Prediction, data-access, temporal, and scoring contracts"
       },
       {
         "id": "core.testing",
         "title": "Testing",
-        "one_liner": "Use debug mode for a fast deterministic pipeline check, then validate prediction files and run local evaluation."
+        "one_liner": "Fast end-to-end validation and local prediction checks"
       },
       {
         "id": "core.gotchas",
         "title": "Gotchas",
-        "one_liner": "Model selection is substantially more expensive than debug mode, the validation shape is hard-coded, and cold-start drivers rely on fallback features."
+        "one_liner": "Sharp edges in the baseline and harness behavior"
       },
       {
         "id": "core.dependencies",
         "title": "Dependencies",
-        "one_liner": "Runtime dependencies include RelBench, NumPy, pandas, scikit-learn, and LightGBM."
+        "one_liner": "RelBench runtime, NumPy, optional reference-model stack, and harness environment"
       }
     ],
     "sections": {
       "core.architecture": {
         "title": "Architecture",
-        "one_liner": "Historical race data is transformed into calendar and driver-attendance features, modeled separately, combined into cohort-specific circuit rankings, and persisted as task predictions.",
+        "one_liner": "Task loading, prediction generation, contract validation, and reusable baseline modules",
         "claims": [
           {
             "kind": "architecture",
-            "statement": "main.py orchestrates the end-to-end pipeline: it loads the RelBench dataset/task and database tables, builds season, driver-participation, and driver-circuit structures, fits models, predicts validation and test splits, validates outputs, and saves predictions.",
+            "statement": "The root candidate boundary reads the dataset and task identity from environment variables, loads the RelBench task with downloads disabled, determines validation/test sizes, and writes both prediction arrays under KAPSO_RUN_DATA_DIR.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 151,
-                "description": "Loads the rel-f1 dataset and driver-circuit task."
+                "line": 18,
+                "description": "Defines the candidate main function."
               },
               {
                 "path": "main.py",
-                "line": 162,
-                "description": "Builds season representations."
+                "line": 19,
+                "description": "Loads dataset/task identity from RELBENCH_DATASET and RELBENCH_TASK with download=False."
               },
               {
                 "path": "main.py",
-                "line": 163,
-                "description": "Builds driver participation structures."
+                "line": 22,
+                "description": "Reads validation and test table lengths."
               },
               {
                 "path": "main.py",
-                "line": 236,
-                "description": "Validates both prediction splits."
-              },
-              {
-                "path": "main.py",
-                "line": 238,
-                "description": "Saves validation and test predictions."
+                "line": 43,
+                "description": "Uses KAPSO_RUN_DATA_DIR and saves validation/test prediction files."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "calendar_forecast.py represents each season with circuit membership, normalized round positions, date bounds, and round counts, then derives circuit-year lag, streak, recurrence, recency, round-position, and return-after-absence features.",
+            "statement": "The baseline dispatches by task family: recommendation tasks receive tiled ranked destination IDs, binary classification receives 0.5 probabilities, multiclass classification receives uniform class scores, and all remaining task types receive the training-target median.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "calendar_forecast.py",
-                "line": 38,
-                "description": "Builds season circuit, round-position, bounds, and round-count representations."
+                "path": "main.py",
+                "line": 25,
+                "description": "Begins the RecommendationTask branch."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 80,
-                "description": "Builds circuit temporal features."
+                "path": "main.py",
+                "line": 30,
+                "description": "Creates constant binary predictions."
               },
               {
-                "path": "calendar_forecast.py",
+                "path": "main.py",
+                "line": 33,
+                "description": "Creates uniform multiclass predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 37,
+                "description": "Falls back to a median target prediction for other task types."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The evaluation layer runs main.py in an isolated subprocess, validates prediction artifacts, computes official RelBench validation metrics, archives full-fidelity runs, and emits a machine-readable manifest containing the score of record.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 60,
+                "description": "Runs the candidate from the repository root."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 77,
+                "description": "Starts the candidate as a separate subprocess."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
                 "line": 117,
-                "description": "Assembles the calendar feature vector."
+                "description": "Checks that both prediction files exist."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 140,
+                "description": "Computes task evaluation metrics on validation predictions."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 193,
+                "description": "Archives full-fidelity runs."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 198,
+                "description": "Prints the manifest with the primary validation score."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The calendar model trains a circuit presence classifier and an optional round-position regressor over rolling target years; debug mode uses logistic regression and ridge, while full mode uses regularized LightGBM models.",
-            "confidence": 0.99,
+            "statement": "common.py provides the intended solution adapter: it constructs a TaskContext containing dataset, task, database, and train/val/test tables; saves predictions using the contract paths; and exposes temporal-safety and fast MAP@K helpers.",
+            "confidence": 0.98,
             "evidence": [
               {
-                "path": "calendar_forecast.py",
-                "line": 138,
-                "description": "Builds rolling-origin presence and round training matrices."
+                "path": "kapso_datasets/common.py",
+                "line": 44,
+                "description": "Defines TaskContext."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 157,
-                "description": "Selects logistic regression or LightGBM for presence."
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Loads the sanitized dataset/task and constructs the context."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 167,
-                "description": "Selects ridge or LightGBM for round prediction."
-              }
-            ]
-          },
-          {
-            "kind": "architecture",
-            "statement": "driver_attendance.py constructs participation events and per-driver historical features, including recent starts, prior-season coverage, career and age information, and incumbent/rookie/returnee status, then augments them with cohort ranks and round interactions.",
-            "confidence": 0.99,
-            "evidence": [
-              {
-                "path": "driver_attendance.py",
-                "line": 27,
-                "description": "Builds participation events and driver-year structures."
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Defines the shared prediction-saving function."
               },
               {
-                "path": "driver_attendance.py",
-                "line": 75,
-                "description": "Computes seed-time driver features."
+                "path": "kapso_datasets/common.py",
+                "line": 97,
+                "description": "Defines the temporal leakage assertion."
               },
               {
-                "path": "driver_attendance.py",
-                "line": 143,
-                "description": "Computes cohort-relative features."
-              },
-              {
-                "path": "driver_attendance.py",
-                "line": 162,
-                "description": "Combines driver, cohort, and round features."
-              }
-            ]
-          },
-          {
-            "kind": "algorithm",
-            "statement": "scoring.py ranks each driver's circuits by combining calendar probability, round-specific attendance modulation, decayed driver-circuit affinity, and a global historical tie score; ranking is deterministic through a tiny circuit-ID adjustment.",
-            "confidence": 0.99,
-            "evidence": [
-              {
-                "path": "scoring.py",
-                "line": 74,
-                "description": "Generates calendar probabilities and round predictions."
-              },
-              {
-                "path": "scoring.py",
-                "line": 101,
-                "description": "Computes driver-circuit affinity."
-              },
-              {
-                "path": "scoring.py",
-                "line": 109,
-                "description": "Combines calendar, attendance, affinity, and tie components."
-              },
-              {
-                "path": "scoring.py",
-                "line": 114,
-                "description": "Applies deterministic score ordering."
-              }
-            ]
-          },
-          {
-            "kind": "algorithm",
-            "statement": "Full-mode parameter selection uses leave-one-season-out models and rolling-origin MAP scoring over a recent selection window, optimizing a weighted mean/worst-season objective with a parsimony term; debug mode bypasses the grid and uses DEFAULT_META.",
-            "confidence": 0.99,
-            "evidence": [
-              {
-                "path": "main.py",
-                "line": 99,
-                "description": "Debug selection returns fixed DEFAULT_META and refitted models."
-              },
-              {
-                "path": "main.py",
-                "line": 102,
-                "description": "Restricts scoring to the recent selection window."
-              },
-              {
-                "path": "main.py",
+                "path": "kapso_datasets/common.py",
                 "line": 106,
-                "description": "Iterates over the metadata grid."
+                "description": "Defines the MAP@K helper."
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "The recommendation heuristic ranks each source's historical destinations using exponentially time-decayed interaction counts, uses recent or historical global popularity as a fallback, and fills remaining slots with distinct IDs while respecting the seed-time cutoff.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/recommendation_heuristics.py",
+                "line": 44,
+                "description": "Documents the ranked output and temporal seed behavior."
               },
               {
-                "path": "main.py",
-                "line": 108,
-                "description": "Scores candidates with leave-one-out rolling-origin evaluation."
+                "path": "kapso_datasets/recommendation_heuristics.py",
+                "line": 52,
+                "description": "Censors interaction history at the seed time."
               },
               {
-                "path": "scoring.py",
-                "line": 129,
-                "description": "Implements the leave-one-season-out rolling-origin backtest."
+                "path": "kapso_datasets/recommendation_heuristics.py",
+                "line": 55,
+                "description": "Builds a recent-window popularity fallback."
+              },
+              {
+                "path": "kapso_datasets/recommendation_heuristics.py",
+                "line": 61,
+                "description": "Computes exponential time-decay weights."
+              },
+              {
+                "path": "kapso_datasets/recommendation_heuristics.py",
+                "line": 72,
+                "description": "Combines per-source history with popularity candidates."
+              },
+              {
+                "path": "kapso_datasets/recommendation_heuristics.py",
+                "line": 83,
+                "description": "Uses a distinct-ID pathological fallback."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The vendored examples cover official RelBench reference families including entity GNNs, ID-GNN and two-tower recommendation models, autocomplete GNNs, LightGBM baselines, and trivial entity baselines.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 13,
+                "description": "Maps the vendored entity GNN implementation."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 17,
+                "description": "Maps ID-GNN and two-tower recommendation examples."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 19,
+                "description": "Maps the autocomplete GNN."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 20,
+                "description": "Maps LightGBM baselines."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 21,
+                "description": "Maps the trivial entity baseline."
               }
             ]
           }
@@ -847,218 +907,184 @@
       },
       "core.entrypoints": {
         "title": "Entrypoints",
-        "one_liner": "Run the root pipeline in debug or full model-selection mode.",
+        "one_liner": "Run the candidate directly or invoke the official grader",
         "content": [
           {
             "path": "main.py",
-            "how_to_run": "Use `python main.py --debug` for the fixed-parameter debug run, or `python main.py` for full leave-one-season-out grid selection.",
-            "evidence": [
-              {
-                "path": "main.py",
-                "line": 148,
-                "description": "Determines debug mode from command-line handling."
-              },
-              {
-                "path": "main.py",
-                "line": 99,
-                "description": "Debug mode bypasses metadata selection."
-              }
-            ]
+            "how_to_run": "The harness invokes `python main.py --debug` for a fast contract run and `python main.py` for a full run."
           },
           {
-            "path": "kapso_datasets/check_predictions.py",
-            "how_to_run": "Run `python kapso_datasets/check_predictions.py` after prediction files are written."
-          },
-          {
-            "path": "kapso_evaluation/evaluate.py",
-            "how_to_run": "Run `python kapso_evaluation/evaluate.py` for local validation metrics and SCORE reporting."
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "Run `python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]`."
           }
         ]
       },
       "core.where_to_edit": {
         "title": "Where to edit",
-        "one_liner": "Change orchestration in main.py, feature/model construction in calendar_forecast.py or driver_attendance.py, and ranking or evaluation logic in scoring.py.",
+        "one_liner": "Primary candidate logic and reusable starter-kit components",
         "content": [
           {
             "path": "main.py",
-            "role": "Dataset loading, model-A/model-B split flow, metadata grid selection, prediction validation, and output writing.",
-            "evidence": [
-              {
-                "path": "main.py",
-                "line": 186,
-                "description": "Defines the validation Model A flow."
-              },
-              {
-                "path": "main.py",
-                "line": 211,
-                "description": "Defines the test Model B flow."
-              }
-            ]
+            "role": "Primary candidate implementation: task dispatch, model or heuristic integration, and prediction artifact generation."
           },
           {
-            "path": "calendar_forecast.py",
-            "role": "Season representation, calendar feature engineering, presence modeling, round modeling, and calendar probability generation.",
-            "evidence": [
-              {
-                "path": "calendar_forecast.py",
-                "line": 38,
-                "description": "Season representation builder."
-              },
-              {
-                "path": "calendar_forecast.py",
-                "line": 193,
-                "description": "Calendar forecast entrypoint."
-              }
-            ]
+            "path": "kapso_datasets/common.py",
+            "role": "Shared RelBench loading, output saving, temporal-safety, and recommendation-metric utilities."
           },
           {
-            "path": "driver_attendance.py",
-            "role": "Participation history, seed-time driver/cohort features, attendance training, and attendance prediction.",
-            "evidence": [
-              {
-                "path": "driver_attendance.py",
-                "line": 27,
-                "description": "Participation builder."
-              },
-              {
-                "path": "driver_attendance.py",
-                "line": 194,
-                "description": "Attendance training builder."
-              },
-              {
-                "path": "driver_attendance.py",
-                "line": 226,
-                "description": "Attendance prediction entrypoint."
-              }
-            ]
+            "path": "kapso_datasets/recommendation_heuristics.py",
+            "role": "Recommendation ranking and co-occurrence candidate-generation algorithms."
           },
           {
-            "path": "scoring.py",
-            "role": "Calendar-attendance-affinity ranking, deterministic tie-breaking, MAP@K, and leave-one-season-out evaluation.",
-            "evidence": [
-              {
-                "path": "scoring.py",
-                "line": 69,
-                "description": "Cohort ranking entrypoint."
-              },
-              {
-                "path": "scoring.py",
-                "line": 119,
-                "description": "MAP@K helper."
-              },
-              {
-                "path": "scoring.py",
-                "line": 129,
-                "description": "Rolling-origin evaluation entrypoint."
-              }
-            ]
+            "path": "kapso_datasets/vendored_examples/model.py",
+            "role": "Reusable heterogeneous temporal GNN model used by the vendored examples."
+          },
+          {
+            "path": "kapso_datasets/vendored_examples/gnn_entity.py",
+            "role": "Reference entity classification/regression GNN training pipeline to adapt into main.py."
+          },
+          {
+            "path": "kapso_datasets/vendored_examples/idgnn_recommendation.py",
+            "role": "Stronger official ID-aware recommendation reference implementation."
           }
         ]
       },
       "core.invariants": {
         "title": "Invariants",
-        "one_liner": "Predictions are integer ranked circuit IDs with fixed width, valid destination range, unique row entries, and split-order alignment.",
+        "one_liner": "Prediction, data-access, temporal, and scoring contracts",
         "claims": [
           {
             "kind": "contract",
-            "statement": "The pipeline predicts K=10 distinct destination IDs from the NUM_DST=77 circuit range and validates integer dtype, row shape, uniqueness, and ID bounds before saving.",
-            "confidence": 0.99,
+            "statement": "Every run, including debug mode, must write val_predictions.npy and test_predictions.npy with rows positionally aligned to the corresponding RelBench validation and test tables; validation predictions must come from a model that did not train on validation labels.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 32,
-                "description": "Sets K to 10."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both prediction files after every run and positional row alignment."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 8,
-                "description": "Sets NUM_DST to 77."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Requires validation predictions to be out-of-sample."
               },
               {
-                "path": "main.py",
-                "line": 138,
-                "description": "Defines prediction validation."
-              },
-              {
-                "path": "main.py",
-                "line": 142,
-                "description": "Checks per-row uniqueness."
-              },
-              {
-                "path": "main.py",
-                "line": 143,
-                "description": "Checks destination ID range."
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Shared saver writes both required files."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "Validation and test predictions are generated in the input split's row order, validated, and both are saved on every completed run.",
-            "confidence": 0.99,
+            "statement": "Prediction formats are task-specific: binary outputs are float probabilities in [0,1] with shape (N,), regression outputs are float (N,), multiclass outputs are float (N,C), and recommendation outputs are integer ranked distinct destination IDs with shape (N,K) and IDs in [0,num_dst).",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 123,
-                "description": "Defines split prediction generation."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 20,
+                "description": "Defines the required prediction shapes, dtypes, ranges, and recommendation ranking constraints."
               },
               {
-                "path": "main.py",
-                "line": 133,
-                "description": "Writes predictions by enumerating split rows."
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 37,
+                "description": "Validates recommendation shape and integer dtype."
               },
               {
-                "path": "main.py",
-                "line": 236,
-                "description": "Validates validation and test predictions."
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 42,
+                "description": "Checks recommendation destination ID bounds and duplicate warnings."
               },
               {
-                "path": "main.py",
-                "line": 238,
-                "description": "Saves both prediction arrays."
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 49,
+                "description": "Determines multiclass expected shape."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 58,
+                "description": "Validates binary probability range."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "The internal ranking and model-selection metric is MAP@K, with the leave-one-season-out evaluator aggregating per-driver MAP values by weighted mean and worst-season score.",
-            "confidence": 0.99,
+            "statement": "All RelBench data access must use download=False against the sanitized read-only cache; test labels are physically absent and must not be probed.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "scoring.py",
-                "line": 119,
-                "description": "Defines MAP@K for a ranked prediction and truth set."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 24,
+                "description": "Requires download=False and forbids probing for test labels."
               },
               {
-                "path": "scoring.py",
-                "line": 148,
-                "description": "Computes per-driver MAP values."
+                "path": "kapso_datasets/common.py",
+                "line": 60,
+                "description": "Documents sanitized-cache loading without downloads."
               },
               {
-                "path": "scoring.py",
-                "line": 160,
-                "description": "Computes weighted mean MAP."
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Calls get_dataset with download=False."
               },
               {
-                "path": "scoring.py",
-                "line": 161,
-                "description": "Computes worst-season MAP."
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Calls get_task with download=False."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "Feature construction respects the prediction seed cutoff: driver events used for features are restricted to dates no later than seed_time.",
-            "confidence": 0.99,
+            "statement": "The search score is the official validation primary metric; the complete validation split is always scored, while fraction and seed are only echoed in the manifest and must not reduce the scored item set.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "driver_attendance.py",
-                "line": 85,
-                "description": "Filters driver events at the seed timestamp."
+                "path": "kapso_evaluation/README.md",
+                "line": 24,
+                "description": "States that fast and full fidelity score the complete validation split."
               },
               {
-                "path": "scoring.py",
-                "line": 39,
-                "description": "Restricts affinity history to events at or before the seed."
+                "path": "kapso_evaluation/README.md",
+                "line": 27,
+                "description": "Says fraction and seed are manifest metadata only."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 41,
+                "description": "Defines the manifest score as the official validation primary metric."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 140,
+                "description": "Computes validation metrics."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 204,
+                "description": "Places the primary validation metric in the manifest score."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Test predictions are collected as artifacts but cannot be scored inside the loop because the sanitized cache contains no test labels; final test evaluation occurs outside the search loop.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 47,
+                "description": "States that test predictions are collected but cannot be scored in the grader."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 49,
+                "description": "Places final test evaluation outside the loop."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 159,
+                "description": "Archives test predictions while leaving private test metrics empty."
               }
             ]
           }
@@ -1066,49 +1092,91 @@
       },
       "core.testing": {
         "title": "Testing",
-        "one_liner": "Use debug mode for a fast deterministic pipeline check, then validate prediction files and run local evaluation.",
+        "one_liner": "Fast end-to-end validation and local prediction checks",
         "claims": [
           {
             "kind": "other",
-            "statement": "Debug mode uses fixed metadata and simpler logistic/ridge models while still executing both split predictions, validation, and saving.",
-            "confidence": 0.99,
+            "statement": "The required sanity check is to run both `python main.py --debug` and `python main.py`; debug must finish quickly while still producing both prediction files.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 99,
-                "description": "Uses DEFAULT_META in debug mode."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 3,
+                "description": "States that the harness runs the program twice."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 158,
-                "description": "Uses logistic regression for debug presence models."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Specifies the debug command."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 170,
-                "description": "Uses ridge for debug round models."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 6,
+                "description": "Specifies the full command."
               },
               {
-                "path": "main.py",
-                "line": 236,
-                "description": "Validates both outputs."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires artifacts after every run, including debug."
               }
             ]
           },
           {
             "kind": "other",
-            "statement": "The checked-in experiment prediction arrays demonstrate the expected NumPy int64 shape of (27, 10) for both validation and test outputs.",
-            "confidence": 0.95,
+            "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py` to validate files, shapes, finite values, binary ranges, and recommendation ID constraints before invoking the harness.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "output_data_experiment_1/val_predictions.npy",
-                "line": 1,
-                "description": "Prediction header declares int64 shape (27, 10)."
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Recommends the local prediction checker."
               },
               {
-                "path": "output_data_experiment_1/test_predictions.npy",
-                "line": 1,
-                "description": "Prediction header declares int64 shape (27, 10)."
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 30,
+                "description": "Checks both validation and test splits."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 35,
+                "description": "Loads prediction arrays without pickle."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Validates non-recommendation shapes."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Prints successful split checks."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "A grader dry run can be performed with `python kapso_evaluation/grader.py --fidelity fast`; success includes official validation metrics and a KAPSO_EVAL_MANIFEST line containing the score.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 35,
+                "description": "Recommends verifying the suite with a fast-fidelity dry run."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 180,
+                "description": "Defines the fast/full fidelity CLI."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 195,
+                "description": "Prints official validation metrics."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 205,
+                "description": "Prints the machine-readable manifest score."
               }
             ]
           }
@@ -1116,83 +1184,98 @@
       },
       "core.gotchas": {
         "title": "Gotchas",
-        "one_liner": "Model selection is substantially more expensive than debug mode, the validation shape is hard-coded, and cold-start drivers rely on fallback features.",
+        "one_liner": "Sharp edges in the baseline and harness behavior",
         "claims": [
           {
             "kind": "other",
-            "statement": "Full mode can be expensive because it constructs leave-one-season-out models and evaluates every metadata-grid candidate over a recent year window.",
+            "statement": "In the current root baseline, --debug is only reported in the final log line; it does not select a cheaper training or inference path, so replacing the baseline with real training must explicitly implement debug subsampling or reduced epochs.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "The only main execution path is defined here."
+              },
+              {
+                "path": "main.py",
+                "line": 47,
+                "description": "Uses the debug flag only in the printed diagnostic."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Requires debug mode to finish fast."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 33,
+                "description": "Requires aggressive debug subsampling and a short build for adapted examples."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The fallback branch is broad: any task that is not a RecommendationTask, binary classification, or multiclass classification is treated as a median-target prediction, with no explicit regression-type check.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 103,
-                "description": "Builds leave-one-out models for each decay and score year."
+                "line": 30,
+                "description": "Handles binary classification."
               },
               {
                 "path": "main.py",
-                "line": 106,
-                "description": "Evaluates every metadata-grid candidate."
+                "line": 33,
+                "description": "Handles multiclass classification."
               },
               {
-                "path": "scoring.py",
-                "line": 129,
-                "description": "Defines the per-candidate rolling-origin evaluation."
+                "path": "main.py",
+                "line": 37,
+                "description": "Routes every remaining task type to the fallback."
+              },
+              {
+                "path": "main.py",
+                "line": 39,
+                "description": "Computes the training target median."
               }
             ]
           },
           {
             "kind": "other",
-            "statement": "The prediction validator requires exactly 27 rows for every split, so changing the task split size requires updating validate_preds.",
+            "statement": "The recommendation baseline assumes eval_k does not exceed the destination-ID space: it emits arange(k) without checking num_dst, while the contract requires every ID to be below num_dst.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 26,
+                "description": "Reads task.eval_k."
+              },
+              {
+                "path": "main.py",
+                "line": 27,
+                "description": "Creates recommendation IDs with arange(k)."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Requires recommendation IDs to lie in [0,num_dst)."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Direct manual execution of the root baseline requires KAPSO_RUN_DATA_DIR to be set because main.py indexes that environment variable directly, even though the shared helper offers a local default directory.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 139,
-                "description": "Hard-codes the required row count to 27."
-              }
-            ]
-          },
-          {
-            "kind": "other",
-            "statement": "Unknown or pre-seed drivers receive default cold-start attendance features such as zero historical starts, age 25, and rookie status; their ranking is consequently driven largely by calendar, affinity, and tie components.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "driver_attendance.py",
-                "line": 79,
-                "description": "Defines defaults for unknown drivers."
+                "line": 43,
+                "description": "Directly requires KAPSO_RUN_DATA_DIR."
               },
               {
-                "path": "driver_attendance.py",
-                "line": 87,
-                "description": "Uses the same fallback when no event is before the seed."
-              },
-              {
-                "path": "scoring.py",
-                "line": 109,
-                "description": "Shows attendance is only one component of the final score."
-              }
-            ]
-          },
-          {
-            "kind": "other",
-            "statement": "If no round model is available, calendar_forecast falls back to the historical median round fraction feature and clips round predictions to the [0, 1] interval.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "calendar_forecast.py",
-                "line": 207,
-                "description": "Handles a missing round model."
-              },
-              {
-                "path": "calendar_forecast.py",
-                "line": 209,
-                "description": "Uses median round fraction as the fallback."
-              },
-              {
-                "path": "calendar_forecast.py",
-                "line": 210,
-                "description": "Clips round predictions to [0, 1]."
+                "path": "kapso_datasets/common.py",
+                "line": 32,
+                "description": "Provides a default ./kapso_output directory in the helper layer."
               }
             ]
           }
@@ -1200,96 +1283,86 @@
       },
       "core.dependencies": {
         "title": "Dependencies",
-        "one_liner": "Runtime dependencies include RelBench, NumPy, pandas, scikit-learn, and LightGBM.",
+        "one_liner": "RelBench runtime, NumPy, optional reference-model stack, and harness environment",
         "claims": [
           {
             "kind": "deployment",
-            "statement": "The application requires RelBench dataset/task APIs and loads the rel-f1 dataset and driver-circuit-compete task with downloading disabled.",
+            "statement": "The root candidate depends on RelBench and NumPy; the evaluation suite documents that no setup beyond Python with relbench and numpy is needed for the baseline grader path.",
             "confidence": 0.99,
             "evidence": [
-              {
-                "path": "main.py",
-                "line": 11,
-                "description": "Imports RelBench dataset loading."
-              },
               {
                 "path": "main.py",
                 "line": 12,
-                "description": "Imports RelBench task loading."
-              },
-              {
-                "path": "main.py",
-                "line": 151,
-                "description": "Loads the dataset with download=False."
-              },
-              {
-                "path": "main.py",
-                "line": 152,
-                "description": "Loads the task with download=False."
-              }
-            ]
-          },
-          {
-            "kind": "deployment",
-            "statement": "NumPy and pandas provide numerical arrays, timestamps, and tabular transformations; scikit-learn supplies logistic regression and ridge models; LightGBM supplies full-mode presence, round, and attendance models.",
-            "confidence": 0.99,
-            "evidence": [
-              {
-                "path": "calendar_forecast.py",
-                "line": 3,
                 "description": "Imports NumPy."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 4,
-                "description": "Imports pandas."
+                "path": "main.py",
+                "line": 14,
+                "description": "Imports RelBench task classes and task loader."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 5,
-                "description": "Imports LightGBM."
-              },
-              {
-                "path": "calendar_forecast.py",
-                "line": 6,
-                "description": "Imports scikit-learn linear models."
-              },
-              {
-                "path": "driver_attendance.py",
-                "line": 5,
-                "description": "Imports LightGBM for attendance modeling."
+                "path": "kapso_evaluation/README.md",
+                "line": 36,
+                "description": "Documents the Python, relbench, and numpy runtime requirement."
               }
             ]
           },
           {
             "kind": "deployment",
-            "statement": "The pipeline uses a fixed random seed of 13 and pins model random_state and single-threaded execution in its LightGBM configurations for deterministic behavior.",
-            "confidence": 0.98,
+            "statement": "The vendored neural and feature-model examples add heavier optional dependencies including PyTorch, PyTorch Geometric, torch-frame, tqdm, and sentence-transformers for text embeddings.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 29,
-                "description": "Defines the global seed."
+                "path": "kapso_datasets/vendored_examples/model.py",
+                "line": 3,
+                "description": "Imports PyTorch."
               },
               {
-                "path": "main.py",
-                "line": 30,
-                "description": "Seeds NumPy."
+                "path": "kapso_datasets/vendored_examples/model.py",
+                "line": 7,
+                "description": "Imports PyTorch Geometric data structures."
               },
               {
-                "path": "calendar_forecast.py",
+                "path": "kapso_datasets/vendored_examples/model.py",
+                "line": 6,
+                "description": "Imports torch-frame statistics."
+              },
+              {
+                "path": "kapso_datasets/vendored_examples/gnn_entity.py",
                 "line": 19,
-                "description": "Pins calendar model random_state."
+                "description": "Imports tqdm and graph neighbor-loading components."
               },
               {
-                "path": "calendar_forecast.py",
-                "line": 20,
-                "description": "Pins calendar model n_jobs to 1."
+                "path": "kapso_datasets/vendored_examples/text_embedder.py",
+                "line": 6,
+                "description": "Imports sentence-transformers."
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "Runtime configuration is environment-driven: the harness supplies dataset/task identity, primary metric, cache and work directories, timeouts, and the per-run output directory; shared candidate caches use KAPSO_SHARED_CACHE_DIR when configured.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 21,
+                "description": "Lists dataset/task, metric, work directory, timeouts, and cache environment variables."
               },
               {
-                "path": "driver_attendance.py",
-                "line": 20,
-                "description": "Pins attendance model random_state."
+                "path": "kapso_evaluation/grader.py",
+                "line": 27,
+                "description": "Lists KAPSO_SHARED_CACHE_DIR."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 38,
+                "description": "Defines the shared cache directory environment behavior."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 43,
+                "description": "Creates the shared cache directory."
               }
             ]
           }
@@ -1297,206 +1370,11 @@
       }
     }
   },
-  "experiments": [
-    {
-      "recorded_at": "2026-07-15T11:03:44.748681+00:00",
-      "branch": "experiment_0",
-      "parent_branch": "main",
-      "base_commit": "7f728df31dd944942e9f76f1c24e5d8c048db83b",
-      "head_commit": "f3235bb21707e4b92de44d9468a4123bdd801008",
-      "code_head_commit": "f3235bb21707e4b92de44d9468a4123bdd801008",
-      "solution_spec": "\n# Core Idea: Season-calendar forecasting with driver-specific participation spans\n\nThe target is largely determined by the next Formula 1 calendar. Forecast which circuits will appear in the next season, then adjust their ranking for drivers likely to enter late, leave early, or participate only sporadically. Select all parameters through historical rolling-origin backtests, never from the validation labels used for `val_predictions.npy`.\n\n# Body:\n\n1. **Load data and preserve row order**\n   - Use only:\n     ```python\n     dataset = get_dataset(\"rel-f1\", download=False)\n     task = get_task(\"rel-f1\", \"driver-circuit-compete\", download=False)\n     db = dataset.get_db()\n     train = task.get_table(\"train\").df\n     val = task.get_table(\"val\").df\n     test = task.get_table(\"test\").df\n     ```\n   - Read `races`, `results`, and `standings`.\n   - Record the original index/order of every validation and test row.\n   - Assert that circuit IDs are integers in `[0, 77)`.\n\n2. **Construct historical season representations**\n   - For every year, create:\n     - Ordered circuit sequence by race date and round.\n     - Binary vector of circuits present that season.\n     - Number of races held at each circuit.\n     - Opening and closing round/date.\n   - For every driver-season, create:\n     - Circuits competed on.\n     - First and last round.\n     - Number and fraction of calendar rounds entered.\n     - Constructor at the most recent race.\n     - Starts in the final 3, 5, and 10 races.\n     - Whether the driver appeared in the immediately preceding season.\n\n3. **Calendar persistence score**\n   - At seed time `t`, use races only with `date <= t`.\n   - For each circuit `c`, calculate:\n     - Presence in the latest completed season.\n     - Presence in each of the previous 2–5 seasons.\n     - Exponentially decayed season count.\n     - Years since last appearance.\n     - Consecutive-season streak.\n     - Whether it appeared in the last 3 races.\n     - Typical annual round position.\n     - Long-run recurrence rate.\n   - Use a calendar score such as:\n     ```text\n     calendar(c) =\n         w1 * I[present last season]\n       + w2 * I[present two seasons ago]\n       + w3 * exp-decayed appearances\n       + w4 * consecutive-season streak\n       - w5 * years-since-last-appearance\n     ```\n   - Include an interaction giving especially high weight to circuits present in both of the last two seasons.\n\n4. **Driver participation score**\n   - Estimate whether each driver will compete through the whole coming season:\n     - Recent driver activity: starts in last 90, 180, and 365 days.\n     - Number of starts in the latest season.\n     - Recency of last result and last standing.\n     - Whether the driver ended the latest season active.\n     - Historical fraction of the season completed.\n   - For a driver with recent starts, assign higher probability to the standard calendar.\n   - For sporadic or mid-season drivers, favor circuits whose expected round position overlaps the driver’s historically predicted active span.\n   - Estimate first and last expected round using empirical transition tables conditioned on:\n     - Starts in the latest season.\n     - Last observed round.\n     - Previous-season participation fraction.\n     - Rookie/returning status.\n   - Back off to the global calendar score for drivers with no useful history.\n\n5. **Rolling-origin parameter selection**\n   - Build synthetic January 1 seed tasks for historical target seasons.\n   - For validation model A, only use target windows whose full one-year label interval ends on or before the validation seed time.\n   - Derive labels from `races` joined to `results` exactly as in `make_table`.\n   - Grid-search approximately 100 cheap combinations over:\n     - Calendar decay: `{0.55, 0.7, 0.82, 0.9}`.\n     - Last-season weight.\n     - Two-season persistence bonus.\n     - Driver-specific weight: `{0, 0.05, 0.1, 0.2, 0.3}`.\n     - Active-span penalty.\n   - Optimize mean rolling-origin MAP@10, with the latest 4 historical seasons weighted 2–4 times more heavily.\n   - Do not inspect or use official validation labels for this selection.\n\n6. **Generate validation predictions**\n   - For each validation row at time `t`, compute:\n     ```text\n     score(driver, circuit) =\n         calendar_score(circuit, t)\n       + driver_weight * driver_circuit_history(driver, circuit, t)\n       + span_weight * expected_round_overlap(driver, circuit, t)\n     ```\n   - `driver_circuit_history` includes decayed counts and recency but has a capped contribution so that calendar persistence dominates.\n   - Rank all 77 circuits and emit the first 10 distinct IDs.\n   - This predictor has seen only historical windows ending no later than the validation cutoff.\n\n7. **Generate test predictions**\n   - Re-run rolling-origin selection with all legally available windows whose label horizon ends on or before the test cutoff.\n   - Official validation rows and labels may now be included.\n   - Add 2006–2009 synthetic annual windows derived from the database.\n   - Weight 2007–2009 most strongly because calendar persistence is nonstationary.\n   - At the test seed time, use all database events with `date <= test seed time`.\n   - Rank and emit 10 circuits for every test row.\n\n8. **Robustness ensemble within the heuristic**\n   - Compute three deterministic rankings:\n     - Latest-season calendar.\n     - Two-season persistence.\n     - Five-season exponentially decayed recurrence.\n   - Combine normalized ranks using weights chosen only by legal historical rolling backtests.\n   - Apply the driver-specific adjustment after calendar rank aggregation.\n\n9. **Output validation**\n   - Assert:\n     ```python\n     val_pred.shape == (27, 10)\n     test_pred.shape == (27, 10)\n     np.issubdtype(val_pred.dtype, np.integer)\n     ```\n   - Assert every row contains 10 distinct IDs in `[0, 77)`.\n   - Save using `np.save` to `KAPSO_RUN_DATA_DIR`.\n   - In debug mode, skip grid search and use fixed weights, while still producing both full prediction arrays.\n\n# Runtime expectation:\n20–60 seconds in debug mode and 2–5 minutes in full mode.\n",
-      "changed_files": [
-        ".claude_mcp/mcp_config.json",
-        "__pycache__/season_forecast.cpython-312.pyc",
-        "changes.log",
-        "kapso_datasets/__pycache__/__init__.cpython-312.pyc",
-        "kapso_datasets/__pycache__/common.cpython-312.pyc",
-        "kapso_evaluation/evaluate.py",
-        "main.py",
-        "output_data_experiment_0/test_predictions.npy",
-        "output_data_experiment_0/val_predictions.npy",
-        "season_forecast.py"
-      ],
-      "diff_numstat": [
-        {
-          "added": "1",
-          "deleted": "1",
-          "path": ".claude_mcp/mcp_config.json"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "__pycache__/season_forecast.cpython-312.pyc"
-        },
-        {
-          "added": "18",
-          "deleted": "0",
-          "path": "changes.log"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "kapso_datasets/__pycache__/__init__.cpython-312.pyc"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "kapso_datasets/__pycache__/common.cpython-312.pyc"
-        },
-        {
-          "added": "80",
-          "deleted": "0",
-          "path": "kapso_evaluation/evaluate.py"
-        },
-        {
-          "added": "149",
-          "deleted": "1",
-          "path": "main.py"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "output_data_experiment_0/test_predictions.npy"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "output_data_experiment_0/val_predictions.npy"
-        },
-        {
-          "added": "210",
-          "deleted": "0",
-          "path": "season_forecast.py"
-        }
-      ],
-      "run_result": {
-        "score": 0,
-        "run_had_error": false,
-        "error_message": "",
-        "error_details": "",
-        "feedbacks": "",
-        "ideation_repo_memory_sections_consulted": [],
-        "repo_memory_sections_consulted": []
-      }
-    },
-    {
-      "recorded_at": "2026-07-15T11:41:47.877968+00:00",
-      "branch": "experiment_1",
-      "parent_branch": "experiment_0",
-      "base_commit": "7ddc3ac33517b331acaffcee428f0add4b4f394e",
-      "head_commit": "beaf477873a52a63d56c37a04f5517846a705294",
-      "code_head_commit": "beaf477873a52a63d56c37a04f5517846a705294",
-      "solution_spec": "\n# Core Idea: Jointly forecast the next calendar and each seeded driver’s race-by-race participation\n\nTreat the target as two coupled problems: determine which circuits will be on the upcoming Formula 1 calendar and estimate the rounds during which each driver will have a seat. Use the complete set of seeded drivers as legal transductive information: every listed driver is known to participate at least once during the forecast horizon.\n\n# Body:\n\n1. **Load and validate data**\n   - Load the dataset, task splits, and database only through the prescribed RelBench API with `download=False`.\n   - Preserve validation and test row order exactly.\n   - Build chronologically ordered race seasons from `races`.\n   - Join `results` to `races` to obtain `(date, year, round, circuitId, driverId, constructorId)` participation events.\n\n2. **Build legal rolling-origin training cases**\n   - Create historical January 1 prediction cases for all years with a complete following season.\n   - For model A, retain only cases whose entire 365-day target interval ends on or before the validation timestamp.\n   - For model B, retain all cases whose target interval ends on or before the test cutoff, including the official validation examples.\n   - Reconstruct each historical seed cohort as the distinct drivers who compete in the following 365 days. This mirrors the information contained in the validation/test source rows without exposing future circuits.\n\n3. **Forecast the upcoming calendar as circuit-round probabilities**\n   - For every circuit and future round position, calculate:\n     - Presence in each of the previous 1–8 seasons.\n     - Consecutive appearance streak.\n     - Years since last appearance.\n     - Exponentially decayed appearance frequency.\n     - Last observed round and median round over recent seasons.\n     - Round-position stability.\n     - Whether the circuit disappeared and later returned historically.\n     - Country and geographic redundancy with other likely circuits.\n   - Fit two small calibrated models using historical rolling origins:\n     - A binary circuit-presence model.\n     - A conditional round-position model for circuits predicted present.\n   - Use LightGBM or CatBoost with shallow trees and strong regularization because there are few seasons.\n   - Blend model probabilities with an explicit persistence prior:\n     ```text\n     P_calendar(c) =\n         0.55 * learned_presence_probability\n       + 0.30 * recent-season persistence\n       + 0.15 * long-run recurrence\n     ```\n   - Generate an expected ordered calendar by assigning likely circuits to rounds with maximum-weight bipartite matching, using predicted presence and round-position probabilities.\n\n4. **Infer driver status from the full seed cohort**\n   - For each seeded driver, compute features at the seed time:\n     - Days since last start, qualifying appearance, and standing.\n     - Starts in the previous 90, 180, 365, and 730 days.\n     - Previous-season first and last rounds.\n     - Fraction of previous-season rounds entered.\n     - Number of constructors represented recently.\n     - Career starts, age, debut recency, and prior gaps between seasons.\n     - Last constructor and whether multiple seeded drivers share that constructor.\n   - Add cohort-level features:\n     - Number of incumbent drivers with very recent starts.\n     - Number of rookies or returnees.\n     - Drivers per last-known constructor.\n     - Rank among seeded drivers by recent starts and recency.\n   - The cohort features distinguish likely full-season incumbents from reserve drivers and mid-season substitutes better than independent driver scoring.\n\n5. **Learn race-round attendance probabilities**\n   - On historical cohorts, label every `(driver, future_round)` pair according to whether the driver competed in that round.\n   - Fit a compact gradient-boosted binary model or regularized logistic model with:\n     - Driver and cohort features.\n     - Future round index and normalized round position.\n     - Interactions between round and incumbent/rookie/returning status.\n     - Historical first-round and last-round transition statistics.\n   - Use grouped rolling-origin out-of-fold predictions for calibration.\n   - Apply isotonic or Platt calibration fitted only on legal historical out-of-fold predictions.\n\n6. **Convert calendar and attendance forecasts to circuit relevance**\n   - For every driver and circuit, compute:\n     ```text\n     score(d, c) =\n         sum_r P_calendar(c at round r) * P_attend(d, r)\n       + 0.08 * driver_historical_affinity(d, c)\n       + 0.03 * circuit_global_tie_break(c)\n     ```\n   - Cap driver-circuit affinity so it cannot override strong calendar evidence.\n   - For full-season incumbents, rank mainly by calendar certainty.\n   - For rookies and long-absence returnees, favor early rounds.\n   - For drivers classified as likely substitutes, favor rounds with the highest learned substitution hazard.\n\n7. **Tune only through historical rolling backtests**\n   - Optimize MAP@10 across historical target seasons.\n   - Weight the latest four legal seasons approximately `1, 1.5, 2, 3`.\n   - Search:\n     - Calendar persistence/model blend.\n     - Number of expected calendar rounds.\n     - Attendance-model regularization.\n     - Cohort-feature strength.\n     - Driver-affinity cap.\n   - Choose robust parameters by leave-one-season-out mean MAP and worst-season MAP, not a single season.\n   - Do not use official validation labels to fit or select model A.\n\n8. **Train the two required models**\n   - Model A uses only historical cases ending by the validation seed time and produces `val_predictions.npy`.\n   - Model B uses all legally available history plus validation labels and produces `test_predictions.npy`.\n   - Refit the same selected architecture rather than retuning against hidden test behavior.\n\n9. **Debug and output**\n   - Debug mode uses fixed blend weights, a logistic attendance model, and at most the most recent six historical seasons.\n   - Full mode performs the rolling-origin search and shallow boosted fitting.\n   - Assert shape `(27, 10)`, integer dtype, ten unique circuit IDs per row, and values in `[0, 77)`.\n   - Save both arrays with `np.save` in `KAPSO_RUN_DATA_DIR`.\n\n# Runtime expectation:\nDebug: 20–60 seconds. Full: 3–10 minutes.\n",
-      "changed_files": [
-        ".claude_mcp/mcp_config.json",
-        "__pycache__/calendar_forecast.cpython-312.pyc",
-        "__pycache__/driver_attendance.cpython-312.pyc",
-        "__pycache__/main.cpython-312.pyc",
-        "__pycache__/scoring.cpython-312.pyc",
-        "calendar_forecast.py",
-        "changes.log",
-        "driver_attendance.py",
-        "kapso_datasets/__pycache__/__init__.cpython-312.pyc",
-        "kapso_datasets/__pycache__/common.cpython-312.pyc",
-        "main.py",
-        "output_data_experiment_1/test_predictions.npy",
-        "output_data_experiment_1/val_predictions.npy",
-        "scoring.py",
-        "season_forecast.py"
-      ],
-      "diff_numstat": [
-        {
-          "added": "1",
-          "deleted": "1",
-          "path": ".claude_mcp/mcp_config.json"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "__pycache__/calendar_forecast.cpython-312.pyc"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "__pycache__/driver_attendance.cpython-312.pyc"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "__pycache__/main.cpython-312.pyc"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "__pycache__/scoring.cpython-312.pyc"
-        },
-        {
-          "added": "211",
-          "deleted": "0",
-          "path": "calendar_forecast.py"
-        },
-        {
-          "added": "32",
-          "deleted": "14",
-          "path": "changes.log"
-        },
-        {
-          "added": "228",
-          "deleted": "0",
-          "path": "driver_attendance.py"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "kapso_datasets/__pycache__/__init__.cpython-312.pyc"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "kapso_datasets/__pycache__/common.cpython-312.pyc"
-        },
-        {
-          "added": "174",
-          "deleted": "85",
-          "path": "main.py"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "output_data_experiment_1/test_predictions.npy"
-        },
-        {
-          "added": "-",
-          "deleted": "-",
-          "path": "output_data_experiment_1/val_predictions.npy"
-        },
-        {
-          "added": "162",
-          "deleted": "0",
-          "path": "scoring.py"
-        },
-        {
-          "added": "0",
-          "deleted": "210",
-          "path": "season_forecast.py"
-        }
-      ],
-      "run_result": {
-        "score": 0,
-        "run_had_error": false,
-        "error_message": "",
-        "error_details": "",
-        "feedbacks": "",
-        "ideation_repo_memory_sections_consulted": [],
-        "repo_memory_sections_consulted": []
-      }
-    }
-  ],
+  "experiments": [],
   "quality": {
     "evidence_ok": true,
     "missing_evidence": [],
     "section_count": 7,
-    "claim_count": 19
+    "claim_count": 21
   }
 }
