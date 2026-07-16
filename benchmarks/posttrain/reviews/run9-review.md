@@ -40,9 +40,11 @@ both confirms the cell and retires the contamination caveat.
 
 Verdict: **1 major, 5 minor, 5 info**. Gate refinement (user, post-pass-1):
 what blocks run #10 is a FRAMEWORK-level major; R9-P1-1 is agent-strategy
-and self-recovered, so pass #1 counts as clean for the gate. Run #10
-launches once pass #2 confirms no framework-level major AND the asset
-rebuild carrying the special-token handler hint (0149c0df) completes.
+and self-recovered, so pass #1 counts as clean for the gate. The handler
+hint briefly added for it (0149c0df) was reverted on user direction
+(597432e6) — agent-level lessons don't warrant code churn; the agent is
+expected to handle them, as it did here. Run #10 launches once pass #2
+confirms no framework-level major (existing 7801565a assets are correct).
 
 **R9-P1-1 (major, self-recovered) — LoRA screen invalidated by the
 base-model special-token trap.** The selected plan itself established that
