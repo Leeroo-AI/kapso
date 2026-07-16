@@ -6,7 +6,10 @@ claude-fable-5 xhigh → fable-5 xhigh selector), gpt-5.6-luna xhigh memory
 layer (first run with a LIVE knowledge loop), prompt-via-stdin both CLIs,
 feedback invariants + session_end_facts, ensemble forensics + retry, kill
 discipline + rule-1 extension in the handler, env_strip credential
-containment. Built from `ac0a8dd6`. Run id: _(filled at launch)_.
+containment. Built from `7801565a`. Run id `bfcl-qwen3-1-7b-base-07160950`, launched
+2026-07-16 ~09:50 UTC (flex-start; capacity pending at launch time).
+Parallel plan: run #10 (bfcl × SmolLM3-3B) launches once this run's first
+two reviewer passes report no major issue.
 
 Review protocol (same as run #8): a reviewer agent examines each new trace
 segment as the run progresses (agent struggles / logical issues /
@@ -23,7 +26,8 @@ severity.
 | Prompt-via-stdin (R8-F8 fix) | zero self-kill events; `pkill`-adjacent commands harmless to the session |
 | Feedback invariants + session_end_facts (R8-F1/F2 fix) | judge never instructs reading eval gold targets; verdicts consistent with GOAL rules across iterations |
 | Ensemble forensics + retry-once (R8-F16/F18/F19 fixes) | member artifacts under `.kapso/ideation/iter*/`; no blank-candidate silent loss; telemetry lines present |
-| auth_mode pinned oauth | no auth-resolution ambiguity in boot logs |
+| auth_mode pinned oauth | no auth-resolution ambiguity in boot logs (fresh Max OAuth token, rotated 2026-07-16) |
+| CLI limit headroom (monitor + reviewers) | rate_limit_event density comparable to run #8's baseline of 18/10h; no silent stalls (>15 min stream silence) |
 
 Scoreboard context: run #8 scored **96.0 official** (clean floor 94.0 —
 patch levers derived from gold targets after a judge steer, now fixed);
