@@ -67,3 +67,19 @@ Wasted time total ≈20 min of 188.
 0-3 points. Binding constraint is the session cap (17:48) not the run
 clock. Residual risk: diminishing returns tempting a late risky swing —
 correct endgame is conservative triage + freeze.
+
+## Run outcome (official)
+
+**93.0 official, contamination-clean** ("no contamination detected",
+"only allowed use detected"). Full 10h used: 4 iterations, 3 promotions,
+strict gates held throughout (exp3 tie and exp6 0.92s correctly refused).
+Promotion ledger: exp1 full-FT SFT 92.0 → exp4 cross-dist soup 93.0 →
+exp5 arg-fidelity soup 93.0 (tie promoted on internal-EM tie-break) →
+exp6 fidelity patch declined. Feedback judge independently reproduced
+0.92 (the honest 92-93 greedy band); official harness run landed 93.0.
+Cell standing: 3rd all-time (gpt-5.5-xh-rp 100, opus-4.8 97), +9 over
+human (84.0), +6.3 over #3 proven. Iteration boundaries crossed cleanly
+(no R9-I-1 lingering — sessions exited early on their own); known litellm
+400s fired soft at each boundary as predicted (memory-less run).
+Rate-limit events: ~24 over 10h incl. boundary-init clusters, zero
+correlated stalls. VM + disks self-cleaned.
