@@ -136,8 +136,11 @@ Latest: **run #9 COMPLETE** — bfcl × Qwen3-1.7B **96.0 official, clean**
 (bfcl × SmolLM3-3B 10h) in flight, launched 12:32 UTC. Known bounded issue
 in both runs' containers: gpt-5.6-luna memory-layer calls 400 (litellm
 version skew nulls reasoning_effort) and fail soft — memory dead, run
-unaffected; fix proposal pending (pin litellm==1.75.0 + no-null
-hardening). Remaining blockers: gemma cells need the `hf-token` secret.
+unaffected; fix landed on main (a43fe829: litellm==1.75.0 pin + no-null hardening),
+ships with the post-run-10 rebuild. Gemma unblocked 2026-07-16: license
+accepted + `hf-token` secret live; the same rebuild bakes gemma into the
+cache snapshot. Queued next (user-approved): **runs #11 + #12 in
+parallel** — bfcl × Qwen3-4B and bfcl × gemma-3-4b-pt, 10h each.
 
 ## Run artifact index (GCS)
 
