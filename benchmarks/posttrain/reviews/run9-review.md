@@ -147,3 +147,28 @@ min of the relaunch; v3 (done ~12:45Z) gated promote-only-if-better
 behind the locked 95.0 floor; ~50-min cycle time → ~2 more cycles in this
 session, ~8 in the harness budget. Already above human (94.0) and run
 #8's clean floor, one point shy of GLM-5.2's 95.3 cell record — clean.
+
+### Interim finding (live observation, 14:15Z — before pass #3)
+
+**R9-I-1 (framework, efficiency — bounded) — CLI lingers after its
+terminal result; loop parks until the session deadline clamp.** The
+implementation session emitted its final result (self-report
+`<score>96.0</score>`, $39.75) at 13:44:47Z, but the `claude -p` process
+(PID 4652 in-container) stayed alive — verified by SSH at 14:15Z. The
+adapter waits for process exit, so feedback → memory → iteration 2 are
+parked until the 18000s killpg backstop fires at 15:17Z. Bounded cost:
+up to ~1h33m idle GPU in this session. Root-cause hypothesis: the agent
+finished ~1.5h early with in-session background waiters still armed, and
+the CLI does not exit while tasks remain tracked. Run #8 masked this
+because every session consumed its full cap. Fix candidate (src/kapso —
+needs proposal + approval): adapter reaps the process after the stream's
+terminal `result` event plus a short no-activity grace, instead of
+waiting for exit; alternatively the session prompt could instruct an
+explicit exit when deliverables are final. Related: S-backlog idle-wait
+burn; the deadline backstop (F5 layer) is doing exactly its job here.
+
+Also noted while on the VM (upstream, informational): run_task.sh passes
+agent credentials via `--env` on the apptainer command line, so they are
+visible in the VM's process table (`ps`). Upstream design, confined to
+our own VM; no action for our stack — solve.sh still strips them from
+agent sessions.
