@@ -38,8 +38,11 @@ both confirms the cell and retires the contamination caveat.
 
 ### Reviewer pass #1 (t+0 – t+1h05, boot → ideation → implementation to 11:12Z)
 
-Verdict: **1 major, 5 minor, 5 info**. Run #10 gate NOT satisfied by this
-pass (major present) — holding; gate now requires the next two passes clean.
+Verdict: **1 major, 5 minor, 5 info**. Gate refinement (user, post-pass-1):
+what blocks run #10 is a FRAMEWORK-level major; R9-P1-1 is agent-strategy
+and self-recovered, so pass #1 counts as clean for the gate. Run #10
+launches once pass #2 confirms no framework-level major AND the asset
+rebuild carrying the special-token handler hint (0149c0df) completes.
 
 **R9-P1-1 (major, self-recovered) — LoRA screen invalidated by the
 base-model special-token trap.** The selected plan itself established that
