@@ -198,3 +198,54 @@ rebuild assets before run #11. Run #10 carries the same bounded behavior.
 **Stop-policy observation (S-backlog):** stopping at 96 with ~4.5h left
 banked a record but left the proven ceiling (100) unexplored; the
 stop rubric could weigh remaining budget vs cell ceiling.
+
+### Reviewer pass #3 (endgame: deadline clamp → feedback → stop → finalize)
+
+Verdict: **5 new findings (1 medium, 3 low, 1 info)**; nothing threatens
+the recorded result.
+
+**R9-P3-1 (info, positive)** — strongest judge verification of the
+campaign: wrapper audit ("invokes the official evaluate.py ... does not
+patch or bypass"), scorer diff vs reference (exact match), model
+genuineness check, per-sample count parse ({'C': 96, 'I': 4}), an
+INDEPENDENT re-run of the official eval on final_model (0.950 +
+reverify.json), and a contamination grep of pipeline sources — all before
+issuing <stop>. Feedback invariants respected; session_end_facts path
+exercised correctly (no run-#8-style cause-of-death misdiagnosis).
+Feedback session: 280.6s, $0.88, 16 tool calls, one benign
+rate_limit_event.
+
+**R9-P3-2 (medium, agent) — stop rationale thinner than its
+verification.** It asserts "practical ceiling / ambiguity-noise floor"
+and "marginal, risky gains" while (a) never weighing the 4h47m of budget
+its own tool output printed, and (b) generalizing risk from one
+regression datapoint (+ToolACE→94) despite the preceding same-class lever
+gaining +1. NOTE (orchestrator-reviewer correction): the pass-3
+reviewer's third gap — "it never examined the 4 failed samples" — is
+REJECTED as a finding: inspecting per-sample eval failures to guide
+further training is exactly the run-#8 taint pattern that rule 1-extended
+forbids; declining to look is compliant behavior, not a gap. Stop-policy
+budget-awareness stays on the S-backlog.
+
+**R9-P3-3 (low, framework)** — the judge session WRITES into the graded
+workspace (its re-run's official-format eval log + reverify.json land
+unmarked beside candidate artifacts; vLLM briefly on the task GPU). No
+read-only guard on feedback sessions; provenance hygiene backlog item.
+
+**R9-P3-4 (low, framework)** — no uncertainty channel in node.score: the
+judge honestly disclosed a 95–96 band across re-runs but emitted 0.96 and
+the pipeline stored the scalar verbatim — the recorded score is the
+candidate's luckiest committed run on a nondeterministic eval. Backlog.
+
+**R9-P3-5 (low, framework)** — runner finalization dumps the full
+experiment history as one 3.33M-char line into solve_out.txt
+(runner.py:344), dominated by node.code_diff carrying a committed 86k-line
+eval-log JSON. Also corrects pass-3's premise: the feedback session's
+inlined context was only ~55KB (diff referenced via git instructions, not
+inlined) — cost $0.88 confirms; no context-degradation risk existed.
+Backlog: bound or file-redirect the finalization dump.
+
+**Final assessment (pass 3):** cleanest endgame of the campaign — every
+safety net (deadline clamp, session_end_facts, tag parsing, consolidation,
+fail-soft memory) fired as designed; residual weaknesses are
+judgment/hygiene-level, all recorded on the backlog.
