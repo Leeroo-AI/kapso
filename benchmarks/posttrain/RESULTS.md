@@ -127,11 +127,48 @@ guide; this table is the per-cell scoreboard.
 
 | Run | Cell | Budget | Official score | Cost | Date | Details |
 |---|---|---|---:|---|---|---|
+| #9 | bfcl × Qwen3-1.7B | 10h (official length) | in flight | — | 2026-07-16 | Re-run of the #8 cell with the full fix stack live: gpt-5.6-luna xhigh memory loop (first run with cross-iteration insights), env_strip containment, prompt-via-stdin, feedback invariants + session_end_facts, ensemble forensics + retry, rotated Max OAuth token. Goal: clean ≥94 to retire run #8's contamination caveat. Findings: `reviews/run9-review.md`. |
 | #8 | bfcl × Qwen3-1.7B | 10h (official length) | **96.0** (full set, first-attempt eval) | ~$70 GPU + $39.65+ notional Max | 2026-07-15/16 | First full-stack run: ensemble ideation (codex+fable-5, xhigh) + opus-4.8 xhigh implementation + F5 contract. 4 iterations: 0→93 (SFT 44k) →94 (self-mined DPO) →94 (soup) →**96** (convention-patch SFT). Beats human/instruct (94.0) and GLM-5.2's cell record (95.3); trails only gpt-5.5-xh-rp (100). Iteration-1 self-kill footgun (R8-F8) recovered by feedback+parent-ladder. Judge: R8-F17 RESOLVED 2026-07-16 (openai-api-key secret; gpt-5.1-codex verified via CODEX_API_KEY; agent phase keeps subscription auth). Judge-scored cells [J] unblocked. Findings: `reviews/run8-review.md`. |
 | #7 | gsm8k × Qwen3-1.7B | 3h (validation) | **53.4 ± 1.4** (full 1319-problem set, rescored via `gcp/40_eval_only.sh`) | ~$17 GPU + $36.77 notional Max | 2026-07-14/15 | Full-FT on MetaMathQA, checkpoint-2000 promoted mid-run; 62% of the cell's proven-best (86.3 in 10h), reached in 30% of the time. Findings F0–F14: `reviews/run7-review.md`; F5 fix applied post-run (session-cap contract + sizing + timeout backstop, commit 434f66da). |
 
-Status: **campaign on hold** (user gate). Next planned: run #8 = same cell,
-3h, validating the F5 fix head-to-head against run #7; then the 10h
-official-parity run. Judge-scored benchmarks (ArenaHard, HealthBench) and
-gemma cells need the `openai-api-key` / `hf-token` secrets before their
-rows unblock.
+In flight: **run #9** = bfcl × Qwen3-1.7B 10h re-run with the full fix
+stack (live gpt-5.6-luna memory loop, env_strip containment, stdin fix,
+feedback invariants, ensemble forensics; built from `7801565a`), launched
+2026-07-16 ~09:50 UTC. **Run #10** = bfcl × SmolLM3-3B 10h staged, launches
+in parallel once run #9's first two trace reviews report no major issue.
+Remaining blockers: gemma cells need the `hf-token` secret.
+
+## Run artifact index (GCS)
+
+Everything needed for maintainer submission and offline analysis streams
+to `gs://trans-density-437811-p2-posttrainbench/results/<run_id>/` (5-min
+rsync from the VM; complete once `RUN_DONE` appears). Fetch a whole run
+with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
+
+```
+<root>/ptb-run.log                      VM startup + harness orchestration log
+<root>/RUN_DONE                         completion marker (upload finished)
+<root>/results/kapso_<agent-config>_<N>h/<eval>_<model>_<run_id>/
+    solve_out.txt                       FULL timestamped agent stream (the trace reviews read this)
+    output.log / error.log              runner stdout / stderr
+    prompt.txt                          official task prompt as received
+    final_eval_*.txt                    official eval attempts (the score of record)
+    judge_output.txt / .json            contamination judge verdict (absent on run #7: no judge key yet)
+    time_taken.txt                      wall-clock accounting
+    final_model/                        submitted weights (config.json + safetensors + tokenizer)
+    task/                               agent task dir: PLAN.md, best_score.log, artifacts/, training logs
+```
+
+| Run | Cell | Score | Run id / GCS root suffix | Review doc |
+|---|---|---:|---|---|
+| #9 | bfcl × Qwen3-1.7B 10h | in flight | `bfcl-qwen3-1-7b-base-07160950` | `reviews/run9-review.md` |
+| #8 | bfcl × Qwen3-1.7B 10h | **96.0** | `bfcl-qwen3-1-7b-base-07152141` | `reviews/run8-review.md` |
+| #7 | gsm8k × Qwen3-1.7B 3h | **53.4** | `gsm8k-qwen3-1-7b-base-07142047` | `reviews/run7-review.md` |
+
+Debug/infra runs #1–6 (no scores; boot + harness shakeout, 2026-07-14)
+share the same root pattern: `gsm8k-qwen3-1-7b-base-0714{0857,1016,1035,1233,1403,1424}`.
+
+Not uploaded (by design, lives only on the ephemeral VM): the kapso
+workspace git repo with `.kapso/ideation/` member artifacts — its
+text content is fully embedded in `solve_out.txt`; treat that file as
+the forensic source of truth after the VM self-deletes.
