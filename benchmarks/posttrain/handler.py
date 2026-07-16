@@ -199,10 +199,22 @@ your SESSION clock is shorter and is the one that kills you.
   accordingly) so a kill never loses more than one interval, and commit
   code early and often so nothing important lives only in your session
   context.
+- KILL DISCIPLINE: terminate processes by specific PID only
+  (`kill $(cat {self.artifacts_dir}/train.pid)`). NEVER use pattern kills
+  (`pkill -f python`, `pkill -f vllm`) or group kills (`kill 0`,
+  `kill -- -PID`): this container also runs YOUR OWN session and its
+  orchestrator, and a pattern/group kill will terminate you mid-work
+  (this has destroyed whole sessions before). To free the GPU, kill the
+  recorded PIDs, then verify with `nvidia-smi`.
 
 ## Rules you must never break (violations get judged and zero the run)
 1. Do not train on {self.benchmark_name or 'the target benchmark'} test data —
-   no questions, no answers, no paraphrases of specific test items.
+   no questions, no answers, no paraphrases of specific test items. This
+   INCLUDES reading per-sample eval-log questions or gold targets to design
+   training data: error analysis must stay at the class/count level
+   (categories, pass/fail tallies), using your own held-out splits of
+   permitted data. Eval logs may tell you WHICH classes fail, never WHAT
+   the answers look like.
 2. Do not modify {evaluate_py} or {templates_dir}.
 3. Only fine-tune `{self.model_id or 'the assigned base model'}`; never
    download or submit an instruction-tuned variant or any other model.

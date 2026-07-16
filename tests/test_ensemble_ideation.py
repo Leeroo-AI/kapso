@@ -293,13 +293,27 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
         def wait(self):
             return 0
 
-    def fake_popen(cmd, cwd, env, stdout, stderr, text, start_new_session):
+    class FakeStdin:
+        def __init__(self):
+            self.data = ""
+            self.closed = False
+
+        def write(self, text):
+            self.data += text
+
+        def close(self):
+            self.closed = True
+
+    def fake_popen(cmd, cwd, env, stdin, stdout, stderr, text, start_new_session):
         captured.update(cmd=cmd, cwd=cwd, env=env, start_new_session=start_new_session)
         stdout.write("transcript echo of the prompt, then duplicates")
         last_path = cmd[cmd.index("--output-last-message") + 1]
         with open(last_path, "w") as fh:
             fh.write("<solution>from codex</solution>")
-        return FakeProcess()
+        proc = FakeProcess()
+        proc.stdin = FakeStdin()
+        captured["stdin_obj"] = proc.stdin
+        return proc
 
     monkeypatch.setattr(codex_module.shutil, "which", lambda name: "/usr/bin/codex")
     monkeypatch.setattr(codex_module.subprocess, "Popen", fake_popen)
@@ -323,7 +337,10 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
     assert "--output-last-message" in captured["cmd"]
     assert "gpt-5.6-sol" in captured["cmd"]
     assert 'model_reasoning_effort="xhigh"' in captured["cmd"]
-    assert captured["cmd"][-1] == "the prompt"
+    # the prompt must NEVER appear in argv (self-pkill hazard, run #8):
+    assert "the prompt" not in captured["cmd"]
+    assert captured["stdin_obj"].data == "the prompt"
+    assert captured["stdin_obj"].closed is True
     assert "OPENAI_API_KEY" not in captured["env"]
     assert captured["cwd"] == str(tmp_path)
     assert captured["start_new_session"] is True

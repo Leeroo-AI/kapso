@@ -984,6 +984,27 @@ Problem: {problem}"""
             phase_cost = agent.get_cumulative_cost()
             agent_output = result.output if result.output else ""
 
+            # Ground truth about HOW the session ended, for the feedback
+            # judge (run #8: a self-inflicted SIGTERM was misdiagnosed as
+            # the time limit, so the footgun was never named).
+            meta = result.metadata or {}
+            if result.success:
+                end_facts = "implementation session ended naturally"
+            elif meta.get("deadline_exceeded"):
+                end_facts = (
+                    "implementation session was KILLED BY ITS OWN DEADLINE "
+                    f"after {meta.get('elapsed_seconds', 0):.0f}s"
+                )
+            else:
+                end_facts = (
+                    f"implementation session died prematurely ({result.error}); "
+                    "the deadline was NOT reached — suspect an external or "
+                    "self-inflicted kill"
+                )
+            if meta.get("last_tool"):
+                end_facts += f"; last tool call before end: {meta['last_tool']}"
+            self._pending_session_end_facts = end_facts
+
             if not result.success:
                 logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
                 agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
@@ -1546,6 +1567,9 @@ Problem: {problem}"""
                 evaluation_script_path=node.evaluation_script_path,
                 evaluation_result=node.evaluation_output,
                 workspace_dir=node.workspace_dir,
+                session_end_facts=getattr(
+                    self, "_pending_session_end_facts", ""
+                ),
                 timeout_seconds=self._clamped_timeout(
                     self.feedback_generator.configured_timeout_seconds
                 ),

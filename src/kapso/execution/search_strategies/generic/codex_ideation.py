@@ -65,7 +65,8 @@ def run_codex_ideation(
     ]
     if effort:
         cmd.extend(["-c", f'model_reasoning_effort="{effort}"'])
-    cmd.append(prompt)
+    # Prompt via stdin, never argv (same self-pkill hazard as the Claude
+    # adapter: argv-borne prompt text makes kill patterns match ancestors).
 
     env = os.environ.copy()
     env.pop("OPENAI_API_KEY", None)
@@ -79,11 +80,14 @@ def run_codex_ideation(
         cmd,
         cwd=cwd,
         env=env,
+        stdin=subprocess.PIPE,
         stdout=out_file,
         stderr=subprocess.STDOUT,
         text=True,
         start_new_session=True,
     )
+    process.stdin.write(prompt)
+    process.stdin.close()
 
     deadline = started + timeout_seconds
     while process.poll() is None and time.monotonic() < deadline:

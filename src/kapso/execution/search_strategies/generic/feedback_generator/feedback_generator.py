@@ -123,6 +123,7 @@ class FeedbackGenerator:
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
+        session_end_facts: str = "",
         timeout_seconds: Optional[float] = None,
     ) -> FeedbackResult:
         """
@@ -162,6 +163,7 @@ class FeedbackGenerator:
             evaluation_script_path=evaluation_script_path,
             evaluation_result=evaluation_result,
             workspace_dir=workspace_dir,
+            session_end_facts=session_end_facts,
         )
         
         # Run the coding agent to analyze and generate feedback. The agent is
@@ -212,6 +214,7 @@ class FeedbackGenerator:
         evaluation_script_path: str,
         evaluation_result: str,
         workspace_dir: str,
+        session_end_facts: str = "",
     ) -> str:
         """Build the prompt for the feedback generator."""
         template = load_prompt(self.PROMPT_PATH)
@@ -227,6 +230,8 @@ class FeedbackGenerator:
                 "evaluation_script_path": evaluation_script_path,
                 "evaluation_result": evaluation_result,
                 "workspace_dir": workspace_dir,
+                "session_end_facts": session_end_facts
+                or "(not recorded)",
             }
         )
     

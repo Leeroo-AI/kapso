@@ -8,6 +8,13 @@ You have access to the full workspace at: `{{workspace_dir}}`
 ## Goal
 {{goal}}
 
+## How the implementation session ended (ground truth from the harness)
+{{session_end_facts}}
+
+If the session died prematurely, diagnose the ACTUAL cause from the facts
+above (e.g. a kill command whose pattern matched the session's own process)
+— do not assume the time limit.
+
 ## Solution Approach (Idea)
 {{idea}}
 
@@ -90,3 +97,13 @@ defect. Similarly, if the candidate's code tampered with the evaluation
 
 - Respond with ONLY the XML tags, no other text
 - Ensure all four tags are present in your response
+
+
+## Invariant rules (highest priority)
+
+The GOAL above may contain rules and prohibitions (e.g. what data may be
+used for training). These are INVARIANTS of the campaign:
+- Restate them when relevant; NEVER contradict, relax, or carve out
+  exceptions to them, no matter how much score your advice might gain.
+- Advice that would lead the next iteration to violate a rule is itself a
+  failed iteration; when rules and score conflict, rules win.
