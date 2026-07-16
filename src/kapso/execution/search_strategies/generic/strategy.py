@@ -75,6 +75,21 @@ ENSEMBLE_CANDIDATES_PER_MEMBER = 2
 # any real plan; drop them before the selector sees the pool.
 MIN_ENSEMBLE_CANDIDATE_CHARS = 80
 
+# A candidate that is all headers and [placeholders] is a format skeleton,
+# not a plan — require this much real content after stripping them.
+MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS = 40
+
+
+def is_degenerate_ensemble_candidate(text: str) -> bool:
+    """True for skeleton/echo artifacts that must never reach the selector."""
+    stripped = text.strip()
+    if len(stripped) < MIN_ENSEMBLE_CANDIDATE_CHARS:
+        return True
+    content = re.sub(r"^\s*#.*$", "", stripped, flags=re.MULTILINE)
+    content = re.sub(r"\[[^\]]*\]", "", content)
+    content = re.sub(r"\s+", "", content)
+    return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
+
 ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex"})
 _ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
 
@@ -590,16 +605,50 @@ class GenericSearch(SearchStrategy):
             label = f"{member['cli']}:{member['model']}"
             print(f"[GenericSearch] Ensemble ideation member starting: {label}")
             if member["cli"] == "codex":
-                output, timed_out, _duration = codex_ideation.run_codex_ideation(
-                    prompt=prompt,
-                    model=member["model"],
-                    cwd=ideation_dir,
-                    timeout_seconds=member_deadline,
-                    effort=member.get("effort"),
+                artifacts_dir = os.path.join(
+                    self.workspace_dir, ".kapso", "ideation",
+                    f"iter{self.iteration_count}",
                 )
-                candidates = re.findall(
-                    r"<solution>(.*?)</solution>", output, re.DOTALL
-                )
+
+                def run_codex_once(attempt_deadline: float) -> tuple:
+                    return codex_ideation.run_codex_ideation(
+                        prompt=prompt,
+                        model=member["model"],
+                        cwd=ideation_dir,
+                        timeout_seconds=attempt_deadline,
+                        effort=member.get("effort"),
+                        artifacts_dir=artifacts_dir,
+                    )
+
+                def extract(output: str) -> list:
+                    found = re.findall(
+                        r"<solution>(.*?)</solution>", output, re.DOTALL
+                    )
+                    # Echo-drop: anything that appears verbatim in OUR OWN
+                    # prompt is the transcript echoing the format example
+                    # back (run #8's "blank template" candidate), never a
+                    # model contribution.
+                    return [
+                        c.strip() for c in found
+                        if c.strip() and c.strip() not in prompt
+                    ]
+
+                output, timed_out, duration, meta = run_codex_once(member_deadline)
+                candidates = extract(output)
+                if not candidates and not timed_out:
+                    # Transient turn failure (run #8 iters 1-2: empty final
+                    # message on the first calls after auth shipping). One
+                    # retry inside the remaining member window self-heals it.
+                    remaining = max(60.0, member_deadline - duration)
+                    logger.warning(
+                        f"[GenericSearch] member {label} returned no "
+                        f"candidates (last_message_empty="
+                        f"{meta['last_message_empty']}); retrying once "
+                        f"({remaining:.0f}s left). Stream tail: "
+                        f"{meta['stream_tail'][-200:]!r}"
+                    )
+                    output, timed_out, _dur2, meta = run_codex_once(remaining)
+                    candidates = extract(output)
                 if (
                     not candidates
                     and timed_out
@@ -612,9 +661,14 @@ class GenericSearch(SearchStrategy):
                 return {
                     "label": label,
                     "cli": "codex",
-                    "candidates": [c.strip() for c in candidates],
+                    "candidates": candidates,
                     "sections": [],
                     "cost_usd": 0.0,
+                    "duration_seconds": duration,
+                    "timed_out": timed_out,
+                    "detail": (
+                        "last_message_empty" if meta["last_message_empty"] else "ok"
+                    ),
                 }
 
             from kapso.execution.coding_agents.base import CodingAgentConfig
@@ -673,16 +727,35 @@ class GenericSearch(SearchStrategy):
             for section in member_result["sections"]:
                 if section not in sections:
                     sections.append(section)
+            kept = 0
+            dropped = 0
             for candidate in member_result["candidates"]:
-                # Hygiene observed live: codex echoes the prompt (the tag
-                # phrase used to self-match) and duplicates its final
-                # message — drop degenerate and already-pooled candidates.
-                if len(candidate.strip()) < MIN_ENSEMBLE_CANDIDATE_CHARS:
+                # Hygiene observed live: skeleton/echo artifacts and
+                # duplicated final messages must never reach the selector.
+                if is_degenerate_ensemble_candidate(candidate):
+                    dropped += 1
                     continue
                 if any(candidate == pooled["text"] for pooled in pool):
+                    dropped += 1
                     continue
+                kept += 1
                 pool.append(
                     {"source": member_result["label"], "cli": member_result["cli"], "text": candidate}
+                )
+            detail = member_result.get("detail", "ok")
+            duration = member_result.get("duration_seconds")
+            timing = f", {duration:.0f}s" if duration is not None else ""
+            print(
+                f"[GenericSearch] member {member_result['label']}: "
+                f"candidates={kept}/{ENSEMBLE_CANDIDATES_PER_MEMBER} "
+                f"(dropped {dropped}){timing}, "
+                f"timed_out={member_result.get('timed_out', False)}, {detail}"
+            )
+            if kept < ENSEMBLE_CANDIDATES_PER_MEMBER:
+                logger.warning(
+                    f"[GenericSearch] member {member_result['label']} "
+                    f"under-delivered: {kept} of "
+                    f"{ENSEMBLE_CANDIDATES_PER_MEMBER} candidates"
                 )
 
         telemetry = {

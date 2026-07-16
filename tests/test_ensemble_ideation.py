@@ -137,11 +137,14 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
         def cleanup(self):
             pass
 
-    def fake_codex(prompt, model, cwd, timeout_seconds, effort=None):
+    def fake_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
         events["codex_calls"].append(
-            {"model": model, "cwd": cwd, "timeout": timeout_seconds, "effort": effort}
+            {"model": model, "cwd": cwd, "timeout": timeout_seconds,
+             "effort": effort, "artifacts_dir": artifacts_dir, "prompt": prompt}
         )
-        return codex_output, codex_timed_out, 1.0
+        meta = {"last_message_empty": not codex_output, "stream_tail": "",
+                "stream_path": None, "last_path": None}
+        return codex_output, codex_timed_out, 1.0, meta
 
     monkeypatch.setattr(claude_module, "ClaudeCodeCodingAgent", FakeAgent)
     monkeypatch.setattr(codex_module, "run_codex_ideation", fake_codex)
@@ -319,7 +322,7 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
     monkeypatch.setattr(codex_module.subprocess, "Popen", fake_popen)
     monkeypatch.setenv("OPENAI_API_KEY", "leak-me-not")
 
-    output, timed_out, duration = codex_module.run_codex_ideation(
+    output, timed_out, duration, meta = codex_module.run_codex_ideation(
         prompt="the prompt",
         model="gpt-5.6-sol",
         cwd=str(tmp_path),
@@ -330,6 +333,7 @@ def test_codex_runner_builds_command_and_strips_openai_key(tmp_path, monkeypatch
     assert output == "<solution>from codex</solution>"
     assert timed_out is False
     assert duration >= 0
+    assert meta["last_message_empty"] is False
     assert captured["cmd"][:6] == [
         "codex", "--search", "exec", "--sandbox", "read-only",
         "--skip-git-repo-check",
@@ -374,3 +378,122 @@ def test_pool_hygiene_drops_degenerate_and_duplicate_candidates(tmp_path, monkey
     # after hygiene only ONE candidate remains -> selector skipped entirely
     assert solution == real_plan
     assert not [p for is_sel, p in events["claude_prompts"] if is_sel]
+
+
+def test_codex_zero_candidates_retries_once(tmp_path, monkeypatch):
+    calls = {"n": 0}
+    plan = _plan("second try")
+
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output="unused",
+        codex_output="unused",
+        selector_output="unused",
+    )
+
+    def flaky_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+        calls["n"] += 1
+        meta = {"last_message_empty": calls["n"] == 1, "stream_tail": "boom",
+                "stream_path": None, "last_path": None}
+        if calls["n"] == 1:
+            return "", False, 1.0, meta
+        return f"<solution>{plan}</solution>", False, 1.0, meta
+
+    monkeypatch.setattr(codex_module, "run_codex_ideation", flaky_codex)
+    solution, _, _ = strategy._generate_solution("problem", "main")
+    assert calls["n"] == 2
+    assert solution == plan
+
+
+def test_codex_timeout_does_not_retry(tmp_path, monkeypatch):
+    calls = {"n": 0}
+    strategy, _ = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output="unused",
+        codex_output="unused",
+        selector_output="unused",
+    )
+
+    def timing_out_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+        calls["n"] += 1
+        return "short", True, 1.0, {"last_message_empty": True, "stream_tail": "",
+                                    "stream_path": None, "last_path": None}
+
+    monkeypatch.setattr(codex_module, "run_codex_ideation", timing_out_codex)
+    solution, _, _ = strategy._generate_solution("problem", "main")
+    assert calls["n"] == 1
+    assert "Fallback solution due to ideation failure" in solution
+
+
+def test_prompt_echo_candidates_are_dropped(tmp_path, monkeypatch):
+    """A candidate that is verbatim part of OUR prompt is a transcript echo
+    (run #8's 'blank template'), never a model contribution."""
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output="unused",
+        codex_output="PLACEHOLDER",
+        selector_output="unused",
+    )
+    real = _plan("genuine")
+
+    def echoing_codex(prompt, model, cwd, timeout_seconds, effort=None, artifacts_dir=None):
+        # echo a large verbatim chunk of the prompt inside solution tags,
+        # plus one genuine candidate
+        echo = prompt[100:600]
+        out = f"<solution>{echo}</solution><solution>{real}</solution>"
+        return out, False, 1.0, {"last_message_empty": False, "stream_tail": "",
+                                 "stream_path": None, "last_path": None}
+
+    monkeypatch.setattr(codex_module, "run_codex_ideation", echoing_codex)
+    solution, _, _ = strategy._generate_solution("problem", "main")
+    assert solution == real  # echo dropped -> single candidate -> selector skipped
+
+
+def test_skeleton_candidates_never_reach_selector(tmp_path, monkeypatch):
+    from kapso.execution.search_strategies.generic.strategy import (
+        is_degenerate_ensemble_candidate,
+    )
+    skeleton = (
+        "# Why This Approach\n[How this builds on previous experiments]\n"
+        "# Solution Steps\n1. [First step with specific details]\n"
+        "# Hyperparameters\n- param1: value1\n# Rationale\n[Why this works]"
+    )
+    assert is_degenerate_ensemble_candidate(skeleton)
+    assert not is_degenerate_ensemble_candidate(_plan("real thing"))
+
+
+def test_codex_artifacts_persist_when_dir_given(tmp_path, monkeypatch):
+    class FakeStdin:
+        def write(self, t): pass
+        def close(self): pass
+
+    class FakeProcess:
+        pid = 4242
+        stdin = FakeStdin()
+        def poll(self): return 0
+        def wait(self): return 0
+
+    def fake_popen(cmd, cwd, env, stdin, stdout, stderr, text, start_new_session):
+        stdout.write("stream contents")
+        last_path = cmd[cmd.index("--output-last-message") + 1]
+        with open(last_path, "w") as fh:
+            fh.write("<solution>persisted</solution>")
+        return FakeProcess()
+
+    monkeypatch.setattr(codex_module.shutil, "which", lambda name: "/usr/bin/codex")
+    monkeypatch.setattr(codex_module.subprocess, "Popen", fake_popen)
+    art = str(tmp_path / "ideation")
+    output, timed_out, duration, meta = codex_module.run_codex_ideation(
+        prompt="p", model="gpt-5.6-sol", cwd=str(tmp_path),
+        timeout_seconds=5, artifacts_dir=art,
+    )
+    assert output == "<solution>persisted</solution>"
+    assert meta["stream_path"] and meta["last_path"]
+    assert open(meta["stream_path"]).read() == "stream contents"
+    assert open(meta["last_path"]).read() == "<solution>persisted</solution>"

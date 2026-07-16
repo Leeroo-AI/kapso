@@ -204,11 +204,45 @@ member costs untracked (known). Clean: no OOMs/vLLM/CUDA failures all
 run; atomic banking flawless; feedback parsing resilient (scored the
 killed session from disk state).
 
+### R8-F1 / R8-F2 root cause & resolution (2026-07-16, post-run investigation)
+
+**Root cause established by reproduction + code inspection.** Two local
+reproductions of the codex member (same prompt shape, model, effort,
+flags) both delivered 2 clean candidates in the final message — the
+pipeline is correct when the turn succeeds. Working backwards from the
+run-8 signature (exactly one "unfilled template" candidate in iterations
+1–2): the runner falls back to the raw transcript stream when the
+final-message file is empty, and the transcript echoes OUR OWN prompt —
+whose format example is precisely an unfilled `<solution>` skeleton. So
+the blank candidate is the fingerprint of **a codex turn that
+errored/aborted before answering** (empty last-message → stream fallback
+→ prompt echo harvested). The turn failures were transient (identical
+config succeeded in iterations 3–4 and in reproduction); leading suspect
+is first-use token refresh of the freshly shipped auth.json. The exact
+error is unrecoverable BECAUSE of R8-F2: the runner logged nothing
+per-member and deleted both output artifacts (`os.unlink` on stream and
+last-message files) — invisibility by construction.
+
+**Fixes applied (commit on main, gate 261 green):**
+1. Member artifacts persist under
+   `<workspace>/.kapso/ideation/iter<N>/codex_<model>.{stream,last}.txt`
+   — failures leave evidence on disk (F2 root fix).
+2. Per-member pool telemetry: `member codex:…: candidates=K/2 (dropped D),
+   Xs, timed_out=…, last_message_empty|ok` + WARNING on under-delivery,
+   with the stream tail surfaced into the main trace on a failed turn.
+3. Echo-drop: any candidate appearing verbatim inside our own prompt is
+   discarded (kills the blank-template class exactly), plus a
+   placeholder-skeleton degeneracy filter (strip headers/`[…]`; require
+   ≥40 chars of real content).
+4. Retry-once: a member returning zero candidates without timing out is
+   retried within its remaining deadline — transient first-call failures
+   self-heal in-run.
+
 ## Suggestions backlog
 
-**S1 (needs approval, src/kapso):** placeholder-aware candidate degeneracy
-filter + under-count warning (R8-F1). **S2 (needs approval, src/kapso):**
-per-member ensemble telemetry line (R8-F2). **S3:** enforce or relabel
+**S1 — DONE 2026-07-16** (placeholder-aware degeneracy filter + echo-drop +
+retry-once + under-count warning). **S2 — DONE 2026-07-16** (per-member
+telemetry + persisted member artifacts). **S3:** enforce or relabel
 ideation tool restriction (R8-F3). **S4:** trace log polish batch
 (thinking-token collapse, FULL command text — its truncation nearly hid
 R8-F8's root cause, rate-limit payloads). **S5 (handler prompt, ours):**
