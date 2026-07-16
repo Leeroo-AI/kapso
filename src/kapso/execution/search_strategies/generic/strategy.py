@@ -227,6 +227,12 @@ class GenericSearch(SearchStrategy):
         # Optional reasoning-effort for BOTH agent sessions (ideation and
         # implementation); None keeps the CLI's default.
         self.session_effort = self.params.get("effort")
+        # Env vars stripped from every Claude session this strategy spawns
+        # (ideation, ensemble members, selector, implementation). Used for
+        # credential containment: the orchestrating process may hold a key
+        # (e.g. OPENAI_API_KEY for the utility LLM) that agent sessions must
+        # not inherit. The codex ideation runner strips its own env.
+        self.env_strip = list(self.params.get("env_strip", []))
         # Optional ensemble ideation: N parallel CLI members + a selector.
         self.ideation_ensemble = normalize_ideation_ensemble(
             self.params.get("ideation_ensemble")
@@ -505,6 +511,7 @@ class GenericSearch(SearchStrategy):
                 debug_model=self.idea_generation_model,
                 agent_specific={
                     **self._claude_auth_settings,
+                    "env_strip": self.env_strip,
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
@@ -680,6 +687,7 @@ class GenericSearch(SearchStrategy):
                 debug_model=member["model"],
                 agent_specific={
                     **self._claude_auth_settings,
+                    "env_strip": self.env_strip,
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
@@ -817,6 +825,7 @@ class GenericSearch(SearchStrategy):
             debug_model=selector["model"],
             agent_specific={
                 **self._claude_auth_settings,
+                "env_strip": self.env_strip,
                 "aws_region": self.aws_region,
                 "allowed_tools": ["Read"],
                 "timeout": selector_deadline,
@@ -1019,6 +1028,7 @@ Problem: {problem}"""
             debug_model=self.implementation_model,
             agent_specific={
                 **self._claude_auth_settings,
+                "env_strip": self.env_strip,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": implementation_allowed_tools,

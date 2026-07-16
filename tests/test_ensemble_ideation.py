@@ -173,6 +173,7 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     strategy.budget_snapshot = None
     strategy.iteration_count = 0
     strategy.session_effort = None
+    strategy.env_strip = []
     strategy.ideation_ensemble = ensemble
     strategy.ideation_selector = selector
     return strategy, events
@@ -497,3 +498,27 @@ def test_codex_artifacts_persist_when_dir_given(tmp_path, monkeypatch):
     assert meta["stream_path"] and meta["last_path"]
     assert open(meta["stream_path"]).read() == "stream contents"
     assert open(meta["last_path"]).read() == "<solution>persisted</solution>"
+
+
+def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeypatch):
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('claude only')}</solution>",
+        codex_output=f"<solution>{_plan('codex only')}</solution>",
+        selector_output=(
+            "<selection_reasoning>fine</selection_reasoning>"
+            "<solution>winner</solution>"
+        ),
+    )
+    strategy.env_strip = ["OPENAI_API_KEY"]
+
+    strategy._generate_solution("problem", "main")
+
+    # Containment boundary: every Claude session the strategy spawns (member
+    # AND selector) must carry the strip list, or an agent inherits the
+    # orchestrator's own LLM credential on official non-judge runs.
+    assert events["configs"], "harness captured no session configs"
+    for config in events["configs"]:
+        assert config.agent_specific["env_strip"] == ["OPENAI_API_KEY"]
