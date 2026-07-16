@@ -78,7 +78,7 @@ the Gemma license accepted.
 
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0** | ✅ run #8 (10h official, 2026-07-16) — 2nd-best ever on this cell, above human. Caveat: contamination-clean floor is 94.0 (soup_b); the +2 comes from eval-guided convention patches (R8-F16, disclose to maintainers). Run #9 in flight: interim **96.0 full-set verified at t+2.6h** (v3, clean provenance) — would beat GLM-5.2's 95.3 record cleanly; v4 training |
+| Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0 ✓clean** | ✅ run #9 (10h official, 2026-07-16, done in 5.6h): **96.0 with 'no contamination detected'** — retires run #8's caveat, beats GLM-5.2's record, 2nd all-time. Judge stopped at practical ceiling after iteration 1. Run #8 (also 96.0, caveated) superseded. |
 | Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | — | pending |
 | SmolLM3-3B | 0.0 | gpt-5.5-xh-rp · 100.0 | opus-4.8 · 97.0 | opus-4.6 · 86.7 | 84.0 | — | 🚀 run #10 in flight (10h official, launched 2026-07-16 12:32 UTC, `bfcl-smollm3-3b-base-07161232`) — gate passed: run #9 passes 1–2 clean of framework majors |
 | gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | pending [G] |
@@ -131,12 +131,13 @@ guide; this table is the per-cell scoreboard.
 | #8 | bfcl × Qwen3-1.7B | 10h (official length) | **96.0** (full set, first-attempt eval) | ~$70 GPU + $39.65+ notional Max | 2026-07-15/16 | First full-stack run: ensemble ideation (codex+fable-5, xhigh) + opus-4.8 xhigh implementation + F5 contract. 4 iterations: 0→93 (SFT 44k) →94 (self-mined DPO) →94 (soup) →**96** (convention-patch SFT). Beats human/instruct (94.0) and GLM-5.2's cell record (95.3); trails only gpt-5.5-xh-rp (100). Iteration-1 self-kill footgun (R8-F8) recovered by feedback+parent-ladder. Judge: R8-F17 RESOLVED 2026-07-16 (openai-api-key secret; gpt-5.1-codex verified via CODEX_API_KEY; agent phase keeps subscription auth). Judge-scored cells [J] unblocked. Findings: `reviews/run8-review.md`. |
 | #7 | gsm8k × Qwen3-1.7B | 3h (validation) | **53.4 ± 1.4** (full 1319-problem set, rescored via `gcp/40_eval_only.sh`) | ~$17 GPU + $36.77 notional Max | 2026-07-14/15 | Full-FT on MetaMathQA, checkpoint-2000 promoted mid-run; 62% of the cell's proven-best (86.3 in 10h), reached in 30% of the time. Findings F0–F14: `reviews/run7-review.md`; F5 fix applied post-run (session-cap contract + sizing + timeout backstop, commit 434f66da). |
 
-In flight: **run #9** = bfcl × Qwen3-1.7B 10h re-run with the full fix
-stack (live gpt-5.6-luna memory loop, env_strip containment, stdin fix,
-feedback invariants, ensemble forensics; built from `7801565a`), launched
-2026-07-16 ~09:50 UTC. **Run #10** = bfcl × SmolLM3-3B 10h staged, launches
-in parallel once run #9's first two trace reviews report no major issue.
-Remaining blockers: gemma cells need the `hf-token` secret.
+Latest: **run #9 COMPLETE** — bfcl × Qwen3-1.7B **96.0 official, clean**
+(2026-07-16, 5.6h of 10h; judge-stopped at practical ceiling). **Run #10**
+(bfcl × SmolLM3-3B 10h) in flight, launched 12:32 UTC. Known bounded issue
+in both runs' containers: gpt-5.6-luna memory-layer calls 400 (litellm
+version skew nulls reasoning_effort) and fail soft — memory dead, run
+unaffected; fix proposal pending (pin litellm==1.75.0 + no-null
+hardening). Remaining blockers: gemma cells need the `hf-token` secret.
 
 ## Run artifact index (GCS)
 

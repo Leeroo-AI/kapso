@@ -172,3 +172,29 @@ agent credentials via `--env` on the apptainer command line, so they are
 visible in the VM's process table (`ps`). Upstream design, confined to
 our own VM; no action for our stack — solve.sh still strips them from
 agent sessions.
+
+### Run outcome (official) + R9-I-2
+
+**96.0 official, contamination-clean.** Final eval accuracy 0.960 (full
+set); judge: "no contamination detected"; disallowed-model: "only allowed
+use detected". Done at 15:22Z (5.6h of 10h): the feedback judge validated
+the score, found no tampering, and stopped at the practical ceiling
+(<stop>true</stop>, "4 remaining errors near the ambiguity/noise floor").
+R9-P2-1 watch item resolved: the judge scored on the 0-1 scale (0.96) and
+the evaluator handled it; no promote-refusal occurred.
+
+**R9-I-2 (framework, bounded — CONFIRMED) — luna memory layer dead via
+litellm version skew.** Both post-session luna call sites 400'd:
+`reasoning_effort does not support null` (repo-memory update 15:17:53Z,
+insight extraction 15:22:34Z); both failed SOFT (pre-existing warn
+guards), so the run was unaffected. Local reproduction of the identical
+call sends `xhigh` correctly on litellm 1.75.0; the container's litellm
+(resolved fresh at image build, newer) drops `xhigh` for gpt-5.6-luna via
+its capability map and `allowed_openai_params` then forces the key
+through as null. Fix proposal (needs approval): pin `litellm==1.75.0` in
+pyproject + never send a None reasoning_effort kwarg (4 entry points);
+rebuild assets before run #11. Run #10 carries the same bounded behavior.
+
+**Stop-policy observation (S-backlog):** stopping at 96 with ~4.5h left
+banked a record but left the proven ceiling (100) unexplored; the
+stop rubric could weigh remaining budget vs cell ceiling.
