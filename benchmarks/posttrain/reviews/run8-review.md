@@ -238,6 +238,30 @@ last-message files) — invisibility by construction.
    retried within its remaining deadline — transient first-call failures
    self-heal in-run.
 
+### R8-F13 resolution (2026-07-16) — memory layer revived on gpt-5.6-luna
+
+The dead knowledge loop is closed without an Anthropic API key. The
+litellm roles (repo memory, insight extraction) now run `gpt-5.6-luna`
+at xhigh via a new rich route form in `core/llm.py`
+(`utility: {model, reasoning_effort}` — the role's effort applies to
+every call resolved through it, since those call sites never plumbed an
+effort parameter). Live-verified: luna received `reasoning_effort=xhigh`
+and answered through kapso's own backend.
+
+Credential containment (key never reaches agent sessions on non-judge
+tasks): solve.sh bridges the harness's always-present CODEX_API_KEY —
+the sanctioned agent-credential channel upstream codex scaffolds run on
+(run_task.sh:65,131) — to OPENAI_API_KEY for kapso's own process, and
+passes `--strip-agent-env OPENAI_API_KEY` exactly when the harness did
+NOT pre-export the key (pre-export ⟺ judge task, run_task.sh:67-69). The
+runner threads that into `agent_specific.env_strip` for coding agent +
+feedback generator, and the Claude adapter pops those names from the CLI
+child env only. Judge tasks pass nothing, so evaluate.py keeps its key.
+The ensemble's codex member still authenticates via auth.json (solve.sh
+unsets CODEX_API_KEY after the bridge; codex_ideation.py already pops
+OPENAI_API_KEY). auth_mode is now pinned "oauth" everywhere — no
+Anthropic API key exists in this deployment to fall back to.
+
 ### R8-F17 resolution (2026-07-16)
 
 The user's OPENAI_API_KEY (.env) is now the `openai-api-key` secret.

@@ -1,6 +1,7 @@
 """Hermetic tests for Claude Code authentication mode selection."""
 
 import json
+import os
 import subprocess
 from types import SimpleNamespace
 
@@ -217,3 +218,29 @@ def test_env_overrides_participate_in_validation_and_resolution():
     )
 
     assert agent._get_env()["ANTHROPIC_API_KEY"] == "from-config"
+
+
+def test_env_strip_removes_named_vars_from_agent_env_only(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "scaffold-key")
+    agent = ClaudeCodeCodingAgent(
+        make_config(
+            auth_mode="api_key",
+            env_strip=["OPENAI_API_KEY", "ABSENT_VAR"],
+        )
+    )
+
+    env = agent._get_env()
+
+    assert "OPENAI_API_KEY" not in env
+    assert env["ANTHROPIC_API_KEY"] == "anthropic"
+    # The orchestrating process keeps its own credential untouched.
+    assert os.environ["OPENAI_API_KEY"] == "scaffold-key"
+
+
+def test_agent_env_passes_openai_key_through_without_env_strip(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "scaffold-key")
+    agent = ClaudeCodeCodingAgent(make_config(auth_mode="api_key"))
+
+    assert agent._get_env()["OPENAI_API_KEY"] == "scaffold-key"

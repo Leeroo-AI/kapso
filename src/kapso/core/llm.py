@@ -78,20 +78,46 @@ LEGACY_WEB_SEARCH_ALIASES = frozenset(
 
 
 class ModelRouter:
-    """Resolve semantic model roles while preserving explicit model strings."""
+    """Resolve semantic model roles while preserving explicit model strings.
 
-    def __init__(self, routes: Optional[Mapping[str, str]] = None):
+    A route value is either a bare model string or a mapping
+    {model: <str>, reasoning_effort: <str>} — the rich form attaches a
+    default reasoning effort to every call resolved through that role
+    (callers passing an explicit effort still win). This is how config
+    reaches call sites that never plumbed an effort parameter (repo
+    memory, insight extraction).
+    """
+
+    def __init__(self, routes: Optional[Mapping[str, Any]] = None):
         supplied = dict(routes or {})
         unknown = sorted(set(supplied) - MODEL_ROLES)
         if unknown:
             raise ValueError(f"Unknown model role(s): {', '.join(unknown)}")
 
         merged = dict(DEFAULT_MODEL_ROUTES)
-        for role, model in supplied.items():
+        efforts: Dict[str, str] = {}
+        for role, value in supplied.items():
+            if isinstance(value, Mapping):
+                model = value.get("model")
+                extra = sorted(set(value) - {"model", "reasoning_effort"})
+                if extra:
+                    raise ValueError(
+                        f"Model route '{role}' has unknown keys: {', '.join(extra)}"
+                    )
+                effort = value.get("reasoning_effort")
+                if effort is not None:
+                    if not isinstance(effort, str) or not effort.strip():
+                        raise ValueError(
+                            f"Model route '{role}' reasoning_effort must be a non-empty string"
+                        )
+                    efforts[role] = effort.strip()
+            else:
+                model = value
             if not isinstance(model, str) or not model.strip():
                 raise ValueError(f"Model route '{role}' must be a non-empty string")
             merged[role] = model.strip()
         self._routes = merged
+        self._efforts = efforts
 
     def resolve(
         self,
@@ -115,6 +141,17 @@ class ModelRouter:
         ):
             return self._routes["web_search"]
         return requested
+
+    def effort_for(
+        self, model: Optional[str], *, default_role: str = "utility"
+    ) -> Optional[str]:
+        """The configured effort for whichever role this call resolves to."""
+        if model is None:
+            return self._efforts.get(default_role)
+        requested = str(model).strip()
+        if requested in MODEL_ROLES:
+            return self._efforts.get(requested)
+        return None
 
     def to_dict(self) -> Dict[str, str]:
         return dict(self._routes)
@@ -389,6 +426,10 @@ class LLMBackend:
         **kwargs: Any,
     ) -> str:
         resolved_model = self.resolve_model(model, default_role="utility")
+        if reasoning_effort is None:
+            reasoning_effort = self.model_router.effort_for(
+                model, default_role="utility"
+            )
         effective_effort, kwargs = _prepare_effort(
             resolved_model, reasoning_effort, kwargs
         )
@@ -441,9 +482,15 @@ class LLMBackend:
 
         async def _run() -> List[str]:
             tasks = []
-            for model in resolved_models:
+            for requested, model in zip(models, resolved_models):
                 model_effort, model_kwargs = _prepare_effort(
-                    model, reasoning_effort, kwargs
+                    model,
+                    reasoning_effort
+                    if reasoning_effort is not None
+                    else self.model_router.effort_for(
+                        requested, default_role="utility"
+                    ),
+                    kwargs,
                 )
                 tasks.append(
                     self._run_async(
@@ -473,6 +520,10 @@ class LLMBackend:
         **kwargs: Any,
     ) -> str:
         resolved_model = self.resolve_model(model, default_role="web_search")
+        if reasoning_effort is None:
+            reasoning_effort = self.model_router.effort_for(
+                model, default_role="web_search"
+            )
         kwargs.pop("temperature", None)
         response = self._run_sync(
             "web-search completion",
@@ -508,7 +559,9 @@ class LLMBackend:
                 effort = (
                     reasoning_efforts[index]
                     if reasoning_efforts and index < len(reasoning_efforts)
-                    else None
+                    else self.model_router.effort_for(
+                        models[index], default_role="web_search"
+                    )
                 )
                 tasks.append(
                     self._run_async(

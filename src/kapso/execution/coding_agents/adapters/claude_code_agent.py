@@ -163,6 +163,15 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Optional reasoning-effort level forwarded to the CLI (--effort).
         self._effort: Optional[str] = config.agent_specific.get("effort")
 
+        # Env var names removed from the CLI child's environment (never from
+        # this process). Used when the orchestrator legitimately holds a
+        # credential the agent must not inherit — e.g. PostTrainBench strips
+        # OPENAI_API_KEY from agent sessions on non-judge benchmarks while
+        # kapso's own utility LLM keeps using it.
+        self._env_strip: List[str] = list(
+            config.agent_specific.get("env_strip", [])
+        )
+
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
     
@@ -960,7 +969,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
         else:  # Defensive: auto is always resolved during initialization.
             raise RuntimeError(f"Unresolved Claude Code auth mode: {self._auth_mode}")
-        
+
+        for name in self._env_strip:
+            env.pop(name, None)
+
         return env
     
     def _get_changed_files(self) -> List[str]:

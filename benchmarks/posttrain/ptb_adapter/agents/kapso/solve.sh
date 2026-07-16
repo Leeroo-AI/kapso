@@ -5,15 +5,31 @@
 #   - cwd is /home/ben/task (evaluate.py, timer.sh, templates/ live here)
 #   - $PROMPT holds the official task prompt, $AGENT_CONFIG the model id,
 #     $NUM_GPUS the GPU count
-#   - ANTHROPIC_API_KEY is always exported; OPENAI_API_KEY is exported ONLY for
-#     judge-scored tasks (arenahardwriting, healthbench) and per the benchmark
-#     rules may be used by evaluate.py exclusively — kapso's own LLM roles are
-#     pinned to Anthropic in benchmarks/posttrain/config.yaml.
+#   - CODEX_API_KEY always holds the harness operator's OpenAI key — the
+#     sanctioned agent-credential channel (upstream codex scaffolds run on
+#     it). OPENAI_API_KEY itself is pre-exported ONLY for judge-scored tasks
+#     (arenahardwriting, healthbench), where evaluate.py needs it.
 #   - the harness enforces the deadline with `timeout` (TERM, then KILL +30s)
 #
 # Kapso lives in its own venv (see containers/kapso.def) so its dependencies
 # never touch the pinned training environment the agent works in.
 
+# Kapso's utility-LLM roles (gpt-5.6-luna: repo memory, insight extraction —
+# see benchmarks/posttrain/config.yaml) authenticate through the CODEX_API_KEY
+# channel, bridged to OPENAI_API_KEY for litellm. Whether the harness itself
+# pre-exported OPENAI_API_KEY is exactly the judge-task signal: on judge tasks
+# the agent sessions must keep the key for evaluate.py; on every other task
+# they must look like an official non-judge environment (no OpenAI key), so
+# the runner strips it from agent sessions while kapso's own process keeps it.
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+    STRIP_AGENT_ENV_ARGS=()
+else
+    export OPENAI_API_KEY="${CODEX_API_KEY:-}"
+    STRIP_AGENT_ENV_ARGS=(--strip-agent-env OPENAI_API_KEY)
+fi
+
+# The ensemble's codex member authenticates via ~/.codex/auth.json (ChatGPT
+# login), never via keys: CODEX_API_KEY would override auth.json if left set.
 unset GEMINI_API_KEY
 unset CODEX_API_KEY
 
@@ -48,4 +64,5 @@ exec /opt/kapso/venv/bin/expert-posttrain \
     --task-dir "$PWD" \
     --prompt-env PROMPT \
     --coding-model "${AGENT_CONFIG:-claude-opus-4-6}" \
-    --mode POSTTRAIN
+    --mode POSTTRAIN \
+    "${STRIP_AGENT_ENV_ARGS[@]}"

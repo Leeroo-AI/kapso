@@ -75,17 +75,69 @@ def test_model_router_supports_roles_partial_overrides_and_explicit_models():
     assert router.to_dict()["web_search"] == "vendor/search"
 
 
+def test_model_router_rich_form_resolves_model_and_carries_effort():
+    router = ModelRouter(
+        {
+            "utility": {
+                "model": "openai/gpt-5.6-luna",
+                "reasoning_effort": "xhigh",
+            },
+            "reasoning": "vendor/plain",
+        }
+    )
+
+    assert router.resolve("utility") == "openai/gpt-5.6-luna"
+    assert router.resolve(None) == "openai/gpt-5.6-luna"
+    assert router.effort_for("utility") == "xhigh"
+    assert router.effort_for(None) == "xhigh"
+    # Roles configured as bare strings, and explicit model strings, carry none.
+    assert router.effort_for("reasoning") is None
+    assert router.effort_for("openai/gpt-5.6-luna") is None
+
+
 @pytest.mark.parametrize(
     "routes,match",
     [
         ({"unknown": "model"}, "Unknown model role"),
         ({"utility": ""}, "non-empty string"),
         ({"reasoning": None}, "non-empty string"),
+        ({"utility": {"model": "m", "oops": "x"}}, "unknown keys"),
+        ({"utility": {"reasoning_effort": "high"}}, "non-empty string"),
+        ({"utility": {"model": "m", "reasoning_effort": ""}}, "non-empty string"),
     ],
 )
 def test_invalid_model_routes_fail_during_configuration(routes, match):
     with pytest.raises(ValueError, match=match):
         ModelRouter(routes)
+
+
+def test_role_reasoning_effort_applies_only_when_caller_passes_none(monkeypatch):
+    calls = []
+
+    def fake_completion(**kwargs):
+        calls.append(kwargs)
+        return response("ok")
+
+    monkeypatch.setattr(llm_module, "completion", fake_completion)
+    backend = LLMBackend(
+        models={
+            "utility": {
+                "model": "openai/gpt-5.6-luna",
+                "reasoning_effort": "xhigh",
+            }
+        }
+    )
+
+    backend.llm_completion("utility", [{"role": "user", "content": "x"}])
+    assert calls[-1]["reasoning_effort"] == "xhigh"
+
+    backend.llm_completion(
+        "utility", [{"role": "user", "content": "x"}], reasoning_effort="low"
+    )
+    assert calls[-1]["reasoning_effort"] == "low"
+
+    backend.llm_completion("openai/other", [{"role": "user", "content": "x"}])
+    assert calls[-1]["reasoning_effort"] is None
 
 
 def test_retry_policy_computes_capped_backoff_and_full_jitter():
