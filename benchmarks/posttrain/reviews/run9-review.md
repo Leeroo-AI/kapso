@@ -97,3 +97,53 @@ on the agent's own xlam held-out data, not BFCL.
 failure; the one substantive lapse is strategic (the special-token trap
 was implied by facts the plan itself cited). No non-zero score yet;
 segment 2's first eval is the referendum.
+
+### Reviewer pass #2 (t+1h05 – t+1h54, full-FT relaunch → 95.0 promoted → v3 launched)
+
+Verdict: **0 framework-level majors, 0 agent-level majors, 3 minor, 4
+info. RUN #10 GATE CLEAR** — launched 12:32 UTC as
+`bfcl-smollm3-3b-base-07161232`.
+
+**The 95.0 is verified, full-set, on the deliverable.** Finalize driver
+(detached, PID-file) merged and evaluated `full_strip_v2`: accuracy 0.950
+on "bfcl (100 samples)" — BFCL's eval set is exactly 100, so `--limit
+200` clamps (R9-P2-5, info); the agent caught the header/sample-count
+discrepancy and re-ran with NO limit directly against
+`/home/ben/task/final_model`: 0.950 again (eval_final_full.json).
+Promotion contract observed both times (tmp → load-verify → atomic
+replace → best_score.log), plus post-promotion bulletproofing: offline
+load OK (1.72B params), special-token embedding norms healthy
+(0.992/0.953/0.973 vs the 0.375 that caused R9-P1-1).
+
+**v3 provenance legal (strict check — the run-#8 taint class):** trains
+on xlam(24k) + agent-generated synth_v2(12k) from 27 invented generic
+tools; the type-fidelity traps came from the design doc's lever, not
+from eval failures — the 5 wrong samples at 95% were never opened; eval
+logs grepped aggregate-only; evaluate.py/templates untouched.
+
+**Findings:** R9-P2-1 (minor, agent) — safety-net promotion logged a
+FABRICATED placeholder score ("0.5", fraction-scale) in best_score.log
+with no eval behind it; gate still compared correctly (0.5 < 95.0) but a
+fraction-vs-percent mixup could someday refuse a better model — pass #3
+watch item. R9-P2-2 (minor, agent) — waiter/poll churn: 18 waiter spawns
+for ~6 conditions, 34 idle yields, two zero-value wake-up turns
+(~$1.5); known idle-wait item. R9-P2-3 (minor, agent) — ckpt_sweep.sh
+died on a redirect into a nonexistent dir (no mkdir -p); stale premise
+anyway (checkpoints pruned); cleanly abandoned. R9-P2-4 (info,
+framework-positive) — guards all functioned: sleep-block redirected to
+until-loops, wasted-call dedup fired 20×, and a genuinely SILENT
+zero-cost 26.6-min idle during training (11:24:58→11:51:35) — the
+notification-driven wait works. R9-P2-6 (info) — PLAN.md duplicate
+section left in place. R9-P2-7 (info) — budget proportionate: $23.89 at
+segment end, the big $8.38 turn covered finalize+eval+promote+v3; session
+deadline arithmetic correct (15:17).
+
+**Limits:** ZERO rate_limit_events in the whole segment (total stays 3,
+all in the 10:08–10:18 ideation burst). **Credentials:** zero
+OPENAI_API_KEY hits. **Memory layer:** no luna errors.
+
+**Trajectory:** 0.0 → twice-verified 95.0 full-set final_model within 41
+min of the relaunch; v3 (done ~12:45Z) gated promote-only-if-better
+behind the locked 95.0 floor; ~50-min cycle time → ~2 more cycles in this
+session, ~8 in the harness budget. Already above human (94.0) and run
+#8's clean floor, one point shy of GLM-5.2's 95.3 cell record — clean.
