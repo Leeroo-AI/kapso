@@ -121,6 +121,7 @@ def build_runtime_config(
     coding_model: "str | None",
     task_dir: str,
     session_timeouts: dict,
+    agent_env_strip: "list[str] | None" = None,
 ) -> str:
     """Write the per-run config: shaped session deadlines + model override."""
     with open(CONFIG_PATH) as f:
@@ -129,11 +130,23 @@ def build_runtime_config(
     params = mode_cfg["search_strategy"]["params"]
     params.update(session_timeouts)
     if coding_model:
+        # Ensemble members/selector are pinned by the config on purpose:
+        # --coding-model (the harness $AGENT_CONFIG) labels and drives the
+        # implementation/feedback agents, not the ideation ensemble.
         params["idea_generation_model"] = coding_model
         params["implementation_model"] = coding_model
         for section in ("coding_agent", "feedback_generator"):
             mode_cfg[section]["model"] = coding_model
             mode_cfg[section]["debug_model"] = coding_model
+    if agent_env_strip:
+        # Credential containment (non-judge tasks): kapso's own process keeps
+        # OPENAI_API_KEY for its utility-LLM roles, but the agent sessions it
+        # spawns must look exactly like an official non-judge environment —
+        # no OpenAI key. solve.sh decides per-task and passes the names here.
+        for section in ("coding_agent", "feedback_generator"):
+            mode_cfg[section].setdefault("agent_specific", {})[
+                "env_strip"
+            ] = list(agent_env_strip)
 
     runtime_dir = os.path.join(task_dir, ".kapso_runtime")
     os.makedirs(runtime_dir, exist_ok=True)
@@ -218,6 +231,12 @@ def main():
     parser.add_argument("--coding-model", default=None,
                         help="Model for ideation/implementation/feedback (harness $AGENT_CONFIG)")
     parser.add_argument("--cost-budget", type=float, default=None)
+    parser.add_argument("--strip-agent-env", action="append", default=None,
+                        metavar="VAR",
+                        help="Env var stripped from coding-agent/feedback "
+                             "sessions (repeatable). solve.sh passes "
+                             "OPENAI_API_KEY on non-judge tasks so agents "
+                             "never inherit kapso's own LLM credential.")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
@@ -262,9 +281,13 @@ def main():
 
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")):
         print("WARNING: neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set")
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("WARNING: OPENAI_API_KEY is not set — utility-LLM roles "
+              "(repo memory, insight extraction) will fail")
 
     config_path = build_runtime_config(
-        args.mode, args.coding_model, task_dir, session_timeouts
+        args.mode, args.coding_model, task_dir, session_timeouts,
+        agent_env_strip=args.strip_agent_env,
     )
 
     print(f"task_dir={task_dir}")
@@ -274,7 +297,8 @@ def main():
           f"iterations<={args.iterations}")
     print(f"session caps: ideation={session_timeouts['ideation_timeout']}s "
           f"implementation={session_timeouts['implementation_timeout']}s")
-    print(f"config={config_path} mode={args.mode} coding_model={args.coding_model}")
+    print(f"config={config_path} mode={args.mode} coding_model={args.coding_model} "
+          f"agent_env_strip={args.strip_agent_env or []}")
 
     handler = PostTrainBenchHandler(
         task_dir=task_dir,

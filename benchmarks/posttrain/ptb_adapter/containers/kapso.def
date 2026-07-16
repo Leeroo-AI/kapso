@@ -47,7 +47,7 @@ From: nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
 
     npm install -g \
         @anthropic-ai/claude-code@2.1.157 \
-        @openai/codex@0.135.0 \
+        @openai/codex@0.144.1 \
         @google/gemini-cli@0.18.4 \
         opencode-ai@1.1.59
 

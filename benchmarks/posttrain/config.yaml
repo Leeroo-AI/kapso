@@ -2,17 +2,27 @@
 #
 # Kapso runs INSIDE the PostTrainBench apptainer container (agents/kapso/solve.sh),
 # where the available credentials are:
-#   - CLAUDE_CODE_OAUTH_TOKEN     (preferred: Claude Max subscription, exported by
-#                                  solve.sh from the harness-provided oauth_token
-#                                  file — the upstream claude_non_api mechanism)
-#   - ANTHROPIC_API_KEY           (alternative: usage-billed API key)
-#   - OPENAI_API_KEY              (ONLY for judge-scored tasks: arenahardwriting,
-#                                  healthbench — and PostTrainBench rules forbid
-#                                  using it for anything except evaluate.py)
+#   - CLAUDE_CODE_OAUTH_TOKEN     (Claude Max subscription, exported by solve.sh
+#                                  from the harness-provided oauth_token file —
+#                                  the upstream claude_non_api mechanism; drives
+#                                  the coding agent, feedback generator, and the
+#                                  ensemble's claude members)
+#   - OPENAI_API_KEY              (solve.sh bridges it from CODEX_API_KEY — the
+#                                  harness's sanctioned agent-credential channel,
+#                                  the same one upstream codex scaffolds run on.
+#                                  It drives ONLY the litellm roles below; agent
+#                                  sessions have it stripped on non-judge tasks
+#                                  via env_strip so the workspace looks exactly
+#                                  like an official non-judge environment.)
+#   - ~/.codex/auth.json          (ChatGPT login file shipped through the
+#                                  harness auth.json mechanism; the ensemble's
+#                                  codex member authenticates through it)
 #
-# Therefore every kapso LLM role below must resolve to Anthropic. Do not point
-# any role at an OpenAI model: that would violate the benchmark rules and be
-# flagged by the contamination judge.
+# The litellm roles run gpt-5.6-luna: there is no Anthropic API key in this
+# deployment (OAuth cannot serve raw API calls), and the OpenAI key above is
+# scaffold-owned, so pointing roles at OpenAI is rule-clean. What stays
+# forbidden is agents consuming the judge key on judge-scored tasks — that key
+# is reserved for evaluate.py, and env_strip never applies there.
 #
 # Wall-clock budgeting is handled by the runner (orchestrator.solve
 # time_budget_minutes), not by this file. Timeouts here are per-session upper
@@ -27,23 +37,45 @@ modes:
       type: "generic"
       params:
         # Overridden at runtime by `expert-posttrain --coding-model` (which
-        # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-6).
-        idea_generation_model: "claude-opus-4-6"
-        implementation_model: "claude-opus-4-6"
-        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        # receives PostTrainBench's $AGENT_CONFIG, e.g. claude-opus-4-8).
+        idea_generation_model: "claude-opus-4-8"
+        implementation_model: "claude-opus-4-8"
+        auth_mode: "oauth"  # pinned: no Anthropic API key in this deployment — Claude Max OAuth only
         # A single H100 and a hard deadline: never abort the campaign because a
         # knowledge gate backend (weaviate/neo4j/leeroopedia) is unreachable.
         gate_failure_policy: "skip"
         parent_policy: "best"
+        # xhigh for both agent sessions (ideation + implementation), matching
+        # the relbench production mode; plumbed via generic-strategy `effort`.
+        effort: "xhigh"
         ideation_timeout: 1800
         # One experiment = write pipeline + train + evaluate. Multi-hour.
         implementation_timeout: 18000
-        # Only local, dependency-free gates. `research` needs OpenAI web-search
-        # models (forbidden here); `leeroopedia` needs an external API. The
-        # coding agent still has Claude Code's built-in WebSearch/WebFetch,
-        # which is allowed (internet access is unrestricted in the benchmark).
+        # Only local, dependency-free gates. `research` and `leeroopedia`
+        # need external backends we don't ship in the container. The coding
+        # agent still has Claude Code's built-in WebSearch/WebFetch, which is
+        # allowed (internet access is unrestricted in the benchmark).
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # Ensemble ideation: parallel CLI members + selector-critic. The codex
+        # member authenticates via the codex-auth-json secret (ChatGPT login
+        # file, shipped by run_startup.sh through the harness's auth.json
+        # mechanism) — NEVER via the harness's OPENAI_API_KEY, which on
+        # judge-scored tasks is reserved for evaluate.py. Members are pinned
+        # here and intentionally NOT overridden by --coding-model.
+        ideation_ensemble:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            effort: "xhigh"
+            lens: "data & distillation strategy first"
+          - cli: "claude_code"
+            model: "claude-fable-5"
+            effort: "xhigh"
+            lens: "training recipe & eval-format exploitation first"
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "xhigh"
 
     # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
     # kapso core): per-session deadlines scale with the run size so a fixed
@@ -64,12 +96,21 @@ modes:
       # (final_model verify/copy) before the harness hard-kills the process.
       guard_minutes: 5
 
+    # Litellm roles (repo memory, insight extraction). Rich form: the role's
+    # reasoning_effort applies to every call resolved through it — these call
+    # sites never plumbed an effort parameter.
     models:
-      utility: "anthropic/claude-haiku-4-5-20251001"
-      reasoning: "anthropic/claude-sonnet-5"
-      # The research gate is disabled; this role must still never resolve to
-      # an OpenAI model, so pin it to Anthropic as a safety net.
-      web_search: "anthropic/claude-sonnet-5"
+      utility:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      reasoning:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      # The research gate is disabled; pinned anyway so a stray call can
+      # never fall through to a default route.
+      web_search:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
     retry:
       max_attempts: 5
       initial_delay_seconds: 5
@@ -79,19 +120,21 @@ modes:
 
     coding_agent:
       type: "claude_code"
-      model: "claude-opus-4-6"
-      debug_model: "claude-opus-4-6"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
       agent_specific:
-        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        auth_mode: "oauth"  # pinned: no Anthropic API key in this deployment — Claude Max OAuth only
+        effort: "xhigh"
         streaming: true
         timeout: 18000
 
     feedback_generator:
       type: "claude_code"
-      model: "claude-opus-4-6"
-      debug_model: "claude-opus-4-6"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
       agent_specific:
-        auth_mode: "auto"   # oauth when CLAUDE_CODE_OAUTH_TOKEN present, else ANTHROPIC_API_KEY
+        auth_mode: "oauth"  # pinned: no Anthropic API key in this deployment — Claude Max OAuth only
+        effort: "xhigh"
         streaming: true
         timeout: 900
 

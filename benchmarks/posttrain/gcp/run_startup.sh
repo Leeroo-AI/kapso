@@ -101,9 +101,15 @@ if [ ! -f agents/kapso/solve.sh ]; then
     cp /opt/kapso-src/benchmarks/posttrain/ptb_adapter/agents/kapso/solve.sh agents/kapso/solve.sh
 fi
 # Claude Max subscription: run_task.sh copies this file into the job home and
-# solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN. (xtrace off: secret value)
+# solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN. Codex ChatGPT login: the
+# harness copies agents/<agent>/auth.json to the job's ~/.codex/auth.json —
+# the ensemble's codex member authenticates through it, never through the
+# harness's OPENAI_API_KEY. (xtrace off: secret values)
 set +x
 [ -n "$CLAUDE_OAUTH" ] && printf '%s' "$CLAUDE_OAUTH" > agents/kapso/oauth_token
+CODEX_AUTH="$(gcloud secrets versions access latest --secret=codex-auth-json 2>/dev/null || true)"
+[ -n "$CODEX_AUTH" ] && printf '%s' "$CODEX_AUTH" > agents/kapso/auth.json
+echo "codex auth present: $([ -n "$CODEX_AUTH" ] && echo yes || echo no)"
 set -x
 # Containers: prefer the copies baked onto the cache-disk snapshot (zero
 # download); fall back to GCS (~2-3 min at the ~150 MiB/s we measured).

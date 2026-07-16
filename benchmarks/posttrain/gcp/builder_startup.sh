@@ -110,7 +110,11 @@ if [ "$CACHE_SCOPE" = "core" ]; then
     "google/gemma-3-4b-pt"
   ],
   "datasets": [
-    {"dataset": "openai/gsm8k", "configs": ["default", "main"], "splits": ["test", "train"]}
+    {"dataset": "openai/gsm8k", "configs": ["default", "main"], "splits": ["test", "train"]},
+    {"dataset": "gorilla-llm/Berkeley-Function-Calling-Leaderboard",
+     "configs": ["chatable", "exec_multiple", "exec_parallel_multiple", "exec_simple",
+                 "java", "javascript", "parallel", "rest", "sql"],
+     "splits": ["train"]}
   ]
 }
 EOF

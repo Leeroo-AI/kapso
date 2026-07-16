@@ -163,6 +163,15 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Optional reasoning-effort level forwarded to the CLI (--effort).
         self._effort: Optional[str] = config.agent_specific.get("effort")
 
+        # Env var names removed from the CLI child's environment (never from
+        # this process). Used when the orchestrator legitimately holds a
+        # credential the agent must not inherit — e.g. PostTrainBench strips
+        # OPENAI_API_KEY from agent sessions on non-judge benchmarks while
+        # kapso's own utility LLM keeps using it.
+        self._env_strip: List[str] = list(
+            config.agent_specific.get("env_strip", [])
+        )
+
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
     
@@ -410,14 +419,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         )
 
         try:
-            # Use streaming or buffered mode
+            # Use streaming or buffered mode. The prompt travels via stdin,
+            # never argv (see _build_command).
             if self._streaming:
-                # Build command inside _run_streaming with stream-json
-                cmd = self._build_command(prompt, model, use_stream_json=False)  # placeholder
-                return self._run_streaming(cmd, model, effective_timeout)
+                return self._run_streaming(prompt, model, effective_timeout)
             else:
-                cmd = self._build_command(prompt, model, use_stream_json=False)
-                return self._run_buffered(cmd, model, effective_timeout)
+                return self._run_buffered(prompt, model, effective_timeout)
 
         except subprocess.TimeoutExpired:
             return CodingResult(
@@ -433,12 +440,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             )
     
     def _run_buffered(
-        self, cmd: List[str], model: str, timeout_seconds: Optional[float]
+        self, prompt: str, model: str, timeout_seconds: Optional[float]
     ) -> CodingResult:
         """Run Claude Code CLI in buffered mode (no live output)."""
+        cmd = self._build_command(model, use_stream_json=False)
         result = subprocess.run(
             cmd,
             cwd=self.workspace,
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
@@ -480,7 +489,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         )
     
     def _run_streaming(
-        self, cmd: List[str], model: str, timeout_seconds: Optional[float]
+        self, prompt: str, model: str, timeout_seconds: Optional[float]
     ) -> CodingResult:
         """
         Run Claude Code CLI with live streaming output using stream-json format.
@@ -488,9 +497,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         Parses JSON events and displays Claude's thinking, tool calls, and results
         in real-time for maximum visibility.
         """
-        # Rebuild command with stream-json format for structured output
-        prompt = cmd[2] if len(cmd) > 2 else ""
-        stream_cmd = self._build_command(prompt, model, use_stream_json=True)
+        stream_cmd = self._build_command(model, use_stream_json=True)
         
         start_time = time.time()
         raw_lines: List[str] = []
@@ -501,6 +508,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         error_msg: str = ""
         # Metrics: count tool calls and track token usage
         tool_call_count: int = 0
+        last_tool: str = ""
         input_tokens: int = 0
         output_tokens: int = 0
         
@@ -521,6 +529,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         process = subprocess.Popen(
             stream_cmd,
             cwd=self.workspace,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -528,6 +537,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             bufsize=1,
             start_new_session=True,
         )
+        # Deliver the prompt and close stdin so the CLI starts its turn.
+        process.stdin.write(prompt)
+        process.stdin.close()
         deadline_exceeded = False
         
         try:
@@ -658,6 +670,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         for block in msg.get("content", []):
                             if block.get("type") == "tool_use":
                                 tool_call_count += 1
+                                tool_input = block.get("input", {}) or {}
+                                last_tool = (
+                                    f"{block.get('name', '?')}: "
+                                    f"{str(tool_input.get('command') or tool_input.get('file_path') or '')[:200]}"
+                                )
                         # Sum per-turn usage (input_tokens, output_tokens)
                         usage = msg.get("usage", {})
                         cumulative_input += usage.get("input_tokens", 0)
@@ -691,6 +708,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "elapsed_seconds": elapsed,
                         "deadline_exceeded": True,
                         "tool_call_count": tool_call_count,
+                        "last_tool": last_tool,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
                         "raw_log_lines": raw_lines,
@@ -712,6 +730,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "tool_call_count": tool_call_count,
+                        "last_tool": last_tool,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
                         "raw_log_lines": raw_lines,
@@ -734,6 +753,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "auth_mode": self._auth_mode,
                     "use_bedrock": self._use_bedrock,
                     "tool_call_count": tool_call_count,
+                        "last_tool": last_tool,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "raw_log_lines": raw_lines,
@@ -865,11 +885,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             if event_type:
                 print(f"{c['dim']}  [{event_type}:{subtype}]{c['reset']}", flush=True)
     
-    def _build_command(self, prompt: str, model: str, use_stream_json: bool = False) -> List[str]:
-        """Build the Claude Code CLI command."""
+    def _build_command(self, model: str, use_stream_json: bool = False) -> List[str]:
+        """Build the Claude Code CLI command.
+
+        The prompt is deliberately NOT part of argv: it is piped via stdin.
+        With the prompt in the command line, every process descendant carries
+        the solution text in its cmdline, and an agent's own
+        `pkill -f <word-from-its-plan>` matches its ancestor and kills the
+        session (run #8 lost two sessions this way).
+        """
         cmd = [
             "claude",
-            "-p", prompt,  # Non-interactive mode with prompt
+            "-p",  # Non-interactive (print) mode; prompt arrives on stdin
             "--dangerously-skip-permissions",  # Auto-approve all tool calls
         ]
         
@@ -942,7 +969,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
         else:  # Defensive: auto is always resolved during initialization.
             raise RuntimeError(f"Unresolved Claude Code auth mode: {self._auth_mode}")
-        
+
+        for name in self._env_strip:
+            env.pop(name, None)
+
         return env
     
     def _get_changed_files(self) -> List[str]:
