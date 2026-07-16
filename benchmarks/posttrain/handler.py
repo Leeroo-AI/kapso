@@ -39,6 +39,14 @@ PRIOR_RUN_INSIGHTS = """
   SFTTrainer). LoRA trains fast; full fine-tuning can win when time allows.
   Distilling reasoning traces from stronger open models' published datasets
   works well for math/code.
+- BASE models have UNTRAINED chat/tool special-token embeddings (<|im_end|>,
+  <tool_call>, ...): near-zero-norm or identical init vectors, so the model
+  can neither emit nor stop on them. Any recipe that freezes embeddings
+  (e.g. all-linear LoRA) cannot fix this — train the embedding/lm_head rows
+  too (or full-FT), and consider re-initializing needed special-token rows
+  (mean + small noise) before training. Verify early with a tiny
+  generation test at the first checkpoint: loss curves look textbook even
+  while special-token argmax is wrong (twin tokens share logits).
 - The single biggest lever is matching the EVALUATION chat template exactly.
   The eval applies a fixed jinja template (see templates/) with vLLM; training
   data must be rendered with that exact template or scores collapse.
