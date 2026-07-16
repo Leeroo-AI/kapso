@@ -85,6 +85,19 @@ def solve_task(args) -> dict:
     #   construction (the sanitized cache holds no test labels).
     generic = args.strategy == "generic"
     mode = args.mode or ("RELBENCH_GENERIC" if generic else None)
+    initial_repo = args.initial_repo
+    if generic and not initial_repo:
+        # The maintainer calibrates the registered evaluation at setup, which
+        # requires a runnable candidate — and parent_policy=best needs a real
+        # starting parent. Seed a trivial shape-correct baseline.
+        import shutil
+        import tempfile
+
+        initial_repo = tempfile.mkdtemp(prefix="relbench_baseline_")
+        shutil.copy2(
+            os.path.join(DATA_DIR, "generic_baseline", "main.py"),
+            os.path.join(initial_repo, "main.py"),
+        )
     orchestrator = OrchestratorAgent(
         handler,
         config_path=CONFIG_PATH,
@@ -93,7 +106,7 @@ def solve_task(args) -> dict:
         is_kg_active=not args.no_kg,
         workspace_dir=args.workspace,
         resume=args.resume,
-        initial_repo=args.initial_repo,
+        initial_repo=initial_repo,
         eval_dir=os.path.join(DATA_DIR, "generic_eval") if generic else None,
         data_dir=os.path.join(DATA_DIR, "starter_kit"),
         goal=f"Beat the published state of the art on RelBench {args.dataset}/{args.task}",

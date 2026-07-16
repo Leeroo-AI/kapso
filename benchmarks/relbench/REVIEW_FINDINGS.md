@@ -110,6 +110,18 @@ Runs reviewed:
    (theirs) and read-side MCP mis-wiring (both tracks). Fixing their
    credentials alone will not light the channel.
 
+10. **Generic shakedown #1: maintainer calibration requires a candidate that
+   does not exist yet (2026-07-16).** The registration transaction authored
+   kapso_eval.py correctly (immutability + stdout passthrough verified in
+   its output), but calibration runs a fast-fidelity evaluation at setup —
+   in a from-scratch search workspace there is no main.py, so the grader
+   exited with a contract violation and the whole run aborted before
+   iteration 1. Fixed (benchmark-local): --strategy generic auto-seeds the
+   workspace with data/generic_baseline/main.py (shape-correct trivial
+   predictions for all four families) via initial_repo, giving calibration
+   a runnable candidate and parent_policy=best a legitimate first parent.
+   Status: FIXED; re-shakedown pending.
+
 ## R2 outcome (for the record)
 
 3/3 iterations completed, all scored, zero contract violations, clean audit.
