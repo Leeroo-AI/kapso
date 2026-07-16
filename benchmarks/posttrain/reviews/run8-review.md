@@ -238,6 +238,16 @@ last-message files) — invisibility by construction.
    retried within its remaining deadline — transient first-call failures
    self-heal in-run.
 
+### R8-F17 resolution (2026-07-16)
+
+The user's OPENAI_API_KEY (.env) is now the `openai-api-key` secret.
+Verified live: `gpt-5.1-codex` answers via CODEX_API_KEY — the judge's
+exact invocation path. Separation holds with zero code changes: solve.sh
+unsets CODEX_API_KEY in the agent phase (ensemble codex member stays on
+the ChatGPT subscription via auth.json); the judge phase receives the key
+from the harness. Side effect: ArenaHard + HealthBench cells ([J]) are
+unblocked for the campaign.
+
 ## Suggestions backlog
 
 **S1 — DONE 2026-07-16** (placeholder-aware degeneracy filter + echo-drop +
