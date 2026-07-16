@@ -32,6 +32,11 @@ keywords = ["ai", "ml", "optimization", "code-generation", "llm", "agents"]
 dependencies = [
     "GitPython",
     "aider-chat>=0.35.0",
+    # Pinned to the locally-validated version: newer litellm capability maps
+    # null out reasoning_effort for gpt-5.6 models on the chat route (run #9,
+    # R9-I-2 — killed the memory layer in-container while local was green).
+    # Bump only after re-running the live luna sanity call on the new version.
+    "litellm==1.75.0",
     "PyYAML",
     "python-dotenv",
     # MCP SDK — required by kapso.gated_mcp (gate server + all gates)

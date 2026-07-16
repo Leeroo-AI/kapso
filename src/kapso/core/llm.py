@@ -26,6 +26,22 @@ DEFAULT_MODEL_ROUTES: Dict[str, str] = {
 }
 
 
+def _effort_kwargs(reasoning_effort: Optional[str]) -> Dict[str, Any]:
+    """Completion kwargs for a reasoning effort; empty when none is set.
+
+    A None effort must OMIT the parameter entirely: passing the kwarg with
+    a None value can reach the provider as an explicit null once litellm's
+    capability map and the allowed-params whitelist interact (run #9,
+    R9-I-2: gpt-5.6-luna rejects null with a 400).
+    """
+    if reasoning_effort is None:
+        return {}
+    return {
+        "reasoning_effort": reasoning_effort,
+        **_effort_passthrough(reasoning_effort),
+    }
+
+
 def _effort_passthrough(reasoning_effort: Optional[str]) -> Dict[str, Any]:
     """Force reasoning_effort past litellm's static capability map.
 
@@ -440,9 +456,8 @@ class LLMBackend:
                 model=resolved_model,
                 messages=messages,
                 temperature=temperature,
-                reasoning_effort=effective_effort,
                 drop_params=True,
-                **_effort_passthrough(effective_effort),
+                **_effort_kwargs(effective_effort),
                 **kwargs,
             ),
         )
@@ -500,9 +515,8 @@ class LLMBackend:
                             model=model,
                             messages=messages,
                             temperature=temperature,
-                            reasoning_effort=model_effort,
                             drop_params=True,
-                            **_effort_passthrough(model_effort),
+                            **_effort_kwargs(model_effort),
                             **model_kwargs,
                         ),
                     )
@@ -531,10 +545,9 @@ class LLMBackend:
             lambda: completion(
                 model=resolved_model,
                 messages=messages,
-                reasoning_effort=reasoning_effort,
                 web_search_options={"search_context_size": search_context_size},
                 drop_params=True,
-                **_effort_passthrough(reasoning_effort),
+                **_effort_kwargs(reasoning_effort),
                 **kwargs,
             ),
         )
@@ -570,12 +583,11 @@ class LLMBackend:
                         lambda model=model, effort=effort: acompletion(
                             model=model,
                             messages=messages,
-                            reasoning_effort=effort,
                             web_search_options={
                                 "search_context_size": search_context_size
                             },
                             drop_params=True,
-                            **_effort_passthrough(effort),
+                            **_effort_kwargs(effort),
                             **kwargs,
                         ),
                     )
