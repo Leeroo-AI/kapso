@@ -118,6 +118,23 @@ modes:
         implementation_timeout: 10800
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # Ensemble ideation mirroring the posttrain deployment: parallel CLI
+        # members with complementary lenses + a selector-critic. The codex
+        # member authenticates via ~/.codex/auth.json (ChatGPT login), the
+        # claude members via CLAUDE_CODE_OAUTH_TOKEN.
+        ideation_ensemble:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            effort: "xhigh"
+            lens: "temporal feature engineering & leakage-safe relational aggregation first"
+          - cli: "claude_code"
+            model: "claude-fable-5"
+            effort: "xhigh"
+            lens: "model class, learning objective & val->test distribution shift first"
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "xhigh"
 
     evaluation_maintainer:
       type: "claude_code"
@@ -153,13 +170,18 @@ modes:
         timeout: 900
 
     # Rich routes: attaches reasoning_effort to call sites that never plumbed
-    # an effort parameter (repo memory, insight extraction).
+    # an effort parameter (repo memory, insight extraction). Mirrors the
+    # posttrain deployment: luna at xhigh across all roles, web_search pinned
+    # so a stray call can never fall through to a default route.
     models:
       utility:
         model: "gpt-5.6-luna"
         reasoning_effort: "xhigh"
       reasoning:
-        model: "gpt-5.6-sol"
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      web_search:
+        model: "gpt-5.6-luna"
         reasoning_effort: "xhigh"
 
     retry:
