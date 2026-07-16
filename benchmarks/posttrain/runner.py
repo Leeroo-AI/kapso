@@ -143,6 +143,10 @@ def build_runtime_config(
         # OPENAI_API_KEY for its utility-LLM roles, but the agent sessions it
         # spawns must look exactly like an official non-judge environment —
         # no OpenAI key. solve.sh decides per-task and passes the names here.
+        # The strategy param covers strategy-built sessions (ideation,
+        # ensemble members, selector, implementation); the section entries
+        # cover agents built from those config blocks.
+        params["env_strip"] = list(agent_env_strip)
         for section in ("coding_agent", "feedback_generator"):
             mode_cfg[section].setdefault("agent_specific", {})[
                 "env_strip"

@@ -29,10 +29,13 @@ def load_runtime_mode_config(tmp_path, **kwargs):
         return yaml.safe_load(f)["modes"]["POSTTRAIN"]
 
 
-def test_agent_env_strip_reaches_both_agent_sections(tmp_path):
+def test_agent_env_strip_reaches_strategy_params_and_agent_sections(tmp_path):
     mode_cfg = load_runtime_mode_config(
         tmp_path, agent_env_strip=["OPENAI_API_KEY"]
     )
+    assert mode_cfg["search_strategy"]["params"]["env_strip"] == [
+        "OPENAI_API_KEY"
+    ]
     for section in ("coding_agent", "feedback_generator"):
         assert mode_cfg[section]["agent_specific"]["env_strip"] == [
             "OPENAI_API_KEY"
@@ -41,5 +44,6 @@ def test_agent_env_strip_reaches_both_agent_sections(tmp_path):
 
 def test_judge_tasks_leave_agent_env_untouched(tmp_path):
     mode_cfg = load_runtime_mode_config(tmp_path)
+    assert "env_strip" not in mode_cfg["search_strategy"]["params"]
     for section in ("coding_agent", "feedback_generator"):
         assert "env_strip" not in mode_cfg[section]["agent_specific"]
