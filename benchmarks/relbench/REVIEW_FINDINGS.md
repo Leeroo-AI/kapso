@@ -159,7 +159,19 @@ champion, test revealed once at the end).
 | Test NMAE (÷7.0253) | 0.5461 | 0.5328 |
 | Unique candidates / archives | 7 / 10 | 8 archives over 10 experiments |
 | Wall-clock | ~8.6 h | ~7.3 h |
-| Cost | $108.4 (all-in) | ~$125.4 (claude sessions; codex leg is sub-auth, unbilled) |
+| Ledger cost (API-list equivalent) | $108.4 | $127.1 |
+| …of which actually API-billed | ~$44.5 (sol/opus ideation+selection via OpenAI/Bedrock) | **$1.66** (luna repo-memory/insight calls) |
+
+Cost accounting: the ledger ingests each claude CLI session's reported
+`total_cost_usd`, which the CLI computes from token usage at API list
+prices REGARDLESS of auth mode — under OAuth those sessions draw
+subscription quota, not dollars. B's checkpoint breakdown: implementation
+$63.71 + ideation $50.13 + feedback $10.50 + maintenance $1.07 (all
+oauth-quota) + llm_backend $1.66 (billed). The codex ideation member runs
+on ChatGPT auth and reports NO cost — B's ledger undercounts its compute.
+A's split: $63.9 oauth coder sessions + ~$44.5 billed litellm ideation/
+selection. So in cash, A ≈ $44.5 and B ≈ $1.7; the ledger totals are the
+right basis for compute-fairness comparisons, not spend.
 
 Verdict: **generic wins the deployment comparison** — the only comparison
 that counts. A won validation (2.6104 vs 2.6434) yet DEGRADED the seed on
