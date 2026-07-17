@@ -25,7 +25,7 @@ set -uo pipefail
 
 WAVE="${1:-smoke}"
 ITER="${2:-20}"
-MODE="${3:-RELBENCH_CONFIGS}"
+MODE="${3:-RELBENCH_GENERIC}"
 
 # Wave 0 — head-to-head vs RelAgent + KumoRFM-ft on cheap DBs.
 # Bars (RelAgent | KumoRFM-ft): user-attendance MAE 0.241|0.238;

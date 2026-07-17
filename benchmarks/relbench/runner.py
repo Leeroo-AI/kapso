@@ -144,9 +144,10 @@ def main() -> None:
     parser.add_argument("--workspace", type=str, default=None)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
-        "--strategy", type=str, choices=["tree", "generic"], default="tree",
-        help="tree = handler-scored benchmark_tree_search (default); "
-        "generic = champion-chain search with the provided grader",
+        "--strategy", type=str, choices=["tree", "generic"], default="generic",
+        help="generic = champion-chain search with the provided grader (default, "
+        "campaign standard since the R5 A/B); tree = handler-scored "
+        "benchmark_tree_search",
     )
     parser.add_argument(
         "--initial-repo", type=str, default=None,
