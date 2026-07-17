@@ -439,3 +439,128 @@ class TestRepoMemoryMcpMount:
         assert "use the MCP tool" in prompts["last"]
         strategy.implement_solution("sol", context, session(False))
         assert "read: `.kapso/repo_memory.json`" in prompts["last"]
+
+
+RELBENCH_CACHE = Path(
+    os.environ.get("RELBENCH_PRISTINE_CACHE_DIR", os.path.expanduser("~/.cache/relbench"))
+)
+
+
+class TestGenericModeConfig:
+    def test_mode_parses_with_maintainer_block(self):
+        import yaml
+
+        cfg = yaml.safe_load(
+            (Path(__file__).parents[1] / "benchmarks/relbench/config.yaml").read_text()
+        )
+        mode = cfg["modes"]["RELBENCH_GENERIC"]
+        assert mode["search_strategy"]["type"] == "generic"
+        assert mode["search_strategy"]["params"]["parent_policy"] == "best"
+        assert mode["evaluation_maintainer"]["type"] == "claude_code"
+        assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
+
+
+@pytest.mark.skipif(
+    not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
+    reason="requires a populated rel-f1 relbench cache",
+)
+class TestProvidedGrader:
+    def _repo(self, tmp_path):
+        import subprocess
+        import sys as _sys
+
+        root = tmp_path / "candidate"
+        (root / "kapso_evaluation").mkdir(parents=True)
+        suite = Path(__file__).parents[1] / "benchmarks/relbench/data/generic_eval"
+        for f in suite.glob("*"):
+            (root / "kapso_evaluation" / f.name).write_bytes(f.read_bytes())
+        (root / "main.py").write_text(
+            "import os, numpy as np\n"
+            "from relbench.tasks import get_task\n"
+            "t = get_task(os.environ['RELBENCH_DATASET'], os.environ['RELBENCH_TASK'], download=False)\n"
+            "n_val = len(t.get_table('val'))\n"
+            "n_test = len(t.get_table('test'))\n"
+            "out = os.environ['KAPSO_RUN_DATA_DIR']\n"
+            "np.save(f'{out}/val_predictions.npy', np.full(n_val, 13.0))\n"
+            "np.save(f'{out}/test_predictions.npy', np.full(n_test, 13.0))\n"
+            "print('fixture candidate done, debug=' + str('--debug' in __import__('sys').argv))\n"
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "RELBENCH_CACHE_DIR": str(RELBENCH_CACHE),
+                "RELBENCH_DATASET": "rel-f1",
+                "RELBENCH_TASK": "driver-position",
+                "RELBENCH_PRIMARY_METRIC": "mae",
+                "RELBENCH_WORK_DIR": str(tmp_path / "work"),
+                "RELBENCH_FULL_TIMEOUT": "300",
+                "RELBENCH_DEBUG_TIMEOUT": "300",
+            }
+        )
+
+        def run(fidelity):
+            return subprocess.run(
+                [_sys.executable, "kapso_evaluation/grader.py", "--fidelity", fidelity,
+                 "--fraction", "1.0", "--seed", "1337"],
+                cwd=root, env=env, capture_output=True, text=True, timeout=300,
+            )
+        return root, tmp_path / "work", run
+
+    def test_fast_scores_without_archiving(self, tmp_path):
+        _root, work, run = self._repo(tmp_path)
+        proc = run("fast")
+        assert proc.returncode == 0, proc.stdout[-2000:]
+        manifest = json.loads(proc.stdout.strip().splitlines()[-1].split(" ", 1)[1])
+        assert manifest["fidelity"] == "fast" and manifest["score"] > 0
+        assert not (work / "runs").exists()
+
+    def test_full_archives_with_code_snapshot(self, tmp_path):
+        _root, work, run = self._repo(tmp_path)
+        proc = run("full")
+        assert proc.returncode == 0, proc.stdout[-2000:]
+        manifest = json.loads(proc.stdout.strip().splitlines()[-1].split(" ", 1)[1])
+        run_dir = work / "runs" / "run_0001"
+        metrics = json.loads((run_dir / "private/metrics.json").read_text())
+        assert abs(metrics["val"]["mae"] - manifest["score"]) < 1e-9
+        assert metrics["test"] == {}
+        assert (run_dir / "test_predictions.npy").exists()
+        assert (run_dir / "code" / "main.py").exists()
+        assert not (run_dir / "code" / "kapso_evaluation").exists()
+
+
+@pytest.mark.skipif(
+    not (RELBENCH_CACHE / "rel-f1" / "db").exists(),
+    reason="requires a populated rel-f1 relbench cache",
+)
+class TestFinalEvaluateTestFill:
+    def test_val_only_archive_gets_test_scored_once(self, tmp_path):
+        from relbench.tasks import get_task
+
+        from benchmarks.relbench.handler import RelBenchHandler
+
+        os.environ["RELBENCH_CACHE_DIR"] = str(RELBENCH_CACHE)
+        task = get_task("rel-f1", "driver-position", download=False)
+        n_test = len(task.get_table("test"))
+
+        handler = RelBenchHandler.__new__(RelBenchHandler)
+        handler.task = task
+        handler.spec = TaskSpec(
+            dataset_name="rel-f1", task_name="driver-position",
+            family="entity_regression", primary_metric="mae", maximize=False,
+        )
+        handler.dataset_name, handler.task_name = "rel-f1", "driver-position"
+        handler.runs_dir = tmp_path / "runs"
+        handler.work_dir = tmp_path
+
+        run_dir = handler.runs_dir / "run_0001"
+        (run_dir / "private").mkdir(parents=True)
+        np.save(run_dir / "test_predictions.npy", np.full(n_test, 13.0))
+        np.save(run_dir / "val_predictions.npy", np.full(3, 13.0))
+        (run_dir / "private/metrics.json").write_text(
+            json.dumps({"val": {"mae": 3.0, "r2": 0.1, "rmse": 4.0}, "test": {}})
+        )
+
+        report = handler.final_evaluate()
+        assert report["test_metrics"]["mae"] > 0
+        on_disk = json.loads((run_dir / "private/metrics.json").read_text())
+        assert on_disk["test"] == report["test_metrics"]

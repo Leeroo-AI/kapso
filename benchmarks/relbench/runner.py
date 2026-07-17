@@ -74,19 +74,40 @@ def solve_task(args) -> dict:
         rebuild_sanitized_cache=args.rebuild_cache,
     )
 
+    # Strategy selection:
+    # - tree (default): handler-scored benchmark_tree_search. No eval_dir —
+    #   the handler computes official metrics itself, and passing a provided
+    #   suite would turn on the integrity check against agents writing their
+    #   own scripts into kapso_evaluation/.
+    # - generic: champion-chain search with code-reading agentic ideation.
+    #   Our provided grader (data/generic_eval) becomes the maintainer-
+    #   registered evaluation entrypoint; in-loop scoring is val-only by
+    #   construction (the sanitized cache holds no test labels).
+    generic = args.strategy == "generic"
+    mode = args.mode or ("RELBENCH_GENERIC" if generic else None)
+    initial_repo = args.initial_repo
+    if generic and not initial_repo:
+        # The maintainer calibrates the registered evaluation at setup, which
+        # requires a runnable candidate — and parent_policy=best needs a real
+        # starting parent. Seed a trivial shape-correct baseline.
+        import shutil
+        import tempfile
+
+        initial_repo = tempfile.mkdtemp(prefix="relbench_baseline_")
+        shutil.copy2(
+            os.path.join(DATA_DIR, "generic_baseline", "main.py"),
+            os.path.join(initial_repo, "main.py"),
+        )
     orchestrator = OrchestratorAgent(
         handler,
         config_path=CONFIG_PATH,
-        mode=args.mode,
+        mode=mode,
         coding_agent=args.coding_agent,
         is_kg_active=not args.no_kg,
         workspace_dir=args.workspace,
         resume=args.resume,
-        # No eval_dir on purpose: scoring is external to the workspace (the
-        # handler computes official metrics), and the shared implement prompt
-        # has agents write their own scripts into kapso_evaluation/ — passing
-        # eval_dir would turn on the provided-suite integrity check and reject
-        # every candidate for doing what the prompt told it to do.
+        initial_repo=initial_repo,
+        eval_dir=os.path.join(DATA_DIR, "generic_eval") if generic else None,
         data_dir=os.path.join(DATA_DIR, "starter_kit"),
         goal=f"Beat the published state of the art on RelBench {args.dataset}/{args.task}",
     )
@@ -122,6 +143,15 @@ def main() -> None:
     parser.add_argument("--no-kg", action="store_true")
     parser.add_argument("--workspace", type=str, default=None)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--strategy", type=str, choices=["tree", "generic"], default="tree",
+        help="tree = handler-scored benchmark_tree_search (default); "
+        "generic = champion-chain search with the provided grader",
+    )
+    parser.add_argument(
+        "--initial-repo", type=str, default=None,
+        help="Seed the workspace from an existing repo (e.g. a scout's winning branch)",
+    )
     parser.add_argument("--target-val", type=float, default=None)
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--knowledge-file", type=str, default=None)

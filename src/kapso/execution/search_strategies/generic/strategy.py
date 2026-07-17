@@ -1423,13 +1423,24 @@ Problem: {problem}"""
 
 1. **Run the registered evaluation**: `{self.registered_evaluation_command}`
    and capture its full output, including the KAPSO_EVAL_MANIFEST line.
-2. **Never alter evaluation behavior — at rest or at runtime.** Editing
+2. **Run it in the FOREGROUND and stay alive until it finishes.** Your
+   session exists only while you are actively working: the moment you stop
+   responding, the session ends and every process it started is killed. No
+   background job survives you, and no completion notification can ever
+   reach you — there is no later. Never launch the registered evaluation
+   with `&`, `nohup`, or a background task. Full-fidelity builds taking
+   many minutes is normal and expected: run the command blocking with a
+   generous tool timeout, and if a single call hits its cap, keep
+   re-issuing blocking foreground waits until KAPSO_EVAL_MANIFEST is in
+   your transcript. Only then write your final response. An evaluation you
+   background and abandon scores nothing — the entire iteration is wasted.
+3. **Never alter evaluation behavior — at rest or at runtime.** Editing
    anything under `kapso_evaluation/`, rewriting protected data inputs,
    monkey-patching or hooking evaluation modules from your own code
    (e.g. via imports, `sys.modules`, or wrappers), or otherwise
    circumventing any evaluation check all count as tampering: the score
    is voided and the experiment loses. There is no sanctioned bypass.
-3. **If you believe the evaluation itself is broken**, do not fix it,
+4. **If you believe the evaluation itself is broken**, do not fix it,
    patch it, or route around it. File a request by including this tag in
    your final response:
    <evaluation_change_request>concrete description of the defect, with the
@@ -1437,7 +1448,7 @@ Problem: {problem}"""
    Then still report your results from the run you attempted. The
    maintainer investigates immediately; a confirmed defect is fixed and
    your work is re-measured first under the corrected evaluation.
-4. **Retry on transient crashes** of your own code (max 3 attempts)."""
+5. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
     def _clamped_timeout(self, configured_seconds: float) -> float:
         """Bound an agent deadline by the searchable budget, when known.
@@ -1532,29 +1543,32 @@ Problem: {problem}"""
         return ParentSelection(branch_name="main", node_id=None)
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
-        """Return all nodes, optionally sorted by score."""
+        """Return all nodes, optionally sorted by score (unscored sort worst)."""
         if best_last:
             return sorted(
                 self.node_history,
                 key=lambda node: (
-                    not node.had_error and node.evaluation_valid,
-                    (node.score or 0) if self.problem_handler.maximize_scoring else -(node.score or 0)
+                    not node.had_error and node.evaluation_valid and node.score is not None,
+                    0.0 if node.score is None
+                    else (node.score if self.problem_handler.maximize_scoring else -node.score),
                 )
             )
         return self.node_history
-    
+
     def get_best_experiment(self) -> Optional[SearchNode]:
-        """Return the best successful node."""
+        """Return the best successful SCORED node — a node whose evaluation
+        never completed (score=None) can never be best; on minimize metrics
+        it would otherwise key as 0 and out-rank every real score."""
         valid = [
             node
             for node in self.node_history
-            if not node.had_error and node.evaluation_valid
+            if not node.had_error and node.evaluation_valid and node.score is not None
         ]
         if not valid:
             return None
         return max(
             valid,
-            key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
+            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
         )
 
     def get_deliverable_experiment(self) -> Optional[SearchNode]:

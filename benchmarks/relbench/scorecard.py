@@ -250,6 +250,52 @@ def _family_and_metric(ds: str, task_name: str) -> Tuple[str, str]:
     return family, metric
 
 
+CLAIMS_DIR = Path(__file__).parent / "claims"
+
+
+def _archive_claim(task_id: str, report: dict, work_root: Path) -> Optional[dict]:
+    """Copy a winning run's evidence into the durable, committed claims/ dir.
+
+    tmp/ archives are box-local and gitignored; organizer handoffs need the
+    winning code snapshot, both prediction files, the solution spec, and the
+    final report to survive. Idempotent per (task, run): re-copies only when
+    the selected run changes.
+    """
+    import hashlib
+    import shutil
+
+    run_name = report.get("run")
+    src_run = work_root / task_id.replace("/", "--") / "runs" / str(run_name)
+    if not run_name or not src_run.exists():
+        return None
+
+    dest = CLAIMS_DIR / task_id.replace("/", "--")
+    marker = dest / "CLAIMED_RUN"
+    if not (marker.exists() and marker.read_text().strip() == run_name):
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.mkdir(parents=True)
+        for name in ("val_predictions.npy", "test_predictions.npy", "solution.md"):
+            if (src_run / name).exists():
+                shutil.copy2(src_run / name, dest / name)
+        if (src_run / "code").exists():
+            shutil.copytree(src_run / "code", dest / "code")
+        (dest / "final_report.json").write_text(json.dumps(report, indent=2, default=str))
+        marker.write_text(run_name + "\n")
+
+    def sha(name: str) -> str:
+        p = dest / name
+        return hashlib.sha256(p.read_bytes()).hexdigest()[:16] if p.exists() else "—"
+
+    rel = dest.relative_to(Path(__file__).parents[2])
+    return {
+        "run": run_name,
+        "dir": str(rel),
+        "val_sha": sha("val_predictions.npy"),
+        "test_sha": sha("test_predictions.npy"),
+    }
+
+
 def build_reference(work_root: Path) -> str:
     from relbench.tasks import get_task_names
 
@@ -328,6 +374,14 @@ def build_reference(work_root: Path) -> str:
 
     rows.sort(key=lambda r: (r["roi"] is None, r["roi"] or 999))
 
+    # Durable evidence for every winning cell (organizer handoff).
+    claims = []
+    for r in rows:
+        if r.get("beats") == "✅ beats best-known":
+            claim = _archive_claim(r["task"], kapso[r["task"]], work_root)
+            if claim:
+                claims.append((r["task"], claim))
+
     def f(v, nd=3):
         return "—" if v is None else (f"{v:.{nd}g}" if isinstance(v, float) else str(v))
 
@@ -382,6 +436,23 @@ def build_reference(work_root: Path) -> str:
         "published one (— where they did not evaluate). Current 'done' rows from harness-validation "
         "runs are baseline-quality placeholders until the campaign proper replaces them.",
     ]
+    if claims:
+        lines += [
+            "",
+            "## Winning artifacts (durable, committed — for organizer handoff)",
+            "",
+            "Each claimed cell's evidence is copied from the box-local run archive into "
+            "`benchmarks/relbench/claims/<task>/`: winning code snapshot, both prediction "
+            "files, solution spec, and final report (val+test metrics, audit). "
+            "SHA-256 prefixes pin the exact prediction files the metrics were computed from.",
+            "",
+            "| Task | Run | Evidence dir | val preds sha256 | test preds sha256 |",
+            "|---|---|---|---|---|",
+        ]
+        for task_id, c in claims:
+            lines.append(
+                f"| {task_id} | {c['run']} | `{c['dir']}/` | `{c['val_sha']}` | `{c['test_sha']}` |"
+            )
     return "\n".join(lines) + "\n"
 
 

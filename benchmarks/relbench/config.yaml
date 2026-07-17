@@ -96,6 +96,107 @@ modes:
 
     fetch_huggingface_models: false
 
+  # Generic-search mode (escalations / A-B vs the tree): code-reading agentic
+  # ideation, champion-chain parent policy, evaluation through the
+  # maintainer-registered entrypoint wrapping our provided grader
+  # (data/generic_eval — official val scoring only; test physically
+  # unscorable in-loop). Runner wires eval_dir when --strategy generic.
+  RELBENCH_GENERIC:
+    search_strategy:
+      type: "generic"
+      params:
+        idea_generation_model: "claude-opus-4-8"
+        implementation_model: "claude-opus-4-8"
+        auth_mode: "oauth"
+        effort: "xhigh"
+        gate_failure_policy: "skip"
+        parent_policy: "best"
+        ideation_timeout: 1800
+        # One experiment = implement + run the registered full evaluation
+        # (candidate training, up to the task's full timeout) inside the
+        # session: cap must cover both.
+        implementation_timeout: 10800
+        ideation_gates: ["experiment_history", "repo_memory"]
+        implementation_gates: ["repo_memory"]
+        # Ensemble ideation mirroring the posttrain deployment: parallel CLI
+        # members with complementary lenses + a selector-critic. The codex
+        # member authenticates via ~/.codex/auth.json (ChatGPT login), the
+        # claude members via CLAUDE_CODE_OAUTH_TOKEN.
+        ideation_ensemble:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            effort: "xhigh"
+            lens: "temporal feature engineering & leakage-safe relational aggregation first"
+          - cli: "claude_code"
+            model: "claude-fable-5"
+            effort: "xhigh"
+            lens: "model class, learning objective & val->test distribution shift first"
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "xhigh"
+
+    evaluation_maintainer:
+      type: "claude_code"
+      model: "claude-opus-4-8"
+      agent_specific:
+        auth_mode: "oauth"
+        effort: "xhigh"
+        streaming: true
+        timeout: 1800
+      # Registration calibrates via a fast-fidelity run = the candidate's
+      # --debug mode; must fit the debug-tier cap.
+      calibration_timeout_seconds: 1200
+      max_change_requests: 3
+
+    coding_agent:
+      type: "claude_code"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
+      agent_specific:
+        auth_mode: "oauth"
+        effort: "xhigh"
+        streaming: true
+        timeout: 10800
+
+    feedback_generator:
+      type: "claude_code"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
+      agent_specific:
+        auth_mode: "oauth"
+        effort: "xhigh"
+        streaming: true
+        timeout: 900
+
+    # Rich routes: attaches reasoning_effort to call sites that never plumbed
+    # an effort parameter (repo memory, insight extraction). Mirrors the
+    # posttrain deployment: luna at xhigh across all roles, web_search pinned
+    # so a stray call can never fall through to a default route.
+    models:
+      utility:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      reasoning:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      web_search:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+
+    retry:
+      max_attempts: 5
+      initial_delay_seconds: 5
+      max_delay_seconds: 120
+      multiplier: 2
+      jitter: true
+
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
+
+    fetch_huggingface_models: false
+
   # Fast system-debugging loop: production mechanics (claude_code coder,
   # same contracts/handler) at ~5x lower latency. Pair with a tiny task,
   # e.g.: -s rel-f1 -t driver-circuit-compete (27-row val/test, seconds-fast

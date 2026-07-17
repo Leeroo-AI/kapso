@@ -26,9 +26,3 @@ Rules:
    read-only; test labels are physically absent. Do not probe for them.
 5. You may run `python kapso_datasets/check_predictions.py` yourself after writing
    predictions to pre-validate shapes before the harness does.
-6. Session lifetime: your session exists only while you are actively working —
-   the moment you stop responding it ends and every process it started is
-   killed; no completion notification can ever reach you. Run evaluations and
-   long builds in the FOREGROUND, blocking (re-issue foreground waits if a
-   single call hits its timeout cap); never background them and end your turn
-   "to wait". A backgrounded run dies with the session and scores nothing.

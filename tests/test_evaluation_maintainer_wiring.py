@@ -236,6 +236,11 @@ def test_evaluation_instructions_swap_with_registration():
     assert "read-and-execute only" in registered
     assert strategy.registered_evaluation_command in registered
     assert "<evaluation_change_request>" in registered
+    # Session-lifetime rule (finding 14): three Arm-B iterations died by
+    # backgrounding the eval and ending the turn to "wait for notification".
+    assert "FOREGROUND" in registered
+    assert "no completion notification can ever" in registered
+    assert "`&`, `nohup`, or a background task" in registered
 
 
 def test_registered_evaluation_syncs_into_sessions(tmp_path):

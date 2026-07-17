@@ -23,10 +23,10 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | rel-event/user-attendance | reg | 0.0303 (RT-ft) | 0.315 | 0.311 | — | — | CPU-ok | 2h | · pending |
-| 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | 88 | ✅ beats best-known | CPU-ok | 2h | ✅ done |
+| 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | 82.9 | ✅ beats best-known | CPU-ok | 2h | ✅ done |
 | 3 | rel-f1/results-position | AC-reg | 0.528 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
 | 4 | rel-f1/qualifying-position | AC-reg | 0.239 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
-| 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.538 | below best-known | CPU-ok | 2h | ✅ done |
+| 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.546 | below best-known | CPU-ok | 2h | ✅ done |
 | 6 | rel-event/event_interest-interested | AC-bin | 49.6 (LightGBM) | — | — | — | — | CPU-ok | 2h | · pending |
 | 7 | rel-event/event_interest-not_interested | AC-bin | 60.4 (GraphSAGE) | — | — | — | — | CPU-ok | 2h | · pending |
 | 8 | rel-event/users-birthyear | AC-reg | -0.03 (GraphSAGE) | — | — | — | — | CPU-ok | 2h | · pending |
@@ -90,3 +90,11 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | — | rel-mimic/patient-iculengthofstay | clf | 55 (GraphSAGE) | — | — | — | — | blocked | — | ⛔ credentialed data |
 
 Notes: RelAgent/KumoRFM-ft columns show their per-task values in the same units where they published one (— where they did not evaluate). Current 'done' rows from harness-validation runs are baseline-quality placeholders until the campaign proper replaces them.
+
+## Winning artifacts (durable, committed — for organizer handoff)
+
+Each claimed cell's evidence is copied from the box-local run archive into `benchmarks/relbench/claims/<task>/`: winning code snapshot, both prediction files, solution spec, and final report (val+test metrics, audit). SHA-256 prefixes pin the exact prediction files the metrics were computed from.
+
+| Task | Run | Evidence dir | val preds sha256 | test preds sha256 |
+|---|---|---|---|---|
+| rel-f1/driver-circuit-compete | run_0003 | `benchmarks/relbench/claims/rel-f1--driver-circuit-compete/` | `c5f4b50f98e135b7` | `aea8daefdaf0b944` |

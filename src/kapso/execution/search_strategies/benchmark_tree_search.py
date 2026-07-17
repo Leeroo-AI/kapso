@@ -274,36 +274,32 @@ class BenchmarkTreeSearch(SearchStrategy):
         return "\n".join(lines)
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
-        """Get all experiment results, optionally sorted by score."""
+        """Get all experiment results, optionally sorted by score (unscored sort worst)."""
         if best_last:
             return sorted(
                 self.node_history,
                 key=lambda node: (
-                    (
-                        not node.had_error and node.evaluation_valid,
-                        node.score or 0,
-                    )
-                    if self.problem_handler.maximize_scoring 
-                    else (
-                        not node.had_error and node.evaluation_valid,
-                        -(node.score or 0),
-                    )
+                    not node.had_error and node.evaluation_valid and node.score is not None,
+                    0.0 if node.score is None
+                    else (node.score if self.problem_handler.maximize_scoring else -node.score),
                 )
             )
         return self.node_history
-    
+
     def get_best_experiment(self) -> Optional[SearchNode]:
-        """Get the best experiment result."""
+        """Get the best SCORED experiment result — a node whose evaluation
+        never completed (score=None) can never be best; on minimize metrics
+        it would otherwise key as 0 and out-rank every real score."""
         valid_nodes = [
             node
             for node in self.node_history
-            if not node.had_error and node.evaluation_valid
+            if not node.had_error and node.evaluation_valid and node.score is not None
         ]
         if not valid_nodes:
             return None
         return max(
-            valid_nodes, 
-            key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
+            valid_nodes,
+            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
         )
 
     def checkout_to_best_experiment_branch(self) -> Optional[str]:

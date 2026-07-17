@@ -90,8 +90,17 @@ Runs reviewed:
    session's own clone for MCP-capable agents (REPO_MEMORY_ROOT = session
    folder; generic-path sessions with their own gate set pass through
    untouched), and the implement prompt selects MCP vs JSON-file
-   instructions from the session's actual mount state. Live verification:
-   see V1 below.
+   instructions from the session's actual mount state. Live verification
+   (V1, 2026-07-15, 2-iter FAST_DEBUG on driver-circuit-compete): wiring
+   proven at every layer — per-session mcp_config.json written, --mcp-config
+   + all three mcp__gated-knowledge__ tools on the live CLI cmdline, server
+   starts clean with the configured env. Note: the adapter's "[init]
+   tools=N" count excludes MCP tools (red herring). Behavioral outcome:
+   zero tool calls in this run — with wiring proven, non-usage is now a
+   content/emphasis signal (the 2.5KB summary+TOC already in the prompt
+   evidently sufficed for a 27-row ranking task), cleanly separated from
+   the wiring question for the first time. Run itself: 2/2 scored (val MAP
+   0.6938/0.6964), test MAP 0.8634, clean audit.
    Cross-track: PostTrainBench run7 review F4 reports the same marker
    ("sections consulted: []") but attributes it to dead litellm
    side-channels under OAuth-only auth (their writes genuinely fail — the
@@ -100,6 +109,190 @@ Runs reviewed:
    reads "none". Two independent, stacking causes — write-side credentials
    (theirs) and read-side MCP mis-wiring (both tracks). Fixing their
    credentials alone will not light the channel.
+
+10. **Generic shakedown #1: maintainer calibration requires a candidate that
+   does not exist yet (2026-07-16).** The registration transaction authored
+   kapso_eval.py correctly (immutability + stdout passthrough verified in
+   its output), but calibration runs a fast-fidelity evaluation at setup —
+   in a from-scratch search workspace there is no main.py, so the grader
+   exited with a contract violation and the whole run aborted before
+   iteration 1. Fixed (benchmark-local): --strategy generic auto-seeds the
+   workspace with data/generic_baseline/main.py (shape-correct trivial
+   predictions for all four families) via initial_repo, giving calibration
+   a runnable candidate and parent_policy=best a legitimate first parent.
+   Status: FIXED; re-shakedown pending.
+
+11. **Generic archives are not 1:1 with nodes (R4, minor).** The provided
+   grader archives every full-fidelity invocation; the iteration-1 agent ran
+   the registered evaluation twice, producing duplicate archives
+   (run_0003/run_0004, identical val 0.7585). Harmless for selection
+   (best-by-val) and claims, but inflates archive counts; a dedup by
+   prediction hash in the grader would tidy it. Status: NOTED.
+
+12. **Archived `__pycache__` poisons seeded workspaces (A/B run, harness
+   tail).** Both code-snapshot archivers (tree handler + provided grader)
+   copied `__pycache__/*.pyc` into `runs/*/code`. Arm B was seeded from such
+   a snapshot (`run_0002/code`), so ExperimentSession committed the stale
+   bytecode as TRACKED files; later runs regenerated it, and the final
+   `checkout_to_best_experiment_branch()` refused to switch branches over
+   the dirty tracked files (`WorkspaceCheckoutError` on `generic_exp_5`) —
+   runner exit 1 AFTER the search completed. Zero data loss: all 8 full-run
+   archives intact; only B's in-process final report was lost (recomputed
+   offline from archives). Status: FIXED benchmark-side — both archivers
+   now skip `__pycache__`; existing archives and the committed claims
+   snapshot stripped of bytecode. Framework-side hardening FIXED
+   (user-approved 2026-07-17): workspace `.gitignore` gains `__pycache__/`
+   + `*.pyc`, and the directory-seed path copies the seed with bytecode
+   excluded — the seed's add-all commit runs before the .gitignore exists,
+   so filtering at copy time is what actually keeps seeded bytecode from
+   ever being tracked. Modified TRACKED files still fail checkout loudly
+   by design (test_workspace_branch_safety pins both semantics; new
+   regression test covers the seeded-bytecode path end to end).
+
+13. **Unscored nodes rank as BEST on minimize tasks (generic strategy,
+   framework core — FIXED, user-approved 2026-07-17).** `get_best_experiment()`
+   and `get_experiment_history(best_last=True)` key nodes with
+   `(x.score or 0)` / `-(x.score or 0)`. On a minimize metric every real
+   score keys negative (MAE 2.64 → −2.64) while a valid-but-unscored node
+   (`score=None`, `evaluation_valid=True` — the dataclass default, kept
+   when a session ends before its eval ever runs) keys `-(None or 0) = 0`,
+   which `max()` prefers over every real candidate. Observed live in Arm
+   B: exp_8's session died with its background full-eval unfinished
+   (score=None, no integrity flag) → exp_9's parent selection picked
+   **exp_8 over champion exp_5**, and the final best-last history print
+   ranked exp_8/exp_9 above the champion. Delivery was protected only
+   because `get_deliverable_experiment()` walks registered-evidence tiers.
+   Maximize tasks mask the bug (positive scores beat 0). Fix applied to
+   BOTH strategies (the tree carried the identical idiom): `score is not
+   None` required in the best-node filter, None-score nodes sort into the
+   worst tier in `get_experiment_history`; the explicit committed-work
+   fallback in `_select_parent()` (strategy.py:1513) owns the all-unscored
+   case exactly as designed. Side benefit: tree expansion's top-K slice
+   can no longer hand an expansion slot to an unscored node. Regression
+   tests in test_fidelity_selection.py (best/history/parent selection on
+   minimize, both strategies; all-unscored returns None).
+
+14. **Sessions end themselves while the registered eval still runs (Arm B,
+   3/10 iterations scoreless — contract layer FIXED, user-approved
+   2026-07-17).** exp_6/exp_8/exp_9 each launched the ~10-min full
+   evaluation as a BACKGROUND job and ended their turn "to wait for the
+   completion notification" (exp_6 verbatim: "my background waiter will
+   notify me the moment the grader process exits"). In a headless one-shot
+   session no notification can ever arrive — the model going quiet
+   completes the CLI run, and teardown reaps the process group: grader
+   killed pre-manifest, score=None, iteration wasted (~30% of Arm B's
+   budget). Not a timeout (sessions ended at 684-1102s of a 10800s cap),
+   not a debug-gate kill, not tampering. The agents pattern-matched
+   interactive-runtime habits ("You will be notified when it completes" is
+   true interactively, false here; exp_9 even reached for the interactive
+   Monitor tool). Fix applied: the registered-evaluation contract
+   (generic strategy — shared with posttrain) gains a session-lifetime
+   rule: foreground-only, blocking, KAPSO_EVAL_MANIFEST must be in the
+   transcript before the final response, explicit ban on &/nohup/background
+   tasks, foreground polling blessed for tool-timeout caps; mirrored as
+   rule 6 in the starter-kit CONTRACT.md; pin test added. The mechanical
+   guarantee (teardown guard that waits on a live registered eval before
+   reaping) remains PROPOSED as a second layer. Sub-quirk parked: exp_6's
+   judge tag-retry nudge ran with empty context and correctly failed safe
+   (evaluation_valid=False) — the retry wiring deserves its own look.
+
+## R5 — Phase-5 A/B: tree vs generic, rel-f1/driver-position (2026-07-16/17, COMPLETED)
+
+Pre-registered design: both arms seeded from the R3 champion (val 2.684 /
+test 3.779), 10 iterations each, run sequentially on the same box. Arm A =
+benchmark_tree_search (RELBENCH_CONFIGS), Arm B = generic champion-chain
+(RELBENCH_GENERIC); deployed-best vs deployed-best (each arm's val-selected
+champion, test revealed once at the end).
+
+| | Arm A (tree) | Arm B (generic) |
+|---|---|---|
+| Val trajectory (best) | 2.6506 → **2.6104** (run_0009) | 2.6818 → **2.6434** (run_0019) |
+| Deployed test MAE | **3.8367** (worse than seed 3.779) | **3.7429** (beats seed) |
+| Test NMAE (÷7.0253) | 0.5461 | 0.5328 |
+| Unique candidates / archives | 7 / 10 | 8 archives over 10 experiments |
+| Wall-clock | ~8.6 h | ~7.3 h |
+| Ledger cost (API-list equivalent) | $108.4 | $127.1 |
+| …of which actually API-billed | ~$44.5 (sol/opus ideation+selection via OpenAI/Bedrock) | **$1.66** (luna repo-memory/insight calls) |
+
+Cost accounting: the ledger ingests each claude CLI session's reported
+`total_cost_usd`, which the CLI computes from token usage at API list
+prices REGARDLESS of auth mode — under OAuth those sessions draw
+subscription quota, not dollars. B's checkpoint breakdown: implementation
+$63.71 + ideation $50.13 + feedback $10.50 + maintenance $1.07 (all
+oauth-quota) + llm_backend $1.66 (billed). The codex ideation member runs
+on ChatGPT auth and reports NO cost — B's ledger undercounts its compute.
+A's split: $63.9 oauth coder sessions + ~$44.5 billed litellm ideation/
+selection. So in cash, A ≈ $44.5 and B ≈ $1.7; the ledger totals are the
+right basis for compute-fairness comparisons, not spend.
+
+Verdict: **generic wins the deployment comparison** — the only comparison
+that counts. A won validation (2.6104 vs 2.6434) yet DEGRADED the seed on
+test (+0.058); B improved it (−0.036). The inversion is not just at the
+selection point: A's candidate population tests at ~3.99 mean (7 unique)
+vs B's ~3.80 (8 runs) — every B run except its first beats A's best test.
+Within-arm val-selection also misfires: A's best-on-test was run_0012
+(3.8001, val-rank 5), not the selected run_0009; B's was run_0018 (3.7346),
+not run_0019 (3.7429). On a task with +1.1 val→test era drift, the tree's
+wide pool + val-greedy selection over-fits the validation years; the
+generic loop's few-but-deliberate candidates (strict-Pareto shipping gates,
+frozen-validation arbitration, self-declared saturation at iteration ~6,
+explicit "no test probing" invariants in its changes.log) generalized.
+Caveats: n=1 task, 10 iterations, single seed — directional evidence, not
+a theorem; and neither arm approaches KumoRFM-ft (2.731 test MAE, NMAE
+0.3887) — driver-position stays unclaimed.
+
+Campaign consequence: use the tree as the cheap breadth scout, escalate to
+generic where a cell is close or drift-prone; on drift-heavy regression
+tasks, distrust raw val-greedy selection (prefer drift-aware validation
+schemes — B's frozen-era arbitration is the template). Official
+driver-position row remains val-selected across all archives = run_0009,
+test 3.8367 (protocol over cherry-picking; B's 3.7429 documented here).
+
+## R4 review — generic-mode shakedown (2026-07-16, COMPLETED)
+
+rel-f1/driver-circuit-compete, RELBENCH_GENERIC, 2 iterations, first run on
+the experiment OAuth token. Reviewer observations at iteration-2 midpoint:
+
+- **Registration/calibration**: maintainer authored the delegating
+  kapso_eval.py (228s, $0.95), calibration passed on the seeded baseline
+  (finding 10 fix verified live). No immutability violations by any session.
+- **Score-of-record mechanics**: manifest parsed at the strategy layer;
+  official val 0.7585 recorded; archives land val-only (in-loop grader
+  physically cannot score test — quarantine-by-construction confirmed).
+- **Knowledge channels ALIVE — the headline contrast with the tree path**:
+  30 MCP gate calls in two iterations (9x get_repo_memory_section, 4x
+  summaries/listings, 13x experiment-history queries incl. semantic
+  search). The tree path made zero such calls across three full runs.
+- **The pull-model loop works end to end**: feedback generator read the
+  champion's code and root-caused a real defect (additive-dominance
+  M_REPEAT=1e6 renders survival term inert); iteration-2 ideation quoted
+  that feedback verbatim and proposed the targeted fix. This is the
+  mechanism finding 8 could only approximate with lineage annotations.
+- **Quality signal**: iteration 1 official val MAP 0.7585 — above the tree
+  strategy's best-ever on this task (0.7314) in ONE iteration; its
+  debug-mode self-estimate (0.758) matched the official score, i.e. the
+  agent's internal measurement discipline is calibrated.
+- **Cost profile as predicted**: ~$12-13/iteration (ideation $1.4-2.6 +
+  implementation ~$8.9 + feedback $0.6) vs ~$1.5-2 tree FAST_DEBUG — the
+  breadth-vs-depth economics are real; deploy generic where per-step
+  quality pays (escalations).
+- Iteration 2 midpoint: replacement scoring initially regressed
+  (~0.71-0.72), agent self-diagnosing and pulling back toward the
+  champion's career-frequency ingredient — parent_policy=best protects the
+  0.7585 champion regardless of iteration-2's outcome.
+
+**Completion verdict:** 2/2 iterations, COMPLETED cleanly, $24.44 total
+(~$12/iteration as predicted). Iteration 2 never beat the champion (its
+final evaluations landed at champion parity, 0.7585). final_evaluate
+selected run_0003 (best val 0.7585 across the task's whole archive) and
+filled test ONCE: **test MAP 0.8289** (independently recomputed: 0.8289
+exact). Protocol note: earlier archived runs carry lower val but higher
+test (0.6938/0.8687, 0.6964/0.8634) — tune-on-val discipline makes 0.8289
+the claimable number, still +6.7 MAP over the published 0.7618. The 27-row
+val split is too noisy to referee tree-vs-generic on test here; generic
+decisively won VAL (0.7585 vs tree's 0.7314 best-ever, in one iteration).
+The A/B on driver-position (760 test rows) remains the real referee.
+Machinery verdict: every new component passed — Phase 4 CLOSED.
 
 ## R2 outcome (for the record)
 
