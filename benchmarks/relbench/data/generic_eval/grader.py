@@ -165,7 +165,7 @@ def archive_full_run(run_data_dir: Path, val_metrics: dict) -> str:
     root = _repo_root()
     code_dir = run_dir / "code"
     for f in root.rglob("*"):
-        if not f.is_file() or ".git" in f.parts or "kapso_evaluation" in f.parts:
+        if not f.is_file() or ".git" in f.parts or "kapso_evaluation" in f.parts or "__pycache__" in f.parts:
             continue
         if f.stat().st_size > 2_000_000:
             continue

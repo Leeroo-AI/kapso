@@ -26,7 +26,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 2 | rel-f1/driver-circuit-compete | rec | 76.2 (ID-GNN-4L) | — | — | 82.9 | ✅ beats best-known | CPU-ok | 2h | ✅ done |
 | 3 | rel-f1/results-position | AC-reg | 0.528 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
 | 4 | rel-f1/qualifying-position | AC-reg | 0.239 (RelGT-AC) | — | — | — | — | CPU-ok | 2h | · pending |
-| 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.538 | below best-known | CPU-ok | 2h | ✅ done |
+| 5 | rel-f1/driver-position | reg | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.546 | below best-known | CPU-ok | 2h | ✅ done |
 | 6 | rel-event/event_interest-interested | AC-bin | 49.6 (LightGBM) | — | — | — | — | CPU-ok | 2h | · pending |
 | 7 | rel-event/event_interest-not_interested | AC-bin | 60.4 (GraphSAGE) | — | — | — | — | CPU-ok | 2h | · pending |
 | 8 | rel-event/users-birthyear | AC-reg | -0.03 (GraphSAGE) | — | — | — | — | CPU-ok | 2h | · pending |

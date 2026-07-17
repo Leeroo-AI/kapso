@@ -129,6 +129,61 @@ Runs reviewed:
    (best-by-val) and claims, but inflates archive counts; a dedup by
    prediction hash in the grader would tidy it. Status: NOTED.
 
+12. **Archived `__pycache__` poisons seeded workspaces (A/B run, harness
+   tail).** Both code-snapshot archivers (tree handler + provided grader)
+   copied `__pycache__/*.pyc` into `runs/*/code`. Arm B was seeded from such
+   a snapshot (`run_0002/code`), so ExperimentSession committed the stale
+   bytecode as TRACKED files; later runs regenerated it, and the final
+   `checkout_to_best_experiment_branch()` refused to switch branches over
+   the dirty tracked files (`WorkspaceCheckoutError` on `generic_exp_5`) —
+   runner exit 1 AFTER the search completed. Zero data loss: all 8 full-run
+   archives intact; only B's in-process final report was lost (recomputed
+   offline from archives). Status: FIXED benchmark-side — both archivers
+   now skip `__pycache__`; existing archives and the committed claims
+   snapshot stripped of bytecode. Framework-side hardening (workspace
+   `.gitignore` for `__pycache__/` at session init) PROPOSED, awaiting
+   approval per the framework-change rule.
+
+## R5 — Phase-5 A/B: tree vs generic, rel-f1/driver-position (2026-07-16/17, COMPLETED)
+
+Pre-registered design: both arms seeded from the R3 champion (val 2.684 /
+test 3.779), 10 iterations each, run sequentially on the same box. Arm A =
+benchmark_tree_search (RELBENCH_CONFIGS), Arm B = generic champion-chain
+(RELBENCH_GENERIC); deployed-best vs deployed-best (each arm's val-selected
+champion, test revealed once at the end).
+
+| | Arm A (tree) | Arm B (generic) |
+|---|---|---|
+| Val trajectory (best) | 2.6506 → **2.6104** (run_0009) | 2.6818 → **2.6434** (run_0019) |
+| Deployed test MAE | **3.8367** (worse than seed 3.779) | **3.7429** (beats seed) |
+| Test NMAE (÷7.0253) | 0.5461 | 0.5328 |
+| Unique candidates / archives | 7 / 10 | 8 archives over 10 experiments |
+| Wall-clock | ~8.6 h | ~7.3 h |
+| Cost | $108.4 (all-in) | ~$125.4 (claude sessions; codex leg is sub-auth, unbilled) |
+
+Verdict: **generic wins the deployment comparison** — the only comparison
+that counts. A won validation (2.6104 vs 2.6434) yet DEGRADED the seed on
+test (+0.058); B improved it (−0.036). The inversion is not just at the
+selection point: A's candidate population tests at ~3.99 mean (7 unique)
+vs B's ~3.80 (8 runs) — every B run except its first beats A's best test.
+Within-arm val-selection also misfires: A's best-on-test was run_0012
+(3.8001, val-rank 5), not the selected run_0009; B's was run_0018 (3.7346),
+not run_0019 (3.7429). On a task with +1.1 val→test era drift, the tree's
+wide pool + val-greedy selection over-fits the validation years; the
+generic loop's few-but-deliberate candidates (strict-Pareto shipping gates,
+frozen-validation arbitration, self-declared saturation at iteration ~6,
+explicit "no test probing" invariants in its changes.log) generalized.
+Caveats: n=1 task, 10 iterations, single seed — directional evidence, not
+a theorem; and neither arm approaches KumoRFM-ft (2.731 test MAE, NMAE
+0.3887) — driver-position stays unclaimed.
+
+Campaign consequence: use the tree as the cheap breadth scout, escalate to
+generic where a cell is close or drift-prone; on drift-heavy regression
+tasks, distrust raw val-greedy selection (prefer drift-aware validation
+schemes — B's frozen-era arbitration is the template). Official
+driver-position row remains val-selected across all archives = run_0009,
+test 3.8367 (protocol over cherry-picking; B's 3.7429 documented here).
+
 ## R4 review — generic-mode shakedown (2026-07-16, COMPLETED)
 
 rel-f1/driver-circuit-compete, RELBENCH_GENERIC, 2 iterations, first run on

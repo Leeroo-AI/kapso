@@ -587,10 +587,12 @@ class RelBenchHandler(ProblemHandler):
                         "solution_sha": hashlib.sha256((solution or "").encode()).hexdigest()[:16]},
                        indent=2)
         )
-        # Snapshot candidate code (small text files only).
+        # Snapshot candidate code (small text files only). __pycache__ is
+        # excluded: archived bytecode poisons any workspace later seeded from
+        # the snapshot (committed .pyc goes stale and blocks git checkout).
         src_root = Path(file_path)
         for f in src_root.rglob("*"):
-            if not f.is_file() or ".git" in f.parts or "kapso_evaluation" in f.parts:
+            if not f.is_file() or ".git" in f.parts or "kapso_evaluation" in f.parts or "__pycache__" in f.parts:
                 continue
             if f.stat().st_size > 2_000_000:
                 continue
