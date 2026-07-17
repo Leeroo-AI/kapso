@@ -313,6 +313,17 @@ def build_reference(work_root: Path) -> str:
     ku_clf = baselines["kumorfm_fine_tuned"]["v1_classification_auroc_pct"]
     ku_reg = baselines["kumorfm_fine_tuned"]["v1_regression_mae"]
     ku_rec = baselines["kumorfm_fine_tuned"]["v1_recommendation_map_pct"]
+    ic_v1 = baselines["kumorfm_in_context"]
+    ic_v2 = baselines["kumorfm_2_in_context"]
+
+    def in_context_cell(block: dict, task_id: str) -> Optional[float]:
+        """Zero-shot KumoRFM cell in the row's units (AUROC %, board NMAE, MAP %)."""
+        if task_id in block["v1_classification_auroc_pct"]:
+            return block["v1_classification_auroc_pct"][task_id]
+        if task_id in block["v1_regression_mae"]:
+            div = divisors.get(task_id)
+            return round(block["v1_regression_mae"][task_id] / div, 4) if div else None
+        return block.get("v1_recommendation_map_pct", {}).get(task_id)
 
     rows = []
     n_done = n_beats_sota = 0
@@ -365,6 +376,8 @@ def build_reference(work_root: Path) -> str:
             rows.append({
                 "task": task_id, "family": fam, "metric": entry.get("metric", primary_metric),
                 "sota": entry, "relagent": relagent, "kumo": kumo,
+                "kumo_v1_ic": in_context_cell(ic_v1, task_id),
+                "kumo_v2_ic": in_context_cell(ic_v2, task_id),
                 "kapso": kapso_val, "beats": beats,
                 "hw": "CPU-ok" if task_id in cpu_safe else "GPU box",
                 "tier": {"small": "2h", "medium": "4h", "large": "8h"}.get(SIZE_TIER.get(ds, "medium"), "4h"),
@@ -412,6 +425,8 @@ def build_reference(work_root: Path) -> str:
         "Verified primary-source numbers (see BASELINES.md for protocols and citations): "
         "**RelAgent** (arXiv:2605.07840, val-selected test of 5 searches; v1 entity + 6-task v2 subset, "
         "no recommendation), **KumoRFM fine-tuned** (Kumo tech report Tables 2-4, single values, all 30 v1 tasks), "
+        "**KumoRFM-v1/v2 in-context** (zero-shot; v1: tech report, all 30 tasks; v2: arXiv:2604.12596, "
+        "21 entity tasks, no recommendation), "
         "full board field in `data/leaderboard_snapshot.json`, per-task best-known in `data/sota.json`.",
         "",
         "## Per-task table (ROI order)",
@@ -419,22 +434,27 @@ def build_reference(work_root: Path) -> str:
         "Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE). "
         "'Best known' = strongest published result anywhere (board ∪ papers).",
         "",
-        "| ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | Kapso | vs best | HW | Cap | Status |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| ROI# | Task | Fam | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         e = r["sota"]
         best = f"{f(e.get('value'))} ({e.get('method', '?').split(' (')[0][:24]})" if e else "—"
         lines.append(
             f"| {f(r['roi'], 0)} | {r['task']} | {r['family']} | {best} "
-            f"| {f(r.get('relagent'))} | {f(r.get('kumo'))} | {f(r.get('kapso'))} "
+            f"| {f(r.get('relagent'))} | {f(r.get('kumo'))} "
+            f"| {f(r.get('kumo_v1_ic'))} | {f(r.get('kumo_v2_ic'))} | {f(r.get('kapso'))} "
             f"| {r.get('beats') or '—'} | {r['hw']} | {r.get('tier', '—')} | {r['status']} |"
         )
     lines += [
         "",
-        "Notes: RelAgent/KumoRFM-ft columns show their per-task values in the same units where they "
-        "published one (— where they did not evaluate). Current 'done' rows from harness-validation "
-        "runs are baseline-quality placeholders until the campaign proper replaces them.",
+        "Notes: baseline columns show per-task values in the same units where the method "
+        "published one (— where it did not evaluate). KumoRFM-ft is the fine-tuned regime "
+        "(Kumo tech report Tables 2-4); KumoRFM-v1/v2 (ic) are the zero-shot in-context "
+        "regimes (v1: tech report; v2: arXiv:2604.12596, cross-checked against RelAgent's "
+        "KumoRFM-v2 rows — no published v1 recommendation numbers exist for v2). Current "
+        "'done' rows from harness-validation runs are baseline-quality placeholders until "
+        "the campaign proper replaces them.",
     ]
     if claims:
         lines += [

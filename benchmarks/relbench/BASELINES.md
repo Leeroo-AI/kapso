@@ -55,6 +55,24 @@ in-context in its RelBenchV1 Tables 3/7 (cells match the in-context column, e.g.
 driver-dnf 82.41, driver-position 2.747), and its only fine-tuning table (Table 9) is
 KumoRFM-2 on SALT.
 
+## KumoRFM in-context (v1 and v2 models)
+
+Both zero-shot variants are in `baselines.json` and rendered as RESULTS.md columns
+(added 2026-07-17):
+
+- **KumoRFM-v1 (in-context)** — Kumo tech report Tables 2-4 (`kumorfm_in_context`):
+  all 30 v1 tasks. These are the numbers RelAgent's tables label "KumoRFM-v1".
+- **KumoRFM-2 (in-context)** — KumoRFM-2 paper (arXiv:2604.12596), RelBench v1
+  classification + regression tables (`kumorfm_2_in_context`): 12 clf + 9 reg tasks,
+  clf average 79.60 (recomputed from cells, matches print). Extraction protocol:
+  the paper's short task labels were NOT trusted; each (v1, v2) value pair was mapped
+  to its canonical task by matching the v1 member against the verified tech-report
+  in-context values (all 21 matches unique), and every pair was cross-checked
+  identical against the independent KumoRFM-v2 rows in RelAgent's tables.
+  **No v1 recommendation numbers exist for KumoRFM-2** in any publication.
+  RelAgent's v2-subset/4DBInfer tables carry further KumoRFM-v1/v2 rows (e.g. v2-subset
+  clf avgs 81.04/85.91) — not captured pending verified column-header extraction.
+
 ## Which benchmark version did they evaluate?
 
 | Method | RelBench v1 (30 tasks) | RelBench v2 (66 tasks) | Other |

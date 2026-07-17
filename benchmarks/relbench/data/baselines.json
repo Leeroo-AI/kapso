@@ -127,6 +127,28 @@
     },
     "note": "The 'KumoRFM-v1' rows in RelAgent's paper are THIS regime (verified numerically), not fine-tuned."
   },
+  "kumorfm_2_in_context": {
+    "full_name": "KumoRFM-2 (in-context)",
+    "source": "KumoRFM-2 paper (arXiv:2604.12596), RelBench v1 classification/regression tables; every (v1, v2) value pair cross-checked identical against the KumoRFM-v2 rows in RelAgent (arXiv:2605.07840); task mapping keyed by the verified KumoRFM-v1 in-context values",
+    "regime": "zero-shot (in-context; no training on the task or dataset)",
+    "v1_classification_auroc_pct": {
+      "rel-amazon/user-churn": 69.10, "rel-amazon/item-churn": 82.17,
+      "rel-avito/user-visits": 67.42, "rel-avito/user-clicks": 69.41,
+      "rel-event/user-repeat": 81.66, "rel-event/user-ignore": 90.83,
+      "rel-f1/driver-dnf": 84.59, "rel-f1/driver-top3": 92.18,
+      "rel-hm/user-churn": 69.27, "rel-stack/user-engagement": 89.40,
+      "rel-stack/user-badge": 87.15, "rel-trial/study-outcome": 72.03,
+      "_average": 79.60
+    },
+    "v1_regression_mae": {
+      "rel-amazon/user-ltv": 13.921, "rel-amazon/item-ltv": 46.992,
+      "rel-avito/ad-ctr": 0.034, "rel-event/user-attendance": 0.235,
+      "rel-f1/driver-position": 2.854, "rel-hm/item-sales": 0.034,
+      "rel-stack/post-votes": 0.064, "rel-trial/study-adverse": 43.293,
+      "rel-trial/site-success": 0.433
+    },
+    "note": "No published RelBench v1 RECOMMENDATION results exist for KumoRFM-2 (its paper reports none; RelAgent has no recommendation tables). RelAgent's v2-subset tables also carry KumoRFM-v1/v2 rows — not captured here pending verified column-header extraction."
+  },
   "rdl_graphsage_reference": {
     "source": "Consistent across RelAgent Table 2/5 and KumoRFM report Tables 2/3",
     "v1_classification_auroc_pct": {
