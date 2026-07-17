@@ -172,6 +172,30 @@ Runs reviewed:
    tests in test_fidelity_selection.py (best/history/parent selection on
    minimize, both strategies; all-unscored returns None).
 
+14. **Sessions end themselves while the registered eval still runs (Arm B,
+   3/10 iterations scoreless — contract layer FIXED, user-approved
+   2026-07-17).** exp_6/exp_8/exp_9 each launched the ~10-min full
+   evaluation as a BACKGROUND job and ended their turn "to wait for the
+   completion notification" (exp_6 verbatim: "my background waiter will
+   notify me the moment the grader process exits"). In a headless one-shot
+   session no notification can ever arrive — the model going quiet
+   completes the CLI run, and teardown reaps the process group: grader
+   killed pre-manifest, score=None, iteration wasted (~30% of Arm B's
+   budget). Not a timeout (sessions ended at 684-1102s of a 10800s cap),
+   not a debug-gate kill, not tampering. The agents pattern-matched
+   interactive-runtime habits ("You will be notified when it completes" is
+   true interactively, false here; exp_9 even reached for the interactive
+   Monitor tool). Fix applied: the registered-evaluation contract
+   (generic strategy — shared with posttrain) gains a session-lifetime
+   rule: foreground-only, blocking, KAPSO_EVAL_MANIFEST must be in the
+   transcript before the final response, explicit ban on &/nohup/background
+   tasks, foreground polling blessed for tool-timeout caps; mirrored as
+   rule 6 in the starter-kit CONTRACT.md; pin test added. The mechanical
+   guarantee (teardown guard that waits on a live registered eval before
+   reaping) remains PROPOSED as a second layer. Sub-quirk parked: exp_6's
+   judge tag-retry nudge ran with empty context and correctly failed safe
+   (evaluation_valid=False) — the retry wiring deserves its own look.
+
 ## R5 — Phase-5 A/B: tree vs generic, rel-f1/driver-position (2026-07-16/17, COMPLETED)
 
 Pre-registered design: both arms seeded from the R3 champion (val 2.684 /
