@@ -19,9 +19,6 @@ from kapso.core.llm import (
 from kapso.execution.coding_agents.commit_message_generator import (
     COMMIT_MESSAGE_MODEL,
 )
-from kapso.execution.memories.experiment_memory.insight_extractor import (
-    InsightExtractor,
-)
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.knowledge_base.types import Source
@@ -374,18 +371,7 @@ def test_parallel_web_search_uses_individual_efforts(monkeypatch):
 
 def test_internal_optional_enrichment_uses_utility_role():
     assert COMMIT_MESSAGE_MODEL == "utility"
-    assert InsightExtractor.DEFAULT_MODEL == "utility"
     assert RepoMemoryManager.DEFAULT_REPO_MODEL_LLM == "utility"
-
-
-def test_experiment_store_uses_shared_backend_for_insights(tmp_path):
-    backend = LLMBackend(models={"utility": "vendor/utility"})
-    store = ExperimentHistoryStore(
-        json_path=str(tmp_path / "history.json"),
-        llm=backend,
-    )
-
-    assert store._get_insight_extractor()._llm is backend
 
 
 def test_experiment_workspace_threads_shared_backend_to_sessions(

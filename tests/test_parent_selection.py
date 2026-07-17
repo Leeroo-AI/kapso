@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+
+
 import kapso.execution.coding_agents.adapters.claude_code_agent as claude_module
 import kapso.gated_mcp as gated_mcp_module
 from kapso.execution.memories.repo_memory import RepoMemoryManager
@@ -16,6 +18,17 @@ from kapso.execution.search_strategies.generic.strategy import (
     ParentSelection,
     normalize_parent_policy,
 )
+
+
+@pytest.fixture(autouse=True)
+def stub_difficulties_fallback(monkeypatch):
+    """Hermetic tests must never spawn the fallback difficulties session;
+    fake agents emit no <technical_difficulties> tag, which triggers it."""
+    monkeypatch.setattr(
+        GenericSearch,
+        "_ensure_technical_difficulties",
+        lambda self, node: None,
+    )
 
 
 def strategy_with_history(policy="best", *, maximize=True):

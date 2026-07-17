@@ -70,7 +70,7 @@ the Gemma license accepted.
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.9 | fable-5 · 57.1 | opus-4.8 · 45.0 | opus-4.7 · 33.8 | 50.0 | — | pending [J] |
-| Qwen3-4B | 3.4 | fable-5 · 86.2 | glm-5.2 · 54.2 | gpt-5.4-h-rp · 49.5 | 86.8 | — | 🚀 run #13 in flight (10h, 2026-07-17, `arenahardwriting-qwen3-4b-base-07170902`) — first judge-scored run; est. ~$70-80 all-in (gpt-5-mini judge) |
+| Qwen3-4B | 3.4 | fable-5 · 86.2 | glm-5.2 · 54.2 | gpt-5.4-h-rp · 49.5 | 86.8 | (38 interim) | ⏹ run #13 stopped at t+5h by user (framework upgrade); final_model at 0.3789 winrate archived (`arenahardwriting-qwen3-4b-base-07170902`); judge-branch + key-discipline validated clean |
 | SmolLM3-3B | 0.4 | opus-4.8-max · 37.2 | fable-5 · 37.2 | glm-5.2 · 22.7 | 49.2 | — | pending [J] |
 | gemma-3-4b | 0.3 | opus-4.8-max · 47.4 | opus-4.7 · 30.9 | gpt-5.5-xh-rp · 27.9 | 94.8 | — | pending [J][G] |
 
@@ -91,9 +91,9 @@ strict parity claim to maintainers.
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0 ✓clean** | ✅ run #9 (10h official, 2026-07-16, done in 5.6h): **96.0 with 'no contamination detected'** — retires run #8's caveat, beats GLM-5.2's record, 2nd all-time. Judge stopped at practical ceiling after iteration 1. Run #8 (also 96.0, caveated) superseded. |
-| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | — | 🚀 run #11 in flight (10h, 2026-07-17, `bfcl-qwen3-4b-base-07170824`) |
+| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | (95 interim) | ⏹ run #11 stopped at t+5h by user (framework upgrade); final_model at 0.95 (5-run mean 0.90→0.95 trajectory) archived in GCS, rescorable via 40_eval_only.sh |
 | SmolLM3-3B | 0.0 | gpt-5.5-xh-rp · 100.0 | opus-4.8 · 97.0 | opus-4.6 · 86.7 | 84.0 | **93.0 ✓clean** | ✅ run #10 (10h official, 2026-07-16): **93.0, 'no contamination detected'** — 3rd all-time on the cell, +9 over human. 4 iterations, 3 promotions (SFT 92 → soup 93 → soup-tie 93), strict promote gates held |
-| gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | 🚀 run #12 in flight (10h, 2026-07-17, `bfcl-gemma-3-4b-pt-07170825`) — [G] cleared |
+| gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | ⏹ run #12 stopped at t+5h by user (framework upgrade); LoRA 92/100 smoke + stage-2 mid-flight, artifacts archived (`bfcl-gemma-3-4b-pt-07170825`) |
 
 ### GPQA Main (weight .2246)
 
@@ -156,10 +156,13 @@ cache snapshot. **Runs #11 + #12 LAUNCHED in parallel 2026-07-17 ~08:25 UTC** fr
 `46e6390f` (first runs with: live luna memory layer, judge per-sample
 leak invariant, 1800s iteration-admission floor, gemma in warm cache):
 `bfcl-qwen3-4b-base-07170824` and `bfcl-gemma-3-4b-pt-07170825`.
-**Run #13** (arenahardwriting × Qwen3-4B, first judge-scored run — exercises
-the judge-task solve.sh branch: agent keeps OPENAI_API_KEY for
-evaluate.py, no env_strip) launched ~09:02 UTC:
-`arenahardwriting-qwen3-4b-base-07170902`.
+**Runs #11-13 stopped at ~t+5h (2026-07-17 13:5x UTC) by user decision**
+to land framework upgrades (technical_difficulties capture chain,
+f01888db) before continuing; all three validated the new stack cleanly
+(live memory loop serving experiments, leak-banned judge, admission
+floor untested-but-armed, judge-branch key discipline). Interim bests
+archived + rescorable. Rebuild deliberately deferred — more changes
+queued.
 
 ## Run artifact index (GCS)
 

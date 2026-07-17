@@ -172,6 +172,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             config.agent_specific.get("env_strip", [])
         )
 
+        # When set, every raw stream-json event line is appended to this file
+        # during streaming runs — per-session process forensics (the same
+        # pattern as the codex ideation artifacts). Survives session kills:
+        # lines are flushed as they arrive.
+        self._stream_artifact_path: Optional[str] = config.agent_specific.get(
+            "stream_artifact_path"
+        )
+
         # Verify Claude Code CLI is installed and credentials are available
         self._verify_cli()
     
@@ -501,6 +509,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         
         start_time = time.time()
         raw_lines: List[str] = []
+        artifact_fh = None
+        if self._stream_artifact_path:
+            os.makedirs(
+                os.path.dirname(self._stream_artifact_path), exist_ok=True
+            )
+            artifact_fh = open(
+                self._stream_artifact_path, "a", encoding="utf-8"
+            )
         assistant_texts: List[str] = []
         result_text: str = ""
         total_cost: float = 0.0
@@ -574,6 +590,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     if line:
                         line = line.rstrip('\n')
                         raw_lines.append(line)
+                        if artifact_fh is not None:
+                            artifact_fh.write(line + "\n")
+                            artifact_fh.flush()
                         self._display_stream_event(line, assistant_texts)
                         got_output = True
                         last_heartbeat = time.time()
@@ -601,6 +620,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         for line in process.stdout:
                             line = line.rstrip('\n')
                             raw_lines.append(line)
+                            if artifact_fh is not None:
+                                artifact_fh.write(line + "\n")
+                                artifact_fh.flush()
                             self._display_stream_event(line, assistant_texts)
                     if process.stderr:
                         for err_line in process.stderr:
@@ -637,7 +659,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 for line in process.stdout:
                     line = line.rstrip('\n')
                     raw_lines.append(line)
+                    if artifact_fh is not None:
+                        artifact_fh.write(line + "\n")
+                        artifact_fh.flush()
                     self._display_stream_event(line, assistant_texts)
+
+            if artifact_fh is not None:
+                artifact_fh.close()
 
             elapsed = time.time() - start_time
             

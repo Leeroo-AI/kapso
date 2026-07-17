@@ -110,6 +110,9 @@ class SearchNode:
     error_message: str = ""
     workspace_dir: str = ""
     code_diff: str = ""
+    # Implementor-reported build difficulties (fallback-generated when the
+    # session died before writing its tag) — the per-experiment lesson record.
+    technical_difficulties: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize stable base-node fields to JSON-compatible data."""
@@ -164,6 +167,7 @@ class SearchNode:
             "error_message",
             "workspace_dir",
             "code_diff",
+            "technical_difficulties",
             "external_evaluation_error",
             "evaluation_integrity_error",
             "started_at",
@@ -315,6 +319,7 @@ class ExperimentResult:
     evaluation_integrity_error: str = ""
     code_diff: str = ""
     workspace_dir: str = ""
+    technical_difficulties: str = ""
     metrics: Dict[str, float] = field(default_factory=dict)
     primary_metric: Optional[str] = None
     external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
@@ -345,6 +350,7 @@ class ExperimentResult:
             branch_name=node.branch_name,
             had_error=node.had_error,
             error_message=node.error_message,
+            technical_difficulties=node.technical_difficulties,
             output=node.agent_output,
             detailed_output=node.agent_output,
             feedbacks=node.feedback,

@@ -198,3 +198,30 @@ def test_generate_code_threads_the_per_call_timeout(tmp_path, monkeypatch):
     agent.generate_code("p")
 
     assert seen == [7.0, 300]
+
+
+def test_stream_artifact_persists_raw_events(tmp_path, monkeypatch):
+    """stream_artifact_path tees every raw stream-json line to disk —
+    the per-session forensics that survive kills and feed the
+    technical-difficulties fallback."""
+    artifact = tmp_path / "forensics" / "stream.jsonl"
+    config = CodingAgentConfig(
+        agent_type="claude_code",
+        model="test-model",
+        debug_model="test-model",
+        agent_specific={
+            "timeout": 30,
+            "streaming": True,
+            "stream_artifact_path": str(artifact),
+        },
+    )
+    agent = ClaudeCodeCodingAgent(config)
+    agent.workspace = str(tmp_path)
+    monkeypatch.setattr(agent, "_get_changed_files", lambda: [])
+    monkeypatch.setattr(agent, "_get_env", lambda: None)
+
+    run_fake_cli(agent, monkeypatch, SUCCESS_WITH_COST_SCRIPT)
+
+    lines = artifact.read_text().strip().splitlines()
+    assert len(lines) >= 2  # assistant event + result event
+    assert any('"type": "result"' in ln or '"type":"result"' in ln for ln in lines)
