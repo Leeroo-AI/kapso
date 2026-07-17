@@ -100,8 +100,8 @@ class ModelRouter:
     {model: <str>, reasoning_effort: <str>} — the rich form attaches a
     default reasoning effort to every call resolved through that role
     (callers passing an explicit effort still win). This is how config
-    reaches call sites that never plumbed an effort parameter (repo
-    memory, insight extraction).
+    reaches call sites that never plumbed an effort parameter (e.g.
+    repo memory).
     """
 
     def __init__(self, routes: Optional[Mapping[str, Any]] = None):

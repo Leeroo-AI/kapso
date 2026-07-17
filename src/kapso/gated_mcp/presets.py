@@ -171,7 +171,6 @@ GATES: Dict[str, GateDefinition] = {
             "get_top_experiments",
             "get_recent_experiments",
             "search_similar_experiments",
-            "get_insights",
         ],
         default_params={
             "top_k": 5,

@@ -111,7 +111,7 @@ class SearchNode:
     workspace_dir: str = ""
     code_diff: str = ""
     # Implementor-reported build difficulties (fallback-generated when the
-    # session died before writing its tag). Primary insight-extraction source.
+    # session died before writing its tag) — the per-experiment lesson record.
     technical_difficulties: str = ""
 
     def to_dict(self) -> Dict[str, Any]:

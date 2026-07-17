@@ -283,7 +283,6 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
 
     store = ExperimentHistoryStore(
         json_path=str(tmp_path / "history.json"),
-        enable_insights=False,
     )
     store.add_experiment(invalid)
     store.add_experiment(valid)
@@ -330,7 +329,6 @@ def test_invalid_evaluation_is_not_semantically_indexed(
 ) -> None:
     store = ExperimentHistoryStore(
         json_path=str(tmp_path / "history.json"),
-        enable_insights=False,
     )
     indexed = []
     store.weaviate = object()
