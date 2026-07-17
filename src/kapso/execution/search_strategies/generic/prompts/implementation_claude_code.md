@@ -116,11 +116,23 @@ Full stdout/stderr output from running the evaluation script
 0.95
 </score>
 
+<technical_difficulties>
+The difficulties you actually hit while building: each failed attempt,
+crash, error, or wrong assumption — with its root cause and what fixed it
+(or "unresolved"). Write "none" only if the build was genuinely uneventful.
+</technical_difficulties>
+
 **Requirements:**
 - `<code_changes_summary>`: 2-5 sentences describing what you implemented
 - `<evaluation_script_path>`: Relative path to the evaluation script you created
 - `<evaluation_output>`: Complete stdout/stderr from running the evaluation
 - `<score>`: Numeric score from evaluation (use 0 if no score available, or "null" if evaluation failed)
+- `<technical_difficulties>`: every difficulty worth warning the next
+  implementor about — failed attempts, crashes, OOMs, silent wrong results,
+  misleading errors. For each: what happened (with the concrete error
+  signature or number), the root cause, and the fix that worked. Do not
+  sanitize or omit recovered-from problems — a difficulty you solved is the
+  most valuable kind. "none" only if genuinely none.
 
 **These tags are MANDATORY. The system extracts results from these tags.**
 
@@ -132,6 +144,7 @@ Before completing this iteration:
 3. Evaluation executed and results captured
 4. **XML result tags returned as the LAST thing in your response**
 5. `changes.log` updated with summary and repo memory sections consulted
+6. `technical_difficulties` recorded — including problems you already fixed
 
 CRITICAL: You are an AI code editor. Your ONLY job is to edit code files and run evaluation. Do NOT write any conversational text, explanations, or descriptions outside of the final XML tags.
 

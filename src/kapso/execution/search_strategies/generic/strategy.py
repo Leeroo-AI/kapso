@@ -47,6 +47,9 @@ from concurrent.futures import ThreadPoolExecutor
 from kapso.execution.search_strategies.generic import codex_ideation
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
+from kapso.execution.search_strategies.generic.difficulties_generator import (
+    generate_technical_difficulties,
+)
 
 if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic import FeedbackGenerator
@@ -403,6 +406,7 @@ class GenericSearch(SearchStrategy):
         if agent_result:
             node.code_changes_summary = agent_result.get("code_changes_summary", "")
             node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
+            node.technical_difficulties = agent_result.get("technical_difficulties", "")
             node.evaluation_output = agent_result.get("evaluation_output", agent_output)
             # Score from agent result (may be overridden by feedback generator)
             if agent_result.get("score") is not None:
@@ -413,6 +417,11 @@ class GenericSearch(SearchStrategy):
             node.evaluation_output = agent_output
             print(f"[GenericSearch] Warning: No JSON result from agent, using raw output")
         
+        # Step 3b: the implementor is the primary author of
+        # technical_difficulties; the fallback reconstructs it when the tag
+        # is missing. Purely mechanical trigger — never score/outcome-based.
+        self._ensure_technical_difficulties(node)
+
         # Step 4: Verify provided evaluation files before accepting any score
         # or feedback derived from them.
         if self.enforce_evaluation_integrity(node):
@@ -1035,6 +1044,10 @@ Problem: {problem}"""
                 "timeout": self._clamped_timeout(self.implementation_timeout),
                 "streaming": True,
                 "effort": self.session_effort,
+                # Per-session process record: raw stream-json events land
+                # here as they arrive, so a killed session still leaves its
+                # forensics behind (feeds the difficulties fallback).
+                "stream_artifact_path": self._session_stream_path(branch_name),
             }
         )
         
@@ -1450,6 +1463,36 @@ Problem: {problem}"""
    your work is re-measured first under the corrected evaluation.
 5. **Retry on transient crashes** of your own code (max 3 attempts)."""
 
+    def _ensure_technical_difficulties(self, node) -> None:
+        """Run the fallback reconstruction when the implementor's
+        technical_difficulties tag is missing (crashed or deadline-killed
+        session, or simply omitted)."""
+        if (node.technical_difficulties or "").strip():
+            return
+        print(
+            "[GenericSearch] technical_difficulties missing — "
+            "running fallback reconstruction"
+        )
+        node.technical_difficulties = generate_technical_difficulties(
+            model=self.implementation_model,
+            claude_auth_settings=self._claude_auth_settings,
+            aws_region=self.aws_region,
+            env_strip=self.env_strip,
+            effort=self.session_effort,
+            timeout_seconds=self._clamped_timeout(self.ideation_timeout),
+            workspace_dir=node.workspace_dir or self.workspace_dir,
+            solution=node.solution,
+            stream_artifact_path=self._session_stream_path(node.branch_name),
+        )
+
+    def _session_stream_path(self, branch_name: str) -> str:
+        """Per-session stream artifact location (survives session kills)."""
+        stream_dir = os.path.join(
+            self.workspace_dir, ".kapso", "sessions", branch_name
+        )
+        os.makedirs(stream_dir, exist_ok=True)
+        return os.path.join(stream_dir, "stream.jsonl")
+
     def _clamped_timeout(self, configured_seconds: float) -> float:
         """Bound an agent deadline by the searchable budget, when known.
 
@@ -1723,6 +1766,7 @@ Problem: {problem}"""
         <evaluation_script_path>...</evaluation_script_path>
         <evaluation_output>...</evaluation_output>
         <score>...</score>
+        <technical_difficulties>...</technical_difficulties>
         
         Args:
             agent_output: Raw output from the developer agent
@@ -1734,7 +1778,7 @@ Problem: {problem}"""
         result = {}
         
         # Extract each tag
-        tags = ["code_changes_summary", "evaluation_script_path", "evaluation_output", "score"]
+        tags = ["code_changes_summary", "evaluation_script_path", "evaluation_output", "score", "technical_difficulties"]
         
         for tag in tags:
             pattern = rf'<{tag}>\s*(.*?)\s*</{tag}>'

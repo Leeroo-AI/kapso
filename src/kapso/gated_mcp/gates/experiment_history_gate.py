@@ -254,6 +254,12 @@ class ExperimentHistoryGate(ToolGate):
 **Feedback:**
 {exp.feedback[:300]}{'...' if len(exp.feedback) > 300 else ''}""")
             
+            difficulties = getattr(exp, "technical_difficulties", "")
+            if difficulties:
+                lines.append(f"""
+**Technical difficulties:**
+{difficulties[:300]}{'...' if len(difficulties) > 300 else ''}""")
+            
             # Include insight if available
             if exp.insight:
                 conf = exp.insight_confidence or 0

@@ -50,6 +50,8 @@ class ExperimentRecord:
     had_error: bool
     error_message: str
     timestamp: str
+    # Implementor-reported (or fallback-generated) build difficulties.
+    technical_difficulties: str = ""
     # Insight fields (optional, extracted by LLM)
     insight: Optional[str] = None
     insight_type: Optional[str] = None  # "critical_error" or "best_practice"
@@ -99,7 +101,6 @@ class ExperimentHistoryStore:
     
     WEAVIATE_COLLECTION = "ExperimentHistory"
     DUPLICATE_THRESHOLD = 0.95  # Cosine similarity threshold for duplicate detection
-    SUCCESS_SCORE_THRESHOLD = 0.7  # Minimum score to extract success insight
     
     def __init__(
         self, 
@@ -205,6 +206,7 @@ class ExperimentHistoryStore:
             branch_name=node.branch_name or "",
             had_error=node.had_error,
             error_message=node.error_message or "",
+            technical_difficulties=getattr(node, "technical_difficulties", "") or "",
             timestamp=datetime.now().isoformat(),
             metrics=metrics,
             primary_metric=primary_metric,
@@ -246,33 +248,21 @@ class ExperimentHistoryStore:
             extractor = self._get_insight_extractor()
             goal = self.goal or "Unknown goal"
             
-            if record.had_error and record.error_message:
-                # Extract error insight
-                insight = extractor.extract_from_error(
-                    error_message=record.error_message,
-                    goal=goal,
-                    solution=record.solution,
-                )
-                record.insight = insight.to_formatted_string()
-                record.insight_type = insight.insight_type.value
-                record.insight_confidence = insight.confidence
-                record.insight_tags = insight.tags
-                logger.info(f"[ExperimentHistoryStore] Extracted error insight: {insight.lesson[:100]}...")
-                
-            elif record.score is not None and record.score >= self.SUCCESS_SCORE_THRESHOLD:
-                # Extract success insight for high-scoring experiments
-                insight = extractor.extract_from_success(
-                    feedback=record.feedback,
-                    score=record.score,
-                    goal=goal,
-                    solution=record.solution,
-                )
-                record.insight = insight.to_formatted_string()
-                record.insight_type = insight.insight_type.value
-                record.insight_confidence = insight.confidence
-                record.insight_tags = insight.tags
-                logger.info(f"[ExperimentHistoryStore] Extracted success insight: {insight.lesson[:100]}...")
-                
+            insight = extractor.extract(
+                technical_difficulties=record.technical_difficulties,
+                feedback=record.feedback,
+                score=record.score,
+                goal=goal,
+                solution=record.solution,
+            )
+            record.insight = insight.to_formatted_string()
+            record.insight_type = insight.insight_type.value
+            record.insight_confidence = insight.confidence
+            record.insight_tags = insight.tags
+            logger.info(
+                f"[ExperimentHistoryStore] Extracted insight "
+                f"({insight.insight_type.value}): {insight.lesson[:100]}..."
+            )
         except Exception as e:
             logger.warning(f"[ExperimentHistoryStore] Insight extraction failed: {e}")
     
@@ -387,6 +377,7 @@ class ExperimentHistoryStore:
                     branch_name=props.get("branch_name", ""),
                     had_error=props.get("had_error", False),
                     error_message=props.get("error_message", ""),
+                    technical_difficulties=props.get("technical_difficulties", ""),
                     timestamp=props.get("timestamp", ""),
                     insight=props.get("insight"),
                     insight_type=props.get("insight_type"),

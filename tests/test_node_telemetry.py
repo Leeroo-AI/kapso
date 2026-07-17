@@ -17,6 +17,19 @@ from kapso.execution.search_strategies.generic.feedback_generator.feedback_gener
     FeedbackGenerator,
 )
 
+@pytest.fixture(autouse=True)
+def stub_difficulties_fallback(monkeypatch):
+    """Hermetic tests must never spawn the fallback difficulties session;
+    fake agents emit no <technical_difficulties> tag, which triggers it."""
+    monkeypatch.setattr(
+        GenericSearch,
+        "_ensure_technical_difficulties",
+        lambda self, node: None,
+    )
+
+
+
+
 
 # =========================================================================
 # SearchNode validation
