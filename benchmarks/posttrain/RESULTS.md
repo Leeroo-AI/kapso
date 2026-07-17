@@ -91,9 +91,9 @@ strict parity claim to maintainers.
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0 ✓clean** | ✅ run #9 (10h official, 2026-07-16, done in 5.6h): **96.0 with 'no contamination detected'** — retires run #8's caveat, beats GLM-5.2's record, 2nd all-time. Judge stopped at practical ceiling after iteration 1. Run #8 (also 96.0, caveated) superseded. |
-| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | — | pending |
+| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | — | 🚀 run #11 in flight (10h, 2026-07-17, `bfcl-qwen3-4b-base-07170824`) |
 | SmolLM3-3B | 0.0 | gpt-5.5-xh-rp · 100.0 | opus-4.8 · 97.0 | opus-4.6 · 86.7 | 84.0 | **93.0 ✓clean** | ✅ run #10 (10h official, 2026-07-16): **93.0, 'no contamination detected'** — 3rd all-time on the cell, +9 over human. 4 iterations, 3 promotions (SFT 92 → soup 93 → soup-tie 93), strict promote gates held |
-| gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | pending [G] |
+| gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | — | 🚀 run #12 in flight (10h, 2026-07-17, `bfcl-gemma-3-4b-pt-07170825`) — [G] cleared |
 
 ### GPQA Main (weight .2246)
 
@@ -152,8 +152,10 @@ memory-layer calls 400 (litellm version skew nulls reasoning_effort) and
 fail soft — memory dead, runs unaffected; fix landed on main (a43fe829: litellm==1.75.0 pin + no-null hardening),
 ships with the post-run-10 rebuild. Gemma unblocked 2026-07-16: license
 accepted + `hf-token` secret live; the same rebuild bakes gemma into the
-cache snapshot. Queued next (user-approved): **runs #11 + #12 in
-parallel** — bfcl × Qwen3-4B and bfcl × gemma-3-4b-pt, 10h each.
+cache snapshot. **Runs #11 + #12 LAUNCHED in parallel 2026-07-17 ~08:25 UTC** from
+`46e6390f` (first runs with: live luna memory layer, judge per-sample
+leak invariant, 1800s iteration-admission floor, gemma in warm cache):
+`bfcl-qwen3-4b-base-07170824` and `bfcl-gemma-3-4b-pt-07170825`.
 
 ## Run artifact index (GCS)
 
