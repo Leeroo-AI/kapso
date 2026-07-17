@@ -81,7 +81,12 @@ of gorilla-llm/Berkeley-Function-Calling-Leaderboard, pinned revision,
 **exactly 100 samples** — the complete official PostTrainBench test set
 (1 sample = 1 point; finals run all 100/100). All rows below, including
 human and proven agents, are scored on this same task; it is NOT the full
-multi-category public BFCL suite.
+multi-category public BFCL suite. Leaderboard cells are MEANS over ~3
+repeated runs (scores.js stores e.g. glm-5.2 = 95.33 with a separate std
+table), while each single run scores an integer /100 — so our single-run
+96.0/93.0 sit atop measured 95-96/92-93 bands; claim "at or above" the
+95.3 record, and run 2-3 repeats via `gcp/40_eval_only.sh` before any
+strict parity claim to maintainers.
 
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
