@@ -70,7 +70,7 @@ the Gemma license accepted.
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.9 | fable-5 · 57.1 | opus-4.8 · 45.0 | opus-4.7 · 33.8 | 50.0 | — | pending [J] |
-| Qwen3-4B | 3.4 | fable-5 · 86.2 | glm-5.2 · 54.2 | gpt-5.4-h-rp · 49.5 | 86.8 | — | pending [J] |
+| Qwen3-4B | 3.4 | fable-5 · 86.2 | glm-5.2 · 54.2 | gpt-5.4-h-rp · 49.5 | 86.8 | — | 🚀 run #13 in flight (10h, 2026-07-17, `arenahardwriting-qwen3-4b-base-07170902`) — first judge-scored run; est. ~$70-80 all-in (gpt-5-mini judge) |
 | SmolLM3-3B | 0.4 | opus-4.8-max · 37.2 | fable-5 · 37.2 | glm-5.2 · 22.7 | 49.2 | — | pending [J] |
 | gemma-3-4b | 0.3 | opus-4.8-max · 47.4 | opus-4.7 · 30.9 | gpt-5.5-xh-rp · 27.9 | 94.8 | — | pending [J][G] |
 
@@ -156,6 +156,10 @@ cache snapshot. **Runs #11 + #12 LAUNCHED in parallel 2026-07-17 ~08:25 UTC** fr
 `46e6390f` (first runs with: live luna memory layer, judge per-sample
 leak invariant, 1800s iteration-admission floor, gemma in warm cache):
 `bfcl-qwen3-4b-base-07170824` and `bfcl-gemma-3-4b-pt-07170825`.
+**Run #13** (arenahardwriting × Qwen3-4B, first judge-scored run — exercises
+the judge-task solve.sh branch: agent keeps OPENAI_API_KEY for
+evaluate.py, no env_strip) launched ~09:02 UTC:
+`arenahardwriting-qwen3-4b-base-07170902`.
 
 ## Run artifact index (GCS)
 
