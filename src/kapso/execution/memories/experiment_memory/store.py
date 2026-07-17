@@ -453,23 +453,22 @@ def format_experiments(experiments: List[ExperimentRecord]) -> str:
     for exp in experiments:
         if not exp.evaluation_valid:
             status = "INVALID EVALUATION"
-        elif exp.had_error:
-            status = f"FAILED: {exp.error_message[:100]}"
         else:
             status = f"score={exp.score}"
         
+        # Full content, never clipped: agent-consumed via the MCP tools.
         lines.append(f"""
 ## Experiment {exp.node_id} ({status})
 
 **Solution:**
-{exp.solution[:500]}{'...' if len(exp.solution) > 500 else ''}
+{exp.solution}
 
 **Feedback:**
-{exp.feedback[:300]}{'...' if len(exp.feedback) > 300 else ''}""")
+{exp.feedback}""")
 
         if exp.technical_difficulties:
             lines.append(f"""
 **Technical difficulties:**
-{exp.technical_difficulties[:300]}{'...' if len(exp.technical_difficulties) > 300 else ''}""")
+{exp.technical_difficulties}""")
     
     return "\n".join(lines)

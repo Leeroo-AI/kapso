@@ -195,25 +195,26 @@ class ExperimentHistoryGate(ToolGate):
         for exp in experiments:
             if not exp.evaluation_valid:
                 status = "INVALID EVALUATION"
-            elif exp.had_error:
-                status = f"FAILED: {exp.error_message[:100]}"
             else:
                 status = f"score={exp.score}"
             
+            # Full content, never clipped: these renders ARE model input
+            # (ideation reads them through the MCP tools), and there is no
+            # drill-down tool to recover cut text.
             lines.append(f"""
 ## Experiment {exp.node_id} ({status})
 
 **Solution:**
-{exp.solution[:500]}{'...' if len(exp.solution) > 500 else ''}
+{exp.solution}
 
 **Feedback:**
-{exp.feedback[:300]}{'...' if len(exp.feedback) > 300 else ''}""")
+{exp.feedback}""")
             
             difficulties = getattr(exp, "technical_difficulties", "")
             if difficulties:
                 lines.append(f"""
 **Technical difficulties:**
-{difficulties[:300]}{'...' if len(difficulties) > 300 else ''}""")
+{difficulties}""")
         
         return "\n".join(lines)
     
