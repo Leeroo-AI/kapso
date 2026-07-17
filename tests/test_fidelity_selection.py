@@ -377,3 +377,58 @@ def test_malformed_manifest_line_raises(tmp_path):
     node.evaluation_output = "KAPSO_EVAL_MANIFEST {not valid json"
     with pytest_module.raises(Exception):
         strategy._manifest_score_of_record(node)
+
+
+# =========================================================================
+# Best-node selection with unscored nodes (Arm-B regression, finding 13)
+# =========================================================================
+
+def test_minimize_unscored_valid_node_never_ranks_best():
+    """A session that dies before its evaluation completes leaves a node
+    with score=None and evaluation_valid=True (the default). On minimize
+    metrics `None or 0` keyed as 0 and out-ranked every real negative key,
+    so the unscored node became "best" for parent selection and history
+    ranking. Both strategies must keep unscored nodes out of best/top."""
+    from kapso.execution.search_strategies.benchmark_tree_search import (
+        BenchmarkTreeSearch,
+    )
+
+    for strategy_cls in (GenericSearch, BenchmarkTreeSearch):
+        strategy = strategy_cls.__new__(strategy_cls)
+        strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
+        champion = SearchNode(node_id=5, branch_name="exp_5", score=2.6433)
+        worse = SearchNode(node_id=7, branch_name="exp_7", score=2.6440)
+        unscored = SearchNode(node_id=8, branch_name="exp_8", score=None)
+        strategy.node_history = [champion, worse, unscored]
+
+        assert strategy.get_best_experiment() is champion, strategy_cls.__name__
+        history = strategy.get_experiment_history(best_last=True)
+        assert history[-1] is champion, strategy_cls.__name__
+        assert history[0] is unscored, strategy_cls.__name__
+
+
+def test_minimize_parent_selection_prefers_scored_champion():
+    """The live failure: exp_9's parent became unscored exp_8 instead of
+    champion exp_5. parent_policy=best must chain from the score leader."""
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
+    strategy.parent_policy = "best"
+    champion = SearchNode(node_id=5, branch_name="exp_5", score=2.6433)
+    unscored = SearchNode(node_id=8, branch_name="exp_8", score=None)
+    strategy.node_history = [champion, unscored]
+
+    assert strategy._select_parent().branch_name == "exp_5"
+
+
+def test_all_unscored_history_yields_no_best_experiment():
+    """With zero scored nodes there is no best experiment — the explicit
+    committed-work fallback in _select_parent owns that case, not a
+    None-keyed impostor."""
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
+    strategy.node_history = [
+        SearchNode(node_id=0, branch_name="exp_0", score=None),
+        SearchNode(node_id=1, branch_name="exp_1", score=None),
+    ]
+
+    assert strategy.get_best_experiment() is None

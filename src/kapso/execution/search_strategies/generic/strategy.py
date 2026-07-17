@@ -1532,29 +1532,32 @@ Problem: {problem}"""
         return ParentSelection(branch_name="main", node_id=None)
 
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
-        """Return all nodes, optionally sorted by score."""
+        """Return all nodes, optionally sorted by score (unscored sort worst)."""
         if best_last:
             return sorted(
                 self.node_history,
                 key=lambda node: (
-                    not node.had_error and node.evaluation_valid,
-                    (node.score or 0) if self.problem_handler.maximize_scoring else -(node.score or 0)
+                    not node.had_error and node.evaluation_valid and node.score is not None,
+                    0.0 if node.score is None
+                    else (node.score if self.problem_handler.maximize_scoring else -node.score),
                 )
             )
         return self.node_history
-    
+
     def get_best_experiment(self) -> Optional[SearchNode]:
-        """Return the best successful node."""
+        """Return the best successful SCORED node — a node whose evaluation
+        never completed (score=None) can never be best; on minimize metrics
+        it would otherwise key as 0 and out-rank every real score."""
         valid = [
             node
             for node in self.node_history
-            if not node.had_error and node.evaluation_valid
+            if not node.had_error and node.evaluation_valid and node.score is not None
         ]
         if not valid:
             return None
         return max(
             valid,
-            key=lambda x: (x.score or 0) if self.problem_handler.maximize_scoring else -(x.score or 0)
+            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
         )
 
     def get_deliverable_experiment(self) -> Optional[SearchNode]:
