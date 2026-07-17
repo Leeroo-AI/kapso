@@ -40,3 +40,49 @@ stumble was a bash redirect without mkdir -p — process never spawned,
 xLAM content, not a secret; R12-P1-1 (HF-token echo) AVOIDED this run
 (values masked); contamination strict (gated set correctly abandoned,
 argilla mirror verified via HfApi); env_strip clean. Waste ~16-17 min.
+
+## Pass 2 (19:16Z–21:08Z: TWO boundaries — sessions 1 and 2 both early exits)
+
+Verdict: **0 majors, 2 minor, 4 info.** Corrected timeline: session 1
+exited early 19:17Z ($15.43); session 2 ran 19:29–20:52Z ($8.94), also
+early exit. No lingering at either boundary.
+
+**R15-P1-1 ESCALATION VERDICT: RESOLVED — DOES NOT ESCALATE.** The
+boundary machinery caught the sampling leak on its first pass: node-0
+feedback made it priority 1; ideation verified the leak mechanically in
+installed sources; session 2's FIRST act exported champion_greedy
+(do_sample false, temp 0.0, top_k/top_p deleted) → **0.92 promoted**
+(three full-set reproductions + the deliverable path; INTEGRITY OK with
+greedy config at close). Measured value of the fix: +1.0. Residual
+truth: the lesson class did recur within node 0 (~1 pt paid there) —
+stays filed under R15-P1-1.
+
+**R15-P1-4 ADDRESSED:** offline hard-prompt mining (822 mixed-outcome
+prompts, dense per-key reward unit-tested, TRL do_sample pre-verified)
+cut frac_zero_std 0.875 → ~0.4. GRPO-long and GRPO-2 ckpts evaluated
+0.90-0.92 → correctly not promoted; ~92 ceiling with legal data
+recorded. Run enters iteration 3 at 0.92 with a bootstrap-CI harness
+plan.
+
+**Difficulties chain: PASS at both boundaries** (6-item and 5-item
+self-authored tags; session 2's list distills its own pid-file stumble
+into an explicit "Lesson for next implementor"; full rule-6 renders ×4;
+iteration-3 candidates cite the lessons verbatim). Gaps noted: node-0's
+tag omitted the mkdir-redirect stumble and the GRPO zero-std analysis
+(the latter reached ideation via PLAN.md anyway).
+
+**New (document-only): R15-P2-1 (minor, framework)** — feedback agent's
+first Read fails identically at both boundaries: evaluation_script_path
+is served session-relative but the feedback cwd is the campaign root;
+deterministic wasted step + find recovery. Candidate fix (deferred):
+resolve against the session dir when rendering the feedback prompt.
+**R15-P2-2 (minor, agent)** — dead cross-session Claude-Code auto-memory
+write (~/.claude/projects/<per-session-path>/memory) — per-session cwds
+make CLI auto-memory structurally inert across kapso sessions; wasted
+action, insight survived via repo_memory anyway. **R15-P2-3 (info)** —
+half the candidate pool (2 of 4) is invisible in solve_out (single
+claude ideation session emits two solutions; the other member's stream
+isn't multiplexed) — auditability note. **R15-P2-5 (info)** — selector
+verification depth unenforced (boundary-1: 2 disk checks; boundary-2:
+0). **R15-P2-4/6 (info)** — role/model split facts; micro-stumbles all
+self-recovered.

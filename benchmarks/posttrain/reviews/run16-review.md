@@ -39,3 +39,43 @@ no_robots/Opus-WritingPrompts/tulu-personas/Magpie (v2 drops no_robots,
 adds ChatGPT-4o-Writing-Prompts); DPO from the gutenberg-dpo family +
 pending on-policy rejections. Contract discipline exemplary (PLAN-first,
 nine nohup+PID jobs, atomic double promotion with real-file checks).
+
+## Pass 2 (18:01Z–21:07Z: session-1 close, boundary, iteration-2 start)
+
+Verdict: **1 FRAMEWORK MAJOR, 0 agent majors, 3 minor, 4 info.**
+
+**R16-P2-1 (FRAMEWORK MAJOR, DOCUMENT-ONLY per user) — R9-I-1 RECURRED:
+CLI hung ~24 min after its final result; deadline-killed and mislabeled.**
+Final message + result event at 20:36:11Z ($16.94, 156 tools); process
+never exited; 18000s clamp fired 21:00:22Z; strategy then logged
+"Implementation failed: ... exceeded its 18000s deadline" for a session
+that fully succeeded (extraction recovered all 5 tags from the captured
+stream; node 0 completed normally at 0.4815). Cost ~24 idle H100 min.
+Contrast: runs #14/#15's three sessions all exited promptly — the hang
+is intermittent (2 occurrences in 9 sessions campaign-wide). Candidate
+fixes (deferred, framework-core): reap on terminal result event + grace;
+never classify deadline-kill-after-result as failure. Second occurrence
+after run #9 — meets the recurrence bar whenever fixes are green-lit.
+
+**Difficulties chain: ALL LINKS PASS** — 6-item self-authored tag (incl.
+the mkdir-redirect trap, independently verified live at 19:10:35Z — the
+SAME trap run #15 hit; two parallel stores now carry it); extraction
+clean; judge audit rigorous (md5-matched final_model weights to the
+promoted variant, caught the noise-driven limit-50 promotion and
+mandated full-set-before-promote); store add; verbatim full renders into
+both iteration-2 feeds.
+
+**Key discipline (segment): CLEAN** — 10 session-1 evals (9× limit-50 +
+1× full-250, ~$2-3 judge spend), zero direct API surfaces, zero eval-set
+content reads. **DPO gate: correctly held** (temp-matched comparisons;
+judge sharpened "neutral"→"regressed" and root-caused the gutenberg
+style mismatch).
+
+**Minors/infos (document-only):** R16-P2-2 (framework) — repo-memory
+core.gotchas renders with ALL evidence quotes as empty strings (gotcha
+text fine; extraction or rendering drops the quotes). R16-P2-3 (agent) —
+noise-driven t09-over-t085 promotion at limit-50 (judge already
+corrected policy). R16-P2-4 — small judge inaccuracies (benign,
+conservative). R16-P2-7 — pydantic serializer warnings at boundary
+(same as R14-P2-2). R16-P2-8 — pass-1 byte-coverage label was off;
+gap window reviewed clean.
