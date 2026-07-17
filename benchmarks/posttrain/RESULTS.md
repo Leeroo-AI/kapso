@@ -76,6 +76,13 @@ the Gemma license accepted.
 
 ### BFCL (weight .0746)
 
+Task definition (verified against the harness): the `exec_simple` subset
+of gorilla-llm/Berkeley-Function-Calling-Leaderboard, pinned revision,
+**exactly 100 samples** — the complete official PostTrainBench test set
+(1 sample = 1 point; finals run all 100/100). All rows below, including
+human and proven agents, are scored on this same task; it is NOT the full
+multi-category public BFCL suite.
+
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0 ✓clean** | ✅ run #9 (10h official, 2026-07-16, done in 5.6h): **96.0 with 'no contamination detected'** — retires run #8's caveat, beats GLM-5.2's record, 2nd all-time. Judge stopped at practical ceiling after iteration 1. Run #8 (also 96.0, caveated) superseded. |
