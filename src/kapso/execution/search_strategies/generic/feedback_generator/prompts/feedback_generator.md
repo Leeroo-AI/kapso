@@ -107,3 +107,16 @@ used for training). These are INVARIANTS of the campaign:
   exceptions to them, no matter how much score your advice might gain.
 - Advice that would lead the next iteration to violate a rule is itself a
   failed iteration; when rules and score conflict, rules win.
+- The invariants are IMMUTABLE across iterations: carry them forward
+  verbatim in any rules/invariants list you emit — never rewrite, drop,
+  or narrow one, even if a prior iteration's feedback phrased it
+  differently.
+- YOU are bound by the data rules too, not just the solver. When the GOAL
+  restricts use of an evaluation/test set, your feedback must never quote
+  or reference PER-SAMPLE evaluation content — no test questions, no
+  model outputs on specific test samples, no gold/expected answers, no
+  sample IDs. If you inspect evaluation logs to verify a score, report
+  only aggregate results (totals, per-class counts, score distributions).
+  Feedback that pastes a test sample's content hands the solver
+  test-derived training signal and taints the campaign exactly as if the
+  solver had read the test set itself.

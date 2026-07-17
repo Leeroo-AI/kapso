@@ -137,7 +137,9 @@ def test_role_reasoning_effort_applies_only_when_caller_passes_none(monkeypatch)
     assert calls[-1]["reasoning_effort"] == "low"
 
     backend.llm_completion("openai/other", [{"role": "user", "content": "x"}])
-    assert calls[-1]["reasoning_effort"] is None
+    # No role effort and no caller effort: the kwarg is omitted entirely
+    # (forwarding None can reach the provider as literal null — R9-I-2).
+    assert "reasoning_effort" not in calls[-1]
 
 
 def test_retry_policy_computes_capped_backoff_and_full_jitter():
@@ -544,3 +546,22 @@ modes:
         "objective",
         {"mode": "study", "depth": "light"},
     )
+
+
+def test_none_reasoning_effort_is_omitted_not_sent_as_null(monkeypatch):
+    calls = []
+
+    def fake_completion(**kwargs):
+        calls.append(kwargs)
+        return response("ok")
+
+    monkeypatch.setattr(llm_module, "completion", fake_completion)
+    backend = LLMBackend(models={"utility": "openai/gpt-5.6-luna"})
+
+    backend.llm_completion("utility", [{"role": "user", "content": "x"}])
+
+    # R9-I-2: a None effort forwarded as an explicit kwarg can reach the
+    # provider as literal null (litellm capability map x allowed-params
+    # interaction) and 400s on gpt-5.6 models. The kwarg must be absent.
+    assert "reasoning_effort" not in calls[-1]
+    assert "allowed_openai_params" not in calls[-1]

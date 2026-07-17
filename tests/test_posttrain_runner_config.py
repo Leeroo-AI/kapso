@@ -47,3 +47,11 @@ def test_judge_tasks_leave_agent_env_untouched(tmp_path):
     assert "env_strip" not in mode_cfg["search_strategy"]["params"]
     for section in ("coding_agent", "feedback_generator"):
         assert "env_strip" not in mode_cfg[section]["agent_specific"]
+
+
+def test_iteration_admission_floor_survives_runtime_config(tmp_path):
+    # R10-P2-2: the core reserve gate reads budget.min_iteration_seconds;
+    # losing this key in the runtime-config round-trip silently reverts to
+    # the 60s default that admitted a doomed iteration at 96.6% budget.
+    mode_cfg = load_runtime_mode_config(tmp_path)
+    assert mode_cfg["budget"]["min_iteration_seconds"] == 1800
