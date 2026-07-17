@@ -73,6 +73,21 @@ Both zero-shot variants are in `baselines.json` and rendered as RESULTS.md colum
   RelAgent's v2-subset/4DBInfer tables carry further KumoRFM-v1/v2 rows (e.g. v2-subset
   clf avgs 81.04/85.91) — not captured pending verified column-header extraction.
 
+## rel-event/user-attendance: the anomalous RT/PluRel rows (verified 2026-07-17)
+
+The board's user-attendance column splits into two regimes: a 0.030-0.088 NMAE family
+(RT-ft 0.0303, RT-zs 0.0662, PluRel 0.0708-0.0878) and everything else at 0.307-0.50
+(KumoRFM-2-ic 0.3071, KumoRFM-ft/RelGNN 0.311, RelAgent 0.315, Entity Median 0.3516).
+Provenance check of the low family's anchor: the Relational Transformer paper
+(arXiv:2510.06377, p.6, §4.1) states verbatim — "We skip rel-event, as it has been
+found to have temporal leakage issues." The RT paper therefore contains NO rel-event
+results, and the board's RT rows on this cell are unsupported by their paper of record.
+The same leakage concern hangs over the whole low family pending a PluRel-paper check.
+Claim framing for this cell: compare against the clean-provenance field (best:
+KumoRFM-2 in-context 0.3071 NMAE / 0.235 raw MAE); report the RT/PluRel rows with the
+provenance caveat rather than treating 0.0303 as the number to beat. Our own runs are
+leak-free by construction (sanitized cache truncates all post-cutoff rows).
+
 ## Which benchmark version did they evaluate?
 
 | Method | RelBench v1 (30 tasks) | RelBench v2 (66 tasks) | Other |
