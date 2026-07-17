@@ -130,3 +130,23 @@ def test_timeout_threads_to_every_call(monkeypatch):
 
     assert [call["timeout_seconds"] for call in agent.calls] == [42.0, 42.0]
     assert generator.configured_timeout_seconds == 90.0
+
+
+def test_prompt_forbids_per_sample_eval_content_in_feedback():
+    """R10-P2-1: the judge quoted eval samples + gold answers into feedback.
+
+    The invariants section must bind the JUDGE to the data rules and ban
+    per-sample eval content; losing this text reopens the leak.
+    """
+    template = open(
+        "src/kapso/execution/search_strategies/generic/feedback_generator/"
+        "prompts/feedback_generator.md"
+    ).read()
+    section = template.split("## Invariant rules (highest priority)")[1]
+    for required in (
+        "PER-SAMPLE evaluation content",
+        "no gold/expected answers",
+        "IMMUTABLE across iterations",
+        "only aggregate results",
+    ):
+        assert required in section

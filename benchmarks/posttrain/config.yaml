@@ -96,6 +96,16 @@ modes:
       # (final_model verify/copy) before the harness hard-kills the process.
       guard_minutes: 5
 
+    # Iteration admission floor (core reserve gate): refuse to start an
+    # iteration when less than this remains outside the finalization
+    # reserve. Run #10 (R10-P2-2): with the 60s default, a doomed iteration
+    # was admitted at 96.6% budget — ideation ran, the implementation got a
+    # 60s slot, and its killed session stranded an eval process on the GPU
+    # into the official-eval window. 30 min is the smallest slot in which a
+    # train+eval cycle does useful work on this benchmark.
+    budget:
+      min_iteration_seconds: 1800
+
     # Litellm roles (repo memory, insight extraction). Rich form: the role's
     # reasoning_effort applies to every call resolved through it — these call
     # sites never plumbed an effort parameter.
