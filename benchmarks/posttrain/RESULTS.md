@@ -157,12 +157,14 @@ cache snapshot. **Runs #11 + #12 LAUNCHED in parallel 2026-07-17 ~08:25 UTC** fr
 leak invariant, 1800s iteration-admission floor, gemma in warm cache):
 `bfcl-qwen3-4b-base-07170824` and `bfcl-gemma-3-4b-pt-07170825`.
 **Runs #11-13 stopped at ~t+5h (2026-07-17 13:5x UTC) by user decision**
-to land framework upgrades (technical_difficulties capture chain,
-f01888db) before continuing; all three validated the new stack cleanly
-(live memory loop serving experiments, leak-banned judge, admission
-floor untested-but-armed, judge-branch key discipline). Interim bests
-archived + rescorable. Rebuild deliberately deferred — more changes
-queued.
+to land framework upgrades before continuing (interim bests archived +
+rescorable). **Runs #14-16 launched fresh 2026-07-17 ~15:48 UTC** on the
+upgraded stack (0985fa1f: technical_difficulties capture chain +
+fallback, per-session stream forensics, insight machinery removed —
+difficulties IS the lesson artifact, full-content memory renders,
+litellm pin, rotated OAuth token): `bfcl-qwen3-4b-base-07171548`,
+`bfcl-gemma-3-4b-pt-07171548`, `arenahardwriting-qwen3-4b-base-07171548`
+— same three cells, three parallel H100s.
 
 ## Run artifact index (GCS)
 
