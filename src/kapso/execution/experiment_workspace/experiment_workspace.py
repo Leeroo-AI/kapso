@@ -269,7 +269,15 @@ class ExperimentWorkspace:
         if is_git_repo:
             repo = git.Repo.clone_from(initial_repo, self.workspace_dir)
         else:
-            shutil.copytree(initial_repo, self.workspace_dir, dirs_exist_ok=True)
+            # Bytecode must not enter the seed commit: this add-all runs
+            # before the workspace .gitignore exists, and tracked .pyc goes
+            # stale on re-import and blocks every later branch checkout.
+            shutil.copytree(
+                initial_repo,
+                self.workspace_dir,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
             repo = git.Repo.init(self.workspace_dir)
             repo.git.add(".")
             repo.git.commit("-m", "chore(kapso): seed workspace from directory")
@@ -325,6 +333,10 @@ class ExperimentWorkspace:
             "!changes.log",
             ".kapso/run_state.json",
             ".kapso/.run_state.*.tmp",
+            # Seeded repos may arrive with bytecode; once tracked it goes
+            # stale on re-import and blocks every later branch checkout.
+            "__pycache__/",
+            "*.pyc",
         ]
 
         existing = ""

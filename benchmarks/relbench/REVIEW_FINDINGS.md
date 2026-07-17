@@ -140,12 +140,17 @@ Runs reviewed:
    archives intact; only B's in-process final report was lost (recomputed
    offline from archives). Status: FIXED benchmark-side — both archivers
    now skip `__pycache__`; existing archives and the committed claims
-   snapshot stripped of bytecode. Framework-side hardening (workspace
-   `.gitignore` for `__pycache__/` at session init) PROPOSED, awaiting
-   approval per the framework-change rule.
+   snapshot stripped of bytecode. Framework-side hardening FIXED
+   (user-approved 2026-07-17): workspace `.gitignore` gains `__pycache__/`
+   + `*.pyc`, and the directory-seed path copies the seed with bytecode
+   excluded — the seed's add-all commit runs before the .gitignore exists,
+   so filtering at copy time is what actually keeps seeded bytecode from
+   ever being tracked. Modified TRACKED files still fail checkout loudly
+   by design (test_workspace_branch_safety pins both semantics; new
+   regression test covers the seeded-bytecode path end to end).
 
 13. **Unscored nodes rank as BEST on minimize tasks (generic strategy,
-   framework core — PROPOSED, awaiting approval).** `get_best_experiment()`
+   framework core — FIXED, user-approved 2026-07-17).** `get_best_experiment()`
    and `get_experiment_history(best_last=True)` key nodes with
    `(x.score or 0)` / `-(x.score or 0)`. On a minimize metric every real
    score keys negative (MAE 2.64 → −2.64) while a valid-but-unscored node
@@ -157,14 +162,15 @@ Runs reviewed:
    **exp_8 over champion exp_5**, and the final best-last history print
    ranked exp_8/exp_9 above the champion. Delivery was protected only
    because `get_deliverable_experiment()` walks registered-evidence tiers.
-   Maximize tasks mask the bug (positive scores beat 0). Proposed fix
-   (src/kapso — not applied): require `node.score is not None` in
-   `get_best_experiment()`'s validity filter and sort None-score nodes
-   into the worst tier in `get_experiment_history`; the explicit
-   committed-work fallback in `_select_parent()` (strategy.py:1513) then
-   handles the all-unscored case exactly as designed. Regression test: a
-   minimize history [scored 2.64, valid unscored None] must select the
-   scored node as best/parent.
+   Maximize tasks mask the bug (positive scores beat 0). Fix applied to
+   BOTH strategies (the tree carried the identical idiom): `score is not
+   None` required in the best-node filter, None-score nodes sort into the
+   worst tier in `get_experiment_history`; the explicit committed-work
+   fallback in `_select_parent()` (strategy.py:1513) owns the all-unscored
+   case exactly as designed. Side benefit: tree expansion's top-K slice
+   can no longer hand an expansion slot to an unscored node. Regression
+   tests in test_fidelity_selection.py (best/history/parent selection on
+   minimize, both strategies; all-unscored returns None).
 
 ## R5 — Phase-5 A/B: tree vs generic, rel-f1/driver-position (2026-07-16/17, COMPLETED)
 
