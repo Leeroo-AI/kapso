@@ -144,6 +144,28 @@ Runs reviewed:
    `.gitignore` for `__pycache__/` at session init) PROPOSED, awaiting
    approval per the framework-change rule.
 
+13. **Unscored nodes rank as BEST on minimize tasks (generic strategy,
+   framework core — PROPOSED, awaiting approval).** `get_best_experiment()`
+   and `get_experiment_history(best_last=True)` key nodes with
+   `(x.score or 0)` / `-(x.score or 0)`. On a minimize metric every real
+   score keys negative (MAE 2.64 → −2.64) while a valid-but-unscored node
+   (`score=None`, `evaluation_valid=True` — the dataclass default, kept
+   when a session ends before its eval ever runs) keys `-(None or 0) = 0`,
+   which `max()` prefers over every real candidate. Observed live in Arm
+   B: exp_8's session died with its background full-eval unfinished
+   (score=None, no integrity flag) → exp_9's parent selection picked
+   **exp_8 over champion exp_5**, and the final best-last history print
+   ranked exp_8/exp_9 above the champion. Delivery was protected only
+   because `get_deliverable_experiment()` walks registered-evidence tiers.
+   Maximize tasks mask the bug (positive scores beat 0). Proposed fix
+   (src/kapso — not applied): require `node.score is not None` in
+   `get_best_experiment()`'s validity filter and sort None-score nodes
+   into the worst tier in `get_experiment_history`; the explicit
+   committed-work fallback in `_select_parent()` (strategy.py:1513) then
+   handles the all-unscored case exactly as designed. Regression test: a
+   minimize history [scored 2.64, valid unscored None] must select the
+   scored node as best/parent.
+
 ## R5 — Phase-5 A/B: tree vs generic, rel-f1/driver-position (2026-07-16/17, COMPLETED)
 
 Pre-registered design: both arms seeded from the R3 champion (val 2.684 /
