@@ -79,3 +79,13 @@ corrected policy). R16-P2-4 — small judge inaccuracies (benign,
 conservative). R16-P2-7 — pydantic serializer warnings at boundary
 (same as R14-P2-2). R16-P2-8 — pass-1 byte-coverage label was off;
 gap window reviewed clean.
+
+## Run outcome (official)
+
+**49.67 winrate ±1.66 official, contamination-clean** ("no contamination
+detected", "only allowed use detected") — ties the cell's #3 proven
+agent (gpt-5.4-h-rp 49.5) and is the campaign's first clean judge-scored
+result. Path: base 0.028 → SFT v1 0.033 → decoding lever 0.132 → SFT v2
+0.4815 → official 0.497. Key discipline audited clean across both
+sessions. The R16-P2-1 linger (24 idle min) remains the run's one
+framework major, documented for a future fix batch.
