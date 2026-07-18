@@ -91,7 +91,7 @@ strict parity claim to maintainers.
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
 | Qwen3-1.7B | 0.0 | gpt-5.5-xh-rp · 100.0 | glm-5.2 · 95.3 | opus-4.5-oc · 92.0 | 94.0 | **96.0 ✓clean** | ✅ run #9 (10h official, 2026-07-16, done in 5.6h): **96.0 with 'no contamination detected'** — retires run #8's caveat, beats GLM-5.2's record, 2nd all-time. Judge stopped at practical ceiling after iteration 1. Run #8 (also 96.0, caveated) superseded. |
-| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | (91 interim) | 🚀 run #14 in flight (iteration 2): 0.71→0.86→0.91 → **0.95 promoted deterministic** (greedy config, judge-sanctioned; retrain in flight ETA 22:25Z). Run #11's stopped 0.95 archived |
+| Qwen3-4B | 0.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | opus-4.6-1m · 97.3 | 95.0 | **95.0 ✓clean** | ✅ run #14 (10h official, 2026-07-18): **95.0, 'no contamination detected'** — TIES human exactly; deterministic (greedy artifact config), official run reproduced it precisely. `bfcl-qwen3-4b-base-07171548` |
 | SmolLM3-3B | 0.0 | gpt-5.5-xh-rp · 100.0 | opus-4.8 · 97.0 | opus-4.6 · 86.7 | 84.0 | **93.0 ✓clean** | ✅ run #10 (10h official, 2026-07-16): **93.0, 'no contamination detected'** — 3rd all-time on the cell, +9 over human. 4 iterations, 3 promotions (SFT 92 → soup 93 → soup-tie 93), strict promote gates held |
 | gemma-3-4b | 6.0 | gpt-5.5-xh-rp · 100.0 | gpt-5.4-h-rp · 100.0 | fable-5 · 100.0 | 67.0 | **93.0 ✓clean** | ✅ run #15 (10h official, 2026-07-18): **93.0, 'no contamination detected'** — +26 over human, 4th all-time. SFT 89 → GRPO 91 (campaign-first RL stage, legal reward) → greedy fix 92 → official 93. `bfcl-gemma-3-4b-pt-07171548` |
 

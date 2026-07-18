@@ -75,3 +75,14 @@ pydantic serializer UserWarnings on each boundary luna call
 (litellm-version skew noise; responses parse fine). **R14-P2-3 (info):**
 Experiment-0-vs-Iteration-1 numbering off-by-one across surfaces
 (display only).
+
+## Run outcome (official)
+
+**95.0 official, contamination-clean** ("no contamination detected",
+"only allowed use detected") — ties human post-training exactly on the
+cell. The deterministic greedy artifact config meant the official
+harness run reproduced the internal 0.95 precisely — the first
+zero-variance official score of the campaign. Path: SFT 0.71 → RFT 0.86
+→ 0.91 (mean-of-4 under sampling) → greedy config 0.95 deterministic;
+the 25.7k retrain did not clearly beat it and was correctly not
+promoted.
