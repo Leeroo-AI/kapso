@@ -54,3 +54,47 @@ feedback cycle yet).
 Verdict: **continue** — winning recipe class at iteration 1, ~90 min ahead
 of the best-known trace; push the multilingual mix toward the eval's
 actual distribution in iteration 2 (R18-P1-1).
+
+## P2 (15:01Z → 15:52Z + whole-session wakeup forensics; 3h hang incident)
+
+Headline: CLI silent from 15:52:31Z to the ~18:54Z session deadline. Root
+cause is two-layer: the ScheduleWakeup timer is DEAD (0/7 fires this
+session; cross-run: 0/8 in run #19 — systemic, = R19-P2-1), and from 15:28
+the agent's watcher tasks were unfinishable `until ! pgrep -f "<pattern>"`
+loops whose own bash -c cmdline matches the pattern (agent-side self-match
+— cousin of the old self-pkill class). At 15:52 the only pending wake
+sources were {2 unfinishable watchers} + the dead timer → nothing could
+ever re-invoke the model.
+
+- **R18-P2-1 — P1 framework-major.** Wakeup forensics: 7 ScheduleWakeup
+  calls, 0 fires (three unambiguously no-fired with empty windows, masked
+  by late task-notifications; 16:03 was the first with no rescuer). All 6
+  actual re-invocations were task-notification-driven. 19 background
+  tasks, 29 notifications, 9 clean `[result]` turn-enders — the fatal one
+  shape-identical to the prior 8 (Read → Edit PLAN.md → git commit
+  "Iter2: launch richer v2 teacher" → ScheduleWakeup 16:03). Consequence:
+  v2 teacher generation finished on disk (~16:15) but its chained filter
+  never ran; ~3h GPU idle to the deadline kill.
+- **R18-P2-2 — P2 (recipe), 15:47:45.** v2 launched "reusing the same
+  pool" (8,977 prompts, 16.8% multilingual) — R18-P1-1 (~1/3 non-English)
+  still unaddressed; v2 targets length only.
+- **R18-P2-3 — OBS (positive).** Floor secured pre-silence: 0.1706 @50
+  promoted at 15:24:42 (`[promote] … score=17.06, sft-floor-teacher-
+  distill`), best_score.log written. Judge-text forensics used well (now
+  rules-legal): 31 clear losses → "(1) insufficient length/completeness,
+  (2) repetition/thin multilingual quality" → v2 first-chunk median 643
+  tok vs v1's 367, matching the baseline's 632.
+- **R18-P2-4 — OBS.** v1's 0.17 rung sits far below the best trace's
+  first distill rung (0.4732): short v1 responses, not teacher strength,
+  are the gap. Framework hygiene otherwise clean; agent session-aware.
+
+INHERITED STATE for session 2: final_model = v1 @ 17.06 (safe deliverable);
+teacher_raw_v2.jsonl complete on disk (median ~643 tok); PLAN.md committed
+with diagnosis + v2 plan → unambiguous ~2h finish (filter → SFT → eval →
+gated promote) inside session 2's budget.
+
+Verdict: boundary self-healing should recover the run — the hang cost
+~3h idle GPU, not state. Watch session 2 for: deadline-kill end-mode
+labeling (truthful?), difficulties FALLBACK (first live firing — no
+self-authored tag possible), feedback judge behavior (R15-P2-1 check),
+and whether v2 finally fixes the multilingual mix.
