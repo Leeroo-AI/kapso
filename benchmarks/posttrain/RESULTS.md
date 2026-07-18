@@ -79,6 +79,10 @@ feedback-judge diagnosis): `reviews/arena-qwen3-4b-postmortem.md`. Key
 leaderboard nuance from scores.js: glm-5.2's 54.2 is a 3-run mean with std
 16.5; fable-5's 86.2 is a single run 0.6 pts under the official-instruct row;
 naive-scaffold opus-4.8 scores 41.6 ±3.1 (kapso +8 on the same model).
+Best-known official traces per arena cell (from the public
+`aisa-group/PostTrainBench-Trajectories` HF dataset; per-run bests, means
+hid them — 1.7B 74.9, SmolLM3 74.0, both opus-4.8, both beat human):
+recipes + review watchlists in `reviews/arena-best-baseline-traces.md`.
 
 ### BFCL (weight .0746)
 
