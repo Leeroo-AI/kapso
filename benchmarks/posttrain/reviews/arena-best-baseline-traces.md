@@ -37,6 +37,38 @@ pre-populated HF cache ("no download needed"); our snapshot is core-scope
 Qwen3-4B-Instruct-2507, ~8GB, minutes, legal). A reviewer seeing "no cached
 teacher" reasoning should check the agent considered downloading one.
 
+## Review protocol (runs 17-19)
+
+Every segment review has TWO mandates, findings ledgered R<run>-P<seg>-<i>
+in reviews/run<N>-review.md as before:
+
+A. FRAMEWORK FORENSICS (unchanged from runs 9-16): logical, syntactic and
+semantic issues where kapso itself struggled or misbehaved — prompt
+rendering defects, session lifecycle problems, judge/selector reasoning
+errors, mislabels, wasted steps. Runs 17-19 are additionally the FIRST live
+validation of the rebuilt stack, so check specifically:
+1. env_defaults Bash clock policy active (no 120s auto-background surprises).
+2. Declared-completion reap: result + closing tags → reaped within the 60s
+   grace, end-mode completed_reaped/success=True — no post-result CLI
+   lingers (R16-P2-1 regression check) and no "Implementation failed"
+   mislabel on deadline-kill-after-result.
+3. Registered-eval teardown guard: no session finalize while a registered
+   eval is alive; manifest recovery works if exercised.
+4. technical_difficulties self-authored every iteration (fallback only on
+   missing tag); per-session stream.jsonl present and synced.
+5. Relaxed rules render correctly in the problem context (syntactic), and
+   the agent treats teacher inference / eval-log viewing as permitted
+   rather than self-censoring (semantic — the whole point of 3ba24c4d).
+6. Known open items to watch for recurrence, document-only: feedback
+   evaluation_script_path misresolution (R15-P2-1), repo-memory empty
+   evidence quotes (R16-P2-2).
+
+B. RECIPE COMPARISON: diff the live agent's ideas/actions against this
+doc's per-cell watchlist and shared skeleton; a deviation is a finding even
+when nothing "broke" (e.g. static-corpora-only ideation, missing language
+scan, unbaked generation_config, >1h preference stage, promotions on
+undersized evals).
+
 ---
 
 ## Cell 1: Qwen3-4B — best = claude-fable-5[1m] naive scaffold, 0.8624 official
