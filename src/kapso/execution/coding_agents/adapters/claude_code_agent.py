@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 # cost) before SIGKILL. Process-teardown grace, not an operator knob.
 _DEADLINE_GRACE_SECONDS = 2.0
 
+# After a session's terminal result carries all completion markers, how long
+# a silent-but-alive CLI gets before being reaped (process-lifecycle policy,
+# not an operator knob — same class as the deadline grace above).
+_POST_COMPLETION_GRACE_SECONDS = 60.0
+
 # ANSI color codes for terminal output
 _COLORS = {
     "reset": "\033[0m",
@@ -170,6 +175,25 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # kapso's own utility LLM keeps using it.
         self._env_strip: List[str] = list(
             config.agent_specific.get("env_strip", [])
+        )
+
+        # Env defaults applied set-if-absent to the CLI child env (ambient
+        # values — e.g. a benchmark wrapper like solve.sh — keep precedence).
+        # Used for the Bash-tool clock policy: without BASH_DEFAULT_TIMEOUT_MS
+        # the CLI auto-backgrounds any foreground command at 120s, making
+        # blocking evaluations structurally impossible (relbench finding 14).
+        self._env_defaults: Dict[str, str] = {
+            str(k): str(v)
+            for k, v in (config.agent_specific.get("env_defaults") or {}).items()
+        }
+
+        # Completion markers: when a terminal result event's text contains
+        # ALL of these, the session has declared itself finished per its
+        # output contract. A CLI that then lingers in silence gets reaped
+        # after a short grace instead of idling until the deadline
+        # (runs #9/#16: 1.5h and 24min of idle GPU, R9-I-1/R16-P2-1).
+        self._completion_markers: List[str] = list(
+            config.agent_specific.get("completion_markers", [])
         )
 
         # When set, every raw stream-json event line is appended to this file
@@ -557,6 +581,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         process.stdin.write(prompt)
         process.stdin.close()
         deadline_exceeded = False
+        completed_reaped = False
+        completion_armed_at = None  # set when a result event carries all markers
         
         try:
             # Use select for non-blocking I/O on both stdout and stderr
@@ -596,6 +622,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         self._display_stream_event(line, assistant_texts)
                         got_output = True
                         last_heartbeat = time.time()
+                        # Completion-reap arming: any activity disarms; a
+                        # terminal result carrying ALL markers re-arms. Idle
+                        # -wait turns never contain the markers, so healthy
+                        # waiting sessions are never touched.
+                        completion_armed_at = None
+                        if self._completion_markers and '"result"' in line:
+                            if all(m in line for m in self._completion_markers):
+                                completion_armed_at = time.time()
                 
                 # Read from stderr if data available
                 if process.stderr in readable:
@@ -606,6 +640,33 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         got_output = True
                         last_heartbeat = time.time()
                 
+                # Reap a session that declared completion (per its output
+                # contract) and then went silent without exiting: the CLI
+                # process alone is killed — NOT the group — so detached or
+                # backgrounded work (e.g. a registered evaluation) survives
+                # for the strategy-level guard to collect.
+                if (
+                    not got_output
+                    and retcode is None
+                    and completion_armed_at is not None
+                    and time.time() - completion_armed_at
+                    > _POST_COMPLETION_GRACE_SECONDS
+                ):
+                    print(
+                        f"{c['yellow']}  Session completed its report but the "
+                        f"CLI lingered — reaping after "
+                        f"{_POST_COMPLETION_GRACE_SECONDS:.0f}s of silence"
+                        f"{c['reset']}",
+                        flush=True,
+                    )
+                    completed_reaped = True
+                    process.terminate()
+                    grace_end = time.time() + _DEADLINE_GRACE_SECONDS
+                    while process.poll() is None and time.time() < grace_end:
+                        time.sleep(0.1)
+                    if process.poll() is None:
+                        process.kill()
+
                 # Show heartbeat if no output for a while (Claude might be thinking)
                 if not got_output and retcode is None and self._show_heartbeat:
                     now = time.time()
@@ -718,16 +779,51 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             
             print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n", flush=True)
             
+            # A kill after the session already delivered its complete final
+            # report (all completion markers present in the captured stream)
+            # is not a failure: classification keys on delivered CONTENT,
+            # not on how the process died (R16-P2-1: a fully successful
+            # session was logged "Implementation failed" after lingering
+            # into the deadline).
+            all_output = "\n".join(raw_lines)
+            completed_before_kill = bool(self._completion_markers) and all(
+                m in all_output for m in self._completion_markers
+            )
+
+            if completed_reaped:
+                self._cumulative_cost += total_cost
+                return CodingResult(
+                    success=True,
+                    output="\n".join(assistant_texts),
+                    error=None,
+                    cost=total_cost,
+                    metadata={
+                        "model": model,
+                        "auth_mode": self._auth_mode,
+                        "elapsed_seconds": elapsed,
+                        "completed_reaped": True,
+                        "tool_call_count": tool_call_count,
+                        "last_tool": last_tool,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "raw_log_lines": raw_lines,
+                    },
+                )
+
             if deadline_exceeded:
                 # A terminated call still spent real money and real time —
                 # record both instead of dropping them with the failure.
                 self._cumulative_cost += total_cost
                 return CodingResult(
-                    success=False,
+                    success=completed_before_kill,
                     output="\n".join(assistant_texts),
                     error=(
-                        f"Claude Code CLI exceeded its {timeout_seconds}s "
-                        f"deadline and was terminated"
+                        None
+                        if completed_before_kill
+                        else (
+                            f"Claude Code CLI exceeded its {timeout_seconds}s "
+                            f"deadline and was terminated"
+                        )
                     ),
                     cost=total_cost,
                     metadata={
@@ -735,6 +831,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "deadline_exceeded": True,
+                        "completed_before_kill": completed_before_kill,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
@@ -1000,6 +1097,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
 
         for name in self._env_strip:
             env.pop(name, None)
+
+        for name, value in self._env_defaults.items():
+            env.setdefault(name, value)
 
         return env
     

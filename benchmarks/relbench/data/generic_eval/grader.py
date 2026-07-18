@@ -203,7 +203,16 @@ def main() -> None:
             "total_items": n_val,
             "score": val_metrics[primary],
         }
-        print(f"{MANIFEST_MARKER} {json.dumps(manifest)}")
+        manifest_line = f"{MANIFEST_MARKER} {json.dumps(manifest)}"
+        if archived:
+            # Durable copy OUTSIDE the session workspace: if the session (and
+            # its stdout) is gone before this line is ever read, kapso's
+            # teardown guard recovers the score of record from the archive.
+            runs_root = Path(_env("RELBENCH_WORK_DIR")) / "runs"
+            (runs_root / archived / "manifest.txt").write_text(
+                manifest_line + "\n"
+            )
+        print(manifest_line)
     finally:
         shutil.rmtree(run_data_dir, ignore_errors=True)
 

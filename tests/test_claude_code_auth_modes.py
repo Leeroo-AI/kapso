@@ -244,3 +244,24 @@ def test_agent_env_passes_openai_key_through_without_env_strip(monkeypatch):
     agent = ClaudeCodeCodingAgent(make_config(auth_mode="api_key"))
 
     assert agent._get_env()["OPENAI_API_KEY"] == "scaffold-key"
+
+
+def test_env_defaults_are_set_if_absent_only(monkeypatch):
+    """Ambient values (e.g. solve.sh's Bash clock policy) keep precedence;
+    configured defaults fill the gaps (relbench finding 14)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
+    monkeypatch.setenv("BASH_DEFAULT_TIMEOUT_MS", "900000")
+    agent = ClaudeCodeCodingAgent(
+        make_config(
+            auth_mode="api_key",
+            env_defaults={
+                "BASH_DEFAULT_TIMEOUT_MS": "1800000",
+                "BASH_MAX_TIMEOUT_MS": "14400000",
+            },
+        )
+    )
+
+    env = agent._get_env()
+
+    assert env["BASH_DEFAULT_TIMEOUT_MS"] == "900000"   # ambient wins
+    assert env["BASH_MAX_TIMEOUT_MS"] == "14400000"     # gap filled
