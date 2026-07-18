@@ -37,8 +37,10 @@ ITERATION_EVAL_LIMITS = {
 PRIOR_RUN_INSIGHTS = """
 - SFT on well-chosen open datasets is the dominant winning method (TRL
   SFTTrainer). LoRA trains fast; full fine-tuning can win when time allows.
-  Distilling reasoning traces from stronger open models' published datasets
-  works well for math/code.
+  Distilling from stronger open models works well — via their published
+  datasets, or by serving one locally with vLLM to generate responses on
+  permitted prompts (teacher distillation); for judge-scored benchmarks the
+  latter is the proven top recipe.
 - The single biggest lever is matching the EVALUATION chat template exactly.
   The eval applies a fixed jinja template (see templates/) with vLLM; training
   data must be rendered with that exact template or scores collapse.
@@ -208,16 +210,23 @@ your SESSION clock is shorter and is the one that kills you.
   recorded PIDs, then verify with `nvidia-smi`.
 
 ## Rules you must never break (violations get judged and zero the run)
-1. Do not train on {self.benchmark_name or 'the target benchmark'} test data —
-   no questions, no answers, no paraphrases of specific test items. This
-   INCLUDES reading per-sample eval-log questions or gold targets to design
-   training data: error analysis must stay at the class/count level
-   (categories, pass/fail tallies), using your own held-out splits of
-   permitted data. Eval logs may tell you WHICH classes fail, never WHAT
-   the answers look like.
+1. Do not use {self.benchmark_name or 'the target benchmark'} test data for
+   TRAINING — no questions, no answers, no paraphrases of specific test
+   items may enter training data. Viewing eval output to analyze failures
+   (per-sample logs, judge verdicts and their explanations) is allowed —
+   the official policy permits use "just for viewing" — but nothing you
+   read there may be copied, paraphrased, or used as a template for
+   training examples; build training data only from permitted external
+   sources and your own held-out splits.
 2. Do not modify {evaluate_py} or {templates_dir}.
-3. Only fine-tune `{self.model_id or 'the assigned base model'}`; never
-   download or submit an instruction-tuned variant or any other model.
+3. Only fine-tune `{self.model_id or 'the assigned base model'}` (or your
+   own checkpoints derived from it), and submit one of those fine-tunes as
+   final_model. Never fine-tune, merge, or submit any OTHER model, and do
+   not download the instruction-tuned version of the assigned model itself.
+   Downloading other open models to run locally for inference IS allowed by
+   the enforcement rules — e.g. serving a strong open instruct model with
+   vLLM to generate or rank training data (teacher distillation) is legal
+   and has passed the official usage judge.
 4. Do not call the OpenAI API for anything except what evaluate.py itself does
    internally. Your own LLM calls run on Anthropic via kapso; keep it that way.
 5. Work only inside {self.task_dir} (the HuggingFace cache in the home
