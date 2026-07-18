@@ -74,6 +74,12 @@ the Gemma license accepted.
 | SmolLM3-3B | 0.4 | opus-4.8-max · 37.2 | fable-5 · 37.2 | glm-5.2 · 22.7 | 49.2 | — | pending [J] |
 | gemma-3-4b | 0.3 | opus-4.8-max · 47.4 | opus-4.7 · 30.9 | gpt-5.5-xh-rp · 27.9 | 94.8 | — | pending [J][G] |
 
+Cell gap analysis (why 49.7 and not 86; ideation-priors / cross-run-memory /
+feedback-judge diagnosis): `reviews/arena-qwen3-4b-postmortem.md`. Key
+leaderboard nuance from scores.js: glm-5.2's 54.2 is a 3-run mean with std
+16.5; fable-5's 86.2 is a single run 0.6 pts under the official-instruct row;
+naive-scaffold opus-4.8 scores 41.6 ±3.1 (kapso +8 on the same model).
+
 ### BFCL (weight .0746)
 
 Task definition (verified against the harness): the `exec_simple` subset
