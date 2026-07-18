@@ -86,3 +86,12 @@ isn't multiplexed) — auditability note. **R15-P2-5 (info)** — selector
 verification depth unenforced (boundary-1: 2 disk checks; boundary-2:
 0). **R15-P2-4/6 (info)** — role/model split facts; micro-stumbles all
 self-recovered.
+
+## Run outcome (official)
+
+**93.0 official, contamination-clean** ("no contamination detected",
+"only allowed use detected"). +26 over human (67.0), 4th all-time on the
+cell behind three 100s. Path: SFT 89 → GRPO 91 (campaign-first RL stage,
+fully legal synthetic reward) → greedy-config fix 92 (R15-P1-1 resolved
+by the boundary machinery) → official harness run 93. The official
+greedy eval landed +1 above the internal band, mirroring run #10.
