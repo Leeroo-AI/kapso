@@ -196,6 +196,41 @@ Runs reviewed:
    judge tag-retry nudge ran with empty context and correctly failed safe
    (evaluation_valid=False) — the retry wiring deserves its own look.
 
+## R6 — first campaign run: rel-event/user-attendance, generic, 10 iters (2026-07-17/18, COMPLETED)
+
+Fresh-slate campaign opener (solo after the parallel attempt rebooted the
+box). Official: **selected run_0005, val MAE 0.232489 → TEST MAE 0.238509**
+(NMAE 0.312), $126.35 ledger, exit 0. Beats RelAgent (0.315) but NOT
+KumoRFM-ft (0.311) or the clean-provenance best KumoRFM-2-ic (0.3071) —
+row: below best-known, no claim.
+
+Trajectory (7 scored / 3 scoreless of 10): 0.233482 → 0.234973 → 0.235966
+→ 0.233482(tie) → [scoreless ×2] → 0.232489 (champion) → [scoreless] →
+0.235966 → 0.232489(tie). Fable-5 clean all run (the credit exhaustion of
+the aborted attempt did not recur).
+
+**Val-test inversion decided the outcome.** Private post-hoc test of the
+archives: run_0001 val 0.233482 → test 0.2334 (≈zero drift, BELOW all
+bars) vs selected run_0005 val 0.232489 → test 0.2385 (+0.006 drift). The
+iteration-7 champion's 0.001 val gain was val-seasonal (the iteration-2
+selector had explicitly warned: "the val window contains Thanksgiving;
+test does not") and cost −0.005 test. Val-selection discipline held — no
+cherry-picking — so the honest outcome is "close, no claim." Lesson
+mirrors R5: on drift-prone cells the deciding factor is de-biased
+validation inside candidates, not more iterations.
+
+**Finding 14 root cause finally isolated (live, iteration 8):** the
+session CLI AUTO-BACKGROUNDS any foreground command exceeding 120s
+("Command did not complete within its 120s timeout and was moved to the
+background") — a contract-compliant blocking eval is structurally
+impossible past 120s. All 3 scoreless iterations coincide exactly with
+the 3 auto-background events (costumes: Monitor-wait, Monitor-until-grep,
+auto-move + yield). Fix proposals sharpened, both src/kapso, awaiting
+approval: (1) adapter sets BASH_DEFAULT_TIMEOUT_MS (config-sourced, sized
+to full-eval duration) for spawned sessions; (2) teardown guard that
+waits on a live registered eval before reaping. Together they would have
+saved all 6 wait-trap iterations observed across R5/R6.
+
 ## R5 — Phase-5 A/B: tree vs generic, rel-f1/driver-position (2026-07-16/17, COMPLETED)
 
 Pre-registered design: both arms seeded from the R3 champion (val 2.684 /
