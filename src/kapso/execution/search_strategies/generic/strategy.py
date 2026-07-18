@@ -10,6 +10,7 @@
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via MCP tools
 
+import glob
 import json
 import logging
 import os
@@ -64,6 +65,11 @@ PARENT_POLICIES = frozenset({"best", "baseline"})
 
 # A deadline-killed ideation whose streamed text is shorter than this holds
 # no consumable plan; the explicit fallback is more honest than salvage.
+# The implementation output contract's terminal tags: a result event
+# carrying ALL of these means the session declared itself complete (drives
+# the adapter's linger-reap and truthful end-mode classification).
+IMPLEMENTATION_COMPLETION_MARKERS = ["</score>", "</technical_difficulties>"]
+
 MIN_IDEATION_SALVAGE_CHARS = 200
 
 # Ensemble ideation: members run in parallel, so the member share is
@@ -236,6 +242,16 @@ class GenericSearch(SearchStrategy):
         # (e.g. OPENAI_API_KEY for the utility LLM) that agent sessions must
         # not inherit. The codex ideation runner strips its own env.
         self.env_strip = list(self.params.get("env_strip", []))
+        # Env defaults for every Claude session (set-if-absent in the child
+        # env; ambient wrapper values keep precedence). Carries the Bash-tool
+        # clock policy so blocking evaluations are possible (finding 14).
+        self.env_defaults = dict(self.params.get("session_env_defaults", {}))
+        # Durable-archive recovery root for the registered evaluation (glob
+        # of run archive parents, e.g. "tmp/relbench/*/runs"). None disables
+        # archive recovery; the live-process wait still applies.
+        self.registered_evaluation_archive_glob = self.params.get(
+            "registered_evaluation_archive_glob"
+        )
         # Optional ensemble ideation: N parallel CLI members + a selector.
         self.ideation_ensemble = normalize_ideation_ensemble(
             self.params.get("ideation_ensemble")
@@ -422,6 +438,16 @@ class GenericSearch(SearchStrategy):
         # is missing. Purely mechanical trigger — never score/outcome-based.
         self._ensure_technical_difficulties(node)
 
+        # Step 3c: inject a manifest recovered from the durable run archive
+        # (stashed by the pre-finalize teardown guard) so the score of
+        # record survives a session that died before printing it.
+        recovered = getattr(self, "_recovered_manifest_line", None)
+        if recovered and self._manifest_score_of_record(node) is None:
+            node.evaluation_output = (
+                (node.evaluation_output or "") + "\n" + recovered
+            )
+            self._recovered_manifest_line = None
+
         # Step 4: Verify provided evaluation files before accepting any score
         # or feedback derived from them.
         if self.enforce_evaluation_integrity(node):
@@ -521,6 +547,7 @@ class GenericSearch(SearchStrategy):
                 agent_specific={
                     **self._claude_auth_settings,
                     "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
@@ -697,6 +724,7 @@ class GenericSearch(SearchStrategy):
                 agent_specific={
                     **self._claude_auth_settings,
                     "env_strip": self.env_strip,
+                    "env_defaults": self.env_defaults,
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
@@ -835,6 +863,7 @@ class GenericSearch(SearchStrategy):
             agent_specific={
                 **self._claude_auth_settings,
                 "env_strip": self.env_strip,
+                "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
                 "allowed_tools": ["Read"],
                 "timeout": selector_deadline,
@@ -1038,6 +1067,7 @@ Problem: {problem}"""
             agent_specific={
                 **self._claude_auth_settings,
                 "env_strip": self.env_strip,
+                "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": implementation_allowed_tools,
@@ -1048,6 +1078,9 @@ Problem: {problem}"""
                 # here as they arrive, so a killed session still leaves its
                 # forensics behind (feeds the difficulties fallback).
                 "stream_artifact_path": self._session_stream_path(branch_name),
+                # Declared-completion contract: lets the adapter reap a CLI
+                # that delivered its full final report but lingers alive.
+                "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
             }
         )
         
@@ -1076,6 +1109,7 @@ Problem: {problem}"""
         phase_started = time.monotonic()
         phase_cost = 0.0
         try:
+            self._last_session_started_ts = time.time()
             result = agent.generate_code(prompt)
             phase_cost = agent.get_cumulative_cost()
             agent_output = result.output if result.output else ""
@@ -1084,7 +1118,21 @@ Problem: {problem}"""
             # judge (run #8: a self-inflicted SIGTERM was misdiagnosed as
             # the time limit, so the footgun was never named).
             meta = result.metadata or {}
-            if result.success:
+            if meta.get("completed_reaped"):
+                end_facts = (
+                    "implementation session COMPLETED its final report; the "
+                    "CLI process lingered and was reaped after a short grace "
+                    "— this was a successful session, not a failure"
+                )
+            elif meta.get("deadline_exceeded") and meta.get(
+                "completed_before_kill"
+            ):
+                end_facts = (
+                    "implementation session COMPLETED its final report "
+                    "before the deadline kill — the kill reflects a lingering "
+                    "process, not unfinished work"
+                )
+            elif result.success:
                 end_facts = "implementation session ended naturally"
             elif meta.get("deadline_exceeded"):
                 end_facts = (
@@ -1138,7 +1186,13 @@ Problem: {problem}"""
             run_result=run_result_payload,
         )
         
-        # 8. Finalize session (commits changes)
+        # 8. Registered-evaluation teardown guard: wait for a live grader
+        # and stash any durable-archive recovery BEFORE finalize's rmtree.
+        self._recovered_manifest_line = self._await_registered_evaluation(
+            agent_output
+        )
+
+        # 9. Finalize session (commits changes)
         self.workspace.finalize_session(session)
 
         return agent_output, telemetry
@@ -1484,6 +1538,82 @@ Problem: {problem}"""
             solution=node.solution,
             stream_artifact_path=self._session_stream_path(node.branch_name),
         )
+
+    def _await_registered_evaluation(self, output_text: str):
+        """Teardown guard for the registered evaluation (relbench finding 14 /
+        Issue 2). MUST run BEFORE finalize_session: its rmtree destroys a
+        still-running grader's working tree. If the session ended without a
+        manifest in its output while the registered evaluation process is
+        alive, wait for it (bounded by the live budget clamp). Then attempt
+        recovery from the durable run archive — the grader archives the run
+        (including manifest.txt) OUTSIDE the workspace before printing the
+        manifest line — and return the recovered manifest line (or None).
+        """
+        if not self.registered_evaluation_command:
+            return None
+        if MANIFEST_MARKER in (output_text or ""):
+            return None
+
+        # A distinctive fragment of the registered command for /proc matching:
+        # prefer the script path token; fall back to the full command string.
+        tokens = [
+            t for t in self.registered_evaluation_command.split() if ".py" in t
+        ]
+        needle = tokens[0] if tokens else self.registered_evaluation_command
+
+        def _live_eval_pid():
+            for pid in os.listdir("/proc"):
+                if not pid.isdigit():
+                    continue
+                cmdline_path = os.path.join("/proc", pid, "cmdline")
+                if not os.path.exists(cmdline_path):
+                    continue
+                with open(cmdline_path, "rb") as fh:
+                    cmdline = fh.read().replace(b"\0", b" ").decode(
+                        "utf-8", "replace"
+                    )
+                if needle in cmdline:
+                    return int(pid)
+            return None
+
+        bound = self._clamped_timeout(self.implementation_timeout)
+        waited = 0.0
+        pid = _live_eval_pid()
+        if pid is not None:
+            print(
+                f"[GenericSearch] Registered evaluation still running "
+                f"(pid {pid}) after session end — waiting up to {bound:.0f}s "
+                "before teardown"
+            )
+        while pid is not None and waited < bound:
+            time.sleep(5)
+            waited += 5
+            pid = _live_eval_pid()
+
+        if not self.registered_evaluation_archive_glob:
+            return None
+        started = getattr(self, "_last_session_started_ts", 0.0)
+        candidates = []
+        for runs_root in glob.glob(self.registered_evaluation_archive_glob):
+            for entry in glob.glob(os.path.join(runs_root, "run_*")):
+                if os.path.isdir(entry) and os.path.getmtime(entry) > started:
+                    candidates.append(entry)
+        for run_dir in sorted(
+            candidates, key=os.path.getmtime, reverse=True
+        ):
+            manifest_path = os.path.join(run_dir, "manifest.txt")
+            if not os.path.isfile(manifest_path):
+                continue
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                line = fh.read().strip()
+            if not line.startswith(MANIFEST_MARKER):
+                continue
+            print(
+                "[GenericSearch] Recovered registered-evaluation manifest "
+                f"from durable archive: {run_dir}"
+            )
+            return line
+        return None
 
     def _session_stream_path(self, branch_name: str) -> str:
         """Per-session stream artifact location (survives session kills)."""

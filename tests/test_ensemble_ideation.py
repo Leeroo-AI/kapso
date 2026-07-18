@@ -174,6 +174,7 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     strategy.iteration_count = 0
     strategy.session_effort = None
     strategy.env_strip = []
+    strategy.env_defaults = {}
     strategy.ideation_ensemble = ensemble
     strategy.ideation_selector = selector
     return strategy, events

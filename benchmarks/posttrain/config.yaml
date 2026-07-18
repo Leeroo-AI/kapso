@@ -56,6 +56,13 @@ modes:
         # agent still has Claude Code's built-in WebSearch/WebFetch, which is
         # allowed (internet access is unrestricted in the benchmark).
         ideation_gates: ["experiment_history", "repo_memory"]
+        # Bash-tool clock policy for every Claude session (set-if-absent in
+        # the child env — solve.sh's exports keep precedence in-container;
+        # this is the config home so local/debug runs match: without it the
+        # CLI auto-backgrounds any foreground command at 120s).
+        session_env_defaults:
+          BASH_DEFAULT_TIMEOUT_MS: "900000"
+          BASH_MAX_TIMEOUT_MS: "36000000"
         implementation_gates: ["repo_memory"]
         # Ensemble ideation: parallel CLI members + selector-critic. The codex
         # member authenticates via the codex-auth-json secret (ChatGPT login

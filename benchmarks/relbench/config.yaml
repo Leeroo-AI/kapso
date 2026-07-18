@@ -118,6 +118,18 @@ modes:
         implementation_timeout: 10800
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # Bash-tool clock policy (finding 14): without these the CLI
+        # auto-backgrounds any foreground command at 120s, making a
+        # blocking registered evaluation structurally impossible. Sized to
+        # cover a full grader run (train + eval, 30 min default / 4h max).
+        session_env_defaults:
+          BASH_DEFAULT_TIMEOUT_MS: "1800000"
+          BASH_MAX_TIMEOUT_MS: "14400000"
+        # Durable-archive recovery root for the registered evaluation
+        # (Issue 2): the grader archives runs (incl. manifest.txt) here,
+        # outside the session workspace, so a completed eval's score is
+        # recoverable even after session teardown.
+        registered_evaluation_archive_glob: "tmp/relbench/*/runs"
         # Ensemble ideation mirroring the posttrain deployment: parallel CLI
         # members with complementary lenses + a selector-critic. The codex
         # member authenticates via ~/.codex/auth.json (ChatGPT login), the

@@ -225,3 +225,107 @@ def test_stream_artifact_persists_raw_events(tmp_path, monkeypatch):
     lines = artifact.read_text().strip().splitlines()
     assert len(lines) >= 2  # assistant event + result event
     assert any('"type": "result"' in ln or '"type":"result"' in ln for ln in lines)
+
+
+COMPLETED_THEN_HANG_SCRIPT = "\n".join(
+    [
+        stream_event(
+            {
+                "type": "result",
+                "result": "done <score>0.95</score> and "
+                "<technical_difficulties>none</technical_difficulties>",
+                "total_cost_usd": 1.25,
+            }
+        ),
+        "import time",
+        "time.sleep(600)",
+    ]
+)
+
+IDLE_RESULT_THEN_EVENTS_SCRIPT = "\n".join(
+    [
+        stream_event(
+            {
+                "type": "result",
+                "result": "training continues; waiting for the watcher",
+                "total_cost_usd": 0.10,
+            }
+        ),
+        "import time",
+        "time.sleep(2)",
+        stream_event(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "woke"}]},
+            }
+        ),
+        "time.sleep(600)",
+    ]
+)
+
+
+def make_marker_agent(tmp_path, monkeypatch, *, timeout):
+    config = CodingAgentConfig(
+        agent_type="claude_code",
+        model="test-model",
+        debug_model="test-model",
+        agent_specific={
+            "timeout": timeout,
+            "streaming": True,
+            "completion_markers": ["</score>", "</technical_difficulties>"],
+        },
+    )
+    agent = ClaudeCodeCodingAgent(config)
+    agent.workspace = str(tmp_path)
+    monkeypatch.setattr(agent, "_get_changed_files", lambda: [])
+    monkeypatch.setattr(agent, "_get_env", lambda: None)
+    return agent
+
+
+def test_declared_completion_then_silence_is_reaped_as_success(
+    tmp_path, monkeypatch
+):
+    """R9-I-1/R16-P2-1: a CLI that delivered its full final report and then
+    lingers is reaped after the grace — success, not deadline failure."""
+    import kapso.execution.coding_agents.adapters.claude_code_agent as mod
+
+    monkeypatch.setattr(mod, "_POST_COMPLETION_GRACE_SECONDS", 2.0)
+    agent = make_marker_agent(tmp_path, monkeypatch, timeout=300)
+    result = run_fake_cli(agent, monkeypatch, COMPLETED_THEN_HANG_SCRIPT)
+
+    assert result.success is True
+    assert result.error is None
+    assert result.metadata["completed_reaped"] is True
+    assert result.cost == 1.25
+
+
+def test_idle_wait_result_is_never_reaped(tmp_path, monkeypatch):
+    """A result WITHOUT the completion markers (idle-wait turn) must not arm
+    the reap; the session lives on until its own deadline."""
+    import kapso.execution.coding_agents.adapters.claude_code_agent as mod
+
+    monkeypatch.setattr(mod, "_POST_COMPLETION_GRACE_SECONDS", 2.0)
+    agent = make_marker_agent(tmp_path, monkeypatch, timeout=8)
+    result = run_fake_cli(agent, monkeypatch, IDLE_RESULT_THEN_EVENTS_SCRIPT)
+
+    # Ended by the DEADLINE (timeout=8), not by the reap; no markers, so it
+    # stays a genuine deadline failure.
+    assert result.metadata.get("completed_reaped") is None
+    assert result.metadata["deadline_exceeded"] is True
+    assert result.success is False
+
+
+def test_deadline_kill_after_completion_is_success(tmp_path, monkeypatch):
+    """Deadline fires but the report was already delivered: success=True,
+    truthful metadata, no 'Implementation failed' material."""
+    import kapso.execution.coding_agents.adapters.claude_code_agent as mod
+
+    # Grace longer than the deadline so the reap never fires first.
+    monkeypatch.setattr(mod, "_POST_COMPLETION_GRACE_SECONDS", 600.0)
+    agent = make_marker_agent(tmp_path, monkeypatch, timeout=6)
+    result = run_fake_cli(agent, monkeypatch, COMPLETED_THEN_HANG_SCRIPT)
+
+    assert result.metadata["deadline_exceeded"] is True
+    assert result.metadata["completed_before_kill"] is True
+    assert result.success is True
+    assert result.error is None

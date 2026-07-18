@@ -86,3 +86,9 @@ zero-variance official score of the campaign. Path: SFT 0.71 → RFT 0.86
 → 0.91 (mean-of-4 under sampling) → greedy config 0.95 deterministic;
 the 25.7k retrain did not clearly beat it and was correctly not
 promoted.
+
+**Correction to R14-P2-1 (2026-07-18):** the stream-forensics artifacts ARE
+archived — `task/kapso_campaign/.kapso/sessions/generic_exp_*/stream.jsonl`
+exists in the results bucket for all four sessions (the pass-2 reviewer
+grepped the wrong prefix). The forensics layer is verifiable after all; no
+sync change needed.

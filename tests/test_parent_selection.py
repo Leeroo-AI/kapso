@@ -219,6 +219,7 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.iteration_count = 0
     strategy.session_effort = None
     strategy.env_strip = []
+    strategy.env_defaults = {}
     strategy.ideation_ensemble = None
 
     solution, sections, telemetry = strategy._generate_solution(
