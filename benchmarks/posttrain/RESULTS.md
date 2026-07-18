@@ -200,6 +200,9 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | Run | Cell | Score | Run id / GCS root suffix | Review doc |
 |---|---|---:|---|---|
 | #16 | arenahard × Qwen3-4B 10h | **49.67** | `arenahardwriting-qwen3-4b-base-07171548` | `reviews/run16-review.md` |
+| #17 | arenahard × Qwen3-4B 10h | in flight | `arenahardwriting-qwen3-4b-base-07181341` | launched 2026-07-18 13:43Z on rebuilt stack (lifecycle batch + relaxed rules 3ba24c4d); reviews vs `reviews/arena-best-baseline-traces.md` |
+| #18 | arenahard × Qwen3-1.7B 10h | in flight | `arenahardwriting-qwen3-1-7b-base-0718134` | same stack; best-known trace 74.85 (opus-4.8 run1) |
+| #19 | arenahard × SmolLM3 10h | in flight | `arenahardwriting-smollm3-3b-base-0718134` | same stack; best-known trace 73.95 (opus-4.8-max run1) |
 | #15 | bfcl × gemma-3-4b 10h | **93.0** | `bfcl-gemma-3-4b-pt-07171548` | `reviews/run15-review.md` |
 | #14 | bfcl × Qwen3-4B 10h | **95.0** | `bfcl-qwen3-4b-base-07171548` | `reviews/run14-review.md` |
 | #10 | bfcl × SmolLM3-3B 10h | **93.0** | `bfcl-smollm3-3b-base-07161232` | `reviews/run10-review.md` |
