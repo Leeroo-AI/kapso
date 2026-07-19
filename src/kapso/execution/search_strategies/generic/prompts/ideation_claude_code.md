@@ -81,8 +81,26 @@ budget enforcement is handled mechanically by the system, not by you.
    - Call `get_recent_experiments(5)` to see recent attempts
    - Learn from past successes and failures
 2. **Understand the codebase**: Read key files and use RepoMemory tools (especially get_repo_memory_section for core.architecture, core.where_to_edit)
-3. **Search for ideas**: Use wiki_idea_search first (curated, high-quality), then research tools if needed
-4. **Synthesize a solution**: Combine insights into a concrete, implementable proposal that IMPROVES on past attempts
+3. **Ground yourself in the measured eval profile.** If a prior iteration
+   left `kapso_evaluation/eval_profile.md` (or an experiment in history
+   quotes one), read it and treat its axes as requirements. Whether or not
+   a profile exists, your proposal must account for the rough dimensions an
+   evaluation varies along:
+   - input distribution — format/schema, length stats, category/domain/
+     locale mix, difficulty strata, structural shape;
+   - reference/output register — the output format, length band, and style
+     the metric or its reference answers reward;
+   - metric mechanics — aggregation and per-sample weighting, judge/rubric
+     wording, tie and penalty rules, and the noise floor (what score delta
+     is significant at the eval size you'll use);
+   - harness controls — which inference knobs the harness fixes vs the
+     artifact owns (sampling, templates, stop/max tokens);
+   - permitted-data geometry — what the task's rules allow you to look at
+     or train on.
+   Mark every claim MEASURED (cite its source) or ASSUMED — the implementor
+   verifies ASSUMED claims in recon before building on them.
+4. **Search for ideas**: Use wiki_idea_search first (curated, high-quality), then research tools if needed
+5. **Synthesize a solution**: Combine insights into a concrete, implementable proposal that IMPROVES on past attempts
 
 ## Output Format
 After your research, output your solution in this EXACT format:
@@ -103,6 +121,13 @@ After your research, output your solution in this EXACT format:
 - param1: value1
 - param2: value2
 ...
+
+# Coverage
+[The observable axes along which the evaluation inputs vary (per the
+dimension families in Your Process step 3) and, for each: how this
+solution's data/method covers it. Mark every axis MEASURED (cite the
+profile or experiment that measured it) or ASSUMED (recon must verify it
+before building).]
 
 # Rationale
 [Why this approach should work, citing any sources you found]

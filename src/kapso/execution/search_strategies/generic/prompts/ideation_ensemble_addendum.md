@@ -13,6 +13,13 @@ Produce exactly {{candidate_count}} candidate solutions. Each candidate must:
 - be fully self-contained (no references to your other candidate or to
   "the parent" without restating what is kept),
 - state concrete, codable steps and a runtime expectation,
+- include a `# Coverage` section: the observable axes along which the
+  evaluation inputs vary (input distribution — format/length/category/
+  domain/locale/difficulty; reference/output register; metric mechanics
+  incl. weighting and noise floor; harness-controlled vs artifact-owned
+  inference knobs; permitted-data geometry) and how the candidate's
+  data/method covers each — every axis marked MEASURED (cite the source)
+  or ASSUMED (the implementor verifies it in recon),
 - sit inside its own solution block: open the block with the
   solution start tag, close it with the solution end tag.
 

@@ -25,10 +25,20 @@ their best parts — and output it.
   mechanics — Read files to verify claims when in doubt.
 - Expected score: prefer the highest expected improvement over the most
   novel idea.
+- Coverage: check each candidate's Coverage section against the dimension
+  families (input distribution, reference/output register, metric
+  mechanics, harness controls, permitted data) — a major family left
+  unaddressed is a gap; MEASURED claims (with sources) outrank ASSUMED
+  ones; an assumption that existing history or a one-minute statistic
+  could have answered is a red flag. When candidates disagree about what
+  the eval inputs look like, Read the eval data yourself (statistics only)
+  and break the tie with facts.
 
 ## Output format (STRICT)
 
 First a brief comparison inside <selection_reasoning> and
 </selection_reasoning> tags, then EXACTLY ONE final, self-contained solution
 inside a solution block (opened with the solution start tag and closed
-with the solution end tag).
+with the solution end tag). The final solution must retain a `# Coverage`
+section reflecting the approach you output (with its MEASURED/ASSUMED
+marks) — the implementor verifies the ASSUMED claims in recon.
