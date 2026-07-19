@@ -107,3 +107,122 @@ all, so self-correction of the zh/ru/ja gap is not coming) and wakeups are
 systemically dead; recommend a nudge to read per-language judge verdicts +
 regenerate the multilingual slice zh/ru/ja-weighted before the next SFT,
 and file the ScheduleWakeup bug.
+
+## P3 (18:30Z → end) + closing
+
+Headline: session 2 turned the banked DPO pairs into the whole gain —
+0.425 → dpo_r3 51.96 @50 (19:43, promoted 19:44) → 54.03 @150 (22:06,
+stderr 0.0202, shipped) → official full-set **0.5658 ±0.016**. The
+boundary chain (end-mode label, fallback difficulties, feedback judge)
+exercised end-to-end for the first time and performed; session 2 exited
+the CLI naturally with ~59 min of cap unspent. The language question
+closes NO: zh/ru/ja never entered the data at any point in the run.
+
+- **R19-P3-1 — OBS (framework, positive): boundary chain end-to-end.**
+  End-mode truthful: "Deadline of 18000s reached — terminating Claude
+  Code" at 19:00:44 (18000.3s exact); the cut landed mid-housekeeping
+  AFTER the agent had already verified GPU 0 MiB, final_model integrity,
+  and committed (19:00:34) — best-case boundary state. No JSON result →
+  "technical_difficulties missing — running fallback reconstruction"
+  (19:02:36): difficulties were FALLBACK-authored, not self-authored, and
+  the reconstruction (515s, $2.11, 36 tools) is high quality — 7 concrete
+  items, correctly notes the OOM/NaN keyword hits were proactive checks
+  not incidents, labels the end "killed at deadline, not a crash", and
+  quantifies the banked state (1,689 DPO-r3 pairs, judge done 18:58:44).
+  Nit: the strategy logs the cut as "Implementation failed" — factually
+  it means "no result JSON", but the wording undersells a substantively
+  successful session.
+- **R19-P3-2 — P1 major (framework), still open: ScheduleWakeup.** 9th
+  and final session-1 miss: 18:27:59 "Next wakeup scheduled for 18:32:00"
+  → next event 18:59:55 (task_notification), a 31.7-min dark gap ending
+  the session. Session 2 provides no corroboration either way: the fresh
+  agent called ScheduleWakeup ZERO times, routing every wait through
+  background `sleep N; check` tasks + bounded watchers whose completion
+  notifications (52 of them) produced every wake. Watcher hygiene is
+  clean — `while ps -p <recorded-PID> ... && [ $i -lt N ]` and
+  file-existence loops, no run18-style self-matching pgrep. The bug file
+  stands; the notification path is a full workaround, not a fix.
+- **R19-P3-3 — OBS (framework, positive): R16-P2-1 regression clean; no
+  freezes.** Session 2 finished at 14,463.8s of the 18,000s cap — a
+  natural CLI exit after a disciplined endgame: dpo_r4 no-promote at its
+  pre-declared gate (23:20:09), final_model md5 re-verified == dpo_r3,
+  result.json restored to the 54.03 submission after the informational
+  dpo_r4 eval overwrote it (self-caught), memory note + commit, then the
+  full XML report (code_changes_summary / evaluation_script_path /
+  evaluation_output / score all extracted, 23:23:18). Orchestrator:
+  "Stopping: finalization reserve reached — protecting the endgame
+  window" at 23:25:21, ~18 min before the wall. Largest quiet stretches
+  (20:10→20:39, 22:14→22:36) were deliberate 30-33 min monitor windows,
+  not freezes. Run cost $84.83 total.
+- **R19-P3-4 — OBS (framework, positive): both feedback judges did real
+  forensics.** Node-0 (207s): cross-checked all four eval logs against
+  best_score.log, md5-matched final_model to sft_r2, verified evaluate.py
+  untracked/untampered, correctly distinguished the 5h CLI cap from the
+  10h budget, relayed 0.425. Node-1 (114s): empty-diff eval check, md5,
+  limit-50 cross-check ("confirms the gain isn't a limit-150 artifact"),
+  and — the best judge moment of the campaign — read the eval source and
+  CORRECTED the run's premise: the actual judge is gpt-5-mini
+  (reasoning_effort=medium), not gpt-4.1, so the verbosity-bias bet
+  behind sft_r3 was aimed at the wrong model; it used this to explain the
+  sft_r3 regression and re-ranked next steps (iterative DPO first).
+  R15-P2-1 lineage satisfied. Residual gap: neither judge ran
+  per-language verdict tallies — node-0's multilingual advice stayed
+  generic ("more constraint-rich + multilingual writing prompts"), so the
+  language error propagated with feedback's blessing.
+- **R19-P3-5 — OBS (recipe): what actually bought the +14.** dpo_r3 =
+  robust-DPO (loss_type=robust, label_smoothing 0.05, β 0.1, lr 5e-7,
+  1ep) on sft_r2 over the banked 1,689 on-policy pairs: ~10 min of
+  training, 51.96 @50 at 19:43:38 (+9.5), insurance-promoted 19:44:02,
+  confirmed 54.03 @150 at 22:06:06 — the shipped model. The "dominant
+  lever" SFT-scaling leg failed: 5,329 new prompts (judge-bias-aware
+  regen, 600-1300 words, markdown-structured) → 17,589-example sft_r3
+  reached only 45.75 @50 (21:30), and dpo_r4 on that base 51.42 @50
+  (23:19) — "on par, not better", correctly not promoted. Every point of
+  session-2 gain came from preference optimization on session-1 assets;
+  the shipped model's SFT base remains the 12,485-example session-1
+  corpus.
+- **R19-P3-6 — P1 major (recipe), CLOSED AS NEVER-CORRECTED: the
+  language question.** Iteration-2's selected plan re-specified the slice
+  verbatim — "~1.5k multilingual (es/fr/de/it/pt — raised share vs r1)" —
+  and the build printed multilingual_es/it/pt/de/fr at 224 each. Final
+  accounting: shipped dpo_r3 sits on the r1 corpus with 1,114/12,485
+  (8.9%) multilingual, all five Latin-script languages; the 17.6k corpus
+  (same 5 languages, ~2.2k multilingual) shipped nothing. zh/ru/ja
+  appear in ZERO training examples across the entire run, against an
+  eval ~1/3 non-English including zh/ru/ja, with the 73.95 trace's gains
+  attributed to exactly that slice. Agent, selector, and both judges all
+  passed over it — R19-P1-1 → R19-P2-2 → here, three segments, no
+  self-correction.
+- **R19-P3-7 — RESOLVED (R19-P2-3): decisions at limit ≥128.** The
+  shipped ranking was made at limit 150 (54.03, stderr 0.0202) per the
+  plan's consolidation step; limit 50 was retained only for gating with
+  explicit noise gates (≥+2 for insurance promotion, ≥58 for dpo_r4).
+  Node-1 feedback pushes the remaining inch: full-set `--limit -1` before
+  final promotion next time.
+
+Left on the table vs 73.95: the best trace's engine was a 24.8k-example
+distillation with a ~7k ru/zh/vi/ja slice through the same byte-exact
+template — and no DPO. Run 19 shipped a 12.5k-corpus SFT plus one DPO
+round for 56.58, a 17.4-pt gap. The missing mass is (a) the multilingual
+slice in the eval's actual languages — the one named lever three review
+segments watched go unpulled; (b) corpus scale on the shipped base (the
+17.6k attempt failed on the wrong-judge premise, not on scale itself, so
+scale was never fairly tested); and (c) ~3.5h of session 2 spent proving
+sft_r3/dpo_r4 dead ends, which could have funded a zh/ru/ja-weighted
+regeneration + re-SFT + DPO on top — the exact compounding the 73.95
+trace demonstrated.
+
+CLOSING VERDICT: **official 0.5658 ±0.016, both judges clean — the top
+proven leaderboard row, +7.4 above the human baseline (49.2) and +19.4
+above the model baselines (fable-5 37.2, opus-4.8-max mean 37.2)**. As a
+framework exhibit this is the cleanest full cycle on the rebuilt stack:
+truthful end-mode labeling, a fallback difficulties chain that earned its
+keep on first firing, feedback judges that verified rather than believed
+(one even falsifying the run's core stylistic premise from the eval
+source), a natural CLI exit, and a protected endgame — with ScheduleWakeup
+(9 misses, unexercised in session 2) the one open P1 bug. As a recipe
+exhibit the verdict is double-edged: banked on-policy DPO is now the
+proven cheap lever (+11.5 net for ~35 min of compute), but the run ends
+where it began on its known #1 residual — a model that has never seen
+zh/ru/ja, leaving the 73.95 ceiling untouched for the next campaign
+cell.
