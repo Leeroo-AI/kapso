@@ -1010,6 +1010,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             if event_type:
                 print(f"{c['dim']}  [{event_type}:{subtype}]{c['reset']}", flush=True)
     
+    # Tools whose delivery machinery does not run in print (-p) sessions —
+    # the only mode this adapter ever spawns. ScheduleWakeup accepts the
+    # call and prints "the harness re-invokes you when the wakeup fires",
+    # but the scheduler that consumes it only runs in interactive /loop
+    # dynamic mode: 0/50 fires outside it across our runs AND the official
+    # PostTrainBench traces (vs 6/7 inside /loop), reproduced
+    # deterministically on the pinned CLI 2.1.157. An agent that trusts the
+    # promise and ends its turn with nothing else pending is stranded until
+    # the session deadline (run #18 lost 3h GPU exactly this way). Banned
+    # structurally rather than via config: no -p session can ever use it.
+    PRINT_MODE_DEAD_TOOLS: List[str] = ["ScheduleWakeup"]
+
     def _build_command(self, model: str, use_stream_json: bool = False) -> List[str]:
         """Build the Claude Code CLI command.
 
@@ -1042,6 +1054,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Add allowed tools
         if self._allowed_tools:
             cmd.extend(["--allowedTools", ",".join(self._allowed_tools)])
+
+        # Ban tools that structurally cannot work in -p sessions (see
+        # PRINT_MODE_DEAD_TOOLS). Verified on CLI 2.1.157: the flag removes
+        # the tool from the session's tool list (init event).
+        cmd.extend(["--disallowedTools", ",".join(self.PRINT_MODE_DEAD_TOOLS)])
         
         # Add MCP config if available
         if self._mcp_config_path and self._mcp_config_path.exists():

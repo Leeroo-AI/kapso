@@ -62,6 +62,12 @@ validation of the rebuilt stack, so check specifically:
 6. Known open items to watch for recurrence, document-only: feedback
    evaluation_script_path misresolution (R15-P2-1), repo-memory empty
    evidence quotes (R16-P2-2).
+7. Runs on stacks ≥ the ScheduleWakeup ban (post 2026-07-19): the session
+   init event's tools list must NOT contain ScheduleWakeup and the trace
+   must contain zero ScheduleWakeup calls (the tool never fires in -p
+   sessions — R18-P2-1/R19-P2-1, root-caused + reproduced on CLI 2.1.157);
+   watch for the background-sleep alarm idiom and the dead-man's alarm on
+   pure-wait turns instead.
 
 B. RECIPE COMPARISON: diff the live agent's ideas/actions against this
 doc's per-cell watchlist and shared skeleton; a deviation is a finding even

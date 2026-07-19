@@ -193,6 +193,15 @@ your SESSION clock is shorter and is the one that kills you.
   recorded id/PID). A pile of live watchers floods you with notifications
   and trains you to ignore the one that matters. Prefer a single
   until-condition wait over chains of sleep-watchers.
+- TIMERS: the ScheduleWakeup tool is disabled here (its wakeups never fire
+  in this session mode — a prior run idled 3 hours trusting one). For a
+  timed check-back, launch a background task as your alarm clock:
+  `sleep <seconds> && echo ALARM` — its completion notification wakes you.
+- DEAD-MAN'S ALARM: never end a turn whose only pending wake sources are
+  condition-watchers (a watcher with a buggy condition can hang forever).
+  Keep one bounded background alarm task (e.g. `sleep 600 && echo
+  fallback-tick`) alive whenever you are purely waiting, so no wedged
+  watcher can strand you for more than ~10 minutes.
 - A completion notification is EVIDENCE, not noise: before dismissing one
   as stale, read the file or task output it names. Your belief that you
   killed a process does not outrank a result file on disk — a prior run
