@@ -10,9 +10,12 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateAnalysis,
     CandidateDisposition,
     CandidateDispositionKind,
+    ClaimKind,
     EvaluationGap,
     EvaluationStatus,
+    EvidenceClaim,
     EvidenceSignal,
+    EvidenceStatus,
     GapState,
     IdeaArchive,
     IdeaDescriptor,
@@ -35,6 +38,8 @@ from test_ideation_domain import (
     CAPACITY_ID,
     EVIDENCE_ID,
     NOW,
+    analyzed_candidate,
+    coding_agent_call,
     generated_idea,
     planned_batch,
     selection,
@@ -59,10 +64,9 @@ def capacity(**changes) -> IdeationCapacityView:
         "reserve_run": False,
         "deadline_seconds": 300.0,
         "can_start_complete_action": True,
+        "can_run_granted_evaluation": True,
         "can_run_comparable_evaluation": True,
         "preserves_finalization_reserve": True,
-        "opportunity_probe_required": False,
-        "opportunity_probe_admissible": False,
     }
     values.update(changes)
     return IdeationCapacityView(**values)
@@ -113,10 +117,15 @@ def add_completed_idea(
         descriptor=descriptor or generated_idea().descriptor,
     )
     archive.create_batch(batch, expected_revision=archive.revision)
-    archive.add_ideas(batch_id, (idea,), expected_revision=archive.revision)
-    archive.record_analysis(
+    archive.add_ideas(
         batch_id,
-        CandidateAnalysis(idea_id=idea_id, eligible=True),
+        (idea,),
+        generation_calls=(coding_agent_call(),),
+        expected_revision=archive.revision,
+    )
+    archive.record_analyses(
+        batch_id,
+        (analyzed_candidate(CandidateAnalysis(idea_id=idea_id, eligible=True)),),
         expected_revision=archive.revision,
     )
     decision = replace(
@@ -133,6 +142,7 @@ def add_completed_idea(
     archive.record_selection(
         batch_id,
         decision,
+        selection_call=coding_agent_call(),
         expected_revision=archive.revision,
     )
     archive.link_experiment(
@@ -326,6 +336,70 @@ def test_score_presence_without_matching_comparability_metadata_is_not_comparabl
     assert EvidenceSignal.NO_COMPARABLE_EXPERIMENT in snapshot.signals
 
 
+def test_only_supported_hypotheses_unlock_a_supported_lever(tmp_path):
+    archive = IdeaArchive(tmp_path / "ideas.json", CAMPAIGN_ID)
+    idea_id = new_identifier("idea")
+    batch_id = new_identifier("batch")
+    add_completed_idea(
+        archive,
+        idea_id=idea_id,
+        batch_id=batch_id,
+        node_id=1,
+    )
+    observation = EvidenceClaim(
+        claim_id=new_identifier("claim"),
+        statement="The registered score increased.",
+        kind=ClaimKind.OBSERVATION,
+        status=EvidenceStatus.SUPPORTED,
+        source_refs=("experiment_node:1",),
+        affected_idea_ids=(idea_id,),
+        affected_experiment_node_ids=(1,),
+        updated_at=NOW,
+    )
+    archive.record_claims((observation,), expected_revision=archive.revision)
+    inputs = (
+        experiment(
+            node_id=1,
+            idea_id=idea_id,
+            batch_id=batch_id,
+            score=0.6,
+        ),
+    )
+    builder = CampaignEvidenceBuilder(evidence_settings())
+    observation_snapshot = builder.build(
+        campaign_id=CAMPAIGN_ID,
+        objective_direction=ObjectiveDirection.MAXIMIZE,
+        experiments=inputs,
+        archive_state=archive.state,
+        capacity=capacity(),
+        generated_at=NOW,
+    )
+
+    assert EvidenceSignal.SUPPORTED_LEVER not in observation_snapshot.signals
+
+    hypothesis = EvidenceClaim(
+        claim_id=new_identifier("claim"),
+        statement="The intervention mechanism caused the registered gain.",
+        kind=ClaimKind.HYPOTHESIS,
+        status=EvidenceStatus.SUPPORTED,
+        source_refs=("experiment_node:1",),
+        affected_idea_ids=(idea_id,),
+        affected_experiment_node_ids=(1,),
+        updated_at=NOW,
+    )
+    archive.record_claims((hypothesis,), expected_revision=archive.revision)
+    hypothesis_snapshot = builder.build(
+        campaign_id=CAMPAIGN_ID,
+        objective_direction=ObjectiveDirection.MAXIMIZE,
+        experiments=inputs,
+        archive_state=archive.state,
+        capacity=capacity(),
+        generated_at=NOW,
+    )
+
+    assert EvidenceSignal.SUPPORTED_LEVER in hypothesis_snapshot.signals
+
+
 def test_repeat_measurements_define_noise_and_proxy_divergence_is_typed(tmp_path):
     archive = IdeaArchive(tmp_path / "ideas.json", CAMPAIGN_ID)
     idea_id = new_identifier("idea")
@@ -406,12 +480,11 @@ def test_gap_priority_uses_impact_before_age_and_records_defaults():
 
 def test_shipped_modes_share_one_ideation_configuration_source():
     config = load_config("src/kapso/config.yaml")
-    defaults = config["ideation_defaults"]
-    assert config["modes"]["GENERIC"]["ideation"] == defaults
-    assert config["modes"]["MINIMAL"]["ideation"] == defaults
-    assert (
-        config["modes"]["GENERIC"]["ideation"] is config["modes"]["MINIMAL"]["ideation"]
-    )
+    assert "ideation_defaults" not in config
+    defaults = config["ideation_profiles"]["DEFAULT"]
+    assert defaults["archive_path"] == ".kapso/idea_archive.json"
+    assert config["modes"]["GENERIC"]["ideation_profile"] == "DEFAULT"
+    assert config["modes"]["MINIMAL"]["ideation_profile"] == "DEFAULT"
 
 
 def test_gap_deferral_increases_debt_without_changing_gap_state(tmp_path):

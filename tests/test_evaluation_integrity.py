@@ -151,9 +151,7 @@ def test_strategy_setup_tracks_the_exact_provided_suite_before_mutation(
     strategy = StubStrategy(config, workspace_dir=str(workspace))
 
     assert strategy.evaluation_provenance == PROVIDED
-    assert strategy.provided_evaluation_manifest == (
-        build_evaluation_manifest(suite)
-    )
+    assert strategy.provided_evaluation_manifest == (build_evaluation_manifest(suite))
     repo = git.Repo(workspace)
     tracked = set(repo.git.ls_files("kapso_evaluation").splitlines())
     assert tracked == {
@@ -283,14 +281,16 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
 
     store = ExperimentHistoryStore(
         json_path=str(tmp_path / "history.json"),
+        objective_direction="maximize",
+        require_idea_links=False,
     )
     store.add_experiment(invalid)
     store.add_experiment(valid)
     assert [record.node_id for record in store.get_top_experiments()] == [1]
 
     persisted = json.loads((tmp_path / "history.json").read_text())
-    assert persisted[0]["evaluation_valid"] is False
-    assert persisted[0]["evaluation_provenance"] == PROVIDED
+    assert persisted["records"][0]["evaluation_valid"] is False
+    assert persisted["records"][0]["evaluation_provenance"] == PROVIDED
 
 
 def test_feedback_invalidity_cannot_stop_or_retain_a_score() -> None:
@@ -321,33 +321,6 @@ def test_feedback_invalidity_cannot_stop_or_retain_a_score() -> None:
     assert node.evaluation_valid is False
     assert node.score is None
     assert node.should_stop is False
-
-
-def test_invalid_evaluation_is_not_semantically_indexed(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    store = ExperimentHistoryStore(
-        json_path=str(tmp_path / "history.json"),
-    )
-    indexed = []
-    store.weaviate = object()
-    monkeypatch.setattr(
-        store,
-        "_index_in_weaviate",
-        lambda record: indexed.append(record.node_id),
-    )
-    invalid = SearchNode(
-        node_id=0,
-        evaluation_valid=False,
-        score=None,
-    )
-    valid = SearchNode(node_id=1, score=0.2)
-
-    store.add_experiment(invalid)
-    store.add_experiment(valid)
-
-    assert indexed == [1]
 
 
 def test_integrity_state_round_trip_and_resume_mismatch() -> None:
@@ -411,21 +384,15 @@ def test_data_tampering_voids_the_score(tmp_path: Path) -> None:
     repo.git.checkout("main")
 
     strategy = _provided_strategy(workspace)
-    strategy.registered_evaluation_manifest = (
-        strategy.provided_evaluation_manifest
-    )
-    strategy.registered_data_manifest = build_data_manifest(
-        workspace, ["data"]
-    )
+    strategy.registered_evaluation_manifest = strategy.provided_evaluation_manifest
+    strategy.registered_data_manifest = build_data_manifest(workspace, ["data"])
 
     honest = SearchNode(node_id=0, branch_name="honest", score=0.8)
     assert strategy.enforce_evaluation_integrity(honest) is True
     assert honest.evaluation_valid is True
     assert honest.score == 0.8
 
-    rigged = SearchNode(
-        node_id=1, branch_name="rigged", score=1.0, should_stop=True
-    )
+    rigged = SearchNode(node_id=1, branch_name="rigged", score=1.0, should_stop=True)
     assert strategy.enforce_evaluation_integrity(rigged) is False
     assert rigged.evaluation_valid is False
     assert rigged.score is None

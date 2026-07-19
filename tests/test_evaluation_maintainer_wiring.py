@@ -25,7 +25,6 @@ from tests.test_run_checkpoint import (
     _patch_orchestrator,
 )
 
-
 MAINTAINER_BLOCK = {
     "type": "claude_code",
     "max_change_requests": 1,
@@ -72,9 +71,7 @@ def manifest_stdout():
         "total_items": 100,
         "score": 0.4,
     }
-    return (
-        f"{maintainer_module.MANIFEST_MARKER} {json.dumps(payload)}\n"
-    )
+    return f"{maintainer_module.MANIFEST_MARKER} {json.dumps(payload)}\n"
 
 
 def patch_maintainer_environment(monkeypatch, agent):
@@ -83,6 +80,7 @@ def patch_maintainer_environment(monkeypatch, agent):
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
+            "ideation_profile": "DEFAULT",
             "search_strategy": {"type": "generic", "params": {}},
             "evaluation_maintainer": MAINTAINER_BLOCK,
         },
@@ -97,9 +95,7 @@ def patch_maintainer_environment(monkeypatch, agent):
         "subprocess",
         SimpleNamespace(
             run=lambda command, cwd, capture_output, text, timeout: (
-                SimpleNamespace(
-                    returncode=0, stdout=manifest_stdout(), stderr=""
-                )
+                SimpleNamespace(returncode=0, stdout=manifest_stdout(), stderr="")
             )
         ),
     )
@@ -109,9 +105,7 @@ def test_setup_runs_once_and_is_budgeted(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
 
     orchestrator = _orchestrator(workspace)
     orchestrator.solve(experiment_max_iter=1)
@@ -143,9 +137,7 @@ def test_registry_mismatch_fails_resume_loudly(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     _orchestrator(workspace).solve(experiment_max_iter=1)
 
     (workspace / "kapso_evaluation" / "rogue.py").write_text("HACK = 1\n")
@@ -157,9 +149,7 @@ def test_registry_mismatch_fails_resume_loudly(tmp_path, monkeypatch):
         resumed.solve(experiment_max_iter=1)
 
 
-def test_change_requests_route_to_the_maintainer_and_cap(
-    tmp_path, monkeypatch
-):
+def test_change_requests_route_to_the_maintainer_and_cap(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
@@ -195,9 +185,7 @@ def test_registered_integrity_enforced_in_agent_generated_mode(tmp_path):
 
     candidate = tmp_path / "candidate"
     (candidate / "kapso_evaluation").mkdir(parents=True)
-    (candidate / "kapso_evaluation" / "kapso_eval.py").write_text(
-        "TAMPERED = True\n"
-    )
+    (candidate / "kapso_evaluation" / "kapso_eval.py").write_text("TAMPERED = True\n")
 
     class FakeWorkspace:
         @contextmanager
@@ -223,10 +211,7 @@ def test_evaluation_instructions_swap_with_registration():
     strategy = GenericSearch.__new__(GenericSearch)
 
     strategy.registered_evaluation_command = ""
-    assert (
-        "You MUST build and run evaluation"
-        in strategy._evaluation_instructions()
-    )
+    assert "You MUST build and run evaluation" in strategy._evaluation_instructions()
 
     strategy.registered_evaluation_command = (
         "python kapso_evaluation/kapso_eval.py --fidelity full "
@@ -261,23 +246,18 @@ def test_registered_evaluation_syncs_into_sessions(tmp_path):
     assert not (synced / "stale.py").exists()
 
 
-def test_fast_fraction_is_single_sourced_from_the_fidelity_block(
-    tmp_path, monkeypatch
-):
+def test_fast_fraction_is_single_sourced_from_the_fidelity_block(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     monkeypatch.setattr(
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
+            "ideation_profile": "DEFAULT",
             "search_strategy": {"type": "generic", "params": {}},
-            "budget": {
-                "fidelity": {"mode": "auto", "eval": {"fast_fraction": 0.2}}
-            },
+            "budget": {"fidelity": {"mode": "auto", "eval": {"fast_fraction": 0.2}}},
             "evaluation_maintainer": MAINTAINER_BLOCK,
         },
     )
@@ -289,28 +269,23 @@ def test_fast_fraction_is_single_sourced_from_the_fidelity_block(
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
+            "ideation_profile": "DEFAULT",
             "search_strategy": {"type": "generic", "params": {}},
-            "evaluation_maintainer": dict(
-                MAINTAINER_BLOCK, fast_fraction=0.3
-            ),
+            "evaluation_maintainer": dict(MAINTAINER_BLOCK, fast_fraction=0.3),
         },
     )
     with pytest.raises(ValueError, match="evaluation_maintainer config keys"):
         _orchestrator(str(tmp_path / "workspace_two"))
 
 
-def test_registration_is_checkpointed_before_the_first_iteration(
-    tmp_path, monkeypatch
-):
+def test_registration_is_checkpointed_before_the_first_iteration(tmp_path, monkeypatch):
     """A crash inside iteration 1 must not orphan the paid setup: the
     bootstrap checkpoint makes the campaign resumable from registration.
     """
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     orchestrator = _orchestrator(workspace)
     monkeypatch.setattr(
         orchestrator.search_strategy,
@@ -330,9 +305,7 @@ def test_registration_is_checkpointed_before_the_first_iteration(
     assert orchestrator.evaluation_maintainer.registry.exists()
 
 
-def test_protected_data_is_registered_and_guarded_on_resume(
-    tmp_path, monkeypatch
-):
+def test_protected_data_is_registered_and_guarded_on_resume(tmp_path, monkeypatch):
     """Registration captures the inputs half of evaluation identity, and a
     resume against tampered inputs fails loudly instead of silently
     scoring a different evaluation set.
@@ -343,13 +316,12 @@ def test_protected_data_is_registered_and_guarded_on_resume(
     data_dir.mkdir()
     (data_dir / "train.csv").write_text("PassengerId,y\n1,False\n")
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     monkeypatch.setattr(
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
+            "ideation_profile": "DEFAULT",
             "search_strategy": {"type": "generic", "params": {}},
             "evaluation_maintainer": dict(
                 MAINTAINER_BLOCK, protected_data_paths=["data"]
@@ -368,9 +340,7 @@ def test_protected_data_is_registered_and_guarded_on_resume(
     # The live reward hack, replayed against resume: rig the inputs.
     (data_dir / "train.csv").write_text("PassengerId,y\n1,True\n")
     resumed = _orchestrator(workspace, resume=True)
-    with pytest.raises(
-        EvaluationMaintainerError, match="inputs do not match"
-    ):
+    with pytest.raises(EvaluationMaintainerError, match="inputs do not match"):
         resumed.solve(experiment_max_iter=1)
 
 
@@ -385,14 +355,10 @@ def test_registry_is_never_tracked_in_git(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     orchestrator = _orchestrator(workspace)
     orchestrator.solve(experiment_max_iter=1)
 
     assert orchestrator.evaluation_maintainer.registry.exists()
-    tracked = git.Repo(workspace).git.ls_files(
-        ".kapso/evaluation_registry.json"
-    )
+    tracked = git.Repo(workspace).git.ls_files(".kapso/evaluation_registry.json")
     assert tracked == ""

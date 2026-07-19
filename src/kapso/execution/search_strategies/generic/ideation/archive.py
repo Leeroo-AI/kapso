@@ -10,10 +10,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 from kapso.execution.search_strategies.generic.ideation.types import (
+    AnalyzedCandidate,
     BatchStatus,
-    CandidateAnalysis,
     CandidateDispositionKind,
-    EmbeddingRecord,
+    CodingAgentCallResult,
+    EmbeddingTelemetry,
     EvaluationGap,
     EvidenceClaim,
     EvidenceStatus,
@@ -100,6 +101,73 @@ def _replace_record(
             else record
         )
         for record in records
+    )
+
+
+def _claim_is_compatible_descendant(
+    original: EvidenceClaim,
+    current: EvidenceClaim,
+) -> bool:
+    status_descendants = {
+        EvidenceStatus.INSUFFICIENT: {
+            EvidenceStatus.INSUFFICIENT,
+            EvidenceStatus.SUPPORTED,
+            EvidenceStatus.CONTRADICTED,
+        },
+        EvidenceStatus.SUPPORTED: {EvidenceStatus.SUPPORTED},
+        EvidenceStatus.CONTRADICTED: {EvidenceStatus.CONTRADICTED},
+    }
+    return bool(
+        original.claim_id == current.claim_id
+        and original.statement == current.statement
+        and original.kind == current.kind
+        and current.status in status_descendants[original.status]
+        and set(original.source_refs).issubset(current.source_refs)
+        and set(original.affected_idea_ids).issubset(current.affected_idea_ids)
+        and set(original.affected_experiment_node_ids).issubset(
+            current.affected_experiment_node_ids
+        )
+        and datetime.fromisoformat(current.updated_at)
+        >= datetime.fromisoformat(original.updated_at)
+    )
+
+
+def _gap_is_compatible_descendant(
+    original: EvaluationGap,
+    current: EvaluationGap,
+) -> bool:
+    state_descendants = {
+        GapState.OPEN: {GapState.OPEN, GapState.INCONCLUSIVE, GapState.CLOSED},
+        GapState.INCONCLUSIVE: {GapState.INCONCLUSIVE, GapState.CLOSED},
+        GapState.CLOSED: {GapState.CLOSED},
+    }
+    if original.last_considered_at is not None and (
+        current.last_considered_at is None
+        or datetime.fromisoformat(current.last_considered_at)
+        < datetime.fromisoformat(original.last_considered_at)
+    ):
+        return False
+    if original.state == current.state and original.state != GapState.OPEN:
+        same_resolution = (
+            original.resolution_idea_id == current.resolution_idea_id
+            and original.resolution_experiment_node_id
+            == current.resolution_experiment_node_id
+            and original.closure_reason == current.closure_reason
+        )
+    else:
+        same_resolution = True
+    return bool(
+        original.gap_id == current.gap_id
+        and original.axis == current.axis
+        and original.description == current.description
+        and original.impact == current.impact
+        and original.uncertainty == current.uncertainty
+        and original.estimated_cost == current.estimated_cost
+        and original.opened_at == current.opened_at
+        and set(original.evidence_refs).issubset(current.evidence_refs)
+        and original.deferral_count <= current.deferral_count
+        and current.state in state_descendants[original.state]
+        and same_resolution
     )
 
 
@@ -510,13 +578,19 @@ class IdeaArchive:
         batch_id: str,
         ideas: Iterable[IdeaRecord],
         *,
+        generation_calls: Iterable[CodingAgentCallResult],
         resurfaced_ideas: Iterable[ResurfacedIdea] = (),
         expected_revision: int,
     ) -> int:
         state = self._refresh()
         batch = self._find_batch(state, batch_id)
         generated = tuple(ideas)
+        calls = tuple(generation_calls)
         resurfaced = tuple(resurfaced_ideas)
+        if len(calls) != len(generated) or not all(
+            isinstance(call, CodingAgentCallResult) for call in calls
+        ):
+            raise ValueError("each generated idea requires one coding-agent call")
         if not all(isinstance(item, ResurfacedIdea) for item in resurfaced):
             raise ValueError("resurfaced ideas must be typed records")
         resurfaced_ids = tuple(item.idea_id for item in resurfaced)
@@ -527,6 +601,7 @@ class IdeaArchive:
         idea_by_id = {idea.idea_id: idea for idea in state.ideas}
         if (
             batch.generated_idea_ids == generated_ids
+            and batch.generation_calls == calls
             and batch.resurfaced_ideas == resurfaced
             and batch.considered_idea_ids == considered_ids
             and all(
@@ -563,6 +638,7 @@ class IdeaArchive:
             batch,
             status=BatchStatus.GENERATED,
             generated_idea_ids=generated_ids,
+            generation_calls=calls,
             resurfaced_ideas=resurfaced,
             considered_idea_ids=considered_ids,
             updated_at=utc_now(),
@@ -574,86 +650,88 @@ class IdeaArchive:
         )
         return self._commit(proposed, expected_revision)
 
-    def record_analysis(
+    def record_analyses(
         self,
         batch_id: str,
-        analysis: CandidateAnalysis,
+        analyzed_candidates: Iterable[AnalyzedCandidate],
         *,
-        embedding: Optional[EmbeddingRecord] = None,
-        nearest_experiment_node_ids: Optional[Iterable[int]] = None,
-        similarity_flags: Optional[Iterable[str]] = None,
+        embedding_telemetry: Optional[EmbeddingTelemetry] = None,
         expected_revision: int,
     ) -> int:
         state = self._refresh()
         batch = self._find_batch(state, batch_id)
-        existing = tuple(
-            item for item in batch.analyses if item.idea_id == analysis.idea_id
-        )
-        idea = self._find_idea(state, analysis.idea_id)
-        next_embedding = idea.embedding if embedding is None else embedding
-        next_nearest_nodes = (
-            idea.nearest_experiment_node_ids
-            if nearest_experiment_node_ids is None
-            else tuple(nearest_experiment_node_ids)
-        )
-        next_similarity_flags = (
-            idea.similarity_flags
-            if similarity_flags is None
-            else tuple(similarity_flags)
-        )
-        if existing:
+        analyzed = tuple(analyzed_candidates)
+        if not analyzed or not all(
+            isinstance(candidate, AnalyzedCandidate) for candidate in analyzed
+        ):
+            raise ValueError("candidate analyses must be complete typed records")
+        if embedding_telemetry is not None and not isinstance(
+            embedding_telemetry, EmbeddingTelemetry
+        ):
+            raise ValueError("analysis embedding telemetry is invalid")
+        analysis_ids = tuple(candidate.analysis.idea_id for candidate in analyzed)
+        if analysis_ids != batch.considered_idea_ids:
+            raise ArchiveLifecycleError(
+                "analysis pool must exactly match considered-idea order"
+            )
+        if batch.analyses:
+            idea_by_id = {idea.idea_id: idea for idea in state.ideas}
             if (
-                existing[0] == analysis
-                and idea.embedding == next_embedding
-                and idea.nearest_experiment_node_ids == next_nearest_nodes
-                and idea.similarity_flags == next_similarity_flags
+                batch.analyses == tuple(candidate.analysis for candidate in analyzed)
+                and batch.embedding_telemetry == embedding_telemetry
+                and all(
+                    idea_by_id[candidate.analysis.idea_id].embedding
+                    == candidate.embedding
+                    and idea_by_id[
+                        candidate.analysis.idea_id
+                    ].nearest_experiment_node_ids
+                    == candidate.nearest_experiment_node_ids
+                    and idea_by_id[candidate.analysis.idea_id].similarity_flags
+                    == candidate.similarity_flags
+                    for candidate in analyzed
+                )
             ):
                 return state.revision
-            raise ArchiveIdentityConflictError(
-                f"analysis already differs for idea: {analysis.idea_id}"
-            )
+            raise ArchiveIdentityConflictError("batch analysis pool already differs")
         self._require_revision(state, expected_revision)
         if batch.status != BatchStatus.GENERATED:
             raise ArchiveLifecycleError("analysis requires a generated batch")
-        if analysis.idea_id not in batch.considered_idea_ids:
-            raise ArchiveMissingReferenceError(
-                "analysis idea is not in the considered pool"
-            )
-        if analysis.exact_duplicate_of is not None:
-            self._find_idea(state, analysis.exact_duplicate_of)
-        next_idea = replace(
-            idea,
-            exact_duplicate_of=analysis.exact_duplicate_of,
-            embedding=next_embedding,
-            nearest_experiment_node_ids=next_nearest_nodes,
-            similarity_flags=next_similarity_flags,
-        )
-        if not analysis.eligible:
-            require_idea_transition(idea.status, IdeaStatus.INVALID)
-            reason_parts = analysis.hard_failures or ("candidate deemed ineligible",)
+        next_ideas = state.ideas
+        for candidate in analyzed:
+            analysis = candidate.analysis
+            idea = self._find_idea(state, analysis.idea_id)
+            if analysis.exact_duplicate_of is not None:
+                self._find_idea(state, analysis.exact_duplicate_of)
             next_idea = replace(
-                next_idea,
-                status=IdeaStatus.INVALID,
-                rejection_reason="; ".join(reason_parts),
+                idea,
+                exact_duplicate_of=analysis.exact_duplicate_of,
+                embedding=candidate.embedding,
+                nearest_experiment_node_ids=candidate.nearest_experiment_node_ids,
+                similarity_flags=candidate.similarity_flags,
             )
-        analyses = batch.analyses + (analysis,)
-        next_status = (
-            BatchStatus.ANALYZED
-            if len(analyses) == len(batch.considered_idea_ids)
-            else BatchStatus.GENERATED
-        )
-        if next_status == BatchStatus.ANALYZED:
-            require_batch_transition(batch.status, next_status)
+            if not analysis.eligible:
+                require_idea_transition(idea.status, IdeaStatus.INVALID)
+                reason_parts = analysis.hard_failures or (
+                    "candidate deemed ineligible",
+                )
+                next_idea = replace(
+                    next_idea,
+                    status=IdeaStatus.INVALID,
+                    rejection_reason="; ".join(reason_parts),
+                )
+            next_ideas = _replace_record(next_ideas, "idea_id", next_idea)
+        require_batch_transition(batch.status, BatchStatus.ANALYZED)
         next_batch = replace(
             batch,
-            analyses=analyses,
-            status=next_status,
+            analyses=tuple(candidate.analysis for candidate in analyzed),
+            embedding_telemetry=embedding_telemetry,
+            status=BatchStatus.ANALYZED,
             updated_at=utc_now(),
         )
         proposed = replace(
             state,
             batches=_replace_record(state.batches, "batch_id", next_batch),
-            ideas=_replace_record(state.ideas, "idea_id", next_idea),
+            ideas=next_ideas,
         )
         return self._commit(proposed, expected_revision)
 
@@ -662,15 +740,19 @@ class IdeaArchive:
         batch_id: str,
         idea: IdeaRecord,
         *,
+        generation_call: CodingAgentCallResult,
         expected_revision: int,
     ) -> int:
         state = self._refresh()
         batch = self._find_batch(state, batch_id)
+        if not isinstance(generation_call, CodingAgentCallResult):
+            raise ValueError("repair idea requires a coding-agent call")
         existing = tuple(item for item in state.ideas if item.idea_id == idea.idea_id)
         if existing:
             if (
                 len(batch.generated_idea_ids) == batch.directive.candidate_quota + 1
                 and batch.generated_idea_ids[-1] == idea.idea_id
+                and batch.generation_calls[-1] == generation_call
                 and self._idea_generation_identity(existing[0])
                 == self._idea_generation_identity(idea)
             ):
@@ -694,6 +776,7 @@ class IdeaArchive:
         next_batch = replace(
             batch,
             generated_idea_ids=batch.generated_idea_ids + (idea.idea_id,),
+            generation_calls=batch.generation_calls + (generation_call,),
             considered_idea_ids=batch.considered_idea_ids + (idea.idea_id,),
             updated_at=utc_now(),
         )
@@ -709,17 +792,21 @@ class IdeaArchive:
         batch_id: str,
         decision: SelectionDecision,
         *,
+        selection_call: CodingAgentCallResult,
         expected_revision: int,
     ) -> int:
         state = self._refresh()
         batch = self._find_batch(state, batch_id)
+        if not isinstance(selection_call, CodingAgentCallResult):
+            raise ValueError("selection requires a coding-agent call")
         if batch.selection is not None:
-            if batch.selection == decision:
+            if batch.selection == decision and batch.selection_call == selection_call:
                 return state.revision
             raise ArchiveIdentityConflictError("batch selection already differs")
         self._require_revision(state, expected_revision)
         if batch.status != BatchStatus.ANALYZED:
             raise ArchiveLifecycleError("selection requires complete analysis")
+        selection_recorded_at = utc_now()
         dispositions = {
             disposition.idea_id: disposition for disposition in decision.dispositions
         }
@@ -761,17 +848,38 @@ class IdeaArchive:
                     )
                 next_idea = replace(idea, rejection_reason=disposition.reason)
             next_ideas = _replace_record(next_ideas, "idea_id", next_idea)
+        next_gaps = state.gaps
+        reserved_gap_id = batch.directive.reserved_gap_id
+        selected_idea = self._find_idea(state, decision.selected_idea_id)
+        if (
+            reserved_gap_id is not None
+            and reserved_gap_id not in selected_idea.target_gap_ids
+        ):
+            reserved_gap = self._find_gap(state, reserved_gap_id)
+            if reserved_gap.state != GapState.OPEN:
+                raise ArchiveLifecycleError("only open reserved gaps may be deferred")
+            next_gaps = _replace_record(
+                next_gaps,
+                "gap_id",
+                replace(
+                    reserved_gap,
+                    deferral_count=reserved_gap.deferral_count + 1,
+                    last_considered_at=selection_recorded_at,
+                ),
+            )
         require_batch_transition(batch.status, BatchStatus.SELECTED)
         next_batch = replace(
             batch,
             selection=decision,
+            selection_call=selection_call,
             status=BatchStatus.SELECTED,
-            updated_at=utc_now(),
+            updated_at=selection_recorded_at,
         )
         proposed = replace(
             state,
             batches=_replace_record(state.batches, "batch_id", next_batch),
             ideas=next_ideas,
+            gaps=next_gaps,
         )
         return self._commit(proposed, expected_revision)
 
@@ -836,6 +944,23 @@ class IdeaArchive:
         idea = self._find_idea(state, idea_id)
         claim_changes = tuple(claim_updates)
         gap_changes = tuple(gap_updates)
+        claim_change_ids = tuple(claim.claim_id for claim in claim_changes)
+        gap_change_ids = tuple(gap.gap_id for gap in gap_changes)
+        if len(set(claim_change_ids)) != len(claim_change_ids):
+            raise ArchiveLifecycleError("outcome claim updates must be unique")
+        if len(set(gap_change_ids)) != len(gap_change_ids):
+            raise ArchiveLifecycleError("outcome gap updates must be unique")
+        expected_claim_ids = set(outcome.supported_claim_ids) | set(
+            outcome.contradicted_claim_ids
+        )
+        if set(claim_change_ids) != expected_claim_ids:
+            raise ArchiveLifecycleError(
+                "outcome claim updates must exactly cover classified claims"
+            )
+        if set(gap_change_ids) != set(outcome.gap_effects):
+            raise ArchiveLifecycleError(
+                "outcome gap updates must exactly cover gap effects"
+            )
         if idea.outcome is not None:
             persisted_claim_changes = tuple(
                 self._find_claim(state, claim.claim_id) for claim in claim_changes
@@ -843,17 +968,22 @@ class IdeaArchive:
             persisted_gap_changes = tuple(
                 self._find_gap(state, gap.gap_id) for gap in gap_changes
             )
-            resolved_gap_ids = {
-                gap.gap_id for gap in state.gaps if gap.resolution_idea_id == idea_id
-            }
             if (
                 idea.outcome == outcome
-                and persisted_claim_changes == claim_changes
-                and persisted_gap_changes == gap_changes
-                and set(outcome.supported_claim_ids)
-                | set(outcome.contradicted_claim_ids)
-                == {claim.claim_id for claim in claim_changes}
-                and resolved_gap_ids == {gap.gap_id for gap in gap_changes}
+                and all(
+                    _claim_is_compatible_descendant(original, current)
+                    for original, current in zip(
+                        claim_changes,
+                        persisted_claim_changes,
+                    )
+                )
+                and all(
+                    _gap_is_compatible_descendant(original, current)
+                    for original, current in zip(
+                        gap_changes,
+                        persisted_gap_changes,
+                    )
+                )
             ):
                 return state.revision
             raise ArchiveIdentityConflictError("idea outcome already differs")
@@ -864,16 +994,9 @@ class IdeaArchive:
         if batch.status != BatchStatus.BRIDGED:
             raise ArchiveLifecycleError("outcome requires a bridged batch")
         update_by_claim = {claim.claim_id: claim for claim in claim_changes}
-        expected_claim_ids = set(outcome.supported_claim_ids) | set(
-            outcome.contradicted_claim_ids
-        )
-        if set(update_by_claim) != expected_claim_ids:
-            raise ArchiveLifecycleError(
-                "outcome claim updates must exactly cover classified claims"
-            )
+        existing_claims_by_id = {claim.claim_id: claim for claim in state.claims}
         next_claims = state.claims
         for claim_id, update in update_by_claim.items():
-            current = self._find_claim(state, claim_id)
             expected_status = (
                 EvidenceStatus.SUPPORTED
                 if claim_id in outcome.supported_claim_ids
@@ -881,26 +1004,75 @@ class IdeaArchive:
             )
             if update.status != expected_status:
                 raise ArchiveLifecycleError("claim update conflicts with outcome")
-            if (
-                current.statement != update.statement
-                or current.kind != update.kind
-                or not set(current.affected_idea_ids).issubset(update.affected_idea_ids)
-                or idea_id not in update.affected_idea_ids
-                or idea.experiment_node_id not in update.affected_experiment_node_ids
+            if idea_id not in update.affected_idea_ids or (
+                idea.experiment_node_id not in update.affected_experiment_node_ids
             ):
                 raise ArchiveIdentityConflictError(
-                    "claim update changes identity or lacks outcome provenance"
+                    "claim update lacks outcome provenance"
                 )
-            next_claims = _replace_record(next_claims, "claim_id", update)
+            current = existing_claims_by_id.get(claim_id)
+            if current is None:
+                if update.affected_idea_ids != (idea_id,) or (
+                    update.affected_experiment_node_ids != (idea.experiment_node_id,)
+                ):
+                    raise ArchiveIdentityConflictError(
+                        "new claim must belong to the current outcome"
+                    )
+                next_claims += (update,)
+            else:
+                if (
+                    current.statement != update.statement
+                    or current.kind != update.kind
+                    or current.status
+                    not in {EvidenceStatus.INSUFFICIENT, update.status}
+                    or not set(current.source_refs).issubset(update.source_refs)
+                    or not set(current.affected_idea_ids).issubset(
+                        update.affected_idea_ids
+                    )
+                    or not set(current.affected_experiment_node_ids).issubset(
+                        update.affected_experiment_node_ids
+                    )
+                    or datetime.fromisoformat(update.updated_at)
+                    <= datetime.fromisoformat(current.updated_at)
+                ):
+                    raise ArchiveIdentityConflictError("claim update changes identity")
+                next_claims = _replace_record(next_claims, "claim_id", update)
+        existing_gaps_by_id = {gap.gap_id: gap for gap in state.gaps}
         next_gaps = state.gaps
         for update in gap_changes:
-            current = self._find_gap(state, update.gap_id)
+            current = existing_gaps_by_id.get(update.gap_id)
+            if current is None:
+                if update.state != GapState.OPEN:
+                    raise ArchiveLifecycleError("new outcome gaps must be open")
+                if (
+                    update.resolution_idea_id is not None
+                    or update.resolution_experiment_node_id is not None
+                    or f"experiment_node:{idea.experiment_node_id}"
+                    not in update.evidence_refs
+                ):
+                    raise ArchiveIdentityConflictError(
+                        "new gap lacks outcome provenance"
+                    )
+                next_gaps += (update,)
+                continue
             if update.gap_id not in idea.target_gap_ids:
                 raise ArchiveLifecycleError("outcome cannot resolve an untargeted gap")
             require_gap_transition(current.state, update.state)
             if (
                 current.axis != update.axis
                 or current.description != update.description
+                or current.impact != update.impact
+                or current.uncertainty != update.uncertainty
+                or current.estimated_cost != update.estimated_cost
+                or current.opened_at != update.opened_at
+                or current.deferral_count != update.deferral_count
+                or not set(current.evidence_refs).issubset(update.evidence_refs)
+                or update.last_considered_at is None
+                or (
+                    current.last_considered_at is not None
+                    and datetime.fromisoformat(update.last_considered_at)
+                    <= datetime.fromisoformat(current.last_considered_at)
+                )
                 or update.resolution_idea_id != idea_id
                 or update.resolution_experiment_node_id != idea.experiment_node_id
             ):
@@ -946,18 +1118,15 @@ class IdeaArchive:
                 return state.revision
             raise ArchiveIdentityConflictError("batch abandonment reason differs")
         self._require_revision(state, expected_revision)
+        if batch.status in {BatchStatus.SELECTED, BatchStatus.BRIDGED}:
+            raise ArchiveLifecycleError(
+                "selected or bridged batches cannot be abandoned"
+            )
         require_batch_transition(batch.status, BatchStatus.ABANDONED)
         next_ideas = state.ideas
         for idea_id in batch.generated_idea_ids:
             idea = self._find_idea(state, idea_id)
             if idea.status in {IdeaStatus.GENERATED, IdeaStatus.DEFERRED}:
-                require_idea_transition(idea.status, IdeaStatus.ABANDONED)
-                next_ideas = _replace_record(
-                    next_ideas,
-                    "idea_id",
-                    replace(idea, status=IdeaStatus.ABANDONED),
-                )
-            elif idea.status == IdeaStatus.SELECTED:
                 require_idea_transition(idea.status, IdeaStatus.ABANDONED)
                 next_ideas = _replace_record(
                     next_ideas,
@@ -988,7 +1157,14 @@ class IdeaArchive:
         if not changes:
             return state.revision
         existing_by_id = {claim.claim_id: claim for claim in state.claims}
-        if all(existing_by_id.get(claim.claim_id) == claim for claim in changes):
+        if all(
+            existing_by_id.get(claim.claim_id) is not None
+            and _claim_is_compatible_descendant(
+                claim,
+                existing_by_id[claim.claim_id],
+            )
+            for claim in changes
+        ):
             return state.revision
         self._require_revision(state, expected_revision)
         next_claims = state.claims
@@ -1004,6 +1180,15 @@ class IdeaArchive:
             if (
                 existing.statement != claim.statement
                 or existing.kind != claim.kind
+                or (
+                    existing.status != claim.status
+                    and existing.status != EvidenceStatus.INSUFFICIENT
+                )
+                or not set(existing.source_refs).issubset(claim.source_refs)
+                or not set(existing.affected_idea_ids).issubset(claim.affected_idea_ids)
+                or not set(existing.affected_experiment_node_ids).issubset(
+                    claim.affected_experiment_node_ids
+                )
                 or datetime.fromisoformat(claim.updated_at)
                 <= datetime.fromisoformat(existing.updated_at)
             ):
@@ -1025,7 +1210,14 @@ class IdeaArchive:
         if not additions:
             return state.revision
         existing_by_id = {gap.gap_id: gap for gap in state.gaps}
-        if all(existing_by_id.get(gap.gap_id) == gap for gap in additions):
+        if all(
+            existing_by_id.get(gap.gap_id) is not None
+            and _gap_is_compatible_descendant(
+                gap,
+                existing_by_id[gap.gap_id],
+            )
+            for gap in additions
+        ):
             return state.revision
         self._require_revision(state, expected_revision)
         for gap in additions:

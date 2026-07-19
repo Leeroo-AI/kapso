@@ -1,10 +1,12 @@
 """Behavioral contracts for evidence-directed ideation records."""
 
 import math
+from dataclasses import replace
 
 import pytest
 
 from kapso.execution.search_strategies.generic.ideation import (
+    AnalyzedCandidate,
     BatchStatus,
     CampaignAction,
     CampaignEvidenceSnapshot,
@@ -59,6 +61,16 @@ GAP_ID = "gap_" + "e" * 32
 EVIDENCE_DIGEST = "1" * 64
 EVIDENCE_ID = content_identifier("evidence_snapshot", EVIDENCE_DIGEST)
 CAPACITY_ID = "capacity_snapshot_" + "2" * 32
+
+
+def coding_agent_call(output: str = "{}") -> CodingAgentCallResult:
+    return CodingAgentCallResult(
+        output=output,
+        duration_seconds=1.0,
+        cost_usd=0.25,
+        input_tokens=10,
+        output_tokens=5,
+    )
 
 
 def descriptor() -> IdeaDescriptor:
@@ -175,10 +187,9 @@ def batch_capacity() -> IdeationCapacityView:
         reserve_run=False,
         deadline_seconds=300.0,
         can_start_complete_action=True,
+        can_run_granted_evaluation=True,
         can_run_comparable_evaluation=True,
         preserves_finalization_reserve=True,
-        opportunity_probe_required=False,
-        opportunity_probe_admissible=False,
     )
 
 
@@ -201,6 +212,22 @@ def planned_batch() -> IdeaBatch:
 
 def eligible_analysis() -> CandidateAnalysis:
     return CandidateAnalysis(idea_id=IDEA_ID, eligible=True)
+
+
+def analyzed_candidate(
+    analysis: CandidateAnalysis,
+    *,
+    embedding: EmbeddingRecord | None = None,
+    nearest_experiment_node_ids=(),
+    similarity_flags=(),
+) -> AnalyzedCandidate:
+    return AnalyzedCandidate(
+        analysis=analysis,
+        descriptor=descriptor(),
+        embedding=embedding,
+        nearest_experiment_node_ids=nearest_experiment_node_ids,
+        similarity_flags=similarity_flags,
+    )
 
 
 def selection() -> SelectionDecision:
@@ -298,10 +325,9 @@ def test_every_record_round_trips_through_its_strict_parser():
         reserve_run=False,
         deadline_seconds=300.0,
         can_start_complete_action=True,
+        can_run_granted_evaluation=True,
         can_run_comparable_evaluation=True,
         preserves_finalization_reserve=True,
-        opportunity_probe_required=False,
-        opportunity_probe_admissible=False,
     )
     records = (
         CodingAgentCallRequest(
@@ -419,6 +445,16 @@ def test_typed_ids_and_finite_numbers_are_enforced():
         IdeaRecord.from_dict(payload)
 
 
+def test_batch_capacity_snapshot_must_match_its_directive():
+    mismatched_capacity = replace(
+        batch_capacity(),
+        capacity_snapshot_id="capacity_snapshot_" + "f" * 32,
+    )
+
+    with pytest.raises(ValueError, match="capacity snapshots must match"):
+        replace(planned_batch(), capacity=mismatched_capacity)
+
+
 def test_lifecycle_transition_tables_reject_skips_and_backwards_moves():
     require_batch_transition(BatchStatus.PLANNED, BatchStatus.GENERATED)
     require_idea_transition(IdeaStatus.DEFERRED, IdeaStatus.SELECTED)
@@ -426,6 +462,10 @@ def test_lifecycle_transition_tables_reject_skips_and_backwards_moves():
 
     with pytest.raises(ValueError, match="illegal batch transition"):
         require_batch_transition(BatchStatus.PLANNED, BatchStatus.SELECTED)
+    with pytest.raises(ValueError, match="illegal batch transition"):
+        require_batch_transition(BatchStatus.SELECTED, BatchStatus.ABANDONED)
+    with pytest.raises(ValueError, match="illegal batch transition"):
+        require_batch_transition(BatchStatus.BRIDGED, BatchStatus.ABANDONED)
     with pytest.raises(ValueError, match="illegal idea transition"):
         require_idea_transition(IdeaStatus.EVALUATED, IdeaStatus.SELECTED)
     with pytest.raises(ValueError, match="illegal gap transition"):

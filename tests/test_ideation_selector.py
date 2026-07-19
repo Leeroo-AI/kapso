@@ -132,6 +132,7 @@ def test_selector_sees_only_eligible_candidate_content_and_covers_every_idea(
         invalid.idea_id,
     }
     assert request.cli == "claude_code"
+    assert "`gap_decisions` entry" in request.prompt
     assert schema["additionalProperties"] is False
 
 
@@ -218,6 +219,44 @@ def test_selector_diagnosis_must_match_frozen_claim_status_and_sources(tmp_path)
         settings(),
     )
     with pytest.raises(ValueError, match="status contradicts"):
+        selector.select(
+            batch_id=BATCH_ID,
+            problem_statement="problem",
+            evidence_snapshot=snapshot,
+            directive=search_directive,
+            candidates=(first,),
+            analyses=(CandidateAnalysis(idea_id=first.idea_id, eligible=True),),
+            workspace=str(tmp_path),
+        )
+
+
+def test_selector_diagnosis_cannot_add_unselected_claims(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    claim = EvidenceClaim(
+        claim_id=CLAIM_ID,
+        statement="A known claim that the selected candidate does not use.",
+        kind=ClaimKind.HYPOTHESIS,
+        status=EvidenceStatus.SUPPORTED,
+        source_refs=("evaluation:support",),
+        affected_idea_ids=(),
+        affected_experiment_node_ids=(),
+        updated_at=NOW,
+    )
+    snapshot = replace(snapshot, claims=(claim,))
+    first = candidate(tmp_path, snapshot, search_directive)
+    extra_audit = (
+        {
+            "claim_id": CLAIM_ID,
+            "status": EvidenceStatus.SUPPORTED.value,
+            "evidence_refs": ["evaluation:support"],
+        },
+    )
+    selector = CandidateSelector(
+        FakeRunner(output(first.idea_id, audit=extra_audit)),
+        settings(),
+    )
+
+    with pytest.raises(ValueError, match="exactly cover selected claim ids"):
         selector.select(
             batch_id=BATCH_ID,
             problem_statement="problem",

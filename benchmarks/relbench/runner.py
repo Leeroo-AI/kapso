@@ -79,7 +79,7 @@ def solve_task(args) -> dict:
     #   the handler computes official metrics itself, and passing a provided
     #   suite would turn on the integrity check against agents writing their
     #   own scripts into kapso_evaluation/.
-    # - generic: champion-chain search with code-reading agentic ideation.
+    # - generic: evidence-directed ideation with frozen parent plans.
     #   Our provided grader (data/generic_eval) becomes the maintainer-
     #   registered evaluation entrypoint; in-loop scoring is val-only by
     #   construction (the sanitized cache holds no test labels).
@@ -88,8 +88,8 @@ def solve_task(args) -> dict:
     initial_repo = args.initial_repo
     if generic and not initial_repo:
         # The maintainer calibrates the registered evaluation at setup, which
-        # requires a runnable candidate — and parent_policy=best needs a real
-        # starting parent. Seed a trivial shape-correct baseline.
+        # requires a runnable candidate. Seed a trivial shape-correct baseline
+        # so best-valid and verification plans have an executable root.
         import shutil
         import tempfile
 
@@ -122,9 +122,16 @@ def solve_task(args) -> dict:
     cost = orchestrator.get_cumulative_cost()
     workspace = orchestrator.search_strategy.workspace.workspace_dir
 
-    print("\n" + "=" * 70 + "\nFinal Evaluation (validation-selected, test reported once)\n" + "=" * 70)
+    print(
+        "\n"
+        + "=" * 70
+        + "\nFinal Evaluation (validation-selected, test reported once)\n"
+        + "=" * 70
+    )
     report = handler.final_evaluate(workspace)
-    report.update({"best_branch": best_branch, "workspace": workspace, "cost_usd": round(cost, 3)})
+    report.update(
+        {"best_branch": best_branch, "workspace": workspace, "cost_usd": round(cost, 3)}
+    )
     print(json.dumps(report, indent=2, default=str))
     return report
 
@@ -136,27 +143,38 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument("-s", "--dataset", type=str, help="Dataset name (e.g. rel-f1)")
-    parser.add_argument("-t", "--task", type=str, help="Task name (e.g. driver-position)")
+    parser.add_argument(
+        "-t", "--task", type=str, help="Task name (e.g. driver-position)"
+    )
     parser.add_argument("-i", "--iterations", type=int, default=20)
     parser.add_argument("-m", "--mode", type=str, default=None)
-    parser.add_argument("-d", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, default=None)
+    parser.add_argument(
+        "-d", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, default=None
+    )
     parser.add_argument("--no-kg", action="store_true")
     parser.add_argument("--workspace", type=str, default=None)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
-        "--strategy", type=str, choices=["tree", "generic"], default="generic",
-        help="generic = champion-chain search with the provided grader (default, "
+        "--strategy",
+        type=str,
+        choices=["tree", "generic"],
+        default="generic",
+        help="generic = evidence-directed search with frozen parent plans (default, "
         "campaign standard since the R5 A/B); tree = handler-scored "
         "benchmark_tree_search",
     )
     parser.add_argument(
-        "--initial-repo", type=str, default=None,
+        "--initial-repo",
+        type=str,
+        default=None,
         help="Seed the workspace from an existing repo (e.g. a scout's winning branch)",
     )
     parser.add_argument("--target-val", type=float, default=None)
     parser.add_argument("--rebuild-cache", action="store_true")
     parser.add_argument("--knowledge-file", type=str, default=None)
-    parser.add_argument("--list", action="store_true", help="List native RelBench tasks")
+    parser.add_argument(
+        "--list", action="store_true", help="List native RelBench tasks"
+    )
     parser.add_argument("--list-agents", action="store_true")
     args = parser.parse_args()
 

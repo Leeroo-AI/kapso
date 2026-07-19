@@ -11,55 +11,55 @@ Search strategies control how Kapso explores the solution space. They generate s
 
 | Strategy | Description | Best For |
 |----------|-------------|----------|
-| `generic` | Claude Code + MCP gates for ideation and implementation | General problem solving |
+| `generic` | Evidence-directed Codex/Claude CLI ideation with durable memory | General problem solving |
 | `benchmark_tree_search` | Tree-based exploration with handler evaluation | MLE-Bench, ALE-Bench |
 
 ## Generic Search
 
-The main strategy for general problem solving. Uses Claude Code with MCP gates for both ideation and implementation.
+The main strategy for general problem solving. Its deterministic policy chooses
+whether to explore, exploit, verify, recover, or finalize from measured
+campaign evidence and remaining capacity. Codex or Claude Code CLI agents
+propose and judge ideas. A final read-only Codex role authors strictly
+provenanced causal evidence from the code diff and evaluation record; only the
+embedding provider uses the OpenAI API.
 
 ```mermaid
 flowchart LR
-    A[Generate Solution via MCP] --> B[Implement Code]
-    B --> C[Run & Evaluate]
-    C --> D[Generate Feedback]
-    D --> A
+    E["Build frozen evidence"] --> P["Choose mode and operators"]
+    P --> G["Generate candidate pool"]
+    G --> A["Analyze novelty and feasibility"]
+    A --> S["Persist selection"]
+    S --> L["Link idea to SearchNode"]
+    L --> X["Implement and evaluate"]
+    X --> C["Author causal evidence"]
+    C --> M["Write ExperimentRecord and IdeaOutcome"]
 ```
 
 ### Configuration
 
 ```yaml
+ideation_profile: DEFAULT
 search_strategy:
-  type: "generic"
+  type: generic
   params:
-    idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    auth_mode: "bedrock"
-    parent_policy: "best"
-    aws_region: "us-east-1"
-    gate_failure_policy: "warn"
-    ideation_timeout: 300
+    implementation_model: us.anthropic.claude-opus-4-6-v1
+    auth_mode: bedrock
     implementation_timeout: 600
-    ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
-    implementation_gates: ["research", "repo_memory", "leeroopedia"]
+    implementation_gates: [research, repo_memory, leeroopedia]
 ```
 
-The generic strategy deliberately keeps `bedrock` as its default authentication
-profile. Set `auth_mode` to `auto`, `api_key`, or `oauth` to opt into another
-Claude Code credential source. The deprecated `use_bedrock` boolean is still
-accepted for compatibility.
+`ideation_profile` is required. It resolves only from
+`src/kapso/config.yaml:ideation_profiles` and is injected into the strategy as
+one exact configuration object. The profile owns candidate, selector, and
+evidence-author CLI roles, models, timeouts, tools, evidence thresholds,
+operator quotas, archive location, embedding identity, and novelty thresholds.
+Unknown or missing fields fail during configuration.
 
-Gate requirements are checked before each agent is configured. `warn` (the
-default) removes unavailable gates and logs a warning, `skip` removes them
-silently, and `error` stops configuration. Unknown gate names always fail. See
-[Capability-Aware MCP Gates](/docs/evolve/mcp-gates).
-
-`parent_policy` controls experiment lineage. `best` (the default) refines the
-best valid candidate; `baseline` starts every candidate from `main`. Ideation
-reads from a detached worktree of that same selected ref, so its code and
-RepoMemory context match the implementation base. See
-[Parent Selection](/docs/evolve/parent-selection) for lineage and resume
-semantics.
+`implementation_gates` applies only after an idea is selected. Ideation receives
+a mandatory frozen packet and read-only CLI tools; it does not depend on an
+idea-history MCP service. See [Parent Selection](/docs/evolve/parent-selection)
+for frozen lineage semantics and [Capability-Aware MCP Gates](/docs/evolve/mcp-gates)
+for implementation gates.
 
 ### Usage
 
@@ -71,23 +71,28 @@ strategy = SearchStrategyFactory.create(
     problem_handler=handler,
     llm=llm,
     coding_agent_config=config,
-    params={"ideation_timeout": 300},
+    params={
+        "ideation": canonical_ideation_profile,
+        "implementation_timeout": 600,
+    },
 )
 
 strategy.run(context, budget_progress=0.0)
 best = strategy.get_best_experiment()
 ```
 
-### MCP Gates
+### Durable memory
 
-The generic strategy uses MCP gates for external knowledge access:
+- `IdeaArchive` stores every batch, candidate, analysis, decision, embedding,
+  immutable parent snapshot, experiment link, and final outcome.
+- `SearchNode` plus the run checkpoint owns executable state and exact lineage.
+- `ExperimentHistoryStore` stores executed nodes only and exposes experiment
+  retrieval tools.
+- `RepoMemory` remains branch-local implementation context.
 
-| Gate | Tools | Purpose |
-|------|-------|---------|
-| `research` | `research_*` | Deep research capabilities |
-| `experiment_history` | `get_top_experiments`, `get_recent_experiments`, `search_similar_experiments` | Learn from past experiments |
-| `repo_memory` | `get_repo_memory_section`, `list_repo_memory_sections`, `get_repo_memory_summary` | Repository understanding |
-| `leeroopedia` | `search_knowledge`, `build_plan`, `review_plan`, `verify_code_math`, `diagnose_failure`, `propose_hypothesis`, `query_hyperparameter_priors`, `get_page` | Curated ML/AI knowledge via [Leeroopedia](https://leeroopedia.com) |
+The write order is selection, idea-to-node link, implementation/evaluation,
+ExperimentRecord, IdeaOutcome, then checkpoint. Resume validates or reconciles
+that ordering before admitting another iteration.
 
 ## Benchmark Tree Search
 
@@ -192,6 +197,8 @@ flowchart LR
 @dataclass
 class SearchNode:
     node_id: int
+    idea_id: str
+    selection_batch_id: str
     parent_node_id: Optional[int] = None
     
     # Step 1: Solution generation

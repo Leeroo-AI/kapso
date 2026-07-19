@@ -36,8 +36,9 @@ tests/
 
 ## Evidence builder tasks
 
-- [x] Accept read-only `SearchNode` projections, idea archive snapshot,
-      evaluation metadata, and capacity snapshot.
+- [x] Accept read-only `SearchNode` projections, the idea archive snapshot,
+      and the capacity snapshot; validated evaluator evidence enters through
+      the separate outcome write-back adapter.
 - [x] Normalize maximize/minimize objectives to utility.
 - [x] Build the causal spine: incumbent, latest attempt, linked ideas, parent
       lineage, and relevant negative evidence.
@@ -52,7 +53,7 @@ tests/
 
 ## Gap ledger tasks
 
-- [x] Accept typed gap declarations from evaluation profiles and outcomes.
+- [x] Accept typed gaps from validated outcome evidence.
 - [x] Allow only evaluation outcomes to close or mark gaps inconclusive.
 - [x] Compute priority from impact, evidence confidence, expected uncertainty
       reduction, and measured cost information.
@@ -67,8 +68,8 @@ tests/
       `EXPLOIT`, `EXPLORE`.
 - [x] Consume fidelity/budget decisions; do not create a second runtime model.
 - [x] Treat `FINALIZE` as an action, not a generator stance.
-- [x] Admit an opportunity probe only under the design's incumbent, reserve,
-      completion, and expected-value conditions.
+- [x] Do not fabricate a terminal opportunity-probe admission: only the
+      orchestrator's granted evaluation may run, and it must preserve reserve.
 - [x] Emit structured reasons referencing evidence IDs.
 - [x] Guarantee identical inputs produce identical `PolicyDecision`.
 

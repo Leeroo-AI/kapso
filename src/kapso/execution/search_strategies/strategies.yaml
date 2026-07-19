@@ -4,7 +4,7 @@
 # Each strategy has presets (modes) that can be referenced by benchmarks.
 #
 # Available strategies:
-#   - generic: Claude Code + MCP gates for ideation and implementation
+#   - generic: configured by src/kapso/config.yaml ideation profiles
 #   - benchmark_tree_search: Tree search with handler.run() for benchmarks
 #
 # To add configs for a new strategy:
@@ -18,41 +18,6 @@ default_strategy: "generic"
 
 # Strategy configurations
 strategies:
-  # =========================================================================
-  # Generic Search Strategy
-  # =========================================================================
-  generic:
-    description: "Claude Code + MCP gates for ideation and implementation"
-    
-    presets:
-      # Production preset - full capabilities
-      PRODUCTION:
-        params:
-          idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          auth_mode: "bedrock"
-          gate_failure_policy: "warn"
-          aws_region: "us-east-1"
-          ideation_timeout: 300
-          implementation_timeout: 600
-          ideation_gates: ["research", "experiment_history", "leeroopedia"]
-          implementation_gates: ["research", "leeroopedia"]
-      
-      # Minimal for quick testing
-      MINIMAL:
-        params:
-          idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          auth_mode: "bedrock"
-          gate_failure_policy: "warn"
-          aws_region: "us-east-1"
-          ideation_timeout: 180
-          implementation_timeout: 300
-          ideation_gates: ["research", "experiment_history", "leeroopedia"]
-          implementation_gates: ["research", "leeroopedia"]
-    
-    default_preset: "PRODUCTION"
-
   # =========================================================================
   # Benchmark Tree Search Strategy
   # =========================================================================

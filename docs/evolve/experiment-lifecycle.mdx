@@ -7,6 +7,22 @@ description: "How experiments are implemented, run, and debugged"
 
 Each experiment follows a lifecycle from solution selection through code generation, execution, and optional debugging.
 
+For Generic search, selection is already durable before this lifecycle begins.
+`IdeaArchive` stores the selected `IdeaRecord`, `SelectionDecision`, and frozen
+parent; `GenericSearch` then links that idea to the new `SearchNode` using
+required `idea_id` and `selection_batch_id` fields. After implementation and all
+orchestrator-side evaluation are final, persistence is ordered as:
+
+```text
+ExperimentHistoryStore.add_experiment(node)
+  -> GenericSearch.record_finalized_idea_outcome(node)
+  -> run checkpoint
+```
+
+This separates proposal memory from executed evidence while retaining an exact
+join. Resume reconciles a valid interruption between these writes and rejects a
+conflicting link.
+
 ```mermaid
 flowchart TB
     subgraph Lifecycle["Experiment Lifecycle"]
@@ -31,12 +47,12 @@ Each experiment runs in its own git branch, inheriting code from its parent expe
 ```mermaid
 gitGraph
     commit id: "main"
-    branch experiment_0
+    branch generic_exp_0
     commit id: "XGBoost baseline"
-    branch experiment_1
+    branch generic_exp_1
     commit id: "Add feature eng"
-    checkout experiment_0
-    branch experiment_2
+    checkout generic_exp_0
+    branch generic_exp_2
     commit id: "Try neural net"
 ```
 
@@ -157,4 +173,3 @@ def finalize_session(self, session):
     self.previous_sessions_cost += cost
     session.close_session()  # commit, push, cleanup
 ```
-

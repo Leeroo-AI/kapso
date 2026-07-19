@@ -9,6 +9,7 @@ import pytest
 from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
 from kapso.execution.search_strategies.generic.ideation.evidence import (
     CampaignEvidenceBuilder,
+    evidence_reference_ids,
 )
 from kapso.execution.search_strategies.generic.ideation.generator import (
     CandidateGenerator,
@@ -167,7 +168,13 @@ def test_every_member_receives_full_common_evidence_and_distinct_brief(tmp_path)
         packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
         assert packet["problem_statement"] == problem
         assert packet["evidence_snapshot"]["snapshot_id"] == snapshot.snapshot_id
+        assert packet["allowed_evidence_refs"] == sorted(
+            evidence_reference_ids(snapshot)
+        )
+        assert packet["allowed_evidence_refs"] == [snapshot.snapshot_id]
         assert packet["prior_ideas"] == []
+        assert "Copy `operator_brief.descriptor_target` exactly" in request.prompt
+        assert "capacity snapshot is planning context, not evidence" in request.prompt
         assert schema["additionalProperties"] is False
     assert generated[0].idea.generation_artifacts == ("/tmp/candidate_0.json",)
 

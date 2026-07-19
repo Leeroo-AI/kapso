@@ -10,6 +10,9 @@ from typing import Any, Mapping, Sequence, Tuple
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
 )
+from kapso.execution.search_strategies.generic.ideation.evidence import (
+    evidence_reference_ids,
+)
 from kapso.execution.search_strategies.generic.ideation.coding_agents import (
     CodingAgentCallRunner,
 )
@@ -50,8 +53,8 @@ CANDIDATE_RESPONSE_SCHEMA: Mapping[str, Any] = {
     "additionalProperties": False,
     "required": sorted(_CANDIDATE_FIELDS),
     "properties": {
-        "proposal": {"type": "string", "minLength": 1},
-        "directive_rationale": {"type": "string", "minLength": 1},
+        "proposal": {"type": "string"},
+        "directive_rationale": {"type": "string"},
         "descriptor": {
             "type": "object",
             "additionalProperties": False,
@@ -62,51 +65,40 @@ CANDIDATE_RESPONSE_SCHEMA: Mapping[str, Any] = {
                 "expected_effect",
             ],
             "properties": {
-                "approach_family": {"type": "string", "minLength": 1},
-                "intervention_target": {"type": "string", "minLength": 1},
-                "mechanism": {"type": "string", "minLength": 1},
-                "expected_effect": {"type": "string", "minLength": 1},
+                "approach_family": {"type": "string"},
+                "intervention_target": {"type": "string"},
+                "mechanism": {"type": "string"},
+                "expected_effect": {"type": "string"},
             },
         },
         "assumptions": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "evidence_refs": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "claim_ids": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "resolves_claim_ids": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "expected_observations": {
             "type": "array",
-            "minItems": 1,
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
-        "evaluation_method": {"type": "string", "minLength": 1},
-        "resource_request": {"type": "string", "minLength": 1},
+        "evaluation_method": {"type": "string"},
+        "resource_request": {"type": "string"},
         "predicted_gain": {"type": ["number", "null"]},
-        "predicted_cost": {"type": ["number", "null"], "minimum": 0},
-        "confidence": {
-            "type": ["number", "null"],
-            "minimum": 0,
-            "maximum": 1,
-        },
+        "predicted_cost": {"type": ["number", "null"]},
+        "confidence": {"type": ["number", "null"]},
         "claimed_nearest_idea_id": {"type": ["string", "null"]},
         "claimed_nearest_experiment_node_id": {
             "type": ["integer", "null"],
-            "minimum": 0,
         },
     },
 }
@@ -320,9 +312,7 @@ class CandidateGenerator:
             CodingAgentCallRequest(
                 operation_id=content_identifier(
                     "agent_call",
-                    hashlib.sha256(
-                        f"{batch_id}:{role}".encode("utf-8")
-                    ).hexdigest(),
+                    hashlib.sha256(f"{batch_id}:{role}".encode("utf-8")).hexdigest(),
                 ),
                 role=role,
                 cli=settings.cli,
@@ -399,6 +389,9 @@ class CandidateGenerator:
                 "role": role,
                 "problem_statement": problem_statement,
                 "evidence_snapshot": evidence_snapshot.to_dict(),
+                "allowed_evidence_refs": sorted(
+                    evidence_reference_ids(evidence_snapshot)
+                ),
                 "search_directive": directive.to_dict(),
                 "operator_brief": operator_brief.to_dict(),
                 "resolved_parent": resolved_parent.to_dict(),

@@ -79,30 +79,25 @@ interpreter for that subprocess, which avoids relying on a separate `python`
 executable on `PATH`. If all internal gates are omitted, no empty bundled server
 is created. External gates retain their own MCP server and tool-name prefix.
 
-## Generic search
+## Generic implementation
 
-The generic strategy defaults to `warn`, because its knowledge integrations are
-optional enrichment:
+Generic ideation gets proposal memory through its mandatory frozen packet and
+uses read-only tools declared by the canonical ideation profile. MCP gates are
+configured separately for the implementation agent:
 
 ```yaml
 search_strategy:
   type: generic
   params:
     gate_failure_policy: warn  # skip | warn | error
-    ideation_gates:
-      - research
-      - experiment_history
-      - repo_memory
-      - leeroopedia
     implementation_gates:
       - research
       - repo_memory
       - leeroopedia
 ```
 
-Use `error` for a reproducible campaign where every configured knowledge source
-is mandatory. Use `skip` when optional capabilities are expected to vary across
-machines and warnings would be noisy.
+Use `error` for a reproducible implementation environment where every configured
+knowledge source is mandatory. Unknown gate names always fail.
 
 ## Adding a gate
 

@@ -14,16 +14,14 @@ default_mode: E2E_BUDGET
 
 x-e2e-anchors:
   base: &e2e_base
+    ideation_profile: DEFAULT
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "claude-opus-4-6"
         implementation_model: "claude-opus-4-6"
         auth_mode: "oauth"
         gate_failure_policy: "warn"
-        ideation_timeout: 300
         implementation_timeout: 600
-        ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
     models:

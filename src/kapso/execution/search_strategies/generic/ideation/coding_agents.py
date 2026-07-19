@@ -77,12 +77,11 @@ class SubprocessCodingAgentCallRunner:
         )
         if not set(request.allowed_tools).issubset(supported_tools):
             raise ValueError("coding-agent request contains an unsupported tool")
-        artifact_directory = (
-            Path(self.settings.artifact_root) / request.operation_id
-        )
+        artifact_directory = Path(self.settings.artifact_root) / request.operation_id
         artifact_directory.mkdir(parents=True, exist_ok=True)
         prompt_path = artifact_directory / "prompt.txt"
         schema_path = artifact_directory / "response_schema.json"
+        invocation_path = artifact_directory / "invocation.json"
         stdout_path = artifact_directory / "stdout.txt"
         stderr_path = artifact_directory / "stderr.txt"
         final_path = artifact_directory / "final.json"
@@ -91,10 +90,27 @@ class SubprocessCodingAgentCallRunner:
             json.dumps(response_schema, indent=2, sort_keys=True, allow_nan=False)
             + "\n"
         )
+        invocation_text = (
+            json.dumps(
+                {
+                    "role": request.role,
+                    "cli": request.cli,
+                    "model": request.model,
+                    "timeout_seconds": request.timeout_seconds,
+                    "effort": request.effort,
+                    "allowed_tools": list(request.allowed_tools),
+                },
+                indent=2,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            + "\n"
+        )
         if result_path.is_file():
             if (
                 prompt_path.read_text(encoding="utf-8") != request.prompt
                 or schema_path.read_text(encoding="utf-8") != schema_text
+                or invocation_path.read_text(encoding="utf-8") != invocation_text
             ):
                 raise CodingAgentInvocationError(
                     "coding-agent operation identity was reused with new input"
@@ -102,20 +118,30 @@ class SubprocessCodingAgentCallRunner:
             return CodingAgentCallResult.from_dict(
                 json.loads(result_path.read_text(encoding="utf-8"))
             )
-        if prompt_path.exists() and prompt_path.read_text(
-            encoding="utf-8"
-        ) != request.prompt:
+        if (
+            prompt_path.exists()
+            and prompt_path.read_text(encoding="utf-8") != request.prompt
+        ):
             raise CodingAgentInvocationError(
                 "coding-agent operation prompt changed before retry"
             )
-        if schema_path.exists() and schema_path.read_text(
-            encoding="utf-8"
-        ) != schema_text:
+        if (
+            schema_path.exists()
+            and schema_path.read_text(encoding="utf-8") != schema_text
+        ):
             raise CodingAgentInvocationError(
                 "coding-agent operation schema changed before retry"
             )
+        if (
+            invocation_path.exists()
+            and invocation_path.read_text(encoding="utf-8") != invocation_text
+        ):
+            raise CodingAgentInvocationError(
+                "coding-agent operation invocation changed before retry"
+            )
         prompt_path.write_text(request.prompt, encoding="utf-8")
         schema_path.write_text(schema_text, encoding="utf-8")
+        invocation_path.write_text(invocation_text, encoding="utf-8")
         command = self._command(request, schema_path, final_path)
         started = time.monotonic()
         completed = subprocess.run(
@@ -150,6 +176,7 @@ class SubprocessCodingAgentCallRunner:
             for path in (
                 prompt_path,
                 schema_path,
+                invocation_path,
                 stdout_path,
                 stderr_path,
                 final_path,

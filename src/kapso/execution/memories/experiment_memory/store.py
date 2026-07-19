@@ -42,6 +42,7 @@ _RECORD_FIELDS = {
     "eval_fidelity",
     "validation_tier",
     "evaluation_attempts",
+    "phase_telemetry",
     "duration_seconds",
     "cost_usd",
 }
@@ -116,6 +117,7 @@ class ExperimentRecord:
     eval_fidelity: str
     validation_tier: str
     evaluation_attempts: Tuple[EvaluationAttempt, ...]
+    phase_telemetry: Dict[str, Dict[str, float]]
     duration_seconds: Optional[float]
     cost_usd: Optional[float]
 
@@ -126,6 +128,27 @@ class ExperimentRecord:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"experiment {name} must be non-negative")
+        if not isinstance(self.phase_telemetry, dict):
+            raise ValueError("experiment phase telemetry must be an object")
+        phase_telemetry = {}
+        for phase_name, measurements in self.phase_telemetry.items():
+            if not isinstance(phase_name, str) or not phase_name:
+                raise ValueError("experiment phase telemetry name is invalid")
+            if not isinstance(measurements, dict):
+                raise ValueError("experiment phase telemetry values must be objects")
+            phase_telemetry[phase_name] = {}
+            for measurement, value in measurements.items():
+                if (
+                    not isinstance(measurement, str)
+                    or not measurement
+                    or isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    or value < 0
+                ):
+                    raise ValueError("experiment phase telemetry value is invalid")
+                phase_telemetry[phase_name][measurement] = float(value)
+        object.__setattr__(self, "phase_telemetry", phase_telemetry)
         if self.parent_node_id is not None and (
             isinstance(self.parent_node_id, bool)
             or not isinstance(self.parent_node_id, int)
@@ -193,10 +216,10 @@ class ExperimentRecord:
         if self.raw_score is not None:
             sign = 1.0 if self.objective_direction == "maximize" else -1.0
             if self.normalized_utility != sign * self.raw_score:
-                raise ValueError("normalized utility conflicts with objective direction")
-        if self.had_error and (
-            self.raw_score is not None or self.evaluation_attempts
-        ):
+                raise ValueError(
+                    "normalized utility conflicts with objective direction"
+                )
+        if self.had_error and (self.raw_score is not None or self.evaluation_attempts):
             raise ValueError("failed experiments cannot contain evaluation evidence")
         if not isinstance(self.metrics, dict) or not all(
             isinstance(key, str)
@@ -296,6 +319,10 @@ class ExperimentRecord:
             eval_fidelity=node.eval_fidelity,
             validation_tier=validation_tier,
             evaluation_attempts=tuple(node.evaluation_attempts),
+            phase_telemetry={
+                phase: dict(measurements)
+                for phase, measurements in node.phase_telemetry.items()
+            },
             duration_seconds=node.duration_seconds,
             cost_usd=node.cost_usd,
         )
@@ -320,9 +347,7 @@ class ExperimentRecord:
             "technical_difficulties": self.technical_difficulties,
             "metrics": dict(self.metrics),
             "primary_metric": self.primary_metric,
-            "external_evaluation_metadata": dict(
-                self.external_evaluation_metadata
-            ),
+            "external_evaluation_metadata": dict(self.external_evaluation_metadata),
             "external_evaluation_error": self.external_evaluation_error,
             "evaluation_valid": self.evaluation_valid,
             "evaluation_provenance": self.evaluation_provenance,
@@ -333,6 +358,10 @@ class ExperimentRecord:
             "evaluation_attempts": [
                 attempt.to_dict() for attempt in self.evaluation_attempts
             ],
+            "phase_telemetry": {
+                phase: dict(measurements)
+                for phase, measurements in self.phase_telemetry.items()
+            },
             "duration_seconds": self.duration_seconds,
             "cost_usd": self.cost_usd,
         }
@@ -582,8 +611,7 @@ def format_experiments(experiments: Iterable[ExperimentRecord]) -> str:
                 else f"raw_score={record.raw_score}; utility={record.normalized_utility}"
             )
         )
-        lines.append(
-            f"""
+        lines.append(f"""
 ## Experiment {record.node_id} ({status})
 
 **Idea:** `{record.idea_id or 'not_applicable'}`
@@ -598,12 +626,9 @@ def format_experiments(experiments: Iterable[ExperimentRecord]) -> str:
 {record.solution}
 
 **Feedback:**
-{record.feedback}"""
-        )
+{record.feedback}""")
         if record.technical_difficulties:
-            lines.append(
-                f"""
+            lines.append(f"""
 **Technical difficulties:**
-{record.technical_difficulties}"""
-            )
+{record.technical_difficulties}""")
     return "\n".join(lines)

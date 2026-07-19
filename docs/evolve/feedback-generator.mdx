@@ -135,11 +135,11 @@ else:
 The feedback generator is integrated within the search strategy. You can configure the agent type in the search strategy configuration:
 
 ```yaml
+ideation_profile: DEFAULT
 search_strategy:
   type: "generic"
   params:
-    idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    implementation_model: "us.anthropic.claude-opus-4-6-v1"
 ```
 
 ## Integration with Search Strategy
@@ -153,8 +153,9 @@ Feedback generation happens within the search strategy, not the orchestrator. Th
 ```python
 # In SearchStrategy.run()
 def run(self, context, budget_progress):
-    # 1. Generate solution
-    solution = self._generate_solution(context)
+    # 1. Persist an evidence-directed idea selection
+    ideation = self._build_ideation_engine().run(...)
+    solution = ideation.selected_idea.proposal
     
     # 2. Implement and run evaluation
     node = self._implement_n_debug(solution, context, branch_name)
@@ -170,9 +171,9 @@ def run(self, context, budget_progress):
     return node
 ```
 
-## Comparison with Legacy Evaluators
+## Comparison with Fixed-Format Evaluators
 
-| Aspect | Legacy Evaluators | Feedback Generator |
+| Aspect | Fixed-format evaluators | Feedback Generator |
 |--------|-------------------|-------------------|
 | Configuration | Predefined patterns (regex, JSON) | LLM understands any format |
 | Flexibility | Fixed evaluation logic | Adapts to any domain |

@@ -13,7 +13,7 @@ structured `SelectionDecision` without executing an experiment.
 
 - Existing Claude Code and Codex CLI adapters behind one interface.
 - Operator-specific structured prompts.
-- Independent ensemble generation.
+- Independent multi-agent candidate generation.
 - Prior-idea resurfacing into the considered pool.
 - Schema, provenance, duplicate, descriptor, evidence, and capacity analysis.
 - One bounded diversity-repair round.
@@ -96,8 +96,8 @@ tests/
       compatibility metadata with the result.
 - [x] Compare structured descriptors independently of embedding similarity.
 - [x] Verify evidence references and flag unsupported or contradicted claims.
-- [x] Ask the capacity provider whether implementation plus comparable
-      evaluation fits; do not trust coding-agent duration estimates.
+- [x] Ask the capacity provider whether implementation plus the currently
+      granted evaluation fits; do not trust coding-agent duration estimates.
 - [x] Summarize operator/descriptor coverage and candidate eligibility.
 - [x] Request at most one repair round when fewer than two distinct eligible
       candidates survive outside `RECOVER`/`VERIFY`.

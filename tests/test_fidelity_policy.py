@@ -53,9 +53,7 @@ def attempt(*, fidelity="fast", fraction=0.15, score=0.5, evaluator="ev-1"):
 
 
 def probe_node(node_id, fast_score):
-    node = SearchNode(
-        node_id=node_id, build_fidelity="fast", eval_fidelity="fast"
-    )
+    node = SearchNode(node_id=node_id, build_fidelity="fast", eval_fidelity="fast")
     node.evaluation_attempts = [attempt(score=fast_score)]
     return node
 
@@ -100,19 +98,16 @@ def make_policy(
             if abs(fraction - 1.0) < 1e-9
             else fast_eval_upper_seconds
         )
-        return SimpleNamespace(
-            expected_seconds=upper, upper_seconds=upper
-        )
+        return SimpleNamespace(expected_seconds=upper, upper_seconds=upper)
 
     maintainer_stub = SimpleNamespace(timing=timing)
-    return FidelityPolicy(
-        spec=spec, strategy=strategy_stub, maintainer=maintainer_stub
-    )
+    return FidelityPolicy(spec=spec, strategy=strategy_stub, maintainer=maintainer_stub)
 
 
 # =========================================================================
 # Spec and arithmetic
 # =========================================================================
+
 
 def test_spec_resolution_and_unknown_keys():
     spec = FidelitySpec.resolve(
@@ -132,9 +127,7 @@ def test_spec_resolution_and_unknown_keys():
 
     assert FidelitySpec.resolve(None).mode == "off"
     # The budget block accepts the fidelity key untouched.
-    assert BudgetSpec.resolve(
-        config_block={"fidelity": {"mode": "on"}}
-    ).is_unbudgeted
+    assert BudgetSpec.resolve(config_block={"fidelity": {"mode": "on"}}).is_unbudgeted
 
 
 def timed_node(
@@ -161,9 +154,7 @@ def test_reserve_arithmetic():
     budget = 600 * 60.0
 
     assert policy.reserve_seconds(budget) == pytest.approx(0.45 * budget)
-    assert policy.build_cap_seconds(budget) == pytest.approx(
-        0.45 * budget - 100.0
-    )
+    assert policy.build_cap_seconds(budget) == pytest.approx(0.45 * budget - 100.0)
     # mode=on: always enabled with a time budget, never without one.
     assert policy.enabled(budget)
     assert not policy.enabled(None)
@@ -181,25 +172,19 @@ def test_full_run_price_layers():
         timed_node(0, duration=500.0),
         timed_node(1, duration=700.0),
     ]
-    assert policy.full_run_price_seconds(
-        probes, 600.0
-    ) == pytest.approx(600.0 + 100.0)
+    assert policy.full_run_price_seconds(probes, 600.0) == pytest.approx(600.0 + 100.0)
 
     # L2 with a build dial: the implementation phase scales by 1/fraction.
-    dialed = [
-        timed_node(
-            0, duration=500.0, build="fast", implementation_seconds=200.0
-        )
-    ]
+    dialed = [timed_node(0, duration=500.0, build="fast", implementation_seconds=200.0)]
     assert policy.full_run_price_seconds(dialed, 500.0) == pytest.approx(
         500.0 + 100.0 + 200.0 * (1 / 0.10 - 1)
     )
 
     # L1: a measured full-profile run beats every extrapolation.
     full_run = timed_node(2, duration=600.0, eval_fidelity="full")
-    assert policy.full_run_price_seconds(
-        probes + [full_run], 600.0
-    ) == pytest.approx(600.0)
+    assert policy.full_run_price_seconds(probes + [full_run], 600.0) == pytest.approx(
+        600.0
+    )
 
 
 def test_auto_enablement_prices_from_history():
@@ -225,6 +210,7 @@ def test_auto_enablement_prices_from_history():
 # The grant ladder
 # =========================================================================
 
+
 def test_default_grant_is_a_probe():
     decision = make_policy().decide(
         nodes=[], remaining_after_reserve=1000.0, probe_estimate_seconds=60.0
@@ -238,7 +224,8 @@ def test_default_grant_is_a_probe():
 def test_unvalidated_leader_clearing_margin_gets_a_validate():
     nodes = [validated_node(0, 0.45, 0.40), probe_node(1, 0.48)]
     decision = make_policy().decide(
-        nodes=nodes, remaining_after_reserve=1000.0,
+        nodes=nodes,
+        remaining_after_reserve=1000.0,
         probe_estimate_seconds=60.0,
     )
     assert decision.profile == PROFILE_VALIDATE
@@ -250,11 +237,13 @@ def test_unvalidated_leader_clearing_margin_gets_a_validate():
     # Below the margin: no validate, keep probing.
     close = [validated_node(0, 0.47, 0.40), probe_node(1, 0.48)]
     assert (
-        make_policy().decide(
+        make_policy()
+        .decide(
             nodes=close,
             remaining_after_reserve=1000.0,
             probe_estimate_seconds=60.0,
-        ).profile
+        )
+        .profile
         == PROFILE_PROBE
     )
 
@@ -268,7 +257,8 @@ def test_validate_respects_cap_and_affordability():
     assert unaffordable.profile == PROFILE_PROBE
 
     exhausted_cap = make_policy(max_full_evals=0).decide(
-        nodes=nodes, remaining_after_reserve=1000.0,
+        nodes=nodes,
+        remaining_after_reserve=1000.0,
         probe_estimate_seconds=60.0,
     )
     assert exhausted_cap.profile == PROFILE_PROBE
@@ -290,7 +280,8 @@ def test_mid_campaign_full_is_calibration_gated():
     validated_leader.duration_seconds = 400.0
     one_pair = [validated_leader]
     gated = make_policy().decide(
-        nodes=one_pair, remaining_after_reserve=10000.0,
+        nodes=one_pair,
+        remaining_after_reserve=10000.0,
         probe_estimate_seconds=60.0,
     )
     assert gated.profile == PROFILE_PROBE  # pairs < calibration_min_pairs
@@ -299,7 +290,8 @@ def test_mid_campaign_full_is_calibration_gated():
     second_pair.duration_seconds = 400.0
     two_pairs = [validated_leader, second_pair]
     granted = make_policy().decide(
-        nodes=two_pairs, remaining_after_reserve=10000.0,
+        nodes=two_pairs,
+        remaining_after_reserve=10000.0,
         probe_estimate_seconds=60.0,
     )
     assert granted.profile == PROFILE_FULL
@@ -307,7 +299,8 @@ def test_mid_campaign_full_is_calibration_gated():
     assert granted.reserve_run is False
 
     slots_gone = make_policy(max_full_runs=0).decide(
-        nodes=two_pairs, remaining_after_reserve=10000.0,
+        nodes=two_pairs,
+        remaining_after_reserve=10000.0,
         probe_estimate_seconds=60.0,
     )
     assert slots_gone.profile == PROFILE_PROBE
@@ -316,8 +309,10 @@ def test_mid_campaign_full_is_calibration_gated():
 def test_reserve_run_targets_the_committed_candidate():
     nodes = [validated_node(0, 0.48, 0.42), probe_node(1, 0.50)]
     decision = make_policy().decide(
-        nodes=nodes, remaining_after_reserve=10.0,
-        probe_estimate_seconds=60.0, reserve_run=True,
+        nodes=nodes,
+        remaining_after_reserve=10.0,
+        probe_estimate_seconds=60.0,
+        reserve_run=True,
     )
     assert decision.profile == PROFILE_FULL
     assert decision.reserve_run is True
@@ -327,6 +322,7 @@ def test_reserve_run_targets_the_committed_candidate():
 # =========================================================================
 # Strategy execution of granted profiles
 # =========================================================================
+
 
 def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     monkeypatch, tmp_path
@@ -345,17 +341,13 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
-    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
-        "HEAD = 1\n"
-    )
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text("HEAD = 1\n")
     strategy.workspace_dir = str(workspace_root)
     worktree = tmp_path / "frame_worktree"
     worktree.mkdir()
 
     class FakeWorkspace:
-        repo = SimpleNamespace(
-            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
-        )
+        repo = SimpleNamespace(commit=lambda branch: SimpleNamespace(hexsha="sha-full"))
 
         @contextmanager
         def materialize_ref(self, ref):
@@ -371,9 +363,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
         "total_items": 100,
         "score": 0.41,
     }
-    monkeypatch.setattr(
-        strategy_module, "subprocess", fake_eval_subprocess(payload)
-    )
+    monkeypatch.setattr(strategy_module, "subprocess", fake_eval_subprocess(payload))
 
     from kapso.execution.fidelity import FidelityDecision
 
@@ -390,9 +380,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
     returned = strategy.run("problem")
 
     assert returned is target
-    full_attempts = [
-        a for a in target.evaluation_attempts if a.fidelity == "full"
-    ]
+    full_attempts = [a for a in target.evaluation_attempts if a.fidelity == "full"]
     assert len(full_attempts) == 1
     assert full_attempts[0].score == 0.41
     assert full_attempts[0].commit_sha == "sha-full"
@@ -402,6 +390,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
 # Orchestrator wiring
 # =========================================================================
 
+
 def test_fidelity_without_a_maintainer_fails_loud(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
@@ -410,6 +399,7 @@ def test_fidelity_without_a_maintainer_fails_loud(tmp_path, monkeypatch):
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
+            "ideation_profile": "DEFAULT",
             "search_strategy": {"type": "generic", "params": {}},
             "budget": {"fidelity": {"mode": "on"}},
         },
@@ -421,6 +411,7 @@ def test_fidelity_without_a_maintainer_fails_loud(tmp_path, monkeypatch):
 
 def fidelity_mode_config(config_path, mode):
     return {
+        "ideation_profile": "DEFAULT",
         "search_strategy": {"type": "generic", "params": {}},
         "evaluation_maintainer": {"type": "claude_code"},
         "budget": {
@@ -435,18 +426,12 @@ def fidelity_mode_config(config_path, mode):
     }
 
 
-def test_probe_grants_and_reserve_slot_reach_the_strategy(
-    tmp_path, monkeypatch
-):
+def test_probe_grants_and_reserve_slot_reach_the_strategy(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
-    monkeypatch.setattr(
-        orchestrator_module, "load_mode_config", fidelity_mode_config
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
+    monkeypatch.setattr(orchestrator_module, "load_mode_config", fidelity_mode_config)
 
     orchestrator = _orchestrator(workspace)
     orchestrator.solve(experiment_max_iter=1, time_budget_minutes=60)
@@ -454,21 +439,15 @@ def test_probe_grants_and_reserve_slot_reach_the_strategy(
     decisions = orchestrator.search_strategy.fidelity_decisions
     assert decisions[0].profile == PROFILE_PROBE
     snapshot = orchestrator.search_strategy.budget_snapshot
-    assert snapshot.finalization_reserve_seconds == pytest.approx(
-        0.45 * 3600
-    )
+    assert snapshot.finalization_reserve_seconds == pytest.approx(0.45 * 3600)
 
 
 def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
-    monkeypatch.setattr(
-        orchestrator_module, "load_mode_config", fidelity_mode_config
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
+    monkeypatch.setattr(orchestrator_module, "load_mode_config", fidelity_mode_config)
 
     orchestrator = _orchestrator(workspace)
     # 2-minute budget: reserve = 54s, searchable = 66s <= the 90s iteration
@@ -490,9 +469,7 @@ def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
     # frame measurement that follows it.
     full_upper = orchestrator.evaluation_maintainer.timing(1.0).upper_seconds
     reserve_snapshot = orchestrator.search_strategy.budget_snapshot
-    assert reserve_snapshot.finalization_reserve_seconds == pytest.approx(
-        full_upper
-    )
+    assert reserve_snapshot.finalization_reserve_seconds == pytest.approx(full_upper)
     assert reserve_snapshot.finalization_reserve_seconds < 0.45 * 120
     # The escrowed measurement is kapso-owned: the reserve node's FULL
     # score comes from a frame run, not the agent's self-report (the live
@@ -512,14 +489,10 @@ def test_fidelity_off_grants_full_passthrough(tmp_path, monkeypatch):
     orchestrator = _orchestrator(workspace)
     orchestrator.solve(experiment_max_iter=1)
 
-    assert orchestrator.search_strategy.fidelity_decisions == [
-        FULL_PASSTHROUGH
-    ]
+    assert orchestrator.search_strategy.fidelity_decisions == [FULL_PASSTHROUGH]
 
 
-def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
-    tmp_path, monkeypatch
-):
+def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(tmp_path, monkeypatch):
     """The live campaign died on subprocess.TimeoutExpired when a real
     artifact's training outran a baseline-calibrated estimate. Overruns
     kill the process group and report None; they never raise.
@@ -537,17 +510,13 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
-    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
-        "HEAD = 1\n"
-    )
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text("HEAD = 1\n")
     strategy.workspace_dir = str(workspace_root)
     worktree = tmp_path / "frame_worktree"
     worktree.mkdir()
 
     class FakeWorkspace:
-        repo = SimpleNamespace(
-            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
-        )
+        repo = SimpleNamespace(commit=lambda branch: SimpleNamespace(hexsha="sha-full"))
 
         @contextmanager
         def materialize_ref(self, ref):
@@ -579,21 +548,16 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
         "killpg",
         lambda pgid, sig: kills.append((pgid, sig)),
     )
-    monkeypatch.setattr(
-        strategy_module, "_FRAME_RUN_KILL_GRACE_SECONDS", 0.05
-    )
+    monkeypatch.setattr(strategy_module, "_FRAME_RUN_KILL_GRACE_SECONDS", 0.05)
 
     score = strategy._execute_registered_evaluation(
         target, fidelity="full", fraction=1.0, deadline_seconds=0.0
     )
 
     assert score is None
-    assert not any(
-        a.fidelity == "full" for a in target.evaluation_attempts
-    )
+    assert not any(a.fidelity == "full" for a in target.evaluation_attempts)
     assert kills[0] == (424242, strategy_module.signal.SIGTERM)
     assert kills[-1] == (424242, strategy_module.signal.SIGKILL)
-
 
 
 def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
@@ -619,9 +583,7 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     strategy.registered_data_manifest = build_data_manifest(honest, ["data"])
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
-    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
-        "HEAD = 1\n"
-    )
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text("HEAD = 1\n")
     strategy.workspace_dir = str(workspace_root)
 
     rigged = tmp_path / "rigged"
@@ -629,9 +591,7 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     (rigged / "data" / "train.csv").write_text("PassengerId,y\n1,True\n")
 
     class FakeWorkspace:
-        repo = SimpleNamespace(
-            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
-        )
+        repo = SimpleNamespace(commit=lambda branch: SimpleNamespace(hexsha="sha-full"))
 
         @contextmanager
         def materialize_ref(self, ref):
@@ -653,9 +613,7 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     )
 
     assert score is None
-    assert not any(
-        attempt.fidelity == "full" for attempt in target.evaluation_attempts
-    )
+    assert not any(attempt.fidelity == "full" for attempt in target.evaluation_attempts)
 
 
 def test_effective_reserve_shrinks_once_a_champion_exists():
@@ -668,47 +626,31 @@ def test_effective_reserve_shrinks_once_a_champion_exists():
     budget = 3600.0
     base = 0.45 * budget
 
-    assert policy.effective_reserve_seconds(budget, []) == pytest.approx(
-        base
-    )
+    assert policy.effective_reserve_seconds(budget, []) == pytest.approx(base)
 
     champion = SearchNode(node_id=0, build_fidelity="full")
-    champion.evaluation_attempts = [
-        attempt(fidelity="full", fraction=1.0, score=0.6)
-    ]
-    assert policy.effective_reserve_seconds(
-        budget, [champion]
-    ) == pytest.approx(100.0)  # make_policy's full_eval_upper_seconds
+    champion.evaluation_attempts = [attempt(fidelity="full", fraction=1.0, score=0.6)]
+    assert policy.effective_reserve_seconds(budget, [champion]) == pytest.approx(
+        100.0
+    )  # make_policy's full_eval_upper_seconds
 
     # A flashy unvalidated probe is not a champion; neither is a
     # champion measured under a retired evaluator version.
     flashy = probe_node(1, 0.99)
-    assert policy.effective_reserve_seconds(
-        budget, [flashy]
-    ) == pytest.approx(base)
+    assert policy.effective_reserve_seconds(budget, [flashy]) == pytest.approx(base)
     stale = SearchNode(node_id=2, build_fidelity="full")
     stale.evaluation_attempts = [
-        attempt(
-            fidelity="full", fraction=1.0, score=0.9, evaluator="ev-old"
-        )
+        attempt(fidelity="full", fraction=1.0, score=0.9, evaluator="ev-old")
     ]
-    assert policy.effective_reserve_seconds(
-        budget, [stale]
-    ) == pytest.approx(base)
+    assert policy.effective_reserve_seconds(budget, [stale]) == pytest.approx(base)
 
 
-def test_champion_shrink_returns_escrow_to_the_search_window(
-    tmp_path, monkeypatch
-):
+def test_champion_shrink_returns_escrow_to_the_search_window(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
-    patch_maintainer_environment(
-        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
-    )
-    monkeypatch.setattr(
-        orchestrator_module, "load_mode_config", fidelity_mode_config
-    )
+    patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
+    monkeypatch.setattr(orchestrator_module, "load_mode_config", fidelity_mode_config)
 
     orchestrator = _orchestrator(workspace)
     strategy = orchestrator.search_strategy
@@ -742,9 +684,9 @@ def test_policy_tracks_the_live_evaluator_head_and_timing():
     # measurement is retired with it — and the escrow re-inflates.
     policy._strategy.registered_evaluator_id = "ev-2"
     assert policy.full_champion([v1_champion]) is None
-    assert policy.effective_reserve_seconds(
-        3600.0, [v1_champion]
-    ) == pytest.approx(0.45 * 3600)
+    assert policy.effective_reserve_seconds(3600.0, [v1_champion]) == pytest.approx(
+        0.45 * 3600
+    )
 
     # Re-calibration under v2 flows through the timing provider.
     policy._maintainer.timing = lambda fraction: SimpleNamespace(
@@ -763,7 +705,8 @@ def test_mid_campaign_full_affordability_is_priced_from_history():
     # Price = probe 400 + eval upper 100 + build scale 0 (no impl
     # telemetry) = 500; a 10000s window affords it with 2x margin.
     granted = policy.decide(
-        nodes=nodes, remaining_after_reserve=10000.0,
+        nodes=nodes,
+        remaining_after_reserve=10000.0,
         probe_estimate_seconds=400.0,
     )
     assert granted.profile == PROFILE_FULL
@@ -772,15 +715,14 @@ def test_mid_campaign_full_affordability_is_priced_from_history():
     # would still grant; the priced rule refuses a window a full run
     # would blow.
     refused = policy.decide(
-        nodes=nodes, remaining_after_reserve=900.0,
+        nodes=nodes,
+        remaining_after_reserve=900.0,
         probe_estimate_seconds=400.0,
     )
     assert refused.profile == PROFILE_PROBE
 
 
-def test_frame_run_reports_its_duration_to_the_recorder(
-    tmp_path, monkeypatch
-):
+def test_frame_run_reports_its_duration_to_the_recorder(tmp_path, monkeypatch):
     """Successful frame runs feed the timing model (record_run); failures
     and refusals report nothing.
     """
@@ -800,17 +742,13 @@ def test_frame_run_reports_its_duration_to_the_recorder(
     )
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
-    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
-        "HEAD = 1\n"
-    )
+    (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text("HEAD = 1\n")
     strategy.workspace_dir = str(workspace_root)
     worktree = tmp_path / "frame_worktree"
     worktree.mkdir()
 
     class FakeWorkspace:
-        repo = SimpleNamespace(
-            commit=lambda branch: SimpleNamespace(hexsha="sha-full")
-        )
+        repo = SimpleNamespace(commit=lambda branch: SimpleNamespace(hexsha="sha-full"))
 
         @contextmanager
         def materialize_ref(self, ref):
@@ -826,9 +764,7 @@ def test_frame_run_reports_its_duration_to_the_recorder(
         "total_items": 100,
         "score": 0.41,
     }
-    monkeypatch.setattr(
-        strategy_module, "subprocess", fake_eval_subprocess(payload)
-    )
+    monkeypatch.setattr(strategy_module, "subprocess", fake_eval_subprocess(payload))
     score = strategy._execute_registered_evaluation(
         target, fidelity="full", fraction=1.0, deadline_seconds=None
     )

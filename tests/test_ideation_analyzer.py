@@ -30,6 +30,7 @@ from test_ideation_domain import (
     CLAIM_ID,
     EVIDENCE_ID,
     NOW,
+    coding_agent_call,
     directive,
     generated_idea,
     planned_batch,
@@ -132,14 +133,14 @@ def test_descriptor_parent_evidence_artifact_and_capacity_rules_are_hard(tmp_pat
             "parent_experiment_node_ids": (),
             "generation_artifacts": (str((tmp_path / "missing").resolve()),),
         },
-        capacity_changes={"can_run_comparable_evaluation": False},
+        capacity_changes={"can_run_granted_evaluation": False},
     )
     assert not result.analysis.eligible
     assert set(result.analysis.hard_failures) >= {
         "operator_descriptor_mismatch",
         "evidence_reference_unknown",
         "generation_artifacts_invalid",
-        "capacity_cannot_run_comparable_evaluation",
+        "capacity_cannot_run_granted_evaluation",
     }
 
 
@@ -217,6 +218,7 @@ def test_exact_duplicate_requires_derived_changed_condition(tmp_path):
     archive.add_ideas(
         previous_batch_id,
         (previous,),
+        generation_calls=(coding_agent_call(),),
         expected_revision=archive.revision,
     )
     duplicate = candidate(
@@ -317,6 +319,7 @@ def test_semantic_neighbor_is_an_alarm_not_an_automatic_rejection(tmp_path):
     archive.add_ideas(
         previous_batch_id,
         (previous,),
+        generation_calls=(coding_agent_call(),),
         expected_revision=archive.revision,
     )
     novel_proposal = candidate(
@@ -353,7 +356,12 @@ def test_analysis_metadata_is_persisted_atomically_with_eligibility(tmp_path):
         directive=search_directive,
     )
     archive.create_batch(batch, expected_revision=0)
-    archive.add_ideas(BATCH_ID, (idea,), expected_revision=1)
+    archive.add_ideas(
+        BATCH_ID,
+        (idea,),
+        generation_calls=(coding_agent_call(),),
+        expected_revision=1,
+    )
     analyzed = (
         analyzer(UnitVectorProvider())
         .analyze_pool(
@@ -367,12 +375,9 @@ def test_analysis_metadata_is_persisted_atomically_with_eligibility(tmp_path):
         .candidates[0]
     )
 
-    archive.record_analysis(
+    archive.record_analyses(
         BATCH_ID,
-        analyzed.analysis,
-        embedding=analyzed.embedding,
-        nearest_experiment_node_ids=analyzed.nearest_experiment_node_ids,
-        similarity_flags=analyzed.similarity_flags,
+        (analyzed,),
         expected_revision=2,
     )
 

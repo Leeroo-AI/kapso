@@ -72,6 +72,7 @@ def test_provider_sends_complete_inputs_and_records_exact_metadata():
         {
             "model": "text-embedding-test",
             "dimensions": 3,
+            "encoding_format": "float",
             "input": list(texts),
         }
     ]

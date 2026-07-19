@@ -22,13 +22,13 @@ from kapso.environment.handlers.base import ProblemHandler
 # the organizers' final scoring; during the run smaller --limit values keep the
 # train/eval cycle short. -1 means the set is small enough to always run fully.
 ITERATION_EVAL_LIMITS = {
-    "aime2025": -1,        # 30 problems
-    "gsm8k": 150,          # of 1319
-    "gpqamain": 150,       # of 448
-    "humaneval": -1,       # 164 problems
+    "aime2025": -1,  # 30 problems
+    "gsm8k": 150,  # of 1319
+    "gpqamain": 150,  # of 448
+    "humaneval": -1,  # 164 problems
     "bfcl": 200,
-    "arenahardwriting": 50,   # GPT-judge scored: each eval costs OpenAI credits
-    "healthbench": 50,        # GPT-judge scored: each eval costs OpenAI credits
+    "arenahardwriting": 50,  # GPT-judge scored: each eval costs OpenAI credits
+    "healthbench": 50,  # GPT-judge scored: each eval costs OpenAI credits
 }
 
 # Condensed findings from the PostTrainBench paper (arXiv:2603.08640) about
@@ -73,13 +73,16 @@ class PostTrainBenchHandler(ProblemHandler):
         # The agent can only manage a deadline it has been told about (run #7,
         # finding F5): these are the shaped per-session timeouts the runner
         # computes, rendered verbatim into the agent's context.
-        if not isinstance(session_caps, dict) or not {
-            "ideation_timeout",
-            "implementation_timeout",
-        } <= session_caps.keys():
+        if (
+            not isinstance(session_caps, dict)
+            or not {
+                "implementation_timeout",
+            }
+            <= session_caps.keys()
+        ):
             raise ValueError(
                 "session_caps must be the runner's shaped session timeouts "
-                "(ideation_timeout/implementation_timeout, seconds)"
+                "(implementation_timeout, seconds)"
             )
         self.task_dir = os.path.abspath(task_dir)
         self.official_prompt = official_prompt.strip()
@@ -166,7 +169,7 @@ put it there — a mediocre model beats an empty directory.
 You operate in bounded SESSIONS inside the overall run. Hard caps, enforced
 by a process-group kill that takes down EVERY process you started (including
 training): implementation sessions ≈ {self.session_caps['implementation_timeout'] // 60}
-minutes, ideation sessions ≈ {self.session_caps['ideation_timeout'] // 60} minutes.
+minutes.
 Only files on disk survive a session kill. `timer.sh` shows the RUN clock;
 your SESSION clock is shorter and is the one that kills you.
 - FIRST actions of every implementation session: run `date -u`, then create

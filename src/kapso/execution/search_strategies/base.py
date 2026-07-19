@@ -167,9 +167,7 @@ class SearchNode:
             or not isinstance(execution_revision, int)
             or execution_revision < 0
         ):
-            raise ValueError(
-                "Search node execution_revision must be non-negative"
-            )
+            raise ValueError("Search node execution_revision must be non-negative")
 
         string_fields = {
             "solution",
@@ -424,7 +422,7 @@ class SearchStrategy(ABC):
     - Workspace creation and management
     - RepoMemory bootstrap
     - Kapso directory setup (eval_dir, data_dir)
-    - Optional legacy checkpoint hooks for trusted migration
+    - Strict strategy-owned checkpoint serialization hooks
     """
 
     WORKSPACE_FOLDER_BASE = "tmp/search_strategy_workspace"

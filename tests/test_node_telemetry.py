@@ -17,6 +17,7 @@ from kapso.execution.search_strategies.generic.feedback_generator.feedback_gener
     FeedbackGenerator,
 )
 
+
 @pytest.fixture(autouse=True)
 def stub_difficulties_fallback(monkeypatch):
     """Hermetic tests must never spawn the fallback difficulties session;
@@ -28,12 +29,10 @@ def stub_difficulties_fallback(monkeypatch):
     )
 
 
-
-
-
 # =========================================================================
 # SearchNode validation
 # =========================================================================
+
 
 def test_from_dict_tolerates_absent_telemetry_fields():
     node = SearchNode.from_dict({"node_id": 0})
@@ -87,54 +86,10 @@ def test_telemetry_round_trips_through_to_dict():
 # GenericSearch.run() phase attribution
 # =========================================================================
 
-def test_run_sums_attributed_phase_costs_onto_the_node():
-    strategy = GenericSearch.__new__(GenericSearch)
-    strategy.parent_policy = "baseline"
-    strategy.registered_evaluator_id = ""
-    strategy.fidelity_decision = None
-    strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
-    strategy.node_history = []
-    strategy.iteration_count = 0
-    strategy.workspace_dir = "/workspace"
-    strategy._generate_solution = lambda problem, parent_branch: (
-        "solution",
-        [],
-        {"cost_usd": 0.25, "duration_seconds": 1.0},
-    )
-    strategy._implement = lambda **kwargs: (
-        "agent output",
-        {"cost_usd": 0.5, "duration_seconds": 2.0},
-    )
-    strategy._get_code_diff = lambda branch_name, parent_branch: ""
-    strategy._extract_agent_result = lambda output: {}
-    strategy.enforce_evaluation_integrity = lambda node: True
-
-    def fake_feedback(node):
-        node.phase_telemetry["feedback"] = {
-            "cost_usd": 0.125,
-            "duration_seconds": 0.5,
-        }
-        return node
-
-    strategy._generate_feedback = fake_feedback
-
-    node = strategy.run("problem")
-
-    assert node.phase_telemetry == {
-        "ideation": {"cost_usd": 0.25, "duration_seconds": 1.0},
-        "implementation": {"cost_usd": 0.5, "duration_seconds": 2.0},
-        "feedback": {"cost_usd": 0.125, "duration_seconds": 0.5},
-    }
-    assert node.cost_usd == pytest.approx(0.875, abs=0.001)
-    assert node.duration_seconds is not None and node.duration_seconds >= 0
-    assert node.started_at.endswith("+00:00")
-    # Telemetry must survive the durable representation.
-    assert SearchNode.from_dict(node.to_dict()).cost_usd == node.cost_usd
-
-
 # =========================================================================
 # FeedbackGenerator spend measurement
 # =========================================================================
+
 
 class CountingAgent:
     """Agent stub whose cumulative cost advances by a known delta per call."""

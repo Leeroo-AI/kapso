@@ -28,7 +28,7 @@ else
     STRIP_AGENT_ENV_ARGS=(--strip-agent-env OPENAI_API_KEY)
 fi
 
-# The ensemble's codex member authenticates via ~/.codex/auth.json (ChatGPT
+# Codex ideation roles authenticate via ~/.codex/auth.json (ChatGPT
 # login), never via keys: CODEX_API_KEY would override auth.json if left set.
 unset GEMINI_API_KEY
 unset CODEX_API_KEY

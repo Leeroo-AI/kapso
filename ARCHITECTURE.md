@@ -367,42 +367,36 @@ Important loop semantics:
 
 ### Generic candidate lifecycle
 
-The default `generic` strategy is a branch-aware, best-parent search rather than
-the older documented linear/tree mode distinction.
+The default `generic` strategy is evidence-directed and durable.
 
-1. **Grant handling.** A validation-only fidelity grant can short-circuit into an
-   evaluator-only run on an existing candidate.
-2. **Parent selection.** With `parent_policy=best`, select the best valid scored
-   node. Before one exists, select the latest committed, non-error,
-   non-integrity-violating node so partial progress is not stranded. With
-   `baseline`, always select `main`.
-3. **Read-only ideation.** Materialize the parent ref as a detached temporary
-   worktree. Give the ideation agent `Read` plus configured MCP tools; provide a
-   brief branch-specific repo memory. Optional ensemble mode fans out several
-   Claude Code/Codex sessions and asks a selector-critic to choose among their
-   proposals.
-4. **Create the node.** Record lineage and grant metadata; name the implementation
-   branch `generic_exp_<node_id>`.
-5. **Isolated implementation.** Clone the workspace into
-   `sessions/<branch>`, base it on the selected parent, allow read/write/edit/bash
-   plus configured MCP tools, implement, and run evaluation.
-6. **Finalize.** Commit all code/output, update and commit repo memory after the
-   code commits, force-push the experiment branch back to the root workspace's
-   local origin, then delete the session clone.
-7. **Extract evidence.** Parse the agent's XML result fields (with legacy JSON
-   fallback), recover durable registered-evaluation output when needed, and
-   enforce the evaluation manifest.
-8. **Judge.** The feedback agent checks the goal, diff, and evaluation output,
-   producing `evaluation_valid`, `score`, `feedback`, and `stop`. A stop is only
-   accepted when the evaluation is valid.
-9. **Record.** Add phase duration/cost, evaluation attempt identity, and the node
-   to strategy history.
+1. **Grant handling.** A validation-only fidelity grant short-circuits ideation
+   and remeasures an existing artifact.
+2. **Evidence and policy.** Build one immutable campaign snapshot from linked
+   executed experiments, prior ideas, claims, gaps, and budget/fidelity capacity.
+   Deterministic precedence chooses explore, exploit, verify, recover, or finalize.
+3. **Operators and parents.** Allocate independent operator briefs and resolve
+   each parent plan once to branch, node, Git, materialization, diff, and feedback
+   refs.
+4. **Candidate pipeline.** Codex and/or Claude Code CLI roles generate structured
+   candidates. Kapso applies hard rules, descriptor and exact-duplicate checks,
+   optional OpenAI embeddings, at most one diversity repair, and a structured
+   selector decision.
+5. **Durable decision.** `IdeaArchive` advances through `PLANNED`, `GENERATED`,
+   `ANALYZED`, and `SELECTED`. The winner is linked to one `SearchNode` before
+   implementation, advancing the batch to `BRIDGED`.
+6. **Isolated implementation.** The implementation agent works on
+   `generic_exp_<node_id>` from the frozen parent and returns the complete current
+   XML contract. Evaluation integrity and feedback retain their existing authority.
+7. **Outcome ordering.** The orchestrator writes the strict executed-only
+   `ExperimentRecord`, then the linked `IdeaOutcome`, then the run checkpoint.
+8. **Resume.** Deterministic operation IDs replay completed CLI calls from
+   durable `result.json`; batches restart only their first unfinished phase.
+   Cross-store reconciliation repairs valid prefix/ahead states and rejects
+   conflicting identity or lineage.
 
-The implementation path directly instantiates `ClaudeCodeCodingAgent` for
-generic ideation and implementation. The broader `CodingAgentFactory` remains
-important for workspace sessions, feedback configuration, benchmark strategies,
-and other adapters, but changing the generic mode's `coding_agent` setting does
-not replace every agent phase.
+Ideation reasoning uses coding-agent CLIs, not a direct generative API. Only
+`OpenAIEmbeddingProvider` calls a model API. Implementation continues to use
+`ClaudeCodeCodingAgent` and its configured MCP gates.
 
 ### Git is the candidate store
 
@@ -437,9 +431,11 @@ Kapso has three related but separate evaluation mechanisms:
    candidate is verified against that identity before its score is accepted.
 3. **External iteration evaluator.** A caller callback runs against an isolated
    detached worktree after a candidate is finalized. Its metrics and errors are
-   stored on the node and returned in metadata, but they are explicitly
-   observational: they do not affect parent selection, stopping, or deliverable
-   choice.
+   stored on the node and returned in metadata. They do not affect parent
+   selection, stopping, or deliverable choice. Generic search reserves the
+   strict `metadata.ideation_evidence` object for evaluator-authored causal
+   claims and gaps; after validation, those records affect only subsequent
+   ideation policy and prompts. Score direction alone never creates them.
 
 For registered evaluation, a score is meaningful only inside a
 `ComparabilityClass(evaluator_id, fidelity, fraction, seed)`. Evaluation attempts
@@ -480,8 +476,9 @@ Exploration and delivery are deliberately different:
 | `.kapso/repo_memory.json` | Evidence-backed understanding inherited by descendants | yes, on candidate branches |
 | `changes.log` | Agent/change audit trail and memory-observation input | yes |
 | `.kapso/run_state.json` | Atomic campaign checkpoint, strategy state, durable clock/cost | intentionally ignored |
-| `.kapso/experiment_history.json` | Agent-queryable experiment ledger | workspace-local |
-| `.kapso/ideation/` and session stream artifacts | Failure/timeout forensics | workspace-local |
+| `.kapso/experiment_history.json` | Strict executed-only experiment projection | workspace-local |
+| `.kapso/idea_archive.json` | Atomic idea batches, candidates, decisions, links, and outcomes | workspace-local |
+| `.kapso/ideation/agent_calls/` and session stream artifacts | Idempotent CLI results and failure/timeout forensics | workspace-local |
 | `kapso_evaluation/` | Evaluation code and runtime results | code is tracked; policy depends on provenance |
 | `kapso_datasets/` | Copied caller data | tracked during setup unless repo rules differ |
 | `sessions/` | Ephemeral implementation clones | ignored and removed |
@@ -495,22 +492,26 @@ atomically replaced.
 Resume is intentionally strict and has no pre-release migration shim. It rejects
 missing/corrupt/incompatible/completed state and validates restored branch refs.
 
-### The two memory systems
+### Memory and execution authorities
 
-Experiment memory and repo memory solve different problems:
+The representations answer different questions and are joined by strict IDs:
 
-- `ExperimentHistoryStore` is a cross-candidate ledger of ideas, scores,
-  feedback, branches, and metadata. Agents query it through `get_top_experiments`,
-  `get_recent_experiments`, and optional semantic search.
+- Generic `SearchNode` state in the run checkpoint is the canonical executable
+  campaign state, including lineage, evaluation attempts, and telemetry.
+- `IdeaArchive` records what was proposed and why: every candidate, analysis,
+  selection, frozen parent, idea-to-node link, embedding, and final outcome.
+- `ExperimentHistoryStore` records only what actually ran: scores, feedback,
+  branches, fidelity, cost, and required Generic `idea_id`/`selection_batch_id`.
+  Its MCP tools never expose unexecuted ideas.
 - `RepoMemoryManager` is a branch-local, evidence-backed book about architecture,
   entry points, edit locations, invariants, testing, gotchas, and dependencies.
   Baseline memory is created before search; each session updates it only after all
   code is committed, then commits the memory as the last metadata commit. Child
   branches therefore inherit the model corresponding to their exact parent.
 
-The MCP boundary exposes repo-memory sections on demand, which prevents every
-prompt from carrying the whole book. Ideation receives a read-only parent-specific
-view; implementation receives the matching session view.
+Ideation receives complete proposal memory in its frozen mandatory packet and a
+read-only parent worktree. The MCP boundary remains useful for executed-history
+and repo-memory retrieval during implementation.
 
 ### MCP capability boundary
 
@@ -547,9 +548,10 @@ caller to mutate its process environment.
 - Core tests: `test_run_checkpoint.py`, `test_budget.py`,
   `test_fidelity_policy.py`, `test_evaluation_integrity.py`,
   `test_evaluation_maintainer_wiring.py`, `test_evaluator_transition.py`,
-  `test_parent_selection.py`, `test_workspace_branch_safety.py`,
+  `test_ideation_parent_bridge.py`, `test_workspace_branch_safety.py`,
   `test_node_telemetry.py`, `test_iteration_evaluator.py`,
-  `test_repo_memory*.py`, `test_ensemble_ideation.py`, and
+  `test_repo_memory*.py`, `test_ideation_engine.py`,
+  `test_ideation_resume.py`, `test_ideation_v3_integration.py`, and
   `test_streaming_cost_and_deadline.py`.
 
 ## Learn and knowledge architecture
@@ -677,27 +679,26 @@ These are navigation hazards, not proposed fixes in this document:
 - Deployment's strategy registry expects `.md` instruction files while shipped
   strategy packages contain `.txt`; discovery is empty until those conventions
   are reconciled.
-- Generic mode directly instantiates Claude Code for ideation and implementation,
-  so a coding-agent override does not replace those phases even though other
-  strategy/session/feedback paths use the factory.
+- Generic ideation role/model choices come from the required canonical
+  `ideation_profile`; the implementation agent remains separately configured.
 - Research MCP calls use an independently constructed researcher, so active-mode
   model/retry overrides and cost attribution do not automatically cross that
   subprocess boundary.
 - RepoMemory is updated before final feedback is known and currently receives
   placeholder score/error/feedback fields. Treat node/history records—not the
   memory book's experiment narrative—as authoritative for outcomes.
-- `.kapso/run_state.json` is atomic and authoritative, while
-  `.kapso/experiment_history.json` is a plain overwrite without node-ID
-  deduplication. A crash between history and checkpoint writes can make the
-  MCP-visible ledger stale or duplicate a replayed candidate.
+- Generic persistence is split deliberately: the strict checkpoint owns
+  execution state, `IdeaArchive` owns proposal/decision/outcome state, and the
+  atomic `ExperimentHistoryStore` owns its executed-only projection. Resume
+  reconciles valid write-order gaps and rejects conflicts.
 - Budget enforcement is an admission/ledger mechanism, not a hard billing or
   real-time ceiling: unknown provider spend, in-flight subprocesses, and useful
   minimum timeouts can overshoot.
 - Protected-data verification checks registered expected paths but is not a
   closed-world directory check; arbitrary new files in a protected directory are
   not rejected by that manifest alone.
-- The feedback parser treats any recognized XML field as formatted output and
-  defaults the others, even though the retry prompt asks for a complete result.
+- Successful Generic implementation output must contain exactly one complete
+  set of required XML fields; malformed or partial results fail loudly.
 - `BenchmarkTreeSearch` parses some model-produced list expressions with raw
   Python `eval()` and does not implement every managed-evaluator/fidelity hook
   assumed by the newest generic orchestration path.

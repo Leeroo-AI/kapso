@@ -1,8 +1,11 @@
 # Ideation v3 implementation — orchestrator plan
 
-Status: **implementation in progress — M1 through M3 complete; M4 bridge active**
+Status: **M1–M6 complete; v3 is the sole Generic ideation path**
 
 Design authority: [`../ideation-v3-design.md`](../ideation-v3-design.md)
+
+Implemented-system reference:
+[`../ideation-v3-implemented-system.md`](../ideation-v3-implemented-system.md)
 
 This is the controlling implementation plan for ideation v3. It coordinates
 six module plans, records cross-module decisions, defines integration gates,
@@ -32,12 +35,12 @@ API access is limited to the embedding provider authenticated by
 
 | ID | Module plan | Responsibility | Depends on |
 |---|---|---|---|
-| M1 | [`01-domain-and-archive.md`](01-domain-and-archive.md) | Shared types, lifecycle rules, atomic `IdeaArchive` | — |
-| M2 | [`02-evidence-policy-and-operators.md`](02-evidence-policy-and-operators.md) | Evidence snapshots, gaps, state policy, operator and parent plans | M1 |
-| M3 | [`03-candidate-pipeline.md`](03-candidate-pipeline.md) | Generation adapters, analysis, duplicate alarms, bounded repair, selection | M1, M2 |
-| M4 | [`04-generic-search-bridge.md`](04-generic-search-bridge.md) | `IdeationEngine`, GenericSearch integration, parent materialization, node linkage | M1, M2, M3 |
-| M5 | [`05-experiment-memory-and-outcomes.md`](05-experiment-memory-and-outcomes.md) | Experiment projection, idea/experiment retrieval, finalized outcome write-back | M1; integrates after M4 |
-| M6 | [`06-resume-rollout-and-validation.md`](06-resume-rollout-and-validation.md) | Checkpoint reconciliation, superseded-code removal, end-to-end tests, activation | M1–M5 |
+| M1 | [`01-domain-and-archive.md`](01-domain-and-archive.md) | Shared types, lifecycle rules, atomic `IdeaArchive` | Complete |
+| M2 | [`02-evidence-policy-and-operators.md`](02-evidence-policy-and-operators.md) | Evidence snapshots, gaps, state policy, operator and parent plans | Complete |
+| M3 | [`03-candidate-pipeline.md`](03-candidate-pipeline.md) | Generation adapters, analysis, duplicate alarms, bounded repair, selection | Complete |
+| M4 | [`04-generic-search-bridge.md`](04-generic-search-bridge.md) | `IdeationEngine`, GenericSearch integration, parent materialization, node linkage | Complete |
+| M5 | [`05-experiment-memory-and-outcomes.md`](05-experiment-memory-and-outcomes.md) | Experiment projection and finalized outcome write-back | Complete |
+| M6 | [`06-resume-rollout-and-validation.md`](06-resume-rollout-and-validation.md) | Checkpoint reconciliation, superseded-code removal, end-to-end tests, activation | Complete |
 
 The plans intentionally group strongly coupled responsibilities. Creating one
 plan per class would distribute single invariants across too many owners and
@@ -127,12 +130,15 @@ src/kapso/execution/search_strategies/generic/ideation/
   evidence.py
   policy.py
   operators.py
+  coding_agents.py
   generator.py
   embeddings.py
   analyzer.py
   selector.py
   engine.py
   outcomes.py
+  evaluator_evidence.py
+  evidence_author.py
 ```
 
 This avoids prematurely making strategy-specific assumptions part of Kapso's
@@ -148,7 +154,7 @@ To prevent parallel plans from repeatedly editing the same high-conflict files:
 | `evidence.py`, `policy.py`, `operators.py` | M2 | Pure logic; no strategy mutation |
 | Generator/analyzer/selector and ideation prompts | M3 | No direct `GenericSearch.run()` edits |
 | `generic/strategy.py`, parent resolution, SearchNode link fields | M4 | Sole owner until M4 integration lands |
-| Experiment store, experiment MCP gate, idea-history MCP wiring, orchestrator outcome hook | M5 | Sole owner of cross-store write order |
+| Experiment store, experiment MCP gate, orchestrator outcome hook | M5 | Sole owner of cross-store write order |
 | Checkpoint reconciliation, legacy deletion, full integration fixtures | M6 | Starts after M4 and M5 to avoid overlapping scaffolding |
 
 When sequential work requires a later module to touch an earlier owner's file,
@@ -185,7 +191,7 @@ Hard rules:
 
 - no ideation module calls `LLMBackend.llm_completion`, LiteLLM, Responses API,
   Chat Completions, or another direct generative API;
-- generator, repair, selector, and optional model-assisted extraction all use
+- generator, repair, selector, and evidence-author judgment all use
   the coding-agent runner contract;
 - candidate and selector roles both accept `cli: codex|claude_code`;
 - coding-agent subprocesses do not inherit `OPENAI_API_KEY` merely because the
@@ -280,13 +286,12 @@ reconstructable after process restart.
 
 Deliver M6:
 
-- checkpoint/archive reconciliation;
 - strict checkpoint/archive reconciliation;
 - deletion of superseded ideation and persistence code;
-- failure-injection tests at every transaction boundary;
-- abstract run 16/17/19 scenario replays;
-- end-to-end v3 opt-in test; and
-- default-switch evidence report.
+- failure-injection tests at each actual durable seam;
+- typed representative scenario replays;
+- end-to-end sole-path Generic test; and
+- credentialed activation evidence.
 
 Gate: all acceptance criteria from the design document pass before `v3`
 becomes the default.
@@ -318,6 +323,7 @@ sequenceDiagram
     participant A as IdeaArchive
     participant C as Candidate Pipeline
     participant X as Experiment Lifecycle
+    participant W as Evidence Author
     participant E as ExperimentHistoryStore
 
     O->>G: admitted iteration plus capacity/fidelity view
@@ -328,6 +334,8 @@ sequenceDiagram
     C->>A: persist each lifecycle boundary
     C-->>G: selected idea and frozen parent plan
     G->>X: create linked node and execute
+    X->>W: complete diff and evaluation record
+    W-->>X: attributable claims and gaps
     X-->>O: finalized strategy node
     O->>O: attach external evaluation
     O->>E: add executed projection
@@ -375,14 +383,14 @@ Each module owns unit tests; M6 owns integration and failure-injection tests.
 | Memory tests | Executed-only projection, idea links, objective-aware retrieval |
 | Resume tests | Crash at every durable boundary and deterministic recovery |
 | Scenario replay | Cold start, collapse, contradiction, subgroup gap, proxy divergence, terminal reserve |
-| End-to-end | One opt-in v3 run using mocked agents and deterministic evaluator |
+| End-to-end | Sole-path Generic run using deterministic agents/evaluator plus a credentialed ideation smoke |
 
 ### Required adversarial fixtures
 
 - minimizing objective where raw descending order is wrong;
 - semantically similar idea with a materially different parent/test;
 - exact duplicate with cosmetic rewording;
-- all ensemble members returning one approach family;
+- all generator members returning one approach family;
 - selected idea persisted immediately before a crash;
 - experiment persisted immediately before idea outcome write;
 - invalid evaluation that appears to improve the score;
@@ -427,8 +435,10 @@ The implementation is complete only when:
 | D17 | Persist selector invocation artifacts on the selection decision | The selected idea must remain traceable to the complete prompt, schema, streams, and structured final output |
 | D18 | Keep recoverable failures in `IMPLEMENTING`/`BRIDGED` until a fair result exists | Recovery is another execution attempt of the same idea and node, not a terminal hypothesis outcome or a replacement candidate |
 | D19 | Replace experiment-history JSON with one strict objective-aware document | Raw scores cannot be ranked safely without direction, and executed records need durable idea/batch/fidelity provenance |
-| D20 | Put complete proposal memory in the frozen agent packet instead of adding an idea-history MCP gate | V3 agents already receive the full archive; a second unused reader would create competing serialization and authorization paths, while executed-memory tools remain separate |
-| D21 | Do not infer claim support or gap closure from score direction alone | A scalar result cannot establish mechanism causality or resolve a named uncertainty; those transitions require future evaluator-authored structured evidence |
+| D20 | Put proposal memory in role-specific frozen packets instead of adding an idea-history MCP gate | Candidate roles receive the archive; the selector receives the analyzed eligible pool, including resurfaced ideas. A second reader would create competing serialization paths while executed-memory tools remain separate |
+| D21 | Do not infer claim support or gap closure from score direction alone | A scalar result cannot establish mechanism causality or resolve a named uncertainty; those transitions require evaluator-authored structured evidence |
+| D22 | Do not implement a terminal opportunity-probe bypass without calibrated authorities | Kapso has no authoritative completion-probability or expected-utility estimate; the granted evaluation and reserve boundary remain the only admission facts |
+| D23 | Accumulate telemetry across same-node recovery revisions | Failed attempts are part of an idea's true cost and duration; replacing their telemetry would corrupt budget learning and outcome memory |
 
 ## Progress ledger
 
@@ -440,9 +450,9 @@ inside module plans as the campaign-level source of truth.
 | M1 Domain and Archive | Complete | `generic/ideation/types.py`, `archive.py` | 22 current archive/domain tests | — |
 | M2 Evidence, Policy, Operators | Complete | `generic/ideation/evidence.py`, `policy.py`, `operators.py` | 21 focused tests; 41 cumulative | — |
 | M3 Candidate Pipeline | Complete | `generic/ideation/coding_agents.py`, `generator.py`, `embeddings.py`, `analyzer.py`, `selector.py` | 38 dedicated plus 2 archive integration tests; 81 cumulative | — |
-| M4 GenericSearch Bridge | In progress | `generic/ideation/engine.py`, `generic/strategy.py`, `base.py`, `orchestrator.py` config bridge | 7 engine/parent bridge tests; 88 cumulative v3 tests | Strict resume and superseded-test removal remain in M6 |
+| M4 GenericSearch Bridge | Complete | `generic/ideation/engine.py`, `generic/strategy.py`, `base.py`, `orchestrator.py` config bridge | Engine, parent bridge, strict checkpoint, and end-to-end integration tests | — |
 | M5 Experiment Memory and Outcomes | Complete | `experiment_memory/store.py`, `generic/ideation/outcomes.py`, orchestrator outcome hook; complete idea archive in v3 packets | 12 linkage/outcome tests; same-node recovery bridge; 101 cumulative focused tests | — |
-| M6 Resume, Rollout, Validation | Not started | — | — | M1–M5 |
+| M6 Resume, Rollout, Validation | Complete | Strict Generic checkpoint, phase-exact engine resume, cross-store reconciliation, legacy deletion | Named resume/replay suites, deterministic E2E, and credentialed Codex/Claude/OpenAI ideation smoke with analyzed-phase resume | — |
 
 ## Plan-maintenance protocol
 

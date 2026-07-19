@@ -15,7 +15,11 @@ from kapso.execution.search_strategies.generic.ideation.embeddings import (
     canonical_idea_embedding_text,
     embedding_can_be_reused,
 )
+from kapso.execution.search_strategies.generic.ideation.evidence import (
+    evidence_reference_ids,
+)
 from kapso.execution.search_strategies.generic.ideation.types import (
+    AnalyzedCandidate,
     CampaignEvidenceSnapshot,
     CandidateAnalysis,
     EmbeddingRecord,
@@ -68,15 +72,6 @@ class AnalyzerSettings:
         if not isinstance(data, Mapping) or set(data) != expected:
             raise ValueError("analyzer settings fields are invalid")
         return cls(**data)
-
-
-@dataclass(frozen=True)
-class AnalyzedCandidate:
-    analysis: CandidateAnalysis
-    descriptor: IdeaDescriptor
-    embedding: EmbeddingRecord | None
-    nearest_experiment_node_ids: Tuple[int, ...]
-    similarity_flags: Tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -247,7 +242,7 @@ class CandidateAnalyzer:
         ideas_by_id = {idea.idea_id: idea for idea in comparison}
         claims_by_id = {claim.claim_id: claim for claim in evidence_snapshot.claims}
         gaps_by_id = {gap.gap_id: gap for gap in evidence_snapshot.gaps}
-        valid_evidence_refs = self._valid_evidence_refs(evidence_snapshot)
+        valid_evidence_refs = evidence_reference_ids(evidence_snapshot)
 
         if candidate.parent_plan.kind not in directive.allowed_parent_plan_kinds:
             failures.append("parent_plan_not_allowed")
@@ -311,14 +306,10 @@ class CandidateAnalyzer:
             failures.append("claimed_nearest_experiment_unknown")
         if not capacity.can_start_complete_action:
             failures.append("capacity_cannot_start_complete_action")
-        if not capacity.can_run_comparable_evaluation:
-            failures.append("capacity_cannot_run_comparable_evaluation")
+        if not capacity.can_run_granted_evaluation:
+            failures.append("capacity_cannot_run_granted_evaluation")
         if not capacity.preserves_finalization_reserve:
             failures.append("capacity_does_not_preserve_finalization_reserve")
-        if capacity.opportunity_probe_required and not (
-            capacity.opportunity_probe_admissible
-        ):
-            failures.append("required_opportunity_probe_not_admissible")
 
         exact_duplicate = self._exact_duplicate(candidate, predecessors)
         changed_conditions = ()
@@ -377,29 +368,6 @@ class CandidateAnalyzer:
         )
 
     @staticmethod
-    def _valid_evidence_refs(
-        snapshot: CampaignEvidenceSnapshot,
-    ) -> set[str]:
-        references = {snapshot.snapshot_id}
-        for claim in snapshot.claims:
-            references.add(claim.claim_id)
-            references.update(claim.source_refs)
-        for gap in snapshot.gaps:
-            references.add(gap.gap_id)
-            references.update(gap.evidence_refs)
-        for experiment in snapshot.experiments:
-            references.update(
-                {
-                    experiment.idea_id,
-                    experiment.selection_batch_id,
-                    f"experiment_node:{experiment.node_id}",
-                }
-            )
-            if experiment.evaluator_id is not None:
-                references.add(experiment.evaluator_id)
-        return references
-
-    @staticmethod
     def _validate_parent(
         candidate: IdeaRecord,
         snapshot: CampaignEvidenceSnapshot,
@@ -433,6 +401,7 @@ class CandidateAnalyzer:
             failures.append("resolved_parent_does_not_match_plan")
         if plan.kind == ParentPlanKind.BEST_VALID and (
             snapshot.incumbent_node_id is None
+            or plan.experiment_node_id != snapshot.incumbent_node_id
             or candidate.resolved_parent.node_id != snapshot.incumbent_node_id
         ):
             failures.append("resolved_parent_is_not_incumbent")

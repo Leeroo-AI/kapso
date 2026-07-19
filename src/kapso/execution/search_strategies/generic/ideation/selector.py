@@ -45,11 +45,10 @@ SELECTOR_RESPONSE_SCHEMA: Mapping[str, Any] = {
     "additionalProperties": False,
     "required": sorted(_SELECTOR_FIELDS),
     "properties": {
-        "selected_idea_id": {"type": "string", "minLength": 1},
+        "selected_idea_id": {"type": "string"},
         "fallback_idea_ids": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "rejected_ideas": {
             "type": "array",
@@ -58,8 +57,8 @@ SELECTOR_RESPONSE_SCHEMA: Mapping[str, Any] = {
                 "additionalProperties": False,
                 "required": ["idea_id", "reason"],
                 "properties": {
-                    "idea_id": {"type": "string", "minLength": 1},
-                    "reason": {"type": "string", "minLength": 1},
+                    "idea_id": {"type": "string"},
+                    "reason": {"type": "string"},
                 },
             },
         },
@@ -70,39 +69,33 @@ SELECTOR_RESPONSE_SCHEMA: Mapping[str, Any] = {
                 "additionalProperties": False,
                 "required": ["claim_id", "status", "evidence_refs"],
                 "properties": {
-                    "claim_id": {"type": "string", "minLength": 1},
+                    "claim_id": {"type": "string"},
                     "status": {
                         "type": "string",
                         "enum": [status.value for status in EvidenceStatus],
                     },
                     "evidence_refs": {
                         "type": "array",
-                        "items": {"type": "string", "minLength": 1},
-                        "uniqueItems": True,
+                        "items": {"type": "string"},
                     },
                 },
             },
         },
         "hard_rule_results": {
             "type": "array",
-            "minItems": 1,
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "gap_decisions": {
             "type": "array",
-            "minItems": 1,
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
         "duplicate_overrides": {
             "type": "array",
-            "items": {"type": "string", "minLength": 1},
-            "uniqueItems": True,
+            "items": {"type": "string"},
         },
-        "decision_summary": {"type": "string", "minLength": 1},
+        "decision_summary": {"type": "string"},
         "expected_benefit": {"type": "number"},
-        "expected_cost": {"type": "number", "minimum": 0},
+        "expected_cost": {"type": "number"},
     },
 }
 
@@ -240,8 +233,10 @@ class CandidateSelector:
         if len(audit_by_id) != len(diagnosis):
             raise ValueError("selector diagnosis audit ids must be unique")
         selected_claim_ids = set(candidate_by_id[selected_id].claim_ids)
-        if not selected_claim_ids.issubset(audit_by_id):
-            raise ValueError("selected material claims require diagnosis audit")
+        if selected_claim_ids != set(audit_by_id):
+            raise ValueError(
+                "selector diagnosis audit must exactly cover selected claim ids"
+            )
         for audit in diagnosis:
             claim = claims_by_id.get(audit.claim_id)
             if claim is None:

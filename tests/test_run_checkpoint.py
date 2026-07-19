@@ -29,6 +29,8 @@ from test_ideation_domain import (
     BATCH_ID,
     IDEA_ID,
     NOW,
+    analyzed_candidate,
+    coding_agent_call,
     eligible_analysis,
     generated_idea,
     planned_batch,
@@ -71,6 +73,8 @@ class FakeLLM:
 
 
 class FakeProblemHandler:
+    maximize_scoring = True
+
     def get_problem_context(self) -> str:
         return "Solve the support problem"
 
@@ -120,9 +124,7 @@ class FakeStrategy:
             node_id=node_id,
             branch_name=branch_name,
             solution=f"solution-{node_id}",
-            score=(
-                self.score_queue.pop(0) if self.score_queue else 0.1
-            ),
+            score=(self.score_queue.pop(0) if self.score_queue else 0.1),
             feedback=f"feedback-{node_id}",
             should_stop=self.stop_next,
             agent_output=(
@@ -162,7 +164,12 @@ class FakeStrategy:
         self.fidelity_decisions.append(decision)
 
     def set_registered_evaluation(
-        self, *, manifest, command, evaluator_id, subsample_seed,
+        self,
+        *,
+        manifest,
+        command,
+        evaluator_id,
+        subsample_seed,
         data_manifest,
     ) -> None:
         self.registered_evaluation = {
@@ -204,8 +211,7 @@ class FakeStrategy:
 
     def load_state(self, state: Dict[str, Any]) -> None:
         self.node_history = [
-            SearchNode.from_dict(item)
-            for item in state.get("node_history", [])
+            SearchNode.from_dict(item) for item in state.get("node_history", [])
         ]
         self.scores_evaluator_id = state.get("scores_evaluator_id", "")
         self.evaluator_transition = state.get("evaluator_transition")
@@ -223,7 +229,8 @@ def _patch_orchestrator(
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
-            "search_strategy": {"type": "generic", "params": {}}
+            "ideation_profile": "DEFAULT",
+            "search_strategy": {"type": "generic", "params": {}},
         },
     )
     monkeypatch.setattr(
@@ -370,9 +377,23 @@ def _strict_generic_strategy(tmp_path: Path) -> GenericSearch:
     )
     archive = IdeaArchive(tmp_path / "ideas.json", campaign_id)
     archive.create_batch(batch, expected_revision=0)
-    archive.add_ideas(BATCH_ID, (generated_idea(),), expected_revision=1)
-    archive.record_analysis(BATCH_ID, eligible_analysis(), expected_revision=2)
-    archive.record_selection(BATCH_ID, selection(), expected_revision=3)
+    archive.add_ideas(
+        BATCH_ID,
+        (generated_idea(),),
+        generation_calls=(coding_agent_call(),),
+        expected_revision=1,
+    )
+    archive.record_analyses(
+        BATCH_ID,
+        (analyzed_candidate(eligible_analysis()),),
+        expected_revision=2,
+    )
+    archive.record_selection(
+        BATCH_ID,
+        selection(),
+        selection_call=coding_agent_call(),
+        expected_revision=3,
+    )
     archive.link_experiment(IDEA_ID, 0, BATCH_ID, expected_revision=4)
     source = GenericSearch.__new__(GenericSearch)
     source.workspace_dir = str(tmp_path)
@@ -485,9 +506,7 @@ def test_one_iteration_then_resume_restores_feedback_and_state(
     assert resumed_result.iterations_run == 1
     assert resumed_result.cumulative_iterations == 2
     assert resumed_result.total_cost == 2.0
-    assert {"generic_exp_0", "generic_exp_1"} <= {
-        head.name for head in repo.heads
-    }
+    assert {"generic_exp_0", "generic_exp_1"} <= {head.name for head in repo.heads}
 
     checkpoint = RunCheckpointStore(str(workspace)).load()
     assert checkpoint.completed_iterations == 2

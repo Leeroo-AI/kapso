@@ -11,7 +11,7 @@ Contents of this directory:
 |---|---|
 | `runner.py` (`expert-posttrain`) | Kapso runner for one task: wires the 10h wall-clock budget into `OrchestratorAgent.solve`, parses the harness prompt/timer, guarantees `final_model/` on exit |
 | `handler.py` | `PostTrainBenchHandler`: official rules + operational discipline fed to the coding agent each iteration |
-| `config.yaml` | `POSTTRAIN` mode: generic (sequential, parent=best) search, Claude Code via `ANTHROPIC_API_KEY`, all LLM roles pinned to Anthropic, multi-hour timeouts |
+| `config.yaml` | `POSTTRAIN` mode: evidence-directed Generic search, Codex/Claude ideation profile, Claude implementation, multi-hour timeouts |
 | `ptb_adapter/` | Files to drop into a PostTrainBench fork: `agents/kapso/solve.sh`, `containers/kapso.def`, build script |
 | `gcp/` | GCP provisioning: bootstrap, one-time asset build (containers + HF-cache disk snapshot), per-run flex-start/spot H100 VM, results fetch |
 
@@ -84,8 +84,10 @@ their leaderboard, which suggests structured iteration pays.
 
 Design decisions (and the kapso gaps they close):
 
-- **Generic sequential strategy, `parent_policy: best`** — one experiment at a
-  time (one GPU), each branching from the best-scoring node.
+- **Evidence-directed Generic strategy** — one experiment executes at a time on
+  the single GPU. The policy chooses explore/exploit/verify/recover from durable
+  evidence, and each operator freezes an explicit baseline, best-valid,
+  specific-experiment, or recovery parent plan.
   `benchmark_tree_search`'s parallel expansion doesn't fit a single GPU;
   revisit for multi-GPU ablations.
 - **Wall-clock budget**: `Kapso.evolve()`/CLI don't expose
@@ -93,10 +95,10 @@ Design decisions (and the kapso gaps they close):
   directly (the MLE/ALE runner pattern) with the deadline parsed from
   `timer.sh` minus a 20-min consolidation reserve, and traps SIGTERM so the
   finally-block still runs when the harness kills us.
-- **No-OpenAI compliance**: default kapso config routes utility/reasoning/web
-  roles to OpenAI models — forbidden here. `config.yaml`'s POSTTRAIN mode pins
-  every role to Anthropic and disables the `research` and `leeroopedia` gates
-  (Claude Code's built-in WebSearch/WebFetch covers research and is allowed).
+- **Credential separation**: Codex ideation authenticates through its CLI login,
+  Claude Code through OAuth, and the embedding provider through the official
+  OpenAI SDK. The runner strips `OPENAI_API_KEY` from coding-agent subprocesses;
+  implementation never inherits the embedding credential.
 - **Weights out of git**: kapso's workspace is a git repo with per-experiment
   branches; multi-GB safetensors in it would explode the 400 GB job disk. The
   handler mandates all weights under `task/artifacts/` + a `.gitignore`.

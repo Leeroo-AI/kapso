@@ -53,7 +53,8 @@ tests/
       order.
 - [x] Return a typed selected idea and immutable parent snapshot rather than a
       bare string.
-- [ ] Add required `idea_id` and `selection_batch_id` to `SearchNode` and update
+- [x] Add required `idea_id` and `selection_batch_id` to Generic `SearchNode`
+      projections and update
       every constructor and serialized fixture to the new shape.
 - [x] Copy selected proposal text to `SearchNode.solution`.
 - [x] Link the node idempotently before implementation begins.

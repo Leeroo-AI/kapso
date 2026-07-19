@@ -103,7 +103,7 @@ fi
 # Claude Max subscription: run_task.sh copies this file into the job home and
 # solve.sh exports it as CLAUDE_CODE_OAUTH_TOKEN. Codex ChatGPT login: the
 # harness copies agents/<agent>/auth.json to the job's ~/.codex/auth.json —
-# the ensemble's codex member authenticates through it, never through the
+# Codex ideation roles authenticate through it, never through the
 # harness's OPENAI_API_KEY. (xtrace off: secret values)
 set +x
 [ -n "$CLAUDE_OAUTH" ] && printf '%s' "$CLAUDE_OAUTH" > agents/kapso/oauth_token

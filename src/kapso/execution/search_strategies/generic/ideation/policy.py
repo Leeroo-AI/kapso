@@ -37,12 +37,8 @@ def choose_policy(
     signals = set(snapshot.signals)
     if (
         not capacity.can_start_complete_action
-        or not capacity.can_run_comparable_evaluation
+        or not capacity.can_run_granted_evaluation
         or not capacity.preserves_finalization_reserve
-        or (
-            capacity.opportunity_probe_required
-            and not capacity.opportunity_probe_admissible
-        )
     ):
         return PolicyDecision(
             action=CampaignAction.FINALIZE,
@@ -50,7 +46,7 @@ def choose_policy(
             reasons=(
                 _reason(
                     "terminal_capacity",
-                    "The capacity authority admits no complete comparable action while preserving delivery reserve.",
+                    "The capacity authority admits no complete granted evaluation while preserving delivery reserve.",
                     snapshot,
                     capacity,
                 ),

@@ -7,6 +7,10 @@ This document defines the upstream implementation plan for a set of reliability
 and extensibility improvements developed in a downstream Kapso fork. It also
 tracks which generic parts are now available in open-source Kapso.
 
+> Historical roadmap: its fixed `parent_policy` design was superseded by
+> evidence-directed ideation v3 and operator-owned frozen parent plans. See
+> [Ideation Parent Plans](/docs/evolve/parent-selection) for current behavior.
+
 The changes must be upstreamed as focused pull requests. The downstream branch
 mixes reusable behavior with deployment-specific defaults, so it must not be
 merged or cherry-picked wholesale.
@@ -21,7 +25,7 @@ merged or cherry-picked wholesale.
 | 6. Claude Code authentication modes | Implemented |
 | 7. Capability-aware gates | Implemented |
 | 8. Model routing and retry policy | Implemented |
-| 9. Parent-selection policies | Implemented |
+| 9. Parent-selection policies | Superseded by ideation v3 |
 
 ## Goals
 

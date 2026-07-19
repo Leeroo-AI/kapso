@@ -263,19 +263,21 @@ class CodingResult:
     metadata: Dict[str, Any]  # Agent-specific data
 ```
 
-## Structured JSON Output
+## Structured XML Output
 
-When used with `kapso.evolve()`, the developer agent must return a structured JSON at the end of its response:
+When used with Generic `kapso.evolve()`, a successful developer session must
+return exactly one of every required terminal tag:
 
-```json
-{
-    "code_changes_summary": "Brief description of changes made",
-    "evaluation_script_path": "kapso_evaluation/evaluate.py",
-    "evaluation_output": "Full output from running evaluation"
-}
+```xml
+<code_changes_summary>Brief description of changes made</code_changes_summary>
+<evaluation_script_path>kapso_evaluation/evaluate.py</evaluation_script_path>
+<evaluation_output>Full output from running evaluation</evaluation_output>
+<score>0.91</score>
+<technical_difficulties>None.</technical_difficulties>
 ```
 
-This JSON is extracted by the search strategy and used by the feedback generator to validate results and decide whether to continue.
+The strategy rejects missing, duplicated, empty, or malformed terminal fields.
+The parsed evaluation is then validated by the feedback generator.
 
 ### Example Agent Output
 

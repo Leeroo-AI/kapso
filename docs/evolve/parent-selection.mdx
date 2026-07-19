@@ -1,88 +1,59 @@
 ---
-title: "Parent Selection"
-description: "Choose whether generic experiments build on the best candidate or the baseline"
+title: "Ideation Parent Plans"
+description: "How evidence-directed operators choose and freeze experiment lineage"
 ---
 
-Generic search can either refine the best valid candidate found so far or run
-every experiment independently from the campaign baseline. The choice is an
-explicit strategy parameter and is fixed for the campaign.
+Generic search has no campaign-wide `parent_policy`. The deterministic policy
+first chooses a campaign mode; operator planning then assigns each candidate
+one explicit parent plan.
 
-## Configuration
+| Parent plan | Meaning |
+|---|---|
+| `baseline` | Build from `main` |
+| `best_valid` | Build from the strongest comparable experiment under the registered evaluator/fidelity/fraction/seed identity |
+| `specific_experiment` | Build from the named earlier node |
+| `recover_branch` | Continue the named recoverable experiment on the same node |
 
-```yaml
-modes:
-  GENERIC:
-    search_strategy:
-      type: "generic"
-      params:
-        parent_policy: "best"
+Exploration operators can start from the baseline or a specific experiment;
+exploitation operators usually refine the best valid result; recovery is only
+legal for an interrupted linked execution. The plan comes from evidence and
+operator intent, not from iteration number or an LLM-selected branch string.
+
+## Frozen resolution
+
+Before candidate generation, Kapso resolves every plan into one immutable
+snapshot:
+
+```text
+ResolvedParentSnapshot
+  node_id
+  branch_name
+  git_ref
+  materialized_ref
+  diff_base_ref
+  feedback_base_ref
 ```
 
-`parent_policy` accepts exactly two values:
+The generator reads the exact `materialized_ref`. If that candidate is selected,
+the same snapshot supplies implementation ancestry, `SearchNode.parent_node_id`,
+the code-diff base, and the feedback base. Kapso checks the branch still points
+to the frozen Git ref immediately before implementation and fails if it moved.
+There is no fallback to `main`.
 
-| Policy | Selected branch | Recorded `parent_node_id` | Use case |
-|--------|-----------------|---------------------------|----------|
-| `best` | Best valid candidate; before one exists, the latest committed non-error node (deadline-killed work continues in place); `main` only when nothing is committed | Selected candidate's node ID, or `null` for `main` | Iterative refinement and exploitation |
-| `baseline` | Always `main` | Always `null` | Independent experiments and broader exploration |
+Candidates sharing a ref reuse one read-only materialization. Candidates with
+different plans see different repository states. A crossover may cite several
+ideas or experiments, but it still has exactly one implementation parent and
+therefore unambiguous Git ancestry.
 
-The default is `best`, preserving the behavior of existing generic-search
-campaigns. Unknown values fail during strategy initialization. There is no
-environment-variable override, so the run configuration and its checkpoint
-fully describe the behavior.
+## Persistence and resume
 
-## One iteration
+The resolved snapshots are part of the durably persisted `IdeaBatch`, and the
+selected snapshot is copied to the selected `IdeaRecord` and linked
+`SearchNode`. Resume resolves the same plans again and requires exact equality
+with the persisted snapshots. A missing ref, moved branch, changed problem, or
+changed frozen planning context fails loudly; Kapso never silently chooses a
+new parent or creates a replacement batch.
 
-```mermaid
-flowchart LR
-    A["Select parent once"] --> B["Materialize selected Git ref"]
-    B --> C["Ideate from read-only detached worktree"]
-    C --> D["Implement from selected branch"]
-    D --> E["Diff against selected branch"]
-    E --> F["Record branch and parent node together"]
-```
-
-Selection returns the branch name and node ID as one immutable pair. That pair
-is reused for ideation, implementation, diff generation, feedback's base ref,
-and the stored `SearchNode` lineage. Kapso does not independently recompute the
-best candidate between those steps.
-
-With `best`, only candidates that are not marked as failed and whose evaluation
-is valid are eligible. Selection uses Kapso's internal experiment score and the
-problem handler's maximize/minimize direction. Metrics from an optional external
-iteration evaluator remain observational and do not affect parent selection.
-
-## Ref-correct ideation
-
-The root experiment workspace may be checked out on a different branch from
-the selected parent. Before ideation, Kapso creates a temporary detached Git
-worktree at the selected ref. The Claude Code agent's read-only workspace and
-the RepoMemory MCP root both point to that worktree, while experiment history
-continues to use its absolute campaign path.
-
-The temporary worktree is removed after ideation, including when the agent
-fails. The root workspace checkout is not changed, and any unknown selected ref
-is reported as an error instead of silently falling back to `main`.
-
-## Lineage and resume guarantees
-
-Each node records both:
-
-- `parent_branch_name`: the exact Git branch used as its implementation base;
-- `parent_node_id`: the node that owns that branch, or `null` for `main`.
-
-Checkpoint state includes `parent_policy`. Resume rejects a state whose saved
-policy differs from the configured policy. It also rejects parent node IDs that
-do not reference an earlier node and branch/node pairs that disagree.
-
-For compatibility, checkpoint state created before this field existed is
-interpreted as `best`, which was the historical behavior. The campaign-level
-configuration fingerprint provides an additional guard against changing
-strategy parameters during resume.
-
-## Choosing a policy
-
-Use `best` when improvements are expected to compose and each iteration should
-start from the strongest known implementation. Use `baseline` when candidates
-should be directly comparable as independent changes, when early local optima
-are a concern, or when modifications from different ideas are likely to
-interfere with one another.
+`recover_branch` preserves the original idea ID, experiment node ID, branch,
+and parent snapshot while incrementing the node's execution revision. This
+keeps recovery distinct from a new hypothesis.

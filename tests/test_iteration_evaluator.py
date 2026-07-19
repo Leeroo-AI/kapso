@@ -131,14 +131,11 @@ class TwoCandidateStrategy:
         return self.get_best_experiment()
 
     def dump_state(self) -> Dict[str, Any]:
-        return {
-            "node_history": [node.to_dict() for node in self.node_history]
-        }
+        return {"node_history": [node.to_dict() for node in self.node_history]}
 
     def load_state(self, state: Dict[str, Any]) -> None:
         self.node_history = [
-            SearchNode.from_dict(item)
-            for item in state.get("node_history", [])
+            SearchNode.from_dict(item) for item in state.get("node_history", [])
         ]
 
 
@@ -150,7 +147,8 @@ def _patch_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
-            "search_strategy": {"type": "generic", "params": {}}
+            "ideation_profile": "DEFAULT",
+            "search_strategy": {"type": "generic", "params": {}},
         },
     )
     monkeypatch.setattr(
@@ -203,9 +201,7 @@ def test_evaluator_rejects_non_finite_or_non_numeric_metrics(
         IterationEvaluationValidationError,
         match="finite and numeric",
     ):
-        normalize_result(
-            IterationEvaluationResult(metrics={"accuracy": value})
-        )
+        normalize_result(IterationEvaluationResult(metrics={"accuracy": value}))
 
 
 def test_evaluator_result_contract_is_strict() -> None:
@@ -250,7 +246,7 @@ def test_evaluator_result_contract_is_strict() -> None:
 
 
 def test_agent_facing_history_does_not_expose_external_metrics() -> None:
-    record = ExperimentRecord(
+    node = SearchNode(
         node_id=0,
         solution="candidate",
         score=0.2,
@@ -258,11 +254,11 @@ def test_agent_facing_history_does_not_expose_external_metrics() -> None:
         branch_name="candidate_0",
         had_error=False,
         error_message="",
-        timestamp="now",
         metrics={"holdout_accuracy": 0.99},
         primary_metric="holdout_accuracy",
         external_evaluation_error="secret harness failure",
     )
+    record = ExperimentRecord.from_node(node, "maximize", False)
 
     formatted = format_experiments([record])
     gate_formatted = ExperimentHistoryGate()._format_experiments(
@@ -291,9 +287,7 @@ def test_every_finalized_candidate_is_evaluated_and_persisted(
         assert repo.active_branch.name == "main"
         context.node.score = 999.0
         return IterationEvaluationResult(
-            metrics={
-                "holdout_accuracy": 0.9 - (context.node.node_id * 0.8)
-            },
+            metrics={"holdout_accuracy": 0.9 - (context.node.node_id * 0.8)},
             primary_metric="holdout_accuracy",
             metadata={"suite": "v1"},
         )
@@ -317,19 +311,16 @@ def test_every_finalized_candidate_is_evaluated_and_persisted(
     assert nodes[1].metrics["holdout_accuracy"] == pytest.approx(0.1)
     assert result.best_experiment is nodes[1]
 
-    history = json.loads(
-        (workspace / ".kapso" / "experiment_history.json").read_text()
-    )
-    assert [record["node_id"] for record in history] == [0, 1]
-    assert history[0]["metrics"] == {"holdout_accuracy": 0.9}
-    assert history[1]["primary_metric"] == "holdout_accuracy"
+    history = json.loads((workspace / ".kapso" / "experiment_history.json").read_text())
+    records = history["records"]
+    assert [record["node_id"] for record in records] == [0, 1]
+    assert records[0]["metrics"] == {"holdout_accuracy": 0.9}
+    assert records[1]["primary_metric"] == "holdout_accuracy"
 
     checkpoint = RunCheckpointStore(str(workspace)).load()
     checkpoint_nodes = checkpoint.strategy_state["node_history"]
     assert checkpoint_nodes[0]["metrics"] == {"holdout_accuracy": 0.9}
-    assert checkpoint_nodes[1]["external_evaluation_metadata"] == {
-        "suite": "v1"
-    }
+    assert checkpoint_nodes[1]["external_evaluation_metadata"] == {"suite": "v1"}
 
 
 def test_resume_evaluates_only_new_candidates_with_cumulative_iteration(
@@ -358,10 +349,8 @@ def test_resume_evaluates_only_new_candidates_with_cumulative_iteration(
 
     assert calls == [(1, 0), (1, 1), (2, 2), (2, 3)]
     assert result.cumulative_iterations == 2
-    history = json.loads(
-        (workspace / ".kapso" / "experiment_history.json").read_text()
-    )
-    assert [record["node_id"] for record in history] == [0, 1, 2, 3]
+    history = json.loads((workspace / ".kapso" / "experiment_history.json").read_text())
+    assert [record["node_id"] for record in history["records"]] == [0, 1, 2, 3]
 
 
 def test_resume_rejects_a_different_evaluator_entry_point(
@@ -406,16 +395,13 @@ def test_record_policy_persists_evaluator_failures(
     orchestrator.solve(experiment_max_iter=1)
 
     assert all(
-        node.external_evaluation_error
-        == "RuntimeError: harness unavailable"
+        node.external_evaluation_error == "RuntimeError: harness unavailable"
         for node in orchestrator.search_strategy.node_history
     )
-    history = json.loads(
-        (workspace / ".kapso" / "experiment_history.json").read_text()
-    )
-    assert len(history) == 2
-    assert history[0]["metrics"] == {}
-    assert "harness unavailable" in history[0]["external_evaluation_error"]
+    history = json.loads((workspace / ".kapso" / "experiment_history.json").read_text())
+    assert len(history["records"]) == 2
+    assert history["records"][0]["metrics"] == {}
+    assert "harness unavailable" in history["records"][0]["external_evaluation_error"]
     assert RunCheckpointStore(str(workspace)).exists()
 
 
@@ -528,9 +514,5 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
 
     assert captured["iteration_evaluator"] is evaluator
     assert captured["iteration_evaluator_failure_policy"] == "raise"
-    assert solution.metadata["external_metrics"] == {
-        "holdout_accuracy": 0.8
-    }
-    assert solution.metadata["external_primary_metric"] == (
-        "holdout_accuracy"
-    )
+    assert solution.metadata["external_metrics"] == {"holdout_accuracy": 0.8}
+    assert solution.metadata["external_primary_metric"] == ("holdout_accuracy")

@@ -49,7 +49,7 @@ upsert_secret() {
     fi
 }
 upsert_secret claude-oauth-token "${CLAUDE_CODE_OAUTH_TOKEN:-}"   # Claude Max (preferred)
-# Codex ChatGPT-login file for the ensemble ideation member (~/.codex/auth.json)
+# Codex ChatGPT-login file for ideation roles (~/.codex/auth.json)
 upsert_secret codex-auth-json "${CODEX_AUTH_JSON:-}"
 upsert_secret anthropic-api-key "${ANTHROPIC_API_KEY:-}"          # or usage-billed API key
 upsert_secret openai-api-key "${OPENAI_API_KEY:-}"

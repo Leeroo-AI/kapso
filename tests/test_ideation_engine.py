@@ -1,5 +1,6 @@
 """Behavioral tests for the ideation orchestration boundary."""
 
+import hashlib
 import json
 from contextlib import contextmanager
 from dataclasses import replace
@@ -16,6 +17,10 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateGeneratorSettings,
     CandidateSelector,
     CodingAgentCallResult,
+    EmbeddingBatch,
+    EmbeddingRecord,
+    EmbeddingSettings,
+    EmbeddingTelemetry,
     ExperimentInput,
     GapPrioritySettings,
     GenerationMemberSettings,
@@ -56,7 +61,30 @@ class PacketRunner:
         if request.role == "candidate_selector" and self.fail_selector:
             raise RuntimeError("selector failed")
         packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
-        if request.role == "candidate_selector":
+        if request.role == "evidence_author":
+            code_diff_reference = next(
+                reference
+                for reference in packet["allowed_source_refs"]
+                if reference.endswith(":code_diff")
+            )
+            feedback_reference = next(
+                reference
+                for reference in packet["allowed_source_refs"]
+                if reference.endswith(":feedback")
+            )
+            output = {
+                "claims": [
+                    {
+                        "statement": "The selected intervention caused the measured gain.",
+                        "kind": "hypothesis",
+                        "status": "supported",
+                        "source_refs": [code_diff_reference, feedback_reference],
+                    }
+                ],
+                "open_gaps": [],
+                "targeted_gap_updates": [],
+            }
+        elif request.role == "candidate_selector":
             eligible_ids = tuple(
                 item["idea_id"] for item in packet["eligible_candidates"]
             )
@@ -110,6 +138,29 @@ class PacketRunner:
         )
 
 
+class StoreAheadPacketRunner(PacketRunner):
+    """Test double with the production runner's durable operation cache."""
+
+    def __init__(self, artifact_dir: Path, *, fail_once_role: str):
+        super().__init__(artifact_dir)
+        self.fail_once_role = fail_once_role
+        self.failed = False
+        self.completed_by_operation = {}
+        self.executions = []
+
+    def run(self, request, response_schema):
+        persisted = self.completed_by_operation.get(request.operation_id)
+        if persisted is not None:
+            return persisted
+        self.executions.append(request.role)
+        if request.role == self.fail_once_role and not self.failed:
+            self.failed = True
+            raise RuntimeError(f"{request.role} interrupted")
+        result = super().run(request, response_schema)
+        self.completed_by_operation[request.operation_id] = result
+        return result
+
+
 class CountingParents:
     def __init__(self, workspace: Path):
         self.workspace = workspace
@@ -135,7 +186,48 @@ class CountingParents:
         yield str(self.workspace)
 
 
-def build_engine(tmp_path, runner, *, minimum_distinct=2):
+class DeterministicEmbeddingProvider:
+    def __init__(self):
+        self.settings = EmbeddingSettings(
+            enabled=True,
+            model="test-embedding-model",
+            dimensions=2,
+            timeout_seconds=5,
+            max_retries=0,
+        )
+        self.calls = []
+
+    def embed(self, texts):
+        complete = tuple(texts)
+        self.calls.append(complete)
+        return EmbeddingBatch(
+            records=tuple(
+                EmbeddingRecord(
+                    provider="openai",
+                    model=self.settings.model,
+                    dimensions=2,
+                    input_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    vector=(1.0, 0.0),
+                )
+                for text in complete
+            ),
+            telemetry=EmbeddingTelemetry(
+                provider="openai",
+                model=self.settings.model,
+                call_count=1,
+                input_tokens=23,
+                duration_seconds=0.5,
+            ),
+        )
+
+
+def build_engine(
+    tmp_path,
+    runner,
+    *,
+    minimum_distinct=2,
+    embedding_provider=None,
+):
     archive = IdeaArchive(tmp_path / "ideas.json", "campaign-alpha")
     generator_settings = CandidateGeneratorSettings(
         members=(member(), member()),
@@ -162,7 +254,7 @@ def build_engine(tmp_path, runner, *, minimum_distinct=2):
                 max_neighbors=5,
                 minimum_distinct_eligible=minimum_distinct,
             ),
-            embedding_provider=None,
+            embedding_provider=embedding_provider,
         ),
         selector=CandidateSelector(runner, member()),
     )
@@ -184,6 +276,18 @@ def run_engine(engine, parents, **changes):
     }
     arguments.update(changes)
     return engine.run(**arguments)
+
+
+def telemetry_totals(telemetry):
+    return {
+        "coding_agent_call_count": telemetry.coding_agent_call_count,
+        "coding_agent_duration_seconds": telemetry.coding_agent_duration_seconds,
+        "known_coding_agent_cost_usd": telemetry.known_coding_agent_cost_usd,
+        "unpriced_coding_agent_call_count": (
+            telemetry.unpriced_coding_agent_call_count
+        ),
+        "embedding": telemetry.embedding,
+    }
 
 
 def test_engine_persists_selection_and_materializes_each_parent_ref_once(tmp_path):
@@ -219,7 +323,12 @@ def test_engine_runs_exactly_one_repair_before_final_analysis(tmp_path):
 
 def test_selector_failure_leaves_analyzed_batch_without_fallback_winner(tmp_path):
     runner = PacketRunner(tmp_path, fail_selector=True)
-    archive, engine = build_engine(tmp_path, runner)
+    embedding_provider = DeterministicEmbeddingProvider()
+    archive, engine = build_engine(
+        tmp_path,
+        runner,
+        embedding_provider=embedding_provider,
+    )
     parents = CountingParents(tmp_path)
 
     with pytest.raises(RuntimeError, match="selector failed"):
@@ -241,6 +350,22 @@ def test_selector_failure_leaves_analyzed_batch_without_fallback_winner(tmp_path
     assert runner.roles.count("candidate_0") == 1
     assert runner.roles.count("candidate_1") == 1
     assert runner.roles.count("candidate_selector") == 2
+    assert resumed.telemetry.coding_agent_call_count == 3
+    assert (
+        resumed.telemetry.embedding
+        == archive.get_batch(resumed.batch_id).embedding_telemetry
+    )
+    assert len(embedding_provider.calls) == 1
+    reference_dir = tmp_path / "uninterrupted"
+    reference_dir.mkdir()
+    reference_provider = DeterministicEmbeddingProvider()
+    _, reference_engine = build_engine(
+        reference_dir,
+        PacketRunner(reference_dir),
+        embedding_provider=reference_provider,
+    )
+    reference = run_engine(reference_engine, CountingParents(reference_dir))
+    assert telemetry_totals(resumed.telemetry) == telemetry_totals(reference.telemetry)
 
 
 def test_generated_batch_resume_reuses_the_persisted_candidate_pool(
@@ -270,6 +395,121 @@ def test_generated_batch_resume_reuses_the_persisted_candidate_pool(
     assert archive.state.batches[0].generated_idea_ids == generated_ids
     assert runner.roles.count("candidate_0") == 1
     assert runner.roles.count("candidate_1") == 1
+    assert resumed.telemetry.coding_agent_call_count == 3
+
+
+def test_planned_batch_resume_reuses_store_ahead_agent_result(tmp_path):
+    runner = StoreAheadPacketRunner(tmp_path, fail_once_role="candidate_1")
+    archive, engine = build_engine(tmp_path, runner)
+    parents = CountingParents(tmp_path)
+
+    with pytest.raises(RuntimeError, match="candidate_1 interrupted"):
+        run_engine(engine, parents)
+
+    batch = archive.state.batches[0]
+    assert batch.status.value == "planned"
+    assert batch.generated_idea_ids == ()
+    assert runner.executions.count("candidate_0") == 1
+
+    resumed = run_engine(engine, parents, resume_batch_id=batch.batch_id)
+
+    assert resumed.selected_idea is not None
+    assert runner.executions.count("candidate_0") == 1
+    assert runner.executions.count("candidate_1") == 2
+    assert resumed.telemetry.coding_agent_call_count == 3
+    reference_dir = tmp_path / "planned-reference"
+    reference_dir.mkdir()
+    _, reference_engine = build_engine(
+        reference_dir,
+        PacketRunner(reference_dir),
+    )
+    reference = run_engine(reference_engine, CountingParents(reference_dir))
+    assert telemetry_totals(resumed.telemetry) == telemetry_totals(reference.telemetry)
+
+
+def test_resumed_phase_telemetry_matches_an_uninterrupted_transaction(
+    tmp_path,
+    monkeypatch,
+):
+    reference_dir = tmp_path / "reference"
+    reference_dir.mkdir()
+    reference_runner = PacketRunner(reference_dir)
+    _, reference_engine = build_engine(reference_dir, reference_runner)
+    reference = run_engine(
+        reference_engine,
+        CountingParents(reference_dir),
+    )
+
+    resumed_dir = tmp_path / "resumed"
+    resumed_dir.mkdir()
+    resumed_runner = PacketRunner(resumed_dir)
+    archive, resumed_engine = build_engine(resumed_dir, resumed_runner)
+    parents = CountingParents(resumed_dir)
+    original_analyze = resumed_engine.analyzer.analyze_pool
+
+    def interrupt_analysis(**kwargs):
+        raise RuntimeError("analysis interrupted")
+
+    monkeypatch.setattr(resumed_engine.analyzer, "analyze_pool", interrupt_analysis)
+    with pytest.raises(RuntimeError, match="analysis interrupted"):
+        run_engine(resumed_engine, parents)
+    batch = archive.state.batches[0]
+    monkeypatch.setattr(resumed_engine.analyzer, "analyze_pool", original_analyze)
+
+    resumed = run_engine(
+        resumed_engine,
+        parents,
+        resume_batch_id=batch.batch_id,
+    )
+
+    assert telemetry_totals(resumed.telemetry) == telemetry_totals(reference.telemetry)
+
+
+def test_failed_atomic_analysis_commit_cannot_double_count_resume_telemetry(
+    tmp_path,
+    monkeypatch,
+):
+    reference_dir = tmp_path / "reference"
+    reference_dir.mkdir()
+    reference_provider = DeterministicEmbeddingProvider()
+    _, reference_engine = build_engine(
+        reference_dir,
+        PacketRunner(reference_dir),
+        embedding_provider=reference_provider,
+    )
+    reference = run_engine(reference_engine, CountingParents(reference_dir))
+
+    resumed_dir = tmp_path / "resumed"
+    resumed_dir.mkdir()
+    resumed_provider = DeterministicEmbeddingProvider()
+    archive, resumed_engine = build_engine(
+        resumed_dir,
+        PacketRunner(resumed_dir),
+        embedding_provider=resumed_provider,
+    )
+    parents = CountingParents(resumed_dir)
+    original_record_analyses = archive.record_analyses
+
+    def interrupt_analysis_commit(*args, **kwargs):
+        raise RuntimeError("analysis commit interrupted")
+
+    monkeypatch.setattr(archive, "record_analyses", interrupt_analysis_commit)
+    with pytest.raises(RuntimeError, match="analysis commit interrupted"):
+        run_engine(resumed_engine, parents)
+    batch = archive.state.batches[0]
+    assert batch.status.value == "generated"
+    assert batch.analyses == ()
+    assert batch.embedding_telemetry is None
+    monkeypatch.setattr(archive, "record_analyses", original_record_analyses)
+
+    resumed = run_engine(
+        resumed_engine,
+        parents,
+        resume_batch_id=batch.batch_id,
+    )
+
+    assert len(resumed_provider.calls) == 2
+    assert telemetry_totals(resumed.telemetry) == telemetry_totals(reference.telemetry)
 
 
 def test_finalize_makes_no_parent_or_agent_calls_and_creates_no_batch(tmp_path):

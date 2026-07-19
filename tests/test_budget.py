@@ -25,10 +25,10 @@ from tests.test_run_checkpoint import (
     _patch_orchestrator,
 )
 
-
 # =========================================================================
 # BudgetSpec
 # =========================================================================
+
 
 def test_spec_rejects_invalid_values():
     with pytest.raises(ValueError, match="time_budget_seconds"):
@@ -72,6 +72,7 @@ def test_spec_resolution_precedence_and_unknown_keys():
 # BudgetSnapshot
 # =========================================================================
 
+
 def test_snapshot_arithmetic_matches_legacy_progress_formula():
     snapshot = BudgetSnapshot(
         iteration_index=3,
@@ -105,6 +106,7 @@ def test_snapshot_arithmetic_matches_legacy_progress_formula():
 # =========================================================================
 # BudgetLedger
 # =========================================================================
+
 
 def test_ledger_composes_priors_meters_phases_and_entries():
     ledger = BudgetLedger(
@@ -143,6 +145,7 @@ def test_ledger_composes_priors_meters_phases_and_entries():
 # Fingerprint carve-out + top-up + observe_budget (orchestrator-level)
 # =========================================================================
 
+
 def test_budget_block_is_excluded_from_config_fingerprint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -161,15 +164,14 @@ def test_budget_block_is_excluded_from_config_fingerprint(
         orchestrator_module,
         "load_mode_config",
         lambda config_path, mode: {
+            "ideation_profile": "DEFAULT",
             "search_strategy": {"type": "generic", "params": {}},
             "budget": {"time_budget_minutes": 120},
         },
     )
     with_budget = _orchestrator(workspace_b)
 
-    assert (
-        with_budget.config_fingerprint == without_budget.config_fingerprint
-    )
+    assert with_budget.config_fingerprint == without_budget.config_fingerprint
     assert with_budget._config_budget == {"time_budget_minutes": 120}
 
 
@@ -224,6 +226,7 @@ def test_strategy_receives_a_snapshot_every_iteration(
 # =========================================================================
 # M4: reserve gate, stop_detail, clamps, and the prompt block
 # =========================================================================
+
 
 def test_reserve_gate_refuses_admission_and_stays_resumable(
     tmp_path: Path,
@@ -310,9 +313,7 @@ def test_budget_status_block_renders_in_all_modes():
     )
 
     for template_name in (
-        "execution/search_strategies/generic/prompts/ideation_claude_code.md",
-        "execution/search_strategies/generic/prompts/"
-        "implementation_claude_code.md",
+        "execution/search_strategies/generic/prompts/" "implementation_claude_code.md",
     ):
         assert load_prompt(template_name).count("{{budget_status}}") == 1
 
@@ -346,13 +347,6 @@ def test_budget_status_block_renders_in_all_modes():
     assert "Elapsed 30 of 100 budgeted minutes." in budgeted_text
     assert "searchable time remaining: 50 minutes" in budgeted_text
     assert "Spent $2.50 of $10.00." in budgeted_text
-
-    rendered = strategy._build_ideation_prompt(
-        problem="the problem",
-        repo_memory_brief="memory",
-    )
-    assert "{{budget_status}}" not in rendered
-    assert "Spent $2.50 of $10.00." in rendered
 
 
 def test_clamped_timeout_helper_uses_the_snapshot():

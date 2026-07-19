@@ -13,6 +13,7 @@ from kapso.execution.search_strategies.generic.ideation.archive import (
 )
 from kapso.execution.search_strategies.generic.ideation.types import (
     CampaignEvidenceSnapshot,
+    ClaimKind,
     EvaluationGap,
     EvaluationStatus,
     EvidenceSignal,
@@ -186,6 +187,31 @@ class ExperimentInput(JsonRecord):
             technical_difficulty=data["technical_difficulty"],
             created_at=data["created_at"],
         )
+
+
+def evidence_reference_ids(snapshot: CampaignEvidenceSnapshot) -> frozenset[str]:
+    """Return the exact identifiers a generated idea may cite as evidence."""
+
+    if not isinstance(snapshot, CampaignEvidenceSnapshot):
+        raise TypeError("evidence references require a campaign evidence snapshot")
+    references = {snapshot.snapshot_id}
+    for claim in snapshot.claims:
+        references.add(claim.claim_id)
+        references.update(claim.source_refs)
+    for gap in snapshot.gaps:
+        references.add(gap.gap_id)
+        references.update(gap.evidence_refs)
+    for experiment in snapshot.experiments:
+        references.update(
+            {
+                experiment.idea_id,
+                experiment.selection_batch_id,
+                f"experiment_node:{experiment.node_id}",
+            }
+        )
+        if experiment.evaluator_id is not None:
+            references.add(experiment.evaluator_id)
+    return frozenset(references)
 
 
 @dataclass(frozen=True)
@@ -650,6 +676,7 @@ class CampaignEvidenceBuilder:
         }
         if any(
             claim.status == EvidenceStatus.SUPPORTED
+            and claim.kind == ClaimKind.HYPOTHESIS
             and bool(causal_idea_ids & set(claim.affected_idea_ids))
             for claim in archive_state.claims
         ):

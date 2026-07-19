@@ -6,12 +6,15 @@ purely mechanical trigger, never score- or outcome-based. The field rides
 the node into the experiment store and its tool renderings.
 """
 
+import pytest
+
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 from kapso.execution.search_strategies.generic import difficulties_generator
 from kapso.gated_mcp.gates.experiment_history_gate import (
     ExperimentHistoryGate,
 )
 from kapso.execution.memories.experiment_memory.store import ExperimentRecord
+from kapso.execution.search_strategies.base import SearchNode
 
 
 def make_strategy_stub():
@@ -30,10 +33,29 @@ def test_extract_agent_result_parses_the_new_tag():
         "</technical_difficulties>"
     )
     result = strategy._extract_agent_result(output)
-    assert result["technical_difficulties"] == (
-        "OOM at batch 16; fixed with batch 8"
-    )
+    assert result["technical_difficulties"] == ("OOM at batch 16; fixed with batch 8")
     assert result["score"] == 0.9
+
+
+def test_successful_implementation_result_requires_the_complete_xml_contract():
+    strategy = make_strategy_stub()
+
+    with pytest.raises(ValueError, match="exactly one <evaluation_output>"):
+        strategy._extract_agent_result(
+            "<code_changes_summary>built it</code_changes_summary>\n"
+            "<evaluation_script_path>eval.py</evaluation_script_path>\n"
+            "<score>0.9</score>\n"
+            "<technical_difficulties>None.</technical_difficulties>"
+        )
+
+    with pytest.raises(ValueError, match="finite or null"):
+        strategy._extract_agent_result(
+            "<code_changes_summary>built it</code_changes_summary>\n"
+            "<evaluation_script_path>eval.py</evaluation_script_path>\n"
+            "<evaluation_output>ok</evaluation_output>\n"
+            "<score>NaN</score>\n"
+            "<technical_difficulties>None.</technical_difficulties>"
+        )
 
 
 def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
@@ -62,9 +84,7 @@ def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
         def cleanup(self):
             pass
 
-    monkeypatch.setattr(
-        difficulties_generator, "ClaudeCodeCodingAgent", FakeAgent
-    )
+    monkeypatch.setattr(difficulties_generator, "ClaudeCodeCodingAgent", FakeAgent)
     stream = tmp_path / "stream.jsonl"
     stream.write_text('{"type":"assistant"}\n')
 
@@ -83,9 +103,7 @@ def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
     assert text == "reconstructed: session died mid-eval"
     assert str(stream) in captured["prompt"]
     assert "the plan" in captured["prompt"]
-    assert captured["config"].agent_specific["env_strip"] == [
-        "OPENAI_API_KEY"
-    ]
+    assert captured["config"].agent_specific["env_strip"] == ["OPENAI_API_KEY"]
     assert captured["config"].agent_specific["allowed_tools"] == [
         "Read",
         "Bash",
@@ -108,9 +126,7 @@ def test_fallback_returns_empty_on_session_failure(monkeypatch, tmp_path):
         def cleanup(self):
             pass
 
-    monkeypatch.setattr(
-        difficulties_generator, "ClaudeCodeCodingAgent", DeadAgent
-    )
+    monkeypatch.setattr(difficulties_generator, "ClaudeCodeCodingAgent", DeadAgent)
     text = difficulties_generator.generate_technical_difficulties(
         model="m",
         claude_auth_settings={"auth_mode": "oauth"},
@@ -127,7 +143,7 @@ def test_fallback_returns_empty_on_session_failure(monkeypatch, tmp_path):
 
 def test_gate_renders_difficulties_block():
     gate = ExperimentHistoryGate.__new__(ExperimentHistoryGate)
-    record = ExperimentRecord(
+    node = SearchNode(
         node_id=1,
         solution="s",
         score=0.9,
@@ -135,9 +151,9 @@ def test_gate_renders_difficulties_block():
         branch_name="b",
         had_error=False,
         error_message="",
-        timestamp="t",
         technical_difficulties="hit the special-token trap; re-init fixed it",
     )
+    record = ExperimentRecord.from_node(node, "maximize", False)
     rendered = gate._format_experiments([record], "Title")
     assert "Technical difficulties:" in rendered
     assert "special-token trap" in rendered

@@ -51,6 +51,7 @@ FAST_V1 = ComparabilityClass(
 # Attempt and class contracts
 # =========================================================================
 
+
 def test_attempt_validation_and_round_trip():
     with pytest.raises(ValueError, match="fidelity"):
         attempt(fidelity="medium")
@@ -96,6 +97,7 @@ def test_projection_is_class_isolated_and_aggregates_replications():
 # Tier order
 # =========================================================================
 
+
 def test_evidence_tiers():
     probe_only = SearchNode(node_id=0, build_fidelity="fast")
     probe_only.evaluation_attempts = [attempt(score=0.9)]
@@ -109,9 +111,7 @@ def test_evidence_tiers():
     assert evidence_tier(validated, "eval-v1") == TIER_VALIDATED
 
     full = SearchNode(node_id=2, build_fidelity="full")
-    full.evaluation_attempts = [
-        attempt(fidelity="full", fraction=1.0, score=0.43)
-    ]
+    full.evaluation_attempts = [attempt(fidelity="full", fraction=1.0, score=0.43)]
     assert evidence_tier(full, "eval-v1") == TIER_FULL
     # Under a different evaluator version, the same evidence is stale.
     assert evidence_tier(full, "eval-v2") == TIER_PROBE
@@ -134,17 +134,11 @@ def test_committed_selection_follows_tiers_not_raw_scores():
 
     stale_full = SearchNode(node_id=3, build_fidelity="full")
     stale_full.evaluation_attempts = [
-        attempt(
-            evaluator_id="eval-v0", fidelity="full", fraction=1.0, score=0.99
-        )
+        attempt(evaluator_id="eval-v0", fidelity="full", fraction=1.0, score=0.99)
     ]
 
-    invalid = SearchNode(
-        node_id=4, build_fidelity="full", evaluation_valid=False
-    )
-    invalid.evaluation_attempts = [
-        attempt(fidelity="full", fraction=1.0, score=0.99)
-    ]
+    invalid = SearchNode(node_id=4, build_fidelity="full", evaluation_valid=False)
+    invalid.evaluation_attempts = [attempt(fidelity="full", fraction=1.0, score=0.99)]
 
     nodes = [flashy_probe, validated, full_lower_score, stale_full, invalid]
 
@@ -154,21 +148,13 @@ def test_committed_selection_follows_tiers_not_raw_scores():
     assert winner is full_lower_score
 
     without_full = [flashy_probe, validated, stale_full]
-    assert (
-        select_committed_candidate(without_full, evaluator_id="eval-v1")
-        is validated
-    )
+    assert select_committed_candidate(without_full, evaluator_id="eval-v1") is validated
 
-    assert (
-        select_committed_candidate([flashy_probe], evaluator_id="eval-v1")
-        is None
-    )
+    assert select_committed_candidate([flashy_probe], evaluator_id="eval-v1") is None
 
     # Direction awareness within a tier.
     low = SearchNode(node_id=5, build_fidelity="full")
-    low.evaluation_attempts = [
-        attempt(fidelity="full", fraction=1.0, score=0.1)
-    ]
+    low.evaluation_attempts = [attempt(fidelity="full", fraction=1.0, score=0.1)]
     assert (
         select_committed_candidate(
             [full_lower_score, low], evaluator_id="eval-v1", maximize=False
@@ -180,6 +166,7 @@ def test_committed_selection_follows_tiers_not_raw_scores():
 # =========================================================================
 # SearchNode serialization with attempts
 # =========================================================================
+
 
 def test_node_round_trips_fidelity_fields_and_attempts():
     node = SearchNode(node_id=0, build_fidelity="fast", eval_fidelity="fast")
@@ -204,9 +191,11 @@ def test_node_round_trips_fidelity_fields_and_attempts():
 # GenericSearch integration
 # =========================================================================
 
+
 def make_strategy():
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.registered_evaluator_id = "eval-v1"
+    strategy.registered_evaluation_command = "python kapso_evaluation/kapso_eval.py"
     strategy.registered_subsample_seed = 1337
     strategy.fidelity_decision = None
     strategy.workspace = SimpleNamespace(
@@ -220,7 +209,11 @@ def make_strategy():
 def test_strategy_records_attempts_only_for_trustworthy_scores():
     strategy = make_strategy()
 
-    node = SearchNode(node_id=0, branch_name="generic_exp_0", score=0.7)
+    node = SearchNode(node_id=0, branch_name="generic_exp_0", score=0.99)
+    node.evaluation_output = (
+        'KAPSO_EVAL_MANIFEST {"fidelity":"full","fraction":1.0,'
+        '"seed":1337,"items":40,"total_items":40,"score":0.7}'
+    )
     node.phase_telemetry = {"implementation": {"duration_seconds": 12.0}}
     strategy._record_evaluation_attempt(node)
     assert len(node.evaluation_attempts) == 1
@@ -228,11 +221,22 @@ def test_strategy_records_attempts_only_for_trustworthy_scores():
     assert recorded.commit_sha == "sha-generic_exp_0"
     assert recorded.evaluator_id == "eval-v1"
     assert recorded.fidelity == "full"
+    assert recorded.score == node.score == 0.7
     assert recorded.duration_seconds == 12.0
 
     unscored = SearchNode(node_id=1, branch_name="generic_exp_1", score=None)
     strategy._record_evaluation_attempt(unscored)
     assert unscored.evaluation_attempts == []
+
+    self_report_only = SearchNode(
+        node_id=4,
+        branch_name="generic_exp_4",
+        score=0.95,
+        evaluation_output="implementation XML score without a manifest",
+    )
+    strategy._record_evaluation_attempt(self_report_only)
+    assert self_report_only.score is None
+    assert self_report_only.evaluation_attempts == []
 
     invalid = SearchNode(
         node_id=2,
@@ -244,9 +248,7 @@ def test_strategy_records_attempts_only_for_trustworthy_scores():
     assert invalid.evaluation_attempts == []
 
     strategy.registered_evaluator_id = ""
-    unregistered = SearchNode(
-        node_id=3, branch_name="generic_exp_3", score=0.9
-    )
+    unregistered = SearchNode(node_id=3, branch_name="generic_exp_3", score=0.9)
     strategy._record_evaluation_attempt(unregistered)
     assert unregistered.evaluation_attempts == []
 
@@ -256,9 +258,7 @@ def test_projection_refresh_moves_the_frontier_to_the_new_ruler():
     strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
 
     old_leader = SearchNode(node_id=0, branch_name="a", score=0.9)
-    old_leader.evaluation_attempts = [
-        attempt(evaluator_id="eval-v1", score=0.9)
-    ]
+    old_leader.evaluation_attempts = [attempt(evaluator_id="eval-v1", score=0.9)]
     anchored = SearchNode(node_id=1, branch_name="b", score=0.5)
     anchored.evaluation_attempts = [
         attempt(evaluator_id="eval-v1", score=0.5),
@@ -288,14 +288,16 @@ def test_deliverable_prefers_committed_tier_over_fast_leader():
     strategy.registered_evaluator_id = "eval-v1"
 
     full_tier = SearchNode(
-        node_id=0, branch_name="generic_exp_0", score=0.49,
+        node_id=0,
+        branch_name="generic_exp_0",
+        score=0.49,
         build_fidelity="full",
     )
-    full_tier.evaluation_attempts = [
-        attempt(fidelity="full", fraction=1.0, score=0.9)
-    ]
+    full_tier.evaluation_attempts = [attempt(fidelity="full", fraction=1.0, score=0.9)]
     fast_leader = SearchNode(
-        node_id=1, branch_name="generic_exp_1", score=0.87,
+        node_id=1,
+        branch_name="generic_exp_1",
+        score=0.87,
         build_fidelity="fast",
     )
     fast_leader.evaluation_attempts = [attempt(score=0.87)]
@@ -383,6 +385,7 @@ def test_malformed_manifest_line_raises(tmp_path):
 # Best-node selection with unscored nodes (Arm-B regression, finding 13)
 # =========================================================================
 
+
 def test_minimize_unscored_valid_node_never_ranks_best():
     """A session that dies before its evaluation completes leaves a node
     with score=None and evaluation_valid=True (the default). On minimize
@@ -407,23 +410,8 @@ def test_minimize_unscored_valid_node_never_ranks_best():
         assert history[0] is unscored, strategy_cls.__name__
 
 
-def test_minimize_parent_selection_prefers_scored_champion():
-    """The live failure: exp_9's parent became unscored exp_8 instead of
-    champion exp_5. parent_policy=best must chain from the score leader."""
-    strategy = GenericSearch.__new__(GenericSearch)
-    strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
-    strategy.parent_policy = "best"
-    champion = SearchNode(node_id=5, branch_name="exp_5", score=2.6433)
-    unscored = SearchNode(node_id=8, branch_name="exp_8", score=None)
-    strategy.node_history = [champion, unscored]
-
-    assert strategy._select_parent().branch_name == "exp_5"
-
-
 def test_all_unscored_history_yields_no_best_experiment():
-    """With zero scored nodes there is no best experiment — the explicit
-    committed-work fallback in _select_parent owns that case, not a
-    None-keyed impostor."""
+    """With zero scored nodes there is no best experiment."""
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
     strategy.node_history = [

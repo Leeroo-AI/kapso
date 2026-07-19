@@ -14,7 +14,8 @@ flowchart TB
     subgraph Evolve["Evolve System"]
         G[Goal] --> O[Orchestrator]
         O --> SS[Search Strategy]
-        SS --> CA[Coding Agent]
+        SS --> ID[Evidence-Directed Ideation]
+        ID --> CA[Coding Agent]
         CA --> AE[Agent Evaluation]
         AE --> FG[Feedback Generator]
         FG -->|Continue| SS
@@ -30,7 +31,7 @@ The system works by:
 1. **Receiving a goal** : What you want to build (include success criteria in the goal)
 2. **Initializing repo** : From `initial_repo`, workflow search, or empty
 3. **Gathering context** : From Knowledge Graph and Repo Memory
-4. **Generating solutions** : Via pluggable coding agents
+4. **Selecting an idea** : Deterministic policy plus Codex/Claude CLI candidate and selector roles
 5. **Running evaluation** : Agent builds and runs evaluation in `kapso_evaluation/`
 6. **Generating feedback** : Feedback generator validates results and decides stop/continue
 
@@ -41,7 +42,7 @@ The system works by:
     Central coordinator that manages the experimentation loop, budget tracking, and component lifecycle
   </Card>
   <Card title="Search Strategies" icon="magnifying-glass" href="/docs/evolve/search-strategies">
-    Algorithms for exploring the solution space: tree search or linear search
+    Evidence-directed Generic search or benchmark tree search
   </Card>
   <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
     Pluggable code generators: Aider, Gemini, Claude Code, OpenHands
@@ -97,16 +98,14 @@ Kapso provides preset configurations for different use cases:
 
 | Mode | Search Strategy | Best For |
 |------|-----------------|----------|
-| `GENERIC` | Tree search (default) | General problem solving |
-| `MINIMAL` | Linear search | Quick experiments, simple problems |
-| `TREE_SEARCH` | Tree search with debugging | Complex problems requiring exploration |
-| `SCORED` | Tree search with scoring | Problems with clear metrics |
+| `GENERIC` | Evidence-directed Generic search (default) | General problem solving |
+| `MINIMAL` | Evidence-directed Generic search with shorter implementation timeouts | Quick experiments, simple problems |
 
 ```python
 # Use a specific mode
 solution = kapso.evolve(
     goal="...",
-    mode="MINIMAL",  # Fast, linear search
+    mode="MINIMAL",  # Same evidence-directed search, shorter implementation timeout
 )
 ```
 
@@ -114,12 +113,16 @@ solution = kapso.evolve(
 
 Each iteration of the evolve loop:
 
-1. **Select** — Choose which solution candidates to explore
-2. **Expand** — Generate new variations using the coding agent
-3. **Implement** — Agent implements solution code
-4. **Evaluate** — Agent builds and runs evaluation in `kapso_evaluation/`
-5. **Feedback** — Feedback generator validates results and provides guidance
-6. **Check** — If feedback says stop (goal achieved), return solution
+1. **Direct** — Evidence and capacity choose bootstrap, explore, exploit,
+   verify, recover, or finalize.
+2. **Generate** — Independent coding-agent roles propose structured candidates.
+3. **Analyze** — Hard rules, descriptors, and semantic neighbors establish the
+   eligible pool.
+4. **Select** — A coding-agent critic chooses only among eligible candidates.
+5. **Implement and evaluate** — The selected linked idea runs on its frozen
+   parent branch.
+6. **Learn** — Feedback and evidence authoring update outcomes, claims, and
+   evaluation gaps for the next iteration.
 
 ### Git Branch Model
 
@@ -127,12 +130,14 @@ Each experiment runs on its own Git branch:
 
 ```
 main
-├── kapso/exp-001  (first experiment)
-├── kapso/exp-002  (second experiment)
-│   └── kapso/exp-002-debug-1  (debug iteration)
-├── kapso/exp-003  (third experiment)
+├── generic_exp_0  (first linked idea/experiment)
+├── generic_exp_1  (second linked idea/experiment)
+├── generic_exp_2  (third linked idea/experiment)
 └── ...
 ```
+
+A recoverable implementation failure reuses the same `generic_exp_<node_id>`
+branch, idea ID, batch ID, and experiment node with a newer execution revision.
 
 This provides:
 - **Isolation** — Experiments don't interfere with each other
@@ -149,13 +154,22 @@ workspace/
 │   └── evaluate.py       # Evaluation script
 ├── kapso_datasets/       # Data files (from data_dir)
 ├── .kapso/
-│   └── repo_memory.json  # Codebase understanding
+│   ├── repo_memory.json        # Branch-specific codebase understanding
+│   ├── idea_archive.json       # Candidates, decisions, claims, gaps, outcomes
+│   ├── experiment_history.json # Executed-only projection
+│   ├── run_state.json          # Strict resumable campaign state
+│   └── ideation/agent_calls/   # Replayable CLI call artifacts
 └── (solution code)       # From initial_repo or agent-built
 ```
 
 ## Memory Systems
 
-The Evolve System uses two memory systems:
+The Evolve System separates four authorities:
+
+- **Run checkpoint / SearchNode** — executable campaign state.
+- **Idea archive** — considered proposals, decisions, and outcomes.
+- **Experiment history** — work that was actually executed and measured.
+- **Repo memory** — branch-specific repository understanding.
 
 ### Repo Memory
 
@@ -193,7 +207,7 @@ Budget limits can be set via `max_iterations` or time/cost budgets in configurat
     Detailed walkthrough of the execution process
   </Card>
   <Card title="Search Strategies" icon="tree" href="/docs/evolve/search-strategies">
-    How tree search and linear search explore solutions
+    How evidence-directed Generic and benchmark tree search explore solutions
   </Card>
   <Card title="Experiment Lifecycle" icon="rotate" href="/docs/evolve/experiment-lifecycle">
     Lifecycle of a single experiment

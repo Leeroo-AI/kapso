@@ -57,9 +57,11 @@ flowchart TD
     B --> C["Read .kapso/run_state.json"]
     C --> D["Validate schema, goal, strategy, config, and status"]
     D --> E["Construct strategy without fresh-workspace setup"]
-    E --> F["Restore strategy state, feedback, cost, and iteration count"]
-    F --> G["Run the requested additional iterations"]
-    G --> H["Atomically replace checkpoint after each finalized iteration"]
+    E --> F["Restore strategy, durable clock, costs, feedback, and iteration count"]
+    F --> G["Reconcile evaluator, idea archive, and experiment memory"]
+    G --> H["Write a bootstrap checkpoint before iteration 1"]
+    H --> I["Run the requested additional iterations"]
+    I --> J["Atomically replace checkpoint after each finalized iteration"]
 ```
 
 Validation happens before Kapso initializes or changes the experiment
@@ -72,8 +74,7 @@ With `resume=True`:
 
 - `output_path` is required and must already be a directory.
 - The path must be a non-bare Git repository.
-- `.kapso/run_state.json` must exist, unless trusted legacy migration is
-  explicitly enabled.
+- `.kapso/run_state.json` must exist; no pre-v3 or pickle migration path exists.
 - The checkpoint schema must be supported and structurally valid.
 - The goal must match exactly.
 - The configured search strategy and configuration fingerprint must match.
@@ -89,7 +90,7 @@ The current schema is:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "strategy_type": "generic",
   "goal": "Improve the support agent",
   "goal_hash": "sha256...",
@@ -97,11 +98,26 @@ The current schema is:
   "status": "running",
   "completed_iterations": 1,
   "cumulative_cost": 0.42,
+  "elapsed_seconds": 83.5,
+  "cost_by_component": {"search_strategy": 0.42},
+  "last_stop": null,
   "current_feedback": "Address the failing edge case",
   "strategy_state": {
+    "schema": "kapso.generic_search.v3",
+    "campaign_id": "campaign_0123456789abcdef0123456789abcdef",
+    "idea_archive_schema": "kapso.ideation_archive.v3",
+    "archive_revision": 7,
+    "active_batch_id": null,
     "node_history": [],
     "iteration_count": 1,
-    "previous_errors": []
+    "previous_errors": [],
+    "evaluation_integrity": {
+      "provenance": "agent_generated",
+      "manifest": {},
+      "fingerprint": null
+    },
+    "scores_evaluator_id": "",
+    "evaluator_transition": null
   }
 }
 ```
@@ -127,8 +143,9 @@ a half-created iteration is not added to `completed_iterations`.
 
 Status has two values:
 
-- `running`: the call reached its iteration slice and can be resumed.
-- `completed`: the goal was achieved or a time/cost budget ended the campaign.
+- `running`: the call reached its iteration slice or a time/cost/reserve stop
+  and can be resumed; `last_stop` records the budget boundary when present.
+- `completed`: the goal was achieved.
 
 The checkpoint file and temporary files are ignored by the experiment Git
 repository. Candidate branches remain normal Git artifacts, while orchestration
@@ -143,11 +160,17 @@ Resume restores:
   count;
 - feedback injected into the next iteration;
 - cumulative campaign cost;
+- cumulative elapsed time and per-component cost attribution;
 - cumulative completed-iteration count;
+- the latest resumable budget stop; and
 - the status needed to reject completed campaigns.
 
 Experiment history already stored in `.kapso/experiment_history.json` is loaded
 by the normal history store.
+
+After evaluation registration and cross-store reconciliation, Kapso writes a
+bootstrap checkpoint before starting iteration 1. Those setup costs and state
+therefore survive a crash before the first candidate finalizes.
 
 ## Failure handling
 
@@ -172,28 +195,29 @@ from kapso import (
 Fix the mismatch or choose the correct workspace. Do not delete validation
 fields to force a resume; use a new output path for a new campaign.
 
-## Trusted legacy migration
+## Generic ideation reconciliation
 
-Older Kapso versions wrote `checkpoint.pkl`. Pickle can execute code while
-loading, so migration is opt-in and must only be used for a workspace you
-trust:
+Generic v3 resumes only the exact current JSON schemas. Pre-v3 checkpoints,
+archives, and experiment records are rejected; there is no pickle importer or
+migration shim.
 
-```python
-solution = kapso.evolve(
-    goal="Improve the support agent",
-    output_path="./trusted-old-campaign",
-    max_iterations=1,
-    resume=True,
-    allow_legacy_checkpoint=True,
-)
-```
+The run checkpoint stores the campaign/archive identity and revision, active
+batch, strict node history, and evaluator state. The separate IdeaArchive may
+legitimately be ahead because each ideation phase is committed immediately.
+Resume validates the frozen problem, capacity, directive, parents, and context
+hash, then continues the first unfinished phase:
 
-Kapso imports the built-in strategy's legacy state, immediately writes the
-versioned JSON checkpoint, and renames the pickle to
-`checkpoint.pkl.migrated`. Later resumes use JSON and do not deserialize the
-pickle again. Legacy checkpoints do not contain goal/configuration metadata, so
-the explicit trust decision also accepts the goal and configuration supplied to
-the migration call.
+- `PLANNED` resumes generation;
+- `GENERATED` reuses candidates and resumes analysis;
+- `ANALYZED` resumes selection;
+- `SELECTED` reuses the persisted decision and completes the node bridge; and
+- `BRIDGED` recovers the same idea, node ID, and branch if execution was
+  interrupted.
+
+Completed CLI operations are replayed from their durable operation-ID result,
+not invoked again. Cross-store reconciliation can recreate a missing executed
+record or final idea outcome, but any conflicting identity, lineage, or frozen
+context fails loudly.
 
 ## Custom search strategies
 

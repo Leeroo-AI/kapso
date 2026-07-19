@@ -5,7 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import git
+import pytest
 
+from kapso.execution.budget import BudgetSnapshot
+from kapso.execution.fidelity import FidelityDecision
 from kapso.execution.fidelity import FULL_PASSTHROUGH
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.ideation import (
@@ -58,7 +61,9 @@ def test_parent_plans_freeze_baseline_best_specific_and_recovery_refs(tmp_path):
     baseline = strategy._resolve_ideation_parent(
         ParentPlan(kind=ParentPlanKind.BASELINE)
     )
-    best = strategy._resolve_ideation_parent(ParentPlan(kind=ParentPlanKind.BEST_VALID))
+    frozen_incumbent = strategy._resolve_ideation_parent(
+        ParentPlan(kind=ParentPlanKind.BEST_VALID, experiment_node_id=0)
+    )
     specific = strategy._resolve_ideation_parent(
         ParentPlan(
             kind=ParentPlanKind.SPECIFIC_EXPERIMENT,
@@ -75,10 +80,68 @@ def test_parent_plans_freeze_baseline_best_specific_and_recovery_refs(tmp_path):
     assert baseline.node_id is None
     assert baseline.branch_name == "main"
     assert baseline.git_ref == strategy.workspace.repo.commit("main").hexsha
-    assert (best.node_id, best.git_ref) == (1, second_sha)
+    # Node 1 currently has the higher live score, but the frozen evidence
+    # snapshot remains the sole BEST_VALID authority.
+    assert (frozen_incumbent.node_id, frozen_incumbent.git_ref) == (0, first_sha)
     assert (specific.node_id, specific.git_ref) == (0, first_sha)
     assert (recovery.node_id, recovery.git_ref) == (1, second_sha)
-    assert best.git_ref == best.materialized_ref == best.diff_base_ref
+    assert (
+        frozen_incumbent.git_ref
+        == frozen_incumbent.materialized_ref
+        == frozen_incumbent.diff_base_ref
+    )
+
+
+def test_capacity_view_projects_the_budget_and_fidelity_grant_without_invention():
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.ideation_config = {
+        "evidence": {
+            "comparable_fidelity": "full",
+            "comparable_fraction": 1.0,
+        }
+    }
+    strategy.budget_snapshot = BudgetSnapshot(
+        iteration_index=1,
+        max_iterations=4,
+        elapsed_seconds=10.0,
+        cost_usd=0.0,
+        time_budget_seconds=300.0,
+        finalization_reserve_seconds=60.0,
+    )
+    strategy.fidelity_decision = FidelityDecision(
+        profile="probe",
+        build_fidelity="fast",
+        eval_fidelity="fast",
+        eval_fraction=0.25,
+    )
+
+    probe = strategy._ideation_capacity_view()
+
+    assert probe.can_start_complete_action is True
+    assert probe.can_run_granted_evaluation is True
+    assert probe.can_run_comparable_evaluation is False
+    assert probe.preserves_finalization_reserve is True
+
+    strategy.fidelity_decision = FULL_PASSTHROUGH
+    full = strategy._ideation_capacity_view()
+    assert full.can_run_granted_evaluation is True
+    assert full.can_run_comparable_evaluation is True
+
+
+@pytest.mark.parametrize(
+    ("node", "expected"),
+    (
+        (SearchNode(node_id=0), True),
+        (SearchNode(node_id=0, had_error=True), False),
+        (SearchNode(node_id=0, recoverable_error=True), False),
+        (SearchNode(node_id=0, evaluation_valid=False), False),
+    ),
+)
+def test_evidence_author_only_runs_after_a_valid_successful_evaluation(
+    node,
+    expected,
+):
+    assert GenericSearch._should_author_ideation_evidence(node) is expected
 
 
 class FakeArchive:
@@ -166,6 +229,7 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
     strategy.enforce_evaluation_integrity = lambda node: True
     strategy._generate_feedback = lambda node: node
     strategy._record_evaluation_attempt = lambda node: None
+    strategy._author_ideation_evidence = lambda node, problem: None
 
     node = strategy.run("complete problem")
 
@@ -186,7 +250,9 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
     assert strategy.node_history == [node]
 
 
-def test_recovery_reexecutes_the_same_node_without_a_new_link_or_history_entry():
+def test_recovery_reexecutes_same_node_and_preserves_all_attempt_telemetry(
+    monkeypatch,
+):
     strategy = GenericSearch.__new__(GenericSearch)
     parent = replace(
         resolved_parent(),
@@ -216,15 +282,29 @@ def test_recovery_reexecutes_the_same_node_without_a_new_link_or_history_entry()
         had_error=True,
         recoverable_error=True,
     )
+    existing.duration_seconds = 7.0
+    existing.implementation_base_ref = "failed-sha"
+    existing.diff_base_ref = "original-baseline-sha"
+    existing.feedback_base_ref = "original-baseline-sha"
+    existing.phase_telemetry = {
+        "ideation": {
+            "cost_usd": 0.2,
+            "duration_seconds": 2.0,
+            "coding_agent_call_count": 2.0,
+            "unpriced_coding_agent_call_count": 0.0,
+        },
+        "implementation": {"cost_usd": 0.4, "duration_seconds": 3.0},
+        "feedback": {"cost_usd": 0.2, "duration_seconds": 1.0},
+    }
     result = SimpleNamespace(
         action=CampaignAction.RECOVER,
         selected_idea=idea,
         resolved_parent=parent,
         batch_id=BATCH_ID,
         telemetry=SimpleNamespace(
-            coding_agent_duration_seconds=0.0,
-            known_coding_agent_cost_usd=0.0,
-            coding_agent_call_count=0,
+            coding_agent_duration_seconds=1.0,
+            known_coding_agent_cost_usd=0.3,
+            coding_agent_call_count=1,
             unpriced_coding_agent_call_count=0,
             embedding=None,
         ),
@@ -249,12 +329,21 @@ def test_recovery_reexecutes_the_same_node_without_a_new_link_or_history_entry()
         return "recovered", {"cost_usd": 0.1, "duration_seconds": 1.0}
 
     strategy._implement = implement
-    strategy._get_code_diff = lambda branch, base: "recovery diff"
+    diff_bases = []
+    strategy._get_code_diff = (
+        lambda branch, base: diff_bases.append((branch, base)) or "recovery diff"
+    )
     strategy._extract_agent_result = lambda output: {}
     strategy._ensure_technical_difficulties = lambda node: None
     strategy.enforce_evaluation_integrity = lambda node: True
     strategy._generate_feedback = lambda node: node
     strategy._record_evaluation_attempt = lambda node: None
+    strategy._author_ideation_evidence = lambda node, problem: None
+    monotonic_values = iter((100.0, 104.0))
+    monkeypatch.setattr(
+        "kapso.execution.search_strategies.generic.strategy.time.monotonic",
+        lambda: next(monotonic_values),
+    )
 
     returned = strategy.run("complete problem")
 
@@ -263,5 +352,24 @@ def test_recovery_reexecutes_the_same_node_without_a_new_link_or_history_entry()
     assert returned.had_error is False
     assert returned.recoverable_error is False
     assert returned.parent_branch_name == "main"
-    assert returned.diff_base_ref == "failed-sha"
+    assert returned.implementation_base_ref == "failed-sha"
+    assert returned.diff_base_ref == "original-baseline-sha"
+    assert returned.feedback_base_ref == "original-baseline-sha"
+    assert diff_bases == [("generic_exp_0", "original-baseline-sha")]
+    assert returned.phase_telemetry["ideation"] == {
+        "cost_usd": pytest.approx(0.5),
+        "duration_seconds": pytest.approx(3.0),
+        "coding_agent_call_count": pytest.approx(3.0),
+        "unpriced_coding_agent_call_count": pytest.approx(0.0),
+    }
+    assert returned.phase_telemetry["implementation"] == {
+        "cost_usd": pytest.approx(0.5),
+        "duration_seconds": pytest.approx(4.0),
+    }
+    assert returned.phase_telemetry["feedback"] == {
+        "cost_usd": pytest.approx(0.2),
+        "duration_seconds": pytest.approx(1.0),
+    }
+    assert returned.duration_seconds == pytest.approx(11.0)
+    assert returned.cost_usd == pytest.approx(1.2)
     assert strategy.node_history == [existing]

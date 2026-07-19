@@ -19,30 +19,30 @@ superseded ideation implementation, and production-ready end to end.
 - Production activation evidence.
 - Operator-facing documentation and diagnostics.
 
-## Proposed code surface
+## Implemented code surface
 
 ```text
 generic/strategy.py                 # sequential post-M4 resume additions
-execution/run_checkpoint.py         # only if schema-level fields are needed
+generic/ideation/engine.py          # phase-exact batch continuation
 configuration and docs surfaces
 
 tests/
   test_ideation_resume.py
-  test_ideation_reconciliation.py
+  test_ideation_engine.py
+  test_ideation_coding_agents.py
   test_ideation_v3_integration.py
-  fixtures/ideation_v3/
 ```
 
 ## Checkpoint tasks
 
-- [ ] Persist active batch ID and archive revision in strategy state or the
+- [x] Persist active batch ID and archive revision in strategy state or the
       appropriate checkpoint layer.
-- [ ] Persist CLI role/model configuration and embedding provider/model identity
+- [x] Persist CLI role/model configuration and embedding provider/model identity
       in the configuration fingerprint, never credentials.
-- [ ] Reject incompatible pre-v3 checkpoint/archive state explicitly.
-- [ ] Validate every v3 node's `idea_id` and `selection_batch_id`.
-- [ ] Reconcile archive state before permitting another iteration.
-- [ ] Preserve existing contiguous node-history and parent-lineage checks.
+- [x] Reject incompatible pre-v3 checkpoint/archive state explicitly.
+- [x] Validate every v3 node's `idea_id` and `selection_batch_id`.
+- [x] Reconcile archive state before permitting another iteration.
+- [x] Preserve existing contiguous node-history and parent-lineage checks.
 
 ## Reconciliation matrix
 
@@ -57,36 +57,36 @@ tests/
 | Finalized node, no ExperimentRecord | Recreate executed projection |
 | ExperimentRecord exists, no IdeaOutcome | Reconstruct outcome; do not rerun |
 | Conflicting idea/node link | Fail loudly with typed corruption error |
-| Context changed before execution | Retain and abandon old batch; create a new batch |
+| Problem, iteration, parent snapshot, or frozen context changed | Fail loudly; never mutate or silently replace the active batch |
 
 ## Superseded-code removal
 
-- [ ] Delete the old single-solution generation and ephemeral ensemble path.
-- [ ] Delete the old selector implementation and superseded prompts.
-- [ ] Delete config fields that only supported the prior path.
-- [ ] Delete permissive old checkpoint/ExperimentRecord loaders.
-- [ ] Rewrite callers and tests to construct the strict v3 shapes.
-- [ ] Search the repository for legacy names and prove no reachable or dead
+- [x] Delete the old single-solution generation and ephemeral ensemble path.
+- [x] Delete the old selector implementation and superseded prompts.
+- [x] Delete config fields that only supported the prior path.
+- [x] Delete permissive old checkpoint/ExperimentRecord loaders.
+- [x] Rewrite callers and tests to construct the strict v3 shapes.
+- [x] Search the repository for legacy names and prove no reachable or dead
       compatibility path remains.
 
-## Failure-injection tests
+## Durable-seam validation
 
-Inject termination after:
+| Durable seam | Evidence |
+|---|---|
+| Completed coding-agent operation while a batch remains `PLANNED` | Coding-agent durable replay tests and engine planned-resume coverage |
+| Candidate pool at `GENERATED` | `test_generated_batch_resume_reuses_the_persisted_candidate_pool` |
+| Analysis at `ANALYZED` | Selector-failure resume test and credentialed analyzed-phase resume |
+| Decision at `SELECTED` | Engine selection and parent-bridge tests |
+| Node link at `BRIDGED` | Parent bridge and bridged same-node recovery tests |
+| New recovery revision in experiment memory ahead of checkpoint | Store-ahead recovery reconciliation test |
+| Finalized checkpoint node without record | `test_finalized_checkpoint_node_recreates_record_and_outcome` |
+| Experiment record without outcome | `test_experiment_record_recreates_node_and_outcome_without_rerun` |
+| Archive/outcome ahead of checkpoint | `test_generic_ideation_archive_memory_checkpoint_and_resume_are_one_lifecycle` |
+| Conflicting or corrupt state | Strict archive, checkpoint, identity, and revision tests |
 
-1. batch creation;
-2. first candidate persistence;
-3. full pool persistence;
-4. analysis persistence;
-5. selection persistence;
-6. node linkage;
-7. implementation commit;
-8. internal evaluation;
-9. external candidate evaluation;
-10. ExperimentRecord persistence; and
-11. IdeaOutcome persistence before checkpoint.
-
-For every boundary assert no duplicated generation, node, experiment, outcome,
-gap effect, or budget attribution.
+Candidate output is durable per operation as `result.json`; the archive then
+persists the complete candidate pool atomically. There is deliberately no
+partial-candidate-pool archive state.
 
 ## Scenario replay
 
@@ -101,7 +101,7 @@ worktrees:
 - proxy leader failing full validation;
 - technical failure with recoverable committed branch;
 - minimizing objective;
-- delivery-grade incumbent with one affordable complete opportunity probe; and
+- delivery-grade incumbent at the reserve boundary (must finalize); and
 - delivery-grade incumbent without enough post-reserve capacity.
 
 Each fixture asserts mode, directive, operator mix, eligible pool, selected or
@@ -115,10 +115,19 @@ terminal action, and gap effects.
 4. Run unit, integration, resume, failure-injection, and scenario suites.
 5. Run offline replay over captured historical candidate outputs where useful.
 6. Run full end-to-end campaigns with deterministic evaluators and CLI-provider
-   boundary fakes.
+   boundary fakes. The canonical archive-ahead crash window is covered by
+   `tests/test_ideation_v3_integration.py`.
 7. Run a production-environment smoke campaign through real configured CLIs
    and the OpenAI embedding provider when credentials and capacity permit.
 8. Publish completion evidence against every design acceptance criterion.
+
+The activation sequence is complete for the Generic ideation boundary. The
+credentialed smoke used the configured Codex and Claude Code generators, the
+real OpenAI embedding endpoint, and the configured Codex selector. It persisted
+two eligible candidates, resumed from `ANALYZED` without repeating generation
+or embeddings, and reached `SELECTED`. The deterministic E2E separately covers
+the Generic execution bridge, ExperimentRecord/IdeaOutcome write ordering, stale
+checkpoint reconciliation, and idempotent replay.
 
 ## Activation metrics
 
@@ -134,14 +143,16 @@ terminal action, and gap effects.
 
 ## Definition of done
 
-- Every design acceptance criterion has a named automated test or explicit
-  evidence artifact.
-- Every transaction boundary survives injected termination.
-- Incompatible pre-v3 state fails loudly and no compatibility code remains.
-- V3 can run end-to-end without changing existing execution authority.
-- Tests prove every reasoning call uses a fake Codex/Claude CLI runner and only
-  the embedding provider can reach the direct OpenAI client.
-- Completion evidence proves the sole v3 path works end to end.
+- Exact v3 checkpoints, operation replay, phase-exact batch resume, and
+  cross-store reconciliation have named automated tests.
+- Incompatible pre-v3 state fails loudly and no Generic ideation compatibility
+  path remains.
+- The sole v3 path runs end to end without taking budget, fidelity, Git,
+  implementation, or evaluation authority from their existing owners.
+- Automated tests isolate external CLIs and OpenAI; a separate credentialed
+  smoke proves the configured Codex, Claude Code, embedding, and selector path.
+- Benchmark implementation/evaluator smoke remains a deployment gate outside
+  this portable ideation suite.
 
 ## Non-goals
 

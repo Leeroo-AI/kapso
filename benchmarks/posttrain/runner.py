@@ -65,20 +65,15 @@ def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
     knobs = mode_cfg["session_budget"]
     params = mode_cfg["search_strategy"]["params"]
     return {
-        "ideation_timeout": int(min(
-            params["ideation_timeout"],
-            max(
-                knobs["ideation_min_seconds"],
-                total_run_seconds * knobs["ideation_fraction"],
-            ),
-        )),
-        "implementation_timeout": int(min(
-            params["implementation_timeout"],
-            max(
-                knobs["implementation_min_seconds"],
-                total_run_seconds * knobs["implementation_fraction"],
-            ),
-        )),
+        "implementation_timeout": int(
+            min(
+                params["implementation_timeout"],
+                max(
+                    knobs["implementation_min_seconds"],
+                    total_run_seconds * knobs["implementation_fraction"],
+                ),
+            )
+        ),
     }
 
 
@@ -102,7 +97,9 @@ def parse_prompt(prompt: str):
     backslashes around and inside the captured id.
     """
     model = re.search(r"train the small LLM \\?`([^`]+)`", prompt)
-    benchmark = re.search(r"to excel at (.+?)\.\s*$", prompt.splitlines()[0] if prompt else "")
+    benchmark = re.search(
+        r"to excel at (.+?)\.\s*$", prompt.splitlines()[0] if prompt else ""
+    )
     model_id = model.group(1).strip("\\") if model else ""
     return model_id, (benchmark.group(1) if benchmark else "")
 
@@ -130,10 +127,6 @@ def build_runtime_config(
     params = mode_cfg["search_strategy"]["params"]
     params.update(session_timeouts)
     if coding_model:
-        # Ensemble members/selector are pinned by the config on purpose:
-        # --coding-model (the harness $AGENT_CONFIG) labels and drives the
-        # implementation/feedback agents, not the ideation ensemble.
-        params["idea_generation_model"] = coding_model
         params["implementation_model"] = coding_model
         for section in ("coding_agent", "feedback_generator"):
             mode_cfg[section]["model"] = coding_model
@@ -143,14 +136,13 @@ def build_runtime_config(
         # OPENAI_API_KEY for its utility-LLM roles, but the agent sessions it
         # spawns must look exactly like an official non-judge environment —
         # no OpenAI key. solve.sh decides per-task and passes the names here.
-        # The strategy param covers strategy-built sessions (ideation,
-        # ensemble members, selector, implementation); the section entries
-        # cover agents built from those config blocks.
+        # The strategy param covers its implementation session; section
+        # entries cover agents built directly from those config blocks.
         params["env_strip"] = list(agent_env_strip)
         for section in ("coding_agent", "feedback_generator"):
-            mode_cfg[section].setdefault("agent_specific", {})[
-                "env_strip"
-            ] = list(agent_env_strip)
+            mode_cfg[section].setdefault("agent_specific", {})["env_strip"] = list(
+                agent_env_strip
+            )
 
     runtime_dir = os.path.join(task_dir, ".kapso_runtime")
     os.makedirs(runtime_dir, exist_ok=True)
@@ -217,30 +209,57 @@ def main():
     parser.add_argument("--task-dir", default=os.getcwd())
     parser.add_argument("--prompt", default=None, help="Official task prompt text")
     parser.add_argument("--prompt-file", default=None)
-    parser.add_argument("--prompt-env", default="PROMPT",
-                        help="Env var holding the prompt (harness default: PROMPT)")
-    parser.add_argument("--model", default=None, help="Base model HF id (else parsed from prompt)")
-    parser.add_argument("--benchmark-id", default=None,
-                        help="Task id, e.g. gsm8k (else inferred from prompt)")
-    parser.add_argument("--hours", type=float, default=None,
-                        help="Budget if timer.sh is absent (default 10)")
-    parser.add_argument("--guard-minutes", type=int, default=None,
-                        help="Wall-clock held outside the orchestrator budget "
-                             "for final consolidation (default: config "
-                             "session_budget.guard_minutes)")
-    parser.add_argument("--iterations", type=int, default=40,
-                        help="Iteration ceiling; the time budget is the real governor")
+    parser.add_argument(
+        "--prompt-env",
+        default="PROMPT",
+        help="Env var holding the prompt (harness default: PROMPT)",
+    )
+    parser.add_argument(
+        "--model", default=None, help="Base model HF id (else parsed from prompt)"
+    )
+    parser.add_argument(
+        "--benchmark-id",
+        default=None,
+        help="Task id, e.g. gsm8k (else inferred from prompt)",
+    )
+    parser.add_argument(
+        "--hours",
+        type=float,
+        default=None,
+        help="Budget if timer.sh is absent (default 10)",
+    )
+    parser.add_argument(
+        "--guard-minutes",
+        type=int,
+        default=None,
+        help="Wall-clock held outside the orchestrator budget "
+        "for final consolidation (default: config "
+        "session_budget.guard_minutes)",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=40,
+        help="Iteration ceiling; the time budget is the real governor",
+    )
     parser.add_argument("--mode", default="POSTTRAIN")
     parser.add_argument("--coding-agent", default="claude_code")
-    parser.add_argument("--coding-model", default=None,
-                        help="Model for ideation/implementation/feedback (harness $AGENT_CONFIG)")
+    parser.add_argument(
+        "--coding-model",
+        default=None,
+        help="Model for implementation/feedback (harness $AGENT_CONFIG)",
+    )
     parser.add_argument("--cost-budget", type=float, default=None)
-    parser.add_argument("--strip-agent-env", action="append", default=None,
-                        metavar="VAR",
-                        help="Env var stripped from coding-agent/feedback "
-                             "sessions (repeatable). solve.sh passes "
-                             "OPENAI_API_KEY on non-judge tasks so agents "
-                             "never inherit kapso's own LLM credential.")
+    parser.add_argument(
+        "--strip-agent-env",
+        action="append",
+        default=None,
+        metavar="VAR",
+        help="Env var stripped from coding-agent/feedback "
+        "sessions (repeatable). solve.sh passes "
+        "OPENAI_API_KEY on non-judge tasks so agents "
+        "never inherit kapso's own LLM credential.",
+    )
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
@@ -270,8 +289,7 @@ def main():
     knobs = mode_cfg["session_budget"]
 
     guard_minutes = (
-        args.guard_minutes if args.guard_minutes is not None
-        else knobs["guard_minutes"]
+        args.guard_minutes if args.guard_minutes is not None else knobs["guard_minutes"]
     )
     budget_minutes = max(5, int((deadline_ts - time.time()) / 60) - guard_minutes)
     reserve_minutes = min(
@@ -283,26 +301,38 @@ def main():
     )
     session_timeouts = shape_session_timeouts(mode_cfg, total_run_seconds)
 
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")):
+    if not (
+        os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    ):
         print("WARNING: neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set")
     if not os.environ.get("OPENAI_API_KEY"):
-        print("WARNING: OPENAI_API_KEY is not set — utility-LLM roles "
-              "(repo memory, insight extraction) will fail")
+        print(
+            "WARNING: OPENAI_API_KEY is not set — utility-LLM roles "
+            "(repo memory, insight extraction) will fail"
+        )
 
     config_path = build_runtime_config(
-        args.mode, args.coding_model, task_dir, session_timeouts,
+        args.mode,
+        args.coding_model,
+        task_dir,
+        session_timeouts,
         agent_env_strip=args.strip_agent_env,
     )
 
     print(f"task_dir={task_dir}")
     print(f"model={model_id!r} benchmark={parsed_benchmark!r} (id={benchmark_id!r})")
-    print(f"budget={budget_minutes} min of a {total_run_hours}h run "
-          f"(guard={guard_minutes} min, finalization reserve={reserve_minutes:.0f} min), "
-          f"iterations<={args.iterations}")
-    print(f"session caps: ideation={session_timeouts['ideation_timeout']}s "
-          f"implementation={session_timeouts['implementation_timeout']}s")
-    print(f"config={config_path} mode={args.mode} coding_model={args.coding_model} "
-          f"agent_env_strip={args.strip_agent_env or []}")
+    print(
+        f"budget={budget_minutes} min of a {total_run_hours}h run "
+        f"(guard={guard_minutes} min, finalization reserve={reserve_minutes:.0f} min), "
+        f"iterations<={args.iterations}"
+    )
+    print(
+        "session cap: " f"implementation={session_timeouts['implementation_timeout']}s"
+    )
+    print(
+        f"config={config_path} mode={args.mode} coding_model={args.coding_model} "
+        f"agent_env_strip={args.strip_agent_env or []}"
+    )
 
     handler = PostTrainBenchHandler(
         task_dir=task_dir,
@@ -350,7 +380,9 @@ def main():
         "task_dir": task_dir,
         "model": model_id,
         "benchmark_id": benchmark_id,
-        "final_model_present": is_loadable_model_dir(os.path.join(task_dir, "final_model")),
+        "final_model_present": is_loadable_model_dir(
+            os.path.join(task_dir, "final_model")
+        ),
     }
     print(json.dumps(summary))
 

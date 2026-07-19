@@ -214,14 +214,14 @@ finally:
 ```yaml
 modes:
   GENERIC:
+    ideation_profile: DEFAULT
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        parent_policy: "best"
+        implementation_model: "us.anthropic.claude-opus-4-6-v1"
         gate_failure_policy: "warn"
-        ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
+        implementation_timeout: 600
+        implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
     models:
       utility: "gpt-4.1-mini"

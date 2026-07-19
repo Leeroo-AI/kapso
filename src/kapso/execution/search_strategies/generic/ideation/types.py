@@ -319,8 +319,8 @@ BATCH_TRANSITIONS = {
     BatchStatus.PLANNED: frozenset({BatchStatus.GENERATED, BatchStatus.ABANDONED}),
     BatchStatus.GENERATED: frozenset({BatchStatus.ANALYZED, BatchStatus.ABANDONED}),
     BatchStatus.ANALYZED: frozenset({BatchStatus.SELECTED, BatchStatus.ABANDONED}),
-    BatchStatus.SELECTED: frozenset({BatchStatus.BRIDGED, BatchStatus.ABANDONED}),
-    BatchStatus.BRIDGED: frozenset({BatchStatus.COMPLETED, BatchStatus.ABANDONED}),
+    BatchStatus.SELECTED: frozenset({BatchStatus.BRIDGED}),
+    BatchStatus.BRIDGED: frozenset({BatchStatus.COMPLETED}),
     BatchStatus.COMPLETED: frozenset(),
     BatchStatus.ABANDONED: frozenset(),
 }
@@ -343,12 +343,11 @@ IDEA_TRANSITIONS = {
             IdeaStatus.ABANDONED,
         }
     ),
-    IdeaStatus.SELECTED: frozenset({IdeaStatus.IMPLEMENTING, IdeaStatus.ABANDONED}),
+    IdeaStatus.SELECTED: frozenset({IdeaStatus.IMPLEMENTING}),
     IdeaStatus.IMPLEMENTING: frozenset(
         {
             IdeaStatus.EVALUATED,
             IdeaStatus.FAILED_TECHNICAL,
-            IdeaStatus.ABANDONED,
         }
     ),
     IdeaStatus.INVALID: frozenset(),
@@ -595,21 +594,15 @@ class ParentPlan(JsonRecord):
         if (
             self.kind
             in {
+                ParentPlanKind.BEST_VALID,
                 ParentPlanKind.SPECIFIC_EXPERIMENT,
                 ParentPlanKind.RECOVER_BRANCH,
             }
             and self.experiment_node_id is None
         ):
-            raise ValueError("specific and recovery parent plans require a node")
-        if (
-            self.kind
-            in {
-                ParentPlanKind.BEST_VALID,
-                ParentPlanKind.BASELINE,
-            }
-            and self.experiment_node_id is not None
-        ):
-            raise ValueError("best and baseline parent plans resolve nodes later")
+            raise ValueError("experiment-backed parent plans require a frozen node")
+        if self.kind == ParentPlanKind.BASELINE and self.experiment_node_id is not None:
+            raise ValueError("baseline parent plans cannot reference a node")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ParentPlan":
@@ -1065,6 +1058,41 @@ class CandidateAnalysis(JsonRecord):
 
 
 @dataclass(frozen=True)
+class AnalyzedCandidate:
+    """Complete candidate analysis staged for one atomic archive commit."""
+
+    analysis: CandidateAnalysis
+    descriptor: IdeaDescriptor
+    embedding: Optional[EmbeddingRecord]
+    nearest_experiment_node_ids: Tuple[int, ...]
+    similarity_flags: Tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.analysis, CandidateAnalysis):
+            raise ValueError("analyzed candidate analysis is invalid")
+        if not isinstance(self.descriptor, IdeaDescriptor):
+            raise ValueError("analyzed candidate descriptor is invalid")
+        if self.embedding is not None and not isinstance(
+            self.embedding, EmbeddingRecord
+        ):
+            raise ValueError("analyzed candidate embedding is invalid")
+        if not isinstance(self.nearest_experiment_node_ids, (list, tuple)):
+            raise ValueError("nearest experiment node ids must be a list")
+        nearest_nodes = tuple(
+            _require_integer(node_id, "nearest experiment node id")
+            for node_id in self.nearest_experiment_node_ids
+        )
+        if len(set(nearest_nodes)) != len(nearest_nodes):
+            raise ValueError("nearest experiment node ids must be unique")
+        object.__setattr__(self, "nearest_experiment_node_ids", nearest_nodes)
+        object.__setattr__(
+            self,
+            "similarity_flags",
+            _require_strings(self.similarity_flags, "similarity flags"),
+        )
+
+
+@dataclass(frozen=True)
 class DiagnosisAudit(JsonRecord):
     claim_id: str
     status: EvidenceStatus
@@ -1291,7 +1319,11 @@ class IdeaOutcome(JsonRecord):
         object.__setattr__(
             self,
             "gap_effects",
-            _require_strings(self.gap_effects, "gap effects"),
+            _require_typed_identifiers(
+                self.gap_effects,
+                "gap effects",
+                "gap",
+            ),
         )
         object.__setattr__(
             self,
@@ -1746,10 +1778,13 @@ class IdeaBatch(JsonRecord):
     updated_at: str
     status: BatchStatus = BatchStatus.PLANNED
     generated_idea_ids: Tuple[str, ...] = ()
+    generation_calls: Tuple[CodingAgentCallResult, ...] = ()
     resurfaced_ideas: Tuple[ResurfacedIdea, ...] = ()
     considered_idea_ids: Tuple[str, ...] = ()
     analyses: Tuple[CandidateAnalysis, ...] = ()
+    embedding_telemetry: Optional[EmbeddingTelemetry] = None
     selection: Optional[SelectionDecision] = None
+    selection_call: Optional[CodingAgentCallResult] = None
     abandoned_reason: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -1767,6 +1802,8 @@ class IdeaBatch(JsonRecord):
             raise ValueError("batch directive is invalid")
         if self.evidence_snapshot.snapshot_id != self.directive.evidence_snapshot_id:
             raise ValueError("batch and directive evidence snapshots must match")
+        if self.capacity.capacity_snapshot_id != self.directive.capacity_snapshot_id:
+            raise ValueError("batch and directive capacity snapshots must match")
         if self.evidence_snapshot.campaign_id != self.campaign_id:
             raise ValueError("batch evidence campaign must match")
         if not isinstance(self.resolved_parents, (list, tuple)) or not all(
@@ -1794,6 +1831,13 @@ class IdeaBatch(JsonRecord):
                 "idea",
             ),
         )
+        if not isinstance(self.generation_calls, (list, tuple)) or not all(
+            isinstance(call, CodingAgentCallResult) for call in self.generation_calls
+        ):
+            raise ValueError("batch generation calls are invalid")
+        object.__setattr__(self, "generation_calls", tuple(self.generation_calls))
+        if len(self.generation_calls) != len(self.generated_idea_ids):
+            raise ValueError("each generated idea requires one durable generation call")
         if not isinstance(self.resurfaced_ideas, (list, tuple)) or not all(
             isinstance(resurfaced, ResurfacedIdea)
             for resurfaced in self.resurfaced_ideas
@@ -1836,10 +1880,22 @@ class IdeaBatch(JsonRecord):
             raise ValueError("batch analyses must reference considered ideas")
         if len({analysis.idea_id for analysis in self.analyses}) != len(self.analyses):
             raise ValueError("batch analyses must have unique idea ids")
+        if self.embedding_telemetry is not None and not isinstance(
+            self.embedding_telemetry, EmbeddingTelemetry
+        ):
+            raise ValueError("batch embedding telemetry is invalid")
         if self.selection is not None and not isinstance(
             self.selection, SelectionDecision
         ):
             raise ValueError("batch selection is invalid")
+        if self.selection_call is not None and not isinstance(
+            self.selection_call, CodingAgentCallResult
+        ):
+            raise ValueError("batch selection call is invalid")
+        if (self.selection is None) != (self.selection_call is None):
+            raise ValueError(
+                "batch selection and selection call must be persisted together"
+            )
         _require_optional_string(self.abandoned_reason, "batch abandoned reason")
         if self.status == BatchStatus.ABANDONED and self.abandoned_reason is None:
             raise ValueError("abandoned batches require a reason")
@@ -1884,9 +1940,14 @@ class IdeaBatch(JsonRecord):
             or self.resurfaced_ideas
             or self.considered_idea_ids
             or self.analyses
+            or self.embedding_telemetry is not None
             or self.selection is not None
         ):
             raise ValueError("planned batches cannot contain candidate results")
+        if self.status == BatchStatus.GENERATED and (
+            self.analyses or self.embedding_telemetry is not None
+        ):
+            raise ValueError("generated batches cannot contain partial analysis")
         if (
             self.status
             in {
@@ -1922,10 +1983,11 @@ class IdeaBatch(JsonRecord):
                 BatchStatus.PLANNED,
                 BatchStatus.GENERATED,
                 BatchStatus.ANALYZED,
+                BatchStatus.ABANDONED,
             }
             and self.selection is not None
         ):
-            raise ValueError("pre-selection batch states cannot contain a selection")
+            raise ValueError("batch state cannot contain a selection")
         if self.status == BatchStatus.ABANDONED and self.abandoned_reason is None:
             raise ValueError("abandoned batches require a reason")
         if self.status != BatchStatus.ABANDONED and self.abandoned_reason is not None:
@@ -1952,10 +2014,13 @@ class IdeaBatch(JsonRecord):
             "updated_at",
             "status",
             "generated_idea_ids",
+            "generation_calls",
             "resurfaced_ideas",
             "considered_idea_ids",
             "analyses",
+            "embedding_telemetry",
             "selection",
+            "selection_call",
             "abandoned_reason",
         }
         _require_exact_keys(data, fields, "idea batch")
@@ -1979,6 +2044,10 @@ class IdeaBatch(JsonRecord):
             updated_at=data["updated_at"],
             status=_parse_enum(BatchStatus, data["status"], "batch status"),
             generated_idea_ids=data["generated_idea_ids"],
+            generation_calls=tuple(
+                CodingAgentCallResult.from_dict(call)
+                for call in data["generation_calls"]
+            ),
             resurfaced_ideas=tuple(
                 ResurfacedIdea.from_dict(resurfaced)
                 for resurfaced in data["resurfaced_ideas"]
@@ -1987,10 +2056,20 @@ class IdeaBatch(JsonRecord):
             analyses=tuple(
                 CandidateAnalysis.from_dict(analysis) for analysis in data["analyses"]
             ),
+            embedding_telemetry=(
+                None
+                if data["embedding_telemetry"] is None
+                else EmbeddingTelemetry.from_dict(data["embedding_telemetry"])
+            ),
             selection=(
                 None
                 if data["selection"] is None
                 else SelectionDecision.from_dict(data["selection"])
+            ),
+            selection_call=(
+                None
+                if data["selection_call"] is None
+                else CodingAgentCallResult.from_dict(data["selection_call"])
             ),
             abandoned_reason=data["abandoned_reason"],
         )
@@ -2498,10 +2577,9 @@ class IdeationCapacityView(JsonRecord):
     reserve_run: bool
     deadline_seconds: Optional[float]
     can_start_complete_action: bool
+    can_run_granted_evaluation: bool
     can_run_comparable_evaluation: bool
     preserves_finalization_reserve: bool
-    opportunity_probe_required: bool
-    opportunity_probe_admissible: bool
 
     def __post_init__(self) -> None:
         _require_typed_identifier(
@@ -2541,6 +2619,10 @@ class IdeationCapacityView(JsonRecord):
         for value, name in (
             (self.can_start_complete_action, "complete action admission"),
             (
+                self.can_run_granted_evaluation,
+                "granted evaluation admission",
+            ),
+            (
                 self.can_run_comparable_evaluation,
                 "comparable evaluation admission",
             ),
@@ -2548,8 +2630,6 @@ class IdeationCapacityView(JsonRecord):
                 self.preserves_finalization_reserve,
                 "finalization reserve admission",
             ),
-            (self.opportunity_probe_required, "opportunity probe requirement"),
-            (self.opportunity_probe_admissible, "opportunity probe admission"),
         ):
             if not isinstance(value, bool):
                 raise ValueError(f"capacity {name} must be boolean")
@@ -2573,10 +2653,9 @@ class IdeationCapacityView(JsonRecord):
                 "reserve_run",
                 "deadline_seconds",
                 "can_start_complete_action",
+                "can_run_granted_evaluation",
                 "can_run_comparable_evaluation",
                 "preserves_finalization_reserve",
-                "opportunity_probe_required",
-                "opportunity_probe_admissible",
             },
             "ideation capacity view",
         )

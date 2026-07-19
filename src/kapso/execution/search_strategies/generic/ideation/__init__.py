@@ -14,7 +14,6 @@ from kapso.execution.search_strategies.generic.ideation.archive import (
 )
 from kapso.execution.search_strategies.generic.ideation.analyzer import (
     AnalysisPoolResult,
-    AnalyzedCandidate,
     AnalyzerSettings,
     CandidateAnalyzer,
     DiversityRepairRequest,
@@ -41,11 +40,23 @@ from kapso.execution.search_strategies.generic.ideation.engine import (
     ParentMaterializer,
     ParentResolver,
 )
+from kapso.execution.search_strategies.generic.ideation.evaluator_evidence import (
+    EVALUATOR_EVIDENCE_KEY,
+    EvaluatorEvidenceWriteback,
+    build_evaluator_evidence_writeback,
+)
+from kapso.execution.search_strategies.generic.ideation.evidence_author import (
+    EVIDENCE_AUTHOR_METADATA_KEY,
+    EVIDENCE_AUTHOR_RESPONSE_SCHEMA,
+    EvidenceAuthor,
+    EvidenceAuthorResult,
+)
 from kapso.execution.search_strategies.generic.ideation.types import (
     BATCH_TRANSITIONS,
     GAP_TRANSITIONS,
     IDEA_TRANSITIONS,
     BatchStatus,
+    AnalyzedCandidate,
     CampaignEvidenceSnapshot,
     CampaignAction,
     CandidateAnalysis,
@@ -163,6 +174,12 @@ __all__ = [
     "EvaluationAttemptInput",
     "EvaluationGap",
     "EvaluationStatus",
+    "EVALUATOR_EVIDENCE_KEY",
+    "EVIDENCE_AUTHOR_METADATA_KEY",
+    "EVIDENCE_AUTHOR_RESPONSE_SCHEMA",
+    "EvidenceAuthor",
+    "EvidenceAuthorResult",
+    "EvaluatorEvidenceWriteback",
     "EvidenceClaim",
     "EvidenceSignal",
     "EvidenceSettings",
@@ -211,6 +228,7 @@ __all__ = [
     "DiversityRepairRequest",
     "canonical_idea_embedding_text",
     "build_idea_outcome",
+    "build_evaluator_evidence_writeback",
     "content_identifier",
     "choose_policy",
     "cosine_similarity",

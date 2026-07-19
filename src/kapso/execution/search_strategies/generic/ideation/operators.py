@@ -10,6 +10,8 @@ from kapso.execution.search_strategies.generic.ideation.evidence import GapPrior
 from kapso.execution.search_strategies.generic.ideation.types import (
     CampaignAction,
     CampaignEvidenceSnapshot,
+    ClaimKind,
+    EvidenceStatus,
     GapState,
     IdeaDescriptor,
     IdeaRecord,
@@ -127,6 +129,13 @@ def _distinct_crossover_sources(
     archive_state: IdeaArchiveState,
     incumbent: IdeaRecord,
 ) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
+    supported_hypothesis_idea_ids = {
+        idea_id
+        for claim in snapshot.claims
+        if claim.kind == ClaimKind.HYPOTHESIS
+        and claim.status == EvidenceStatus.SUPPORTED
+        for idea_id in claim.affected_idea_ids
+    }
     source_ideas = []
     source_nodes = []
     for experiment in sorted(
@@ -142,7 +151,9 @@ def _distinct_crossover_sources(
     ):
         idea = _idea_by_id(archive_state, experiment.idea_id)
         if (
-            idea.idea_id != incumbent.idea_id
+            experiment.comparable
+            and experiment.idea_id in supported_hypothesis_idea_ids
+            and idea.idea_id != incumbent.idea_id
             and idea.descriptor.approach_family != incumbent.descriptor.approach_family
         ):
             source_ideas.append(idea.idea_id)
@@ -191,7 +202,10 @@ def _brief(
                     ParentPlanKind.BEST_VALID
                     if incumbent is not None
                     else ParentPlanKind.BASELINE
-                )
+                ),
+                experiment_node_id=(
+                    snapshot.incumbent_node_id if incumbent is not None else None
+                ),
             ),
             target_gap_id=gap.gap_id,
         )
@@ -222,7 +236,10 @@ def _brief(
                 mechanism=f"atomic_refine_{incumbent.descriptor.mechanism}",
                 expected_effect="increase_supported_effect",
             ),
-            parent_plan=ParentPlan(kind=ParentPlanKind.BEST_VALID),
+            parent_plan=ParentPlan(
+                kind=ParentPlanKind.BEST_VALID,
+                experiment_node_id=snapshot.incumbent_node_id,
+            ),
         )
     if operator == OperatorKind.ABLATE:
         if incumbent is None or snapshot.incumbent_node_id is None:
@@ -263,6 +280,7 @@ def _brief(
             ),
             parent_plan=ParentPlan(
                 kind=ParentPlanKind.BEST_VALID,
+                experiment_node_id=snapshot.incumbent_node_id,
                 source_idea_ids=source_idea_ids,
                 source_experiment_node_ids=source_node_ids,
             ),

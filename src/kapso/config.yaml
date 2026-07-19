@@ -6,80 +6,87 @@
 #   python -m kapso.runner -f problem.txt -m MINIMAL
 #
 # Available Search Strategies:
-#   - generic: Claude Code + MCP gates for ideation and implementation
+#   - generic: evidence-directed Codex/Claude CLI ideation + implementation
 #   - benchmark_tree_search: Tree search with handler.run() for benchmarks
 #
 # Knowledge Search Backends (via KnowledgeSearchFactory):
 #   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
 #   - kg_llm_navigation: Neo4j KG with LLM-guided navigation (for JSON KG)
 #
-# Experiment History:
-#   - Stored in .kapso/experiment_history.json
-#   - Accessed via MCP tools (get_top_experiments, get_recent_experiments, search_similar_experiments)
-#   - Optionally indexed in Weaviate for semantic search (set WEAVIATE_URL env var)
+# Campaign memory:
+#   - Executed experiments: .kapso/experiment_history.json
+#   - Ideas and decisions: .kapso/idea_archive.json
+#   - Experiment retrieval remains available through its MCP gate
 
 # Default mode to use
 default_mode: GENERIC
 
 # One shared source for evidence-directed ideation operating parameters.
-ideation_defaults: &ideation_defaults
-  archive_path: ".kapso/idea_archive.json"
-  evidence:
-    comparable_fidelity: "full"
-    comparable_fraction: 1.0
-    minimum_repeat_measurements: 2
-    minimum_credible_delta: 0.01
-    surprising_gain_multiplier: 3.0
-    proxy_divergence_threshold: 0.03
-    plateau_window: 3
-    diversity_window: 4
-    gap_debt_threshold: 2
-  gaps:
-    default_evidence_confidence: 0.25
-    default_uncertainty_reduction: 0.25
-    default_cost: 1.0
-    minimum_cost: 0.01
-  operators:
-    candidate_quota: 2
-    repair_quota: 1
-    reserve_gap_slot: true
-  coding_agents:
-    artifact_path: ".kapso/ideation/agent_calls"
-    termination_grace_seconds: 5
-    generator:
-      members:
-        - cli: "codex"
-          model: "gpt-5.6"
+ideation_profiles:
+  DEFAULT:
+    archive_path: ".kapso/idea_archive.json"
+    evidence:
+      comparable_fidelity: "full"
+      comparable_fraction: 1.0
+      minimum_repeat_measurements: 2
+      minimum_credible_delta: 0.01
+      surprising_gain_multiplier: 3.0
+      proxy_divergence_threshold: 0.03
+      plateau_window: 3
+      diversity_window: 4
+      gap_debt_threshold: 2
+    gaps:
+      default_evidence_confidence: 0.25
+      default_uncertainty_reduction: 0.25
+      default_cost: 1.0
+      minimum_cost: 0.01
+    operators:
+      candidate_quota: 2
+      repair_quota: 1
+      reserve_gap_slot: true
+    coding_agents:
+      artifact_path: ".kapso/ideation/agent_calls"
+      termination_grace_seconds: 5
+      generator:
+        members:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            timeout_seconds: 300
+            effort: "high"
+            allowed_tools: ["Read", "WebSearch"]
+          - cli: "claude_code"
+            model: "us.anthropic.claude-opus-4-6-v1"
+            timeout_seconds: 300
+            effort: "high"
+            allowed_tools: ["Read", "Glob", "Grep", "WebSearch"]
+        repair_member:
+          cli: "codex"
+          model: "gpt-5.6-sol"
           timeout_seconds: 300
           effort: "high"
           allowed_tools: ["Read", "WebSearch"]
-        - cli: "claude_code"
-          model: "us.anthropic.claude-opus-4-6-v1"
-          timeout_seconds: 300
-          effort: "high"
-          allowed_tools: ["Read", "Glob", "Grep", "WebSearch"]
-      repair_member:
+      selector:
         cli: "codex"
-        model: "gpt-5.6"
+        model: "gpt-5.6-sol"
         timeout_seconds: 300
         effort: "high"
-        allowed_tools: ["Read", "WebSearch"]
-    selector:
-      cli: "codex"
-      model: "gpt-5.6"
-      timeout_seconds: 300
-      effort: "high"
-      allowed_tools: ["Read"]
-  embeddings:
-    enabled: true
-    model: "text-embedding-3-small"
-    dimensions: 1536
-    timeout_seconds: 30
-    max_retries: 0
-  analyzer:
-    semantic_similarity_threshold: 0.92
-    max_neighbors: 5
-    minimum_distinct_eligible: 2
+        allowed_tools: ["Read"]
+      evidence_author:
+        cli: "codex"
+        model: "gpt-5.6-sol"
+        timeout_seconds: 300
+        effort: "high"
+        allowed_tools: ["Read"]
+    embeddings:
+      enabled: true
+      model: "text-embedding-3-small"
+      dimensions: 1536
+      timeout_seconds: 30
+      max_retries: 0
+    analyzer:
+      semantic_similarity_threshold: 0.92
+      max_neighbors: 5
+      minimum_distinct_eligible: 2
 
 # =============================================================================
 # Available configuration modes
@@ -90,20 +97,17 @@ modes:
   # ===========================================
   
   # Standard configuration for generic problems
-  # Uses Claude Code with MCP gates for ideation and implementation
+  # Uses the DEFAULT ideation profile; implementation keeps its MCP gates.
   GENERIC:
-    ideation: *ideation_defaults
+    ideation_profile: DEFAULT
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
         implementation_model: "us.anthropic.claude-opus-4-6-v1"
         auth_mode: "bedrock"
         gate_failure_policy: "warn"
         aws_region: "us-east-1"
-        ideation_timeout: 300
         implementation_timeout: 600
-        ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
     models:
@@ -168,18 +172,15 @@ modes:
   
   # Minimal configuration for quick testing
   MINIMAL:
-    ideation: *ideation_defaults
+    ideation_profile: DEFAULT
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
         implementation_model: "us.anthropic.claude-opus-4-6-v1"
         auth_mode: "bedrock"
         gate_failure_policy: "warn"
         aws_region: "us-east-1"
-        ideation_timeout: 180
         implementation_timeout: 300
-        ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
     models:

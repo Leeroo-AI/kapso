@@ -2,6 +2,7 @@
 
 from typing import Mapping, Optional
 
+from kapso.execution.fidelity import project_score
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.ideation.types import (
     EvaluationStatus,
@@ -18,6 +19,19 @@ def validation_tier(node: SearchNode) -> str:
     if node.eval_fidelity == "full":
         return "validated"
     return "probe"
+
+
+def _comparable_node_score(node: SearchNode) -> Optional[float]:
+    """Return the node score under its latest measurement identity."""
+    if not node.evaluation_attempts:
+        return None
+    comparability = node.evaluation_attempts[-1].comparability_class
+    if comparability.fidelity != node.eval_fidelity:
+        return None
+    score = project_score(node, comparability)
+    if score != node.score:
+        return None
+    return score
 
 
 def build_idea_outcome(
@@ -54,26 +68,29 @@ def build_idea_outcome(
         evaluation_status = EvaluationStatus.INCONCLUSIVE
         normalized_delta = None
     else:
-        evaluation_status = EvaluationStatus.VALID
+        normalized_score = _comparable_node_score(node)
         comparison_score = 0.0
         parent_id = idea.resolved_parent.node_id
         if parent_id is not None and parent_id != node.node_id:
             if parent_id not in nodes_by_id:
                 raise ValueError("idea comparison parent is missing")
             parent = nodes_by_id[parent_id]
-            if (
-                parent.had_error
-                or not parent.evaluation_valid
-                or parent.score is None
-            ):
+            if parent.had_error or not parent.evaluation_valid:
                 raise ValueError("idea comparison parent has no valid score")
-            comparison_score = parent.score
-        sign = (
-            1.0
-            if objective_direction == ObjectiveDirection.MAXIMIZE
-            else -1.0
-        )
-        normalized_delta = sign * (node.score - comparison_score)
+            if not node.evaluation_attempts:
+                normalized_score = None
+            else:
+                comparison_score = project_score(
+                    parent,
+                    node.evaluation_attempts[-1].comparability_class,
+                )
+        if normalized_score is None or comparison_score is None:
+            evaluation_status = EvaluationStatus.INCONCLUSIVE
+            normalized_delta = None
+        else:
+            evaluation_status = EvaluationStatus.VALID
+            sign = 1.0 if objective_direction == ObjectiveDirection.MAXIMIZE else -1.0
+            normalized_delta = sign * (normalized_score - comparison_score)
     return IdeaOutcome(
         evaluation_status=evaluation_status,
         implementation_status=ImplementationStatus.COMPLETED,

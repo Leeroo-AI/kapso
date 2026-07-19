@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from benchmarks.posttrain.runner import build_runtime_config  # noqa: E402
 
-SESSION_TIMEOUTS = {"ideation_timeout": 300, "implementation_timeout": 1800}
+SESSION_TIMEOUTS = {"implementation_timeout": 1800}
 
 
 def load_runtime_mode_config(tmp_path, **kwargs):
@@ -30,16 +30,10 @@ def load_runtime_mode_config(tmp_path, **kwargs):
 
 
 def test_agent_env_strip_reaches_strategy_params_and_agent_sections(tmp_path):
-    mode_cfg = load_runtime_mode_config(
-        tmp_path, agent_env_strip=["OPENAI_API_KEY"]
-    )
-    assert mode_cfg["search_strategy"]["params"]["env_strip"] == [
-        "OPENAI_API_KEY"
-    ]
+    mode_cfg = load_runtime_mode_config(tmp_path, agent_env_strip=["OPENAI_API_KEY"])
+    assert mode_cfg["search_strategy"]["params"]["env_strip"] == ["OPENAI_API_KEY"]
     for section in ("coding_agent", "feedback_generator"):
-        assert mode_cfg[section]["agent_specific"]["env_strip"] == [
-            "OPENAI_API_KEY"
-        ]
+        assert mode_cfg[section]["agent_specific"]["env_strip"] == ["OPENAI_API_KEY"]
 
 
 def test_judge_tasks_leave_agent_env_untouched(tmp_path):
@@ -55,3 +49,12 @@ def test_iteration_admission_floor_survives_runtime_config(tmp_path):
     # the 60s default that admitted a doomed iteration at 96.6% budget.
     mode_cfg = load_runtime_mode_config(tmp_path)
     assert mode_cfg["budget"]["min_iteration_seconds"] == 1800
+
+
+def test_runtime_config_has_only_the_canonical_ideation_profile(tmp_path):
+    mode_cfg = load_runtime_mode_config(tmp_path)
+    params = mode_cfg["search_strategy"]["params"]
+    assert mode_cfg["ideation_profile"] == "DEFAULT"
+    assert "idea_generation_model" not in params
+    assert "ideation_timeout" not in params
+    assert "ideation_ensemble" not in params

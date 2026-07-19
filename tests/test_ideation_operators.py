@@ -35,6 +35,8 @@ from kapso.execution.search_strategies.generic.ideation.policy import choose_pol
 from test_ideation_domain import (
     EVIDENCE_ID,
     NOW,
+    analyzed_candidate,
+    coding_agent_call,
     generated_idea,
     planned_batch,
     selection,
@@ -188,8 +190,18 @@ def test_crossover_has_one_implementation_parent_and_explicit_sources(tmp_path):
         (
             EvidenceClaim(
                 claim_id=new_identifier("claim"),
+                statement="Sparse interactions improved comparable utility.",
+                kind=ClaimKind.HYPOTHESIS,
+                status=EvidenceStatus.SUPPORTED,
+                source_refs=("experiment:1",),
+                affected_idea_ids=(first_idea_id,),
+                affected_experiment_node_ids=(1,),
+                updated_at=NOW,
+            ),
+            EvidenceClaim(
+                claim_id=new_identifier("claim"),
                 statement="Nonlinear splits improved comparable utility.",
-                kind=ClaimKind.OBSERVATION,
+                kind=ClaimKind.HYPOTHESIS,
                 status=EvidenceStatus.SUPPORTED,
                 source_refs=("experiment:2",),
                 affected_idea_ids=(second_idea_id,),
@@ -234,7 +246,7 @@ def test_crossover_has_one_implementation_parent_and_explicit_sources(tmp_path):
 
     assert decision.mode == IdeationMode.EXPLOIT
     assert crossover.parent_plan.kind == ParentPlanKind.BEST_VALID
-    assert crossover.parent_plan.experiment_node_id is None
+    assert crossover.parent_plan.experiment_node_id == 2
     assert crossover.parent_plan.source_idea_ids == (first_idea_id,)
     assert crossover.parent_plan.source_experiment_node_ids == (1,)
 
@@ -251,10 +263,15 @@ def test_recovery_reuses_failed_branch_and_hypothesis(tmp_path):
     )
     idea = replace(generated_idea(idea_id), origin_batch_id=batch_id)
     archive.create_batch(batch, expected_revision=0)
-    archive.add_ideas(batch_id, (idea,), expected_revision=1)
-    archive.record_analysis(
+    archive.add_ideas(
         batch_id,
-        CandidateAnalysis(idea_id=idea_id, eligible=True),
+        (idea,),
+        generation_calls=(coding_agent_call(),),
+        expected_revision=1,
+    )
+    archive.record_analyses(
+        batch_id,
+        (analyzed_candidate(CandidateAnalysis(idea_id=idea_id, eligible=True)),),
         expected_revision=2,
     )
     decision = replace(
@@ -268,7 +285,12 @@ def test_recovery_reuses_failed_branch_and_hypothesis(tmp_path):
             ),
         ),
     )
-    archive.record_selection(batch_id, decision, expected_revision=3)
+    archive.record_selection(
+        batch_id,
+        decision,
+        selection_call=coding_agent_call(),
+        expected_revision=3,
+    )
     archive.link_experiment(idea_id, 1, batch_id, expected_revision=4)
     failed = ExperimentInput(
         node_id=1,

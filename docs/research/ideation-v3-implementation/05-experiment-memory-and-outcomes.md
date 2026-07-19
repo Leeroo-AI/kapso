@@ -11,10 +11,10 @@ the strict separation between proposed work and executed evidence.
 
 ## Owned responsibilities
 
-- Additive idea provenance on SearchNode-to-ExperimentRecord projection.
+- Required idea provenance on the Generic SearchNode-to-ExperimentRecord projection.
 - Objective-aware experiment retrieval.
 - Final outcome update after orchestrator-side candidate evaluation.
-- Separate experiment-history and idea-history retrieval surfaces.
+- Complete frozen proposal-memory packets and separate executed-memory retrieval.
 - Cross-store reconstruction and consistency rules.
 - Strict replacement experiment JSON shape.
 
@@ -24,7 +24,6 @@ the strict separation between proposed work and executed evidence.
 execution/memories/experiment_memory/store.py
 execution/orchestrator.py
 gated_mcp/gates/experiment_history_gate.py
-gated_mcp/gates/idea_history_gate.py
 gated_mcp/gates/__init__.py
 gated_mcp/presets.py
 gated_mcp/server.py
@@ -32,7 +31,6 @@ generic/ideation/outcomes.py
 
 tests/
   test_experiment_idea_linkage.py
-  test_idea_history_gate.py
   test_ideation_outcomes.py
 ```
 
@@ -57,8 +55,13 @@ tests/
       valid-negative outcomes.
 - [x] Compute normalized delta against the selected idea's frozen comparison
       basis.
-- [x] Apply no claim or gap effect without evaluator-authored causal evidence;
-      score direction alone is insufficient.
+- [x] Author strict causal evidence by default from the complete code diff and
+      evaluation/feedback provenance; require a current registered attempt for
+      claims and targeted gap updates.
+- [x] Allow an external evaluator to explicitly replace `ideation_evidence`
+      while preserving immutable built-in author provenance and ordinary
+      metadata.
+- [x] Apply no claim or gap effect from score direction alone.
 - [x] Make duplicate outcome writes idempotent.
 - [x] If archive update fails after experiment persistence, leave enough link
       data for M6 reconciliation; do not rerun work.
@@ -99,22 +102,22 @@ remain separate and expose only executed records.
 ## Tests
 
 - Incompatible experiment JSON fails loudly.
-- New projection round-trips every additive field.
+- New projection round-trips every strict field.
 - Minimize objective returns the correct top experiments.
 - Invalid evaluations remain stored but do not rank or update ideas.
 - One finalized node produces one linked ExperimentRecord and IdeaOutcome.
 - Technical failure creates no normalized hypothesis delta.
 - Experiment persisted/outcome missing can be reconstructed idempotently.
 - Experiment tools never return unexecuted ideas.
-- Idea tools clearly distinguish deferred, rejected, selected, and evaluated.
-- Similarity searches remain separate across stores.
+- Mandatory packets clearly distinguish deferred, rejected, selected, and evaluated ideas.
+- Similarity analysis and executed-record search remain separate concerns.
 - Coding-agent and MCP subprocess environments contain no embedding API key.
 
 ## Definition of done
 
 - The full link `IdeaRecord -> SearchNode -> ExperimentRecord -> IdeaOutcome`
   can be queried and audited.
-- Existing experiment-history callers continue to work with additive output.
+- Every experiment-history caller constructs and consumes the strict v3 record.
 - No candidate is inserted into ExperimentHistoryStore before node execution.
 - Orchestrator write ordering matches the architecture design.
 

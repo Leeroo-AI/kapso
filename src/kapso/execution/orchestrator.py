@@ -27,9 +27,12 @@ from kapso.execution.search_strategies import (
 )
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
+from kapso.execution.search_strategies.generic.ideation.evidence_author import (
+    EVIDENCE_AUTHOR_METADATA_KEY,
+)
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
-from kapso.core.config import load_mode_config
+from kapso.core.config import load_config, load_mode_config
 from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
 from kapso.execution.iteration_evaluator import (
@@ -98,9 +101,7 @@ class SolveResult:
 
     best_experiment: Optional[ExperimentResult]
     final_feedback: Optional[FeedbackResult]
-    stopped_reason: (
-        str  # "goal_achieved", "max_iterations", "budget_exhausted", "legacy_stop"
-    )
+    stopped_reason: str  # "goal_achieved", "max_iterations", "budget_exhausted"
     iterations_run: int
     total_cost: float
     cumulative_iterations: int = 0
@@ -127,8 +128,9 @@ class OrchestratorAgent:
         coding_agent: Coding agent to use (overrides config if specified)
         is_kg_active: Whether to use the knowledge graph
         goal: The goal/objective for the evolve process
-        iteration_evaluator: Optional observational callback for each finalized
-            candidate Git ref
+        iteration_evaluator: Optional callback for each finalized candidate Git
+            ref. Metrics are observational; Generic reserves strict
+            ``metadata.ideation_evidence`` for later ideation policy and prompts.
         iteration_evaluator_failure_policy: ``record`` or ``raise``
     """
 
@@ -318,9 +320,7 @@ class OrchestratorAgent:
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,
             objective_direction=(
-                "maximize"
-                if self.problem_handler.maximize_scoring
-                else "minimize"
+                "maximize" if self.problem_handler.maximize_scoring else "minimize"
             ),
             require_idea_links=callable(
                 getattr(
@@ -472,54 +472,37 @@ class OrchestratorAgent:
         """Resolve strategy identity before a resume mutates the workspace."""
         mode_config = self.mode_config
         if not mode_config:
-            return "generic", {}
+            raise ValueError("evolution mode configuration is required")
 
         search_config = mode_config.get("search_strategy", {})
         if search_config:
-            strategy_type = search_config.get("type", "generic")
+            if not isinstance(search_config, dict) or "type" not in search_config:
+                raise ValueError("evolution mode requires an explicit strategy type")
+            strategy_type = search_config["type"]
             params = dict(search_config.get("params", {}) or {})
             if strategy_type == "generic":
-                ideation_config = mode_config.get("ideation")
-                if not isinstance(ideation_config, dict):
+                if "ideation" in params:
                     raise ValueError(
-                        "generic search requires the mode ideation configuration"
+                        "generic ideation must come from the named canonical profile"
                     )
-                params["ideation"] = ideation_config
+                profile_name = mode_config.get("ideation_profile")
+                canonical_path = Path(__file__).parents[1] / "config.yaml"
+                profiles = load_config(str(canonical_path)).get("ideation_profiles")
+                if (
+                    not isinstance(profile_name, str)
+                    or not isinstance(profiles, dict)
+                    or profile_name not in profiles
+                    or not isinstance(profiles[profile_name], dict)
+                ):
+                    raise ValueError(
+                        "generic search requires a canonical ideation profile"
+                    )
+                params["ideation"] = profiles[profile_name]
             return (
                 strategy_type,
                 params,
             )
-
-        return (
-            "generic",
-            {
-                "reasoning_effort": mode_config.get("reasoning_effort", "medium"),
-                "code_debug_tries": mode_config.get("code_debug_tries", 5),
-                "node_expansion_limit": mode_config.get("node_expansion_limit", 2),
-                "node_expansion_new_childs_count": mode_config.get(
-                    "node_expansion_new_childs_count", 5
-                ),
-                "idea_generation_steps": mode_config.get("idea_generation_steps", 1),
-                "first_experiment_factor": mode_config.get(
-                    "first_experiment_factor", 1
-                ),
-                "experimentation_per_run": mode_config.get(
-                    "experimentation_per_run", 1
-                ),
-                "per_step_maximum_solution_count": mode_config.get(
-                    "per_step_maximum_solution_count", 10
-                ),
-                "exploration_budget_percent": mode_config.get(
-                    "exploration_budget_percent", 30
-                ),
-                "idea_generation_model": mode_config.get(
-                    "idea_generation_model", "reasoning"
-                ),
-                "idea_generation_ensemble_models": mode_config.get(
-                    "idea_generation_ensemble_models", ["reasoning"]
-                ),
-            },
-        )
+        raise ValueError("evolution mode requires an explicit search strategy")
 
     def _create_knowledge_search(
         self,
@@ -1025,9 +1008,16 @@ class OrchestratorAgent:
                         node=node_snapshot,
                     )
                     result = normalize_result(self.iteration_evaluator(context))
+                    if EVIDENCE_AUTHOR_METADATA_KEY in result.metadata:
+                        raise ValueError(
+                            "external evaluators cannot replace built-in "
+                            "ideation evidence author provenance"
+                        )
                 candidate.metrics = dict(result.metrics)
                 candidate.primary_metric = result.primary_metric
-                candidate.external_evaluation_metadata = dict(result.metadata)
+                merged_metadata = dict(candidate.external_evaluation_metadata)
+                merged_metadata.update(result.metadata)
+                candidate.external_evaluation_metadata = merged_metadata
                 candidate.external_evaluation_error = ""
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
@@ -1040,7 +1030,6 @@ class OrchestratorAgent:
                     ) from exc
                 candidate.metrics = {}
                 candidate.primary_metric = None
-                candidate.external_evaluation_metadata = {}
                 candidate.external_evaluation_error = message
                 print(
                     "[Orchestrator] Warning: external evaluation failed for "
@@ -1081,10 +1070,8 @@ class OrchestratorAgent:
         4. Loop continues until goal reached or budget exhausted
         5. Experiment history is accessed via MCP tools (not context managers)
 
-        Stops when ANY of these conditions is met:
-        1. Feedback generator says STOP (goal achieved)
-        2. Budget exhausted (time/cost/iterations)
-        3. Legacy: problem_handler.stop_condition() (for backward compatibility)
+        Stops when feedback declares the goal achieved or the admitted
+        time/cost/iteration budget is exhausted.
 
         Args:
             experiment_max_iter: Maximum number of experiment iterations

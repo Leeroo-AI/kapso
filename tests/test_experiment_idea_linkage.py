@@ -9,6 +9,7 @@ from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.memories.experiment_memory.store import (
     EXPERIMENT_HISTORY_SCHEMA,
     ExperimentHistoryStore,
+    ExperimentRecord,
     format_experiments,
 )
 from kapso.execution.orchestrator import OrchestratorAgent
@@ -29,7 +30,7 @@ def node(node_id, score, *, maximize=True):
         score=score,
         duration_seconds=2.0,
     )
-    return SearchNode(
+    result = SearchNode(
         node_id=node_id,
         idea_id=idea_id,
         selection_batch_id=batch_id,
@@ -46,6 +47,10 @@ def node(node_id, score, *, maximize=True):
         metrics={"private_metric": 0.99},
         primary_metric="private_metric",
     )
+    result.phase_telemetry = {
+        "implementation": {"cost_usd": 0.2, "duration_seconds": 3.0}
+    }
+    return result
 
 
 def test_strict_projection_round_trips_complete_idea_and_fidelity_lineage(tmp_path):
@@ -68,9 +73,13 @@ def test_strict_projection_round_trips_complete_idea_and_fidelity_lineage(tmp_pa
     assert record.selection_batch_id.startswith("batch_")
     assert record.normalized_utility == 0.4
     assert record.validation_tier == "full"
+    assert record.phase_telemetry == {
+        "implementation": {"cost_usd": 0.2, "duration_seconds": 3.0}
+    }
     document = json.loads(path.read_text(encoding="utf-8"))
     assert document["schema"] == EXPERIMENT_HISTORY_SCHEMA
     assert document["records"][0]["evaluation_attempts"][0]["seed"] == 7
+    assert document["records"][0]["phase_telemetry"] == record.phase_telemetry
 
 
 def test_incompatible_legacy_list_fails_loudly(tmp_path):
@@ -83,6 +92,14 @@ def test_incompatible_legacy_list_fails_loudly(tmp_path):
             objective_direction="maximize",
             require_idea_links=True,
         )
+
+
+def test_experiment_record_rejects_invalid_phase_telemetry():
+    record = ExperimentRecord.from_node(node(0, 0.4), "maximize", True).to_dict()
+    record["phase_telemetry"]["implementation"]["cost_usd"] = -0.1
+
+    with pytest.raises(ValueError, match="phase telemetry"):
+        ExperimentRecord.from_dict(record)
 
 
 def test_minimize_ranking_uses_normalized_utility_and_invalid_records_do_not_rank(

@@ -9,8 +9,12 @@ harnesses, validation suites, performance measurements, and observational
 holdout reporting.
 
 External metrics are deliberately separate from Kapso's internal `node.score`.
-They do not affect idea generation, stopping, parent selection, or the final
-branch selected by default.
+They do not affect stopping, parent selection, or the final branch selected by
+default. Generic search authors `ideation_evidence` itself after each
+successful integrity-valid evaluation. A caller-owned evaluator may explicitly
+replace that key; ordinary metadata merges around it. The companion
+`ideation_evidence_author` key records the built-in call's immutable operation
+and artifacts and cannot be replaced by an external evaluator.
 
 ## Basic usage
 
@@ -98,22 +102,80 @@ have string keys.
 `primary_metric` describes the report. It does not make that metric a search or
 selection signal.
 
+## Generic ideation evidence
+
+The default Generic path uses a read-only Codex CLI role to inspect the full
+code diff, evaluation output, and feedback. Every authored finding must cite an
+exact diff reference and an exact evaluation-output or feedback reference.
+Claims and targeted gap updates also require a current registered evaluation
+attempt. Without one, the built-in author may return only open gaps; empty lists
+are valid. This default is shared by Generic, PostTrainBench, and RelBench
+through the canonical `DEFAULT` ideation profile.
+
+A caller-owned evaluator may explicitly override the built-in evidence by
+returning this strict metadata shape:
+
+```python
+metadata={
+    "suite_version": "canonical-v1",
+    "ideation_evidence": {
+        "claims": [
+            {
+                "statement": "Gradient clipping caused the measured stability gain.",
+                "kind": "hypothesis",  # observation | hypothesis | constraint
+                "status": "supported",  # supported | contradicted
+                "source_refs": ["metric:validation_stability"],
+            }
+        ],
+        "open_gaps": [
+            {
+                "axis": "seed stability",
+                "description": "The gain has not been tested across seeds.",
+                "evidence_refs": ["metric:validation_stability"],
+                "impact": 0.8,
+                "uncertainty": 0.9,
+                "estimated_cost": 1.0,
+            }
+        ],
+        "targeted_gap_updates": [],
+    },
+}
+```
+
+All three lists are required when `ideation_evidence` is present. A targeted
+gap update has the exact fields `gap_id`, `state`, `evidence_refs`, and
+`closure_reason`; `state` is `inconclusive` or `closed`, and only a gap that the
+executed idea explicitly targeted may be updated. Use a non-empty closure
+reason for `closed` and `None` for `inconclusive`.
+
+Kapso derives content-addressed claim and gap IDs, adds the current experiment
+as provenance, and atomically stores the evidence with the idea outcome.
+Malformed reserved metadata fails loudly. Omitting `ideation_evidence` is
+valid and preserves the built-in result. External metadata may not contain
+`ideation_evidence_author`. Score direction alone never asserts that a
+mechanism worked or that an uncertainty was resolved.
+
+`EXPLOIT` requires both a supported lever and comparable registered experiment
+evidence. Unregistered campaigns therefore remain in bootstrap/explore modes;
+an agent-reported score cannot unlock exploitation.
+
 ## Lifecycle and persistence
 
 ```mermaid
 flowchart LR
-    A["Strategy finalizes candidates"] --> B["Detect new candidate nodes"]
-    B --> C["Materialize each Git ref"]
-    C --> D["Run and validate evaluator"]
-    D --> E["Attach observational metrics"]
-    E --> F["Write experiment history"]
+    A["Strategy evaluates candidate"] --> B["Author built-in evidence"]
+    B --> C["Detect finalized candidate"]
+    C --> D["Run optional external evaluator"]
+    D --> E["Merge metadata or override evidence"]
+    E --> F["Write experiment history and outcome"]
     F --> G["Atomically write run checkpoint"]
 ```
 
 Generic search normally finalizes one candidate per iteration. Tree search can
-finalize several; the evaluator runs exactly once for each new candidate. A
-resumed run evaluates only candidates created after the resume, not candidates
-already stored in its checkpoint.
+finalize several; the evaluator runs exactly once for each node or higher
+execution revision finalized in the current call. A same-node recovery is
+therefore evaluated again, while unchanged candidates restored from the
+checkpoint are not.
 
 Make callbacks idempotent. If the process exits after the callback finishes but
 before the atomic checkpoint replacement, recovery may repeat that candidate's
@@ -123,9 +185,10 @@ Metrics are attached before experiment history and checkpoint persistence, so
 durable representations agree. Internal `score`, feedback, and stop state have
 already been produced by the strategy and are never replaced by the callback.
 
-Kapso does not include external metrics or evaluator errors in the
+Kapso does not include ordinary external metrics or evaluator errors in the
 agent-facing experiment-history formatter. They remain available to the caller
-and in durable run records without becoming feedback for later ideas.
+and in durable run records. Only validated `ideation_evidence` enters the idea
+archive and later evidence snapshots.
 
 ## Failure policy
 
@@ -141,6 +204,7 @@ solution = kapso.evolve(
 
 The candidate receives empty external metrics and an
 `external_evaluation_error` containing the exception type and message. The
+already-authored built-in ideation evidence remains attached. The
 error is persisted in experiment history and the checkpoint.
 
 Use `raise` when every external measurement is mandatory:

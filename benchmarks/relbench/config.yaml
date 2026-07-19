@@ -96,27 +96,24 @@ modes:
 
     fetch_huggingface_models: false
 
-  # Generic-search mode (escalations / A-B vs the tree): code-reading agentic
-  # ideation, champion-chain parent policy, evaluation through the
+  # Generic-search mode (escalations / A-B vs the tree): evidence-directed
+  # operators with frozen parent plans, evaluation through the
   # maintainer-registered entrypoint wrapping our provided grader
   # (data/generic_eval — official val scoring only; test physically
   # unscorable in-loop). Runner wires eval_dir when --strategy generic.
   RELBENCH_GENERIC:
+    ideation_profile: DEFAULT
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "claude-opus-4-8"
         implementation_model: "claude-opus-4-8"
         auth_mode: "oauth"
         effort: "xhigh"
         gate_failure_policy: "skip"
-        parent_policy: "best"
-        ideation_timeout: 1800
         # One experiment = implement + run the registered full evaluation
         # (candidate training, up to the task's full timeout) inside the
         # session: cap must cover both.
         implementation_timeout: 10800
-        ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
         # Bash-tool clock policy (finding 14): without these the CLI
         # auto-backgrounds any foreground command at 120s, making a
@@ -130,23 +127,6 @@ modes:
         # outside the session workspace, so a completed eval's score is
         # recoverable even after session teardown.
         registered_evaluation_archive_glob: "tmp/relbench/*/runs"
-        # Ensemble ideation mirroring the posttrain deployment: parallel CLI
-        # members with complementary lenses + a selector-critic. The codex
-        # member authenticates via ~/.codex/auth.json (ChatGPT login), the
-        # claude members via CLAUDE_CODE_OAUTH_TOKEN.
-        ideation_ensemble:
-          - cli: "codex"
-            model: "gpt-5.6-sol"
-            effort: "xhigh"
-            lens: "temporal feature engineering & leakage-safe relational aggregation first"
-          - cli: "claude_code"
-            model: "claude-fable-5"
-            effort: "xhigh"
-            lens: "model class, learning objective & val->test distribution shift first"
-        ideation_selector:
-          cli: "claude_code"
-          model: "claude-fable-5"
-          effort: "xhigh"
 
     evaluation_maintainer:
       type: "claude_code"

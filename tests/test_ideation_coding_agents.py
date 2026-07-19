@@ -2,6 +2,7 @@
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -164,6 +165,11 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     second = call_runner.run(request(tmp_path, "codex"), {"type": "object"})
 
     assert first == second
+    assert (tmp_path / "invocations.txt").read_text() == "x"
+
+    changed_model = replace(request(tmp_path, "codex"), model="different-model")
+    with pytest.raises(CodingAgentInvocationError, match="identity was reused"):
+        call_runner.run(changed_model, {"type": "object"})
     assert (tmp_path / "invocations.txt").read_text() == "x"
 
 

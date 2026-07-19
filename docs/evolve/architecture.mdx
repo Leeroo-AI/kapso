@@ -66,6 +66,30 @@ flowchart TB
 
 ## Component Responsibilities
 
+### Evidence-directed Generic path
+
+```mermaid
+flowchart LR
+    O["Orchestrator: budget and fidelity"] --> E["Evidence + deterministic policy"]
+    E --> A["IdeaArchive: PLANNED"]
+    A --> G["Codex / Claude candidate calls"]
+    G --> N["Rules + OpenAI embedding neighbors"]
+    N --> S["Codex / Claude selector"]
+    S --> B["IdeaArchive: SELECTED / BRIDGED"]
+    B --> X["Implementation + evaluation (registered when configured)"]
+    X --> W["Evidence author"]
+    W --> V["Optional external evaluator"]
+    V --> H["ExperimentHistoryStore"]
+    H --> C["IdeaOutcome"]
+    C --> K["Run checkpoint"]
+```
+
+The candidate population, analyses, and decision are durable before execution.
+Executed memory is then written before the linked idea outcome, and the run
+checkpoint is last. See the
+[implemented-system reference](../research/ideation-v3-implemented-system.md)
+for the exact lifecycle and recovery seams.
+
 ### Kapso (Main API)
 
 The user-facing entry point that provides the four-pillar API:
@@ -85,23 +109,18 @@ The central coordinator that manages the solve loop:
 
 ```python
 def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
+    register_and_reconcile_evaluation()
+    save_bootstrap_checkpoint()
     for i in range(experiment_max_iter):
-        # Calculate budget progress (0-100)
-        budget_progress = max(time, iterations, cost) * 100
-
-        # Check stopping conditions
-        if self.problem_handler.stop_condition() or budget_progress >= 100:
+        capacity = build_budget_and_fidelity_snapshot()
+        if capacity.exhausted:
+            save_resumable_budget_stop()
             break
-
-        # Get enriched context (problem + KG + history)
-        context = self.context_manager.get_context(budget_progress)
-
-        # Check if LLM decided COMPLETE
-        if self.context_manager.should_stop():
-            break
-
-        # Run one search iteration
-        self.search_strategy.run(context, budget_progress)
+        node = self.search_strategy.run(problem, capacity.progress_percent)
+        finalized = new_nodes_or_execution_revisions(node)
+        attach_optional_external_evaluation(finalized)
+        persist_experiment_then_idea_outcome(finalized)
+        save_checkpoint(completed=node.should_stop)
 ```
 
 ### Pluggable Components
@@ -131,14 +150,19 @@ flowchart LR
 
 ## Data Flow
 
-1. **Problem Handler** provides problem context
-2. **Experiment History** accessed via MCP tools
-3. **Search Strategy** generates and selects solutions
-4. **Experiment Workspace** manages git branches
-5. **Coding Agent** generates code and runs evaluation
-6. **Developer Agent** returns structured JSON with evaluation results
-7. **Feedback Generator** validates evaluation and decides stop/continue
-8. **RepoMemory** tracks code understanding across experiments
+1. **Problem Handler** provides the complete problem.
+2. **GenericSearch** projects linked `SearchNode` history into frozen evidence.
+3. **Policy and operators** choose bootstrap/explore/exploit/verify/recover and
+   concrete parent plans.
+4. **Candidate agents, analyzer, embeddings, and selector** advance the
+   `IdeaArchive` through `PLANNED → GENERATED → ANALYZED → SELECTED`.
+5. **Experiment Workspace** freezes the parent ref and creates the linked
+   branch/node (`BRIDGED`).
+6. **Implementation, integrity, registered evaluation, feedback, and evidence
+   authoring** finalize the node.
+7. **Orchestrator** attaches optional external evaluation, writes the executed
+   `ExperimentRecord`, writes the `IdeaOutcome`, then checkpoints.
+8. **RepoMemory** remains branch-specific repository understanding.
 
 ## Directory Structure
 
@@ -166,8 +190,9 @@ src/
 │   │   ├── base.py          # SearchStrategy ABC
 │   │   ├── factory.py       # SearchStrategyFactory
 │   │   ├── strategies.yaml  # Strategy presets
-│   │   ├── generic/         # Claude Code + MCP gates
-│   │   │   └── strategy.py
+│   │   ├── generic/         # Evidence-directed Generic search
+│   │   │   ├── strategy.py # Execution bridge and recovery
+│   │   │   └── ideation/   # Archive, evidence, policy, agents, analysis, selection
 │   │   └── benchmark_tree_search.py  # For MLE/ALE benchmarks
 │   │
 │   ├── types.py             # ContextData, ExperimentHistoryProvider
@@ -264,6 +289,7 @@ Configuration is organized into modes that bundle related settings:
 ```yaml
 modes:
   GENERIC:
+    ideation_profile: "DEFAULT"
     search_strategy:
       type: "generic"
       params: { ... }

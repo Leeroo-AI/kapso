@@ -1,6 +1,7 @@
 # Ideation v3 — evidence-directed exploration and exploitation
 
-Status: **design proposal**
+Status: **accepted design; implementation status is tracked in
+[`ideation-v3-implemented-system.md`](ideation-v3-implemented-system.md)**
 
 This document specifies the intended architecture and system flow for Kapso's
 next ideation system. It supersedes the scheduling and persistence portions of
@@ -122,8 +123,9 @@ The following boundaries are mandatory:
   admit work independently.
 - **SearchNode/checkpoint owns canonical executed state.** Scores, feedback,
   branches, failures, and evaluation attempts remain on executed nodes.
-  `ExperimentHistoryStore` remains the durable retrieval projection exposed to
-  ideation agents; it does not become a second search-state authority.
+  `ExperimentHistoryStore` remains the durable executed-work retrieval
+  projection for implementation/MCP workflows; ideation consumes the canonical
+  node-history projection and does not treat the store as a second authority.
 - **Idea history owns proposals.** Generated, rejected, selected, and
   not-yet-executed candidates remain idea records.
 - **Evaluation owns truth.** A coding agent may identify an assumption or
@@ -163,7 +165,7 @@ OpenAIEmbeddingProvider
   authentication: official SDK default credential discovery
   default model: text-embedding-3-small
   operation: embeddings only
-  consumers: CandidateAnalyzer and idea retrieval
+  consumer: CandidateAnalyzer
 ```
 
 `text-embedding-3-small` is the cost-oriented default for duplicate alarms; the
@@ -193,87 +195,54 @@ from coding-agent telemetry.
 
 ## Connection to the current system
 
-V3 is an internal replacement for the current solution-generation seam, not a
+V3 replaces the former solution-generation seam; it is not a
 new top-level execution path.
 
-### Current call flow
+### Implemented v3 call flow
 
-Today one generic-search iteration is effectively:
+The sole Generic ideation path is:
 
 ```text
 GenericSearch.run()
-  -> _select_parent()
-  -> _generate_solution()
-       -> optional _generate_solution_ensemble()
-       -> optional _select_from_candidates()
-       -> returns one solution string
-  -> create SearchNode(solution)
-  -> _implement()
-  -> integrity check, feedback, evaluation-attempt recording
+  -> IdeationEngine.run(evidence, capacity)
+       -> persist PLANNED IdeaBatch with the complete frozen packet
+       -> generate/resurface and persist IdeaRecords (GENERATED)
+       -> analyze novelty, evidence, and feasibility (ANALYZED)
+       -> persist SelectionDecision (SELECTED)
+       -> return selected IdeaRecord + ResolvedParentSnapshot
+  -> GenericSearch links idea_id + selection_batch_id to SearchNode (BRIDGED)
+  -> _implement(), strict XML parsing, integrity, feedback, evaluation attempt
+  -> EvidenceAuthor reviews the complete diff and evaluation record
   -> append node_history
   -> return node to Orchestrator
-  -> external candidate evaluation
+  -> optional external candidate evaluation
   -> ExperimentHistoryStore.add_experiment(node)
-  -> checkpoint strategy state
-```
-
-Candidate generation and selection are currently ephemeral. Only the selected
-solution string crosses the `SearchNode` boundary; unselected candidates,
-selector reasoning, duplicate facts, and the generation context disappear.
-
-### V3 call flow
-
-The revised iteration is:
-
-```text
-GenericSearch.run()
-  -> IdeationEngine.select(evidence, capacity)
-       -> persist IdeaBatch
-       -> generate or resurface IdeaRecords
-       -> analyze and persist the candidate pool
-       -> select and persist SelectionDecision
-       -> returns SelectedIdea + immutable ParentPlan
-  -> ExperimentBridge.create_node(selected_idea, parent_plan)
-       -> SearchNode.idea_id = selected_idea.idea_id
-       -> SearchNode.selection_batch_id = current_batch.batch_id
-  -> existing _implement(), integrity, feedback, and evaluation flow
-  -> append node_history
-  -> return node to Orchestrator
-  -> existing external candidate evaluation
-  -> existing ExperimentHistoryStore.add_experiment(node)
-  -> OutcomeRecorder.record_finalized(node)
-  -> checkpoint strategy state and archive revision
+  -> GenericSearch.record_finalized_idea_outcome(node) (COMPLETED)
+  -> write run checkpoint
 ```
 
 Everything after node creation remains the existing experiment lifecycle. The
 new subsystem changes how the solution and its parent are chosen, and preserves
 the decision that led to the node.
 
-### Mapping current methods to v3 responsibilities
+### Implemented responsibility mapping
 
-| Current seam | V3 connection |
+| Runtime seam | Responsibility |
 |---|---|
-| `GenericSearch.run()` | Remains the iteration entry point and calls `IdeationEngine` instead of asking directly for one solution string |
-| `_generate_solution()` | Becomes the single-member `CandidateGenerator` adapter; existing read-only agent setup and repository tooling are reused |
-| `_generate_solution_ensemble()` | Remains the fan-out mechanism but returns structured `IdeaRecord` proposals instead of an ephemeral list of strings |
-| `_select_from_candidates()` | Becomes one coding-agent CLI implementation of the critic portion of `CandidateSelector`; deterministic eligibility runs before it and structured decision persistence follows it |
-| `_build_ideation_prompt()` | Receives the frozen evidence snapshot, search directive, operator brief, prior-idea context, and capacity summary |
-| `_select_parent()` | Stops making the iteration's single parent decision before ideation; its branch-resolution logic moves behind `ParentPlan` after candidate selection |
-| `materialize_ref()` | Is reused to give each operator a read-only view of its concrete parent ref |
-| `SearchNode` construction | Adds stable `idea_id` and `selection_batch_id` links; the solution text remains copied onto the node for standalone readability |
-| Existing implementation and feedback methods | Remain unchanged in responsibility and operate on the selected idea's solution |
-| `GenericSearch.dump_state()/load_state()` | Persist active batch/archive references and validate idea-to-node links against the new strict archive shape |
-| `Orchestrator._evaluate_candidates()` | Remains the point at which external evaluation is attached before an outcome is considered final |
-| `ExperimentHistoryStore.add_experiment()` | Continues projecting each finalized node into agent-queryable executed memory, now including the idea link |
-
-These are final responsibility boundaries. They do not require a one-to-one
-class extraction during the first implementation change.
+| `GenericSearch.run()` | Entry point, frozen Git resolution, idea-to-node bridge, and existing execution lifecycle |
+| `IdeationEngine.run()` | Phase-exact policy/generation/analysis/selection transaction ordering |
+| `CandidateGenerator` | Concurrent structured candidates through Codex/Claude CLI roles |
+| `CandidateAnalyzer` | Deterministic hard rules, descriptors, duplicates, embeddings, and one repair request |
+| `CandidateSelector` | Structured CLI judgment over only eligible candidates |
+| `IdeaArchive` | Atomic batches, candidates, facts, selection, link, and outcome state |
+| `GenericSearch.dump_state()/load_state()` | Exact v3 checkpoint projection and archive-ahead validation |
+| `Orchestrator._persist_finalized_candidates()` | ExperimentRecord before IdeaOutcome write ordering |
+| `GenericSearch.reconcile_experiment_memory()` | Cross-store reconstruction and conflict rejection before another iteration |
 
 ### Parent resolution and repository context
 
-Current ideation selects one parent before generation and runs every ensemble
-member in the same materialized worktree. V3 allows operators to propose from
-different parent plans without making branch lineage ambiguous:
+Operators may propose from different parent plans without making branch lineage
+ambiguous:
 
 1. The policy determines the allowed parent plans from `node_history`.
 2. The parent resolver converts each plan into an immutable
@@ -282,33 +251,25 @@ different parent plans without making branch lineage ambiguous:
 4. The generator reads that parent's materialized ref. Members using the same
    ref may share a read-only view; members using different refs receive
    separate read-only views.
-5. The selected candidate carries its frozen parent snapshot into
-   `ExperimentBridge`.
+5. The selected candidate carries its frozen parent snapshot into the inline
+   GenericSearch node bridge.
 6. Node lineage, implementation base, diff base, and feedback base all use that
    same snapshot, preserving the current ref-correctness guarantee.
 
 For `CROSSOVER`, one branch is still the implementation parent. Other ideas or
 experiments are cited sources, not additional Git parents.
 
-### Prompt and MCP connection
+### Prompt and tool connection
 
-Current ideation agents decide for themselves whether to call the
-`experiment_history` MCP tools. V3 makes the minimum causal context mandatory:
-
-- `CampaignEvidenceBuilder` pushes the incumbent, latest attempt, linked ideas,
-  relevant negative results, and open gaps directly into every member prompt;
-- the existing `experiment_history` gate remains available for drill-down into
-  executed experiments; and
-- a separate `idea_history` retrieval surface provides prior generated,
-  deferred, rejected, and evaluated ideas.
-
-This ensures every ensemble member sees the same essential evidence, including
-members that do not have equivalent MCP access, while preserving tools for
-deeper inspection.
-
-The raw "Feedback from Previous Iteration" instruction is removed when v3 is
-connected. The evidence snapshot is the sole structured representation, so raw
-narrative cannot override measured evidence.
+Candidate and repair calls receive the problem, frozen evidence and directive,
+their operator brief and parent snapshot, and the complete prior idea/claim/gap
+archive. The selector instead receives the eligible current/resurfaced pool and
+its analyses; those analyses carry the precomputed semantic neighbors. The
+evidence author receives the selected idea, compact experiment identity, exact
+source references, and the complete diff/evaluation source material.
+Codex/Claude roles may use their configured read-only tools, but proposal memory
+does not depend on an MCP call and there is no separate idea-history gate.
+Executed-experiment MCP tools remain available to implementation workflows.
 
 ## Connection to experiment memory
 
@@ -354,6 +315,7 @@ The required ordering prevents partial state from being misinterpreted:
 sequenceDiagram
     participant I as IdeaArchive
     participant G as GenericSearch
+    participant W as Evidence Author
     participant O as Orchestrator
     participant E as ExperimentHistoryStore
 
@@ -361,6 +323,8 @@ sequenceDiagram
     I-->>G: SelectedIdea and ParentPlan
     G->>G: Create linked SearchNode
     G->>G: Implement and run internal evaluation
+    G->>W: Review complete diff and evaluation record
+    W-->>G: Attributable claims and gaps
     G-->>O: Return node
     O->>O: Attach external evaluation and integrity results
     O->>E: Persist finalized ExperimentRecord with idea_id
@@ -375,21 +339,26 @@ the linked node or experiment record. It must not rerun the experiment.
 
 ### Executed-memory projection
 
-`ExperimentRecord` remains an executed-only record. Its v3 projection needs the
-minimum additional provenance and comparison fields:
+`ExperimentRecord` remains an executed-only record. Generic records require the
+idea and batch join keys and retain the complete execution projection:
 
 ```text
 ExperimentRecord
-  existing fields...
-  idea_id?
-  selection_batch_id?
+  node_id
+  execution_revision
+  idea_id
+  selection_batch_id
   parent_node_id?
-  parent_branch_name?
+  solution, branch_name, timestamp
+  raw_score?
   objective_direction
   normalized_utility?
+  feedback, error and integrity fields
   build_fidelity
   eval_fidelity
+  validation_tier
   evaluation_attempts[]
+  phase_telemetry
   duration_seconds?
   cost_usd?
 ```
@@ -400,11 +369,10 @@ maximization and minimization. Parent selection and delivery selection continue
 to use canonical `node_history`; this projection is for retrieval, evidence
 assembly, and audit.
 
-Experiment semantic search continues to index executed content such as the
-selected solution, observed feedback, technical difficulties, and outcome.
-Idea semantic search indexes the proposal, descriptor, assumptions, and
-selection history. Similarity is never combined by taking a maximum across the
-two stores.
+Experiment search uses executed content such as the selected solution,
+feedback, technical difficulties, and errors. Idea embeddings use the complete
+canonical proposal representation inside the trusted ideation process. The two
+similarity concerns are never collapsed.
 
 ### MCP retrieval behavior
 
@@ -416,22 +384,13 @@ get_recent_experiments
 search_similar_experiments
 ```
 
-Their result format should add `idea_id`, parent, fidelity, validation status,
-and objective-aware utility where available. New idea-memory tools remain
-separate:
-
-```text
-get_recent_ideas
-get_idea(idea_id)
-get_idea_neighbors(idea_id)
-get_idea_lineage
-list_evaluation_gaps
-```
-
-Free-text semantic idea retrieval runs in the trusted Kapso process through
-`OpenAIEmbeddingProvider`. The coding-agent/MCP subprocess receives precomputed
-neighbors and never receives `OPENAI_API_KEY`. `get_idea_neighbors` therefore
-reads stored analysis rather than calling the embeddings API.
+Their result format includes stable idea/batch links, parent, fidelity,
+validation status, and objective-aware utility. Separate idea-history MCP tools
+were intentionally not added: every ideation role receives the complete frozen
+archive, gaps, claims, and precomputed neighbors in its mandatory packet. Free-
+text idea similarity runs in the trusted Kapso process through
+`OpenAIEmbeddingProvider`; coding-agent subprocesses never receive
+`OPENAI_API_KEY`.
 
 This gives the model an unambiguous distinction:
 
@@ -442,13 +401,21 @@ This gives the model an unambiguous distinction:
 
 ### Checkpoint and reconciliation
 
-The idea archive is not duplicated inside the run checkpoint. The strategy
-checkpoint stores only:
+The idea archive is not duplicated inside the run checkpoint. The exact Generic
+strategy state is:
 
 ```text
-active_ideation_batch_id?
-idea_archive_schema_version
-idea_archive_revision
+schema
+campaign_id
+idea_archive_schema
+archive_revision
+active_batch_id?
+node_history
+iteration_count
+previous_errors
+evaluation_integrity
+scores_evaluator_id
+evaluator_transition?
 ```
 
 Each linked `SearchNode` independently stores `idea_id` and
@@ -457,10 +424,13 @@ Each linked `SearchNode` independently stores `idea_id` and
 1. load and validate the archive;
 2. load `node_history`;
 3. verify every v3 node's idea and batch links;
-4. reconcile a `SELECTED` idea with no node through the idempotent bridge;
-5. reconcile a completed node with no idea outcome from the node's immutable
-   evaluation data; and
-6. fail loudly on conflicting links rather than choosing one store silently.
+4. resume `PLANNED`, `GENERATED`, or `ANALYZED` from its first unfinished
+   phase and replay completed CLI operation results by operation ID;
+5. reconstruct a same-node recoverable execution for a `BRIDGED` idea with no
+   durable node/record;
+6. recreate a missing ExperimentRecord or IdeaOutcome from the authoritative
+   linked projection; and
+7. fail loudly on changed frozen context or conflicting links.
 
 Pre-v3 checkpoints and experiment records are unsupported after activation.
 They may be discarded or re-derived from authoritative campaign artifacts;
@@ -612,19 +582,12 @@ stateDiagram-v2
 
 `FINALIZE` is a terminal action, not an ideation stance. `RECOVER` is likewise
 an execution action: it resumes the same linked idea and experiment node with
-zero candidate generation. If a delivery-grade
-incumbent is banked and capacity permits one complete comparable experiment,
-the policy may admit an **opportunity probe**. That probe still uses `EXPLOIT`
-or `EXPLORE`; it is not a special "final gamble" mode.
-
-An opportunity probe is admitted only when:
-
-```text
-delivery-grade incumbent exists
-AND implementation + comparable evaluation fits outside reserve
-AND completion probability is acceptable
-AND expected positive utility justifies its cost
-```
+zero candidate generation. There is no terminal opportunity-probe bypass. Once
+the capacity authority can no longer admit the granted implementation and
+evaluation while preserving reserve, policy returns `FINALIZE`. Kapso has no
+calibrated authority for completion probability or expected positive utility;
+inventing those facts would make a nominally careful "final gamble" less
+trustworthy than the deterministic reserve boundary.
 
 Novelty is not a terminal tie-breaker.
 
@@ -692,37 +655,28 @@ preserves unambiguous branch lineage.
 
 The `CampaignEvidenceBuilder` produces an immutable snapshot from:
 
-- successful and failed experiments;
-- normalized score trace and validation tiers;
-- evaluation attempts and slice metrics;
-- feedback and claimed diagnoses;
-- parent and branch lineage;
-- idea outcomes and rejected candidates;
-- open evaluation gaps;
-- repository state and available artifacts; and
-- the capacity snapshot supplied by fidelity/budget policy.
+- all linked successful and failed `SearchNode` projections;
+- normalized scores and registered evaluation-attempt identity;
+- feedback, technical failures, build fidelity, and parent-node lineage;
+- archived causal claims and evaluation gaps; and
+- idea identities needed to join the incumbent, latest experiment, and recent
+  proposal history.
 
-The snapshot contains facts and labeled inferences. It never rewrites source
-records.
+The supplied capacity view contributes typed policy signals but is persisted
+separately on the `IdeaBatch`. Repository content is represented by frozen
+parent refs and is read from those refs by candidate agents; it is not copied
+into the evidence snapshot. The snapshot contains facts and labeled
+inferences. It never rewrites source records.
 
 ### How previous work reaches the next ideation batch
 
-The evidence builder assembles prior work in layers so the generator sees the
-campaign's causal history without receiving an undifferentiated transcript:
-
-1. **Causal spine:** the delivery incumbent, its linked selected idea, its
-   parent lineage, and the latest attempted idea and outcome.
-2. **Distinct evidence:** the best valid experiment from each materially
-   different descriptor family, including negative results that rule out a
-   mechanism.
-3. **Relevant executed neighbors:** experiments retrieved by implementation
-   and outcome similarity, labeled with actual score, validation tier, parent,
-   and failure status.
-4. **Relevant archived ideas:** unexecuted or previously deferred ideas
-   retrieved separately, labeled with their original selection/rejection
-   reason and nearest executed evidence.
-5. **Open uncertainty:** the highest-priority evaluation gaps and unresolved or
-   contradicted claims.
+The evidence builder projects every linked node in timestamp/node order and
+marks the best comparable registered experiment plus the latest attempt. It
+orders relevant idea IDs as incumbent, latest, then archive recency. Candidate
+packets carry the complete prior idea archive; deterministic analysis later
+computes semantic idea neighbors. Executed-experiment similarity retrieval,
+per-descriptor elites, and slice-metric summaries are deferred capabilities,
+not hidden behavior of the current builder.
 
 An executed experiment is always displayed with the `IdeaRecord` that caused
 it, when the link exists. This gives the next generator both the original
@@ -730,14 +684,14 @@ hypothesis and the observed result instead of showing score text without
 intent.
 
 Archived ideas may be reconsidered directly; they do not need to be
-regenerated. A prior idea is eligible for resurfacing only when it was never
-fairly evaluated and at least one relevant condition changed, such as new
-evidence, a new parent, improved feasibility, available capacity, or resolution
-of the reason it was deferred. The current batch records why it was resurfaced.
+regenerated. The current implementation resurfaces only an unexecuted
+`DEFERRED` idea when its last consideration used a different evidence-snapshot
+ID or one of its targeted gaps is now closed. The current batch records that
+exact reason.
 
-Experiment similarity and idea similarity remain separate retrievals. Their
-results are joined through explicit IDs, never by taking a maximum similarity
-over unrelated selected and unselected text.
+Semantic retrieval currently operates over idea embeddings during candidate
+analysis. Executed-experiment similarity retrieval is deferred; experiment and
+idea identities are still joined explicitly rather than conflating their text.
 
 ### Evidence claims
 
@@ -749,7 +703,7 @@ EvidenceClaim
   status = SUPPORTED | CONTRADICTED | INSUFFICIENT
   source_refs[]
   affected_idea_ids[]
-  affected_experiment_ids[]
+  affected_experiment_node_ids[]
   updated_at
 ```
 
@@ -801,17 +755,25 @@ test or closes/deprioritizes the gap with evidence.
 
 ```text
 IdeaBatch
-  schema_version
   batch_id
   campaign_id
   iteration_index
   context_hash
-  evidence_snapshot_id
+  planning_archive_revision
+  problem_statement
+  evidence_snapshot
+  capacity
   directive
+  resolved_parents[]
   generated_idea_ids[]
+  generation_calls[]
+  resurfaced_ideas[]
   considered_idea_ids[]
-  analysis
+  analyses[]
+  embedding_telemetry?
   selection
+  selection_call?
+  abandoned_reason?
   status = PLANNED | GENERATED | ANALYZED | SELECTED | BRIDGED |
            COMPLETED | ABANDONED
   created_at
@@ -822,28 +784,40 @@ IdeaBatch
 
 ```text
 IdeaRecord
-  schema_version
   idea_id
   origin_batch_id
   selected_in_batch_id?
   proposal
   operator
   descriptor
+  parent_plan
+  resolved_parent
+  assumptions[]
+  evidence_refs[]
+  directive_rationale
+  evaluation_method
+  resource_request
+  created_at
   parent_idea_ids[]
-  parent_experiment_ids[]
+  parent_experiment_node_ids[]
   target_gap_ids[]
-  claims[]
+  claim_ids[]
+  resolves_claim_ids[]
   expected_observations[]
   predicted_gain?
   predicted_cost?
   confidence?
   embedding?
-  nearest_neighbors[]
+  claimed_nearest_idea_id?
+  claimed_nearest_experiment_node_id?
+  nearest_experiment_node_ids[]
   exact_duplicate_of?
   similarity_flags[]
+  generation_artifacts[]
   status = GENERATED | INVALID | DEFERRED | REJECTED | SELECTED |
            IMPLEMENTING | EVALUATED | FAILED_TECHNICAL | ABANDONED
   selection_reason?
+  deferral_reason?
   rejection_reason?
   experiment_node_id?
   outcome?
@@ -864,6 +838,41 @@ IdeaOutcome
   contradicted_claim_ids[]
 ```
 
+`gap_effects` is the exact set of affected typed gap IDs, not free-form prose.
+Claims and gaps become causal evidence only through the strict
+`external_evaluation_metadata.ideation_evidence` object. By default, a
+read-only coding-agent author inspects the complete code diff plus evaluation
+output and feedback after a successful, integrity-valid Generic run. Every
+finding must cite the exact diff and evaluation/feedback references. Claims and
+targeted gap updates require a current registered evaluation attempt; without
+one the author may return only open gaps. Empty lists are valid, and score
+direction alone never creates causal evidence.
+
+The author call is replayable by deterministic operation ID and durable result
+artifact, with node-level phase telemetry. An external iteration evaluator may
+explicitly replace `ideation_evidence`, while ordinary external metadata merges
+without deleting it and may not replace the author-provenance metadata. The
+adapter creates deterministic IDs tied to the current idea and experiment; the
+archive commits the outcome, new claims, new open gaps, targeted gap
+transitions, idea state, and batch state in one revision. Malformed present
+metadata fails loudly.
+
+`EXPLOIT` still requires comparable registered experiment evidence as well as a
+supported lever. An unregistered campaign therefore remains conservative even
+if it records unresolved open gaps.
+
+Outcome replay compares evidence by monotonic descent rather than byte equality:
+sources and affected experiment provenance may accumulate, timestamps and gap
+debt may advance, and gaps may follow legal forward transitions. Immutable
+claim/gap identity, earlier provenance, and evidence classification cannot be
+removed or reversed.
+
+If the selector displaces a directive's reserved gap by choosing an idea that
+does not target it, selection atomically increments that open gap's deferral
+count. Selecting the gap-targeting idea does not. This makes `GAP_DEBT` a
+persisted consequence of actual selection decisions rather than inferred
+model narrative.
+
 The archive is campaign-local, strictly validated, and atomically persisted.
 An incompatible shape fails loudly; development-time format changes replace
 the prior format instead of accumulating migrations.
@@ -872,7 +881,7 @@ the prior format instead of accumulating migrations.
 
 ### Independent generation
 
-Each ensemble member receives:
+Each generation member receives:
 
 - the same campaign evidence snapshot;
 - the same capacity constraints;
@@ -903,8 +912,9 @@ Every valid candidate states:
 8. which existing idea or experiment is most similar, if any.
 
 Candidate cost is an advisory resource class or estimate, not admission
-authority. The analyzer uses the fidelity/budget capacity provider's measured
-cost model to decide whether implementation and comparable evaluation fit.
+authority. The analyzer asks whether the currently granted evaluation fits;
+that may be a probe during bootstrap. Comparable registered evidence is
+required later before credible improvement or `EXPLOIT` can be asserted.
 
 ### Analysis pipeline
 
@@ -912,7 +922,8 @@ Analysis is deterministic where possible:
 
 1. validate the candidate schema;
 2. reject impossible parent or artifact references;
-3. mark exact duplicates ineligible while retaining their records;
+3. mark exact duplicates without a derived changed condition ineligible while
+   retaining their records;
 4. calculate embedding neighbors across the idea archive;
 5. compare structured descriptors;
 6. verify cited evidence and flag unsupported causal claims;
@@ -939,7 +950,7 @@ eligibility rules.
 A candidate is ineligible when:
 
 - it cannot complete within the capacity contract;
-- its required comparable evaluation cannot complete;
+- its currently granted evaluation cannot complete;
 - its parent or required artifact does not exist;
 - it violates a delivery or finalization constraint;
 - it depends on a contradicted claim without proposing a new test;
@@ -980,13 +991,13 @@ sequenceDiagram
     participant I as IdeationEngine
     participant A as IdeaArchive
     participant X as Experiment Lifecycle
+    participant W as Evidence Author
     participant H as Experiment History
 
     O->>F: Request next admissible action
     F-->>O: CapacitySnapshot and fidelity contract
     O->>G: Run admitted search iteration
-    G->>I: Ideate with campaign context and capacity
-    I->>H: Read executed evidence
+    G->>I: Ideate with projected node history and capacity
     I->>A: Read prior ideas, batches, and gaps
     I->>I: Build evidence and SearchDirective
     I->>A: Persist batch as PLANNED
@@ -1000,6 +1011,8 @@ sequenceDiagram
     G->>X: Idempotently create SearchNode and branch
     X->>A: Link experiment node; mark BRIDGED and IMPLEMENTING
     X->>X: Implement, evaluate, and debug if technical
+    X->>W: Review complete diff and evaluation record
+    W-->>X: Attributable claims and gaps
     X-->>O: Return linked SearchNode
     O->>O: Attach external evaluation and integrity results
     O->>H: Persist executed experiment result
@@ -1056,10 +1069,12 @@ regenerates work that has already crossed a boundary.
 | Experiment completed, outcome missing | Reconstruct the outcome from the linked immutable experiment record |
 | `COMPLETED` | No ideation work remains for the batch |
 
-`context_hash` covers the evidence snapshot, capacity snapshot, directive, model
-configuration, prompt version, and relevant repository ref. If those inputs
-change before execution, the prior batch is marked `ABANDONED`; it is retained
-for provenance and a new batch is created. It is never silently overwritten.
+`context_hash` covers the problem, evidence snapshot, capacity view, directive,
+resolved parent snapshots, and planning archive revision. Resume requires exact
+equality and fails loudly on a mismatch; it does not replace the batch.
+Completed coding-agent operations independently pin their prompt, response
+schema, CLI, model, effort, tools, and timeout in durable artifacts, while the
+outer run fingerprint pins the canonical configuration.
 
 Identity operations are idempotent:
 
@@ -1086,45 +1101,39 @@ separate file or class.
 | `CandidateGenerator` | Independent structured proposals | Comparing candidates or declaring evidence true |
 | `CandidateAnalyzer` | Validation, similarity facts, feasibility, evidence references, bounded repair requests | Utility judgment beyond hard eligibility |
 | `CandidateSelector` | Comparative judgment, diagnosis audit, selected idea, fallbacks | Overriding hard rules or rewriting evidence |
-| `ExperimentBridge` | Parent realization, SearchNode creation, branch linkage, idempotency | Candidate generation or result interpretation |
-| `OutcomeRecorder` | Idea/experiment linkage, failure classification, realized delta, claim and gap effects | Retrospectively editing the original proposal |
+| `GenericSearch` bridge | Parent realization, SearchNode creation, branch linkage, recovery | Candidate generation or selector judgment |
+| `build_idea_outcome` + archive | Failure classification and realized delta | Retrospectively editing the original proposal |
 
 ## History and retrieval surfaces
 
-Executed and proposed work require separate queries:
+Executed and proposed work remain separate read models:
 
 ```text
 search_experiments(query, filters)
   -> implemented solutions, evaluation evidence, branches, outcomes
 
-search_ideas(query, filters)
-  -> generated proposals with explicit selected/rejected/evaluated status
-
-get_idea_lineage(idea_id)
-  -> source ideas, parent experiments, selected experiment, outcome
-
-list_evaluation_gaps(state, priority)
-  -> typed gaps and evidence references
+mandatory ideation packet
+  -> generated proposals, lineage, statuses, claims, gaps, and neighbors
 ```
 
-`search_ideas` is an internal trusted-process query and may use the embedding
-provider. An ideation agent receives its results in the mandatory context
-packet and may inspect stored ideas/neighbors through keyless MCP tools. The
+The trusted process may use the embedding provider when building persisted
+similarity facts. Ideation agents receive those facts in the packet. The
 semantic separation and credential boundary are not optional.
 
 ## Behavior under representative campaigns
 
 ### Cold start
 
-`BOOTSTRAP` produces a credible baseline, an independent mechanism, a
-measurement-oriented candidate, and a deliberately different approach family.
-All survive in the archive even though only one is executed.
+`BOOTSTRAP` allocates from the independent, mechanism-shift, and gap-targeted
+operator palette up to the configured candidate quota. All generated candidates
+survive in the archive even though only one is executed.
 
 ### Strong improvement
 
-A gain above the noise threshold with a supported mechanism triggers
-`EXPLOIT`. Candidate operators include atomic refinement and ablation, while a
-gap-targeted slot and a distinct counterproposal protect against tunnel vision.
+A gain above the noise threshold with a supported causal hypothesis triggers
+`EXPLOIT`. The quota-limited palette prefers atomic refinement, supported
+crossover, ablation, and gap targeting without guaranteeing every operator in
+one batch.
 
 ### Candidate-family collapse
 
@@ -1161,17 +1170,18 @@ implementation that produces no gain is instead valid negative evidence.
 
 ### End of campaign
 
-Without a delivery-grade incumbent, remaining capacity is spent on validation
-and finalization. With one banked, another candidate is considered only when a
-complete comparable evaluation fits outside the reserve and has positive
-expected value. Otherwise the campaign finalizes.
+Another action is admitted only when the capacity authority says a complete
+currently granted evaluation fits while preserving finalization reserve.
+Otherwise the campaign finalizes around its delivery incumbent. Kapso does not
+yet have calibrated completion-probability or expected-value authorities, so
+there is no speculative terminal-opportunity bypass.
 
 ## Failure handling
 
 | Failure | Classification | Response |
 |---|---|---|
-| Generator timeout or malformed response | Ideation technical failure | Retry within the configured call policy; retain batch identity |
-| One ensemble member fails | Partial generation | Continue only if candidate quota and required operator coverage remain valid |
+| Generator timeout or malformed response | Ideation technical failure | Propagate the failure; retain the `PLANNED` batch and deterministic operation identity for an explicit resume |
+| One generation member fails | Generation transaction failure | Persist no partial pool; resume the same batch after the external failure is resolved |
 | All candidates invalid | Batch failure | Use the single repair allowance, then surface a typed failure |
 | Selector fails | Selection technical failure | Retry selection over the persisted analyzed pool; never regenerate implicitly |
 | Branch creation fails | Bridge technical failure | Retry idempotently from `SELECTED` state |
@@ -1232,8 +1242,7 @@ following hold:
     evidence, or validation hard rules.
 11. Technical failure does not automatically count as negative hypothesis
     evidence.
-12. A terminal opportunity probe cannot consume protected finalization
-    capacity.
+12. No terminal opportunity probe can bypass protected finalization capacity.
 13. Every generative or judgment-bearing model call runs through Codex CLI or
     Claude Code and is attributable to a coding-agent invocation.
 14. Direct OpenAI API access is limited to embeddings; its key is never stored,

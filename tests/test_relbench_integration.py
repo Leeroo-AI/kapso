@@ -38,16 +38,23 @@ def make_handler(spec: TaskSpec, n_val=10, n_test=8):
 
 def binary_spec():
     return TaskSpec(
-        dataset_name="rel-x", task_name="t", family=ENTITY_BINARY,
-        primary_metric="roc_auc", maximize=True,
+        dataset_name="rel-x",
+        task_name="t",
+        family=ENTITY_BINARY,
+        primary_metric="roc_auc",
+        maximize=True,
     )
 
 
 def rec_spec():
     return TaskSpec(
-        dataset_name="rel-x", task_name="t", family=RECOMMENDATION,
-        primary_metric="link_prediction_map", maximize=True,
-        eval_k=5, num_dst_nodes=100,
+        dataset_name="rel-x",
+        task_name="t",
+        family=RECOMMENDATION,
+        primary_metric="link_prediction_map",
+        maximize=True,
+        eval_k=5,
+        num_dst_nodes=100,
     )
 
 
@@ -98,8 +105,8 @@ class TestPredictionValidation:
     def test_recommendation_shape_and_warnings(self, tmp_path):
         handler = make_handler(rec_spec())
         pred = np.tile(np.arange(5), (10, 1))
-        pred[0] = [1, 1, 2, 3, 4]      # duplicate
-        pred[1] = [0, 1, 2, 3, 999]    # out of range
+        pred[0] = [1, 1, 2, 3, 4]  # duplicate
+        pred[1] = [0, 1, 2, 3, 999]  # out of range
         self._write(tmp_path, "val", pred)
         arr, warnings = handler._load_predictions(str(tmp_path), "val")
         assert arr.shape == (10, 5)
@@ -126,7 +133,11 @@ class TestAudit:
         )
         kit_file = (
             Path(__file__).parents[1]
-            / "benchmarks" / "relbench" / "data" / "starter_kit" / "common.py"
+            / "benchmarks"
+            / "relbench"
+            / "data"
+            / "starter_kit"
+            / "common.py"
         )
         (code / "common.py").write_bytes(kit_file.read_bytes())
         report = handler._audit_code(code)
@@ -136,8 +147,11 @@ class TestAudit:
 
     def test_autocomplete_allows_full_db(self, tmp_path):
         spec = TaskSpec(
-            dataset_name="rel-x", task_name="t", family=AUTOCOMPLETE_REGRESSION,
-            primary_metric="r2", maximize=True,
+            dataset_name="rel-x",
+            task_name="t",
+            family=AUTOCOMPLETE_REGRESSION,
+            primary_metric="r2",
+            maximize=True,
         )
         handler = make_handler(spec)
         code = tmp_path / "code"
@@ -155,8 +169,11 @@ class TestMetricRouting:
         handler = make_handler(binary_spec())
         assert handler._is_better(0.8, 0.7)
         spec = TaskSpec(
-            dataset_name="d", task_name="t", family="entity_regression",
-            primary_metric="mae", maximize=False,
+            dataset_name="d",
+            task_name="t",
+            family="entity_regression",
+            primary_metric="mae",
+            maximize=False,
         )
         handler = make_handler(spec)
         assert handler._is_better(0.3, 0.4)
@@ -215,7 +232,9 @@ class TestCandidateMaterialization:
 
 
 RELBENCH_CACHE = Path(
-    os.environ.get("RELBENCH_PRISTINE_CACHE_DIR", os.path.expanduser("~/.cache/relbench"))
+    os.environ.get(
+        "RELBENCH_PRISTINE_CACHE_DIR", os.path.expanduser("~/.cache/relbench")
+    )
 )
 
 
@@ -234,13 +253,27 @@ class TestSandboxOnRealData:
         env.pop("RELBENCH_CACHE_DIR", None)
         env["PYTHONPATH"] = str(repo_root)
         subprocess.run(
-            [sys.executable, "-m", "benchmarks.relbench.sandbox",
-             "--dataset", "rel-f1", "--task", "driver-position", "--dest", str(dest)],
-            cwd=repo_root, env=env, check=True, capture_output=True,
+            [
+                sys.executable,
+                "-m",
+                "benchmarks.relbench.sandbox",
+                "--dataset",
+                "rel-f1",
+                "--task",
+                "driver-position",
+                "--dest",
+                str(dest),
+            ],
+            cwd=repo_root,
+            env=env,
+            check=True,
+            capture_output=True,
         )
         import pandas as pd
 
-        test_df = pd.read_parquet(dest / "rel-f1" / "tasks" / "driver-position" / "test.parquet")
+        test_df = pd.read_parquet(
+            dest / "rel-f1" / "tasks" / "driver-position" / "test.parquet"
+        )
         assert "position" not in test_df.columns
         races = pd.read_parquet(dest / "rel-f1" / "db" / "races.parquet")
         assert str(races["date"].max()) < "2010-01-02"
@@ -260,12 +293,19 @@ class TestExperimentHistoryDigest:
         s.node_history_lock = threading.Lock()
         s.problem_handler = SimpleNamespace(maximize_scoring=False)
         failed = SimpleNamespace(
-            branch_name="experiment_0", node_id=13, had_error=True, score=1e18,
+            branch_name="experiment_0",
+            node_id=13,
+            had_error=True,
+            score=1e18,
             error_message="Debug execution took 900s (exceeded 15 minute limit).",
-            evaluation_output="", solution="Stacked LightGBM with cutoff emulation",
+            evaluation_output="",
+            solution="Stacked LightGBM with cutoff emulation",
         )
         scored = SimpleNamespace(
-            branch_name="experiment_1", node_id=18, had_error=False, score=2.71,
+            branch_name="experiment_1",
+            node_id=18,
+            had_error=False,
+            score=2.71,
             error_message="",
             evaluation_output="stuff\nOFFICIAL VALIDATION METRICS (harness-computed): "
             '{"mae": 2.71}\nmore',
@@ -371,7 +411,9 @@ class TestRepoMemoryMcpMount:
         from kapso.execution.coding_agents.base import CodingAgentConfig
 
         return CodingAgentConfig(
-            agent_type=agent_type, model="m", debug_model="m",
+            agent_type=agent_type,
+            model="m",
+            debug_model="m",
             agent_specific=agent_specific if agent_specific is not None else {},
         )
 
@@ -442,7 +484,9 @@ class TestRepoMemoryMcpMount:
 
 
 RELBENCH_CACHE = Path(
-    os.environ.get("RELBENCH_PRISTINE_CACHE_DIR", os.path.expanduser("~/.cache/relbench"))
+    os.environ.get(
+        "RELBENCH_PRISTINE_CACHE_DIR", os.path.expanduser("~/.cache/relbench")
+    )
 )
 
 
@@ -455,7 +499,7 @@ class TestGenericModeConfig:
         )
         mode = cfg["modes"]["RELBENCH_GENERIC"]
         assert mode["search_strategy"]["type"] == "generic"
-        assert mode["search_strategy"]["params"]["parent_policy"] == "best"
+        assert mode["ideation_profile"] == "DEFAULT"
         assert mode["evaluation_maintainer"]["type"] == "claude_code"
         assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
 
@@ -500,10 +544,23 @@ class TestProvidedGrader:
 
         def run(fidelity):
             return subprocess.run(
-                [_sys.executable, "kapso_evaluation/grader.py", "--fidelity", fidelity,
-                 "--fraction", "1.0", "--seed", "1337"],
-                cwd=root, env=env, capture_output=True, text=True, timeout=300,
+                [
+                    _sys.executable,
+                    "kapso_evaluation/grader.py",
+                    "--fidelity",
+                    fidelity,
+                    "--fraction",
+                    "1.0",
+                    "--seed",
+                    "1337",
+                ],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300,
             )
+
         return root, tmp_path / "work", run
 
     def test_fast_scores_without_archiving(self, tmp_path):
@@ -545,8 +602,11 @@ class TestFinalEvaluateTestFill:
         handler = RelBenchHandler.__new__(RelBenchHandler)
         handler.task = task
         handler.spec = TaskSpec(
-            dataset_name="rel-f1", task_name="driver-position",
-            family="entity_regression", primary_metric="mae", maximize=False,
+            dataset_name="rel-f1",
+            task_name="driver-position",
+            family="entity_regression",
+            primary_metric="mae",
+            maximize=False,
         )
         handler.dataset_name, handler.task_name = "rel-f1", "driver-position"
         handler.runs_dir = tmp_path / "runs"

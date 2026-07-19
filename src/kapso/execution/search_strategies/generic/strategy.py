@@ -1,25 +1,16 @@
-# Generic Search Strategy
-#
-# The main search strategy for general problem solving.
-# Simple sequential search: generate one solution per iteration,
-# implement it, and keep track of the best result.
-#
-# Key features:
-# - Uses Claude Code as the ideation agent with MCP gates
-# - Connected to MCP gates (idea, code, research, experiment_history, repo_memory) for external knowledge
-# - Read-only access to codebase during ideation
-# - Full RepoMemory access via MCP tools
+"""Evidence-directed Generic search with durable ideation and execution links."""
 
 import glob
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
 import signal
 import time
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -46,8 +37,6 @@ from kapso.execution.evaluation_maintainer.maintainer import (
 )
 import shlex
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
-from kapso.execution.search_strategies.generic import codex_ideation
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.execution.memories.experiment_memory import (
     ExperimentHistoryStore,
@@ -56,6 +45,9 @@ from kapso.execution.memories.experiment_memory import (
 from kapso.core.prompt_loader import load_prompt, render_prompt
 from kapso.execution.search_strategies.generic.difficulties_generator import (
     generate_technical_difficulties,
+)
+from kapso.execution.search_strategies.generic.ideation.evaluator_evidence import (
+    build_evaluator_evidence_writeback,
 )
 from kapso.execution.search_strategies.generic.ideation import (
     AnalyzerSettings,
@@ -68,6 +60,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateSelector,
     CodingAgentRunnerSettings,
     EmbeddingSettings,
+    EvidenceAuthor,
     EvaluationAttemptInput,
     ExperimentInput,
     EvidenceSettings,
@@ -77,6 +70,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     IDEA_ARCHIVE_SCHEMA,
     IdeationCapacityView,
     IdeationEngine,
+    IdeationEngineTelemetry,
     ObjectiveDirection,
     OpenAIEmbeddingProvider,
     OperatorSettings,
@@ -114,8 +108,6 @@ _GENERIC_SEARCH_STATE_FIELDS = {
 # time granted between SIGTERM and SIGKILL when a frame run overruns.
 _FRAME_RUN_KILL_GRACE_SECONDS = 2.0
 
-PARENT_POLICIES = frozenset({"best", "baseline"})
-
 _IDEATION_CONFIG_KEYS = {
     "archive_path",
     "evidence",
@@ -126,78 +118,26 @@ _IDEATION_CONFIG_KEYS = {
     "analyzer",
 }
 
-# A deadline-killed ideation whose streamed text is shorter than this holds
-# no consumable plan; the explicit fallback is more honest than salvage.
+_GENERIC_PARAM_KEYS = {
+    "ideation",
+    "implementation_model",
+    "implementation_timeout",
+    "implementation_gates",
+    "auth_mode",
+    "aws_region",
+    "effort",
+    "env_strip",
+    "session_env_defaults",
+    "gate_failure_policy",
+    "registered_evaluation_archive_glob",
+    "repo_memory_failure_policy",
+    "repo_memory_max_retries",
+}
+
 # The implementation output contract's terminal tags: a result event
 # carrying ALL of these means the session declared itself complete (drives
 # the adapter's linger-reap and truthful end-mode classification).
 IMPLEMENTATION_COMPLETION_MARKERS = ["</score>", "</technical_difficulties>"]
-
-MIN_IDEATION_SALVAGE_CHARS = 200
-
-# Ensemble ideation: members run in parallel, so the member share is
-# wall-clock for the whole fan-out; the selector gets the remainder with a
-# floor below which a read-verify-choose session cannot do useful work.
-ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
-ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
-ENSEMBLE_SELECTOR_MIN_SECONDS = 240
-ENSEMBLE_CANDIDATES_PER_MEMBER = 2
-
-# Extraction artifacts (prompt echoes, stream duplicates) are shorter than
-# any real plan; drop them before the selector sees the pool.
-MIN_ENSEMBLE_CANDIDATE_CHARS = 80
-
-# A candidate that is all headers and [placeholders] is a format skeleton,
-# not a plan — require this much real content after stripping them.
-MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS = 40
-
-
-def is_degenerate_ensemble_candidate(text: str) -> bool:
-    """True for skeleton/echo artifacts that must never reach the selector."""
-    stripped = text.strip()
-    if len(stripped) < MIN_ENSEMBLE_CANDIDATE_CHARS:
-        return True
-    content = re.sub(r"^\s*#.*$", "", stripped, flags=re.MULTILINE)
-    content = re.sub(r"\[[^\]]*\]", "", content)
-    content = re.sub(r"\s+", "", content)
-    return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
-
-
-ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex"})
-_ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
-
-
-def normalize_ensemble_member(value: Any, role: str) -> Dict[str, str]:
-    """Validate one ideation-ensemble member (or selector) config entry."""
-    if not isinstance(value, dict):
-        raise ValueError(f"{role} must be a mapping, got {type(value).__name__}")
-    unknown = sorted(set(value) - _ENSEMBLE_MEMBER_KEYS)
-    if unknown:
-        raise ValueError(f"{role} has unknown keys: {', '.join(unknown)}")
-    cli = value.get("cli")
-    if cli not in ENSEMBLE_MEMBER_CLIS:
-        allowed = ", ".join(sorted(ENSEMBLE_MEMBER_CLIS))
-        raise ValueError(f"{role}.cli must be one of: {allowed}")
-    model = value.get("model")
-    if not isinstance(model, str) or not model.strip():
-        raise ValueError(f"{role}.model must be a non-empty string")
-    return dict(value)
-
-
-def normalize_ideation_ensemble(value: Any) -> Optional[List[Dict[str, str]]]:
-    """Validate the ideation_ensemble param (None keeps single-session mode)."""
-    if value is None:
-        return None
-    if not isinstance(value, list) or not value:
-        raise ValueError(
-            "ideation_ensemble must be a non-empty list of member mappings "
-            "(omit it entirely for single-session ideation)"
-        )
-    return [
-        normalize_ensemble_member(member, role=f"ideation_ensemble[{i}]")
-        for i, member in enumerate(value)
-    ]
-
 
 # Byte-identical to the pre-maintainer template text: rendered whenever no
 # maintainer-registered evaluation exists, keeping default prompts unchanged.
@@ -215,64 +155,9 @@ DEFAULT_EVALUATION_INSTRUCTIONS = """You MUST build and run evaluation in `kapso
 4. **Retry on crash**: If evaluation crashes, fix the issue and retry (max 3 attempts)."""
 
 
-def normalize_parent_policy(value: Any) -> str:
-    """Validate a generic-search parent policy."""
-    if not isinstance(value, str) or value not in PARENT_POLICIES:
-        allowed = ", ".join(sorted(PARENT_POLICIES))
-        raise ValueError(f"parent_policy must be one of: {allowed}")
-    return value
-
-
-@dataclass(frozen=True)
-class ParentSelection:
-    """A branch and node ID selected as one consistent parent."""
-
-    branch_name: str
-    node_id: Optional[int]
-
-
 @register_strategy("generic")
 class GenericSearch(SearchStrategy):
-    """
-    Generic search strategy with Claude Code ideation and implementation.
-
-    Each iteration:
-    1. Generate a solution using Claude Code + MCP gates (idea, code, research, experiment_history, repo_memory)
-    2. Implement and evaluate using Claude Code + MCP gates (code, research, repo_memory)
-    3. Generate feedback
-    4. Store result and continue
-
-    Key features:
-    - Claude Code as ideation agent with read-only codebase access
-    - Claude Code as implementation agent with full write access
-    - MCP gates for external knowledge (wiki_idea_search, wiki_code_search, research_*, experiment_history, repo_memory)
-    - RepoMemory access via MCP tools for architecture understanding
-
-    Config params:
-        - idea_generation_model: Model for solution generation (default: claude-opus-4-5-20251101)
-        - implementation_model: Model for implementation (default: claude-opus-4-5-20251101)
-        - auth_mode: Claude authentication mode: auto, oauth, api_key, or bedrock
-          (default: bedrock, preserving the existing generic strategy behavior)
-        - use_bedrock: Deprecated compatibility alias for auth_mode
-        - aws_region: AWS region (default: us-east-1)
-        - ideation_timeout: Timeout for ideation in seconds (default: 300)
-        - implementation_timeout: Timeout for implementation in seconds (default: 600)
-        - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
-          (default: warn)
-        - effort: Optional reasoning effort for both agent sessions
-          (low|medium|high|xhigh); None keeps the CLI default
-        - ideation_ensemble: Optional list of parallel ideation members,
-          each {cli: claude_code|codex, model, effort?, lens?}; omit for
-          single-session ideation (default)
-        - ideation_selector: Required with ideation_ensemble — the
-          selector-critic session {cli: claude_code, model, effort?}
-        - parent_policy: Parent branch selection: best or baseline (default: best).
-          Under `best`, before any validly evaluated node exists, the latest
-          committed non-error, non-tampered node is used so in-progress work
-          continues in place; `main` only when no committed work exists.
-        - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
-        - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
-    """
+    """Evidence-directed ideation with linked, resumable execution."""
 
     def __init__(
         self,
@@ -281,10 +166,15 @@ class GenericSearch(SearchStrategy):
         import_from_checkpoint: bool = False,
     ):
         """Initialize generic search strategy."""
-        parent_policy = normalize_parent_policy(
-            (config.params or {}).get("parent_policy", "best")
-        )
-        raw_ideation_config = (config.params or {}).get("ideation")
+        if not isinstance(config.params, dict):
+            raise ValueError("generic search params must be an object")
+        unknown_params = sorted(set(config.params) - _GENERIC_PARAM_KEYS)
+        if unknown_params:
+            raise ValueError(
+                "generic search params contain unknown fields: "
+                + ", ".join(unknown_params)
+            )
+        raw_ideation_config = config.params.get("ideation")
         if (
             not isinstance(raw_ideation_config, dict)
             or set(raw_ideation_config) != _IDEATION_CONFIG_KEYS
@@ -298,32 +188,15 @@ class GenericSearch(SearchStrategy):
         self.idea_archive: Optional[IdeaArchive] = None
         self.active_batch_id: Optional[str] = None
 
-        # Config params for ideation
-        self.idea_generation_model = self.params.get(
-            "idea_generation_model", "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        )
         if self.params.get("auth_mode") is not None:
             self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
-        elif "use_bedrock" in self.params:
-            # Pass the legacy key through so the adapter can preserve its exact
-            # True/False behavior and emit the deprecation warning.
-            self._claude_auth_settings = {"use_bedrock": self.params["use_bedrock"]}
         else:
             self._claude_auth_settings = {"auth_mode": "bedrock"}
         self.aws_region = self.params.get("aws_region", "us-east-1")
-        self.ideation_timeout = self.params.get("ideation_timeout", 300)
-        # Optional reasoning-effort for BOTH agent sessions (ideation and
-        # implementation); None keeps the CLI's default.
+        # Optional reasoning effort for implementation sessions.
         self.session_effort = self.params.get("effort")
-        # Env vars stripped from every Claude session this strategy spawns
-        # (ideation, ensemble members, selector, implementation). Used for
-        # credential containment: the orchestrating process may hold a key
-        # (e.g. OPENAI_API_KEY for the utility LLM) that agent sessions must
-        # not inherit. The codex ideation runner strips its own env.
+        # Environment controls for implementation-agent credential containment.
         self.env_strip = list(self.params.get("env_strip", []))
-        # Env defaults for every Claude session (set-if-absent in the child
-        # env; ambient wrapper values keep precedence). Carries the Bash-tool
-        # clock policy so blocking evaluations are possible (finding 14).
         self.env_defaults = dict(self.params.get("session_env_defaults", {}))
         # Durable-archive recovery root for the registered evaluation (glob
         # of run archive parents, e.g. "tmp/relbench/*/runs"). None disables
@@ -331,29 +204,6 @@ class GenericSearch(SearchStrategy):
         self.registered_evaluation_archive_glob = self.params.get(
             "registered_evaluation_archive_glob"
         )
-        # Optional ensemble ideation: N parallel CLI members + a selector.
-        self.ideation_ensemble = normalize_ideation_ensemble(
-            self.params.get("ideation_ensemble")
-        )
-        raw_selector = self.params.get("ideation_selector")
-        self.ideation_selector = (
-            normalize_ensemble_member(raw_selector, role="ideation_selector")
-            if raw_selector is not None
-            else None
-        )
-        if self.ideation_ensemble and self.ideation_selector is None:
-            raise ValueError("ideation_ensemble requires an ideation_selector member")
-        if self.ideation_selector and self.ideation_selector["cli"] != "claude_code":
-            raise ValueError(
-                "ideation_selector.cli must be claude_code (the selector "
-                "reads the worktree to verify candidates)"
-            )
-        # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
-        self.ideation_gates = self.params.get(
-            "ideation_gates",
-            ["research", "experiment_history", "repo_memory", "leeroopedia"],
-        )
-
         # Config params for implementation
         self.implementation_model = self.params.get(
             "implementation_model", "us.anthropic.claude-opus-4-5-20251101-v1:0"
@@ -363,14 +213,6 @@ class GenericSearch(SearchStrategy):
         self.implementation_gates = self.params.get(
             "implementation_gates", ["research", "repo_memory", "leeroopedia"]
         )
-        self.parent_policy = parent_policy
-
-        # Experiment history path (set by orchestrator)
-        self.experiment_history_path = self.params.get(
-            "experiment_history_path",
-            os.path.join(self.workspace_dir, ".kapso", "experiment_history.json"),
-        )
-
         # State
         self.node_history: List[SearchNode] = []
         self.iteration_count = 0
@@ -385,14 +227,10 @@ class GenericSearch(SearchStrategy):
         self.recent_error_count = 3  # Number of recent errors to include in prompts
 
         print(f"[GenericSearch] Initialized:")
-        print(f"  - idea_generation_model: {self.idea_generation_model}")
         print(f"  - implementation_model: {self.implementation_model}")
         print(f"  - auth: {self._claude_auth_settings}")
-        print(f"  - ideation_gates: {self.ideation_gates}")
         print(f"  - implementation_gates: {self.implementation_gates}")
         print(f"  - gate_failure_policy: {self.gate_failure_policy}")
-        print(f"  - parent_policy: {self.parent_policy}")
-        print(f"  - experiment_history_path: {self.experiment_history_path}")
         print(
             f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}"
         )
@@ -451,18 +289,12 @@ class GenericSearch(SearchStrategy):
         if not isinstance(coding_config, dict) or set(coding_config) != {
             "artifact_path",
             "termination_grace_seconds",
+            "evidence_author",
             "generator",
             "selector",
         }:
             raise ValueError("ideation coding-agent configuration is invalid")
-        runner = SubprocessCodingAgentCallRunner(
-            CodingAgentRunnerSettings(
-                artifact_root=str(
-                    self._workspace_config_path(coding_config["artifact_path"])
-                ),
-                termination_grace_seconds=coding_config["termination_grace_seconds"],
-            )
-        )
+        runner = self._build_ideation_call_runner(coding_config)
         embedding_settings = EmbeddingSettings.from_dict(
             self.ideation_config["embeddings"]
         )
@@ -501,11 +333,46 @@ class GenericSearch(SearchStrategy):
             ),
         )
 
+    def _build_ideation_call_runner(
+        self,
+        coding_config: Dict[str, Any],
+    ) -> SubprocessCodingAgentCallRunner:
+        return SubprocessCodingAgentCallRunner(
+            CodingAgentRunnerSettings(
+                artifact_root=str(
+                    self._workspace_config_path(coding_config["artifact_path"])
+                ),
+                termination_grace_seconds=coding_config["termination_grace_seconds"],
+            )
+        )
+
+    def _build_ideation_evidence_author(self) -> EvidenceAuthor:
+        coding_config = self.ideation_config["coding_agents"]
+        return EvidenceAuthor(
+            self._build_ideation_call_runner(coding_config),
+            GenerationMemberSettings.from_dict(coding_config["evidence_author"]),
+        )
+
     def _ideation_capacity_view(self) -> IdeationCapacityView:
         snapshot = self.budget_snapshot
         decision = self.fidelity_decision
         if snapshot is None or decision is None:
             raise ValueError("generic ideation requires budget and fidelity authority")
+        evidence_config = self.ideation_config["evidence"]
+        comparable_evaluation = decision.eval_fidelity == evidence_config[
+            "comparable_fidelity"
+        ] and math.isclose(
+            decision.eval_fraction,
+            evidence_config["comparable_fraction"],
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        can_start = not snapshot.exhausted or decision.reserve_run
+        remaining_after_reserve = snapshot.remaining_after_reserve
+        preserves_reserve = decision.reserve_run or (
+            remaining_after_reserve is None or remaining_after_reserve > 0
+        )
+        can_run_granted_evaluation = decision.profile in {"probe", "full"}
         authority = {
             "iteration_index": snapshot.iteration_index,
             "max_iterations": snapshot.max_iterations,
@@ -519,13 +386,10 @@ class GenericSearch(SearchStrategy):
             "target_node_id": decision.target_node_id,
             "reserve_run": decision.reserve_run,
             "deadline_seconds": decision.deadline_seconds,
-            "can_start_complete_action": (
-                not snapshot.exhausted or decision.reserve_run
-            ),
-            "can_run_comparable_evaluation": True,
-            "preserves_finalization_reserve": True,
-            "opportunity_probe_required": False,
-            "opportunity_probe_admissible": decision.profile == "probe",
+            "can_start_complete_action": can_start,
+            "can_run_granted_evaluation": can_run_granted_evaluation,
+            "can_run_comparable_evaluation": comparable_evaluation,
+            "preserves_finalization_reserve": preserves_reserve,
         }
         digest = hashlib.sha256(
             json.dumps(
@@ -588,12 +452,6 @@ class GenericSearch(SearchStrategy):
         if parent_plan.kind == ParentPlanKind.BASELINE:
             branch_name = "main"
             node_id = None
-        elif parent_plan.kind == ParentPlanKind.BEST_VALID:
-            best = self.get_best_experiment()
-            if best is None:
-                raise ValueError("best-valid parent requested without an incumbent")
-            branch_name = best.branch_name
-            node_id = best.node_id
         else:
             node_id = parent_plan.experiment_node_id
             if node_id is None:
@@ -626,8 +484,7 @@ class GenericSearch(SearchStrategy):
             raise ValueError("selected parent branch changed after ideation")
 
     @staticmethod
-    def _ideation_phase_telemetry(result) -> Dict[str, float]:
-        telemetry = result.telemetry
+    def _ideation_phase_telemetry(telemetry) -> Dict[str, float]:
         duration = telemetry.coding_agent_duration_seconds
         if telemetry.embedding is not None:
             duration += telemetry.embedding.duration_seconds
@@ -640,18 +497,93 @@ class GenericSearch(SearchStrategy):
             ),
         }
 
-    def run(self, context: Any, budget_progress: float = 0.0) -> SearchNode:
+    @staticmethod
+    def _accumulate_phase_telemetry(
+        node: SearchNode,
+        phase_name: str,
+        increments: Dict[str, float],
+    ) -> None:
+        if not isinstance(phase_name, str) or not phase_name:
+            raise ValueError("phase telemetry name must be a non-empty string")
+        phase = dict(node.phase_telemetry.get(phase_name, {}))
+        for name, value in increments.items():
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(
+                    f"phase telemetry increment {phase_name}.{name} is invalid"
+                )
+            current = phase.get(name, 0.0)
+            if (
+                not isinstance(current, (int, float))
+                or isinstance(current, bool)
+                or not math.isfinite(current)
+                or current < 0
+            ):
+                raise ValueError(
+                    f"existing phase telemetry {phase_name}.{name} is invalid"
+                )
+            phase[name] = current + value
+        node.phase_telemetry[phase_name] = phase
+
+    @classmethod
+    def _add_evidence_author_telemetry(cls, node: SearchNode, call) -> None:
+        increments = {
+            "cost_usd": 0.0 if call.cost_usd is None else call.cost_usd,
+            "duration_seconds": call.duration_seconds,
+            "coding_agent_call_count": 1.0,
+            "unpriced_coding_agent_call_count": (1.0 if call.cost_usd is None else 0.0),
+        }
+        if call.input_tokens is not None:
+            increments["input_tokens"] = float(call.input_tokens)
+        if call.output_tokens is not None:
+            increments["output_tokens"] = float(call.output_tokens)
+        cls._accumulate_phase_telemetry(node, "evidence_author", increments)
+
+    def _author_ideation_evidence(
+        self,
+        node: SearchNode,
+        problem_statement: str,
+    ) -> None:
+        archive = self._ensure_idea_archive()
+        idea = archive.get_idea(node.idea_id)
+        current_commit_sha = self.workspace.repo.commit(node.branch_name).hexsha
+        with self.workspace.materialize_ref(node.branch_name) as materialized:
+            authored = self._build_ideation_evidence_author().author(
+                problem_statement=problem_statement,
+                idea=idea,
+                node=node,
+                archive_state=archive.state,
+                workspace=str(materialized),
+                current_commit_sha=current_commit_sha,
+                evaluator_id=self.registered_evaluator_id,
+            )
+        metadata = dict(node.external_evaluation_metadata)
+        metadata.update(authored.metadata)
+        node.external_evaluation_metadata = metadata
+        self._add_evidence_author_telemetry(node, authored.call)
+
+    @staticmethod
+    def _should_author_ideation_evidence(node: SearchNode) -> bool:
+        return (
+            not node.had_error and not node.recoverable_error and node.evaluation_valid
+        )
+
+    def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         """
         Execute one iteration of generic search.
 
         Node lifecycle:
-        1. Generate solution (agent queries experiment history via MCP)
-        2. Implement (developer agent handles implementation + evaluation)
-        3. Extract results from agent output
-        4. Generate feedback
+        1. Build evidence, generate/analyze/select ideas, and persist the decision
+        2. Link the selected idea to an execution node
+        3. Implement and evaluate on the frozen parent
+        4. Return the node for experiment-memory and outcome finalization
 
         Args:
-            context: Either a ContextData object (legacy) or a problem string
+            context: Complete problem statement for this iteration
             budget_progress: Budget progress percentage (0-100)
 
         Returns:
@@ -669,20 +601,16 @@ class GenericSearch(SearchStrategy):
         if decision is not None and decision.profile == PROFILE_VALIDATE:
             return self._run_validate(decision)
 
-        # Extract problem from context (support both string and ContextData)
-        if isinstance(context, str):
-            problem = context
-        else:
-            problem = str(getattr(context, "problem", context))
+        if not isinstance(context, str) or not context.strip():
+            raise ValueError("generic search context must be a non-empty string")
+        problem = context
 
         iteration_started_monotonic = time.monotonic()
         iteration_started_at = datetime.now(timezone.utc).isoformat()
 
         resume_batch_id = None
         if self.active_batch_id is not None:
-            active_batch = self._ensure_idea_archive().get_batch(
-                self.active_batch_id
-            )
+            active_batch = self._ensure_idea_archive().get_batch(self.active_batch_id)
             if active_batch.status in {
                 BatchStatus.PLANNED,
                 BatchStatus.GENERATED,
@@ -744,6 +672,9 @@ class GenericSearch(SearchStrategy):
             node.evaluation_valid = True
             node.evaluation_integrity_error = ""
             node.score = None
+            prior_duration_seconds = (
+                0.0 if node.duration_seconds is None else node.duration_seconds
+            )
         else:
             node = SearchNode(
                 node_id=len(self.node_history),
@@ -761,8 +692,11 @@ class GenericSearch(SearchStrategy):
                 ideation_result.batch_id,
                 expected_revision=self._ensure_idea_archive().revision,
             )
-        node.phase_telemetry["ideation"] = self._ideation_phase_telemetry(
-            ideation_result
+            prior_duration_seconds = 0.0
+        self._accumulate_phase_telemetry(
+            node,
+            "ideation",
+            self._ideation_phase_telemetry(ideation_result.telemetry),
         )
         if decision is not None:
             node.build_fidelity = decision.build_fidelity
@@ -784,29 +718,34 @@ class GenericSearch(SearchStrategy):
             problem=problem,
             branch_name=branch_name,
             parent_branch_name=parent.branch_name,
-            ideation_repo_memory_sections_consulted=[],
         )
         if not isinstance(self._last_implementation_success, bool):
             raise ValueError("implementation did not report its completion status")
         node.had_error = not self._last_implementation_success
         node.error_message = self._last_implementation_error
         node.recoverable_error = node.had_error
-        node.phase_telemetry["implementation"] = implementation_telemetry
+        self._accumulate_phase_telemetry(
+            node,
+            "implementation",
+            implementation_telemetry,
+        )
 
         # Update node with implementation results
         node.branch_name = branch_name
         if ideation_result.action == CampaignAction.IDEATE:
             node.parent_branch_name = parent.branch_name
         node.implementation_base_ref = parent.git_ref
-        node.diff_base_ref = parent.diff_base_ref
-        node.feedback_base_ref = parent.feedback_base_ref
+        if ideation_result.action == CampaignAction.IDEATE:
+            node.diff_base_ref = parent.diff_base_ref
+            node.feedback_base_ref = parent.feedback_base_ref
         node.agent_output = agent_output
-        node.code_diff = self._get_code_diff(branch_name, parent.diff_base_ref)
+        node.code_diff = self._get_code_diff(branch_name, node.diff_base_ref)
 
-        # Step 3: Extract results from agent output JSON
-        agent_result = self._extract_agent_result(agent_output)
-
-        if agent_result:
+        # Step 3: successful sessions must satisfy the current XML contract.
+        if node.had_error:
+            node.evaluation_output = agent_output
+        else:
+            agent_result = self._extract_agent_result(agent_output)
             node.code_changes_summary = agent_result.get("code_changes_summary", "")
             node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
             node.technical_difficulties = agent_result.get("technical_difficulties", "")
@@ -814,13 +753,7 @@ class GenericSearch(SearchStrategy):
             # Score from agent result (may be overridden by feedback generator)
             if agent_result.get("score") is not None:
                 node.score = float(agent_result.get("score", 0.0))
-            print(f"[GenericSearch] Extracted result from agent JSON")
-        else:
-            # Fallback: use raw agent output
-            node.evaluation_output = agent_output
-            print(
-                f"[GenericSearch] Warning: No JSON result from agent, using raw output"
-            )
+            print("[GenericSearch] Extracted implementation result from XML")
 
         # Step 3b: the implementor is the primary author of
         # technical_difficulties; the fallback reconstructs it when the tag
@@ -850,9 +783,14 @@ class GenericSearch(SearchStrategy):
                 f"{node.evaluation_integrity_error}"
             )
 
+        if self._should_author_ideation_evidence(node):
+            self._author_ideation_evidence(node, problem)
+
         # Stamp iteration totals: wall-clock for the whole iteration, spend as
         # the sum of attributed phase costs.
-        node.duration_seconds = time.monotonic() - iteration_started_monotonic
+        node.duration_seconds = (
+            prior_duration_seconds + time.monotonic() - iteration_started_monotonic
+        )
         node.cost_usd = sum(
             phase.get("cost_usd", 0.0) for phase in node.phase_telemetry.values()
         )
@@ -866,544 +804,12 @@ class GenericSearch(SearchStrategy):
 
         return node
 
-    def _generate_solution(
-        self, problem: str, parent_branch: str
-    ) -> Tuple[str, List[str], Dict[str, float]]:
-        """
-        Generate solution using Claude Code with MCP gates.
-
-        Uses Claude Code as ideation agent with:
-        - Read-only access to repo (Read, MCP tools for repo_memory)
-        - RepoMemory via CLI
-        - Idea/Code/Research/ExperimentHistory gates via MCP
-
-        Args:
-            problem: Problem description
-            parent_branch: Git branch to base ideation on
-
-        Returns:
-            Tuple of (solution_text, sections_consulted, phase_telemetry)
-            where phase_telemetry is {"cost_usd": ..., "duration_seconds": ...}
-        """
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import (
-            ClaudeCodeCodingAgent,
-        )
-        from kapso.gated_mcp import get_mcp_config
-
-        # 1. Load RepoMemory (read-only)
-        repo_memory_doc = (
-            RepoMemoryManager.load_from_git_branch(self.workspace.repo, parent_branch)
-            or {}
-        )
-        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(
-            repo_memory_doc, max_chars=2500
-        )
-
-        # Materialize the selected ref without changing the root workspace's
-        # checkout. Every read-only ideation surface points at this same tree.
-        with self.workspace.materialize_ref(parent_branch) as ideation_dir:
-            # 2. Configure gates against the selected parent tree. Keep the
-            # history path absolute because the MCP process may run elsewhere.
-            mcp_servers, mcp_tools = get_mcp_config(
-                gates=self.ideation_gates,
-                experiment_history_path=os.path.abspath(self.experiment_history_path),
-                repo_root=ideation_dir,
-                include_base_tools=False,
-                gate_failure_policy=self.gate_failure_policy,
-            )
-
-            # 3. Build restricted tool set (read-only for ideation).
-            ideation_allowed_tools = [
-                "Read",
-                *[t for t in mcp_tools if t.startswith("mcp__")],
-            ]
-
-            logger.info(f"[GenericSearch] Ideation tools: {ideation_allowed_tools}")
-
-            if self.ideation_ensemble:
-                return self._generate_solution_ensemble(
-                    problem=problem,
-                    repo_memory_brief=repo_memory_brief,
-                    ideation_dir=ideation_dir,
-                    mcp_servers=mcp_servers,
-                    ideation_allowed_tools=ideation_allowed_tools,
-                )
-
-            # 4. Configure Claude Code for ideation (read-only mode).
-            config = CodingAgentConfig(
-                agent_type="claude_code",
-                model=self.idea_generation_model,
-                debug_model=self.idea_generation_model,
-                agent_specific={
-                    **self._claude_auth_settings,
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "mcp_servers": mcp_servers,
-                    "allowed_tools": ideation_allowed_tools,
-                    "timeout": self._clamped_timeout(self.ideation_timeout),
-                    "streaming": True,
-                    "planning_mode": False,
-                    "effort": self.session_effort,
-                },
-            )
-
-            # 5. Build the ideation prompt.
-            prompt = self._build_ideation_prompt(
-                problem=problem,
-                repo_memory_brief=repo_memory_brief,
-            )
-
-            # 6. Run Claude Code from the selected parent worktree.
-            print("[GenericSearch] Running Claude Code ideation...")
-            agent = ClaudeCodeCodingAgent(config)
-            agent.initialize(ideation_dir)
-
-            phase_started = time.monotonic()
-            try:
-                result = agent.generate_code(prompt)
-                telemetry = {
-                    "cost_usd": agent.get_cumulative_cost(),
-                    "duration_seconds": time.monotonic() - phase_started,
-                }
-
-                if not result.success:
-                    logger.warning(f"[GenericSearch] Ideation failed: {result.error}")
-                    salvaged = self._salvage_ideation_output(result)
-                    if salvaged is not None:
-                        print(
-                            "[GenericSearch] Salvaged partial output "
-                            f"({len(salvaged)} chars) from the "
-                            "deadline-terminated ideation session"
-                        )
-                        return (
-                            salvaged,
-                            self._extract_sections_consulted(result.output),
-                            telemetry,
-                        )
-                    return self._fallback_solution(problem), [], telemetry
-
-                solution = self._extract_solution_from_output(result.output)
-                sections_consulted = self._extract_sections_consulted(result.output)
-
-                print(
-                    "[GenericSearch] Ideation complete, sections consulted: "
-                    f"{sections_consulted}"
-                )
-                return solution, sections_consulted, telemetry
-            finally:
-                agent.cleanup()
-
-    def _generate_solution_ensemble(
-        self,
-        problem: str,
-        repo_memory_brief: str,
-        ideation_dir: str,
-        mcp_servers: Dict[str, Any],
-        ideation_allowed_tools: List[str],
-    ) -> Tuple[str, List[str], Dict[str, float]]:
-        """Fan out ideation across CLI members, then select one solution.
-
-        Members run in parallel (they are API-bound, never GPU-bound) inside
-        the same read-only worktree; a selector-critic session chooses among
-        the pooled <solution> candidates. Fail-soft ladder: selector failure
-        -> first claude_code candidate -> any candidate -> template fallback.
-        """
-        phase_started = time.monotonic()
-        clamp = self._clamped_timeout(self.ideation_timeout)
-        member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
-        selector_deadline = max(
-            ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
-        )
-
-        base_prompt = self._build_ideation_prompt(
-            problem=problem, repo_memory_brief=repo_memory_brief
-        )
-        addendum_template = load_prompt(
-            "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
-        )
-
-        def run_member(member: Dict[str, str]) -> Dict[str, Any]:
-            prompt = (
-                base_prompt
-                + "\n\n"
-                + render_prompt(
-                    addendum_template,
-                    {
-                        "lens": member.get("lens", "no specific lens — judge freely"),
-                        "candidate_count": str(ENSEMBLE_CANDIDATES_PER_MEMBER),
-                    },
-                )
-            )
-            label = f"{member['cli']}:{member['model']}"
-            print(f"[GenericSearch] Ensemble ideation member starting: {label}")
-            if member["cli"] == "codex":
-                artifacts_dir = os.path.join(
-                    self.workspace_dir,
-                    ".kapso",
-                    "ideation",
-                    f"iter{self.iteration_count}",
-                )
-
-                def run_codex_once(attempt_deadline: float) -> tuple:
-                    return codex_ideation.run_codex_ideation(
-                        prompt=prompt,
-                        model=member["model"],
-                        cwd=ideation_dir,
-                        timeout_seconds=attempt_deadline,
-                        effort=member.get("effort"),
-                        artifacts_dir=artifacts_dir,
-                    )
-
-                def extract(output: str) -> list:
-                    found = re.findall(r"<solution>(.*?)</solution>", output, re.DOTALL)
-                    # Echo-drop: anything that appears verbatim in OUR OWN
-                    # prompt is the transcript echoing the format example
-                    # back (run #8's "blank template" candidate), never a
-                    # model contribution.
-                    return [
-                        c.strip()
-                        for c in found
-                        if c.strip() and c.strip() not in prompt
-                    ]
-
-                output, timed_out, duration, meta = run_codex_once(member_deadline)
-                candidates = extract(output)
-                if not candidates and not timed_out:
-                    # Transient turn failure (run #8 iters 1-2: empty final
-                    # message on the first calls after auth shipping). One
-                    # retry inside the remaining member window self-heals it.
-                    remaining = max(60.0, member_deadline - duration)
-                    logger.warning(
-                        f"[GenericSearch] member {label} returned no "
-                        f"candidates (last_message_empty="
-                        f"{meta['last_message_empty']}); retrying once "
-                        f"({remaining:.0f}s left). Stream tail: "
-                        f"{meta['stream_tail'][-200:]!r}"
-                    )
-                    output, timed_out, _dur2, meta = run_codex_once(remaining)
-                    candidates = extract(output)
-                if (
-                    not candidates
-                    and timed_out
-                    and len(output.strip()) >= MIN_IDEATION_SALVAGE_CHARS
-                ):
-                    candidates = [
-                        "# Salvaged from a deadline-terminated ideation session\n"
-                        + self._extract_solution_from_output(output.strip())
-                    ]
-                return {
-                    "label": label,
-                    "cli": "codex",
-                    "candidates": candidates,
-                    "sections": [],
-                    "cost_usd": 0.0,
-                    "duration_seconds": duration,
-                    "timed_out": timed_out,
-                    "detail": (
-                        "last_message_empty" if meta["last_message_empty"] else "ok"
-                    ),
-                }
-
-            from kapso.execution.coding_agents.base import CodingAgentConfig
-            from kapso.execution.coding_agents.adapters.claude_code_agent import (
-                ClaudeCodeCodingAgent,
-            )
-
-            config = CodingAgentConfig(
-                agent_type="claude_code",
-                model=member["model"],
-                debug_model=member["model"],
-                agent_specific={
-                    **self._claude_auth_settings,
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "mcp_servers": mcp_servers,
-                    "allowed_tools": ideation_allowed_tools,
-                    "timeout": member_deadline,
-                    "streaming": True,
-                    "planning_mode": False,
-                    "effort": member.get("effort", self.session_effort),
-                },
-            )
-            agent = ClaudeCodeCodingAgent(config)
-            agent.initialize(ideation_dir)
-            result = agent.generate_code(prompt)
-            cost = agent.get_cumulative_cost()
-            agent.cleanup()
-            if not result.success:
-                logger.warning(
-                    f"[GenericSearch] Ensemble member {label} failed: {result.error}"
-                )
-                salvaged = self._salvage_ideation_output(result)
-                candidates = [salvaged] if salvaged is not None else []
-            else:
-                candidates = [
-                    c.strip()
-                    for c in re.findall(
-                        r"<solution>(.*?)</solution>", result.output, re.DOTALL
-                    )
-                ] or [self._extract_solution_from_output(result.output)]
-            return {
-                "label": label,
-                "cli": "claude_code",
-                "candidates": candidates,
-                "sections": self._extract_sections_consulted(result.output),
-                "cost_usd": cost,
-            }
-
-        members = self.ideation_ensemble
-        with ThreadPoolExecutor(max_workers=len(members)) as executor:
-            member_results = list(executor.map(run_member, members))
-
-        pool: List[Dict[str, str]] = []
-        sections: List[str] = []
-        total_cost = 0.0
-        for member_result in member_results:
-            total_cost += member_result["cost_usd"]
-            for section in member_result["sections"]:
-                if section not in sections:
-                    sections.append(section)
-            kept = 0
-            dropped = 0
-            for candidate in member_result["candidates"]:
-                # Hygiene observed live: skeleton/echo artifacts and
-                # duplicated final messages must never reach the selector.
-                if is_degenerate_ensemble_candidate(candidate):
-                    dropped += 1
-                    continue
-                if any(candidate == pooled["text"] for pooled in pool):
-                    dropped += 1
-                    continue
-                kept += 1
-                pool.append(
-                    {
-                        "source": member_result["label"],
-                        "cli": member_result["cli"],
-                        "text": candidate,
-                    }
-                )
-            detail = member_result.get("detail", "ok")
-            duration = member_result.get("duration_seconds")
-            timing = f", {duration:.0f}s" if duration is not None else ""
-            print(
-                f"[GenericSearch] member {member_result['label']}: "
-                f"candidates={kept}/{ENSEMBLE_CANDIDATES_PER_MEMBER} "
-                f"(dropped {dropped}){timing}, "
-                f"timed_out={member_result.get('timed_out', False)}, {detail}"
-            )
-            if kept < ENSEMBLE_CANDIDATES_PER_MEMBER:
-                logger.warning(
-                    f"[GenericSearch] member {member_result['label']} "
-                    f"under-delivered: {kept} of "
-                    f"{ENSEMBLE_CANDIDATES_PER_MEMBER} candidates"
-                )
-
-        telemetry = {
-            "cost_usd": total_cost,
-            "duration_seconds": time.monotonic() - phase_started,
-        }
-        print(
-            f"[GenericSearch] Ensemble ideation pooled {len(pool)} candidates "
-            f"from {len(members)} members"
-        )
-        if not pool:
-            return self._fallback_solution(problem), sections, telemetry
-        if len(pool) == 1:
-            print("[GenericSearch] Single candidate — selector skipped")
-            return pool[0]["text"], sections, telemetry
-
-        chosen = self._select_from_candidates(
-            problem=problem,
-            repo_memory_brief=repo_memory_brief,
-            pool=pool,
-            ideation_dir=ideation_dir,
-            selector_deadline=selector_deadline,
-        )
-        telemetry["cost_usd"] += chosen["cost_usd"]
-        telemetry["duration_seconds"] = time.monotonic() - phase_started
-        return chosen["solution"], sections, telemetry
-
-    def _select_from_candidates(
-        self,
-        problem: str,
-        repo_memory_brief: str,
-        pool: List[Dict[str, str]],
-        ideation_dir: str,
-        selector_deadline: float,
-    ) -> Dict[str, Any]:
-        """Run the selector-critic session over the pooled candidates."""
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import (
-            ClaudeCodeCodingAgent,
-        )
-
-        candidates_block = "\n\n".join(
-            f"### Candidate {i} (from {c['source']})\n{c['text']}"
-            for i, c in enumerate(pool, 1)
-        )
-        prompt = render_prompt(
-            load_prompt(
-                "execution/search_strategies/generic/prompts/ideation_selector.md"
-            ),
-            {
-                "problem": problem,
-                "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
-                "candidates": candidates_block,
-            },
-        )
-        selector = self.ideation_selector
-        config = CodingAgentConfig(
-            agent_type="claude_code",
-            model=selector["model"],
-            debug_model=selector["model"],
-            agent_specific={
-                **self._claude_auth_settings,
-                "env_strip": self.env_strip,
-                "env_defaults": self.env_defaults,
-                "aws_region": self.aws_region,
-                "allowed_tools": ["Read"],
-                "timeout": selector_deadline,
-                "streaming": True,
-                "planning_mode": False,
-                "effort": selector.get("effort", self.session_effort),
-            },
-        )
-        agent = ClaudeCodeCodingAgent(config)
-        agent.initialize(ideation_dir)
-        result = agent.generate_code(prompt)
-        cost = agent.get_cumulative_cost()
-        agent.cleanup()
-
-        reasoning = re.search(
-            r"<selection_reasoning>(.*?)</selection_reasoning>",
-            result.output or "",
-            re.DOTALL,
-        )
-        if reasoning:
-            print("[GenericSearch] Selector reasoning:\n" + reasoning.group(1).strip())
-        match = re.search(r"<solution>(.*?)</solution>", result.output or "", re.DOTALL)
-        if result.success and match:
-            return {"solution": match.group(1).strip(), "cost_usd": cost}
-
-        # Fail-soft: the pooled work must not die with the selector.
-        logger.warning(
-            "[GenericSearch] Selector failed "
-            f"({result.error or 'no <solution> tag'}); falling back to the "
-            "first claude candidate"
-        )
-        for candidate in pool:
-            if candidate["cli"] == "claude_code":
-                return {"solution": candidate["text"], "cost_usd": cost}
-        return {"solution": pool[0]["text"], "cost_usd": cost}
-
-    def _build_ideation_prompt(
-        self,
-        problem: str,
-        repo_memory_brief: str,
-    ) -> str:
-        """Build the ideation prompt for Claude Code."""
-        # Load and render the prompt template
-        template = load_prompt(
-            "execution/search_strategies/generic/prompts/ideation_claude_code.md"
-        )
-        return render_prompt(
-            template,
-            {
-                "problem": problem or "(No problem description provided)",
-                "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
-                "budget_status": self._render_budget_status(),
-            },
-        )
-
-    def _extract_solution_from_output(self, output: str) -> str:
-        """Extract solution from Claude Code output."""
-        # Look for <solution>...</solution> tags
-        match = re.search(r"<solution>(.*?)</solution>", output, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-
-        # Fallback: look for markdown headers that indicate a solution
-        # Try to find "# Core Idea" section
-        core_idea_match = re.search(r"#\s*Core Idea.*", output, re.DOTALL)
-        if core_idea_match:
-            return core_idea_match.group(0).strip()
-
-        # Last resort: return entire output (may contain useful info)
-        logger.warning(
-            "[GenericSearch] Could not extract solution tags, using full output"
-        )
-        return output
-
-    def _extract_sections_consulted(self, output: str) -> List[str]:
-        """Extract RepoMemory sections consulted from Claude Code output."""
-        # Look for repo_memory cli get-section calls
-        sections = re.findall(r"repo_memory\.cli\s+get-section\s+(\S+)", output)
-        # Also look for direct section references in tool calls
-        sections.extend(re.findall(r'get-section\s+["\']?(\S+?)["\']?\s', output))
-        # Deduplicate while preserving order
-        seen = set()
-        result = []
-        for s in sections:
-            # Clean up section ID (remove quotes, trailing punctuation)
-            s = s.strip("\"'.,;:")
-            if s and s not in seen:
-                seen.add(s)
-                result.append(s)
-        return result
-
-    def _salvage_ideation_output(self, result) -> Optional[str]:
-        """Recover a deadline-terminated ideation's partial output.
-
-        Only deadline kills are salvageable: the session was mid-work and
-        its streamed text is the research and draft plan produced so far —
-        discarding it forces the next phase to redo that work (a live run
-        lost 30 minutes of research exactly this way). Non-deadline
-        failures keep the fallback path: their output is error noise, not
-        a plan.
-        """
-        if not result.metadata.get("deadline_exceeded"):
-            return None
-        partial = (result.output or "").strip()
-        if len(partial) < MIN_IDEATION_SALVAGE_CHARS:
-            return None
-        return (
-            "# Salvaged from a deadline-terminated ideation session\n"
-            "The ideation agent hit its deadline before emitting a final "
-            "solution. The notes below are its partial output: treat them "
-            "as research findings plus a draft plan, and turn them into an "
-            "implementation directly instead of re-deriving them.\n\n"
-            f"{self._extract_solution_from_output(partial)}"
-        )
-
-    def _fallback_solution(self, problem: str) -> str:
-        """Generate a fallback solution when Claude Code ideation fails."""
-        return f"""# Core Idea
-Implement a baseline solution for the given problem.
-
-# Solution Steps
-1. Analyze the problem requirements
-2. Implement a straightforward solution
-3. Add basic error handling
-4. Create evaluation metrics
-
-# Hyperparameters
-- Use default values from the problem description
-
-# Rationale
-Fallback solution due to ideation failure. Focus on correctness over optimization.
-
-Problem: {problem}"""
-
     def _implement(
         self,
         solution: str,
         problem: str,
         branch_name: str,
         parent_branch_name: str = "main",
-        ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
     ) -> Tuple[str, Dict[str, float]]:
         """
         Implementation using Claude Code with MCP gates (code, research).
@@ -1416,8 +822,6 @@ Problem: {problem}"""
             problem: Problem description
             branch_name: Git branch for this experiment
             parent_branch_name: Parent branch to inherit code from
-            ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
-
         Returns:
             Tuple of (agent output string, phase telemetry with cost/duration)
         """
@@ -1583,8 +987,6 @@ Problem: {problem}"""
             "error_message": "",
             "error_details": "",
             "feedbacks": "",
-            "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted
-            or [],
         }
 
         # Extract sections consulted from changes.log
@@ -1689,16 +1091,23 @@ Problem: {problem}"""
     def _record_evaluation_attempt(self, node: SearchNode) -> None:
         """Append the node's measurement under the registered evaluator.
 
-        Only trustworthy measurements become attempts: a registered
-        evaluator must exist and the node must carry a valid score.
+        Only the registered wrapper's manifest score becomes an attempt. The
+        implementation XML and feedback judge are never score authorities.
         """
         if (
             not self.registered_evaluator_id
-            or node.score is None
             or node.had_error
             or not node.evaluation_valid
         ):
             return
+        if not self.registered_evaluation_command:
+            raise ValueError("registered evaluator has no evaluation command")
+        manifest_score = self._manifest_score_of_record(node)
+        if manifest_score is None:
+            node.score = None
+            node.should_stop = False
+            return
+        node.score = manifest_score
         decision = self.fidelity_decision
         fraction = decision.eval_fraction if decision is not None else 1.0
         commit_sha = self.workspace.repo.commit(node.branch_name).hexsha
@@ -1709,7 +1118,7 @@ Problem: {problem}"""
                 fidelity=node.eval_fidelity,
                 fraction=fraction,
                 seed=self.registered_subsample_seed,
-                score=node.score,
+                score=manifest_score,
                 duration_seconds=node.phase_telemetry.get("implementation", {}).get(
                     "duration_seconds"
                 ),
@@ -1945,7 +1354,7 @@ Problem: {problem}"""
             aws_region=self.aws_region,
             env_strip=self.env_strip,
             effort=self.session_effort,
-            timeout_seconds=self._clamped_timeout(self.ideation_timeout),
+            timeout_seconds=self._clamped_timeout(self.implementation_timeout),
             workspace_dir=node.workspace_dir or self.workspace_dir,
             solution=node.solution,
             stream_artifact_path=self._session_stream_path(node.branch_name),
@@ -2083,39 +1492,6 @@ Problem: {problem}"""
             )
         return " ".join(parts)
 
-    def _select_parent(self) -> ParentSelection:
-        """Select one consistent parent according to the configured policy."""
-        if self.parent_policy == "baseline":
-            return ParentSelection(branch_name="main", node_id=None)
-
-        best = self.get_best_experiment()
-        if best is not None:
-            return ParentSelection(
-                branch_name=best.branch_name,
-                node_id=best.node_id,
-            )
-
-        # No validly evaluated node exists yet. Committed-but-unevaluated
-        # work (a deadline-killed implementation, an evaluation that never
-        # ran) is still real progress; branching from `main` strands it on
-        # its branch and the next iteration redoes it. Integrity-flagged
-        # candidates stay excluded — never build on an evaluator tamperer.
-        committed = [
-            node
-            for node in self.node_history
-            if not node.had_error
-            and not node.evaluation_integrity_error
-            and node.code_diff.strip()
-            and node.branch_name
-        ]
-        if committed:
-            latest = max(committed, key=lambda node: node.node_id)
-            return ParentSelection(
-                branch_name=latest.branch_name,
-                node_id=latest.node_id,
-            )
-        return ParentSelection(branch_name="main", node_id=None)
-
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Return all nodes, optionally sorted by score (unscored sort worst)."""
         if best_last:
@@ -2143,9 +1519,7 @@ Problem: {problem}"""
         if node.idea_id is None or node.selection_batch_id is None:
             raise ValueError("finalized generic node has no idea provenance")
         archive = self._ensure_idea_archive()
-        ideas = {
-            idea.idea_id: idea for idea in archive.state.ideas
-        }
+        ideas = {idea.idea_id: idea for idea in archive.state.ideas}
         if node.idea_id not in ideas:
             raise ValueError("finalized generic node references an unknown idea")
         outcome = build_idea_outcome(
@@ -2160,9 +1534,18 @@ Problem: {problem}"""
         )
         if outcome is None:
             return
+        evidence_writeback = build_evaluator_evidence_writeback(
+            node.external_evaluation_metadata,
+            idea=ideas[node.idea_id],
+            archive_state=archive.state,
+            observed_at=node.started_at,
+        )
+        outcome = evidence_writeback.apply_to_outcome(outcome)
         archive.record_outcome(
             node.idea_id,
             outcome,
+            claim_updates=evidence_writeback.claim_updates,
+            gap_updates=evidence_writeback.gap_updates,
             expected_revision=archive.revision,
         )
         self.active_batch_id = self._archive_active_batch_id(archive)
@@ -2193,7 +1576,43 @@ Problem: {problem}"""
                 True,
             )
             if projected != record:
-                raise ValueError("checkpoint node conflicts with experiment memory")
+                stable_checkpoint_identity = (
+                    projected.node_id,
+                    projected.idea_id,
+                    projected.selection_batch_id,
+                    projected.parent_node_id,
+                    projected.solution,
+                    projected.objective_direction,
+                )
+                stable_record_identity = (
+                    record.node_id,
+                    record.idea_id,
+                    record.selection_batch_id,
+                    record.parent_node_id,
+                    record.solution,
+                    record.objective_direction,
+                )
+                checkpoint_node = self.node_history[index]
+                if (
+                    stable_checkpoint_identity != stable_record_identity
+                    or not checkpoint_node.recoverable_error
+                    or record.execution_revision <= projected.execution_revision
+                ):
+                    raise ValueError("checkpoint node conflicts with experiment memory")
+                recovered = self._node_from_experiment_record(record, archive)
+                if (
+                    ExperimentRecord.from_node(
+                        recovered,
+                        objective_direction,
+                        True,
+                    )
+                    != record
+                ):
+                    raise ValueError(
+                        "newer experiment-memory revision cannot be reconstructed"
+                    )
+                self.node_history[index] = recovered
+                self.record_finalized_idea_outcome(recovered)
 
         for record in store.experiments[len(self.node_history) :]:
             if record.node_id != len(self.node_history):
@@ -2212,9 +1631,7 @@ Problem: {problem}"""
         for record in store.experiments:
             idea = archive.get_idea(record.idea_id)
             if idea.outcome is None and not record.recoverable_error:
-                self.record_finalized_idea_outcome(
-                    self.node_history[record.node_id]
-                )
+                self.record_finalized_idea_outcome(self.node_history[record.node_id])
 
         self.active_batch_id = self._archive_active_batch_id(archive)
         if self.active_batch_id is None:
@@ -2244,31 +1661,40 @@ Problem: {problem}"""
         ).strip()
         if merge_base != idea.resolved_parent.git_ref:
             raise ValueError("interrupted experiment branch changed ancestry")
-        self.node_history.append(
-            SearchNode(
-                node_id=idea.experiment_node_id,
-                parent_node_id=idea.resolved_parent.node_id,
-                idea_id=idea.idea_id,
-                selection_batch_id=active.batch_id,
-                solution=idea.proposal,
-                branch_name=branch_name,
-                parent_branch_name=idea.resolved_parent.branch_name,
-                implementation_base_ref=idea.resolved_parent.git_ref,
-                diff_base_ref=idea.resolved_parent.diff_base_ref,
-                feedback_base_ref=idea.resolved_parent.feedback_base_ref,
-                feedback="Implementation was interrupted before durable finalization.",
-                score=None,
-                evaluation_valid=False,
-                started_at=idea.created_at,
-                had_error=True,
-                recoverable_error=True,
-                error_message="interrupted_before_experiment_persistence",
-                workspace_dir=self.workspace_dir,
-                technical_difficulties=(
-                    "Resume the interrupted implementation on its original branch."
-                ),
+        node = SearchNode(
+            node_id=idea.experiment_node_id,
+            parent_node_id=idea.resolved_parent.node_id,
+            idea_id=idea.idea_id,
+            selection_batch_id=active.batch_id,
+            solution=idea.proposal,
+            branch_name=branch_name,
+            parent_branch_name=idea.resolved_parent.branch_name,
+            implementation_base_ref=idea.resolved_parent.git_ref,
+            diff_base_ref=idea.resolved_parent.diff_base_ref,
+            feedback_base_ref=idea.resolved_parent.feedback_base_ref,
+            feedback="Implementation was interrupted before durable finalization.",
+            score=None,
+            evaluation_valid=False,
+            started_at=idea.created_at,
+            had_error=True,
+            recoverable_error=True,
+            error_message="interrupted_before_experiment_persistence",
+            workspace_dir=self.workspace_dir,
+            technical_difficulties=(
+                "Resume the interrupted implementation on its original branch."
+            ),
+        )
+        ideation_telemetry = self._ideation_phase_telemetry(
+            IdeationEngineTelemetry(
+                generation_calls=active.generation_calls,
+                selection_call=active.selection_call,
+                embedding=active.embedding_telemetry,
             )
         )
+        node.phase_telemetry["ideation"] = ideation_telemetry
+        node.duration_seconds = ideation_telemetry["duration_seconds"]
+        node.cost_usd = ideation_telemetry["cost_usd"]
+        self.node_history.append(node)
 
     def _node_from_experiment_record(
         self,
@@ -2305,9 +1731,7 @@ Problem: {problem}"""
             evaluation_integrity_error=record.evaluation_integrity_error,
             metrics=dict(record.metrics),
             primary_metric=record.primary_metric,
-            external_evaluation_metadata=dict(
-                record.external_evaluation_metadata
-            ),
+            external_evaluation_metadata=dict(record.external_evaluation_metadata),
             external_evaluation_error=record.external_evaluation_error,
             duration_seconds=record.duration_seconds,
             cost_usd=record.cost_usd,
@@ -2315,6 +1739,10 @@ Problem: {problem}"""
             build_fidelity=record.build_fidelity,
             eval_fidelity=record.eval_fidelity,
             evaluation_attempts=list(record.evaluation_attempts),
+            phase_telemetry={
+                phase: dict(measurements)
+                for phase, measurements in record.phase_telemetry.items()
+            },
             had_error=record.had_error,
             recoverable_error=record.recoverable_error,
             error_message=record.error_message,
@@ -2469,10 +1897,14 @@ Problem: {problem}"""
                 node.score = manifest_score
             node.should_stop = feedback_result.stop and feedback_result.evaluation_valid
             if feedback_result.duration_seconds is not None:
-                node.phase_telemetry["feedback"] = {
-                    "cost_usd": feedback_result.cost_usd,
-                    "duration_seconds": feedback_result.duration_seconds,
-                }
+                self._accumulate_phase_telemetry(
+                    node,
+                    "feedback",
+                    {
+                        "cost_usd": feedback_result.cost_usd,
+                        "duration_seconds": feedback_result.duration_seconds,
+                    },
+                )
 
             print(
                 f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}"
@@ -2500,100 +1932,47 @@ Problem: {problem}"""
             agent_output: Raw output from the developer agent
 
         Returns:
-            dict with keys: code_changes_summary, evaluation_script_path, evaluation_output, score
-            Returns empty dict if extraction fails
-        """
-        result = {}
+            Complete parsed implementation result.
 
-        # Extract each tag
-        tags = [
+        Raises:
+            ValueError: The successful-session output violates the XML contract.
+        """
+        if not isinstance(agent_output, str) or not agent_output.strip():
+            raise ValueError("implementation output must be non-empty")
+        result = {}
+        tags = (
             "code_changes_summary",
             "evaluation_script_path",
             "evaluation_output",
             "score",
             "technical_difficulties",
-        ]
+        )
 
         for tag in tags:
             pattern = rf"<{tag}>\s*(.*?)\s*</{tag}>"
-            match = re.search(pattern, agent_output, re.DOTALL)
-            if match:
-                value = match.group(1).strip()
-                # Handle score specially - convert to float
-                if tag == "score":
-                    try:
-                        if value.lower() == "null" or value == "":
-                            result[tag] = None
-                        else:
-                            result[tag] = float(value)
-                    except ValueError:
-                        result[tag] = None
+            matches = re.findall(pattern, agent_output, re.DOTALL)
+            if len(matches) != 1:
+                raise ValueError(
+                    f"implementation output requires exactly one <{tag}> tag"
+                )
+            value = matches[0].strip()
+            if tag == "score":
+                if value.lower() == "null":
+                    result[tag] = None
                 else:
-                    result[tag] = value
-
-        if result:
-            print(
-                f"[GenericSearch] Extracted agent result from XML tags: {list(result.keys())}"
-            )
-            return result
-
-        # Fallback: try JSON extraction for backward compatibility
-        return self._extract_agent_result_json_fallback(agent_output)
-
-    def _extract_agent_result_json_fallback(self, agent_output: str) -> dict:
-        """
-        Fallback JSON extraction for backward compatibility.
-        """
-        # Look for JSON in code blocks (```json ... ```)
-        json_pattern = r"```json\s*(\{.*?\})\s*```"
-        matches = re.findall(json_pattern, agent_output, re.DOTALL)
-
-        if matches:
-            # Take the last JSON block (final result)
-            for json_str in reversed(matches):
-                try:
-                    result = json.loads(json_str)
-                    # Validate it has expected keys
-                    if any(
-                        k in result
-                        for k in [
-                            "code_changes_summary",
-                            "evaluation_output",
-                            "evaluation_script_path",
-                        ]
-                    ):
-                        print(
-                            f"[GenericSearch] Extracted agent result from JSON block (fallback)"
-                        )
-                        return result
-                except json.JSONDecodeError:
-                    continue
-
-        # Fallback: try to find raw JSON object at the end
-        try:
-            # Find last occurrence of {...}
-            start = agent_output.rfind("{")
-            end = agent_output.rfind("}") + 1
-            if start != -1 and end > start:
-                json_str = agent_output[start:end]
-                result = json.loads(json_str)
-                if any(
-                    k in result
-                    for k in [
-                        "code_changes_summary",
-                        "evaluation_output",
-                        "evaluation_script_path",
-                    ]
-                ):
-                    print(
-                        f"[GenericSearch] Extracted agent result from raw JSON (fallback)"
-                    )
-                    return result
-        except json.JSONDecodeError:
-            pass
-
-        print(f"[GenericSearch] Warning: Could not extract result from agent output")
-        return {}
+                    try:
+                        result[tag] = float(value)
+                    except ValueError as exc:
+                        raise ValueError(
+                            "implementation score must be finite or null"
+                        ) from exc
+                    if not math.isfinite(result[tag]):
+                        raise ValueError("implementation score must be finite or null")
+            else:
+                if not value:
+                    raise ValueError(f"implementation output <{tag}> must be non-empty")
+                result[tag] = value
+        return result
 
     # =========================================================================
     # Checkpoint Methods
@@ -2784,16 +2163,13 @@ Problem: {problem}"""
         active = tuple(
             batch
             for batch in archive.state.batches
-            if batch.status
-            not in {BatchStatus.COMPLETED, BatchStatus.ABANDONED}
+            if batch.status not in {BatchStatus.COMPLETED, BatchStatus.ABANDONED}
         )
         if len(active) > 1:
             raise ValueError("idea archive contains multiple active batches")
         if not active:
             return None
-        newest_iteration = max(
-            batch.iteration_index for batch in archive.state.batches
-        )
+        newest_iteration = max(batch.iteration_index for batch in archive.state.batches)
         if active[0].iteration_index != newest_iteration:
             raise ValueError("active idea batch is not the newest batch")
         return active[0].batch_id

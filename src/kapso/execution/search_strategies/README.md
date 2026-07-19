@@ -29,7 +29,7 @@ search_strategies/
 ├── factory.py               # Registry + factory (auto-discovers strategies)
 ├── strategies.yaml          # Default presets for all strategies
 ├── _template.py             # 👈 COPY THIS to create your strategy
-├── generic.py               # Built-in: Claude Code + MCP gates
+├── generic/                 # Built-in: evidence-directed Generic search
 ├── benchmark_tree_search.py # Built-in: Tree search for benchmarks
 └── README.md                # This file
 ```
@@ -38,7 +38,7 @@ search_strategies/
 
 | Strategy | Description | Use Case |
 |----------|-------------|----------|
-| `generic` | Claude Code + MCP gates for ideation and implementation | General problem solving |
+| `generic` | Evidence-directed Codex/Claude ideation, then Claude implementation | General problem solving |
 | `benchmark_tree_search` | Tree-based exploration with handler.run() | MLE-Bench, ALE-Bench |
 
 ## Creating a New Strategy
@@ -209,9 +209,9 @@ SearchStrategyFactory.list_available()
 SearchStrategyFactory.is_available("generic")
 # True
 
-# Get preset params
-SearchStrategyFactory.get_preset_params("generic", "MINIMAL")
-# {'idea_generation_model': '...', 'implementation_model': '...', ...}
+# Generic configuration is injected from a named `ideation_profile` by the
+# orchestrator. Strategy presets are for benchmark_tree_search only.
+SearchStrategyFactory.get_preset_params("benchmark_tree_search", "MINIMAL")
 
 # List presets for a strategy
 SearchStrategyFactory.list_presets("benchmark_tree_search")
@@ -219,7 +219,7 @@ SearchStrategyFactory.list_presets("benchmark_tree_search")
 
 # Create strategy instance
 strategy = SearchStrategyFactory.create(
-    strategy_type="generic",
+    strategy_type="my_strategy",
     problem_handler=handler,
     llm=llm_backend,
     coding_agent_config=config,

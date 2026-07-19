@@ -100,13 +100,28 @@ def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
 
 **SearchStrategy** generates solution candidates:
 
-**GenericSearch** — Claude Code + MCP gates:
+**GenericSearch** — durable evidence-directed ideation:
 ```python
 def run(self, context, budget_progress):
-    solution, sections = self._generate_solution(problem, parent_branch)
-    agent_output = self._implement(solution, problem, branch_name, parent_branch)
+    # PLANNED -> GENERATED -> ANALYZED -> SELECTED
+    ideation = self._build_ideation_engine().run(...)
+    selected = ideation.selected_idea
+    # SELECTED -> BRIDGED before implementation begins
+    self._ensure_idea_archive().link_experiment(...)
+    agent_output = self._implement(
+        selected.proposal,
+        context,
+        branch_name,
+        ideation.resolved_parent.branch_name,
+    )
     self._generate_feedback(node)
+    self._author_ideation_evidence(node, context)
 ```
+
+After `run()` returns, the orchestrator attaches any external evaluator result,
+writes `ExperimentRecord`, atomically records `IdeaOutcome` plus claim/gap
+updates, and only then saves the run checkpoint. A crash at any boundary is
+reconciled from the archive, experiment store, and checkpoint.
 
 **BenchmarkTreeSearch** — Tree-based exploration:
 ```python
@@ -141,11 +156,11 @@ def implement_solution(self, solution, context, session):
         "kg_code_results": context.kg_code_results,
     })
 
-    # Agent implements solution AND runs evaluation
-    # Returns structured JSON with results
+    # Agent implements the solution and runs evaluation.
+    # Successful output must contain every required terminal XML tag.
     session.generate_code(prompt)
-    
-    # Extract results from agent's structured JSON output
+
+    # Parse the strict XML result; malformed success output fails loudly.
     return self._extract_agent_result(session.output)
 ```
 
@@ -153,7 +168,7 @@ The developer agent is responsible for:
 1. Implementing the solution code
 2. Building evaluation in `kapso_evaluation/`
 3. Running the evaluation
-4. Returning structured JSON with results
+4. Returning the strict XML terminal result
 
 When the caller supplies `eval_dir`, step 2 changes: the agent must run the
 provided evaluation without changing its source. Kapso fingerprints the suite
@@ -164,24 +179,24 @@ Each experiment gets its own **Git branch** via `ExperimentWorkspace`:
 
 ```
 main
-├── kapso/exp-001  (Score: 0.87)
-├── kapso/exp-002  (Score: 0.91)
-└── kapso/exp-003  (Score: 0.96, best)
+├── generic_exp_0  (Score: 0.87)
+├── generic_exp_1  (Score: 0.91)
+└── generic_exp_2  (Score: 0.96, best)
 ```
 
-### Step 6: Agent Returns Structured JSON
+### Step 6: Agent Returns Complete XML
 
-The developer agent returns a structured JSON with evaluation results:
+The developer agent returns all required terminal tags:
 
-```json
-{
-    "code_changes_summary": "Implemented random forest classifier with GridSearchCV",
-    "evaluation_script_path": "kapso_evaluation/evaluate.py",
-    "evaluation_output": "Loading data...\nTraining model...\nAccuracy: 0.95\nAll tests passed."
-}
+```xml
+<code_changes_summary>Implemented a measurable intervention.</code_changes_summary>
+<evaluation_script_path>kapso_evaluation/evaluate.py</evaluation_script_path>
+<evaluation_output>Accuracy: 0.95</evaluation_output>
+<score>0.95</score>
+<technical_difficulties>No technical difficulty.</technical_difficulties>
 ```
 
-This JSON is extracted from the agent's output and used by the feedback generator.
+This XML is parsed strictly and then used by the feedback generator.
 
 ### Step 7: Feedback Generation
 

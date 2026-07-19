@@ -47,15 +47,23 @@ def test_terminal_capacity_precedes_every_ideation_mode():
     assert decision.reasons[0].code == "terminal_capacity"
 
 
-def test_unjustified_opportunity_probe_finalizes_a_banked_campaign():
+def test_denied_granted_evaluation_finalizes_a_banked_campaign():
     decision = choose_policy(
         snapshot(EvidenceSignal.DELIVERY_INCUMBENT),
-        capacity(
-            opportunity_probe_required=True,
-            opportunity_probe_admissible=False,
-        ),
+        capacity(can_run_granted_evaluation=False),
     )
     assert decision.action == CampaignAction.FINALIZE
+
+
+def test_admitted_proxy_grant_can_bootstrap_without_claiming_comparability():
+    decision = choose_policy(
+        snapshot(EvidenceSignal.NO_COMPARABLE_EXPERIMENT),
+        capacity(
+            can_run_granted_evaluation=True,
+            can_run_comparable_evaluation=False,
+        ),
+    )
+    assert decision.mode == IdeationMode.BOOTSTRAP
 
 
 def test_recoverable_failure_precedes_bootstrap_and_explore():

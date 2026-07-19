@@ -103,6 +103,7 @@ class OpenAIEmbeddingProvider:
         response = self.client.embeddings.create(
             model=self.settings.model,
             dimensions=self.settings.dimensions,
+            encoding_format="float",
             input=list(inputs),
         )
         duration = time.monotonic() - started

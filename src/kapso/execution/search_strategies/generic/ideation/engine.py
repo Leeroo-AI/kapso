@@ -302,9 +302,6 @@ class IdeationEngine:
         parent_materializer: ParentMaterializer,
     ) -> IdeationEngineResult:
         """Continue exactly the first unfinished durable phase of a batch."""
-        generation_calls = []
-        selection_call = None
-        embedding_telemetry = None
         with ExitStack() as stack:
             workspace_by_ref = {}
             for parent in batch.resolved_parents:
@@ -327,7 +324,6 @@ class IdeationEngine:
                     resolved_parents=batch.resolved_parents,
                     workspaces=workspaces,
                 )
-                generation_calls.extend(item.call for item in generated)
                 resurfaced = self._resurfaceable(
                     batch.evidence_snapshot,
                     self.archive.state,
@@ -335,6 +331,7 @@ class IdeationEngine:
                 self.archive.add_ideas(
                     batch.batch_id,
                     (item.idea for item in generated),
+                    generation_calls=(item.call for item in generated),
                     resurfaced_ideas=resurfaced,
                     expected_revision=self.archive.revision,
                 )
@@ -381,10 +378,10 @@ class IdeationEngine:
                             repair_request=repair_request.to_dict(),
                             workspace=workspaces[repair_index],
                         )
-                        generation_calls.append(repair.call)
                         self.archive.add_repair_idea(
                             batch.batch_id,
                             repair.idea,
+                            generation_call=repair.call,
                             expected_revision=self.archive.revision,
                         )
                         pool = self._batch_pool(batch.batch_id)
@@ -396,18 +393,12 @@ class IdeationEngine:
                     directive=batch.directive,
                     capacity=batch.capacity,
                 )
-                embedding_telemetry = analysis_result.embedding_telemetry
-                for analyzed in analysis_result.candidates:
-                    self.archive.record_analysis(
-                        batch.batch_id,
-                        analyzed.analysis,
-                        embedding=analyzed.embedding,
-                        nearest_experiment_node_ids=(
-                            analyzed.nearest_experiment_node_ids
-                        ),
-                        similarity_flags=analyzed.similarity_flags,
-                        expected_revision=self.archive.revision,
-                    )
+                self.archive.record_analyses(
+                    batch.batch_id,
+                    analysis_result.candidates,
+                    embedding_telemetry=analysis_result.embedding_telemetry,
+                    expected_revision=self.archive.revision,
+                )
                 current = self.archive.get_batch(batch.batch_id)
             if current.status == BatchStatus.ANALYZED:
                 pool = self._batch_pool(batch.batch_id)
@@ -420,10 +411,10 @@ class IdeationEngine:
                     analyses=current.analyses,
                     workspace=selector_workspace,
                 )
-                selection_call = selection_result.call
                 self.archive.record_selection(
                     batch.batch_id,
                     selection_result.decision,
+                    selection_call=selection_result.call,
                     expected_revision=self.archive.revision,
                 )
                 current = self.archive.get_batch(batch.batch_id)
@@ -442,9 +433,9 @@ class IdeationEngine:
             resolved_parent=selected.resolved_parent,
             archive_revision=self.archive.revision,
             telemetry=IdeationEngineTelemetry(
-                generation_calls=tuple(generation_calls),
-                selection_call=selection_call,
-                embedding=embedding_telemetry,
+                generation_calls=current.generation_calls,
+                selection_call=current.selection_call,
+                embedding=current.embedding_telemetry,
             ),
         )
 

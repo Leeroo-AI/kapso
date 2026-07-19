@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import git
 import pytest
 
+from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.ideation import (
@@ -18,13 +19,14 @@ from test_ideation_domain import (
     BATCH_ID,
     IDEA_ID,
     NOW,
+    analyzed_candidate,
+    coding_agent_call,
     eligible_analysis,
     generated_idea,
     planned_batch,
     selection,
 )
 from test_run_checkpoint import _strict_generic_strategy
-
 
 CAMPAIGN_ID = "campaign_" + "f" * 32
 
@@ -111,9 +113,23 @@ def linked_strategy(tmp_path: Path) -> tuple[GenericSearch, IdeaArchive, git.Rep
     idea = replace(generated_idea(), resolved_parent=parent)
     archive = IdeaArchive(workspace / "ideas.json", CAMPAIGN_ID)
     archive.create_batch(batch, expected_revision=0)
-    archive.add_ideas(BATCH_ID, (idea,), expected_revision=1)
-    archive.record_analysis(BATCH_ID, eligible_analysis(), expected_revision=2)
-    archive.record_selection(BATCH_ID, selection(), expected_revision=3)
+    archive.add_ideas(
+        BATCH_ID,
+        (idea,),
+        generation_calls=(coding_agent_call(),),
+        expected_revision=1,
+    )
+    archive.record_analyses(
+        BATCH_ID,
+        (analyzed_candidate(eligible_analysis()),),
+        expected_revision=2,
+    )
+    archive.record_selection(
+        BATCH_ID,
+        selection(),
+        selection_call=coding_agent_call(),
+        expected_revision=3,
+    )
     archive.link_experiment(IDEA_ID, 0, BATCH_ID, expected_revision=4)
     repo.create_head("generic_exp_0", repo.head.commit)
 
@@ -130,7 +146,7 @@ def linked_strategy(tmp_path: Path) -> tuple[GenericSearch, IdeaArchive, git.Rep
 
 
 def finalized_node() -> SearchNode:
-    return SearchNode(
+    node = SearchNode(
         node_id=0,
         idea_id=IDEA_ID,
         selection_batch_id=BATCH_ID,
@@ -143,6 +159,10 @@ def finalized_node() -> SearchNode:
         duration_seconds=2.0,
         cost_usd=0.25,
     )
+    node.phase_telemetry = {
+        "implementation": {"cost_usd": 0.25, "duration_seconds": 2.0}
+    }
+    return node
 
 
 def experiment_store(workspace: Path) -> ExperimentHistoryStore:
@@ -174,7 +194,43 @@ def test_experiment_record_recreates_node_and_outcome_without_rerun(tmp_path):
 
     assert len(strategy.node_history) == 1
     assert strategy.node_history[0].idea_id == IDEA_ID
+    assert strategy.node_history[0].phase_telemetry == {
+        "implementation": {"cost_usd": 0.25, "duration_seconds": 2.0}
+    }
     assert archive.get_idea(IDEA_ID).outcome is not None
+    assert strategy.active_batch_id is None
+
+
+def test_newer_recovery_record_replaces_stale_recoverable_checkpoint_node(tmp_path):
+    strategy, archive, _ = linked_strategy(tmp_path)
+    stale = finalized_node()
+    stale.score = None
+    stale.evaluation_valid = False
+    stale.had_error = True
+    stale.recoverable_error = True
+    stale.error_message = "recoverable implementation failure"
+    strategy.node_history = [stale]
+    recovered = finalized_node()
+    recovered.execution_revision = 1
+    recovered.score = 0.6
+    recovered.evaluation_attempts = [
+        EvaluationAttempt(
+            commit_sha="recovered-commit",
+            evaluator_id="canonical-v1",
+            fidelity="full",
+            fraction=1.0,
+            seed=0,
+            score=0.6,
+        )
+    ]
+    store = experiment_store(Path(strategy.workspace_dir))
+    store.add_experiment(recovered)
+
+    strategy.reconcile_experiment_memory(store)
+
+    assert strategy.node_history[0].execution_revision == 1
+    assert strategy.node_history[0].score == 0.6
+    assert archive.get_idea(IDEA_ID).outcome.normalized_delta == 0.6
     assert strategy.active_batch_id is None
 
 
@@ -191,5 +247,13 @@ def test_bridged_idea_without_record_becomes_same_node_recovery(tmp_path):
     assert node.selection_batch_id == BATCH_ID
     assert node.had_error is True
     assert node.recoverable_error is True
+    assert node.phase_telemetry["ideation"] == {
+        "cost_usd": 0.5,
+        "duration_seconds": 2.0,
+        "coding_agent_call_count": 2.0,
+        "unpriced_coding_agent_call_count": 0.0,
+    }
+    assert node.cost_usd == 0.5
+    assert node.duration_seconds == 2.0
     assert archive.get_idea(IDEA_ID).outcome is None
     assert store.experiments == []
