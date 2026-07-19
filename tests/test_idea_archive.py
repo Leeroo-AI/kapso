@@ -25,6 +25,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     IdeaOutcome,
     IdeaStatus,
     ImplementationStatus,
+    ResurfacedIdea,
     SelectionDecision,
     new_identifier,
 )
@@ -323,7 +324,12 @@ def test_deferred_idea_can_be_selected_later_without_changing_origin(tmp_path):
     archive.add_ideas(
         second_batch_id,
         (new_idea,),
-        resurfaced_idea_ids=(OTHER_IDEA_ID,),
+        resurfaced_ideas=(
+            ResurfacedIdea(
+                idea_id=OTHER_IDEA_ID,
+                changed_conditions=("new comparable evidence",),
+            ),
+        ),
         expected_revision=8,
     )
     archive.record_analysis(

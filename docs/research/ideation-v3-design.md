@@ -607,7 +607,9 @@ stateDiagram-v2
 | 5 | `EXPLOIT` | A credible gain exists and at least one causal lever is supported | Refine or compose around demonstrated signal |
 | 6 | `EXPLORE` | Plateau, unsupported diagnosis, diversity collapse, high gap debt, or no demonstrated lever | Search a meaningfully different mechanism or reduce important uncertainty |
 
-`FINALIZE` is a terminal action, not an ideation stance. If a delivery-grade
+`FINALIZE` is a terminal action, not an ideation stance. `RECOVER` is likewise
+an execution action: it resumes the same linked idea and experiment node with
+zero candidate generation. If a delivery-grade
 incumbent is banked and capacity permits one complete comparable experiment,
 the policy may admit an **opportunity probe**. That probe still uses `EXPLOIT`
 or `EXPLORE`; it is not a special "final gamble" mode.

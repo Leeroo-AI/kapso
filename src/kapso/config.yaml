@@ -21,6 +21,27 @@
 # Default mode to use
 default_mode: GENERIC
 
+# One shared source for evidence-directed ideation operating parameters.
+ideation_defaults: &ideation_defaults
+  archive_path: ".kapso/idea_archive.json"
+  evidence:
+    minimum_repeat_measurements: 2
+    minimum_credible_delta: 0.01
+    surprising_gain_multiplier: 3.0
+    proxy_divergence_threshold: 0.03
+    plateau_window: 3
+    diversity_window: 4
+    gap_debt_threshold: 2
+  gaps:
+    default_evidence_confidence: 0.25
+    default_uncertainty_reduction: 0.25
+    default_cost: 1.0
+    minimum_cost: 0.01
+  operators:
+    candidate_quota: 2
+    repair_quota: 1
+    reserve_gap_slot: true
+
 # =============================================================================
 # Available configuration modes
 # =============================================================================
@@ -32,6 +53,7 @@ modes:
   # Standard configuration for generic problems
   # Uses Claude Code with MCP gates for ideation and implementation
   GENERIC:
+    ideation: *ideation_defaults
     search_strategy:
       type: "generic"
       params:
@@ -107,6 +129,7 @@ modes:
   
   # Minimal configuration for quick testing
   MINIMAL:
+    ideation: *ideation_defaults
     search_strategy:
       type: "generic"
       params:

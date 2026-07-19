@@ -22,6 +22,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     IdeaRecord,
     IdeaStatus,
     ImplementationStatus,
+    ResurfacedIdea,
     SelectionDecision,
     require_batch_transition,
     require_gap_transition,
@@ -496,20 +497,24 @@ class IdeaArchive:
         batch_id: str,
         ideas: Iterable[IdeaRecord],
         *,
-        resurfaced_idea_ids: Iterable[str] = (),
+        resurfaced_ideas: Iterable[ResurfacedIdea] = (),
         expected_revision: int,
     ) -> int:
         state = self._refresh()
         batch = self._find_batch(state, batch_id)
         generated = tuple(ideas)
-        resurfaced = tuple(resurfaced_idea_ids)
+        resurfaced = tuple(resurfaced_ideas)
+        if not all(isinstance(item, ResurfacedIdea) for item in resurfaced):
+            raise ValueError("resurfaced ideas must be typed records")
+        resurfaced_ids = tuple(item.idea_id for item in resurfaced)
         generated_ids = tuple(idea.idea_id for idea in generated)
-        considered_ids = generated_ids + resurfaced
+        considered_ids = generated_ids + resurfaced_ids
         if len(set(considered_ids)) != len(considered_ids):
             raise ArchiveIdentityConflictError("considered idea ids must be unique")
         idea_by_id = {idea.idea_id: idea for idea in state.ideas}
         if (
             batch.generated_idea_ids == generated_ids
+            and batch.resurfaced_ideas == resurfaced
             and batch.considered_idea_ids == considered_ids
             and all(
                 idea_id in idea_by_id
@@ -534,7 +539,7 @@ class IdeaArchive:
                 raise ArchiveIdentityConflictError(
                     f"idea id already exists: {idea.idea_id}"
                 )
-        for idea_id in resurfaced:
+        for idea_id in resurfaced_ids:
             idea = self._find_idea(state, idea_id)
             if idea.status != IdeaStatus.DEFERRED:
                 raise ArchiveLifecycleError(
@@ -545,6 +550,7 @@ class IdeaArchive:
             batch,
             status=BatchStatus.GENERATED,
             generated_idea_ids=generated_ids,
+            resurfaced_ideas=resurfaced,
             considered_idea_ids=considered_ids,
             updated_at=utc_now(),
         )

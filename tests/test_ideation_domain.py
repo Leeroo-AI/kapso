@@ -20,6 +20,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     EvaluationGap,
     EvaluationStatus,
     EvidenceClaim,
+    EvidenceSignal,
     EvidenceStatus,
     ExperimentEvidence,
     GapState,
@@ -39,6 +40,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     PolicyDecision,
     PolicyReason,
     ResolvedParentSnapshot,
+    ResurfacedIdea,
     SearchDirective,
     SelectionDecision,
     SimilarityMatch,
@@ -232,7 +234,7 @@ def test_every_record_round_trips_through_its_strict_parser():
         incumbent_node_id=1,
         latest_node_id=1,
         noise_floor=0.01,
-        signals=("supported_gain",),
+        signals=(EvidenceSignal.CREDIBLE_IMPROVEMENT,),
     )
     capacity = IdeationCapacityView(
         capacity_snapshot_id=CAPACITY_ID,
@@ -251,6 +253,7 @@ def test_every_record_round_trips_through_its_strict_parser():
         can_start_complete_action=True,
         can_run_comparable_evaluation=True,
         preserves_finalization_reserve=True,
+        opportunity_probe_required=False,
         opportunity_probe_admissible=False,
     )
     records = (
@@ -311,6 +314,10 @@ def test_every_record_round_trips_through_its_strict_parser():
             actual_duration=30.0,
         ),
         generated_idea(),
+        ResurfacedIdea(
+            idea_id=OTHER_IDEA_ID,
+            changed_conditions=("new comparable evidence",),
+        ),
         planned_batch(),
         gap,
         claim,

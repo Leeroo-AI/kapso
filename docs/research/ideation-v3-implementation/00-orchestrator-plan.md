@@ -417,6 +417,7 @@ The implementation is complete only when:
 | D10 | Default idea embeddings to `text-embedding-3-small` | Duplicate alarms favor low cost; the model remains configurable and versioned |
 | D11 | Use one exact archive schema identity, not per-record versions | Strict replacement needs one accepted shape and no migration branches |
 | D12 | Freeze resolved parent provenance and per-candidate dispositions in the domain | Generation and selection must be reproducible without reconstructing hidden choices |
+| D13 | Make recoverable technical failure a zero-generation execution action | Recovery resumes the same linked idea and node; generating a replacement would corrupt one-idea/one-node provenance |
 
 ## Progress ledger
 
@@ -426,7 +427,7 @@ inside module plans as the campaign-level source of truth.
 | Module | Status | Implementation reference | Validation reference | Blocker |
 |---|---|---|---|---|
 | M1 Domain and Archive | Complete | `generic/ideation/types.py`, `archive.py` | 20 focused tests | — |
-| M2 Evidence, Policy, Operators | Not started | — | — | M1 contract freeze |
+| M2 Evidence, Policy, Operators | Complete | `generic/ideation/evidence.py`, `policy.py`, `operators.py` | 21 focused tests; 41 cumulative | — |
 | M3 Candidate Pipeline | Not started | — | — | M1, M2 |
 | M4 GenericSearch Bridge | Not started | — | — | M1–M3 |
 | M5 Experiment Memory and Outcomes | Not started | — | — | M1; live integration waits for M4 |

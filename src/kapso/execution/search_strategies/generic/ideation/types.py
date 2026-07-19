@@ -242,6 +242,22 @@ class EvidenceStatus(str, Enum):
     INSUFFICIENT = "insufficient"
 
 
+class EvidenceSignal(str, Enum):
+    NO_COMPARABLE_EXPERIMENT = "no_comparable_experiment"
+    RECOVERABLE_TECHNICAL_FAILURE = "recoverable_technical_failure"
+    FIDELITY_PROMOTION_REQUIRED = "fidelity_promotion_required"
+    PROXY_FULL_DIVERGENCE = "proxy_full_divergence"
+    SURPRISING_GAIN = "surprising_gain"
+    CREDIBLE_IMPROVEMENT = "credible_improvement"
+    PLATEAU = "plateau"
+    SUPPORTED_LEVER = "supported_lever"
+    CONTRADICTED_LEVER = "contradicted_lever"
+    DIVERSITY_COLLAPSE = "diversity_collapse"
+    GAP_DEBT = "gap_debt"
+    DELIVERY_INCUMBENT = "delivery_incumbent"
+    PROVISIONAL_NOISE = "provisional_noise"
+
+
 class ObjectiveDirection(str, Enum):
     MAXIMIZE = "maximize"
     MINIMIZE = "minimize"
@@ -255,6 +271,7 @@ class GapState(str, Enum):
 
 class CampaignAction(str, Enum):
     IDEATE = "ideate"
+    RECOVER = "recover"
     FINALIZE = "finalize"
 
 
@@ -748,6 +765,10 @@ class PolicyDecision(JsonRecord):
             raise ValueError("finalize decisions must not have an ideation mode")
         if self.action == CampaignAction.IDEATE and self.mode is None:
             raise ValueError("ideate decisions require an ideation mode")
+        if self.action == CampaignAction.IDEATE and self.mode == IdeationMode.RECOVER:
+            raise ValueError("recovery is an execution action, not ideation")
+        if self.action == CampaignAction.RECOVER and self.mode != IdeationMode.RECOVER:
+            raise ValueError("recover actions require recover mode")
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PolicyDecision":
@@ -843,6 +864,15 @@ class SearchDirective(JsonRecord):
             and self.reserved_gap_id is not None
         ):
             raise ValueError("finalize directives cannot reserve a gap")
+        if self.decision.action == CampaignAction.RECOVER:
+            if self.candidate_quota != 0 or self.repair_quota != 0:
+                raise ValueError("recover directives cannot generate candidates")
+            if len(self.operator_briefs) != 1 or (
+                self.operator_briefs[0].operator != OperatorKind.RECOVER
+            ):
+                raise ValueError("recover directives require one recovery brief")
+            if self.reserved_gap_id is not None:
+                raise ValueError("recover directives cannot reserve a gap")
         if self.decision.action == CampaignAction.IDEATE and not self.operator_briefs:
             raise ValueError("ideate directives require operators")
         if self.decision.action == CampaignAction.IDEATE and self.candidate_quota == 0:
@@ -1619,6 +1649,34 @@ class IdeaRecord(JsonRecord):
 
 
 @dataclass(frozen=True)
+class ResurfacedIdea(JsonRecord):
+    idea_id: str
+    changed_conditions: Tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _require_typed_identifier(self.idea_id, "resurfaced idea id", "idea")
+        object.__setattr__(
+            self,
+            "changed_conditions",
+            _require_strings(
+                self.changed_conditions,
+                "resurfaced idea changed conditions",
+            ),
+        )
+        if not self.changed_conditions:
+            raise ValueError("resurfaced ideas require changed conditions")
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ResurfacedIdea":
+        _require_exact_keys(
+            data,
+            {"idea_id", "changed_conditions"},
+            "resurfaced idea",
+        )
+        return cls(**data)
+
+
+@dataclass(frozen=True)
 class IdeaBatch(JsonRecord):
     batch_id: str
     campaign_id: str
@@ -1630,6 +1688,7 @@ class IdeaBatch(JsonRecord):
     updated_at: str
     status: BatchStatus = BatchStatus.PLANNED
     generated_idea_ids: Tuple[str, ...] = ()
+    resurfaced_ideas: Tuple[ResurfacedIdea, ...] = ()
     considered_idea_ids: Tuple[str, ...] = ()
     analyses: Tuple[CandidateAnalysis, ...] = ()
     selection: Optional[SelectionDecision] = None
@@ -1666,6 +1725,17 @@ class IdeaBatch(JsonRecord):
                 "idea",
             ),
         )
+        if not isinstance(self.resurfaced_ideas, (list, tuple)) or not all(
+            isinstance(resurfaced, ResurfacedIdea)
+            for resurfaced in self.resurfaced_ideas
+        ):
+            raise ValueError("batch resurfaced ideas are invalid")
+        object.__setattr__(self, "resurfaced_ideas", tuple(self.resurfaced_ideas))
+        resurfaced_ids = tuple(
+            resurfaced.idea_id for resurfaced in self.resurfaced_ideas
+        )
+        if len(set(resurfaced_ids)) != len(resurfaced_ids):
+            raise ValueError("batch resurfaced ideas must be unique")
         object.__setattr__(
             self,
             "considered_idea_ids",
@@ -1677,6 +1747,14 @@ class IdeaBatch(JsonRecord):
         )
         if not set(self.generated_idea_ids).issubset(self.considered_idea_ids):
             raise ValueError("generated ideas must be considered")
+        if set(self.generated_idea_ids) & set(resurfaced_ids):
+            raise ValueError("generated ideas cannot also be resurfaced")
+        if set(self.considered_idea_ids) != set(self.generated_idea_ids) | set(
+            resurfaced_ids
+        ):
+            raise ValueError(
+                "considered ideas must be generated or explicitly resurfaced"
+            )
         if not isinstance(self.analyses, (list, tuple)) or not all(
             isinstance(analysis, CandidateAnalysis) for analysis in self.analyses
         ):
@@ -1734,6 +1812,7 @@ class IdeaBatch(JsonRecord):
                     raise ValueError("eligible ideas cannot have invalid disposition")
         if self.status == BatchStatus.PLANNED and (
             self.generated_idea_ids
+            or self.resurfaced_ideas
             or self.considered_idea_ids
             or self.analyses
             or self.selection is not None
@@ -1796,6 +1875,7 @@ class IdeaBatch(JsonRecord):
             "updated_at",
             "status",
             "generated_idea_ids",
+            "resurfaced_ideas",
             "considered_idea_ids",
             "analyses",
             "selection",
@@ -1813,6 +1893,10 @@ class IdeaBatch(JsonRecord):
             updated_at=data["updated_at"],
             status=_parse_enum(BatchStatus, data["status"], "batch status"),
             generated_idea_ids=data["generated_idea_ids"],
+            resurfaced_ideas=tuple(
+                ResurfacedIdea.from_dict(resurfaced)
+                for resurfaced in data["resurfaced_ideas"]
+            ),
             considered_idea_ids=data["considered_idea_ids"],
             analyses=tuple(
                 CandidateAnalysis.from_dict(analysis) for analysis in data["analyses"]
@@ -2170,7 +2254,7 @@ class CampaignEvidenceSnapshot(JsonRecord):
     incumbent_node_id: Optional[int]
     latest_node_id: Optional[int]
     noise_floor: Optional[float]
-    signals: Tuple[str, ...]
+    signals: Tuple[EvidenceSignal, ...]
 
     def __post_init__(self) -> None:
         _require_typed_identifier(
@@ -2232,11 +2316,13 @@ class CampaignEvidenceSnapshot(JsonRecord):
                 0.0,
             ),
         )
-        object.__setattr__(
-            self,
-            "signals",
-            _require_strings(self.signals, "evidence signals"),
-        )
+        if not isinstance(self.signals, (list, tuple)) or not all(
+            isinstance(signal, EvidenceSignal) for signal in self.signals
+        ):
+            raise ValueError("evidence signals are invalid")
+        if len(set(self.signals)) != len(self.signals):
+            raise ValueError("evidence signals must be unique")
+        object.__setattr__(self, "signals", tuple(self.signals))
         node_ids = {experiment.node_id for experiment in self.experiments}
         if (
             self.incumbent_node_id is not None
@@ -2303,7 +2389,10 @@ class CampaignEvidenceSnapshot(JsonRecord):
             incumbent_node_id=data["incumbent_node_id"],
             latest_node_id=data["latest_node_id"],
             noise_floor=data["noise_floor"],
-            signals=data["signals"],
+            signals=tuple(
+                _parse_enum(EvidenceSignal, signal, "evidence signal")
+                for signal in data["signals"]
+            ),
         )
 
 
@@ -2325,6 +2414,7 @@ class IdeationCapacityView(JsonRecord):
     can_start_complete_action: bool
     can_run_comparable_evaluation: bool
     preserves_finalization_reserve: bool
+    opportunity_probe_required: bool
     opportunity_probe_admissible: bool
 
     def __post_init__(self) -> None:
@@ -2372,6 +2462,7 @@ class IdeationCapacityView(JsonRecord):
                 self.preserves_finalization_reserve,
                 "finalization reserve admission",
             ),
+            (self.opportunity_probe_required, "opportunity probe requirement"),
             (self.opportunity_probe_admissible, "opportunity probe admission"),
         ):
             if not isinstance(value, bool):
@@ -2398,6 +2489,7 @@ class IdeationCapacityView(JsonRecord):
                 "can_start_complete_action",
                 "can_run_comparable_evaluation",
                 "preserves_finalization_reserve",
+                "opportunity_probe_required",
                 "opportunity_probe_admissible",
             },
             "ideation capacity view",

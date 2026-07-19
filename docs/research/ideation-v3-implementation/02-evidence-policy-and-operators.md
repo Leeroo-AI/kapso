@@ -36,52 +36,52 @@ tests/
 
 ## Evidence builder tasks
 
-- [ ] Accept read-only `SearchNode` projections, idea archive snapshot,
+- [x] Accept read-only `SearchNode` projections, idea archive snapshot,
       evaluation metadata, and capacity snapshot.
-- [ ] Normalize maximize/minimize objectives to utility.
-- [ ] Build the causal spine: incumbent, latest attempt, linked ideas, parent
+- [x] Normalize maximize/minimize objectives to utility.
+- [x] Build the causal spine: incumbent, latest attempt, linked ideas, parent
       lineage, and relevant negative evidence.
-- [ ] Keep observations, hypotheses, and constraints distinct.
-- [ ] Mark missing evidence `INSUFFICIENT`; never zero-fill unknowns.
-- [ ] Determine comparability from evaluator/fidelity/seed metadata rather than
+- [x] Keep observations, hypotheses, and constraints distinct.
+- [x] Mark missing evidence `INSUFFICIENT`; never zero-fill unknowns.
+- [x] Determine comparability from evaluator/fidelity/seed metadata rather than
       score presence alone.
-- [ ] Estimate a noise floor from comparable repeats when available.
-- [ ] Identify proxy divergence, surprising gains, plateaus, and technical-only
+- [x] Estimate a noise floor from comparable repeats when available.
+- [x] Identify proxy divergence, surprising gains, plateaus, and technical-only
       failures as typed facts.
-- [ ] Produce a content-addressed evidence snapshot ID.
+- [x] Produce a content-addressed evidence snapshot ID.
 
 ## Gap ledger tasks
 
-- [ ] Accept typed gap declarations from evaluation profiles and outcomes.
-- [ ] Allow only evaluation outcomes to close or mark gaps inconclusive.
-- [ ] Compute priority from impact, evidence confidence, expected uncertainty
+- [x] Accept typed gap declarations from evaluation profiles and outcomes.
+- [x] Allow only evaluation outcomes to close or mark gaps inconclusive.
+- [x] Compute priority from impact, evidence confidence, expected uncertainty
       reduction, and measured cost information.
-- [ ] Use age/deferral only as starvation-resistant tie-breakers.
-- [ ] Persist explicit conservative assumptions when a factor is unavailable.
-- [ ] Increment debt on justified selector deferral without forcing blind
+- [x] Use age/deferral only as starvation-resistant tie-breakers.
+- [x] Persist explicit conservative assumptions when a factor is unavailable.
+- [x] Increment debt on justified selector deferral without forcing blind
       execution.
 
 ## Policy tasks
 
-- [ ] Implement precedence: `FINALIZE`, `RECOVER`, `BOOTSTRAP`, `VERIFY`,
+- [x] Implement precedence: `FINALIZE`, `RECOVER`, `BOOTSTRAP`, `VERIFY`,
       `EXPLOIT`, `EXPLORE`.
-- [ ] Consume fidelity/budget decisions; do not create a second runtime model.
-- [ ] Treat `FINALIZE` as an action, not a generator stance.
-- [ ] Admit an opportunity probe only under the design's incumbent, reserve,
+- [x] Consume fidelity/budget decisions; do not create a second runtime model.
+- [x] Treat `FINALIZE` as an action, not a generator stance.
+- [x] Admit an opportunity probe only under the design's incumbent, reserve,
       completion, and expected-value conditions.
-- [ ] Emit structured reasons referencing evidence IDs.
-- [ ] Guarantee identical inputs produce identical `PolicyDecision`.
+- [x] Emit structured reasons referencing evidence IDs.
+- [x] Guarantee identical inputs produce identical `PolicyDecision`.
 
 ## Operator and parent-plan tasks
 
-- [ ] Implement briefs for independent draft, target gap, atomic refine,
+- [x] Implement briefs for independent draft, target gap, atomic refine,
       ablation, mechanism shift, crossover, verify, and recover.
-- [ ] Assign genuinely distinct descriptors rather than persona wording.
-- [ ] Reserve one actionable high-priority gap slot when required.
-- [ ] Resolve candidate parent choices to typed plans, not mutable branches.
-- [ ] Ensure crossover has one implementation parent and explicit read-only
+- [x] Assign genuinely distinct descriptors rather than persona wording.
+- [x] Reserve one actionable high-priority gap slot when required.
+- [x] Resolve candidate parent choices to typed plans, not mutable branches.
+- [x] Ensure crossover has one implementation parent and explicit read-only
       sources.
-- [ ] Identify deferred ideas eligible for resurfacing only after a relevant
+- [x] Identify deferred ideas eligible for resurfacing only after a relevant
       condition changes.
 
 ## Tests
