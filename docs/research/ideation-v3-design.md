@@ -160,7 +160,7 @@ The only direct model API boundary in ideation is embeddings:
 
 ```text
 OpenAIEmbeddingProvider
-  authentication: OPENAI_API_KEY from the process environment
+  authentication: official SDK default credential discovery
   default model: text-embedding-3-small
   operation: embeddings only
   consumers: CandidateAnalyzer and idea retrieval
@@ -176,17 +176,20 @@ described as the more capable option and
 [`text-embedding-3-small`](https://developers.openai.com/api/docs/models/text-embedding-3-small)
 as the smaller option.
 
-The provider uses the official OpenAI SDK's embeddings endpoint. It resolves
-the key through `os.environ` after Kapso's existing dotenv startup; it never
-reads a hard-coded `.env` path, logs the key, persists it, or passes it to
-coding-agent subprocesses. Codex continues to use CLI login or its dedicated
-CLI credentials, and Claude Code continues to use its configured auth mode.
+The provider uses the official OpenAI SDK's embeddings endpoint and default
+credential discovery after Kapso's outer dotenv startup. Ideation code never
+reads an environment variable or a `.env` path, logs or persists a key, or
+passes the embedding credential to coding-agent subprocesses. Codex continues
+to use CLI login or its dedicated CLI credentials, and Claude Code continues
+to use its configured auth mode.
 
-Embedding failure is non-fatal because similarity is only an alarm. Exact and
-descriptor duplicate checks still run, and the analysis records
-`embedding_unavailable`. Cached vectors are reused only when provider, model,
-dimensions, and input hash match. Embedding call count, input tokens, duration,
-and model are recorded separately from coding-agent telemetry.
+Embedding failure propagates and leaves the batch at its last durable state.
+Similarity may be explicitly disabled in configuration, in which case exact
+and descriptor checks run without semantic neighbors. There is no automatic
+credential, timeout, rate-limit, or provider-error degradation. Cached vectors
+are reused only when provider, model, dimensions, and input hash match.
+Embedding call count, input tokens, duration, and model are recorded separately
+from coding-agent telemetry.
 
 ## Connection to the current system
 
@@ -1015,22 +1018,26 @@ sequenceDiagram
    generator.
 5. **Assemble candidates.** Resurface eligible prior ideas, assign distinct
    operator briefs, and collect new structured proposals independently.
-6. **Persist the population.** Save the considered pool, including invalid,
-   deferred, and eventually rejected candidates.
-7. **Analyze.** Compute duplicate facts, descriptor coverage, evidence audits,
-   feasibility, and gap relevance.
-8. **Repair once if necessary.** Replace missing diversity only when the repair
-   quota permits it.
-9. **Select.** Apply hard rules, then evidence-grounded comparative judgment.
-10. **Persist the decision.** Save the selected idea and ordered fallbacks
+6. **Persist the initial population.** Save every structurally valid returned
+   candidate and mark the batch `GENERATED`.
+7. **Analyze for repair.** Compute duplicate facts, descriptor coverage,
+   evidence audits, feasibility, and gap relevance without yet closing the
+   generated lifecycle state.
+8. **Repair once if necessary.** When authorized, append exactly one repair
+   candidate while the batch is still `GENERATED`, then recompute the complete
+   pool analysis. A persisted repair is never generated again on resume.
+9. **Persist final analysis.** Record every candidate analysis and mark the
+   complete batch `ANALYZED`; semantic invalidity remains auditable.
+10. **Select.** Apply hard rules, then evidence-grounded comparative judgment.
+11. **Persist the decision.** Save the selected idea and ordered fallbacks
     before creating a branch or changing code.
-11. **Bridge idempotently.** Create exactly one `SearchNode` from the selected
+12. **Bridge idempotently.** Create exactly one `SearchNode` from the selected
     idea and record both identifiers.
-12. **Execute.** Existing implementation, debugging, fidelity, and evaluation
+13. **Execute.** Existing implementation, debugging, fidelity, and evaluation
     machinery owns the experiment.
-13. **Classify the result.** Distinguish technical failure, invalid evidence,
+14. **Classify the result.** Distinguish technical failure, invalid evidence,
     inconclusive evidence, and valid hypothesis outcome.
-14. **Update evidence.** Attach the outcome to the idea, update claims and gaps,
+15. **Update evidence.** Attach the outcome to the idea, update claims and gaps,
     and make the new evidence visible to the next iteration.
 
 ## Persistence and resume semantics

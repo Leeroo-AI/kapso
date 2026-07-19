@@ -130,6 +130,7 @@ def generated_idea(idea_id: str = IDEA_ID) -> IdeaRecord:
         resolved_parent=resolved_parent(),
         assumptions=("gradient spikes are present",),
         evidence_refs=(EVIDENCE_ID,),
+        directive_rationale="Establish a measurable baseline improvement.",
         evaluation_method="Run the canonical evaluator at full fidelity.",
         resource_request="One complete experiment.",
         created_at=NOW,

@@ -13,6 +13,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     BatchStatus,
     CandidateAnalysis,
     CandidateDispositionKind,
+    EmbeddingRecord,
     EvaluationGap,
     EvidenceClaim,
     EvidenceStatus,
@@ -191,7 +192,11 @@ class IdeaArchiveState:
                     f"idea references missing duplicate: {idea.exact_duplicate_of}"
                 )
             for claim_id in idea.claim_ids:
-                if claim_id not in claim_by_id:
+                if claim_id not in claim_by_id and idea.status not in {
+                    IdeaStatus.GENERATED,
+                    IdeaStatus.INVALID,
+                    IdeaStatus.ABANDONED,
+                }:
                     raise ArchiveCorruptionError(
                         f"idea references missing claim: {claim_id}"
                     )
@@ -428,6 +433,7 @@ class IdeaArchive:
             idea.resolved_parent,
             idea.assumptions,
             idea.evidence_refs,
+            idea.directive_rationale,
             idea.evaluation_method,
             idea.resource_request,
             idea.created_at,
@@ -435,12 +441,13 @@ class IdeaArchive:
             idea.parent_experiment_node_ids,
             idea.target_gap_ids,
             idea.claim_ids,
+            idea.resolves_claim_ids,
             idea.expected_observations,
             idea.predicted_gain,
             idea.predicted_cost,
             idea.confidence,
-            idea.embedding,
-            idea.nearest_experiment_node_ids,
+            idea.claimed_nearest_idea_id,
+            idea.claimed_nearest_experiment_node_id,
             idea.generation_artifacts,
         )
 
@@ -566,6 +573,9 @@ class IdeaArchive:
         batch_id: str,
         analysis: CandidateAnalysis,
         *,
+        embedding: Optional[EmbeddingRecord] = None,
+        nearest_experiment_node_ids: Optional[Iterable[int]] = None,
+        similarity_flags: Optional[Iterable[str]] = None,
         expected_revision: int,
     ) -> int:
         state = self._refresh()
@@ -573,8 +583,25 @@ class IdeaArchive:
         existing = tuple(
             item for item in batch.analyses if item.idea_id == analysis.idea_id
         )
+        idea = self._find_idea(state, analysis.idea_id)
+        next_embedding = idea.embedding if embedding is None else embedding
+        next_nearest_nodes = (
+            idea.nearest_experiment_node_ids
+            if nearest_experiment_node_ids is None
+            else tuple(nearest_experiment_node_ids)
+        )
+        next_similarity_flags = (
+            idea.similarity_flags
+            if similarity_flags is None
+            else tuple(similarity_flags)
+        )
         if existing:
-            if existing[0] == analysis:
+            if (
+                existing[0] == analysis
+                and idea.embedding == next_embedding
+                and idea.nearest_experiment_node_ids == next_nearest_nodes
+                and idea.similarity_flags == next_similarity_flags
+            ):
                 return state.revision
             raise ArchiveIdentityConflictError(
                 f"analysis already differs for idea: {analysis.idea_id}"
@@ -588,10 +615,12 @@ class IdeaArchive:
             )
         if analysis.exact_duplicate_of is not None:
             self._find_idea(state, analysis.exact_duplicate_of)
-        idea = self._find_idea(state, analysis.idea_id)
         next_idea = replace(
             idea,
             exact_duplicate_of=analysis.exact_duplicate_of,
+            embedding=next_embedding,
+            nearest_experiment_node_ids=next_nearest_nodes,
+            similarity_flags=next_similarity_flags,
         )
         if not analysis.eligible:
             require_idea_transition(idea.status, IdeaStatus.INVALID)
@@ -619,6 +648,53 @@ class IdeaArchive:
             state,
             batches=_replace_record(state.batches, "batch_id", next_batch),
             ideas=_replace_record(state.ideas, "idea_id", next_idea),
+        )
+        return self._commit(proposed, expected_revision)
+
+    def add_repair_idea(
+        self,
+        batch_id: str,
+        idea: IdeaRecord,
+        *,
+        expected_revision: int,
+    ) -> int:
+        state = self._refresh()
+        batch = self._find_batch(state, batch_id)
+        existing = tuple(item for item in state.ideas if item.idea_id == idea.idea_id)
+        if existing:
+            if (
+                len(batch.generated_idea_ids) == batch.directive.candidate_quota + 1
+                and batch.generated_idea_ids[-1] == idea.idea_id
+                and self._idea_generation_identity(existing[0])
+                == self._idea_generation_identity(idea)
+            ):
+                return state.revision
+            raise ArchiveIdentityConflictError(
+                f"repair idea id already has different content: {idea.idea_id}"
+            )
+        self._require_revision(state, expected_revision)
+        if batch.status != BatchStatus.GENERATED or batch.analyses:
+            raise ArchiveLifecycleError(
+                "repair candidates require a generated, unanalyzed batch"
+            )
+        if batch.directive.repair_quota != 1:
+            raise ArchiveLifecycleError("batch does not authorize diversity repair")
+        if len(batch.generated_idea_ids) != batch.directive.candidate_quota:
+            raise ArchiveLifecycleError("batch already consumed its repair quota")
+        if idea.origin_batch_id != batch_id or idea.status != IdeaStatus.GENERATED:
+            raise ArchiveLifecycleError(
+                "repair idea must be generated in the target batch"
+            )
+        next_batch = replace(
+            batch,
+            generated_idea_ids=batch.generated_idea_ids + (idea.idea_id,),
+            considered_idea_ids=batch.considered_idea_ids + (idea.idea_id,),
+            updated_at=utc_now(),
+        )
+        proposed = replace(
+            state,
+            batches=_replace_record(state.batches, "batch_id", next_batch),
+            ideas=state.ideas + (idea,),
         )
         return self._commit(proposed, expected_revision)
 

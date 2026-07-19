@@ -1366,6 +1366,7 @@ class IdeaRecord(JsonRecord):
     resolved_parent: ResolvedParentSnapshot
     assumptions: Tuple[str, ...]
     evidence_refs: Tuple[str, ...]
+    directive_rationale: str
     evaluation_method: str
     resource_request: str
     created_at: str
@@ -1375,12 +1376,15 @@ class IdeaRecord(JsonRecord):
     parent_experiment_node_ids: Tuple[int, ...] = ()
     target_gap_ids: Tuple[str, ...] = ()
     claim_ids: Tuple[str, ...] = ()
+    resolves_claim_ids: Tuple[str, ...] = ()
     expected_observations: Tuple[str, ...] = ()
     predicted_gain: Optional[float] = None
     predicted_cost: Optional[float] = None
     confidence: Optional[float] = None
     embedding: Optional[EmbeddingRecord] = None
     exact_duplicate_of: Optional[str] = None
+    claimed_nearest_idea_id: Optional[str] = None
+    claimed_nearest_experiment_node_id: Optional[int] = None
     nearest_experiment_node_ids: Tuple[int, ...] = ()
     similarity_flags: Tuple[str, ...] = ()
     generation_artifacts: Tuple[str, ...] = ()
@@ -1412,6 +1416,7 @@ class IdeaRecord(JsonRecord):
             "evidence_refs",
             _require_strings(self.evidence_refs, "idea evidence refs"),
         )
+        _require_nonempty_string(self.directive_rationale, "idea directive rationale")
         _require_nonempty_string(self.evaluation_method, "idea evaluation method")
         _require_nonempty_string(self.resource_request, "idea resource request")
         _require_timestamp(self.created_at, "idea created timestamp")
@@ -1462,6 +1467,17 @@ class IdeaRecord(JsonRecord):
         )
         object.__setattr__(
             self,
+            "resolves_claim_ids",
+            _require_typed_identifiers(
+                self.resolves_claim_ids,
+                "idea resolving claim ids",
+                "claim",
+            ),
+        )
+        if not set(self.resolves_claim_ids).issubset(self.claim_ids):
+            raise ValueError("resolving claim ids must be cited by the idea")
+        object.__setattr__(
+            self,
             "expected_observations",
             _require_strings(
                 self.expected_observations,
@@ -1492,6 +1508,17 @@ class IdeaRecord(JsonRecord):
         )
         if self.exact_duplicate_of == self.idea_id:
             raise ValueError("idea cannot duplicate itself")
+        _require_optional_typed_identifier(
+            self.claimed_nearest_idea_id,
+            "claimed nearest idea id",
+            "idea",
+        )
+        if self.claimed_nearest_idea_id == self.idea_id:
+            raise ValueError("idea cannot claim itself as its nearest idea")
+        _require_optional_integer(
+            self.claimed_nearest_experiment_node_id,
+            "claimed nearest experiment node id",
+        )
         if not isinstance(self.nearest_experiment_node_ids, (list, tuple)):
             raise ValueError("nearest experiment node ids must be a list")
         nearest_nodes = tuple(
@@ -1579,6 +1606,7 @@ class IdeaRecord(JsonRecord):
             "resolved_parent",
             "assumptions",
             "evidence_refs",
+            "directive_rationale",
             "evaluation_method",
             "resource_request",
             "created_at",
@@ -1588,12 +1616,15 @@ class IdeaRecord(JsonRecord):
             "parent_experiment_node_ids",
             "target_gap_ids",
             "claim_ids",
+            "resolves_claim_ids",
             "expected_observations",
             "predicted_gain",
             "predicted_cost",
             "confidence",
             "embedding",
             "exact_duplicate_of",
+            "claimed_nearest_idea_id",
+            "claimed_nearest_experiment_node_id",
             "nearest_experiment_node_ids",
             "similarity_flags",
             "generation_artifacts",
@@ -1614,6 +1645,7 @@ class IdeaRecord(JsonRecord):
             resolved_parent=ResolvedParentSnapshot.from_dict(data["resolved_parent"]),
             assumptions=data["assumptions"],
             evidence_refs=data["evidence_refs"],
+            directive_rationale=data["directive_rationale"],
             evaluation_method=data["evaluation_method"],
             resource_request=data["resource_request"],
             created_at=data["created_at"],
@@ -1623,6 +1655,7 @@ class IdeaRecord(JsonRecord):
             parent_experiment_node_ids=data["parent_experiment_node_ids"],
             target_gap_ids=data["target_gap_ids"],
             claim_ids=data["claim_ids"],
+            resolves_claim_ids=data["resolves_claim_ids"],
             expected_observations=data["expected_observations"],
             predicted_gain=data["predicted_gain"],
             predicted_cost=data["predicted_cost"],
@@ -1633,6 +1666,10 @@ class IdeaRecord(JsonRecord):
                 else EmbeddingRecord.from_dict(data["embedding"])
             ),
             exact_duplicate_of=data["exact_duplicate_of"],
+            claimed_nearest_idea_id=data["claimed_nearest_idea_id"],
+            claimed_nearest_experiment_node_id=data[
+                "claimed_nearest_experiment_node_id"
+            ],
             nearest_experiment_node_ids=data["nearest_experiment_node_ids"],
             similarity_flags=data["similarity_flags"],
             generation_artifacts=data["generation_artifacts"],

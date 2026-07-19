@@ -8,6 +8,7 @@ import pytest
 from kapso.execution.search_strategies.generic.ideation import (
     ArchiveCorruptionError,
     ArchiveIdentityConflictError,
+    ArchiveLifecycleError,
     ArchiveLinkConflictError,
     ArchiveRevisionConflictError,
     BatchStatus,
@@ -450,3 +451,50 @@ def test_outcome_atomically_updates_claims_and_targeted_gaps(tmp_path):
     assert archive.get_claim(CLAIM_ID).status == EvidenceStatus.SUPPORTED
     assert archive.list_gaps()[0].state == GapState.CLOSED
     assert archive.get_batch(BATCH_ID).status == BatchStatus.COMPLETED
+
+
+def test_one_repair_candidate_can_extend_a_generated_unanalyzed_batch(tmp_path):
+    archive = IdeaArchive(tmp_path / "ideas.json", CAMPAIGN_ID)
+    archive.create_batch(planned_batch(), expected_revision=0)
+    archive.add_ideas(BATCH_ID, (generated_idea(),), expected_revision=1)
+    with pytest.raises(ArchiveIdentityConflictError):
+        archive.add_repair_idea(
+            BATCH_ID,
+            generated_idea(),
+            expected_revision=2,
+        )
+    repair = replace(
+        generated_idea(new_identifier("idea")),
+        origin_batch_id=BATCH_ID,
+        proposal="Repair missing descriptor coverage.",
+    )
+
+    assert archive.add_repair_idea(BATCH_ID, repair, expected_revision=2) == 3
+    assert archive.add_repair_idea(BATCH_ID, repair, expected_revision=2) == 3
+    batch = archive.get_batch(BATCH_ID)
+    assert batch.status == BatchStatus.GENERATED
+    assert batch.generated_idea_ids == (IDEA_ID, repair.idea_id)
+    assert batch.considered_idea_ids == (IDEA_ID, repair.idea_id)
+
+    with pytest.raises(ArchiveLifecycleError, match="consumed"):
+        archive.add_repair_idea(
+            BATCH_ID,
+            replace(repair, idea_id=new_identifier("idea")),
+            expected_revision=3,
+        )
+
+
+def test_unknown_model_claim_survives_only_as_an_invalid_candidate(tmp_path):
+    archive = IdeaArchive(tmp_path / "ideas.json", CAMPAIGN_ID)
+    archive.create_batch(planned_batch(), expected_revision=0)
+    idea = replace(generated_idea(), claim_ids=(new_identifier("claim"),))
+    archive.add_ideas(BATCH_ID, (idea,), expected_revision=1)
+    analysis = CandidateAnalysis(
+        idea_id=IDEA_ID,
+        eligible=False,
+        hard_failures=("claim_reference_unknown",),
+    )
+    archive.record_analysis(BATCH_ID, analysis, expected_revision=2)
+
+    assert archive.get_idea(IDEA_ID).status == IdeaStatus.INVALID
+    assert archive.get_idea(IDEA_ID).claim_ids == idea.claim_ids

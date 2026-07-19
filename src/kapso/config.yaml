@@ -41,6 +41,43 @@ ideation_defaults: &ideation_defaults
     candidate_quota: 2
     repair_quota: 1
     reserve_gap_slot: true
+  coding_agents:
+    artifact_path: ".kapso/ideation/agent_calls"
+    termination_grace_seconds: 5
+    generator:
+      members:
+        - cli: "codex"
+          model: "gpt-5.6"
+          timeout_seconds: 300
+          effort: "high"
+          allowed_tools: ["Read", "WebSearch"]
+        - cli: "claude_code"
+          model: "us.anthropic.claude-opus-4-6-v1"
+          timeout_seconds: 300
+          effort: "high"
+          allowed_tools: ["Read", "Glob", "Grep", "WebSearch"]
+      repair_member:
+        cli: "codex"
+        model: "gpt-5.6"
+        timeout_seconds: 300
+        effort: "high"
+        allowed_tools: ["Read", "WebSearch"]
+    selector:
+      cli: "codex"
+      model: "gpt-5.6"
+      timeout_seconds: 300
+      effort: "high"
+      allowed_tools: ["Read"]
+  embeddings:
+    enabled: true
+    model: "text-embedding-3-small"
+    dimensions: 1536
+    timeout_seconds: 30
+    max_retries: 0
+  analyzer:
+    semantic_similarity_threshold: 0.92
+    max_neighbors: 5
+    minimum_distinct_eligible: 2
 
 # =============================================================================
 # Available configuration modes

@@ -1,6 +1,6 @@
 # Ideation v3 implementation — orchestrator plan
 
-Status: **planning baseline**
+Status: **implementation in progress — M1 through M3 complete**
 
 Design authority: [`../ideation-v3-design.md`](../ideation-v3-design.md)
 
@@ -178,7 +178,7 @@ Reasoning, generation, and judgment
 Semantic vectors
   -> OpenAIEmbeddingProvider
        -> official OpenAI embeddings endpoint
-       -> OPENAI_API_KEY from process environment
+       -> official SDK default credential discovery
 ```
 
 Hard rules:
@@ -194,8 +194,10 @@ Hard rules:
   `text-embedding-3-small`, and is configurable;
 - embeddings are stored with provider, model, dimensions, and input hash so
   stale or incompatible vectors are never compared;
-- missing embedding credentials or API failure degrades to exact and
-  descriptor checks rather than failing ideation; and
+- ideation code never reads credentials or environment variables; outer
+  startup and the official SDK own credential discovery;
+- missing credentials or an embedding API failure propagates, while an
+  explicitly disabled embedding provider runs exact and descriptor checks; and
 - embedding telemetry is attributed separately from CLI-agent cost.
 
 ## Integration waves
@@ -235,13 +237,14 @@ Deliver M3:
 
 - structured generator results;
 - Codex/Claude CLI runner parity for generator and selector roles;
-- OpenAI embedding provider with keyless degradation and local cosine search;
+- OpenAI embedding provider with explicit enablement and local cosine search;
 - independent operator briefs;
 - archived-idea resurfacing;
 - exact duplicate and semantic-neighbor facts;
 - feasibility and evidence checks;
 - one bounded repair request; and
-- structured selector decision and fallback behavior.
+- structured selector decision with ordered candidate fallbacks; selector-call
+  failure itself propagates without choosing a winner.
 
 Gate: captured pools can be analyzed and selected without starting an
 experiment, and every considered idea is persisted.
@@ -418,6 +421,9 @@ The implementation is complete only when:
 | D11 | Use one exact archive schema identity, not per-record versions | Strict replacement needs one accepted shape and no migration branches |
 | D12 | Freeze resolved parent provenance and per-candidate dispositions in the domain | Generation and selection must be reproducible without reconstructing hidden choices |
 | D13 | Make recoverable technical failure a zero-generation execution action | Recovery resumes the same linked idea and node; generating a replacement would corrupt one-idea/one-node provenance |
+| D14 | Fail loudly on coding-agent, embedding, parsing, and selector errors | Synthetic candidates, automatic embedding degradation, and fallback winners hide broken evidence and make replay non-equivalent |
+| D15 | Append at most one repair candidate while a generated batch is still unanalyzed | Preserve the durable initial population while making repair resumable without reopening an analyzed lifecycle state |
+| D16 | Permit unresolved model-claimed claim IDs only while an idea is generated, invalid, or abandoned | Preserve semantically invalid structured output for audit while preventing any dangling claim reference from reaching a selectable lifecycle state |
 
 ## Progress ledger
 
@@ -426,9 +432,9 @@ inside module plans as the campaign-level source of truth.
 
 | Module | Status | Implementation reference | Validation reference | Blocker |
 |---|---|---|---|---|
-| M1 Domain and Archive | Complete | `generic/ideation/types.py`, `archive.py` | 20 focused tests | — |
+| M1 Domain and Archive | Complete | `generic/ideation/types.py`, `archive.py` | 22 current archive/domain tests | — |
 | M2 Evidence, Policy, Operators | Complete | `generic/ideation/evidence.py`, `policy.py`, `operators.py` | 21 focused tests; 41 cumulative | — |
-| M3 Candidate Pipeline | Not started | — | — | M1, M2 |
+| M3 Candidate Pipeline | Complete | `generic/ideation/coding_agents.py`, `generator.py`, `embeddings.py`, `analyzer.py`, `selector.py` | 38 dedicated plus 2 archive integration tests; 81 cumulative | — |
 | M4 GenericSearch Bridge | Not started | — | — | M1–M3 |
 | M5 Experiment Memory and Outcomes | Not started | — | — | M1; live integration waits for M4 |
 | M6 Resume, Rollout, Validation | Not started | — | — | M1–M5 |
