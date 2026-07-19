@@ -13,7 +13,7 @@ feedback, fidelity, or evaluation.
 ## Owned responsibilities
 
 - `IdeationEngine` transaction orchestration.
-- GenericSearch opt-in routing.
+- GenericSearch strict replacement routing.
 - Per-operator parent snapshot resolution and read-only materialization.
 - Selected-idea to SearchNode bridge.
 - Idea and selection-batch links on nodes.
@@ -38,41 +38,41 @@ tests/
 
 ## Integration tasks
 
-- [ ] Initialize `IdeaArchive` and `IdeationEngine` from the GenericSearch
+- [x] Initialize `IdeaArchive` and `IdeationEngine` from the GenericSearch
       workspace and configuration.
-- [ ] Construct Codex and Claude runner configurations through the existing CLI
+- [x] Construct Codex and Claude runner configurations through the existing CLI
       auth, environment-hygiene, timeout, and telemetry paths.
-- [ ] Keep `OPENAI_API_KEY` in the orchestrator process for embeddings and out
+- [x] Keep `OPENAI_API_KEY` in the orchestrator process for embeddings and out
       of both coding-agent subprocess environments.
-- [ ] Construct `IdeationCapacityView` only from the existing budget snapshot,
+- [x] Construct `IdeationCapacityView` only from the existing budget snapshot,
       fidelity decision, and fidelity timing authority; add no local duration
       or reserve estimate.
-- [ ] Replace `_generate_solution` with the evidence, directive, archive,
+- [x] Replace `_generate_solution` with the evidence, directive, archive,
       candidate, and selector stages.
-- [ ] Persist `PLANNED`, `GENERATED`, `ANALYZED`, and `SELECTED` boundaries in
+- [x] Persist `PLANNED`, `GENERATED`, `ANALYZED`, and `SELECTED` boundaries in
       order.
-- [ ] Return a typed selected idea and immutable parent snapshot rather than a
+- [x] Return a typed selected idea and immutable parent snapshot rather than a
       bare string.
 - [ ] Add required `idea_id` and `selection_batch_id` to `SearchNode` and update
       every constructor and serialized fixture to the new shape.
-- [ ] Copy selected proposal text to `SearchNode.solution`.
-- [ ] Link the node idempotently before implementation begins.
-- [ ] Preserve current phase telemetry and include generator, repair, analyzer,
+- [x] Copy selected proposal text to `SearchNode.solution`.
+- [x] Link the node idempotently before implementation begins.
+- [x] Preserve current phase telemetry and include generator, repair, analyzer,
       and selector costs in ideation totals.
 
 ## Parent and worktree tasks
 
-- [ ] Refactor current `_select_parent` resolution so existing `best` and
+- [x] Refactor current `_select_parent` resolution so existing `best` and
       `baseline` behavior remain available as parent plans.
-- [ ] Add `SPECIFIC_EXPERIMENT` and `RECOVER_BRANCH` resolution.
-- [ ] Resolve branch, node, and Git ref once and validate their agreement.
-- [ ] Materialize one read-only worktree per distinct parent ref needed by the
+- [x] Add `SPECIFIC_EXPERIMENT` and `RECOVER_BRANCH` resolution.
+- [x] Resolve branch, node, and Git ref once and validate their agreement.
+- [x] Materialize one read-only worktree per distinct parent ref needed by the
       candidate batch.
-- [ ] Reuse views for members sharing a ref and clean every view on success or
+- [x] Reuse views for members sharing a ref and clean every view on success or
       failure.
-- [ ] Carry the selected snapshot unchanged into implementation, diff, and
+- [x] Carry the selected snapshot unchanged into implementation, diff, and
       feedback base-ref arguments.
-- [ ] Reject a stale/missing selected ref instead of falling back to `main`.
+- [x] Reject a stale/missing selected ref instead of falling back to `main`.
 
 ## Existing lifecycle preservation
 

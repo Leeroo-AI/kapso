@@ -25,6 +25,8 @@ default_mode: GENERIC
 ideation_defaults: &ideation_defaults
   archive_path: ".kapso/idea_archive.json"
   evidence:
+    comparable_fidelity: "full"
+    comparable_fraction: 1.0
     minimum_repeat_measurements: 2
     minimum_credible_delta: 0.01
     surprising_gain_multiplier: 3.0

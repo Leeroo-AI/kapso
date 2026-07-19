@@ -216,14 +216,18 @@ class CandidateGenerator:
         directive: SearchDirective,
         archive_state: IdeaArchiveState,
         resolved_parents: Sequence[ResolvedParentSnapshot],
-        workspace: str,
+        workspaces: Sequence[str],
     ) -> Tuple[GeneratedCandidate, ...]:
         briefs = directive.operator_briefs
         parents = tuple(resolved_parents)
-        if directive.candidate_quota != len(self.settings.members):
-            raise ValueError("candidate quota must equal configured generator members")
+        member_count = directive.candidate_quota
+        if member_count > len(self.settings.members):
+            raise ValueError("candidate quota exceeds configured generator members")
         if len(briefs) != len(parents):
             raise ValueError("every operator brief requires one resolved parent")
+        member_workspaces = tuple(workspaces)
+        if len(briefs) != len(member_workspaces):
+            raise ValueError("every operator brief requires one materialized workspace")
         tasks = tuple(
             (
                 index,
@@ -241,8 +245,11 @@ class CandidateGenerator:
                     resolved_parent=parents[index],
                     repair_request=None,
                 ),
+                member_workspaces[index],
             )
-            for index, (member, brief) in enumerate(zip(self.settings.members, briefs))
+            for index, (member, brief) in enumerate(
+                zip(self.settings.members[:member_count], briefs)
+            )
         )
         with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
             futures = tuple(
@@ -256,7 +263,7 @@ class CandidateGenerator:
                     prompt,
                     workspace,
                 )
-                for index, member, brief, parent, prompt in tasks
+                for index, member, brief, parent, prompt, workspace in tasks
             )
             return tuple(future.result() for future in futures)
 
@@ -326,7 +333,10 @@ class CandidateGenerator:
         source_nodes = list(brief.parent_plan.source_experiment_node_ids)
         if brief.parent_plan.experiment_node_id is not None:
             source_nodes.append(brief.parent_plan.experiment_node_id)
-        parent_nodes = tuple(dict.fromkeys([resolved_parent.node_id] + source_nodes))
+        resolved_nodes = (
+            [] if resolved_parent.node_id is None else [resolved_parent.node_id]
+        )
+        parent_nodes = tuple(dict.fromkeys(resolved_nodes + source_nodes))
         target_gaps = () if brief.target_gap_id is None else (brief.target_gap_id,)
         idea = IdeaRecord(
             idea_id=new_identifier("idea"),

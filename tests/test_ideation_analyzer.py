@@ -70,7 +70,7 @@ def candidate(tmp_path, snapshot, search_directive, **changes):
     values = {
         "descriptor": search_directive.operator_briefs[0].descriptor_target,
         "evidence_refs": (snapshot.snapshot_id,),
-        "parent_experiment_node_ids": (resolved_parent().node_id,),
+        "parent_experiment_node_ids": (),
         "generation_artifacts": (str(artifact.resolve()),),
     }
     values.update(changes)
@@ -138,7 +138,6 @@ def test_descriptor_parent_evidence_artifact_and_capacity_rules_are_hard(tmp_pat
     assert set(result.analysis.hard_failures) >= {
         "operator_descriptor_mismatch",
         "evidence_reference_unknown",
-        "parent_experiment_provenance_mismatch",
         "generation_artifacts_invalid",
         "capacity_cannot_run_comparable_evaluation",
     }
@@ -212,7 +211,7 @@ def test_exact_duplicate_requires_derived_changed_condition(tmp_path):
         origin_batch_id=previous_batch_id,
         descriptor=search_directive.operator_briefs[0].descriptor_target,
         evidence_refs=(snapshot.snapshot_id,),
-        parent_experiment_node_ids=(resolved_parent().node_id,),
+        parent_experiment_node_ids=(),
     )
     archive.create_batch(previous_batch, expected_revision=archive.revision)
     archive.add_ideas(
@@ -312,7 +311,7 @@ def test_semantic_neighbor_is_an_alarm_not_an_automatic_rejection(tmp_path):
         origin_batch_id=previous_batch_id,
         descriptor=search_directive.operator_briefs[0].descriptor_target,
         evidence_refs=(snapshot.snapshot_id,),
-        parent_experiment_node_ids=(resolved_parent().node_id,),
+        parent_experiment_node_ids=(),
     )
     archive.create_batch(previous_batch, expected_revision=archive.revision)
     archive.add_ideas(

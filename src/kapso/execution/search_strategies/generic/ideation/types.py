@@ -626,7 +626,7 @@ class ParentPlan(JsonRecord):
 
 @dataclass(frozen=True)
 class ResolvedParentSnapshot(JsonRecord):
-    node_id: int
+    node_id: Optional[int]
     branch_name: str
     git_ref: str
     materialized_ref: str
@@ -634,7 +634,7 @@ class ResolvedParentSnapshot(JsonRecord):
     feedback_base_ref: str
 
     def __post_init__(self) -> None:
-        _require_integer(self.node_id, "resolved parent node id")
+        _require_optional_integer(self.node_id, "resolved parent node id")
         _require_nonempty_string(self.branch_name, "resolved parent branch")
         _require_nonempty_string(self.git_ref, "resolved parent git ref")
         _require_nonempty_string(
@@ -1127,6 +1127,7 @@ class SelectionDecision(JsonRecord):
     gap_decisions: Tuple[str, ...]
     duplicate_overrides: Tuple[str, ...]
     decision_summary: str
+    selection_artifacts: Tuple[str, ...]
     expected_benefit: float
     expected_cost: float
 
@@ -1188,6 +1189,13 @@ class SelectionDecision(JsonRecord):
         _require_nonempty_string(self.decision_summary, "selection summary")
         object.__setattr__(
             self,
+            "selection_artifacts",
+            _require_strings(self.selection_artifacts, "selection artifacts"),
+        )
+        if not self.selection_artifacts:
+            raise ValueError("selection requires invocation artifacts")
+        object.__setattr__(
+            self,
             "expected_benefit",
             _require_number(self.expected_benefit, "expected benefit"),
         )
@@ -1210,6 +1218,7 @@ class SelectionDecision(JsonRecord):
                 "gap_decisions",
                 "duplicate_overrides",
                 "decision_summary",
+                "selection_artifacts",
                 "expected_benefit",
                 "expected_cost",
             },
@@ -1229,6 +1238,7 @@ class SelectionDecision(JsonRecord):
             gap_decisions=data["gap_decisions"],
             duplicate_overrides=data["duplicate_overrides"],
             decision_summary=data["decision_summary"],
+            selection_artifacts=data["selection_artifacts"],
             expected_benefit=data["expected_benefit"],
             expected_cost=data["expected_cost"],
         )

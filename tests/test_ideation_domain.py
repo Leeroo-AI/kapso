@@ -76,7 +76,7 @@ def parent_plan() -> ParentPlan:
 
 def resolved_parent() -> ResolvedParentSnapshot:
     return ResolvedParentSnapshot(
-        node_id=0,
+        node_id=None,
         branch_name="baseline",
         git_ref="abc123",
         materialized_ref="abc123",
@@ -174,6 +174,7 @@ def selection() -> SelectionDecision:
         gap_decisions=("no actionable gaps",),
         duplicate_overrides=(),
         decision_summary="Select the only eligible bootstrap hypothesis.",
+        selection_artifacts=("/tmp/selection.json",),
         expected_benefit=0.05,
         expected_cost=1.0,
     )

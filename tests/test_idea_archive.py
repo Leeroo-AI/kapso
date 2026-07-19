@@ -363,6 +363,7 @@ def test_deferred_idea_can_be_selected_later_without_changing_origin(tmp_path):
         gap_decisions=("no reserved gap",),
         duplicate_overrides=(),
         decision_summary="Resurface the prior idea under changed evidence.",
+        selection_artifacts=("/tmp/selection.json",),
         expected_benefit=0.1,
         expected_cost=1.0,
     )

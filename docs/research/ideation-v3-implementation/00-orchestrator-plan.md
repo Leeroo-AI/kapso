@@ -1,6 +1,6 @@
 # Ideation v3 implementation — orchestrator plan
 
-Status: **implementation in progress — M1 through M3 complete**
+Status: **implementation in progress — M1 through M3 complete; M4 bridge active**
 
 Design authority: [`../ideation-v3-design.md`](../ideation-v3-design.md)
 
@@ -424,6 +424,8 @@ The implementation is complete only when:
 | D14 | Fail loudly on coding-agent, embedding, parsing, and selector errors | Synthetic candidates, automatic embedding degradation, and fallback winners hide broken evidence and make replay non-equivalent |
 | D15 | Append at most one repair candidate while a generated batch is still unanalyzed | Preserve the durable initial population while making repair resumable without reopening an analyzed lifecycle state |
 | D16 | Permit unresolved model-claimed claim IDs only while an idea is generated, invalid, or abandoned | Preserve semantically invalid structured output for audit while preventing any dangling claim reference from reaching a selectable lifecycle state |
+| D17 | Persist selector invocation artifacts on the selection decision | The selected idea must remain traceable to the complete prompt, schema, streams, and structured final output |
+| D18 | Keep recoverable failures in `IMPLEMENTING`/`BRIDGED` until a fair result exists | Recovery is another execution attempt of the same idea and node, not a terminal hypothesis outcome or a replacement candidate |
 
 ## Progress ledger
 
@@ -435,7 +437,7 @@ inside module plans as the campaign-level source of truth.
 | M1 Domain and Archive | Complete | `generic/ideation/types.py`, `archive.py` | 22 current archive/domain tests | — |
 | M2 Evidence, Policy, Operators | Complete | `generic/ideation/evidence.py`, `policy.py`, `operators.py` | 21 focused tests; 41 cumulative | — |
 | M3 Candidate Pipeline | Complete | `generic/ideation/coding_agents.py`, `generator.py`, `embeddings.py`, `analyzer.py`, `selector.py` | 38 dedicated plus 2 archive integration tests; 81 cumulative | — |
-| M4 GenericSearch Bridge | Not started | — | — | M1–M3 |
+| M4 GenericSearch Bridge | In progress | `generic/ideation/engine.py`, `generic/strategy.py`, `base.py`, `orchestrator.py` config bridge | 7 engine/parent bridge tests; 88 cumulative v3 tests | Strict resume and superseded-test removal remain in M6 |
 | M5 Experiment Memory and Outcomes | Not started | — | — | M1; live integration waits for M4 |
 | M6 Resume, Rollout, Validation | Not started | — | — | M1–M5 |
 

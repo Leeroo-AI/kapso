@@ -128,13 +128,17 @@ class CandidateAnalyzer:
         candidate_ids = tuple(candidate.idea_id for candidate in pool)
         if len(set(candidate_ids)) != len(candidate_ids):
             raise ValueError("candidate analysis pool ids must be unique")
+        current_ids = set(candidate_ids)
+        historic_ideas = tuple(
+            idea for idea in archive_state.ideas if idea.idea_id not in current_ids
+        )
         comparison = self._comparison_pool(pool, archive_state)
         embeddings, telemetry = self._embeddings(comparison)
         results = tuple(
             self._analyze_one(
                 batch_id=batch_id,
                 candidate=candidate,
-                predecessors=tuple(archive_state.ideas) + pool[:index],
+                predecessors=historic_ideas + pool[:index],
                 comparison=comparison,
                 embeddings=embeddings,
                 evidence_snapshot=evidence_snapshot,
@@ -414,6 +418,11 @@ class CandidateAnalyzer:
         ):
             failures.append("parent_source_experiment_unknown")
         if (
+            plan.kind == ParentPlanKind.BASELINE
+            and candidate.resolved_parent.node_id is not None
+        ):
+            failures.append("baseline_parent_must_not_reference_experiment")
+        if (
             plan.kind
             in {
                 ParentPlanKind.SPECIFIC_EXPERIMENT,
@@ -430,7 +439,8 @@ class CandidateAnalyzer:
         expected_nodes = list(plan.source_experiment_node_ids)
         if plan.experiment_node_id is not None:
             expected_nodes.append(plan.experiment_node_id)
-        expected_nodes.insert(0, candidate.resolved_parent.node_id)
+        if candidate.resolved_parent.node_id is not None:
+            expected_nodes.insert(0, candidate.resolved_parent.node_id)
         if candidate.parent_experiment_node_ids != tuple(dict.fromkeys(expected_nodes)):
             failures.append("parent_experiment_provenance_mismatch")
 

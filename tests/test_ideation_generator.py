@@ -148,7 +148,7 @@ def test_every_member_receives_full_common_evidence_and_distinct_brief(tmp_path)
         directive=search_directive,
         archive_state=archive.state,
         resolved_parents=(resolved_parent(), resolved_parent()),
-        workspace=str(tmp_path),
+        workspaces=(str(tmp_path), str(tmp_path)),
     )
 
     assert tuple(item.idea.operator for item in generated) == (
@@ -192,7 +192,7 @@ def test_malformed_structured_candidate_fails_without_salvage(tmp_path):
             directive=search_directive,
             archive_state=archive.state,
             resolved_parents=(resolved_parent(),),
-            workspace=str(tmp_path),
+            workspaces=(str(tmp_path),),
         )
 
 
@@ -213,7 +213,7 @@ def test_member_failure_propagates_and_batch_remains_unmodified(tmp_path):
             directive=search_directive,
             archive_state=archive.state,
             resolved_parents=(resolved_parent(),),
-            workspace=str(tmp_path),
+            workspaces=(str(tmp_path),),
         )
     assert archive.state.batches == ()
     assert archive.state.ideas == ()

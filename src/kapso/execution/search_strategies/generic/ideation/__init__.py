@@ -34,6 +34,13 @@ from kapso.execution.search_strategies.generic.ideation.embeddings import (
     cosine_similarity,
     embedding_can_be_reused,
 )
+from kapso.execution.search_strategies.generic.ideation.engine import (
+    IdeationEngine,
+    IdeationEngineResult,
+    IdeationEngineTelemetry,
+    ParentMaterializer,
+    ParentResolver,
+)
 from kapso.execution.search_strategies.generic.ideation.types import (
     BATCH_TRANSITIONS,
     GAP_TRANSITIONS,
@@ -172,6 +179,9 @@ __all__ = [
     "IdeaRecord",
     "IdeaStatus",
     "IdeationCapacityView",
+    "IdeationEngine",
+    "IdeationEngineResult",
+    "IdeationEngineTelemetry",
     "IdeationMode",
     "ImplementationStatus",
     "ObjectiveDirection",
@@ -181,6 +191,8 @@ __all__ = [
     "OpenAIEmbeddingProvider",
     "ParentPlan",
     "ParentPlanKind",
+    "ParentMaterializer",
+    "ParentResolver",
     "PolicyDecision",
     "PolicyReason",
     "ResolvedParentSnapshot",

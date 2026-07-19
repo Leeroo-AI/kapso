@@ -70,7 +70,6 @@ from kapso.execution.fidelity import (
     FidelitySpec,
 )
 
-
 CHANGE_REQUEST_PATTERN = re.compile(
     r"<evaluation_change_request>(.*?)</evaluation_change_request>",
     re.DOTALL,
@@ -96,9 +95,12 @@ _MAINTAINER_BLOCK_KEYS = {
 @dataclass
 class SolveResult:
     """Result from orchestrator.solve()."""
+
     best_experiment: Optional[ExperimentResult]
     final_feedback: Optional[FeedbackResult]
-    stopped_reason: str  # "goal_achieved", "max_iterations", "budget_exhausted", "legacy_stop"
+    stopped_reason: (
+        str  # "goal_achieved", "max_iterations", "budget_exhausted", "legacy_stop"
+    )
     iterations_run: int
     total_cost: float
     cumulative_iterations: int = 0
@@ -110,14 +112,14 @@ class SolveResult:
 class OrchestratorAgent:
     """
     Main orchestrator agent that coordinates the experimentation loop.
-    
+
     Uses pluggable components:
     - Search strategies (registered via @register_strategy decorator)
     - Knowledge search backends (registered via @register_knowledge_search decorator)
     - Coding agents (Aider, Gemini, Claude Code, OpenHands)
     - Feedback generator (LLM-based, decides when to stop)
     - Experiment history store (persists results for MCP access)
-    
+
     Args:
         problem_handler: Handler for the problem being solved
         config_path: Path to benchmark-specific config.yaml file
@@ -129,9 +131,9 @@ class OrchestratorAgent:
             candidate Git ref
         iteration_evaluator_failure_policy: ``record`` or ``raise``
     """
-    
+
     def __init__(
-        self, 
+        self,
         problem_handler: ProblemHandler,
         config_path: Optional[str] = None,
         mode: Optional[str] = None,
@@ -173,7 +175,7 @@ class OrchestratorAgent:
         self.iteration_evaluator_failure_policy = normalize_failure_policy(
             iteration_evaluator_failure_policy
         )
-        
+
         (
             self.strategy_type,
             self.strategy_params,
@@ -188,29 +190,25 @@ class OrchestratorAgent:
             "strategy_params": self.strategy_params,
             "mode": self.mode,
             "mode_config": {
-                key: value
-                for key, value in self.mode_config.items()
-                if key != "budget"
+                key: value for key, value in self.mode_config.items() if key != "budget"
             },
             "coding_agent_override": coding_agent,
         }
         self._provided_evaluation_manifest: Optional[Dict[str, str]] = None
         if eval_dir:
-            self._provided_evaluation_manifest = build_evaluation_manifest(
-                eval_dir
-            )
+            self._provided_evaluation_manifest = build_evaluation_manifest(eval_dir)
             fingerprint_config["provided_evaluation_fingerprint"] = (
                 manifest_fingerprint(self._provided_evaluation_manifest)
             )
         if self.iteration_evaluator is not None:
-            fingerprint_config["iteration_evaluator"] = (
-                self._callable_identity(self.iteration_evaluator)
+            fingerprint_config["iteration_evaluator"] = self._callable_identity(
+                self.iteration_evaluator
             )
             fingerprint_config["iteration_evaluator_failure_policy"] = (
                 self.iteration_evaluator_failure_policy
             )
         self.config_fingerprint = config_fingerprint(fingerprint_config)
-        
+
         # Determine workspace directory for experiment history
         self._workspace_dir = workspace_dir
 
@@ -243,22 +241,20 @@ class OrchestratorAgent:
             self.completed_iterations = checkpoint.completed_iterations
             self._prior_cost = float(checkpoint.cumulative_cost)
             self._prior_elapsed_seconds = float(checkpoint.elapsed_seconds)
-            self._prior_cost_by_component = dict(
-                checkpoint.cost_by_component
-            )
+            self._prior_cost_by_component = dict(checkpoint.cost_by_component)
         elif self.checkpoint_store is not None and self.checkpoint_store.exists():
             raise RunCheckpointIncompatibleError(
                 "This workspace already contains a run checkpoint; pass "
                 "resume=True or choose a new output path"
             )
-        
+
         # Create experiment history store
         # Path is determined after search strategy creates workspace
         self.experiment_store: Optional[ExperimentHistoryStore] = None
-        
+
         # Create feedback generator FIRST (needed by search strategy)
         self.feedback_generator = self._create_feedback_generator(coding_agent)
-        
+
         # Track feedback for next iteration
         self.current_feedback: Optional[str] = (
             self._resume_checkpoint.current_feedback
@@ -266,7 +262,7 @@ class OrchestratorAgent:
             else None
         )
         self.last_feedback_result: Optional[FeedbackResult] = None
-        
+
         # Create search strategy (uses feedback_generator)
         self.search_strategy = self._create_search_strategy(
             coding_agent=coding_agent,
@@ -276,16 +272,13 @@ class OrchestratorAgent:
 
         if self._resume_checkpoint is not None:
             try:
-                self.search_strategy.load_state(
-                    self._resume_checkpoint.strategy_state
-                )
+                self.search_strategy.load_state(self._resume_checkpoint.strategy_state)
                 self._validate_restored_branch_refs()
             except RunCheckpointError:
                 raise
             except Exception as exc:
                 raise RunCheckpointCorruptError(
-                    "Could not restore search strategy state from the run "
-                    "checkpoint"
+                    "Could not restore search strategy state from the run " "checkpoint"
                 ) from exc
             # Nodes restored from the checkpoint already carried their agent
             # spend into cumulative_cost; only nodes created after this point
@@ -305,19 +298,14 @@ class OrchestratorAgent:
 
         # Resolved before the maintainer: the fast fraction is single-sourced
         # in the fidelity block and the maintainer calibrates at that value.
-        self.fidelity_spec = FidelitySpec.resolve(
-            self._config_budget.get("fidelity")
-        )
+        self.fidelity_spec = FidelitySpec.resolve(self._config_budget.get("fidelity"))
         (
             self.evaluation_maintainer,
             self._max_change_requests,
         ) = self._create_evaluation_maintainer()
         self._change_requests_filed = 0
         self._fidelity_active = False
-        if (
-            self.fidelity_spec.mode != "off"
-            and self.evaluation_maintainer is None
-        ):
+        if self.fidelity_spec.mode != "off" and self.evaluation_maintainer is None:
             raise ValueError(
                 "Fidelity requires an evaluation_maintainer block: the "
                 "policy's timing model comes from measured evaluation runs"
@@ -325,9 +313,7 @@ class OrchestratorAgent:
 
         # Now create experiment history store with the actual workspace path
         experiment_history_path = os.path.join(
-            self.search_strategy.workspace_dir, 
-            ".kapso", 
-            "experiment_history.json"
+            self.search_strategy.workspace_dir, ".kapso", "experiment_history.json"
         )
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,
@@ -335,7 +321,7 @@ class OrchestratorAgent:
             goal=self.goal,
             llm=self.llm,
         )
-        
+
         # Create knowledge search backend (or use provided instance).
         # This allows Kapso.evolve() to inject a concrete backend (e.g., kg_graph_search)
         # without relying on config defaults (which may point to a different backend).
@@ -348,35 +334,37 @@ class OrchestratorAgent:
             )
             # We created it inside the orchestrator → we should close it.
             self._owns_knowledge_search = True
-    
+
     def _create_feedback_generator(
         self,
         coding_agent: Optional[str] = None,
     ) -> FeedbackGenerator:
         """
         Create feedback generator.
-        
+
         Uses the same coding agent type as the developer agent by default.
         """
         # Get coding agent config from mode config
         mode_config = self.mode_config
         # Check for dedicated feedback_generator config first, fall back to coding_agent
-        feedback_config = mode_config.get('feedback_generator', {}) if mode_config else {}
-        coding_config = mode_config.get('coding_agent', {}) if mode_config else {}
-        
+        feedback_config = (
+            mode_config.get("feedback_generator", {}) if mode_config else {}
+        )
+        coding_config = mode_config.get("coding_agent", {}) if mode_config else {}
+
         # Use feedback_generator config if available, otherwise fall back to coding_agent config
         if feedback_config:
-            agent_type = feedback_config.get('type', 'claude_code')
-            agent_model = feedback_config.get('model')
-            agent_debug_model = feedback_config.get('debug_model')
-            agent_specific = feedback_config.get('agent_specific', {})
+            agent_type = feedback_config.get("type", "claude_code")
+            agent_model = feedback_config.get("model")
+            agent_debug_model = feedback_config.get("debug_model")
+            agent_specific = feedback_config.get("agent_specific", {})
         else:
             # Fall back to coding_agent config
-            agent_type = coding_agent or coding_config.get('type', 'claude_code')
-            agent_model = coding_config.get('model')
-            agent_debug_model = coding_config.get('debug_model')
-            agent_specific = coding_config.get('agent_specific', {})
-        
+            agent_type = coding_agent or coding_config.get("type", "claude_code")
+            agent_model = coding_config.get("model")
+            agent_debug_model = coding_config.get("debug_model")
+            agent_specific = coding_config.get("agent_specific", {})
+
         # Build config for feedback generator
         feedback_agent_config = CodingAgentFactory.build_config(
             agent_type=agent_type,
@@ -384,7 +372,7 @@ class OrchestratorAgent:
             debug_model=agent_debug_model,
             agent_specific=agent_specific,
         )
-        
+
         return FeedbackGenerator(
             coding_agent_config=feedback_agent_config,
         )
@@ -397,10 +385,10 @@ class OrchestratorAgent:
     ) -> SearchStrategy:
         """
         Create search strategy from config.
-        
+
         Args:
             coding_agent: Override coding agent type
-            
+
         Returns:
             Configured SearchStrategy instance
         """
@@ -415,24 +403,24 @@ class OrchestratorAgent:
             coding_agent_specific = None
         else:
             # Extract coding agent config
-            coding_config = mode_config.get('coding_agent', {})
+            coding_config = mode_config.get("coding_agent", {})
             if coding_agent:
                 coding_agent_type = coding_agent
                 coding_agent_model = None
                 coding_agent_debug_model = None
                 coding_agent_specific = None
             elif coding_config:
-                coding_agent_type = coding_config.get('type', 'aider')
-                coding_agent_model = coding_config.get('model')
-                coding_agent_debug_model = coding_config.get('debug_model')
+                coding_agent_type = coding_config.get("type", "aider")
+                coding_agent_model = coding_config.get("model")
+                coding_agent_debug_model = coding_config.get("debug_model")
                 # Support agent_specific from YAML config (e.g., auth_mode for Claude Code)
-                coding_agent_specific = coding_config.get('agent_specific')
+                coding_agent_specific = coding_config.get("agent_specific")
             else:
-                coding_agent_type = 'aider'
-                coding_agent_model = mode_config.get('developer_model')
-                coding_agent_debug_model = mode_config.get('developer_debug_model')
+                coding_agent_type = "aider"
+                coding_agent_model = mode_config.get("developer_model")
+                coding_agent_debug_model = mode_config.get("developer_debug_model")
                 coding_agent_specific = None
-        
+
         # Build coding agent config
         coding_agent_config = CodingAgentFactory.build_config(
             agent_type=coding_agent_type,
@@ -440,7 +428,7 @@ class OrchestratorAgent:
             debug_model=coding_agent_debug_model,
             agent_specific=coding_agent_specific,
         )
-        
+
         # Create strategy via factory
         return SearchStrategyFactory.create(
             strategy_type=strategy_type,
@@ -466,29 +454,30 @@ class OrchestratorAgent:
 
         search_config = mode_config.get("search_strategy", {})
         if search_config:
+            strategy_type = search_config.get("type", "generic")
+            params = dict(search_config.get("params", {}) or {})
+            if strategy_type == "generic":
+                ideation_config = mode_config.get("ideation")
+                if not isinstance(ideation_config, dict):
+                    raise ValueError(
+                        "generic search requires the mode ideation configuration"
+                    )
+                params["ideation"] = ideation_config
             return (
-                search_config.get("type", "generic"),
-                search_config.get("params", {}) or {},
+                strategy_type,
+                params,
             )
 
         return (
             "generic",
             {
-                "reasoning_effort": mode_config.get(
-                    "reasoning_effort", "medium"
-                ),
-                "code_debug_tries": mode_config.get(
-                    "code_debug_tries", 5
-                ),
-                "node_expansion_limit": mode_config.get(
-                    "node_expansion_limit", 2
-                ),
+                "reasoning_effort": mode_config.get("reasoning_effort", "medium"),
+                "code_debug_tries": mode_config.get("code_debug_tries", 5),
+                "node_expansion_limit": mode_config.get("node_expansion_limit", 2),
                 "node_expansion_new_childs_count": mode_config.get(
                     "node_expansion_new_childs_count", 5
                 ),
-                "idea_generation_steps": mode_config.get(
-                    "idea_generation_steps", 1
-                ),
+                "idea_generation_steps": mode_config.get("idea_generation_steps", 1),
                 "first_experiment_factor": mode_config.get(
                     "first_experiment_factor", 1
                 ),
@@ -516,18 +505,18 @@ class OrchestratorAgent:
     ) -> KnowledgeSearch:
         """
         Create knowledge search backend from config.
-        
+
         Args:
             is_kg_active: Whether to enable knowledge graph
-            
+
         Returns:
             Configured KnowledgeSearch instance
         """
         mode_config = self.mode_config
-        
+
         # Check for knowledge_search config (new format)
-        ks_config = mode_config.get('knowledge_search', {})
-        
+        ks_config = mode_config.get("knowledge_search", {})
+
         if ks_config:
             resolved_config = dict(ks_config)
             resolved_params = dict(resolved_config.get("params") or {})
@@ -535,25 +524,27 @@ class OrchestratorAgent:
             resolved_params.setdefault("retry", mode_config.get("retry"))
             resolved_config["params"] = resolved_params
             return KnowledgeSearchFactory.create_from_config(resolved_config)
-        
+
         # Check for legacy knowledge_retriever config
-        kr_config = mode_config.get('knowledge_retriever', {})
-        
+        kr_config = mode_config.get("knowledge_retriever", {})
+
         if kr_config:
             # Convert legacy config to new format
             resolved_params = dict(kr_config.get("params") or {})
             resolved_params.setdefault("models", mode_config.get("models"))
             resolved_params.setdefault("retry", mode_config.get("retry"))
-            return KnowledgeSearchFactory.create_from_config({
-                "type": "kg_llm_navigation",
-                "enabled": kr_config.get("enabled", True),
-                "params": resolved_params,
-                "preset": kr_config.get("preset"),
-            })
-        
+            return KnowledgeSearchFactory.create_from_config(
+                {
+                    "type": "kg_llm_navigation",
+                    "enabled": kr_config.get("enabled", True),
+                    "params": resolved_params,
+                    "preset": kr_config.get("preset"),
+                }
+            )
+
         # Check use_knowledge_graph flag
-        if 'use_knowledge_graph' in mode_config:
-            kg_enabled = mode_config.get('use_knowledge_graph', False)
+        if "use_knowledge_graph" in mode_config:
+            kg_enabled = mode_config.get("use_knowledge_graph", False)
             if kg_enabled or is_kg_active:
                 return KnowledgeSearchFactory.create(
                     search_type="kg_llm_navigation",
@@ -564,7 +555,7 @@ class OrchestratorAgent:
                 )
             else:
                 return KnowledgeSearchFactory.create_null()
-        
+
         # Fall back to is_kg_active parameter
         if is_kg_active:
             return KnowledgeSearchFactory.create(
@@ -574,7 +565,7 @@ class OrchestratorAgent:
                     "retry": mode_config.get("retry"),
                 },
             )
-        
+
         # Default: disabled
         return KnowledgeSearchFactory.create_null()
 
@@ -582,13 +573,12 @@ class OrchestratorAgent:
         """Attributed agent spend from nodes created in this process slice."""
         live: Dict[str, float] = {}
         history = self.search_strategy.get_experiment_history()
-        for node in history[self._restored_node_count:]:
+        for node in history[self._restored_node_count :]:
             for phase_name, phase_values in getattr(
                 node, "phase_telemetry", {}
             ).items():
-                live[phase_name] = (
-                    live.get(phase_name, 0.0)
-                    + phase_values.get("cost_usd", 0.0)
+                live[phase_name] = live.get(phase_name, 0.0) + phase_values.get(
+                    "cost_usd", 0.0
                 )
         return live
 
@@ -600,8 +590,7 @@ class OrchestratorAgent:
         unknown = sorted(set(block) - _MAINTAINER_BLOCK_KEYS)
         if unknown:
             raise ValueError(
-                "Unknown evaluation_maintainer config keys: "
-                + ", ".join(unknown)
+                "Unknown evaluation_maintainer config keys: " + ", ".join(unknown)
             )
         agent_config = CodingAgentFactory.build_config(
             agent_type=block.get("type", "claude_code"),
@@ -617,9 +606,7 @@ class OrchestratorAgent:
             fast_fraction=self.fidelity_spec.eval_fast_fraction,
             subsample_seed=block.get("subsample_seed", 1337),
             calibration_fraction=block.get("calibration_fraction", 0.03),
-            calibration_timeout_seconds=block.get(
-                "calibration_timeout_seconds", 900
-            ),
+            calibration_timeout_seconds=block.get("calibration_timeout_seconds", 900),
             fast_variant_threshold_seconds=(
                 block.get("fast_variant_threshold_minutes", 20) * 60
             ),
@@ -641,9 +628,7 @@ class OrchestratorAgent:
 
     def _adopt_registered_evaluation(self) -> None:
         """Point the strategy at the registered evaluator head."""
-        manifest = build_evaluation_manifest(
-            self.evaluation_maintainer.evaluation_dir
-        )
+        manifest = build_evaluation_manifest(self.evaluation_maintainer.evaluation_dir)
         head = self.evaluation_maintainer.registry.head()
         self.search_strategy.set_registered_evaluation(
             manifest=manifest,
@@ -725,8 +710,7 @@ class OrchestratorAgent:
         deadline = (
             max(
                 0.0,
-                self.budget_spec.time_budget_seconds
-                - self.get_elapsed_seconds(),
+                self.budget_spec.time_budget_seconds - self.get_elapsed_seconds(),
             )
             if self.budget_spec.time_budget_seconds is not None
             else None
@@ -765,21 +749,13 @@ class OrchestratorAgent:
                 and node.branch_name
                 and not node.evaluation_integrity_error
             ),
-            key=lambda node: node.score if node.score is not None else float(
-                "-inf"
-            ),
+            key=lambda node: node.score if node.score is not None else float("-inf"),
             reverse=True,
         )
         if priority_node_id is not None:
             candidates = [
-                node
-                for node in candidates
-                if node.node_id == priority_node_id
-            ] + [
-                node
-                for node in candidates
-                if node.node_id != priority_node_id
-            ]
+                node for node in candidates if node.node_id == priority_node_id
+            ] + [node for node in candidates if node.node_id != priority_node_id]
         bridged = False
         for candidate in candidates:
             bridged = strategy.run_bridge_evaluation(
@@ -828,9 +804,7 @@ class OrchestratorAgent:
         strategy = self.search_strategy
         head_id = strategy.registered_evaluator_id
         transition = strategy.evaluator_transition
-        pending = (
-            transition is not None and transition.get("status") == "pending"
-        )
+        pending = transition is not None and transition.get("status") == "pending"
         if not strategy.get_experiment_history():
             # Nothing measured yet: adopt the head as the scoring ruler.
             strategy.scores_evaluator_id = head_id
@@ -890,9 +864,7 @@ class OrchestratorAgent:
                     "[Orchestrator] Evaluator re-registered as "
                     f"v{outcome.new_version.version}"
                 )
-                self._execute_evaluator_transition(
-                    priority_node_id=candidate.node_id
-                )
+                self._execute_evaluator_transition(priority_node_id=candidate.node_id)
 
     def _create_budget_ledger(self) -> BudgetLedger:
         """Wire the ledger: priors from the checkpoint, live meters, nodes."""
@@ -985,10 +957,7 @@ class OrchestratorAgent:
                 continue
             candidates.append(candidate)
             seen_node_ids.add(candidate.node_id)
-        if (
-            returned_node is not None
-            and returned_node.node_id not in seen_node_ids
-        ):
+        if returned_node is not None and returned_node.node_id not in seen_node_ids:
             candidates.append(returned_node)
         return candidates
 
@@ -1007,9 +976,7 @@ class OrchestratorAgent:
             parent_ref = candidate.parent_branch_name or "main"
             try:
                 if not git_ref:
-                    raise ValueError(
-                        "candidate does not identify a Git branch"
-                    )
+                    raise ValueError("candidate does not identify a Git branch")
                 with self.search_strategy.workspace.materialize_ref(
                     git_ref
                 ) as materialized_dir:
@@ -1023,14 +990,10 @@ class OrchestratorAgent:
                         parent_ref=parent_ref,
                         node=node_snapshot,
                     )
-                    result = normalize_result(
-                        self.iteration_evaluator(context)
-                    )
+                    result = normalize_result(self.iteration_evaluator(context))
                 candidate.metrics = dict(result.metrics)
                 candidate.primary_metric = result.primary_metric
-                candidate.external_evaluation_metadata = dict(
-                    result.metadata
-                )
+                candidate.external_evaluation_metadata = dict(result.metadata)
                 candidate.external_evaluation_error = ""
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
@@ -1059,24 +1022,24 @@ class OrchestratorAgent:
     ) -> SolveResult:
         """
         Run the main experimentation loop.
-        
+
         In the new design:
         1. Developer agent implements solution and runs evaluation
         2. Feedback generator validates evaluation and decides stop/continue
         3. Optional external evaluator records observational candidate metrics
         4. Loop continues until goal reached or budget exhausted
         5. Experiment history is accessed via MCP tools (not context managers)
-        
+
         Stops when ANY of these conditions is met:
         1. Feedback generator says STOP (goal achieved)
         2. Budget exhausted (time/cost/iterations)
         3. Legacy: problem_handler.stop_condition() (for backward compatibility)
-        
+
         Args:
             experiment_max_iter: Maximum number of experiment iterations
             time_budget_minutes: Time budget in minutes (optional, no limit if not set)
             cost_budget: Maximum cost in dollars (optional, no limit if not set)
-            
+
         Returns:
             SolveResult with best_experiment, final_feedback, stopped_reason
         """
@@ -1100,10 +1063,7 @@ class OrchestratorAgent:
         # escrowed reserve becomes the committed-run slot when active.
         fidelity_policy: Optional[FidelityPolicy] = None
         fidelity_active = False
-        if (
-            self.fidelity_spec.mode != "off"
-            and self.evaluation_maintainer is not None
-        ):
+        if self.fidelity_spec.mode != "off" and self.evaluation_maintainer is not None:
             fidelity_policy = FidelityPolicy(
                 spec=self.fidelity_spec,
                 strategy=self.search_strategy,
@@ -1146,8 +1106,7 @@ class OrchestratorAgent:
                         budget_spec.time_budget_seconds,
                         self.search_strategy.get_experiment_history(),
                     )
-                    if fidelity_active
-                    and budget_spec.time_budget_seconds is not None
+                    if fidelity_active and budget_spec.time_budget_seconds is not None
                     else budget_spec.finalization_reserve_seconds
                 )
                 # Build the per-iteration budget view from the durable clock,
@@ -1161,9 +1120,7 @@ class OrchestratorAgent:
                     time_budget_seconds=budget_spec.time_budget_seconds,
                     cost_budget_usd=budget_spec.cost_budget_usd,
                     finalization_reserve_seconds=effective_reserve_seconds,
-                    min_agent_timeout_seconds=(
-                        budget_spec.min_agent_timeout_seconds
-                    ),
+                    min_agent_timeout_seconds=(budget_spec.min_agent_timeout_seconds),
                 )
                 self.search_strategy.observe_budget(snapshot)
                 budget_progress = snapshot.progress_percent
@@ -1177,9 +1134,7 @@ class OrchestratorAgent:
                     stop_detail = (
                         "time_budget"
                         if snapshot.time_fraction >= 1.0
-                        else "cost_budget"
-                        if snapshot.cost_fraction >= 1.0
-                        else None
+                        else "cost_budget" if snapshot.cost_fraction >= 1.0 else None
                     )
                     self._save_run_checkpoint(
                         status="running",
@@ -1195,8 +1150,7 @@ class OrchestratorAgent:
                 remaining_after_reserve = snapshot.remaining_after_reserve
                 if (
                     remaining_after_reserve is not None
-                    and remaining_after_reserve
-                    <= budget_spec.min_iteration_seconds
+                    and remaining_after_reserve <= budget_spec.min_iteration_seconds
                 ):
                     champion = (
                         fidelity_policy.full_champion(
@@ -1221,19 +1175,15 @@ class OrchestratorAgent:
                         # that follows it (also observed live: the build
                         # spent the whole escrow and the measurement got
                         # 64 seconds).
-                        measurement_slice = (
-                            self.evaluation_maintainer.timing(
-                                1.0
-                            ).upper_seconds
-                        )
+                        measurement_slice = self.evaluation_maintainer.timing(
+                            1.0
+                        ).upper_seconds
                         snapshot = BudgetSnapshot(
                             iteration_index=i,
                             max_iterations=experiment_max_iter,
                             elapsed_seconds=self.get_elapsed_seconds(),
                             cost_usd=self.get_cumulative_cost(),
-                            time_budget_seconds=(
-                                budget_spec.time_budget_seconds
-                            ),
+                            time_budget_seconds=(budget_spec.time_budget_seconds),
                             cost_budget_usd=budget_spec.cost_budget_usd,
                             finalization_reserve_seconds=measurement_slice,
                             min_agent_timeout_seconds=(
@@ -1257,9 +1207,7 @@ class OrchestratorAgent:
                 if fidelity_active:
                     decision = fidelity_policy.decide(
                         nodes=self.search_strategy.get_experiment_history(),
-                        remaining_after_reserve=(
-                            snapshot.remaining_after_reserve
-                        ),
+                        remaining_after_reserve=(snapshot.remaining_after_reserve),
                         probe_estimate_seconds=(
                             self._probe_estimate_seconds(budget_spec)
                         ),
@@ -1270,27 +1218,24 @@ class OrchestratorAgent:
                 self.search_strategy.observe_fidelity(decision)
 
                 iterations_run = i + 1
-                
+
                 # Build context with problem and feedback
                 # Experiment history is accessed via MCP tools by the agent
                 context = problem
                 if self.current_feedback:
                     context = f"{problem}\n\n## Feedback from Previous Iteration\n\n{self.current_feedback}\n\nPlease address the above feedback in this iteration."
-                
+
                 # Run one iteration of search strategy
                 # Search strategy handles: solution generation, implementation, feedback
                 # Returns SearchNode with all data including should_stop
                 previous_node_ids = {
                     candidate.node_id
-                    for candidate in (
-                        self.search_strategy.get_experiment_history()
-                    )
+                    for candidate in (self.search_strategy.get_experiment_history())
                 }
                 node = self.search_strategy.run(
-                    context, 
-                    budget_progress=budget_progress
+                    context, budget_progress=budget_progress
                 )
-                
+
                 # Skip if no result (shouldn't happen but be safe)
                 if node is None:
                     print(f"[Orchestrator] Warning: No result from iteration {i+1}")
@@ -1327,17 +1272,18 @@ class OrchestratorAgent:
                         self.experiment_store.add_experiment(candidate)
 
                 self._route_change_requests(finalized_candidates)
-                
+
                 # Log result
                 print(f"[Orchestrator] Iteration {i+1} result:")
                 print(f"  - Score: {node.score}")
                 print(f"  - Should stop: {node.should_stop}")
                 print(f"  - Evaluation valid: {node.evaluation_valid}")
                 print(f"  - Feedback: {node.feedback or ''}")
-                
+
                 # Store feedback result for return value
                 if node.feedback:
                     from kapso.execution.search_strategies.generic import FeedbackResult
+
                     self.last_feedback_result = FeedbackResult(
                         stop=node.should_stop,
                         evaluation_valid=node.evaluation_valid,
@@ -1349,22 +1295,16 @@ class OrchestratorAgent:
                 self.completed_iterations += 1
                 time_budget_exhausted = (
                     budget_spec.time_budget_seconds is not None
-                    and self.get_elapsed_seconds()
-                    >= budget_spec.time_budget_seconds
+                    and self.get_elapsed_seconds() >= budget_spec.time_budget_seconds
                 )
                 cost_budget_exhausted = (
                     budget_spec.cost_budget_usd is not None
-                    and self.get_cumulative_cost()
-                    >= budget_spec.cost_budget_usd
+                    and self.get_cumulative_cost() >= budget_spec.cost_budget_usd
                 )
-                budget_exhausted = (
-                    time_budget_exhausted or cost_budget_exhausted
-                )
+                budget_exhausted = time_budget_exhausted or cost_budget_exhausted
                 if budget_exhausted:
                     stop_detail = (
-                        "time_budget"
-                        if time_budget_exhausted
-                        else "cost_budget"
+                        "time_budget" if time_budget_exhausted else "cost_budget"
                     )
                 self._save_run_checkpoint(
                     status="completed" if node.should_stop else "running",
@@ -1403,8 +1343,7 @@ class OrchestratorAgent:
                                         1.0
                                     ).upper_seconds,
                                 )
-                                if self.budget_spec.time_budget_seconds
-                                is not None
+                                if self.budget_spec.time_budget_seconds is not None
                                 else None
                             ),
                         )
@@ -1431,12 +1370,12 @@ class OrchestratorAgent:
                     break
 
                 print(
-                    f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}", 
-                    '#' * 100,
-                    '\n', 
-                    self.search_strategy.get_best_experiment(), 
-                    '\n', 
-                    '#' * 100
+                    f"Experiment {i+1} completed with cumulative cost: ${self.get_cumulative_cost():.3f}",
+                    "#" * 100,
+                    "\n",
+                    self.search_strategy.get_best_experiment(),
+                    "\n",
+                    "#" * 100,
                 )
 
             if stopped_reason == "max_iterations":
@@ -1444,16 +1383,18 @@ class OrchestratorAgent:
                 self._save_run_checkpoint(status="running")
         finally:
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
-            
+
             # Close experiment history store
             if self.experiment_store:
                 try:
                     self.experiment_store.close()
                 except Exception:
                     pass
-            
+
             # Close knowledge search only if the orchestrator created it.
-            if getattr(self, "_owns_knowledge_search", False) and hasattr(self.knowledge_search, "close"):
+            if getattr(self, "_owns_knowledge_search", False) and hasattr(
+                self.knowledge_search, "close"
+            ):
                 try:
                     self.knowledge_search.close()
                 except Exception:

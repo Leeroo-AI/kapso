@@ -191,6 +191,7 @@ class CandidateSelector:
             evidence_snapshot=evidence_snapshot,
             candidates=pool,
             analysis_by_id=analysis_by_id,
+            selection_artifacts=call.artifacts,
         )
         return SelectionResult(decision=decision, call=call)
 
@@ -201,6 +202,7 @@ class CandidateSelector:
         evidence_snapshot: CampaignEvidenceSnapshot,
         candidates: Tuple[IdeaRecord, ...],
         analysis_by_id: Mapping[str, CandidateAnalysis],
+        selection_artifacts: Tuple[str, ...],
     ) -> SelectionDecision:
         eligible_ids = {
             idea_id for idea_id, analysis in analysis_by_id.items() if analysis.eligible
@@ -296,6 +298,7 @@ class CandidateSelector:
             gap_decisions=tuple(parsed["gap_decisions"]),
             duplicate_overrides=tuple(parsed["duplicate_overrides"]),
             decision_summary=parsed["decision_summary"],
+            selection_artifacts=selection_artifacts,
             expected_benefit=parsed["expected_benefit"],
             expected_cost=parsed["expected_cost"],
         )
