@@ -105,6 +105,10 @@ from kapso.execution.search_strategies.generic.ideation.operators import (
     find_resurfaceable_ideas,
     plan_search_directive,
 )
+from kapso.execution.search_strategies.generic.ideation.outcomes import (
+    build_idea_outcome,
+    validation_tier,
+)
 from kapso.execution.search_strategies.generic.ideation.policy import choose_policy
 from kapso.execution.search_strategies.generic.ideation.generator import (
     CANDIDATE_RESPONSE_SCHEMA,
@@ -206,6 +210,7 @@ __all__ = [
     "SELECTOR_RESPONSE_SCHEMA",
     "DiversityRepairRequest",
     "canonical_idea_embedding_text",
+    "build_idea_outcome",
     "content_identifier",
     "choose_policy",
     "cosine_similarity",
@@ -218,4 +223,5 @@ __all__ = [
     "require_gap_transition",
     "require_idea_transition",
     "utc_now",
+    "validation_tier",
 ]

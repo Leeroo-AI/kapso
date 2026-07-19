@@ -1,474 +1,609 @@
-# Experiment History Store
-#
-# Stores experiment history with dual storage:
-# - JSON file for basic retrieval (top, recent)
-# - Weaviate for semantic search (optional)
-#
-# Features:
-# - The per-experiment lesson artifact is technical_difficulties
-#   (implementor-authored, fallback-generated when missing)
-#
-# The store is designed to be accessed by both:
-# - The orchestrator (in-process, for adding experiments)
-# - MCP server (separate process, for querying via tools)
+"""Strict executed-experiment memory for evidence-directed campaigns."""
 
 import json
-import logging
+import math
 import os
-from dataclasses import dataclass, asdict, field
-from datetime import datetime
-from typing import Any, Dict, List, Mapping, Optional
+import re
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
-# Weaviate imports (optional - graceful fallback if not available)
-try:
-    import weaviate
-    from weaviate.classes.config import Configure, Property, DataType
-    WEAVIATE_AVAILABLE = True
-except ImportError:
-    WEAVIATE_AVAILABLE = False
+from kapso.execution.fidelity import EvaluationAttempt
 
-logger = logging.getLogger(__name__)
+EXPERIMENT_HISTORY_SCHEMA = "kapso.experiment_history.v3"
+_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*_[0-9a-f]{32}$")
+_RECORD_FIELDS = {
+    "node_id",
+    "execution_revision",
+    "idea_id",
+    "selection_batch_id",
+    "parent_node_id",
+    "solution",
+    "raw_score",
+    "normalized_utility",
+    "objective_direction",
+    "feedback",
+    "branch_name",
+    "had_error",
+    "recoverable_error",
+    "error_message",
+    "timestamp",
+    "technical_difficulties",
+    "metrics",
+    "primary_metric",
+    "external_evaluation_metadata",
+    "external_evaluation_error",
+    "evaluation_valid",
+    "evaluation_provenance",
+    "evaluation_integrity_error",
+    "build_fidelity",
+    "eval_fidelity",
+    "validation_tier",
+    "evaluation_attempts",
+    "duration_seconds",
+    "cost_usd",
+}
 
 
-@dataclass
+def _finite_optional(value: Any, name: str, minimum: float | None = None):
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        raise ValueError(f"experiment {name} must be finite or null")
+    numeric = float(value)
+    if minimum is not None and numeric < minimum:
+        raise ValueError(f"experiment {name} must be >= {minimum}")
+    return numeric
+
+
+def _typed_identifier(value: Any, prefix: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not _IDENTIFIER.fullmatch(value)
+        or not value.startswith(prefix + "_")
+    ):
+        raise ValueError(f"experiment {prefix} id is invalid")
+    return value
+
+
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate experiment-history key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_constant(value: str):
+    raise ValueError(f"experiment history contains non-finite value: {value}")
+
+
+@dataclass(frozen=True)
 class ExperimentRecord:
-    """
-    Stored experiment record.
-    
-    Contains all information about a single experiment attempt,
-    including the implementor's technical_difficulties report.
-    """
+    """One executed node, separate from unexecuted idea candidates."""
+
     node_id: int
+    execution_revision: int
+    idea_id: Optional[str]
+    selection_batch_id: Optional[str]
+    parent_node_id: Optional[int]
     solution: str
-    score: Optional[float]
+    raw_score: Optional[float]
+    normalized_utility: Optional[float]
+    objective_direction: str
     feedback: str
     branch_name: str
     had_error: bool
+    recoverable_error: bool
     error_message: str
     timestamp: str
-    # Implementor-reported (or fallback-generated) build difficulties.
-    technical_difficulties: str = ""
-    # Observational caller-owned metrics. Internal ``score`` remains the search
-    # and ranking signal used by Kapso.
-    metrics: Dict[str, float] = field(default_factory=dict)
-    primary_metric: Optional[str] = None
-    external_evaluation_metadata: Dict[str, Any] = field(default_factory=dict)
-    external_evaluation_error: str = ""
-    evaluation_valid: bool = True
-    evaluation_provenance: str = "agent_generated"
-    evaluation_integrity_error: str = ""
-    
+    technical_difficulties: str
+    metrics: Dict[str, float]
+    primary_metric: Optional[str]
+    external_evaluation_metadata: Dict[str, Any]
+    external_evaluation_error: str
+    evaluation_valid: bool
+    evaluation_provenance: str
+    evaluation_integrity_error: str
+    build_fidelity: str
+    eval_fidelity: str
+    validation_tier: str
+    evaluation_attempts: Tuple[EvaluationAttempt, ...]
+    duration_seconds: Optional[float]
+    cost_usd: Optional[float]
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.node_id, "node id"),
+            (self.execution_revision, "execution revision"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"experiment {name} must be non-negative")
+        if self.parent_node_id is not None and (
+            isinstance(self.parent_node_id, bool)
+            or not isinstance(self.parent_node_id, int)
+            or self.parent_node_id < 0
+        ):
+            raise ValueError("experiment parent node id must be non-negative or null")
+        if (self.idea_id is None) != (self.selection_batch_id is None):
+            raise ValueError("experiment idea and batch links must appear together")
+        if self.idea_id is not None:
+            _typed_identifier(self.idea_id, "idea")
+            _typed_identifier(self.selection_batch_id, "batch")
+        for value, name in (
+            (self.solution, "solution"),
+            (self.branch_name, "branch"),
+            (self.timestamp, "timestamp"),
+            (self.objective_direction, "objective direction"),
+            (self.build_fidelity, "build fidelity"),
+            (self.eval_fidelity, "evaluation fidelity"),
+            (self.validation_tier, "validation tier"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"experiment {name} must be non-empty")
+        for value, name in (
+            (self.feedback, "feedback"),
+            (self.error_message, "error message"),
+            (self.technical_difficulties, "technical difficulties"),
+            (self.external_evaluation_error, "external evaluation error"),
+            (self.evaluation_integrity_error, "evaluation integrity error"),
+        ):
+            if not isinstance(value, str):
+                raise ValueError(f"experiment {name} must be a string")
+        if self.objective_direction not in {"maximize", "minimize"}:
+            raise ValueError("experiment objective direction is invalid")
+        if self.build_fidelity not in {"fast", "full"} or self.eval_fidelity not in {
+            "fast",
+            "full",
+        }:
+            raise ValueError("experiment fidelity is invalid")
+        if self.validation_tier not in {"probe", "validated", "full"}:
+            raise ValueError("experiment validation tier is invalid")
+        for value, name in (
+            (self.had_error, "error status"),
+            (self.recoverable_error, "recoverability"),
+            (self.evaluation_valid, "evaluation validity"),
+        ):
+            if not isinstance(value, bool):
+                raise ValueError(f"experiment {name} must be boolean")
+        if self.recoverable_error and not self.had_error:
+            raise ValueError("only failed experiments can be recoverable")
+        timestamp = datetime.fromisoformat(self.timestamp)
+        if timestamp.utcoffset() is None:
+            raise ValueError("experiment timestamp must include a UTC offset")
+        object.__setattr__(
+            self,
+            "raw_score",
+            _finite_optional(self.raw_score, "raw score"),
+        )
+        object.__setattr__(
+            self,
+            "normalized_utility",
+            _finite_optional(self.normalized_utility, "normalized utility"),
+        )
+        if self.raw_score is None and self.normalized_utility is not None:
+            raise ValueError("normalized utility requires a raw score")
+        if self.raw_score is not None:
+            sign = 1.0 if self.objective_direction == "maximize" else -1.0
+            if self.normalized_utility != sign * self.raw_score:
+                raise ValueError("normalized utility conflicts with objective direction")
+        if self.had_error and (
+            self.raw_score is not None or self.evaluation_attempts
+        ):
+            raise ValueError("failed experiments cannot contain evaluation evidence")
+        if not isinstance(self.metrics, dict) or not all(
+            isinstance(key, str)
+            and not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            for key, value in self.metrics.items()
+        ):
+            raise ValueError("experiment metrics are invalid")
+        object.__setattr__(
+            self,
+            "metrics",
+            {key: float(value) for key, value in self.metrics.items()},
+        )
+        if self.primary_metric is not None and (
+            not isinstance(self.primary_metric, str)
+            or self.primary_metric not in self.metrics
+        ):
+            raise ValueError("experiment primary metric is invalid")
+        if not isinstance(self.external_evaluation_metadata, dict):
+            raise ValueError("experiment external metadata must be an object")
+        json.dumps(
+            self.external_evaluation_metadata,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        if self.evaluation_provenance not in {"provided", "agent_generated"}:
+            raise ValueError("experiment evaluation provenance is invalid")
+        if not isinstance(self.evaluation_attempts, (list, tuple)) or not all(
+            isinstance(attempt, EvaluationAttempt)
+            for attempt in self.evaluation_attempts
+        ):
+            raise ValueError("experiment evaluation attempts are invalid")
+        object.__setattr__(self, "evaluation_attempts", tuple(self.evaluation_attempts))
+        object.__setattr__(
+            self,
+            "duration_seconds",
+            _finite_optional(self.duration_seconds, "duration", 0.0),
+        )
+        object.__setattr__(
+            self,
+            "cost_usd",
+            _finite_optional(self.cost_usd, "cost", 0.0),
+        )
+
+    @classmethod
+    def from_node(
+        cls,
+        node: Any,
+        objective_direction: str,
+        require_idea_links: bool,
+    ) -> "ExperimentRecord":
+        idea_id = getattr(node, "idea_id", None)
+        batch_id = getattr(node, "selection_batch_id", None)
+        if require_idea_links:
+            idea_id = _typed_identifier(idea_id, "idea")
+            batch_id = _typed_identifier(batch_id, "batch")
+        raw_score = node.score if node.evaluation_valid and not node.had_error else None
+        sign = 1.0 if objective_direction == "maximize" else -1.0
+        normalized = None if raw_score is None else sign * raw_score
+        if node.had_error:
+            validation_tier = "probe"
+        elif node.eval_fidelity == "full" and node.build_fidelity == "full":
+            validation_tier = "full"
+        elif node.eval_fidelity == "full":
+            validation_tier = "validated"
+        else:
+            validation_tier = "probe"
+        timestamp = node.started_at
+        if not timestamp and not require_idea_links:
+            timestamp = datetime.now(timezone.utc).isoformat()
+        return cls(
+            node_id=node.node_id,
+            execution_revision=node.execution_revision,
+            idea_id=idea_id,
+            selection_batch_id=batch_id,
+            parent_node_id=node.parent_node_id,
+            solution=node.solution,
+            raw_score=raw_score,
+            normalized_utility=normalized,
+            objective_direction=objective_direction,
+            feedback=node.feedback,
+            branch_name=node.branch_name,
+            had_error=node.had_error,
+            recoverable_error=node.recoverable_error,
+            error_message=node.error_message,
+            timestamp=timestamp,
+            technical_difficulties=node.technical_difficulties,
+            metrics=dict(node.metrics),
+            primary_metric=node.primary_metric,
+            external_evaluation_metadata=dict(node.external_evaluation_metadata),
+            external_evaluation_error=node.external_evaluation_error,
+            evaluation_valid=node.evaluation_valid,
+            evaluation_provenance=node.evaluation_provenance,
+            evaluation_integrity_error=node.evaluation_integrity_error,
+            build_fidelity=node.build_fidelity,
+            eval_fidelity=node.eval_fidelity,
+            validation_tier=validation_tier,
+            evaluation_attempts=tuple(node.evaluation_attempts),
+            duration_seconds=node.duration_seconds,
+            cost_usd=node.cost_usd,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "execution_revision": self.execution_revision,
+            "idea_id": self.idea_id,
+            "selection_batch_id": self.selection_batch_id,
+            "parent_node_id": self.parent_node_id,
+            "solution": self.solution,
+            "raw_score": self.raw_score,
+            "normalized_utility": self.normalized_utility,
+            "objective_direction": self.objective_direction,
+            "feedback": self.feedback,
+            "branch_name": self.branch_name,
+            "had_error": self.had_error,
+            "recoverable_error": self.recoverable_error,
+            "error_message": self.error_message,
+            "timestamp": self.timestamp,
+            "technical_difficulties": self.technical_difficulties,
+            "metrics": dict(self.metrics),
+            "primary_metric": self.primary_metric,
+            "external_evaluation_metadata": dict(
+                self.external_evaluation_metadata
+            ),
+            "external_evaluation_error": self.external_evaluation_error,
+            "evaluation_valid": self.evaluation_valid,
+            "evaluation_provenance": self.evaluation_provenance,
+            "evaluation_integrity_error": self.evaluation_integrity_error,
+            "build_fidelity": self.build_fidelity,
+            "eval_fidelity": self.eval_fidelity,
+            "validation_tier": self.validation_tier,
+            "evaluation_attempts": [
+                attempt.to_dict() for attempt in self.evaluation_attempts
+            ],
+            "duration_seconds": self.duration_seconds,
+            "cost_usd": self.cost_usd,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ExperimentRecord":
+        if not isinstance(data, Mapping) or set(data) != _RECORD_FIELDS:
+            raise ValueError("experiment record fields are invalid")
+        raw_attempts = data["evaluation_attempts"]
+        if not isinstance(raw_attempts, list):
+            raise ValueError("experiment evaluation attempts must be a list")
+        attempt_fields = {
+            "commit_sha",
+            "evaluator_id",
+            "fidelity",
+            "fraction",
+            "seed",
+            "score",
+            "duration_seconds",
+            "metrics",
+        }
+        if any(
+            not isinstance(attempt, Mapping) or set(attempt) != attempt_fields
+            for attempt in raw_attempts
+        ):
+            raise ValueError("experiment evaluation attempt fields are invalid")
+        values = dict(data)
+        values["evaluation_attempts"] = tuple(
+            EvaluationAttempt.from_dict(attempt) for attempt in raw_attempts
+        )
+        return cls(**values)
+
     def __str__(self) -> str:
-        """Format for display."""
-        if self.had_error:
-            return f"Experiment {self.node_id} FAILED: {self.error_message[:100]}"
-        return f"Experiment {self.node_id} (score={self.score}): {self.solution[:200]}..."
-    
+        status = "failed" if self.had_error else f"utility={self.normalized_utility}"
+        return f"Experiment {self.node_id} ({status}): {self.solution}"
 
 
 class ExperimentHistoryStore:
-    """
-    Store for experiment history with dual storage.
-    
-    Provides:
-    - add_experiment(): Add new experiment result
-    - get_top_experiments(): Get best experiments by score
-    - get_recent_experiments(): Get most recent experiments
-    - search_similar(): Semantic search for similar experiments (via Weaviate)
-    
-    Storage:
-    - JSON file: Always used, provides persistence and basic retrieval
-    - Weaviate: Optional, provides semantic search capability
-    
-    """
-    
-    WEAVIATE_COLLECTION = "ExperimentHistory"
-    DUPLICATE_THRESHOLD = 0.95  # Cosine similarity threshold for duplicate detection
-    
+    """Atomic, objective-aware storage for executed nodes only."""
+
     def __init__(
-        self, 
+        self,
         json_path: str,
-        weaviate_url: Optional[str] = None,
+        objective_direction: Optional[str] = None,
+        require_idea_links: Optional[bool] = None,
         goal: Optional[str] = None,
         llm: Any = None,
     ):
-        """
-        Initialize experiment history store.
-        
-        Args:
-            json_path: Path to JSON file for persistence
-            weaviate_url: Optional Weaviate URL for semantic search
-            goal: Goal description (kept for context/rendering)
-            llm: Shared configured backend (reserved for future use)
-        """
-        self.json_path = json_path
+        self.path = Path(json_path)
         self.goal = goal
         self._llm = llm
         self.experiments: List[ExperimentRecord] = []
-        
-        # Connect to Weaviate if available
-        self.weaviate = None
-        if weaviate_url and WEAVIATE_AVAILABLE:
-            try:
-                self.weaviate = weaviate.connect_to_local(
-                    host=weaviate_url.replace("http://", "").replace("https://", "").split(":")[0],
-                    port=int(weaviate_url.split(":")[-1]) if ":" in weaviate_url else 8080,
-                )
-                self._ensure_weaviate_collection()
-                print(f"[ExperimentHistoryStore] Connected to Weaviate at {weaviate_url}")
-            except Exception as e:
-                print(f"[ExperimentHistoryStore] Warning: Could not connect to Weaviate: {e}")
-                self.weaviate = None
-        
-        # Load existing experiments from JSON
-        self._load_from_json()
-    
-    def add_experiment(self, node: Any) -> None:
-        """
-        Add experiment to both JSON and Weaviate.
-        
-        The record carries the node's technical_difficulties verbatim.
-        
-        Args:
-            node: SearchNode with experiment results
-        """
-        raw_metrics = getattr(node, "metrics", {})
-        metrics = (
-            dict(raw_metrics) if isinstance(raw_metrics, Mapping) else {}
-        )
-        raw_metadata = getattr(node, "external_evaluation_metadata", {})
-        metadata = (
-            dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
-        )
-        primary_metric = getattr(node, "primary_metric", None)
-        if not isinstance(primary_metric, str):
-            primary_metric = None
-        external_evaluation_error = getattr(
-            node,
-            "external_evaluation_error",
-            "",
-        )
-        if not isinstance(external_evaluation_error, str):
-            external_evaluation_error = ""
-        evaluation_valid = getattr(node, "evaluation_valid", True)
-        if not isinstance(evaluation_valid, bool):
-            evaluation_valid = True
-        evaluation_provenance = getattr(
-            node,
-            "evaluation_provenance",
-            "agent_generated",
-        )
-        if evaluation_provenance not in {"provided", "agent_generated"}:
-            evaluation_provenance = "agent_generated"
-        evaluation_integrity_error = getattr(
-            node,
-            "evaluation_integrity_error",
-            "",
-        )
-        if not isinstance(evaluation_integrity_error, str):
-            evaluation_integrity_error = ""
-
-        record = ExperimentRecord(
-            node_id=node.node_id,
-            solution=node.solution or "",
-            score=node.score,
-            feedback=node.feedback or "",
-            branch_name=node.branch_name or "",
-            had_error=node.had_error,
-            error_message=node.error_message or "",
-            technical_difficulties=getattr(node, "technical_difficulties", "") or "",
-            timestamp=datetime.now().isoformat(),
-            metrics=metrics,
-            primary_metric=primary_metric,
-            external_evaluation_metadata=metadata,
-            external_evaluation_error=external_evaluation_error,
-            evaluation_valid=evaluation_valid,
-            evaluation_provenance=evaluation_provenance,
-            evaluation_integrity_error=evaluation_integrity_error,
-        )
-        
-        # Add to in-memory list
-        self.experiments.append(record)
-        
-        # Persist to JSON
-        self._save_to_json()
-        
-        # Index in Weaviate (for semantic search)
-        if self.weaviate and record.evaluation_valid:
-            self._index_in_weaviate(record)
-        
-        print(f"[ExperimentHistoryStore] Added experiment {record.node_id} (score={record.score})")
-    
-    def get_top_experiments(self, k: int = 5) -> List[ExperimentRecord]:
-        """
-        Get top k experiments by score.
-        
-        Args:
-            k: Number of experiments to return
-            
-        Returns:
-            List of experiments sorted by score (best first)
-        """
-        valid = [
-            e
-            for e in self.experiments
-            if not e.had_error
-            and e.evaluation_valid
-            and e.score is not None
-        ]
-        return sorted(valid, key=lambda x: x.score or 0, reverse=True)[:k]
-    
-    def get_recent_experiments(self, k: int = 5) -> List[ExperimentRecord]:
-        """
-        Get most recent k experiments.
-        
-        Args:
-            k: Number of experiments to return
-            
-        Returns:
-            List of experiments in chronological order (most recent last)
-        """
-        return self.experiments[-k:]
-    
-    def search_similar(self, query: str, k: int = 3) -> List[ExperimentRecord]:
-        """
-        Semantic search for similar experiments via Weaviate.
-        
-        Args:
-            query: Search query (description of approach or problem)
-            k: Number of results to return
-            
-        Returns:
-            List of similar experiments
-        """
-        if not self.weaviate:
-            # Fallback: return recent if no Weaviate
-            print("[ExperimentHistoryStore] Weaviate not available, falling back to recent experiments")
-            return self.get_recent_experiments(k)
-        
-        try:
-            collection = self.weaviate.collections.get(self.WEAVIATE_COLLECTION)
-            results = collection.query.near_text(
-                query=query,
-                limit=k,
+        self.objective_direction = objective_direction
+        self.require_idea_links = require_idea_links
+        if self.path.exists():
+            self._load()
+            if (
+                objective_direction is not None
+                and objective_direction != self.objective_direction
+            ):
+                raise ValueError("experiment-history objective direction changed")
+            if (
+                require_idea_links is not None
+                and require_idea_links != self.require_idea_links
+            ):
+                raise ValueError("experiment-history idea-link policy changed")
+        elif objective_direction not in {"maximize", "minimize"}:
+            raise ValueError(
+                "new experiment history requires maximize or minimize direction"
             )
-            
-            # Convert Weaviate objects to ExperimentRecord
-            records = []
-            for obj in results.objects:
-                props = obj.properties
-                records.append(ExperimentRecord(
-                    node_id=props.get("node_id", 0),
-                    solution=props.get("solution", ""),
-                    score=props.get("score"),
-                    feedback=props.get("feedback", ""),
-                    branch_name=props.get("branch_name", ""),
-                    had_error=props.get("had_error", False),
-                    error_message=props.get("error_message", ""),
-                    technical_difficulties=props.get("technical_difficulties", ""),
-                    timestamp=props.get("timestamp", ""),
-                    metrics={},
-                    primary_metric=None,
-                    external_evaluation_metadata={},
-                    external_evaluation_error="",
-                    evaluation_valid=True,
-                    evaluation_provenance="agent_generated",
-                    evaluation_integrity_error="",
-                ))
-            return records
-            
-        except Exception as e:
-            print(f"[ExperimentHistoryStore] Weaviate search failed: {e}")
-            return self.get_recent_experiments(k)
-    
+        elif not isinstance(require_idea_links, bool):
+            raise ValueError("new experiment history requires an idea-link policy")
+
+    def add_experiment(self, node: Any) -> ExperimentRecord:
+        record = ExperimentRecord.from_node(
+            node,
+            self.objective_direction,
+            self.require_idea_links,
+        )
+        existing = tuple(
+            item for item in self.experiments if item.node_id == record.node_id
+        )
+        if existing:
+            prior = existing[0]
+            if prior == record:
+                return prior
+            stable_identity = (
+                prior.idea_id,
+                prior.selection_batch_id,
+                prior.parent_node_id,
+                prior.solution,
+                prior.objective_direction,
+            )
+            next_identity = (
+                record.idea_id,
+                record.selection_batch_id,
+                record.parent_node_id,
+                record.solution,
+                record.objective_direction,
+            )
+            if (
+                stable_identity != next_identity
+                or record.execution_revision != prior.execution_revision + 1
+            ):
+                raise ValueError("experiment node identity or revision changed")
+            self.experiments = [
+                record if item.node_id == record.node_id else item
+                for item in self.experiments
+            ]
+        else:
+            if record.node_id != len(self.experiments):
+                raise ValueError("experiment node ids must be contiguous")
+            self.experiments.append(record)
+        self._save()
+        return record
+
+    def get_top_experiments(self, k: int = 5) -> List[ExperimentRecord]:
+        self._require_limit(k)
+        eligible = [
+            record
+            for record in self.experiments
+            if not record.had_error
+            and record.evaluation_valid
+            and record.normalized_utility is not None
+        ]
+        return sorted(
+            eligible,
+            key=lambda record: (record.normalized_utility, -record.node_id),
+            reverse=True,
+        )[:k]
+
+    def get_recent_experiments(self, k: int = 5) -> List[ExperimentRecord]:
+        self._require_limit(k)
+        return self.experiments[-k:]
+
+    def search_similar(self, query: str, k: int = 3) -> List[ExperimentRecord]:
+        self._require_limit(k)
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("experiment similarity query must be non-empty")
+        query_terms = set(re.findall(r"[a-z0-9_]+", query.lower()))
+        ranked = sorted(
+            self.experiments,
+            key=lambda record: (
+                self._token_overlap(query_terms, record),
+                record.node_id,
+            ),
+            reverse=True,
+        )
+        return ranked[:k]
+
     def get_experiment_count(self) -> int:
-        """Get total number of experiments."""
         return len(self.experiments)
-    
+
     def close(self) -> None:
-        """Close connections."""
-        if self.weaviate:
-            try:
-                self.weaviate.close()
-            except Exception:
-                pass
-    
-    # =========================================================================
-    # Private Methods
-    # =========================================================================
-    
-    def _load_from_json(self) -> None:
-        """Load experiments from JSON file."""
-        if os.path.exists(self.json_path):
-            try:
-                with open(self.json_path, 'r') as f:
-                    data = json.load(f)
-                    self.experiments = []
-                    for e in data:
-                        record = ExperimentRecord(
-                            node_id=e.get("node_id", 0),
-                            solution=e.get("solution", ""),
-                            score=e.get("score"),
-                            feedback=e.get("feedback", ""),
-                            branch_name=e.get("branch_name", ""),
-                            had_error=e.get("had_error", False),
-                            error_message=e.get("error_message", ""),
-                            technical_difficulties=e.get(
-                                "technical_difficulties", ""
-                            ),
-                            timestamp=e.get("timestamp", ""),
-                            metrics=e.get("metrics", {}),
-                            primary_metric=e.get("primary_metric"),
-                            external_evaluation_metadata=e.get(
-                                "external_evaluation_metadata", {}
-                            ),
-                            external_evaluation_error=e.get(
-                                "external_evaluation_error", ""
-                            ),
-                            evaluation_valid=e.get(
-                                "evaluation_valid", True
-                            ),
-                            evaluation_provenance=e.get(
-                                "evaluation_provenance",
-                                "agent_generated",
-                            ),
-                            evaluation_integrity_error=e.get(
-                                "evaluation_integrity_error", ""
-                            ),
-                        )
-                        self.experiments.append(record)
-                print(f"[ExperimentHistoryStore] Loaded {len(self.experiments)} experiments from {self.json_path}")
-            except Exception as e:
-                print(f"[ExperimentHistoryStore] Warning: Could not load from JSON: {e}")
-                self.experiments = []
-    
-    def _save_to_json(self) -> None:
-        """Save experiments to JSON file."""
-        try:
-            os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
-            with open(self.json_path, 'w') as f:
-                json.dump([asdict(e) for e in self.experiments], f, indent=2)
-        except Exception as e:
-            print(f"[ExperimentHistoryStore] Warning: Could not save to JSON: {e}")
-    
-    def _ensure_weaviate_collection(self) -> None:
-        """Create Weaviate collection if it doesn't exist."""
-        if not self.weaviate:
-            return
-        
-        try:
-            if not self.weaviate.collections.exists(self.WEAVIATE_COLLECTION):
-                self.weaviate.collections.create(
-                    name=self.WEAVIATE_COLLECTION,
-                    vectorizer_config=Configure.Vectorizer.text2vec_openai(),
-                    properties=[
-                        Property(name="node_id", data_type=DataType.INT),
-                        Property(name="solution", data_type=DataType.TEXT),
-                        Property(name="score", data_type=DataType.NUMBER),
-                        Property(name="feedback", data_type=DataType.TEXT),
-                        Property(name="branch_name", data_type=DataType.TEXT),
-                        Property(name="had_error", data_type=DataType.BOOL),
-                        Property(name="error_message", data_type=DataType.TEXT),
-                        Property(name="timestamp", data_type=DataType.TEXT),
-                        Property(name="text", data_type=DataType.TEXT),  # Vectorized field
-                        Property(name="technical_difficulties", data_type=DataType.TEXT),
-                    ]
-                )
-                print(f"[ExperimentHistoryStore] Created Weaviate collection: {self.WEAVIATE_COLLECTION}")
-        except Exception as e:
-            print(f"[ExperimentHistoryStore] Warning: Could not create Weaviate collection: {e}")
-    
-    def _index_in_weaviate(self, record: ExperimentRecord) -> None:
-        """Index experiment in Weaviate for semantic search."""
-        if not self.weaviate:
-            return
-        
-        try:
-            collection = self.weaviate.collections.get(self.WEAVIATE_COLLECTION)
-            
-            # Text to embed: solution + feedback + difficulties
-            text_parts = [f"Solution: {record.solution}", f"Feedback: {record.feedback}"]
-            if record.technical_difficulties:
-                text_parts.append(
-                    f"Difficulties: {record.technical_difficulties}"
-                )
-            text_for_embedding = "\n".join(text_parts)
-            
-            collection.data.insert({
-                "node_id": record.node_id,
-                "solution": record.solution,
-                "score": record.score,
-                "feedback": record.feedback,
-                "branch_name": record.branch_name,
-                "had_error": record.had_error,
-                "error_message": record.error_message,
-                "timestamp": record.timestamp,
-                "text": text_for_embedding,
-                "technical_difficulties": record.technical_difficulties,
-            })
-        except Exception as e:
-            print(f"[ExperimentHistoryStore] Warning: Could not index in Weaviate: {e}")
+        return None
 
+    @staticmethod
+    def _require_limit(k: int) -> None:
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+            raise ValueError("experiment retrieval limit must be positive")
 
-# =============================================================================
-# Standalone Functions for MCP Server
-# =============================================================================
+    @staticmethod
+    def _token_overlap(query_terms: set[str], record: ExperimentRecord) -> float:
+        content = "\n".join(
+            (
+                record.solution,
+                record.feedback,
+                record.technical_difficulties,
+                record.error_message,
+            )
+        )
+        content_terms = set(re.findall(r"[a-z0-9_]+", content.lower()))
+        union = query_terms | content_terms
+        return 0.0 if not union else len(query_terms & content_terms) / len(union)
+
+    def _load(self) -> None:
+        data = json.loads(
+            self.path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonfinite_constant,
+        )
+        if not isinstance(data, dict) or set(data) != {
+            "schema",
+            "objective_direction",
+            "require_idea_links",
+            "records",
+        }:
+            raise ValueError("experiment-history document fields are invalid")
+        if data["schema"] != EXPERIMENT_HISTORY_SCHEMA:
+            raise ValueError("experiment-history schema is incompatible")
+        if data["objective_direction"] not in {"maximize", "minimize"}:
+            raise ValueError("experiment-history objective direction is invalid")
+        if not isinstance(data["require_idea_links"], bool):
+            raise ValueError("experiment-history idea-link policy is invalid")
+        if not isinstance(data["records"], list):
+            raise ValueError("experiment-history records must be a list")
+        records = [ExperimentRecord.from_dict(item) for item in data["records"]]
+        if [record.node_id for record in records] != list(range(len(records))):
+            raise ValueError("experiment-history node ids must be contiguous")
+        self.objective_direction = data["objective_direction"]
+        self.require_idea_links = data["require_idea_links"]
+        self.experiments = records
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        document = {
+            "schema": EXPERIMENT_HISTORY_SCHEMA,
+            "objective_direction": self.objective_direction,
+            "require_idea_links": self.require_idea_links,
+            "records": [record.to_dict() for record in self.experiments],
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=self.path.parent,
+            prefix=self.path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(document, handle, indent=2, sort_keys=True, allow_nan=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        os.replace(temporary, self.path)
+
 
 def load_store_from_env() -> ExperimentHistoryStore:
-    """
-    Load experiment store from environment variables.
-    
-    Used by MCP server to access the store.
-    
-    Environment variables:
-    - EXPERIMENT_HISTORY_PATH: Path to JSON file (required)
-    - WEAVIATE_URL: Weaviate URL (optional)
-    - EXPERIMENT_GOAL: Goal description (optional)
-    """
-    json_path = os.environ.get("EXPERIMENT_HISTORY_PATH", ".kapso/experiment_history.json")
-    weaviate_url = os.environ.get("WEAVIATE_URL")
-    goal = os.environ.get("EXPERIMENT_GOAL")
-    
-    return ExperimentHistoryStore(
-        json_path=json_path, 
-        weaviate_url=weaviate_url,
-        goal=goal,
-    )
+    """MCP process boundary: load the path supplied by its launcher."""
+    json_path = os.environ["EXPERIMENT_HISTORY_PATH"]
+    return ExperimentHistoryStore(json_path=json_path)
 
 
-def format_experiments(experiments: List[ExperimentRecord]) -> str:
-    """
-    Format experiments as markdown for agent consumption.
-    
-    Args:
-        experiments: List of experiment records
-        
-    Returns:
-        Formatted markdown string
-    """
-    if not experiments:
+def format_experiments(experiments: Iterable[ExperimentRecord]) -> str:
+    """Render complete executed content without exposing caller-owned metrics."""
+    records = tuple(experiments)
+    if not records:
         return "No experiments found."
-    
     lines = []
-    for exp in experiments:
-        if not exp.evaluation_valid:
-            status = "INVALID EVALUATION"
-        else:
-            status = f"score={exp.score}"
-        
-        # Full content, never clipped: agent-consumed via the MCP tools.
-        lines.append(f"""
-## Experiment {exp.node_id} ({status})
+    for record in records:
+        status = (
+            "FAILED"
+            if record.had_error
+            else (
+                "INVALID EVALUATION"
+                if not record.evaluation_valid
+                else f"raw_score={record.raw_score}; utility={record.normalized_utility}"
+            )
+        )
+        lines.append(
+            f"""
+## Experiment {record.node_id} ({status})
+
+**Idea:** `{record.idea_id or 'not_applicable'}`
+
+**Selection batch:** `{record.selection_batch_id or 'not_applicable'}`
+
+**Parent node:** `{record.parent_node_id}`
+
+**Fidelity:** `{record.build_fidelity}` build / `{record.eval_fidelity}` eval ({record.validation_tier})
 
 **Solution:**
-{exp.solution}
+{record.solution}
 
 **Feedback:**
-{exp.feedback}""")
-
-        if exp.technical_difficulties:
-            lines.append(f"""
+{record.feedback}"""
+        )
+        if record.technical_difficulties:
+            lines.append(
+                f"""
 **Technical difficulties:**
-{exp.technical_difficulties}""")
-    
+{record.technical_difficulties}"""
+            )
     return "\n".join(lines)

@@ -426,6 +426,7 @@ The implementation is complete only when:
 | D16 | Permit unresolved model-claimed claim IDs only while an idea is generated, invalid, or abandoned | Preserve semantically invalid structured output for audit while preventing any dangling claim reference from reaching a selectable lifecycle state |
 | D17 | Persist selector invocation artifacts on the selection decision | The selected idea must remain traceable to the complete prompt, schema, streams, and structured final output |
 | D18 | Keep recoverable failures in `IMPLEMENTING`/`BRIDGED` until a fair result exists | Recovery is another execution attempt of the same idea and node, not a terminal hypothesis outcome or a replacement candidate |
+| D19 | Replace experiment-history JSON with one strict objective-aware document | Raw scores cannot be ranked safely without direction, and executed records need durable idea/batch/fidelity provenance |
 
 ## Progress ledger
 
@@ -438,7 +439,7 @@ inside module plans as the campaign-level source of truth.
 | M2 Evidence, Policy, Operators | Complete | `generic/ideation/evidence.py`, `policy.py`, `operators.py` | 21 focused tests; 41 cumulative | — |
 | M3 Candidate Pipeline | Complete | `generic/ideation/coding_agents.py`, `generator.py`, `embeddings.py`, `analyzer.py`, `selector.py` | 38 dedicated plus 2 archive integration tests; 81 cumulative | — |
 | M4 GenericSearch Bridge | In progress | `generic/ideation/engine.py`, `generic/strategy.py`, `base.py`, `orchestrator.py` config bridge | 7 engine/parent bridge tests; 88 cumulative v3 tests | Strict resume and superseded-test removal remain in M6 |
-| M5 Experiment Memory and Outcomes | Not started | — | — | M1; live integration waits for M4 |
+| M5 Experiment Memory and Outcomes | In progress | `experiment_memory/store.py`, `generic/ideation/outcomes.py`, orchestrator outcome hook | 12 linkage/outcome tests; same-node recovery bridge | Idea-history retrieval and claim/gap effects remain |
 | M6 Resume, Rollout, Validation | Not started | — | — | M1–M5 |
 
 ## Plan-maintenance protocol

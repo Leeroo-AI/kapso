@@ -78,6 +78,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     ParentPlanKind,
     ResolvedParentSnapshot,
     SubprocessCodingAgentCallRunner,
+    build_idea_outcome,
     content_identifier,
     new_identifier,
 )
@@ -697,6 +698,14 @@ class GenericSearch(SearchStrategy):
             ):
                 raise ValueError("recovery node and idea provenance disagree")
             branch_name = node.branch_name
+            node.execution_revision += 1
+            node.should_stop = False
+            node.had_error = False
+            node.recoverable_error = False
+            node.error_message = ""
+            node.evaluation_valid = True
+            node.evaluation_integrity_error = ""
+            node.score = None
         else:
             node = SearchNode(
                 node_id=len(self.node_history),
@@ -730,6 +739,8 @@ class GenericSearch(SearchStrategy):
             f"(from {parent.branch_name})"
         )
 
+        self._last_implementation_success = None
+        self._last_implementation_error = ""
         agent_output, implementation_telemetry = self._implement(
             solution=solution,
             problem=problem,
@@ -737,6 +748,11 @@ class GenericSearch(SearchStrategy):
             parent_branch_name=parent.branch_name,
             ideation_repo_memory_sections_consulted=[],
         )
+        if not isinstance(self._last_implementation_success, bool):
+            raise ValueError("implementation did not report its completion status")
+        node.had_error = not self._last_implementation_success
+        node.error_message = self._last_implementation_error
+        node.recoverable_error = node.had_error
         node.phase_telemetry["implementation"] = implementation_telemetry
 
         # Update node with implementation results
@@ -783,7 +799,11 @@ class GenericSearch(SearchStrategy):
 
         # Step 4: Verify provided evaluation files before accepting any score
         # or feedback derived from them.
-        if self.enforce_evaluation_integrity(node):
+        if node.had_error:
+            node.evaluation_valid = False
+            node.score = None
+            node.feedback = node.error_message
+        elif self.enforce_evaluation_integrity(node):
             self._generate_feedback(node)
             self._record_evaluation_attempt(node)
         else:
@@ -1468,6 +1488,8 @@ Problem: {problem}"""
         try:
             self._last_session_started_ts = time.time()
             result = agent.generate_code(prompt)
+            self._last_implementation_success = result.success
+            self._last_implementation_error = result.error or ""
             phase_cost = agent.get_cumulative_cost()
             agent_output = result.output if result.output else ""
 
@@ -2077,6 +2099,34 @@ Problem: {problem}"""
                 ),
             )
         return self.node_history
+
+    def record_finalized_idea_outcome(self, node: SearchNode) -> None:
+        """Persist the idea result after orchestrator-side evaluation is final."""
+        if node.idea_id is None or node.selection_batch_id is None:
+            raise ValueError("finalized generic node has no idea provenance")
+        archive = self._ensure_idea_archive()
+        ideas = {
+            idea.idea_id: idea for idea in archive.state.ideas
+        }
+        if node.idea_id not in ideas:
+            raise ValueError("finalized generic node references an unknown idea")
+        outcome = build_idea_outcome(
+            node=node,
+            idea=ideas[node.idea_id],
+            nodes_by_id={item.node_id: item for item in self.node_history},
+            objective_direction=(
+                ObjectiveDirection.MAXIMIZE
+                if self.problem_handler.maximize_scoring
+                else ObjectiveDirection.MINIMIZE
+            ),
+        )
+        if outcome is None:
+            return
+        archive.record_outcome(
+            node.idea_id,
+            outcome,
+            expected_revision=archive.revision,
+        )
 
     def get_best_experiment(self) -> Optional[SearchNode]:
         """Return the best successful SCORED node — a node whose evaluation

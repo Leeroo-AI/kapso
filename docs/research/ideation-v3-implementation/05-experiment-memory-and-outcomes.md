@@ -38,27 +38,27 @@ tests/
 
 ## Experiment projection tasks
 
-- [ ] Add required `idea_id`, `selection_batch_id`, parent lineage, objective
+- [x] Add required `idea_id`, `selection_batch_id`, parent lineage, objective
       direction/utility, fidelity, evaluation attempts, duration, and cost to
       `ExperimentRecord`.
-- [ ] Project fields from finalized SearchNodes without changing raw score.
-- [ ] Reject incompatible or unlinked experiment records.
-- [ ] Make top-experiment retrieval correct for minimizing objectives.
-- [ ] Preserve invalid evaluations as audit records while excluding them from
+- [x] Project fields from finalized SearchNodes without changing raw score.
+- [x] Reject incompatible or unlinked generic experiment records.
+- [x] Make top-experiment retrieval correct for minimizing objectives.
+- [x] Preserve invalid evaluations as audit records while excluding them from
       top-result ranking and hypothesis outcomes.
-- [ ] Keep experiment semantic search limited to executed content.
+- [x] Keep experiment similarity search limited to executed content.
 
 ## Outcome write-back tasks
 
-- [ ] Add a narrow strategy/orchestrator hook invoked after
+- [x] Add a narrow strategy/orchestrator hook invoked after
       `_evaluate_candidates` and experiment-store persistence.
-- [ ] Build `IdeaOutcome` only from the finalized linked node.
-- [ ] Distinguish technical, invalid, inconclusive, valid-positive, and
+- [x] Build `IdeaOutcome` only from the finalized linked node.
+- [x] Distinguish technical, invalid, inconclusive, valid-positive, and
       valid-negative outcomes.
-- [ ] Compute normalized delta against the selected idea's frozen comparison
+- [x] Compute normalized delta against the selected idea's frozen comparison
       basis.
 - [ ] Apply claim and gap effects only for comparable valid evidence.
-- [ ] Make duplicate outcome writes idempotent.
+- [x] Make duplicate outcome writes idempotent.
 - [ ] If archive update fails after experiment persistence, leave enough link
       data for M6 reconciliation; do not rerun work.
 

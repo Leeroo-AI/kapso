@@ -151,6 +151,8 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
     )
 
     def implement(**kwargs):
+        strategy._last_implementation_success = True
+        strategy._last_implementation_error = ""
         events.append(("implemented", kwargs["parent_branch_name"]))
         return "agent output", {"cost_usd": 0.5, "duration_seconds": 3.0}
 
@@ -181,3 +183,83 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
     assert node.feedback_base_ref == "frozen-sha"
     assert node.phase_telemetry["ideation"]["cost_usd"] == 0.25
     assert strategy.node_history == [node]
+
+
+def test_recovery_reexecutes_the_same_node_without_a_new_link_or_history_entry():
+    strategy = GenericSearch.__new__(GenericSearch)
+    parent = replace(
+        resolved_parent(),
+        node_id=0,
+        branch_name="generic_exp_0",
+        git_ref="failed-sha",
+        materialized_ref="failed-sha",
+        diff_base_ref="failed-sha",
+        feedback_base_ref="failed-sha",
+    )
+    idea = replace(
+        generated_idea(),
+        resolved_parent=parent,
+        status=IdeaStatus.IMPLEMENTING,
+        selected_in_batch_id=BATCH_ID,
+        selection_reason="Selected by the audited selector.",
+        experiment_node_id=0,
+    )
+    existing = SearchNode(
+        node_id=0,
+        idea_id=idea.idea_id,
+        selection_batch_id=BATCH_ID,
+        solution=idea.proposal,
+        branch_name="generic_exp_0",
+        parent_branch_name="main",
+        execution_revision=0,
+        had_error=True,
+        recoverable_error=True,
+    )
+    result = SimpleNamespace(
+        action=CampaignAction.RECOVER,
+        selected_idea=idea,
+        resolved_parent=parent,
+        batch_id=BATCH_ID,
+        telemetry=SimpleNamespace(
+            coding_agent_duration_seconds=0.0,
+            known_coding_agent_cost_usd=0.0,
+            coding_agent_call_count=0,
+            unpriced_coding_agent_call_count=0,
+            embedding=None,
+        ),
+    )
+    strategy.iteration_count = 1
+    strategy.node_history = [existing]
+    strategy.workspace_dir = "/workspace"
+    strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
+    strategy.fidelity_decision = FULL_PASSTHROUGH
+    strategy.ideation_campaign_id = "campaign-alpha"
+    strategy._build_ideation_engine = lambda: FakeEngine(result)
+    strategy._ideation_experiment_inputs = lambda: ()
+    strategy._ideation_capacity_view = lambda: object()
+    strategy._resolve_ideation_parent = lambda plan: parent
+    strategy._materialize_ideation_parent = lambda snapshot: None
+    strategy._assert_parent_snapshot_current = lambda snapshot: None
+
+    def implement(**kwargs):
+        strategy._last_implementation_success = True
+        strategy._last_implementation_error = ""
+        return "recovered", {"cost_usd": 0.1, "duration_seconds": 1.0}
+
+    strategy._implement = implement
+    strategy._get_code_diff = lambda branch, base: "recovery diff"
+    strategy._extract_agent_result = lambda output: {}
+    strategy._ensure_technical_difficulties = lambda node: None
+    strategy.enforce_evaluation_integrity = lambda node: True
+    strategy._generate_feedback = lambda node: node
+    strategy._record_evaluation_attempt = lambda node: None
+
+    returned = strategy.run("complete problem")
+
+    assert returned is existing
+    assert returned.execution_revision == 1
+    assert returned.had_error is False
+    assert returned.recoverable_error is False
+    assert returned.parent_branch_name == "main"
+    assert returned.diff_base_ref == "failed-sha"
+    assert strategy.node_history == [existing]

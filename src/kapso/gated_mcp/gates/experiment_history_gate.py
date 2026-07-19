@@ -22,6 +22,10 @@ except ImportError:
     TextContent = None
 
 from kapso.gated_mcp.gates.base import ToolGate, GateConfig
+from kapso.execution.memories.experiment_memory.store import (
+    format_experiments,
+    load_store_from_env,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +54,6 @@ class ExperimentHistoryGate(ToolGate):
     def _get_store(self):
         """Lazy load the experiment history store."""
         if self._store is None:
-            from kapso.execution.memories.experiment_memory.store import load_store_from_env
             self._store = load_store_from_env()
         return self._store
     
@@ -143,27 +146,25 @@ class ExperimentHistoryGate(ToolGate):
         """Handle get_top_experiments tool call."""
         k = arguments.get("k", self.get_param("top_k", 5))
         
-        try:
-            store = self._get_store()
-            experiments = await self._run_sync(store.get_top_experiments, k)
-            result = self._format_experiments(experiments, f"Top {k} Experiments by Score")
-            return [TextContent(type="text", text=result)]
-        except Exception as e:
-            logger.error(f"get_top_experiments failed: {e}")
-            return [TextContent(type="text", text=f"Error getting top experiments: {e}")]
+        store = self._get_store()
+        experiments = await self._run_sync(store.get_top_experiments, k)
+        result = self._format_experiments(
+            experiments,
+            f"Top {k} Experiments by Objective-Normalized Utility",
+        )
+        return [TextContent(type="text", text=result)]
     
     async def _handle_get_recent(self, arguments: Dict[str, Any]) -> List["TextContent"]:
         """Handle get_recent_experiments tool call."""
         k = arguments.get("k", self.get_param("recent_k", 5))
         
-        try:
-            store = self._get_store()
-            experiments = await self._run_sync(store.get_recent_experiments, k)
-            result = self._format_experiments(experiments, f"Most Recent {k} Experiments")
-            return [TextContent(type="text", text=result)]
-        except Exception as e:
-            logger.error(f"get_recent_experiments failed: {e}")
-            return [TextContent(type="text", text=f"Error getting recent experiments: {e}")]
+        store = self._get_store()
+        experiments = await self._run_sync(store.get_recent_experiments, k)
+        result = self._format_experiments(
+            experiments,
+            f"Most Recent {k} Experiments",
+        )
+        return [TextContent(type="text", text=result)]
     
     async def _handle_search_similar(self, arguments: Dict[str, Any]) -> List["TextContent"]:
         """Handle search_similar_experiments tool call."""
@@ -173,48 +174,15 @@ class ExperimentHistoryGate(ToolGate):
         if not query:
             return [TextContent(type="text", text="Error: query is required")]
         
-        try:
-            store = self._get_store()
-            experiments = await self._run_sync(store.search_similar, query, k)
-            result = self._format_experiments(
-                experiments, 
-                f"Experiments Similar to: {query[:50]}{'...' if len(query) > 50 else ''}"
-            )
-            return [TextContent(type="text", text=result)]
-        except Exception as e:
-            logger.error(f"search_similar_experiments failed: {e}")
-            return [TextContent(type="text", text=f"Error searching experiments: {e}")]
+        store = self._get_store()
+        experiments = await self._run_sync(store.search_similar, query, k)
+        result = self._format_experiments(
+            experiments,
+            f"Experiments Similar to: {query}",
+        )
+        return [TextContent(type="text", text=result)]
     
     def _format_experiments(self, experiments, title: str) -> str:
         """Format experiments as markdown."""
-        if not experiments:
-            return f"# {title}\n\nNo experiments found."
-        
-        lines = [f"# {title}\n"]
-        
-        for exp in experiments:
-            if not exp.evaluation_valid:
-                status = "INVALID EVALUATION"
-            else:
-                status = f"score={exp.score}"
-            
-            # Full content, never clipped: these renders ARE model input
-            # (ideation reads them through the MCP tools), and there is no
-            # drill-down tool to recover cut text.
-            lines.append(f"""
-## Experiment {exp.node_id} ({status})
-
-**Solution:**
-{exp.solution}
-
-**Feedback:**
-{exp.feedback}""")
-            
-            difficulties = getattr(exp, "technical_difficulties", "")
-            if difficulties:
-                lines.append(f"""
-**Technical difficulties:**
-{difficulties}""")
-        
-        return "\n".join(lines)
+        return f"# {title}\n\n{format_experiments(experiments)}"
     

@@ -15,7 +15,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from kapso.knowledge_base.search import (
     KnowledgeSearch,
@@ -317,7 +317,18 @@ class OrchestratorAgent:
         )
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,
-            weaviate_url=os.environ.get("WEAVIATE_URL"),
+            objective_direction=(
+                "maximize"
+                if self.problem_handler.maximize_scoring
+                else "minimize"
+            ),
+            require_idea_links=callable(
+                getattr(
+                    self.search_strategy,
+                    "record_finalized_idea_outcome",
+                    None,
+                )
+            ),
             goal=self.goal,
             llm=self.llm,
         )
@@ -945,19 +956,31 @@ class OrchestratorAgent:
 
     @staticmethod
     def _new_candidates(
-        previous_node_ids: set[int],
+        previous_node_revisions: Mapping[int, int],
         history: List[SearchNode],
         returned_node: Optional[SearchNode],
     ) -> List[SearchNode]:
         """Find candidates finalized by the current strategy iteration."""
         candidates = []
-        seen_node_ids = set(previous_node_ids)
+        seen_node_ids = set()
         for candidate in history:
-            if candidate.node_id in seen_node_ids:
+            prior_revision = previous_node_revisions.get(candidate.node_id)
+            if (
+                prior_revision is not None
+                and candidate.execution_revision <= prior_revision
+            ):
                 continue
             candidates.append(candidate)
             seen_node_ids.add(candidate.node_id)
-        if returned_node is not None and returned_node.node_id not in seen_node_ids:
+        if (
+            returned_node is not None
+            and returned_node.node_id not in seen_node_ids
+            and (
+                returned_node.node_id not in previous_node_revisions
+                or returned_node.execution_revision
+                > previous_node_revisions[returned_node.node_id]
+            )
+        ):
             candidates.append(returned_node)
         return candidates
 
@@ -1012,6 +1035,23 @@ class OrchestratorAgent:
                     "[Orchestrator] Warning: external evaluation failed for "
                     f"candidate {candidate.node_id}: {message}"
                 )
+
+    def _persist_finalized_candidates(
+        self,
+        candidates: List[SearchNode],
+    ) -> None:
+        """Persist executed memory before the linked idea outcome."""
+        if self.experiment_store is None:
+            raise ValueError("finalized candidates require experiment memory")
+        outcome_writer = getattr(
+            self.search_strategy,
+            "record_finalized_idea_outcome",
+            None,
+        )
+        for candidate in candidates:
+            self.experiment_store.add_experiment(candidate)
+            if callable(outcome_writer):
+                outcome_writer(candidate)
 
     def solve(
         self,
@@ -1228,8 +1268,8 @@ class OrchestratorAgent:
                 # Run one iteration of search strategy
                 # Search strategy handles: solution generation, implementation, feedback
                 # Returns SearchNode with all data including should_stop
-                previous_node_ids = {
-                    candidate.node_id
+                previous_node_revisions = {
+                    candidate.node_id: candidate.execution_revision
                     for candidate in (self.search_strategy.get_experiment_history())
                 }
                 node = self.search_strategy.run(
@@ -1242,7 +1282,7 @@ class OrchestratorAgent:
                     continue
 
                 finalized_candidates = self._new_candidates(
-                    previous_node_ids,
+                    previous_node_revisions,
                     self.search_strategy.get_experiment_history(),
                     node,
                 )
@@ -1267,9 +1307,7 @@ class OrchestratorAgent:
                 # Persist every candidate finalized in this strategy iteration.
                 # External metrics are attached before history and checkpoint
                 # writes so all durable representations agree.
-                if self.experiment_store:
-                    for candidate in finalized_candidates:
-                        self.experiment_store.add_experiment(candidate)
+                self._persist_finalized_candidates(finalized_candidates)
 
                 self._route_change_requests(finalized_candidates)
 

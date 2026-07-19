@@ -64,6 +64,7 @@ class SearchNode:
 
     node_id: int
     parent_node_id: Optional[int] = None
+    execution_revision: int = 0
 
     # Required provenance for GenericSearch's evidence-directed campaign.
     # Other strategy node types do not participate in the idea archive.
@@ -160,6 +161,15 @@ class SearchNode:
             or parent_node_id < 0
         ):
             raise ValueError("Search node parent_node_id must be null or non-negative")
+        execution_revision = values.get("execution_revision", 0)
+        if (
+            isinstance(execution_revision, bool)
+            or not isinstance(execution_revision, int)
+            or execution_revision < 0
+        ):
+            raise ValueError(
+                "Search node execution_revision must be non-negative"
+            )
 
         string_fields = {
             "solution",
