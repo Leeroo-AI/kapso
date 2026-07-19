@@ -57,9 +57,10 @@ tests/
       valid-negative outcomes.
 - [x] Compute normalized delta against the selected idea's frozen comparison
       basis.
-- [ ] Apply claim and gap effects only for comparable valid evidence.
+- [x] Apply no claim or gap effect without evaluator-authored causal evidence;
+      score direction alone is insufficient.
 - [x] Make duplicate outcome writes idempotent.
-- [ ] If archive update fails after experiment persistence, leave enough link
+- [x] If archive update fails after experiment persistence, leave enough link
       data for M6 reconciliation; do not rerun work.
 
 ## Retrieval tasks
@@ -72,7 +73,7 @@ get_recent_experiments
 search_similar_experiments
 ```
 
-Add separate proposal-memory tools:
+The original plan considered separate proposal-memory tools:
 
 ```text
 get_recent_ideas
@@ -82,17 +83,18 @@ get_idea_lineage
 list_evaluation_gaps
 ```
 
-- [ ] Label each result with lifecycle status and stable IDs.
-- [ ] Show experiment parent, validation tier/fidelity, and linked idea.
-- [ ] Show idea selection/defer/reject reason without implying execution.
-- [ ] Join idea lineage through IDs, never embedded text heuristics.
-- [ ] Pass the archive path to MCP processes separately from experiment path.
-- [ ] Make `get_idea_neighbors` read precomputed archive results; the MCP
-      process must not receive `OPENAI_API_KEY` or call the embeddings API.
-- [ ] Keep free-text semantic idea retrieval in the trusted Kapso process and
-      push its results through the campaign evidence packet.
-- [ ] Ensure missing optional idea-history capability follows configured gate
-      failure policy.
+They are intentionally not added. Every v3 generator and selector call already
+receives the complete frozen idea archive, claims, gaps, and precomputed
+neighbors in its mandatory packet. An MCP gate would be an unused second read
+model with a separate environment/configuration path. Executed experiment tools
+remain separate and expose only executed records.
+
+- [x] Label executed results with stable idea and batch IDs.
+- [x] Show experiment parent, validation tier/fidelity, and linked idea.
+- [x] Keep idea lifecycle, lineage, gaps, and precomputed neighbors in the
+      complete mandatory campaign packet, distinct from executed-memory tools.
+- [x] Keep free-text idea similarity in the trusted Kapso process; MCP
+      processes receive neither the embedding API key nor embedding authority.
 
 ## Tests
 
