@@ -188,6 +188,20 @@ your SESSION clock is shorter and is the one that kills you.
   block on a long foreground call, the CLI converts it to a background task
   after ~2 minutes and hands you its output-file path — poll that file; but
   prefer explicit nohup so the pattern is under your control.
+- WATCHER DISCIPLINE: at most ONE watcher/timer per awaited artifact.
+  Before spawning a replacement, kill the superseded watcher (by its
+  recorded id/PID). A pile of live watchers floods you with notifications
+  and trains you to ignore the one that matters. Prefer a single
+  until-condition wait over chains of sleep-watchers.
+- A completion notification is EVIDENCE, not noise: before dismissing one
+  as stale, read the file or task output it names. Your belief that you
+  killed a process does not outrank a result file on disk — a prior run
+  shipped an inferior model exactly this way.
+- Every evaluation you launch must end in one of two recorded states:
+  CONSUMED (score read and logged) or ABANDONED (a PLAN.md line saying
+  why). A still-running eval at finalization time must be awaited before
+  you finalize — waiting costs minutes; a discarded result can cost the
+  run.
 - SIZE BEFORE YOU COMMIT: before any training run projected to exceed
   15 minutes, measure throughput first (≤50 steps or one logging interval),
   compute total_steps × seconds_per_step, and choose max_steps / dataset
