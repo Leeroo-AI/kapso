@@ -323,19 +323,14 @@ def test_feedback_invalidity_cannot_stop_or_retain_a_score() -> None:
     assert node.should_stop is False
 
 
-def test_invalid_evaluation_is_not_semantically_indexed(
+def test_invalid_evaluation_is_stored_but_never_ranked_top(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Invalid evaluations persist (and stay discoverable via similarity —
+    see test_experiment_semantic_search) but never enter the score
+    ranking that steers parent selection."""
     store = ExperimentHistoryStore(
         json_path=str(tmp_path / "history.json"),
-    )
-    indexed = []
-    store.weaviate = object()
-    monkeypatch.setattr(
-        store,
-        "_index_in_weaviate",
-        lambda record: indexed.append(record.node_id),
     )
     invalid = SearchNode(
         node_id=0,
@@ -347,7 +342,8 @@ def test_invalid_evaluation_is_not_semantically_indexed(
     store.add_experiment(invalid)
     store.add_experiment(valid)
 
-    assert indexed == [1]
+    assert [e.node_id for e in store.get_top_experiments()] == [1]
+    assert store.get_experiment_count() == 2
 
 
 def test_integrity_state_round_trip_and_resume_mismatch() -> None:

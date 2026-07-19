@@ -49,6 +49,7 @@ modes:
       utility: "gpt-4.1-mini"
       reasoning: "gpt-5-mini"
       web_search: "openai/gpt-4o-search-preview"
+      embedding: "text-embedding-3-small"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5
@@ -124,6 +125,7 @@ modes:
       utility: "gpt-4.1-mini"
       reasoning: "gpt-5-mini"
       web_search: "openai/gpt-4o-search-preview"
+      embedding: "text-embedding-3-small"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5

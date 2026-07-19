@@ -331,7 +331,6 @@ class OrchestratorAgent:
         )
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,
-            weaviate_url=os.environ.get("WEAVIATE_URL"),
             goal=self.goal,
             llm=self.llm,
         )
@@ -1444,14 +1443,7 @@ class OrchestratorAgent:
                 self._save_run_checkpoint(status="running")
         finally:
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
-            
-            # Close experiment history store
-            if self.experiment_store:
-                try:
-                    self.experiment_store.close()
-                except Exception:
-                    pass
-            
+
             # Close knowledge search only if the orchestrator created it.
             if getattr(self, "_owns_knowledge_search", False) and hasattr(self.knowledge_search, "close"):
                 try:

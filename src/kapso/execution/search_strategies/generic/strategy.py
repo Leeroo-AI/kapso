@@ -515,6 +515,11 @@ class GenericSearch(SearchStrategy):
                 experiment_history_path=os.path.abspath(
                     self.experiment_history_path
                 ),
+                experiment_embedding_model=(
+                    self.llm.resolve_model(None, default_role="embedding")
+                    if self.llm is not None
+                    else None
+                ),
                 repo_root=ideation_dir,
                 include_base_tools=False,
                 gate_failure_policy=self.gate_failure_policy,

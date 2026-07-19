@@ -351,7 +351,7 @@ def get_mcp_config(
     project_root: Optional[Path] = None,
     kg_index_path: Optional[str] = None,
     experiment_history_path: Optional[str] = None,
-    weaviate_url: Optional[str] = None,
+    experiment_embedding_model: Optional[str] = None,
     repo_root: Optional[str] = None,
     include_base_tools: bool = True,
     gate_failure_policy: str = "warn",
@@ -368,7 +368,11 @@ def get_mcp_config(
                        gates are enabled. Falls back to KG_INDEX_PATH env var.
         experiment_history_path: Path to experiment history JSON file. Required if
                                  "experiment_history" gate is enabled.
-        weaviate_url: Weaviate URL for semantic search (optional).
+        experiment_embedding_model: Embedding model for the gate's semantic
+                                    search (optional; the gate process's own
+                                    SDK credentials must be able to serve it,
+                                    else the tool call fails loud and the
+                                    agent falls back to top/recent).
         repo_root: Path to repo root for repo_memory gate. Falls back to 
                    REPO_MEMORY_ROOT env var or CWD.
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
@@ -392,7 +396,7 @@ def get_mcp_config(
     explicit_env = {
         "KG_INDEX_PATH": kg_index_path,
         "EXPERIMENT_HISTORY_PATH": experiment_history_path,
-        "WEAVIATE_URL": weaviate_url,
+        "EXPERIMENT_EMBEDDING_MODEL": experiment_embedding_model,
         "REPO_MEMORY_ROOT": repo_root,
     }
     effective_env.update(
@@ -435,8 +439,12 @@ def get_mcp_config(
     for gate_name in internal_gates:
         for key in GATES[gate_name].required_env:
             mcp_env[key] = effective_env[key]
-    if "experiment_history" in internal_gates and effective_env.get("WEAVIATE_URL"):
-        mcp_env["WEAVIATE_URL"] = effective_env["WEAVIATE_URL"]
+    if "experiment_history" in internal_gates and effective_env.get(
+        "EXPERIMENT_EMBEDDING_MODEL"
+    ):
+        mcp_env["EXPERIMENT_EMBEDDING_MODEL"] = effective_env[
+            "EXPERIMENT_EMBEDDING_MODEL"
+        ]
     if "repo_memory" in internal_gates and effective_env.get("REPO_MEMORY_ROOT"):
         mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
     

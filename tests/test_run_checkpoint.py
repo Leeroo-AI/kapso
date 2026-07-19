@@ -58,6 +58,9 @@ class FakeLLM:
     def get_cumulative_cost(self) -> float:
         return 0.0
 
+    def create_embedding(self, text, model=None):
+        return []
+
 
 class FakeProblemHandler:
     def get_problem_context(self) -> str:
