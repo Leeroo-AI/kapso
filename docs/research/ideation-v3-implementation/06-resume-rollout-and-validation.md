@@ -6,17 +6,17 @@ Depends on: M1–M5.
 
 ## Objective
 
-Prove the integrated system is crash-safe, backward-compatible, observable,
-and ready to become the default without relying on live double-generation.
+Prove the integrated system is crash-safe, strict, observable, free of the
+superseded ideation implementation, and production-ready end to end.
 
 ## Owned responsibilities
 
 - Strategy checkpoint references to the idea archive.
 - Cross-store resume reconciliation.
-- Legacy compatibility and explicit optional backfill.
+- Removal of superseded code, persisted shapes, config, prompts, and tests.
 - Failure injection at every durable boundary.
 - Scenario replay and end-to-end validation.
-- Temporary mode configuration and activation evidence.
+- Production activation evidence.
 - Operator-facing documentation and diagnostics.
 
 ## Proposed code surface
@@ -35,12 +35,11 @@ tests/
 
 ## Checkpoint tasks
 
-- [ ] Persist `ideation_mode`, active batch ID, archive schema version, and
-      archive revision in strategy state or the appropriate checkpoint layer.
+- [ ] Persist active batch ID and archive revision in strategy state or the
+      appropriate checkpoint layer.
 - [ ] Persist CLI role/model configuration and embedding provider/model identity
       in the configuration fingerprint, never credentials.
-- [ ] Reject silent resume across different ideation modes.
-- [ ] Load legacy state with no fabricated idea links.
+- [ ] Reject incompatible pre-v3 checkpoint/archive state explicitly.
 - [ ] Validate every v3 node's `idea_id` and `selection_batch_id`.
 - [ ] Reconcile archive state before permitting another iteration.
 - [ ] Preserve existing contiguous node-history and parent-lineage checks.
@@ -60,15 +59,15 @@ tests/
 | Conflicting idea/node link | Fail loudly with typed corruption error |
 | Context changed before execution | Retain and abandon old batch; create a new batch |
 
-## Legacy tasks
+## Superseded-code removal
 
-- [ ] Keep null idea links valid for pre-v3 nodes and ExperimentRecords.
-- [ ] If backfill is enabled, create deterministic `LEGACY_EXECUTED` ideas from
-      selected solution text with explicit projection provenance.
-- [ ] Never infer historical candidate pools, operators, selector reasoning,
-      or rejected ideas.
-- [ ] Make backfill idempotent and separately auditable.
-- [ ] Preserve legacy mode until v3 acceptance is complete.
+- [ ] Delete the old single-solution generation and ephemeral ensemble path.
+- [ ] Delete the old selector implementation and superseded prompts.
+- [ ] Delete config fields that only supported the prior path.
+- [ ] Delete permissive old checkpoint/ExperimentRecord loaders.
+- [ ] Rewrite callers and tests to construct the strict v3 shapes.
+- [ ] Search the repository for legacy names and prove no reachable or dead
+      compatibility path remains.
 
 ## Failure-injection tests
 
@@ -108,18 +107,18 @@ worktrees:
 Each fixture asserts mode, directive, operator mix, eligible pool, selected or
 terminal action, and gap effects.
 
-## Rollout sequence
+## Activation sequence
 
-1. Land all modules with `legacy` default.
-2. Run unit, integration, resume, and scenario suites.
-3. Run offline replay over captured legacy candidate outputs where available.
-4. Run explicit `v3` smoke campaigns with deterministic/mock evaluators.
-5. Run bounded real campaigns and compare delivery utility, cost, duplicate
-   rate, gap debt, and failure rate against legacy baselines.
-6. Publish an activation report against the design acceptance criteria.
-7. Change default to `v3` only after the report passes review.
-8. Remove legacy mode later, in a separate cleanup after resume support policy
-   permits it.
+1. Land strict modules in dependency order.
+2. Connect v3 as the sole ideation path.
+3. Delete superseded code, prompts, config, fixtures, and tests.
+4. Run unit, integration, resume, failure-injection, and scenario suites.
+5. Run offline replay over captured historical candidate outputs where useful.
+6. Run full end-to-end campaigns with deterministic evaluators and CLI-provider
+   boundary fakes.
+7. Run a production-environment smoke campaign through real configured CLIs
+   and the OpenAI embedding provider when credentials and capacity permit.
+8. Publish completion evidence against every design acceptance criterion.
 
 ## Activation metrics
 
@@ -138,15 +137,14 @@ terminal action, and gap effects.
 - Every design acceptance criterion has a named automated test or explicit
   evidence artifact.
 - Every transaction boundary survives injected termination.
-- Legacy and v3 resume semantics are deterministic and non-interchangeable.
+- Incompatible pre-v3 state fails loudly and no compatibility code remains.
 - V3 can run end-to-end without changing existing execution authority.
 - Tests prove every reasoning call uses a fake Codex/Claude CLI runner and only
   the embedding provider can reach the direct OpenAI client.
-- Activation report justifies the default switch using measured outcomes.
+- Completion evidence proves the sole v3 path works end to end.
 
 ## Non-goals
 
-- Removing legacy code in the activation change.
 - Live shadow generation.
 - Learned cross-campaign scheduling.
 - Benchmark-specific policy branches.

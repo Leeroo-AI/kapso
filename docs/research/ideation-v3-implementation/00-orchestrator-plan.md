@@ -22,7 +22,7 @@ durable, evidence-directed ideation pipeline while preserving:
 - existing implementation, evaluation-integrity, and feedback behavior;
 - ExperimentHistoryStore as the executed-memory projection;
 - ref-correct Git lineage; and
-- backward-compatible resume for legacy campaigns.
+- strict resume of v3 campaign state only.
 
 All generative and judgment calls use Codex CLI or Claude Code. Direct OpenAI
 API access is limited to the embedding provider authenticated by
@@ -37,7 +37,7 @@ API access is limited to the embedding provider authenticated by
 | M3 | [`03-candidate-pipeline.md`](03-candidate-pipeline.md) | Generation adapters, analysis, duplicate alarms, bounded repair, selection | M1, M2 |
 | M4 | [`04-generic-search-bridge.md`](04-generic-search-bridge.md) | `IdeationEngine`, GenericSearch integration, parent materialization, node linkage | M1, M2, M3 |
 | M5 | [`05-experiment-memory-and-outcomes.md`](05-experiment-memory-and-outcomes.md) | Experiment projection, idea/experiment retrieval, finalized outcome write-back | M1; integrates after M4 |
-| M6 | [`06-resume-rollout-and-validation.md`](06-resume-rollout-and-validation.md) | Checkpoint reconciliation, legacy compatibility, end-to-end tests, rollout | M1–M5 |
+| M6 | [`06-resume-rollout-and-validation.md`](06-resume-rollout-and-validation.md) | Checkpoint reconciliation, superseded-code removal, end-to-end tests, activation | M1–M5 |
 
 The plans intentionally group strongly coupled responsibilities. Creating one
 plan per class would distribute single invariants across too many owners and
@@ -106,10 +106,10 @@ The freeze covers:
 - objective-normalized utility semantics;
 - `origin_batch_id` versus `selected_in_batch_id`;
 - idea-to-node and batch-to-node join keys; and
-- schema-version and migration behavior.
+- strict persisted-shape behavior.
 
-Fields may be added compatibly after the freeze. Renames, removals, semantic
-changes, and new lifecycle edges require a decision recorded below.
+Contract changes require a decision recorded below and an immediate update of
+all callers, persisted fixtures, and tests. No compatibility adapter is added.
 
 `IdeationCapacityView` is a read-only adapter over the existing
 `BudgetSnapshot`, `FidelityDecision`, and fidelity timing authority. It must not
@@ -149,7 +149,7 @@ To prevent parallel plans from repeatedly editing the same high-conflict files:
 | Generator/analyzer/selector and ideation prompts | M3 | No direct `GenericSearch.run()` edits |
 | `generic/strategy.py`, parent resolution, SearchNode link fields | M4 | Sole owner until M4 integration lands |
 | Experiment store, experiment MCP gate, idea-history MCP wiring, orchestrator outcome hook | M5 | Sole owner of cross-store write order |
-| Checkpoint reconciliation, compatibility flag, full integration fixtures | M6 | Starts after M4 and M5 to avoid overlapping scaffolding |
+| Checkpoint reconciliation, legacy deletion, full integration fixtures | M6 | Starts after M4 and M5 to avoid overlapping scaffolding |
 
 When sequential work requires a later module to touch an earlier owner's file,
 the later plan records the exact integration edit and tests it against the
@@ -157,19 +157,11 @@ earlier module's contract.
 
 ## Delivery strategy
 
-Use small mergeable slices, but do not expose a partially authoritative v3
-path. The runtime compatibility switch is temporary:
-
-```text
-ideation_mode = legacy | v3
-```
-
-Initial default: `legacy`.
-
-The flag and its value must be checkpointed or included in the configuration
-fingerprint so resume cannot switch semantics silently. After all acceptance
-gates pass and benchmark replay shows no regression, change the default to
-`v3`. Remove the legacy path only in a later cleanup change.
+Use small mergeable slices, but ship only one authoritative ideation path. The
+module commits may temporarily leave unconnected new code while dependencies
+land; once M4 connects v3, it directly replaces the old generator/selector
+path. M6 deletes every superseded method, prompt, config field, fixture, and
+test before end-to-end validation.
 
 Do not add a live shadow mode that doubles coding-agent generation cost. Use
 deterministic fixtures, captured candidate pools, and offline replay for
@@ -214,7 +206,7 @@ Deliver M1:
 
 - immutable JSON-compatible domain types;
 - transition validation;
-- versioned, atomic archive;
+- strict, atomic archive;
 - idempotent mutation operations;
 - archive query primitives; and
 - corruption and round-trip tests.
@@ -231,8 +223,8 @@ Deliver M2 and the additive schema portion of M5:
 - claim and gap state transitions;
 - deterministic policy precedence;
 - operator and parent-plan construction;
-- optional idea linkage fields on executed records; and
-- backward-compatible experiment-store loading.
+- required idea linkage fields on executed records; and
+- strict new experiment-store shape.
 
 Gate: frozen fixtures deterministically produce expected modes, gap priorities,
 and directives.
@@ -286,7 +278,8 @@ reconstructable after process restart.
 Deliver M6:
 
 - checkpoint/archive reconciliation;
-- legacy checkpoint and experiment-memory compatibility;
+- strict checkpoint/archive reconciliation;
+- deletion of superseded ideation and persistence code;
 - failure-injection tests at every transaction boundary;
 - abstract run 16/17/19 scenario replays;
 - end-to-end v3 opt-in test; and
@@ -372,7 +365,7 @@ Each module owns unit tests; M6 owns integration and failure-injection tests.
 | Layer | Purpose |
 |---|---|
 | Domain tests | Serialization, validation, state transitions, stable IDs |
-| Store tests | Atomic writes, revision checks, migration, corruption handling |
+| Store tests | Atomic writes, revision checks, strict parsing, corruption handling |
 | Pure-policy tests | Mode precedence, utility direction, gap priority, operator allocation |
 | Candidate tests | Structured parsing, duplicate alarms, repair quota, selector hard rules |
 | Bridge tests | Parent-ref correctness, node linkage, idempotent creation |
@@ -401,8 +394,8 @@ The implementation is complete only when:
 
 - all design acceptance criteria pass;
 - every module plan's definition of done is satisfied;
-- legacy checkpoints load without fabricated history;
-- v3 checkpoints cannot resume under legacy semantics or vice versa;
+- incompatible pre-v3 state fails loudly or is explicitly discarded;
+- no legacy ideation code, prompt, config field, or test remains;
 - the candidate population and selector decision survive a crash;
 - experiment and idea retrieval never conflate proposed and executed work;
 - benchmark scenario replay demonstrates the intended state transitions; and
@@ -416,7 +409,7 @@ The implementation is complete only when:
 | D2 | Use six implementation plans | Match coupling and reduce coordination overhead |
 | D3 | Keep archive separate from checkpoint and experiment JSON | Avoid mixed lifecycles and dual-write authority |
 | D4 | Use explicit link IDs rather than embedded candidate pools | Preserve provenance without contaminating experiment records |
-| D5 | Use `legacy|v3`, not live shadow generation | Avoid silently doubling campaign cost |
+| D5 | Replace legacy ideation directly; no runtime compatibility mode | The repository is pre-release and carries no legacy weight |
 | D6 | Persist outcomes after orchestrator candidate evaluation | External metrics and validity must be attached first |
 | D7 | Give `strategy.py` to M4 and `orchestrator.py` write ordering to M5 | Minimize high-conflict parallel edits |
 | D8 | Use Codex/Claude Code CLIs for every AI reasoning call | Reuse existing agent execution, tool, auth, timeout, and telemetry boundaries |

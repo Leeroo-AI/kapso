@@ -55,7 +55,7 @@ evidence quality, and lifecycle integrity are higher-leverage.
 | Keep every losing candidate on its associated experiment record | Reject; ideas and experiments have different lifecycles |
 | Search similarity over selected and unselected text stored on experiments | Reject; expose separate idea and experiment retrieval |
 | Never regenerate a collapsed candidate pool | Replace with one bounded diversity-repair round |
-| Discard or rederive older stores on upgrade | Reject; version and migrate without deleting provenance |
+| Discard or rederive older stores on upgrade | Accept during pre-release development; v3 replaces the old shape without migration shims |
 
 ## The design in one diagram
 
@@ -259,7 +259,7 @@ the decision that led to the node.
 | `materialize_ref()` | Is reused to give each operator a read-only view of its concrete parent ref |
 | `SearchNode` construction | Adds stable `idea_id` and `selection_batch_id` links; the solution text remains copied onto the node for standalone readability |
 | Existing implementation and feedback methods | Remain unchanged in responsibility and operate on the selected idea's solution |
-| `GenericSearch.dump_state()/load_state()` | Add active batch/archive references and validate idea-to-node links; the archive itself remains separately versioned and atomic |
+| `GenericSearch.dump_state()/load_state()` | Persist active batch/archive references and validate idea-to-node links against the new strict archive shape |
 | `Orchestrator._evaluate_candidates()` | Remains the point at which external evaluation is attached before an outcome is considered final |
 | `ExperimentHistoryStore.add_experiment()` | Continues projecting each finalized node into agent-queryable executed memory, now including the idea link |
 
@@ -303,10 +303,9 @@ This ensures every ensemble member sees the same essential evidence, including
 members that do not have equivalent MCP access, while preserving tools for
 deeper inspection.
 
-The raw "Feedback from Previous Iteration" prompt block may remain during
-compatibility rollout, but the evidence snapshot becomes the authoritative
-structured representation. Eventually the raw block should be treated only as
-supporting narrative so it cannot override measured evidence.
+The raw "Feedback from Previous Iteration" instruction is removed when v3 is
+connected. The evidence snapshot is the sole structured representation, so raw
+narrative cannot override measured evidence.
 
 ## Connection to experiment memory
 
@@ -336,8 +335,8 @@ IdeaRecord.experiment_node_id?  <->  SearchNode.idea_id?
 SearchNode.selection_batch_id?  ->   IdeaBatch.batch_id
 ```
 
-The link fields are optional only for backward compatibility. Every experiment
-created through v3 must have a non-null `idea_id` and `selection_batch_id`.
+Every experiment has a non-null `idea_id` and `selection_batch_id`. The new
+design does not retain an unlinked legacy record shape.
 
 `SearchNode.solution` and `ExperimentRecord.solution` remain snapshots of the
 selected proposal. Consumers should not need the idea archive merely to
@@ -460,11 +459,10 @@ Each linked `SearchNode` independently stores `idea_id` and
    evaluation data; and
 6. fail loudly on conflicting links rather than choosing one store silently.
 
-Legacy checkpoints and experiment records remain readable with null idea
-links. A deterministic migration may create one `LEGACY_EXECUTED` idea from an
-old record's selected `solution`, using a provenance marker such as
-`legacy_experiment_projection`. It must not invent an old candidate pool,
-operator, selector reasoning, or rejected ideas.
+Pre-v3 checkpoints and experiment records are unsupported after activation.
+They may be discarded or re-derived from authoritative campaign artifacts;
+the implementation contains no migration shim, nullable legacy link, or
+fabricated historical idea population.
 
 ## Design principles
 
@@ -861,9 +859,9 @@ IdeaOutcome
   contradicted_claim_ids[]
 ```
 
-The archive is campaign-local, versioned, atomically persisted, and migrated in
-place. Old records are preserved; upgrades must not discard or silently
-rederive historical decisions.
+The archive is campaign-local, strictly validated, and atomically persisted.
+An incompatible shape fails loudly; development-time format changes replace
+the prior format instead of accumulating migrations.
 
 ## Candidate generation and analysis
 
@@ -1073,7 +1071,7 @@ separate file or class.
 | `CampaignEvidenceBuilder` | Immutable normalized evidence snapshots | Mutating source records or inventing measurements |
 | `EvidenceLedger` | Claims, gaps, provenance, evidence-state transitions | Candidate ranking or branch selection |
 | `ExperimentCapacityProvider` | Remaining capacity, fidelity contract, reserve, completion feasibility | Idea generation or semantic ranking |
-| `IdeaArchive` | Idea batches, candidates, embeddings, decisions, outcomes, migrations | Executed score authority or Git lifecycle |
+| `IdeaArchive` | Idea batches, candidates, embeddings, decisions, outcomes, strict persistence | Executed score authority or Git lifecycle |
 | `IdeationPolicy` | Pure mode and terminal decision from evidence and capacity | Coding-agent calls or persistence side effects |
 | `OperatorPlanner` | Distinct operator briefs, descriptor coverage, gap reservation | Final candidate selection |
 | `CandidateGenerator` | Independent structured proposals | Comparing candidates or declaring evidence true |

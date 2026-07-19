@@ -13,10 +13,10 @@ calls, policy judgment, Git operations, or experiment execution.
 - Frozen dataclasses/enums and JSON schemas.
 - Stable campaign, batch, idea, claim, and gap identifiers.
 - Legal lifecycle transitions.
-- Atomic, versioned, campaign-local `IdeaArchive` persistence.
+- Atomic, strict, campaign-local `IdeaArchive` persistence.
 - Idempotent batch, selection, link, and outcome mutations.
 - Query primitives used by evidence and retrieval modules.
-- Legacy-free schema v1 plus explicit future migration hooks.
+- One current persisted shape with no migration hooks.
 
 ## Proposed code surface
 
@@ -52,8 +52,7 @@ Default archive path:
 - [ ] Represent raw score separately from normalized utility.
 - [ ] Require source references for non-insufficient evidence claims.
 - [ ] Encode idea-to-node linkage without importing `SearchNode`.
-- [ ] Provide `to_dict`/`from_dict` with unknown-field tolerance only where the
-      repository's compatibility conventions require it.
+- [ ] Make `to_dict`/`from_dict` reject unknown and missing fields explicitly.
 - [ ] Validate finite numeric values and reject booleans as integers.
 - [ ] Define transition tables and reject illegal backward transitions.
 
@@ -86,10 +85,9 @@ it with different data fails loudly.
 - [ ] Flush and atomically replace the prior archive.
 - [ ] Never leave an empty/truncated archive after interruption.
 - [ ] Increment a monotonic archive revision per committed mutation.
-- [ ] Include schema version, campaign identity, created/updated timestamps,
-      batches, ideas, claims, and gaps.
-- [ ] Refuse a newer unsupported schema version.
-- [ ] Preserve old source records during future migration.
+- [ ] Include campaign identity, revision, created/updated timestamps, batches,
+      ideas, claims, and gaps.
+- [ ] Refuse any incompatible persisted shape.
 - [ ] Avoid storing model transcripts unless explicitly required for audit;
       structured outputs and compact provenance are the contract.
 
@@ -116,5 +114,5 @@ it with different data fails loudly.
 
 - Embedding generation or similarity scoring.
 - Candidate generation or selection.
-- Experiment-store or checkpoint migration.
+- Experiment-store or checkpoint compatibility.
 - Choosing the archive's long-term database backend.

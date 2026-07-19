@@ -47,16 +47,14 @@ tests/
 - [ ] Construct `IdeationCapacityView` only from the existing budget snapshot,
       fidelity decision, and fidelity timing authority; add no local duration
       or reserve estimate.
-- [ ] Preserve the legacy `_generate_solution` route behind
-      `ideation_mode=legacy`.
-- [ ] Route `ideation_mode=v3` through evidence, directive, archive, candidate,
-      and selector stages.
+- [ ] Replace `_generate_solution` with the evidence, directive, archive,
+      candidate, and selector stages.
 - [ ] Persist `PLANNED`, `GENERATED`, `ANALYZED`, and `SELECTED` boundaries in
       order.
 - [ ] Return a typed selected idea and immutable parent snapshot rather than a
       bare string.
-- [ ] Add optional `idea_id` and `selection_batch_id` to `SearchNode` with
-      backward-compatible serialization.
+- [ ] Add required `idea_id` and `selection_batch_id` to `SearchNode` and update
+      every constructor and serialized fixture to the new shape.
 - [ ] Copy selected proposal text to `SearchNode.solution`.
 - [ ] Link the node idempotently before implementation begins.
 - [ ] Preserve current phase telemetry and include generator, repair, analyzer,
@@ -91,7 +89,6 @@ old solution string. These behaviors must remain unchanged:
 
 ## Tests
 
-- Legacy mode produces the existing call order and node shape.
 - V3 selected idea is persisted before SearchNode creation.
 - Crash after selection resumes through one idempotent node link.
 - Best, baseline, specific, and recovery plans materialize the expected ref.
@@ -107,7 +104,8 @@ old solution string. These behaviors must remain unchanged:
 ## Definition of done
 
 - A mocked v3 iteration reaches existing implementation with a linked node.
-- Legacy tests remain green without rewriting their expectations around v3.
+- Superseded ideation tests are rewritten around the v3 contract rather than
+  preserving the old call order.
 - No experiment-memory writes are moved into GenericSearch.
 - All parent-ref safety tests pass under failures and cleanup.
 
@@ -115,4 +113,4 @@ old solution string. These behaviors must remain unchanged:
 
 - Final experiment projection or MCP rendering.
 - Cross-store outcome reconciliation.
-- Changing the default from legacy to v3.
+- Final deletion of now-unreachable legacy helpers, owned by M6.

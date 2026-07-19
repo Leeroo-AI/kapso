@@ -16,7 +16,7 @@ the strict separation between proposed work and executed evidence.
 - Final outcome update after orchestrator-side candidate evaluation.
 - Separate experiment-history and idea-history retrieval surfaces.
 - Cross-store reconstruction and consistency rules.
-- Backward-compatible experiment JSON loading.
+- Strict replacement experiment JSON shape.
 
 ## Proposed code surface
 
@@ -38,11 +38,11 @@ tests/
 
 ## Experiment projection tasks
 
-- [ ] Add optional `idea_id`, `selection_batch_id`, parent lineage, objective
+- [ ] Add required `idea_id`, `selection_batch_id`, parent lineage, objective
       direction/utility, fidelity, evaluation attempts, duration, and cost to
       `ExperimentRecord`.
 - [ ] Project fields from finalized SearchNodes without changing raw score.
-- [ ] Load legacy records with safe defaults and null idea links.
+- [ ] Reject incompatible or unlinked experiment records.
 - [ ] Make top-experiment retrieval correct for minimizing objectives.
 - [ ] Preserve invalid evaluations as audit records while excluding them from
       top-result ranking and hypothesis outcomes.
@@ -96,7 +96,7 @@ list_evaluation_gaps
 
 ## Tests
 
-- Old experiment JSON loads unchanged.
+- Incompatible experiment JSON fails loudly.
 - New projection round-trips every additive field.
 - Minimize objective returns the correct top experiments.
 - Invalid evaluations remain stored but do not rank or update ideas.
