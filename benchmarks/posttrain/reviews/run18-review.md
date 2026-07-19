@@ -98,3 +98,126 @@ Verdict: boundary self-healing should recover the run — the hang cost
 labeling (truthful?), difficulties FALLBACK (first live firing — no
 self-authored tag possible), feedback judge behavior (R15-P2-1 check),
 and whether v2 finally fixes the multilingual mix.
+
+## P3 (18:57Z → end) + closing
+
+Headline: OFFICIAL 0.4240 ±0.016, both judges clean. The boundary worked
+exactly as designed: deadline kill truthfully labeled 18:57:02 ("Deadline
+of 18000s reached — terminating Claude Code"); difficulties FALLBACK fired
+18:58:17 on the missing tag (first live firing, $1.93/403.6s/25 tools) and
+its output drove the whole recovery; session 2 (CLI 19:14:27→23:16:43,
+14536.4s, $21.16, 228 tools) cashed in the stranded v2 asset within 41 min
+and climbed 17.06 → 38.23 in-run. Campaign closed by the orchestrator at
+23:20:06 ("finalization reserve reached"), cumulative $43.03.
+
+- **R18-P3-1 — P2 (framework/fallback forensics).** The fallback's 6-item
+  reconstruction is operationally excellent — it pinned the stranded state
+  ("`sft_data_v2.jsonl` was **never created**", "GPU sat idle from 16:04
+  to at least 19:01 (~3h)", "**Unresolved** — final_model … 17.06% floor
+  … is valid"), quoted the exact offending watcher verbatim (`until !
+  pgrep -f "generate_teacher.py.*teacher_raw_v2"; do sleep 45; done`
+  with its 0-byte output log), and #5 nailed the recipe lesson (concision
+  target undershot the judge-rewarded ~632-token register; v2 at 643 "was
+  **never trained or scored**"). But the hang MECHANISM is misattributed:
+  it never named the watcher self-match trap, claimed the 16:03 wakeup
+  "fired" and read the 18:57 kill-flush init as "the wakeup-driven
+  re-invocation [that] did no work" — blaming the agent, when P2 forensics
+  show 0/7 wakeups ever fired (dead timer) and the loop was unfinishable
+  from birth. The behavioral advice downstream was right anyway, but the
+  permanent lesson artifact gives the framework's dead timer (=R19-P2-1)
+  zero reinforcement.
+- **R18-P3-2 — P2 (framework/feedback).** Node-0 judge (163.7s, $0.66):
+  independently verified untampered eval + valid model, banked
+  <score>0.1706</score>, stop=false, and item 2 ("Cash in the
+  already-completed v2 work FIRST … ~40 min") set session 2's opening
+  move. Same mechanism garble though — "killed by its own ScheduleWakeup
+  deadline" (twice) conflates the harness clamp with the wakeup API.
+  R15-P2-1 RECURRED at BOTH boundaries: node-0 first probe ran in the
+  campaign root and missed final_model/evaluate.py (19:05:15, exit 2,
+  recovered 9s); node-1 first Read of `kapso_campaign/kapso_evaluation/
+  evaluate.py` → "File does not exist" (23:18:05). Deterministic wasted
+  first step, four sightings campaign-wide now.
+- **R18-P3-3 — OBS (framework, positive): the lesson chain closed.**
+  get_top_experiments served the fallback's difficulties IN FULL to both
+  ideation members (rule 6 verified in the render); both fable-5
+  candidates encode the fix ("no ScheduleWakeup chains, no fire-and-forget
+  continuation (this exact pattern killed iteration 2 of the prior
+  session)"; "bounded ≤5-min polls … kill by recorded PID only") and C3
+  found two REAL silent length gates by reading repo code
+  (`filter_data.py --max-tokens` default 1400 vs v2 p90 ≈ 1481;
+  `train_sft.py --max-length` 2048 silently skipping long examples) —
+  both load-bearing: the v2 filter ran at 1900 and training at 3072 kept
+  8120/0-skipped. Selector synthesis: C3 backbone + C4's conditional DPO
+  + C2's length-ratio guard. Recurring noise: codex member again not
+  streamed (=R18-P1-2), 3 empty ToolSearch probes at fable-5 boot
+  (=R18-P1-5).
+- **R18-P3-4 — OBS (framework, positive): watcher pattern fixed, session
+  freeze-free.** Session 2 made ZERO ScheduleWakeup calls (dead timer
+  routed around, not fixed) and every watcher became a bounded,
+  file-condition loop — `for i in $(seq 1 90); do if grep -qE "Score
+  \(winrate\) is:" …` / `until grep -qE "\[dpo\] saved to|Traceback|CUDA
+  out of memory" …` — self-terminating, failure-aware, and structurally
+  incapable of pgrep self-match. All long waits ended in task
+  notifications that re-invoked the CLI (longest quiet stretch 55.7 min,
+  22:19→23:14, ended by the @150 monitor firing); the one monitor timeout
+  (21:30, @100 eval slower than its window) returned control and was
+  hand-checked — bounded-by-construction working as intended. env sleep
+  guard fired once (19:17:32) and was respected.
+- **R18-P3-5 — OBS (framework, positive): endgame + exit clean, no
+  R16-P2-1.** result.json written BEFORE the risky @150 confirmation
+  (22:17:01), final_model integrity proven by full transformers load
+  (1,720,574,976 params), best_score.log appended, GPU verified 0 MiB,
+  final commit 3871354, then the 5-tag result — technical_difficulties
+  SELF-AUTHORED this time, 8 evidence-grade items (two workspace roots;
+  HF_HOME at /home/ben/hf_cache nearly aborted DPO; nohup block-buffering
+  broke "wait for first loss line" → watch checkpoint dirs instead;
+  `round(lr,4)`→0.0 false alarm; promote.sh `cp -r` dragged 23G of
+  checkpoints into final_model; temp-0.5 evals ~20s/answer; DPO reward
+  acc 0.51 inherent to single-model on-policy pairs; benign tokenizer
+  warning). CLI exited AT the final message (23:16:43 = Finished
+  23:16:43); extraction recovered all 5 tags; node 1 banked 0.3823,
+  stop=false, evaluation_valid=true.
+- **R18-P3-6 — P1 recipe-major: R18-P1-1 never corrected.** Session 2
+  reused the 8,977-prompt pool untouched (~17% aya-sourced multilingual
+  after filtering) vs the eval's ~33% non-English; no test-weighted
+  language mix, no self-instruct prompt expansion, one distill rung
+  (8.1k) vs the 74.85 trace's three (8.4k→13.4k→18.2k, 19 languages
+  weighted zh 260/ru 260/…), generic `--rich` teacher prompt vs its
+  rubric-shaped one, and R18-P1-4's 2ep/1e-5 persisted into v2. The
+  74.85 ladder prices what that leaves on the table: its balanced-
+  multilingual scale rung alone was +19 (0.4732→0.6638). Node-1 feedback
+  aims the next run at ranker strength and corpus diversity but never
+  names the language-mix share explicitly.
+- **R18-P3-7 — OBS (recipe).** Session-2 ladder, all timestamped: v2 SFT
+  0.3457 @50 (scored 19:55:32, promoted 19:55:59, "sft-v2-teacher-rich")
+  → decoding grid on identical weights: temp 1.0 = 0.0810 (20:10), 0.5 =
+  0.3778 (20:33, promoted 20:33:39), 0.3 = 0.3138 (20:56) — sweet spot
+  found by trend-following, not the planned fixed grid → @100 confirm
+  0.3696 (21:35) → DPO (1200×4 on-policy samples, 504 pairs after the
+  length-ratio guard dropped ~58%, ~32 steps) = 0.3804 @50 (22:15),
+  reward accuracies 0.51 → correctly NOT promoted ("promoting DPO on
+  noise risks a silent regression") → @150 confirm 0.3823 ±0.021
+  (23:14:53). Official 0.4240 vs in-run 0.3823: +4.2 official-vs-dev
+  skew (full 250 + official judge pair vs gpt-5-mini @150) — worth
+  remembering when calibrating in-run numbers against leaderboard rows.
+
+CLOSING VERDICT — **official 42.40 ±0.016, both judges clean**, banked as
+the cell's sixth official result. Placement: below the opus-4.8 cell mean
+(45.0), human row (50.0), and fable-5 (57.1); ~32 points under the 74.85
+best-known trace, with the gap fully accounted for by the missing
+multilingual/self-instruct scale rungs (R18-P3-6). The hang's measured
+cost: 2h53m idle H100 (v2 teacher done 16:04:03 → kill 18:57:02) plus ~17
+min of boundary machinery — almost exactly one distill-scale rung of the
+74.85 ladder, i.e. the difference between ~42 and plausibly ~60. What
+session 2 proved: boundary self-healing WORKS end-to-end — kill labeled
+truthfully, fallback reconstructed the state sight-unseen well enough
+that ideation's first move was the stranded asset, and the recovered
+session ran freeze-free with the watcher pathology structurally
+eliminated, doubling the score in 4h02m with zero restart waste. The
+open framework debts are unchanged and now precisely scoped: dead
+ScheduleWakeup timer (R19-P2-1, routed around rather than fixed),
+feedback-cwd path mismatch (R15-P2-1, four sightings), codex ideation
+streaming (R18-P1-2). The recipe debt is one sentence: weight the
+teacher pool to the eval's language distribution and scale it — the
+best-known trace says that alone is worth more than everything else
+this run left undone.
