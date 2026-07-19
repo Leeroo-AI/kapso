@@ -106,3 +106,128 @@ R15-P2-1 checks remain unexercisable.
 Verdict: **continue** — 0.8697 verified on disk with a protected
 upside-only v3 pending (result ~18:40, ~15 min margin to the 18:55
 deadline; promote is a fast file op).
+
+## P3 (18:30Z → end) + closing
+
+Headline: OFFICIAL **0.8964 ±0.009, both judges clean — CELL RECORD**
+(+3.40 over fable-5's official 86.24, +2.80 over human 86.84). Answer to
+the P3 question: **v4 did NOT beat the bar** — full-250 "Score (winrate)
+is: 0.8781934306569343" (21:34:07) vs bar >88.85 → "Per
+promote-only-if-better, **v4 is NOT promoted; final_model stays v3**"
+(21:35:36). The record is the **v3 weights with a hill-climbed decoding
+default (temp 0.7→0.6)**: self-evals 89.84 (source ckpt, 22:05:28) and
+91.04 (final_model confirm, 22:34:20, stderr 0.85); official 89.64 sits
+inside the demonstrated 1.2-pt run-to-run band and above both temp-0.7
+readings (88.64/88.85) — the decoding gain held out-of-sample.
+
+- **R17-P3-1 — P1 (agent near-loss), 18:36:07→18:43:55.** Session 1
+  killed the v3 eval at 18:36:11 ("too slow … unlikely to beat the
+  verified 86.97%") — 7 min before its own ~18:43 ETA and 12 min before
+  its own 18:48 cutoff. The kill no-oped ("gpu already free" =
+  generation had just finished); API-side judging completed 18:41:30 →
+  v3_metrics.json 88.64. Its own completion watcher then fired
+  (~18:41:42) and the agent — conditioned by R17-P2-6's stale-wakeup
+  noise — dismissed it four times: "Stale notification from a leftover
+  polling task — no action needed", shipping v2 86.97 with v3's 88.64
+  sitting on disk. Feedback judge named it: "misclassified the v3
+  eval-completion background notification as a 'stale notification' …
+  ~1.7 points were left on the table."
+- **R17-P3-2 — P2 (framework, capture chain), 18:38:39→18:45:19.** The
+  agent DID author a complete final report at 18:38:39 (score 86.97 +
+  7-item technical_difficulties) but it rendered on the thinking
+  channel, and six stale-notification micro-turns followed it, so the
+  CLI's terminal payload was a 111-token brush-off ("Finished … 2+111
+  tokens"). Extractor: "Could not extract result from agent output" /
+  "using raw output" / "technical_difficulties missing — running
+  fallback reconstruction". Primary capture path failed on a session
+  that had authored everything; fallbacks caught it. Fix candidates:
+  cancel pending watchers once a final report is emitted; extract tags
+  from the whole stream, not the last payload.
+- **R17-P3-3 — OBS (framework, positive): the boundary rescued the
+  run.** Fallback reconstruction (18:45:19→18:53:03, $2.32) truthfully
+  opened "The session ran to a self-declared completion (not a crash)"
+  — correct: NO deadline kill anywhere in the run; session 1's CLI
+  exited naturally at 17,344s of the 18,000s cap — and flagged "***
+  BIGGEST LOSS *** — SUPERIOR v3 MODEL (88.64%) DISCARDED". Feedback
+  judge 1 (18:53:03→18:57:37, $1.13) independently verified artifacts
+  (read v3_metrics.json 18:55:29), scored the node truthfully **0.8697**
+  (what final_model held, not the orphan), and issued the exact ACTION:
+  "copy sft_run3/ckpt → final_model verbatim … so 88.64% reproduces"
+  plus the never-dismiss-notifications lesson. Blemish: reconstruction
+  called the 18:55 deadline "false/binding" — it was the real 18000s
+  session cap (13:54:51→18:54:51); its substance (kill premature,
+  promote would have fit) stands.
+- **R17-P3-4 — OBS (recipe), 18:57:37→19:06:02.** Iteration-2 boundary
+  clean: ensemble again (codex + fable-5, 4 candidates pooled), full
+  experiment-0 feedback rendered through to members (rule 6 — the
+  winning candidate quoted the bank ACTION verbatim). Selector picked
+  Candidate 3 (bank v3 + best-of-3 teacher-BoN → v4 14-15k ex, bar
+  strictly >88.64 full-250), folded Candidate 4's free decoding
+  hill-climb in as gated step 9, and step 10 carries "Never dismiss a
+  pending background notification".
+- **R17-P3-5 — OBS (recipe), 19:06→21:36.** Disciplined execution:
+  banked v3 at **19:09:00** (3 min in; "88.64 sft-v3-promote"),
+  reconfirmed final_model **88.85** full-250 (19:36:50). Discovered v3's
+  training data hadn't survived the branch handoff → justified
+  deviation at 19:11:44: "best-of-3 on a full ~15k pool is infeasible
+  (~150+ min teacher time)… single-sample distillation at larger
+  scale". v4 = 15,500-prompt pool (ml 3,100/15,500 = 20% — R17-P1-1's
+  guessed mix, never fixed, closes out unaddressed) → 12,785 ex,
+  train_loss 0.855, stop-diag 12/12, full-250 **87.82** → rejected. No
+  DPO retry (time went to the decoding sweep instead — correct EV).
+- **R17-P3-6 — OBS (recipe): the record lever, 21:36→23:03.** Protected
+  decoding hill-climb with pre-registered gates: ship temp 0.6 only if
+  ≥89.35 (21:38:45); source-ckpt eval **89.84** (22:05:28) → shipped
+  22:06:39; confirmation on final_model itself **91.04** (22:34:20);
+  temp-0.5 probe tied 91.04 → "TIE-kept-temp0.6" (23:03:13). Shipped
+  config: temp 0.6 / top_p 0.9 / rep_pen 1.05 / eos [151645,151643].
+  best_score.log ladder pristine: 85.51 → 86.97 → 88.64 → 88.85 →
+  (87.82 not-promoted) → 89.84 → 91.04.
+- **R17-P3-7 — OBS (framework, positive; R16-P2-1 non-regression).**
+  Session-2 endgame textbook: FINALIZE commit e83c257, result.json
+  91.04 with provenance notes, integrity check (4.02B params, loads in
+  base env), all-5-tag XML report in the final payload (1310+9016
+  tokens) incl. self-authored 5-item technical_difficulties
+  (lost-training-data, v4 negative result), extraction succeeded
+  ("Extracted agent result from XML tags"), CLI exited the same second
+  — zero trailing turns. Feedback judge 2 ($0.97) added the prophetic
+  winner's-curse caveat (1.2-pt swing on identical weights — official
+  89.64 landed inside it), scored 0.9104, stop=false with sane
+  priorities; orchestrator truthfully "Stopping: finalization reserve
+  reached" at 23:10:22; consolidation confirmed final_model present.
+- **R17-P3-8 — P3 (framework, systemic).** (a) Wakeup corroboration for
+  R18-P2-1/R19-P2-1: ZERO "wakeup" occurrences in the full 19,381-line
+  trace (13:44→23:10) — every wait is a bash sleep-watcher + task
+  notification. (b) R15-P2-1 recurred mildly: feedback judge 2's first
+  Read resolved the relative evaluation_script_path against the
+  campaign cwd ("File does not exist", 23:06:21), self-recovered in
+  ~10s. (c) Poll-churn persists at lower cost: 159 "Wasted call"
+  re-reads + 37 empty-offset reads in session 2 (vs 90+176 in session
+  1), but $44.98/356 tools vs $147.49/697. Run total **$196.71** vs
+  best-trace $39.89 — the record cost 5×, dominated by session-1
+  watcher churn.
+
+CLOSING VERDICT: Official **0.8964 ±0.009 (both judges clean)** — the
+arenahardwriting × Qwen3-4B-Base cell record, +3.40 over fable-5's
+official 86.24 and +2.80 over the human 86.84. Deliverable: SFT v3 —
+Qwen3-4B-Base full-FT from base, 3 epochs on 9,328 exact-eval-template
+examples distilled from the local Qwen3-30B-A3B-Instruct-2507 teacher —
+served at temp 0.6. The two decisive differences vs the fable-5 86.24
+recipe: (1) the **two-iteration structure with an artifact-inspecting
+boundary** — the fallback reconstruction + feedback judge recovered an
+orphaned +1.7-pt checkpoint that a single-session run would have lost
+outright (86.97 would have merely tied the old record); (2) the **gated
+decoding-defaults hill-climb** (temp 0.7→0.6, +1.5–2 genuine on 2×2
+full-250 runs) — a free lever no prior trace exploited, reachable only
+because iteration 2 started from a banked 88.64 instead of from scratch.
+Underneath both: full-250 promote-only-if-better discipline that banked
+every gain and rejected every regression (v4 87.82, temp-0.5 tie).
+Framework health at the close: the boundary fallback chain and feedback
+judges carried the run — the campaign's first material framework save;
+the two fixes this run argues for are the primary result-capture path
+failing under trailing stale notifications (R17-P3-2) and the
+watcher/poll churn that both caused the near-loss and burned ~$100
+(R17-P3-1, R17-P2-6). Wakeup timers remain absent systemically; endgame
+discipline at natural completion is fully intact. Record banked; the
+bank-first / decoding-sweep / variance-bounding lessons are in the store
+for the next cell.
