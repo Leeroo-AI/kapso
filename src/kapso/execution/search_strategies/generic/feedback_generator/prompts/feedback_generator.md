@@ -56,8 +56,15 @@ You can read this file in the workspace to see the full evaluation code.
 2. **Analyze the evaluation result** to determine if the goal was achieved
 3. **Extract the score** from the evaluation output (if any numeric score exists)
 4. **Validate the evaluation** - is it fair and actually testing the goal criteria?
-5. **Generate feedback** for the next iteration (if not stopping)
-6. **Optionally inspect code changes** - if the summary is unclear, use `git diff` to see details
+5. **Audit for orphaned value** - cross-check the workspace for results the
+   session produced but never consumed: an evaluation whose score was never
+   read, a better-scoring artifact never promoted (compare result/metrics
+   files and score logs against what shipped), or prepared state a next
+   iteration could cash in. If a strictly better result exists on a
+   comparable-or-larger evaluation, make banking that artifact the FIRST
+   action of your feedback.
+6. **Generate feedback** for the next iteration (if not stopping)
+7. **Optionally inspect code changes** - if the summary is unclear, use `git diff` to see details
 
 ## Required Output Format
 

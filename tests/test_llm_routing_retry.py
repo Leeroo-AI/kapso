@@ -551,3 +551,76 @@ def test_none_reasoning_effort_is_omitted_not_sent_as_null(monkeypatch):
     # interaction) and 400s on gpt-5.6 models. The kwarg must be absent.
     assert "reasoning_effort" not in calls[-1]
     assert "allowed_openai_params" not in calls[-1]
+
+
+def embedding_response(vector, cost=0.0):
+    return SimpleNamespace(
+        data=[{"embedding": list(vector)}],
+        _hidden_params={"response_cost": cost},
+    )
+
+
+def test_create_embedding_routes_role_and_passes_full_text(monkeypatch):
+    """The embedding role resolves from config routes and the input text is
+    never clipped — an embedding of a prefix misrepresents the document."""
+    calls = []
+
+    def fake_embedding(**kwargs):
+        calls.append(kwargs)
+        return embedding_response([0.1, 0.2], cost=0.001)
+
+    monkeypatch.setattr(llm_module, "embedding", fake_embedding)
+    backend = LLMBackend(
+        models={"embedding": "text-embedding-3-small"},
+        retry_policy=no_jitter_policy(),
+    )
+
+    long_text = "solution body " * 5000  # far beyond any prefix cap
+    vector = backend.create_embedding(long_text)
+
+    assert vector == [0.1, 0.2]
+    assert calls[0]["model"] == "text-embedding-3-small"
+    assert calls[0]["input"] == [long_text]
+    assert backend.get_cumulative_cost() == pytest.approx(0.001)
+
+
+def test_create_embedding_default_role_and_explicit_override(monkeypatch):
+    calls = []
+
+    def fake_embedding(**kwargs):
+        calls.append(kwargs)
+        return embedding_response([1.0])
+
+    monkeypatch.setattr(llm_module, "embedding", fake_embedding)
+    backend = LLMBackend(retry_policy=no_jitter_policy())
+
+    backend.create_embedding("a")
+    backend.create_embedding("b", model="custom-embedder")
+
+    assert calls[0]["model"] == "text-embedding-3-small"  # router default
+    assert calls[1]["model"] == "custom-embedder"          # explicit wins
+
+
+def test_create_embedding_retries_transient_then_raises_loud(monkeypatch):
+    attempts = []
+
+    def fake_embedding(**kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise StatusError(503)
+        return embedding_response([0.5])
+
+    monkeypatch.setattr(llm_module, "embedding", fake_embedding)
+    backend = LLMBackend(
+        retry_policy=no_jitter_policy(max_attempts=2),
+        sleep_fn=lambda _s: None,
+    )
+    assert backend.create_embedding("x") == [0.5]
+    assert len(attempts) == 2
+
+    def auth_error(**kwargs):
+        raise AuthenticationError("no credentials")
+
+    monkeypatch.setattr(llm_module, "embedding", auth_error)
+    with pytest.raises(AuthenticationError):
+        backend.create_embedding("x")

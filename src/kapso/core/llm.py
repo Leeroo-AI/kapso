@@ -10,7 +10,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
-from litellm import acompletion, completion
+from litellm import acompletion, completion, embedding
 
 # Suppress verbose LiteLLM logs.
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
@@ -18,11 +18,12 @@ logging.getLogger("litellm").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-MODEL_ROLES = frozenset({"utility", "reasoning", "web_search"})
+MODEL_ROLES = frozenset({"utility", "reasoning", "web_search", "embedding"})
 DEFAULT_MODEL_ROUTES: Dict[str, str] = {
     "utility": "gpt-4.1-mini",
     "reasoning": "gpt-5-mini",
     "web_search": "openai/gpt-4o-search-preview",
+    "embedding": "text-embedding-3-small",
 }
 
 
@@ -599,27 +600,21 @@ class LLMBackend:
     def create_embedding(
         self,
         text: str,
-        model: str = "text-embedding-3-large",
-        max_chars: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> List[float]:
-        """Create an embedding, returning an empty list on provider failure."""
-        try:
-            import openai
+        """Embed the FULL text via the router's embedding role.
 
-            if max_chars is None:
-                env_val = os.getenv("KAPSO_EMBEDDING_MAX_CHARS")
-                if env_val:
-                    try:
-                        parsed = int(env_val)
-                        max_chars = parsed if parsed > 0 else None
-                    except (TypeError, ValueError):
-                        max_chars = None
-
-            input_text = text if max_chars is None else text[:max_chars]
-            response = openai.embeddings.create(model=model, input=input_text)
-            return response.data[0].embedding
-        except Exception:
-            return []
+        The text is never clipped on the way in (an embedding of a prefix
+        silently misrepresents the document). Transient provider failures
+        retry under the backend's policy; genuine errors propagate.
+        """
+        resolved = self.model_router.resolve(model, default_role="embedding")
+        response = self._run_sync(
+            "embedding",
+            resolved,
+            lambda: embedding(model=resolved, input=[text]),
+        )
+        return list(response.data[0]["embedding"])
 
 
 def main() -> None:

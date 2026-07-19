@@ -59,6 +59,7 @@ modes:
     models:
       utility: "gpt-5.6-luna"
       reasoning: "gpt-5.6-sol"
+      embedding: "text-embedding-3-small"
 
     knowledge_search:
       type: "kg_llm_navigation"
@@ -220,6 +221,7 @@ modes:
     models:
       utility: "gpt-5.6-luna"
       reasoning: "gpt-5.6-sol"
+      embedding: "text-embedding-3-small"
 
     knowledge_search:
       type: "kg_llm_navigation"

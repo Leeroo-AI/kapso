@@ -18,6 +18,13 @@ deadline). Reconstruct that report from the evidence.
 Read the evidence (grep the stream for errors, tracebacks, OOMs, retries,
 kills) and reconstruct what the implementor struggled with.
 
+Also audit for ORPHANED VALUE: results or artifacts on disk that the
+session produced but never consumed — an evaluation whose score was never
+read, a better-scoring model never promoted (compare result/metrics files
+and score logs against what actually shipped), or prepared data a next
+session could use. An unnoticed better result is itself a difficulty:
+report it with the concrete score and where it lives.
+
 ## Required output
 
 Return EXACTLY one tag as the last thing in your response:

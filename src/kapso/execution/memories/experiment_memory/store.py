@@ -10,9 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from kapso.core.llm import LLMBackend
 from kapso.execution.fidelity import EvaluationAttempt
 
-EXPERIMENT_HISTORY_SCHEMA = "kapso.experiment_history.v3"
+EXPERIMENT_HISTORY_SCHEMA = "kapso.experiment_history.v4"
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*_[0-9a-f]{32}$")
 _RECORD_FIELDS = {
     "node_id",
@@ -21,6 +22,7 @@ _RECORD_FIELDS = {
     "selection_batch_id",
     "parent_node_id",
     "solution",
+    "solution_embedding",
     "raw_score",
     "normalized_utility",
     "objective_direction",
@@ -86,6 +88,22 @@ def _reject_nonfinite_constant(value: str):
     raise ValueError(f"experiment history contains non-finite value: {value}")
 
 
+def cosine_similarity(a: Iterable[float], b: Iterable[float]) -> float:
+    """Return cosine similarity and reject incompatible vector dimensions."""
+    left = tuple(a)
+    right = tuple(b)
+    if len(left) != len(right):
+        raise ValueError(
+            f"Embedding dimensions differ: {len(left)} vs {len(right)}"
+        )
+    dot = sum(x * y for x, y in zip(left, right))
+    norm_left = math.sqrt(sum(value * value for value in left))
+    norm_right = math.sqrt(sum(value * value for value in right))
+    if norm_left == 0.0 or norm_right == 0.0:
+        return 0.0
+    return dot / (norm_left * norm_right)
+
+
 @dataclass(frozen=True)
 class ExperimentRecord:
     """One executed node, separate from unexecuted idea candidates."""
@@ -96,6 +114,7 @@ class ExperimentRecord:
     selection_batch_id: Optional[str]
     parent_node_id: Optional[int]
     solution: str
+    solution_embedding: Tuple[float, ...]
     raw_score: Optional[float]
     normalized_utility: Optional[float]
     objective_direction: str
@@ -149,6 +168,18 @@ class ExperimentRecord:
                     raise ValueError("experiment phase telemetry value is invalid")
                 phase_telemetry[phase_name][measurement] = float(value)
         object.__setattr__(self, "phase_telemetry", phase_telemetry)
+        if not isinstance(self.solution_embedding, (list, tuple)) or not all(
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            for value in self.solution_embedding
+        ):
+            raise ValueError("experiment solution embedding is invalid")
+        object.__setattr__(
+            self,
+            "solution_embedding",
+            tuple(float(value) for value in self.solution_embedding),
+        )
         if self.parent_node_id is not None and (
             isinstance(self.parent_node_id, bool)
             or not isinstance(self.parent_node_id, int)
@@ -271,6 +302,7 @@ class ExperimentRecord:
         node: Any,
         objective_direction: str,
         require_idea_links: bool,
+        solution_embedding: Iterable[float] = (),
     ) -> "ExperimentRecord":
         idea_id = getattr(node, "idea_id", None)
         batch_id = getattr(node, "selection_batch_id", None)
@@ -298,6 +330,7 @@ class ExperimentRecord:
             selection_batch_id=batch_id,
             parent_node_id=node.parent_node_id,
             solution=node.solution,
+            solution_embedding=tuple(solution_embedding),
             raw_score=raw_score,
             normalized_utility=normalized,
             objective_direction=objective_direction,
@@ -335,6 +368,7 @@ class ExperimentRecord:
             "selection_batch_id": self.selection_batch_id,
             "parent_node_id": self.parent_node_id,
             "solution": self.solution,
+            "solution_embedding": list(self.solution_embedding),
             "raw_score": self.raw_score,
             "normalized_utility": self.normalized_utility,
             "objective_direction": self.objective_direction,
@@ -389,6 +423,9 @@ class ExperimentRecord:
         ):
             raise ValueError("experiment evaluation attempt fields are invalid")
         values = dict(data)
+        if not isinstance(values["solution_embedding"], list):
+            raise ValueError("experiment solution embedding must be a list")
+        values["solution_embedding"] = tuple(values["solution_embedding"])
         values["evaluation_attempts"] = tuple(
             EvaluationAttempt.from_dict(attempt) for attempt in raw_attempts
         )
@@ -408,7 +445,7 @@ class ExperimentHistoryStore:
         objective_direction: Optional[str] = None,
         require_idea_links: Optional[bool] = None,
         goal: Optional[str] = None,
-        llm: Any = None,
+        llm: Optional[LLMBackend] = None,
     ):
         self.path = Path(json_path)
         self.goal = goal
@@ -436,13 +473,19 @@ class ExperimentHistoryStore:
             raise ValueError("new experiment history requires an idea-link policy")
 
     def add_experiment(self, node: Any) -> ExperimentRecord:
+        existing = tuple(
+            item for item in self.experiments if item.node_id == node.node_id
+        )
+        solution_embedding: Iterable[float] = ()
+        if existing and existing[0].solution == node.solution:
+            solution_embedding = existing[0].solution_embedding
+        elif self._llm is not None and node.solution.strip():
+            solution_embedding = self._llm.create_embedding(node.solution)
         record = ExperimentRecord.from_node(
             node,
             self.objective_direction,
             self.require_idea_links,
-        )
-        existing = tuple(
-            item for item in self.experiments if item.node_id == record.node_id
+            solution_embedding,
         )
         if existing:
             prior = existing[0]
@@ -501,11 +544,16 @@ class ExperimentHistoryStore:
         self._require_limit(k)
         if not isinstance(query, str) or not query.strip():
             raise ValueError("experiment similarity query must be non-empty")
-        query_terms = set(re.findall(r"[a-z0-9_]+", query.lower()))
+        embedded = [
+            record for record in self.experiments if record.solution_embedding
+        ]
+        if self._llm is None or not embedded:
+            return self.get_recent_experiments(k)
+        query_embedding = self._llm.create_embedding(query)
         ranked = sorted(
-            self.experiments,
+            embedded,
             key=lambda record: (
-                self._token_overlap(query_terms, record),
+                cosine_similarity(query_embedding, record.solution_embedding),
                 record.node_id,
             ),
             reverse=True,
@@ -522,20 +570,6 @@ class ExperimentHistoryStore:
     def _require_limit(k: int) -> None:
         if isinstance(k, bool) or not isinstance(k, int) or k < 1:
             raise ValueError("experiment retrieval limit must be positive")
-
-    @staticmethod
-    def _token_overlap(query_terms: set[str], record: ExperimentRecord) -> float:
-        content = "\n".join(
-            (
-                record.solution,
-                record.feedback,
-                record.technical_difficulties,
-                record.error_message,
-            )
-        )
-        content_terms = set(re.findall(r"[a-z0-9_]+", content.lower()))
-        union = query_terms | content_terms
-        return 0.0 if not union else len(query_terms & content_terms) / len(union)
 
     def _load(self) -> None:
         data = json.loads(
@@ -590,9 +624,15 @@ class ExperimentHistoryStore:
 
 
 def load_store_from_env() -> ExperimentHistoryStore:
-    """MCP process boundary: load the path supplied by its launcher."""
+    """MCP process boundary: load paths and model routing from its launcher."""
     json_path = os.environ["EXPERIMENT_HISTORY_PATH"]
-    return ExperimentHistoryStore(json_path=json_path)
+    embedding_model = os.environ.get("EXPERIMENT_EMBEDDING_MODEL")
+    llm = (
+        LLMBackend(models={"embedding": embedding_model})
+        if embedding_model
+        else None
+    )
+    return ExperimentHistoryStore(json_path=json_path, llm=llm)
 
 
 def format_experiments(experiments: Iterable[ExperimentRecord]) -> str:

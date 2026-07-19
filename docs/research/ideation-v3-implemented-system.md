@@ -49,7 +49,7 @@ last. Resume reconciles any valid interruption between these writes.
 | `IdeaArchive` | Atomic proposal lifecycle, optimistic revisions, embeddings, decisions, links, outcomes | Executed score authority or Git mutation |
 | `IdeationEngine` | Phase ordering and phase-exact resume | Experiment implementation |
 | `GenericSearch` | Capacity adapter, Git parent resolution, inline node bridge, implementation/evaluation handoff, reconciliation | Budget/fidelity authority |
-| `ExperimentHistoryStore` | Atomic, strict, executed-only projection | Unexecuted candidates |
+| `ExperimentHistoryStore` | Atomic, strict, executed-only projection; persisted full-solution embeddings and cosine retrieval | Unexecuted candidates |
 | `OrchestratorAgent` | Budget/fidelity authority, external evaluation, ExperimentRecord → IdeaOutcome → checkpoint ordering | Ideation policy |
 | Evaluator evidence adapter | Mechanical validation and atomic write-back of built-in or externally overridden evidence | Authoring causal judgments |
 
@@ -109,7 +109,10 @@ Unselected ideas never enter experiment memory. Candidate/repair packets carry
 the complete proposal archive; the selector receives the current eligible pool
 and its analyses, including archived candidates deliberately resurfaced into
 that pool. No idea-history MCP gate is needed. Experiment MCP tools retain
-executed-only semantics.
+executed-only semantics. Experiment records use the strict
+`kapso.experiment_history.v4` shape; each executed solution is embedded once,
+reconciliation reuses that vector, and a store without an embedding backend is
+explicitly recency-only.
 
 ## Evaluator evidence write-back
 
@@ -157,7 +160,8 @@ guessing from a score.
   completed operation replays without another model call. Prompt, schema, CLI,
   model, effort, tools, and timeout are pinned in its artifacts, so reusing an
   operation ID with changed invocation semantics fails loudly.
-- Only `OpenAIEmbeddingProvider` calls a direct model API.
+- Within ideation, only `OpenAIEmbeddingProvider` calls a direct model API;
+  executed-memory indexing uses the shared `LLMBackend` embedding role.
 - Cached vectors require exact provider, model, dimensions, and canonical-input
   hash equality.
 - The outer process/official SDK owns OpenAI credential discovery. Ideation code

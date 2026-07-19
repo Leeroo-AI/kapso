@@ -265,3 +265,18 @@ def test_env_defaults_are_set_if_absent_only(monkeypatch):
 
     assert env["BASH_DEFAULT_TIMEOUT_MS"] == "900000"   # ambient wins
     assert env["BASH_MAX_TIMEOUT_MS"] == "14400000"     # gap filled
+
+
+def test_print_mode_dead_tools_always_disallowed(monkeypatch):
+    """Every adapter session runs -p mode, where ScheduleWakeup never fires
+    (0/50 across our and official PTB traces; repro on CLI 2.1.157) while
+    its result text promises re-invocation — run #18 idled 3h on it. The
+    ban must be present in every constructed command, both output modes."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
+    agent = ClaudeCodeCodingAgent(make_config(auth_mode="api_key"))
+
+    for use_stream_json in (False, True):
+        cmd = agent._build_command("claude-opus-4-6", use_stream_json=use_stream_json)
+        flag_index = cmd.index("--disallowedTools")
+        banned = cmd[flag_index + 1].split(",")
+        assert "ScheduleWakeup" in banned

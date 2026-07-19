@@ -37,8 +37,10 @@ ITERATION_EVAL_LIMITS = {
 PRIOR_RUN_INSIGHTS = """
 - SFT on well-chosen open datasets is the dominant winning method (TRL
   SFTTrainer). LoRA trains fast; full fine-tuning can win when time allows.
-  Distilling reasoning traces from stronger open models' published datasets
-  works well for math/code.
+  Distilling from stronger open models works well — via their published
+  datasets, or by serving one locally with vLLM to generate responses on
+  permitted prompts (teacher distillation); for judge-scored benchmarks the
+  latter is the proven top recipe.
 - The single biggest lever is matching the EVALUATION chat template exactly.
   The eval applies a fixed jinja template (see templates/) with vLLM; training
   data must be rendered with that exact template or scores collapse.
@@ -189,6 +191,29 @@ your SESSION clock is shorter and is the one that kills you.
   block on a long foreground call, the CLI converts it to a background task
   after ~2 minutes and hands you its output-file path — poll that file; but
   prefer explicit nohup so the pattern is under your control.
+- WATCHER DISCIPLINE: at most ONE watcher/timer per awaited artifact.
+  Before spawning a replacement, kill the superseded watcher (by its
+  recorded id/PID). A pile of live watchers floods you with notifications
+  and trains you to ignore the one that matters. Prefer a single
+  until-condition wait over chains of sleep-watchers.
+- TIMERS: the ScheduleWakeup tool is disabled here (its wakeups never fire
+  in this session mode — a prior run idled 3 hours trusting one). For a
+  timed check-back, launch a background task as your alarm clock:
+  `sleep <seconds> && echo ALARM` — its completion notification wakes you.
+- DEAD-MAN'S ALARM: never end a turn whose only pending wake sources are
+  condition-watchers (a watcher with a buggy condition can hang forever).
+  Keep one bounded background alarm task (e.g. `sleep 600 && echo
+  fallback-tick`) alive whenever you are purely waiting, so no wedged
+  watcher can strand you for more than ~10 minutes.
+- A completion notification is EVIDENCE, not noise: before dismissing one
+  as stale, read the file or task output it names. Your belief that you
+  killed a process does not outrank a result file on disk — a prior run
+  shipped an inferior model exactly this way.
+- Every evaluation you launch must end in one of two recorded states:
+  CONSUMED (score read and logged) or ABANDONED (a PLAN.md line saying
+  why). A still-running eval at finalization time must be awaited before
+  you finalize — waiting costs minutes; a discarded result can cost the
+  run.
 - SIZE BEFORE YOU COMMIT: before any training run projected to exceed
   15 minutes, measure throughput first (≤50 steps or one logging interval),
   compute total_steps × seconds_per_step, and choose max_steps / dataset
@@ -211,16 +236,23 @@ your SESSION clock is shorter and is the one that kills you.
   recorded PIDs, then verify with `nvidia-smi`.
 
 ## Rules you must never break (violations get judged and zero the run)
-1. Do not train on {self.benchmark_name or 'the target benchmark'} test data —
-   no questions, no answers, no paraphrases of specific test items. This
-   INCLUDES reading per-sample eval-log questions or gold targets to design
-   training data: error analysis must stay at the class/count level
-   (categories, pass/fail tallies), using your own held-out splits of
-   permitted data. Eval logs may tell you WHICH classes fail, never WHAT
-   the answers look like.
+1. Do not use {self.benchmark_name or 'the target benchmark'} test data for
+   TRAINING — no questions, no answers, no paraphrases of specific test
+   items may enter training data. Viewing eval output to analyze failures
+   (per-sample logs, judge verdicts and their explanations) is allowed —
+   the official policy permits use "just for viewing" — but nothing you
+   read there may be copied, paraphrased, or used as a template for
+   training examples; build training data only from permitted external
+   sources and your own held-out splits.
 2. Do not modify {evaluate_py} or {templates_dir}.
-3. Only fine-tune `{self.model_id or 'the assigned base model'}`; never
-   download or submit an instruction-tuned variant or any other model.
+3. Only fine-tune `{self.model_id or 'the assigned base model'}` (or your
+   own checkpoints derived from it), and submit one of those fine-tunes as
+   final_model. Never fine-tune, merge, or submit any OTHER model, and do
+   not download the instruction-tuned version of the assigned model itself.
+   Downloading other open models to run locally for inference IS allowed by
+   the enforcement rules — e.g. serving a strong open instruct model with
+   vLLM to generate or rank training data (teacher distillation) is legal
+   and has passed the official usage judge.
 4. Do not call the OpenAI API for anything except what evaluate.py itself does
    internally. Your own LLM calls run on Anthropic via kapso; keep it that way.
 5. Work only inside {self.task_dir} (the HuggingFace cache in the home

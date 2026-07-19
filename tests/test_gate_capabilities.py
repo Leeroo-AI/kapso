@@ -209,3 +209,34 @@ def test_bundled_server_applies_capability_policy(monkeypatch):
     configs = _resolve_configuration()
 
     assert set(configs) == {"repo_memory"}
+
+
+def test_embedding_model_is_forwarded_to_experiment_history_gate(tmp_path):
+    """The gate process learns its semantic-search model through the server
+    env (the transport across the MCP process boundary); no gate → no
+    forward."""
+    history_path = tmp_path / "history.json"
+
+    servers, _ = get_mcp_config(
+        ["experiment_history"],
+        project_root=tmp_path,
+        experiment_history_path=str(history_path),
+        experiment_embedding_model="text-embedding-3-small",
+        gate_failure_policy="error",
+        include_base_tools=False,
+    )
+    env = servers["gated-knowledge"]["env"]
+    assert env["EXPERIMENT_EMBEDDING_MODEL"] == "text-embedding-3-small"
+
+    servers_without, _ = get_mcp_config(
+        ["repo_memory"],
+        project_root=tmp_path,
+        repo_root=str(tmp_path),
+        experiment_embedding_model="text-embedding-3-small",
+        gate_failure_policy="error",
+        include_base_tools=False,
+    )
+    assert (
+        "EXPERIMENT_EMBEDDING_MODEL"
+        not in servers_without["gated-knowledge"]["env"]
+    )

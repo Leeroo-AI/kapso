@@ -51,8 +51,9 @@ any leaderboard agent has actually achieved in a 10h run.
 
 For every cell (benchmark × base model): its base score, the top-3 proven
 agent results from the leaderboard, human (official instruct), then ours and
-status. Campaign aggregate if submitted today: **10.28** (base 7.53 + gsm8k net
-+0.95 + bfcl net +1.80). Cells needing unlocks are marked: [J] = judge-scored,
+status. Campaign aggregate if submitted today: **14.44** (base 7.53 + gsm8k net
++0.95 + bfcl net +1.80 + arena net +4.16: 4B 89.6, SmolLM3 56.6, 1.7B 42.4).
+Cells needing unlocks are marked: [J] = judge-scored,
 needs `openai-api-key` secret; [G] = gated model, needs HF `hf-token` with
 the Gemma license accepted.
 
@@ -69,9 +70,9 @@ the Gemma license accepted.
 
 | Model | Base | #1 proven | #2 proven | #3 proven | Human | Ours | Status |
 |---|---:|---|---|---|---:|---:|---|
-| Qwen3-1.7B | 0.9 | fable-5 · 57.1 | opus-4.8 · 45.0 | opus-4.7 · 33.8 | 50.0 | — | pending [J] |
-| Qwen3-4B | 3.4 | fable-5 · 86.2 | glm-5.2 · 54.2 | gpt-5.4-h-rp · 49.5 | 86.8 | **49.7 ✓clean** | ✅ run #16 (10h official, 2026-07-18): **49.67 ±1.7, 'no contamination detected'** — ties #3 proven (49.5), first clean judge-scored cell. Path: 0.028→0.13 (decoding)→0.48 SFT→0.497 official. `arenahardwriting-qwen3-4b-base-07171548` |
-| SmolLM3-3B | 0.4 | opus-4.8-max · 37.2 | fable-5 · 37.2 | glm-5.2 · 22.7 | 49.2 | — | pending [J] |
+| Qwen3-1.7B | 0.9 | fable-5 · 57.1 | opus-4.8 · 45.0 | opus-4.7 · 33.8 | 50.0 | **42.4 ✓clean** | ✅ run #18 (10h official, 2026-07-19): **42.40 ±1.6, both judges clean** — 4th-tier row despite a 3h mid-run hang (dead ScheduleWakeup timer, reviews/run18-review.md); teacher-distill v1 17.06 → v2 34.6 → 42.4. `arenahardwriting-qwen3-1-7b-base-0718134` |
+| Qwen3-4B | 3.4 | **ours · 89.6** | fable-5 · 86.2 | glm-5.2 · 54.2 | 86.8 | **89.6 ✓clean** | ✅ run #17 (10h official, 2026-07-19): **89.64 ±0.9, both judges clean — CELL RECORD, +3.4 over fable-5's 86.24 and +2.8 ABOVE the human/instruct row.** Relaxed-rules recipe: Qwen3-30B-A3B-Instruct-2507 teacher distillation (v3 18.2k ex → 88.64 in-run; v4 best-of-3 teacher-BoN data), baked decoding, DPO tried+rejected in 54min. Replaces run #16's 49.67. `arenahardwriting-qwen3-4b-base-07181341` |
+| SmolLM3-3B | 0.4 | **ours · 56.6** | opus-4.8-max · 37.2 | glm-5.2 · 22.7 | 49.2 | **56.6 ✓clean** | ✅ run #19 (10h official, 2026-07-19): **56.58 ±1.6, both judges clean — top proven row, +7.4 ABOVE human** (best-known unlisted single trace remains 73.95; our es/fr-only multilingual slice left the zh/ru/ja axis unfixed, reviews/run19-review.md). `arenahardwriting-smollm3-3b-base-0718134` |
 | gemma-3-4b | 0.3 | opus-4.8-max · 47.4 | opus-4.7 · 30.9 | gpt-5.5-xh-rp · 27.9 | 94.8 | — | pending [J][G] |
 
 Cell gap analysis (why 49.7 and not 86; ideation-priors / cross-run-memory /
@@ -79,6 +80,10 @@ feedback-judge diagnosis): `reviews/arena-qwen3-4b-postmortem.md`. Key
 leaderboard nuance from scores.js: glm-5.2's 54.2 is a 3-run mean with std
 16.5; fable-5's 86.2 is a single run 0.6 pts under the official-instruct row;
 naive-scaffold opus-4.8 scores 41.6 ±3.1 (kapso +8 on the same model).
+Best-known official traces per arena cell (from the public
+`aisa-group/PostTrainBench-Trajectories` HF dataset; per-run bests, means
+hid them — 1.7B 74.9, SmolLM3 74.0, both opus-4.8, both beat human):
+recipes + review watchlists in `reviews/arena-best-baseline-traces.md`.
 
 ### BFCL (weight .0746)
 
@@ -196,6 +201,9 @@ with `gcp/20_fetch_results.sh <run_id>`. Layout per run:
 | Run | Cell | Score | Run id / GCS root suffix | Review doc |
 |---|---|---:|---|---|
 | #16 | arenahard × Qwen3-4B 10h | **49.67** | `arenahardwriting-qwen3-4b-base-07171548` | `reviews/run16-review.md` |
+| #17 | arenahard × Qwen3-4B 10h | **89.64** | `arenahardwriting-qwen3-4b-base-07181341` | `reviews/run17-review.md` — CELL RECORD, above human; first relaxed-rules run |
+| #18 | arenahard × Qwen3-1.7B 10h | **42.40** | `arenahardwriting-qwen3-1-7b-base-0718134` | `reviews/run18-review.md` — clean despite 3h dead-timer hang (R18-P2-1) |
+| #19 | arenahard × SmolLM3 10h | **56.58** | `arenahardwriting-smollm3-3b-base-0718134` | `reviews/run19-review.md` — top proven row, above human; zh/ru/ja mix unfixed |
 | #15 | bfcl × gemma-3-4b 10h | **93.0** | `bfcl-gemma-3-4b-pt-07171548` | `reviews/run15-review.md` |
 | #14 | bfcl × Qwen3-4B 10h | **95.0** | `bfcl-qwen3-4b-base-07171548` | `reviews/run14-review.md` |
 | #10 | bfcl × SmolLM3-3B 10h | **93.0** | `bfcl-smollm3-3b-base-07161232` | `reviews/run10-review.md` |
