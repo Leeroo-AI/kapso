@@ -382,6 +382,7 @@ def require_gap_transition(current: GapState, target: GapState) -> None:
 
 @dataclass(frozen=True)
 class CodingAgentCallRequest(JsonRecord):
+    operation_id: str
     role: str
     cli: str
     model: str
@@ -392,6 +393,11 @@ class CodingAgentCallRequest(JsonRecord):
     allowed_tools: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        _require_typed_identifier(
+            self.operation_id,
+            "coding-agent operation id",
+            "agent_call",
+        )
         _require_nonempty_string(self.role, "coding-agent role")
         if self.cli not in {"codex", "claude_code"}:
             raise ValueError("coding-agent cli must be codex or claude_code")
@@ -417,6 +423,7 @@ class CodingAgentCallRequest(JsonRecord):
         _require_exact_keys(
             data,
             {
+                "operation_id",
                 "role",
                 "cli",
                 "model",
@@ -1729,8 +1736,12 @@ class IdeaBatch(JsonRecord):
     campaign_id: str
     iteration_index: int
     context_hash: str
-    evidence_snapshot_id: str
+    planning_archive_revision: int
+    problem_statement: str
+    evidence_snapshot: "CampaignEvidenceSnapshot"
+    capacity: "IdeationCapacityView"
     directive: SearchDirective
+    resolved_parents: Tuple[ResolvedParentSnapshot, ...]
     created_at: str
     updated_at: str
     status: BatchStatus = BatchStatus.PLANNED
@@ -1746,15 +1757,26 @@ class IdeaBatch(JsonRecord):
         _require_nonempty_string(self.campaign_id, "campaign id")
         _require_integer(self.iteration_index, "iteration index")
         _require_sha256(self.context_hash, "context hash")
-        _require_typed_identifier(
-            self.evidence_snapshot_id,
-            "batch evidence snapshot id",
-            "evidence_snapshot",
-        )
+        _require_integer(self.planning_archive_revision, "planning archive revision")
+        _require_nonempty_string(self.problem_statement, "batch problem statement")
+        if not isinstance(self.evidence_snapshot, CampaignEvidenceSnapshot):
+            raise ValueError("batch evidence snapshot is invalid")
+        if not isinstance(self.capacity, IdeationCapacityView):
+            raise ValueError("batch capacity snapshot is invalid")
         if not isinstance(self.directive, SearchDirective):
             raise ValueError("batch directive is invalid")
-        if self.evidence_snapshot_id != self.directive.evidence_snapshot_id:
+        if self.evidence_snapshot.snapshot_id != self.directive.evidence_snapshot_id:
             raise ValueError("batch and directive evidence snapshots must match")
+        if self.evidence_snapshot.campaign_id != self.campaign_id:
+            raise ValueError("batch evidence campaign must match")
+        if not isinstance(self.resolved_parents, (list, tuple)) or not all(
+            isinstance(parent, ResolvedParentSnapshot)
+            for parent in self.resolved_parents
+        ):
+            raise ValueError("batch resolved parents are invalid")
+        object.__setattr__(self, "resolved_parents", tuple(self.resolved_parents))
+        if len(self.resolved_parents) != len(self.directive.operator_briefs):
+            raise ValueError("batch requires one resolved parent per operator brief")
         _require_timestamp(self.created_at, "batch created timestamp")
         _require_timestamp(self.updated_at, "batch updated timestamp")
         if datetime.fromisoformat(self.updated_at) < datetime.fromisoformat(
@@ -1909,6 +1931,10 @@ class IdeaBatch(JsonRecord):
         if self.status != BatchStatus.ABANDONED and self.abandoned_reason is not None:
             raise ValueError("only abandoned batches may have an abandonment reason")
 
+    @property
+    def evidence_snapshot_id(self) -> str:
+        return self.evidence_snapshot.snapshot_id
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "IdeaBatch":
         fields = {
@@ -1916,8 +1942,12 @@ class IdeaBatch(JsonRecord):
             "campaign_id",
             "iteration_index",
             "context_hash",
-            "evidence_snapshot_id",
+            "planning_archive_revision",
+            "problem_statement",
+            "evidence_snapshot",
+            "capacity",
             "directive",
+            "resolved_parents",
             "created_at",
             "updated_at",
             "status",
@@ -1934,8 +1964,17 @@ class IdeaBatch(JsonRecord):
             campaign_id=data["campaign_id"],
             iteration_index=data["iteration_index"],
             context_hash=data["context_hash"],
-            evidence_snapshot_id=data["evidence_snapshot_id"],
+            planning_archive_revision=data["planning_archive_revision"],
+            problem_statement=data["problem_statement"],
+            evidence_snapshot=CampaignEvidenceSnapshot.from_dict(
+                data["evidence_snapshot"]
+            ),
+            capacity=IdeationCapacityView.from_dict(data["capacity"]),
             directive=SearchDirective.from_dict(data["directive"]),
+            resolved_parents=tuple(
+                ResolvedParentSnapshot.from_dict(parent)
+                for parent in data["resolved_parents"]
+            ),
             created_at=data["created_at"],
             updated_at=data["updated_at"],
             status=_parse_enum(BatchStatus, data["status"], "batch status"),

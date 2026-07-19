@@ -99,6 +99,7 @@ def test_selector_sees_only_eligible_candidate_content_and_covers_every_idea(
     selector = CandidateSelector(fake, settings("claude_code"))
 
     result = selector.select(
+        batch_id=BATCH_ID,
         problem_statement="the complete problem statement",
         evidence_snapshot=snapshot,
         directive=search_directive,
@@ -156,6 +157,7 @@ def test_selector_cannot_return_unknown_or_uncovered_eligible_id(
     )
     with pytest.raises(ValueError, match="eligible pool"):
         selector.select(
+            batch_id=BATCH_ID,
             problem_statement="problem",
             evidence_snapshot=snapshot,
             directive=search_directive,
@@ -174,6 +176,7 @@ def test_selector_failure_propagates_without_a_fallback_winner(tmp_path):
     selector = CandidateSelector(FailedRunner(), settings())
     with pytest.raises(RuntimeError, match="selector failed"):
         selector.select(
+            batch_id=BATCH_ID,
             problem_statement="problem",
             evidence_snapshot=snapshot,
             directive=search_directive,
@@ -216,6 +219,7 @@ def test_selector_diagnosis_must_match_frozen_claim_status_and_sources(tmp_path)
     )
     with pytest.raises(ValueError, match="status contradicts"):
         selector.select(
+            batch_id=BATCH_ID,
             problem_statement="problem",
             evidence_snapshot=snapshot,
             directive=search_directive,
@@ -238,6 +242,7 @@ def test_selected_changed_duplicate_requires_explicit_override(tmp_path):
     selector = CandidateSelector(FakeRunner(output(first.idea_id)), settings())
     with pytest.raises(ValueError, match="explicit override"):
         selector.select(
+            batch_id=BATCH_ID,
             problem_statement="problem",
             evidence_snapshot=snapshot,
             directive=search_directive,

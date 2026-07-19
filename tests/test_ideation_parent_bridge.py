@@ -109,6 +109,7 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
     strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
     strategy.fidelity_decision = FULL_PASSTHROUGH
     strategy.ideation_campaign_id = "campaign-alpha"
+    strategy.active_batch_id = None
     parent = replace(
         resolved_parent(),
         git_ref="frozen-sha",
@@ -234,6 +235,7 @@ def test_recovery_reexecutes_the_same_node_without_a_new_link_or_history_entry()
     strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
     strategy.fidelity_decision = FULL_PASSTHROUGH
     strategy.ideation_campaign_id = "campaign-alpha"
+    strategy.active_batch_id = None
     strategy._build_ideation_engine = lambda: FakeEngine(result)
     strategy._ideation_experiment_inputs = lambda: ()
     strategy._ideation_capacity_view = lambda: object()

@@ -348,7 +348,8 @@ def test_analysis_metadata_is_persisted_atomically_with_eligibility(tmp_path):
     idea = candidate(tmp_path, snapshot, search_directive)
     batch = replace(
         planned_batch(),
-        evidence_snapshot_id=snapshot.snapshot_id,
+        evidence_snapshot=snapshot,
+        capacity=capacity(),
         directive=search_directive,
     )
     archive.create_batch(batch, expected_revision=0)

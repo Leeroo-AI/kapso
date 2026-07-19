@@ -102,7 +102,7 @@ def test_missing_archive_is_empty_and_full_lifecycle_round_trips(tmp_path):
     path = tmp_path / "idea_archive.json"
     archive = IdeaArchive(path, CAMPAIGN_ID)
     assert archive.revision == 0
-    assert not path.exists()
+    assert path.is_file()
 
     outcome = run_selected_lifecycle(archive)
 

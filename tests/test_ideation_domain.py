@@ -141,14 +141,59 @@ def generated_idea(idea_id: str = IDEA_ID) -> IdeaRecord:
     )
 
 
+def batch_evidence() -> CampaignEvidenceSnapshot:
+    return CampaignEvidenceSnapshot(
+        snapshot_id=EVIDENCE_ID,
+        campaign_id="campaign-alpha",
+        objective_direction=ObjectiveDirection.MAXIMIZE,
+        generated_at=NOW,
+        content_hash=EVIDENCE_DIGEST,
+        experiments=(),
+        claims=(),
+        gaps=(),
+        relevant_idea_ids=(),
+        incumbent_node_id=None,
+        latest_node_id=None,
+        noise_floor=None,
+        signals=(EvidenceSignal.NO_COMPARABLE_EXPERIMENT,),
+    )
+
+
+def batch_capacity() -> IdeationCapacityView:
+    return IdeationCapacityView(
+        capacity_snapshot_id=CAPACITY_ID,
+        iteration_index=0,
+        max_iterations=10,
+        remaining_seconds=900.0,
+        remaining_after_reserve_seconds=600.0,
+        remaining_usd=5.0,
+        fidelity_profile="full",
+        build_fidelity="full",
+        eval_fidelity="full",
+        eval_fraction=1.0,
+        target_node_id=None,
+        reserve_run=False,
+        deadline_seconds=300.0,
+        can_start_complete_action=True,
+        can_run_comparable_evaluation=True,
+        preserves_finalization_reserve=True,
+        opportunity_probe_required=False,
+        opportunity_probe_admissible=False,
+    )
+
+
 def planned_batch() -> IdeaBatch:
     return IdeaBatch(
         batch_id=BATCH_ID,
         campaign_id="campaign-alpha",
         iteration_index=0,
         context_hash="3" * 64,
-        evidence_snapshot_id=EVIDENCE_ID,
+        planning_archive_revision=0,
+        problem_statement="Improve the complete task solution.",
+        evidence_snapshot=batch_evidence(),
+        capacity=batch_capacity(),
         directive=directive(),
+        resolved_parents=(resolved_parent(),),
         created_at=NOW,
         updated_at=NOW,
     )
@@ -260,6 +305,7 @@ def test_every_record_round_trips_through_its_strict_parser():
     )
     records = (
         CodingAgentCallRequest(
+            operation_id="agent_call_" + "0" * 32,
             role="candidate",
             cli="codex",
             model="gpt-5",

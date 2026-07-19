@@ -1,5 +1,6 @@
 """Evidence-audited selection over the deterministic eligible candidate pool."""
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     IdeaRecord,
     SearchDirective,
     SelectionDecision,
+    content_identifier,
 )
 
 _SELECTOR_FIELDS = {
@@ -135,6 +137,7 @@ class CandidateSelector:
     def select(
         self,
         *,
+        batch_id: str,
         problem_statement: str,
         evidence_snapshot: CampaignEvidenceSnapshot,
         directive: SearchDirective,
@@ -170,6 +173,12 @@ class CandidateSelector:
         )
         call = self.runner.run(
             CodingAgentCallRequest(
+                operation_id=content_identifier(
+                    "agent_call",
+                    hashlib.sha256(
+                        f"{batch_id}:candidate_selector".encode("utf-8")
+                    ).hexdigest(),
+                ),
                 role="candidate_selector",
                 cli=self.settings.cli,
                 model=self.settings.model,

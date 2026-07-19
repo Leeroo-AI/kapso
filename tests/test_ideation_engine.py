@@ -229,6 +229,48 @@ def test_selector_failure_leaves_analyzed_batch_without_fallback_winner(tmp_path
     assert archive.state.batches[0].selection is None
     assert all(idea.status == IdeaStatus.GENERATED for idea in archive.state.ideas)
 
+    runner.fail_selector = False
+    resumed = run_engine(
+        engine,
+        parents,
+        resume_batch_id=archive.state.batches[0].batch_id,
+    )
+
+    assert resumed.selected_idea is not None
+    assert len(archive.state.batches) == 1
+    assert runner.roles.count("candidate_0") == 1
+    assert runner.roles.count("candidate_1") == 1
+    assert runner.roles.count("candidate_selector") == 2
+
+
+def test_generated_batch_resume_reuses_the_persisted_candidate_pool(
+    tmp_path,
+    monkeypatch,
+):
+    runner = PacketRunner(tmp_path)
+    archive, engine = build_engine(tmp_path, runner)
+    parents = CountingParents(tmp_path)
+    original_analyze = engine.analyzer.analyze_pool
+
+    def interrupt_analysis(**kwargs):
+        raise RuntimeError("analysis interrupted")
+
+    monkeypatch.setattr(engine.analyzer, "analyze_pool", interrupt_analysis)
+    with pytest.raises(RuntimeError, match="analysis interrupted"):
+        run_engine(engine, parents)
+
+    batch = archive.state.batches[0]
+    assert batch.status.value == "generated"
+    generated_ids = batch.generated_idea_ids
+    monkeypatch.setattr(engine.analyzer, "analyze_pool", original_analyze)
+
+    resumed = run_engine(engine, parents, resume_batch_id=batch.batch_id)
+
+    assert resumed.selected_idea is not None
+    assert archive.state.batches[0].generated_idea_ids == generated_ids
+    assert runner.roles.count("candidate_0") == 1
+    assert runner.roles.count("candidate_1") == 1
+
 
 def test_finalize_makes_no_parent_or_agent_calls_and_creates_no_batch(tmp_path):
     runner = PacketRunner(tmp_path)

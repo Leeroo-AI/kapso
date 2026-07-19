@@ -29,6 +29,7 @@ from kapso.execution.search_strategies.generic.ideation.selector import (
     CandidateSelector,
 )
 from kapso.execution.search_strategies.generic.ideation.types import (
+    BatchStatus,
     CampaignAction,
     CampaignEvidenceSnapshot,
     CodingAgentCallResult,
@@ -167,11 +168,45 @@ class IdeationEngine:
         generated_at: Optional[str] = None,
         gap_evidence_confidence_by_id: Optional[Mapping[str, float]] = None,
         gap_uncertainty_reduction_by_id: Optional[Mapping[str, float]] = None,
+        resume_batch_id: Optional[str] = None,
     ) -> IdeationEngineResult:
         if not isinstance(problem_statement, str) or not problem_statement.strip():
             raise ValueError("ideation problem statement must be non-empty")
         if self.archive.campaign_id != campaign_id:
             raise ValueError("engine campaign does not match idea archive")
+        if resume_batch_id is not None:
+            batch = self.archive.get_batch(resume_batch_id)
+            if batch.campaign_id != campaign_id:
+                raise ValueError("resume batch campaign does not match")
+            if batch.iteration_index != iteration_index:
+                raise ValueError("resume batch iteration does not match")
+            if batch.problem_statement != problem_statement:
+                raise ValueError("resume batch problem statement changed")
+            if batch.status in {BatchStatus.COMPLETED, BatchStatus.ABANDONED}:
+                raise ValueError("resume batch is already terminal")
+            if not capacity.can_start_complete_action:
+                raise ValueError("current capacity cannot resume an active batch")
+            current_parents = tuple(
+                parent_resolver(brief.parent_plan)
+                for brief in batch.directive.operator_briefs
+            )
+            if current_parents != batch.resolved_parents:
+                raise ValueError("resume batch parent snapshot changed")
+            expected_context_hash = self._context_hash(
+                problem_statement=batch.problem_statement,
+                evidence_snapshot=batch.evidence_snapshot,
+                capacity=batch.capacity,
+                directive=batch.directive,
+                resolved_parents=batch.resolved_parents,
+                archive_revision=batch.planning_archive_revision,
+            )
+            if batch.context_hash != expected_context_hash:
+                raise ValueError("resume batch context hash is invalid")
+            return self._continue_batch(
+                batch=batch,
+                selector_workspace=selector_workspace,
+                parent_materializer=parent_materializer,
+            )
         timestamp = utc_now() if generated_at is None else generated_at
         archive_state = self.archive.state
         evidence_snapshot = self.evidence_builder.build(
@@ -243,127 +278,173 @@ class IdeationEngine:
             campaign_id=campaign_id,
             iteration_index=iteration_index,
             context_hash=context_hash,
-            evidence_snapshot_id=evidence_snapshot.snapshot_id,
+            planning_archive_revision=archive_state.revision,
+            problem_statement=problem_statement,
+            evidence_snapshot=evidence_snapshot,
+            capacity=capacity,
             directive=directive,
+            resolved_parents=resolved_parents,
             created_at=timestamp,
             updated_at=timestamp,
         )
         self.archive.create_batch(batch, expected_revision=archive_state.revision)
+        return self._continue_batch(
+            batch=batch,
+            selector_workspace=selector_workspace,
+            parent_materializer=parent_materializer,
+        )
+
+    def _continue_batch(
+        self,
+        *,
+        batch: IdeaBatch,
+        selector_workspace: str,
+        parent_materializer: ParentMaterializer,
+    ) -> IdeationEngineResult:
+        """Continue exactly the first unfinished durable phase of a batch."""
         generation_calls = []
+        selection_call = None
+        embedding_telemetry = None
         with ExitStack() as stack:
             workspace_by_ref = {}
-            for parent in resolved_parents:
+            for parent in batch.resolved_parents:
                 if parent.materialized_ref not in workspace_by_ref:
                     workspace_by_ref[parent.materialized_ref] = stack.enter_context(
                         parent_materializer(parent)
                     )
             workspaces = tuple(
-                workspace_by_ref[parent.materialized_ref] for parent in resolved_parents
+                workspace_by_ref[parent.materialized_ref]
+                for parent in batch.resolved_parents
             )
-            generated = self.generator.generate(
-                batch_id=batch_id,
-                problem_statement=problem_statement,
-                evidence_snapshot=evidence_snapshot,
-                directive=directive,
-                archive_state=self.archive.state,
-                resolved_parents=resolved_parents,
-                workspaces=workspaces,
-            )
-            generation_calls.extend(item.call for item in generated)
-            self.archive.add_ideas(
-                batch_id,
-                (item.idea for item in generated),
-                resurfaced_ideas=resurfaced,
-                expected_revision=self.archive.revision,
-            )
-            pool = self._batch_pool(batch_id)
-            preliminary_analyzer = CandidateAnalyzer(
-                self.analyzer.settings,
-                embedding_provider=None,
-            )
-            preliminary = preliminary_analyzer.analyze_pool(
-                batch_id=batch_id,
-                candidates=pool,
-                archive_state=self.archive.state,
-                evidence_snapshot=evidence_snapshot,
-                directive=directive,
-                capacity=capacity,
-            )
-            repair_request = preliminary_analyzer.repair_request(
-                preliminary,
-                directive,
-            )
-            if repair_request is not None:
-                repair_brief = self._repair_brief(
-                    directive.operator_briefs,
-                    repair_request.missing_descriptor_targets,
-                )
-                repair_index = directive.operator_briefs.index(repair_brief)
-                repair = self.generator.generate_repair(
-                    batch_id=batch_id,
-                    problem_statement=problem_statement,
-                    evidence_snapshot=evidence_snapshot,
-                    directive=directive,
+            current = self.archive.get_batch(batch.batch_id)
+            if current.status == BatchStatus.PLANNED:
+                generated = self.generator.generate(
+                    batch_id=batch.batch_id,
+                    problem_statement=batch.problem_statement,
+                    evidence_snapshot=batch.evidence_snapshot,
+                    directive=batch.directive,
                     archive_state=self.archive.state,
-                    operator_brief=repair_brief,
-                    resolved_parent=resolved_parents[repair_index],
-                    repair_request=repair_request.to_dict(),
-                    workspace=workspaces[repair_index],
+                    resolved_parents=batch.resolved_parents,
+                    workspaces=workspaces,
                 )
-                generation_calls.append(repair.call)
-                self.archive.add_repair_idea(
-                    batch_id,
-                    repair.idea,
+                generation_calls.extend(item.call for item in generated)
+                resurfaced = self._resurfaceable(
+                    batch.evidence_snapshot,
+                    self.archive.state,
+                )
+                self.archive.add_ideas(
+                    batch.batch_id,
+                    (item.idea for item in generated),
+                    resurfaced_ideas=resurfaced,
                     expected_revision=self.archive.revision,
                 )
-            pool = self._batch_pool(batch_id)
-            analysis_result = self.analyzer.analyze_pool(
-                batch_id=batch_id,
-                candidates=pool,
-                archive_state=self.archive.state,
-                evidence_snapshot=evidence_snapshot,
-                directive=directive,
-                capacity=capacity,
-            )
-            for analyzed in analysis_result.candidates:
-                self.archive.record_analysis(
-                    batch_id,
-                    analyzed.analysis,
-                    embedding=analyzed.embedding,
-                    nearest_experiment_node_ids=(analyzed.nearest_experiment_node_ids),
-                    similarity_flags=analyzed.similarity_flags,
+                current = self.archive.get_batch(batch.batch_id)
+            if current.status == BatchStatus.GENERATED:
+                pool = self._batch_pool(batch.batch_id)
+                if (
+                    not current.analyses
+                    and len(current.generated_idea_ids)
+                    == current.directive.candidate_quota
+                ):
+                    preliminary_analyzer = CandidateAnalyzer(
+                        self.analyzer.settings,
+                        embedding_provider=None,
+                    )
+                    preliminary = preliminary_analyzer.analyze_pool(
+                        batch_id=batch.batch_id,
+                        candidates=pool,
+                        archive_state=self.archive.state,
+                        evidence_snapshot=batch.evidence_snapshot,
+                        directive=batch.directive,
+                        capacity=batch.capacity,
+                    )
+                    repair_request = preliminary_analyzer.repair_request(
+                        preliminary,
+                        batch.directive,
+                    )
+                    if repair_request is not None:
+                        repair_brief = self._repair_brief(
+                            batch.directive.operator_briefs,
+                            repair_request.missing_descriptor_targets,
+                        )
+                        repair_index = batch.directive.operator_briefs.index(
+                            repair_brief
+                        )
+                        repair = self.generator.generate_repair(
+                            batch_id=batch.batch_id,
+                            problem_statement=batch.problem_statement,
+                            evidence_snapshot=batch.evidence_snapshot,
+                            directive=batch.directive,
+                            archive_state=self.archive.state,
+                            operator_brief=repair_brief,
+                            resolved_parent=batch.resolved_parents[repair_index],
+                            repair_request=repair_request.to_dict(),
+                            workspace=workspaces[repair_index],
+                        )
+                        generation_calls.append(repair.call)
+                        self.archive.add_repair_idea(
+                            batch.batch_id,
+                            repair.idea,
+                            expected_revision=self.archive.revision,
+                        )
+                        pool = self._batch_pool(batch.batch_id)
+                analysis_result = self.analyzer.analyze_pool(
+                    batch_id=batch.batch_id,
+                    candidates=pool,
+                    archive_state=self.archive.state,
+                    evidence_snapshot=batch.evidence_snapshot,
+                    directive=batch.directive,
+                    capacity=batch.capacity,
+                )
+                embedding_telemetry = analysis_result.embedding_telemetry
+                for analyzed in analysis_result.candidates:
+                    self.archive.record_analysis(
+                        batch.batch_id,
+                        analyzed.analysis,
+                        embedding=analyzed.embedding,
+                        nearest_experiment_node_ids=(
+                            analyzed.nearest_experiment_node_ids
+                        ),
+                        similarity_flags=analyzed.similarity_flags,
+                        expected_revision=self.archive.revision,
+                    )
+                current = self.archive.get_batch(batch.batch_id)
+            if current.status == BatchStatus.ANALYZED:
+                pool = self._batch_pool(batch.batch_id)
+                selection_result = self.selector.select(
+                    batch_id=batch.batch_id,
+                    problem_statement=batch.problem_statement,
+                    evidence_snapshot=batch.evidence_snapshot,
+                    directive=batch.directive,
+                    candidates=pool,
+                    analyses=current.analyses,
+                    workspace=selector_workspace,
+                )
+                selection_call = selection_result.call
+                self.archive.record_selection(
+                    batch.batch_id,
+                    selection_result.decision,
                     expected_revision=self.archive.revision,
                 )
-            pool = self._batch_pool(batch_id)
-            selection_result = self.selector.select(
-                problem_statement=problem_statement,
-                evidence_snapshot=evidence_snapshot,
-                directive=directive,
-                candidates=pool,
-                analyses=tuple(
-                    analyzed.analysis for analyzed in analysis_result.candidates
-                ),
-                workspace=selector_workspace,
-            )
-            self.archive.record_selection(
-                batch_id,
-                selection_result.decision,
-                expected_revision=self.archive.revision,
-            )
-        selected = self._idea(selection_result.decision.selected_idea_id)
+                current = self.archive.get_batch(batch.batch_id)
+        if current.status not in {BatchStatus.SELECTED, BatchStatus.BRIDGED}:
+            raise ValueError("continued batch did not reach a selection")
+        if current.selection is None:
+            raise ValueError("selected batch is missing its decision")
+        selected = self._idea(current.selection.selected_idea_id)
         return IdeationEngineResult(
-            action=policy.action,
-            evidence_snapshot=evidence_snapshot,
-            directive=directive,
-            batch_id=batch_id,
+            action=CampaignAction.IDEATE,
+            evidence_snapshot=batch.evidence_snapshot,
+            directive=batch.directive,
+            batch_id=batch.batch_id,
             selected_idea=selected,
-            selection=selection_result.decision,
+            selection=current.selection,
             resolved_parent=selected.resolved_parent,
             archive_revision=self.archive.revision,
             telemetry=IdeationEngineTelemetry(
                 generation_calls=tuple(generation_calls),
-                selection_call=selection_result.call,
-                embedding=analysis_result.embedding_telemetry,
+                selection_call=selection_call,
+                embedding=embedding_telemetry,
             ),
         )
 

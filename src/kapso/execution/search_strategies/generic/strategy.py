@@ -19,7 +19,7 @@ import re
 import shutil
 import signal
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -49,12 +49,17 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from kapso.execution.search_strategies.generic import codex_ideation
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.memories.experiment_memory import (
+    ExperimentHistoryStore,
+    ExperimentRecord,
+)
 from kapso.core.prompt_loader import load_prompt, render_prompt
 from kapso.execution.search_strategies.generic.difficulties_generator import (
     generate_technical_difficulties,
 )
 from kapso.execution.search_strategies.generic.ideation import (
     AnalyzerSettings,
+    BatchStatus,
     CampaignAction,
     CampaignEvidenceBuilder,
     CandidateAnalyzer,
@@ -69,6 +74,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     GapPrioritySettings,
     GenerationMemberSettings,
     IdeaArchive,
+    IDEA_ARCHIVE_SCHEMA,
     IdeationCapacityView,
     IdeationEngine,
     ObjectiveDirection,
@@ -87,6 +93,22 @@ if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic import FeedbackGenerator
 
 logger = logging.getLogger(__name__)
+
+GENERIC_SEARCH_STATE_SCHEMA = "kapso.generic_search.v3"
+
+_GENERIC_SEARCH_STATE_FIELDS = {
+    "schema",
+    "campaign_id",
+    "idea_archive_schema",
+    "archive_revision",
+    "active_batch_id",
+    "node_history",
+    "iteration_count",
+    "previous_errors",
+    "evaluation_integrity",
+    "scores_evaluator_id",
+    "evaluator_transition",
+}
 
 # Enforcement mechanic (mirrors the coding-agent adapter's deadline grace):
 # time granted between SIGTERM and SIGKILL when a frame run overruns.
@@ -274,6 +296,7 @@ class GenericSearch(SearchStrategy):
             None if import_from_checkpoint else new_identifier("campaign")
         )
         self.idea_archive: Optional[IdeaArchive] = None
+        self.active_batch_id: Optional[str] = None
 
         # Config params for ideation
         self.idea_generation_model = self.params.get(
@@ -655,6 +678,19 @@ class GenericSearch(SearchStrategy):
         iteration_started_monotonic = time.monotonic()
         iteration_started_at = datetime.now(timezone.utc).isoformat()
 
+        resume_batch_id = None
+        if self.active_batch_id is not None:
+            active_batch = self._ensure_idea_archive().get_batch(
+                self.active_batch_id
+            )
+            if active_batch.status in {
+                BatchStatus.PLANNED,
+                BatchStatus.GENERATED,
+                BatchStatus.ANALYZED,
+                BatchStatus.SELECTED,
+            }:
+                resume_batch_id = active_batch.batch_id
+
         ideation_result = self._build_ideation_engine().run(
             campaign_id=self.ideation_campaign_id,
             iteration_index=self.iteration_count - 1,
@@ -670,6 +706,7 @@ class GenericSearch(SearchStrategy):
             parent_resolver=self._resolve_ideation_parent,
             parent_materializer=self._materialize_ideation_parent,
             generated_at=iteration_started_at,
+            resume_batch_id=resume_batch_id,
         )
         if ideation_result.action == CampaignAction.FINALIZE:
             deliverable = self.get_deliverable_experiment()
@@ -685,6 +722,7 @@ class GenericSearch(SearchStrategy):
         parent = ideation_result.resolved_parent
         if selected_idea is None or parent is None or ideation_result.batch_id is None:
             raise ValueError("executable ideation result is incomplete")
+        self.active_batch_id = ideation_result.batch_id
         solution = selected_idea.proposal
         print(f"[GenericSearch] Generated solution ({len(solution)} chars)")
 
@@ -2127,6 +2165,171 @@ Problem: {problem}"""
             outcome,
             expected_revision=archive.revision,
         )
+        self.active_batch_id = self._archive_active_batch_id(archive)
+
+    def reconcile_experiment_memory(
+        self,
+        store: ExperimentHistoryStore,
+    ) -> None:
+        """Reconcile the archive, executed memory, and checkpoint node prefix."""
+        archive = self._ensure_idea_archive()
+        objective_direction = (
+            "maximize" if self.problem_handler.maximize_scoring else "minimize"
+        )
+        if store.objective_direction != objective_direction:
+            raise ValueError("experiment memory objective conflicts with strategy")
+        if store.require_idea_links is not True:
+            raise ValueError("generic experiment memory must require idea links")
+
+        checkpoint_node_count = len(self.node_history)
+        if len(store.experiments) < checkpoint_node_count:
+            for node in self.node_history[len(store.experiments) :]:
+                store.add_experiment(node)
+                self.record_finalized_idea_outcome(node)
+        for index, record in enumerate(store.experiments[:checkpoint_node_count]):
+            projected = ExperimentRecord.from_node(
+                self.node_history[index],
+                objective_direction,
+                True,
+            )
+            if projected != record:
+                raise ValueError("checkpoint node conflicts with experiment memory")
+
+        for record in store.experiments[len(self.node_history) :]:
+            if record.node_id != len(self.node_history):
+                raise ValueError("experiment memory tail is not contiguous")
+            node = self._node_from_experiment_record(record, archive)
+            round_trip = ExperimentRecord.from_node(
+                node,
+                objective_direction,
+                True,
+            )
+            if round_trip != record:
+                raise ValueError("experiment memory record cannot be reconstructed")
+            self.node_history.append(node)
+            self.record_finalized_idea_outcome(node)
+
+        for record in store.experiments:
+            idea = archive.get_idea(record.idea_id)
+            if idea.outcome is None and not record.recoverable_error:
+                self.record_finalized_idea_outcome(
+                    self.node_history[record.node_id]
+                )
+
+        self.active_batch_id = self._archive_active_batch_id(archive)
+        if self.active_batch_id is None:
+            return
+        active = archive.get_batch(self.active_batch_id)
+        if active.status != BatchStatus.BRIDGED:
+            return
+        if active.selection is None:
+            raise ValueError("bridged idea batch has no selection")
+        idea = archive.get_idea(active.selection.selected_idea_id)
+        if idea.experiment_node_id is None:
+            raise ValueError("bridged idea has no experiment node")
+        if idea.experiment_node_id < len(self.node_history):
+            node = self.node_history[idea.experiment_node_id]
+            if node.idea_id != idea.idea_id or not node.recoverable_error:
+                raise ValueError("unfinished idea conflicts with checkpoint node")
+            return
+        if idea.experiment_node_id != len(self.node_history):
+            raise ValueError("bridged experiment node is not contiguous")
+        branch_name = f"generic_exp_{idea.experiment_node_id}"
+        heads = {head.name for head in self.workspace.repo.heads}
+        if branch_name not in heads:
+            self.workspace.repo.create_head(branch_name, idea.resolved_parent.git_ref)
+        merge_base = self.workspace.repo.git.merge_base(
+            idea.resolved_parent.git_ref,
+            branch_name,
+        ).strip()
+        if merge_base != idea.resolved_parent.git_ref:
+            raise ValueError("interrupted experiment branch changed ancestry")
+        self.node_history.append(
+            SearchNode(
+                node_id=idea.experiment_node_id,
+                parent_node_id=idea.resolved_parent.node_id,
+                idea_id=idea.idea_id,
+                selection_batch_id=active.batch_id,
+                solution=idea.proposal,
+                branch_name=branch_name,
+                parent_branch_name=idea.resolved_parent.branch_name,
+                implementation_base_ref=idea.resolved_parent.git_ref,
+                diff_base_ref=idea.resolved_parent.diff_base_ref,
+                feedback_base_ref=idea.resolved_parent.feedback_base_ref,
+                feedback="Implementation was interrupted before durable finalization.",
+                score=None,
+                evaluation_valid=False,
+                started_at=idea.created_at,
+                had_error=True,
+                recoverable_error=True,
+                error_message="interrupted_before_experiment_persistence",
+                workspace_dir=self.workspace_dir,
+                technical_difficulties=(
+                    "Resume the interrupted implementation on its original branch."
+                ),
+            )
+        )
+
+    def _node_from_experiment_record(
+        self,
+        record: ExperimentRecord,
+        archive: IdeaArchive,
+    ) -> SearchNode:
+        """Rebuild the strict SearchNode projection from durable execution data."""
+        if record.idea_id is None or record.selection_batch_id is None:
+            raise ValueError("generic experiment record lacks idea provenance")
+        idea = archive.get_idea(record.idea_id)
+        if (
+            idea.experiment_node_id != record.node_id
+            or idea.selected_in_batch_id != record.selection_batch_id
+            or idea.proposal != record.solution
+            or idea.resolved_parent.node_id != record.parent_node_id
+        ):
+            raise ValueError("experiment record conflicts with idea archive")
+        node = SearchNode(
+            node_id=record.node_id,
+            parent_node_id=record.parent_node_id,
+            execution_revision=record.execution_revision,
+            idea_id=record.idea_id,
+            selection_batch_id=record.selection_batch_id,
+            solution=record.solution,
+            branch_name=record.branch_name,
+            parent_branch_name=idea.resolved_parent.branch_name,
+            implementation_base_ref=idea.resolved_parent.git_ref,
+            diff_base_ref=idea.resolved_parent.diff_base_ref,
+            feedback_base_ref=idea.resolved_parent.feedback_base_ref,
+            feedback=record.feedback,
+            score=record.raw_score,
+            evaluation_valid=record.evaluation_valid,
+            evaluation_provenance=record.evaluation_provenance,
+            evaluation_integrity_error=record.evaluation_integrity_error,
+            metrics=dict(record.metrics),
+            primary_metric=record.primary_metric,
+            external_evaluation_metadata=dict(
+                record.external_evaluation_metadata
+            ),
+            external_evaluation_error=record.external_evaluation_error,
+            duration_seconds=record.duration_seconds,
+            cost_usd=record.cost_usd,
+            started_at=record.timestamp,
+            build_fidelity=record.build_fidelity,
+            eval_fidelity=record.eval_fidelity,
+            evaluation_attempts=list(record.evaluation_attempts),
+            had_error=record.had_error,
+            recoverable_error=record.recoverable_error,
+            error_message=record.error_message,
+            workspace_dir=self.workspace_dir,
+            technical_difficulties=record.technical_difficulties,
+        )
+        if record.branch_name:
+            heads = {head.name for head in self.workspace.repo.heads}
+            if record.branch_name not in heads:
+                raise ValueError("experiment record references a missing branch")
+            node.code_diff = self._get_code_diff(
+                record.branch_name,
+                idea.resolved_parent.diff_base_ref,
+            )
+        return node
 
     def get_best_experiment(self) -> Optional[SearchNode]:
         """Return the best successful SCORED node — a node whose evaluation
@@ -2397,24 +2600,79 @@ Problem: {problem}"""
     # =========================================================================
 
     def dump_state(self) -> Dict[str, Any]:
-        """Return JSON-compatible generic-search state."""
+        """Return the exact v3 generic-search checkpoint projection."""
+        archive = self._ensure_idea_archive()
+        active_batch_id = self._archive_active_batch_id(archive)
+        self.active_batch_id = active_batch_id
         return {
+            "schema": GENERIC_SEARCH_STATE_SCHEMA,
+            "campaign_id": self.ideation_campaign_id,
+            "idea_archive_schema": IDEA_ARCHIVE_SCHEMA,
+            "archive_revision": archive.revision,
+            "active_batch_id": active_batch_id,
             "node_history": [node.to_dict() for node in self.node_history],
             "iteration_count": self.iteration_count,
             "previous_errors": list(self.previous_errors),
-            "parent_policy": getattr(self, "parent_policy", "best"),
             "evaluation_integrity": (self.dump_evaluation_integrity_state()),
             "scores_evaluator_id": self.scores_evaluator_id,
             "evaluator_transition": self.evaluator_transition,
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
-        """Restore generic-search state from a versioned run checkpoint."""
-        if not isinstance(state, dict):
-            raise ValueError("GenericSearch checkpoint state must be an object")
-        raw_history = state.get("node_history")
+        """Restore only the exact v3 state and reconcile archive advancement."""
+        if not isinstance(state, dict) or set(state) != _GENERIC_SEARCH_STATE_FIELDS:
+            raise ValueError("GenericSearch checkpoint fields are incompatible")
+        if state["schema"] != GENERIC_SEARCH_STATE_SCHEMA:
+            raise ValueError("GenericSearch checkpoint schema is incompatible")
+        if state["idea_archive_schema"] != IDEA_ARCHIVE_SCHEMA:
+            raise ValueError("GenericSearch idea archive schema is incompatible")
+        campaign_id = state["campaign_id"]
+        if not isinstance(campaign_id, str) or not campaign_id.startswith("campaign_"):
+            raise ValueError("GenericSearch checkpoint campaign id is invalid")
+        saved_revision = state["archive_revision"]
+        if (
+            isinstance(saved_revision, bool)
+            or not isinstance(saved_revision, int)
+            or saved_revision < 0
+        ):
+            raise ValueError("GenericSearch checkpoint archive revision is invalid")
+        saved_active_batch_id = state["active_batch_id"]
+        if saved_active_batch_id is not None and (
+            not isinstance(saved_active_batch_id, str)
+            or not saved_active_batch_id.startswith("batch_")
+        ):
+            raise ValueError("GenericSearch checkpoint active batch id is invalid")
+
+        archive_path = self._workspace_config_path(self.ideation_config["archive_path"])
+        if not archive_path.is_file():
+            raise ValueError("GenericSearch checkpoint idea archive is missing")
+        self.ideation_campaign_id = campaign_id
+        self.idea_archive = IdeaArchive(archive_path, campaign_id)
+        archive = self._ensure_idea_archive()
+        if archive.revision < saved_revision:
+            raise ValueError("idea archive revision is behind the run checkpoint")
+        archive_active_batch_id = self._archive_active_batch_id(archive)
+        if archive.revision == saved_revision:
+            if archive_active_batch_id != saved_active_batch_id:
+                raise ValueError("checkpoint active batch conflicts with idea archive")
+        elif saved_active_batch_id not in {None, archive_active_batch_id}:
+            saved_batch = archive.get_batch(saved_active_batch_id)
+            if saved_batch.status not in {
+                BatchStatus.COMPLETED,
+                BatchStatus.ABANDONED,
+            }:
+                raise ValueError("archive advancement changed the active batch")
+        self.active_batch_id = archive_active_batch_id
+
+        raw_history = state["node_history"]
         if not isinstance(raw_history, list):
             raise ValueError("GenericSearch checkpoint node_history must be a list")
+        node_fields = {item.name for item in fields(SearchNode)}
+        if any(
+            not isinstance(node_data, dict) or set(node_data) != node_fields
+            for node_data in raw_history
+        ):
+            raise ValueError("GenericSearch checkpoint node fields are incompatible")
         self.node_history = [
             SearchNode.from_dict(node_data) for node_data in raw_history
         ]
@@ -2425,7 +2683,7 @@ Problem: {problem}"""
                 "and contiguous from zero"
             )
 
-        iteration_count = state.get("iteration_count", len(self.node_history))
+        iteration_count = state["iteration_count"]
         if (
             isinstance(iteration_count, bool)
             or not isinstance(iteration_count, int)
@@ -2441,30 +2699,32 @@ Problem: {problem}"""
             )
         self.iteration_count = iteration_count
 
-        previous_errors = state.get("previous_errors", [])
+        previous_errors = state["previous_errors"]
         if not isinstance(previous_errors, list) or not all(
             isinstance(error, str) for error in previous_errors
         ):
             raise ValueError("GenericSearch checkpoint previous_errors must be strings")
         self.previous_errors = list(previous_errors)
 
-        saved_parent_policy = normalize_parent_policy(
-            state.get("parent_policy", "best")
-        )
-        configured_parent_policy = getattr(
-            self,
-            "parent_policy",
-            saved_parent_policy,
-        )
-        if saved_parent_policy != configured_parent_policy:
-            raise ValueError(
-                "GenericSearch checkpoint parent_policy does not match "
-                "the configured policy"
-            )
-        self.parent_policy = saved_parent_policy
-
         nodes_by_id = {node.node_id: node for node in self.node_history}
+        ideas_by_id = {idea.idea_id: idea for idea in archive.state.ideas}
+        batches_by_id = {batch.batch_id: batch for batch in archive.state.batches}
         for node in self.node_history:
+            if node.idea_id is None or node.selection_batch_id is None:
+                raise ValueError("GenericSearch checkpoint node lacks idea provenance")
+            idea = ideas_by_id.get(node.idea_id)
+            batch = batches_by_id.get(node.selection_batch_id)
+            if (
+                idea is None
+                or batch is None
+                or idea.selected_in_batch_id != node.selection_batch_id
+                or idea.experiment_node_id != node.node_id
+                or batch.selection is None
+                or batch.selection.selected_idea_id != node.idea_id
+                or node.solution != idea.proposal
+                or node.parent_node_id != idea.resolved_parent.node_id
+            ):
+                raise ValueError("GenericSearch checkpoint idea linkage is corrupt")
             if node.parent_node_id is None:
                 if node.parent_branch_name not in {"", "main"}:
                     raise ValueError(
@@ -2485,15 +2745,24 @@ Problem: {problem}"""
                 raise ValueError(
                     "GenericSearch checkpoint parent node and branch do not " "match"
                 )
-        self.load_evaluation_integrity_state(state.get("evaluation_integrity"))
+        linked_node_ids = sorted(
+            idea.experiment_node_id
+            for idea in archive.state.ideas
+            if idea.experiment_node_id is not None
+        )
+        if linked_node_ids != list(range(len(linked_node_ids))):
+            raise ValueError("idea archive experiment node links are not contiguous")
+        if node_ids != linked_node_ids[: len(node_ids)]:
+            raise ValueError("checkpoint nodes are not an archive-linked prefix")
+        self.load_evaluation_integrity_state(state["evaluation_integrity"])
 
-        scores_evaluator_id = state.get("scores_evaluator_id", "")
+        scores_evaluator_id = state["scores_evaluator_id"]
         if not isinstance(scores_evaluator_id, str):
             raise ValueError(
                 "GenericSearch checkpoint scores_evaluator_id must be a " "string"
             )
         self.scores_evaluator_id = scores_evaluator_id
-        transition = state.get("evaluator_transition")
+        transition = state["evaluator_transition"]
         if transition is not None and (
             not isinstance(transition, dict)
             or transition.get("status") not in {"pending", "anchored"}
@@ -2509,3 +2778,22 @@ Problem: {problem}"""
         ):
             raise ValueError("GenericSearch checkpoint evaluator_transition is invalid")
         self.evaluator_transition = transition
+
+    @staticmethod
+    def _archive_active_batch_id(archive: IdeaArchive) -> Optional[str]:
+        active = tuple(
+            batch
+            for batch in archive.state.batches
+            if batch.status
+            not in {BatchStatus.COMPLETED, BatchStatus.ABANDONED}
+        )
+        if len(active) > 1:
+            raise ValueError("idea archive contains multiple active batches")
+        if not active:
+            return None
+        newest_iteration = max(
+            batch.iteration_index for batch in archive.state.batches
+        )
+        if active[0].iteration_index != newest_iteration:
+            raise ValueError("active idea batch is not the newest batch")
+        return active[0].batch_id

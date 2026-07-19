@@ -1,5 +1,6 @@
 """Independent, schema-constrained candidate generation through coding agents."""
 
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     OperatorBrief,
     ResolvedParentSnapshot,
     SearchDirective,
+    content_identifier,
     new_identifier,
     utc_now,
 )
@@ -120,6 +122,7 @@ class GenerationMemberSettings:
 
     def __post_init__(self) -> None:
         CodingAgentCallRequest(
+            operation_id="agent_call_" + "0" * 32,
             role="settings_validation",
             cli=self.cli,
             model=self.model,
@@ -315,6 +318,12 @@ class CandidateGenerator:
     ) -> GeneratedCandidate:
         call = self.runner.run(
             CodingAgentCallRequest(
+                operation_id=content_identifier(
+                    "agent_call",
+                    hashlib.sha256(
+                        f"{batch_id}:{role}".encode("utf-8")
+                    ).hexdigest(),
+                ),
                 role=role,
                 cli=settings.cli,
                 model=settings.model,

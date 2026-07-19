@@ -2,8 +2,10 @@
 
 import json
 import math
+import os
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +14,6 @@ from typing import Any, Dict, Mapping, Protocol, Tuple
 from kapso.execution.search_strategies.generic.ideation.types import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
-    new_identifier,
 )
 
 
@@ -76,20 +77,45 @@ class SubprocessCodingAgentCallRunner:
         )
         if not set(request.allowed_tools).issubset(supported_tools):
             raise ValueError("coding-agent request contains an unsupported tool")
-        call_id = new_identifier("agent_call")
-        artifact_directory = Path(self.settings.artifact_root) / call_id
-        artifact_directory.mkdir(parents=True, exist_ok=False)
+        artifact_directory = (
+            Path(self.settings.artifact_root) / request.operation_id
+        )
+        artifact_directory.mkdir(parents=True, exist_ok=True)
         prompt_path = artifact_directory / "prompt.txt"
         schema_path = artifact_directory / "response_schema.json"
         stdout_path = artifact_directory / "stdout.txt"
         stderr_path = artifact_directory / "stderr.txt"
         final_path = artifact_directory / "final.json"
-        prompt_path.write_text(request.prompt, encoding="utf-8")
-        schema_path.write_text(
+        result_path = artifact_directory / "result.json"
+        schema_text = (
             json.dumps(response_schema, indent=2, sort_keys=True, allow_nan=False)
-            + "\n",
-            encoding="utf-8",
+            + "\n"
         )
+        if result_path.is_file():
+            if (
+                prompt_path.read_text(encoding="utf-8") != request.prompt
+                or schema_path.read_text(encoding="utf-8") != schema_text
+            ):
+                raise CodingAgentInvocationError(
+                    "coding-agent operation identity was reused with new input"
+                )
+            return CodingAgentCallResult.from_dict(
+                json.loads(result_path.read_text(encoding="utf-8"))
+            )
+        if prompt_path.exists() and prompt_path.read_text(
+            encoding="utf-8"
+        ) != request.prompt:
+            raise CodingAgentInvocationError(
+                "coding-agent operation prompt changed before retry"
+            )
+        if schema_path.exists() and schema_path.read_text(
+            encoding="utf-8"
+        ) != schema_text:
+            raise CodingAgentInvocationError(
+                "coding-agent operation schema changed before retry"
+            )
+        prompt_path.write_text(request.prompt, encoding="utf-8")
+        schema_path.write_text(schema_text, encoding="utf-8")
         command = self._command(request, schema_path, final_path)
         started = time.monotonic()
         completed = subprocess.run(
@@ -129,7 +155,7 @@ class SubprocessCodingAgentCallRunner:
                 final_path,
             )
         )
-        return CodingAgentCallResult(
+        result = CodingAgentCallResult(
             output=output,
             duration_seconds=duration,
             cost_usd=cost_usd,
@@ -137,6 +163,25 @@ class SubprocessCodingAgentCallRunner:
             output_tokens=output_tokens,
             artifacts=artifacts,
         )
+        self._write_result(result_path, result)
+        return result
+
+    @staticmethod
+    def _write_result(path: Path, result: CodingAgentCallResult) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(result.to_dict(), handle, sort_keys=True, allow_nan=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        os.replace(temporary, path)
 
     def _command(
         self,

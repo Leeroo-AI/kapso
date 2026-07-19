@@ -332,6 +332,17 @@ class OrchestratorAgent:
             goal=self.goal,
             llm=self.llm,
         )
+        reconcile_experiment_memory = getattr(
+            self.search_strategy,
+            "reconcile_experiment_memory",
+            None,
+        )
+        if callable(reconcile_experiment_memory):
+            reconcile_experiment_memory(self.experiment_store)
+            self._validate_restored_branch_refs()
+            self._restored_node_count = len(
+                self.search_strategy.get_experiment_history()
+            )
 
         # Create knowledge search backend (or use provided instance).
         # This allows Kapso.evolve() to inject a concrete backend (e.g., kg_graph_search)

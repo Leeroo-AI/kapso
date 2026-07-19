@@ -29,6 +29,7 @@ from tests.test_run_checkpoint import (
     _init_git_workspace,
     _orchestrator,
     _patch_orchestrator,
+    _strict_generic_strategy,
 )
 
 
@@ -36,12 +37,8 @@ from tests.test_run_checkpoint import (
 # Strategy-level: state round-trip and the bridge runner
 # =========================================================================
 
-def test_transition_state_round_trips_and_validates():
-    source = GenericSearch.__new__(GenericSearch)
-    source.node_history = []
-    source.iteration_count = 0
-    source.previous_errors = []
-    source.parent_policy = "best"
+def test_transition_state_round_trips_and_validates(tmp_path):
+    source = _strict_generic_strategy(tmp_path)
     source.scores_evaluator_id = "ev-2"
     source.evaluator_transition = {
         "old_evaluator_id": "ev-1",
@@ -51,7 +48,9 @@ def test_transition_state_round_trips_and_validates():
     state = source.dump_state()
 
     restored = GenericSearch.__new__(GenericSearch)
-    restored.parent_policy = "best"
+    restored.workspace_dir = str(tmp_path)
+    restored.ideation_config = {"archive_path": "ideas.json"}
+    restored.idea_archive = None
     restored.load_state(state)
     assert restored.scores_evaluator_id == "ev-2"
     assert restored.evaluator_transition["status"] == "anchored"
@@ -60,7 +59,9 @@ def test_transition_state_round_trips_and_validates():
     broken["evaluator_transition"] = {"status": "half-done"}
     with pytest.raises(ValueError, match="evaluator_transition"):
         fresh = GenericSearch.__new__(GenericSearch)
-        fresh.parent_policy = "best"
+        fresh.workspace_dir = str(tmp_path)
+        fresh.ideation_config = {"archive_path": "ideas.json"}
+        fresh.idea_archive = None
         fresh.load_state(broken)
 
 

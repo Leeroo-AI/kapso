@@ -25,6 +25,7 @@ def install_executable(directory: Path, name: str, source: str) -> Path:
 
 def request(workspace: Path, cli: str) -> CodingAgentCallRequest:
     return CodingAgentCallRequest(
+        operation_id="agent_call_" + "1" * 32,
         role="candidate",
         cli=cli,
         model="test-model",
@@ -135,6 +136,35 @@ print(json.dumps({
     assert result.output_tokens == 5
     assert result.cost_usd == 0.25
     assert all(Path(path).is_file() for path in result.artifacts)
+
+
+def test_completed_operation_is_reused_without_invoking_the_cli_again(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+counter = pathlib.Path("invocations.txt")
+counter.write_text(counter.read_text() + "x" if counter.exists() else "x")
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"structured"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":7}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+
+    first = call_runner.run(request(tmp_path, "codex"), {"type": "object"})
+    second = call_runner.run(request(tmp_path, "codex"), {"type": "object"})
+
+    assert first == second
+    assert (tmp_path / "invocations.txt").read_text() == "x"
 
 
 @pytest.mark.parametrize(

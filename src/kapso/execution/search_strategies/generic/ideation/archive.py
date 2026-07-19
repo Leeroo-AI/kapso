@@ -320,6 +320,8 @@ class IdeaArchive:
                 claims=(),
                 gaps=(),
             )
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._write_atomic(self._state)
 
     @property
     def revision(self) -> int:
@@ -416,8 +418,12 @@ class IdeaArchive:
             batch.campaign_id,
             batch.iteration_index,
             batch.context_hash,
-            batch.evidence_snapshot_id,
+            batch.planning_archive_revision,
+            batch.problem_statement,
+            batch.evidence_snapshot,
+            batch.capacity,
             batch.directive,
+            batch.resolved_parents,
             batch.created_at,
         )
 

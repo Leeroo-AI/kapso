@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,16 @@ from kapso.execution.search_strategies.benchmark_tree_search import (
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 from kapso.kapso import Kapso
+from test_ideation_domain import (
+    BATCH_ID,
+    IDEA_ID,
+    NOW,
+    eligible_analysis,
+    generated_idea,
+    planned_batch,
+    selection,
+)
+from kapso.execution.search_strategies.generic.ideation import IdeaArchive
 
 
 def _checkpoint(**overrides: Any) -> RunCheckpoint:
@@ -346,22 +357,56 @@ def test_failed_atomic_replace_preserves_previous_checkpoint(
     assert not list(store.path.parent.glob(".run_state.*.tmp"))
 
 
-def test_generic_strategy_state_round_trip() -> None:
+def _strict_generic_strategy(tmp_path: Path) -> GenericSearch:
+    campaign_id = "campaign_" + "f" * 32
+    batch = planned_batch()
+    batch = replace(
+        batch,
+        campaign_id=campaign_id,
+        evidence_snapshot=replace(
+            batch.evidence_snapshot,
+            campaign_id=campaign_id,
+        ),
+    )
+    archive = IdeaArchive(tmp_path / "ideas.json", campaign_id)
+    archive.create_batch(batch, expected_revision=0)
+    archive.add_ideas(BATCH_ID, (generated_idea(),), expected_revision=1)
+    archive.record_analysis(BATCH_ID, eligible_analysis(), expected_revision=2)
+    archive.record_selection(BATCH_ID, selection(), expected_revision=3)
+    archive.link_experiment(IDEA_ID, 0, BATCH_ID, expected_revision=4)
     source = GenericSearch.__new__(GenericSearch)
+    source.workspace_dir = str(tmp_path)
+    source.ideation_config = {"archive_path": "ideas.json"}
+    source.ideation_campaign_id = campaign_id
+    source.idea_archive = archive
+    source.active_batch_id = BATCH_ID
     source.node_history = [
         SearchNode(
             node_id=0,
+            idea_id=IDEA_ID,
+            selection_batch_id=BATCH_ID,
+            solution=generated_idea().proposal,
             branch_name="generic_exp_0",
+            parent_branch_name="main",
             feedback="next feedback",
             score=0.5,
+            started_at=NOW,
         )
     ]
     source.iteration_count = 1
     source.previous_errors = ["old error"]
     source.scores_evaluator_id = ""
     source.evaluator_transition = None
+    return source
+
+
+def test_generic_strategy_state_round_trip(tmp_path: Path) -> None:
+    source = _strict_generic_strategy(tmp_path)
 
     restored = GenericSearch.__new__(GenericSearch)
+    restored.workspace_dir = str(tmp_path)
+    restored.ideation_config = {"archive_path": "ideas.json"}
+    restored.idea_archive = None
     restored.load_state(source.dump_state())
 
     assert restored.node_history[0].branch_name == "generic_exp_0"
