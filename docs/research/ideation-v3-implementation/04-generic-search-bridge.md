@@ -40,6 +40,10 @@ tests/
 
 - [ ] Initialize `IdeaArchive` and `IdeationEngine` from the GenericSearch
       workspace and configuration.
+- [ ] Construct Codex and Claude runner configurations through the existing CLI
+      auth, environment-hygiene, timeout, and telemetry paths.
+- [ ] Keep `OPENAI_API_KEY` in the orchestrator process for embeddings and out
+      of both coding-agent subprocess environments.
 - [ ] Construct `IdeationCapacityView` only from the existing budget snapshot,
       fidelity decision, and fidelity timing authority; add no local duration
       or reserve estimate.
@@ -96,6 +100,9 @@ old solution string. These behaviors must remain unchanged:
 - `VALIDATE` performs no ideation or idea-archive mutation.
 - V3 node round-trips through existing serialization with idea links.
 - Ideation phase cost equals all v3 subphase costs without double counting.
+- Generator and selector roles can independently use Codex CLI or Claude Code.
+- A subprocess-environment test proves the embedding key is absent from both
+  CLI runners.
 
 ## Definition of done
 

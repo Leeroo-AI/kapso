@@ -24,6 +24,10 @@ durable, evidence-directed ideation pipeline while preserving:
 - ref-correct Git lineage; and
 - backward-compatible resume for legacy campaigns.
 
+All generative and judgment calls use Codex CLI or Claude Code. Direct OpenAI
+API access is limited to the embedding provider authenticated by
+`OPENAI_API_KEY`; no ideation chat, completions, or responses call is permitted.
+
 ## Planning structure
 
 | ID | Module plan | Responsibility | Depends on |
@@ -88,6 +92,10 @@ OperatorBrief
 ParentPlan
 CandidateAnalysis
 SelectionDecision
+CodingAgentCallRequest
+CodingAgentCallResult
+EmbeddingRecord
+EmbeddingTelemetry
 ```
 
 The freeze covers:
@@ -120,6 +128,7 @@ src/kapso/execution/search_strategies/generic/ideation/
   policy.py
   operators.py
   generator.py
+  embeddings.py
   analyzer.py
   selector.py
   engine.py
@@ -162,8 +171,40 @@ fingerprint so resume cannot switch semantics silently. After all acceptance
 gates pass and benchmark replay shows no regression, change the default to
 `v3`. Remove the legacy path only in a later cleanup change.
 
-Do not add a live shadow mode that doubles LLM generation cost. Use deterministic
-fixtures, captured candidate pools, and offline replay for comparisons.
+Do not add a live shadow mode that doubles coding-agent generation cost. Use
+deterministic fixtures, captured candidate pools, and offline replay for
+comparisons.
+
+### AI and embedding provider boundary
+
+```text
+Reasoning, generation, and judgment
+  -> CodingAgentCallRunner
+       -> Codex CLI
+       -> Claude Code
+
+Semantic vectors
+  -> OpenAIEmbeddingProvider
+       -> official OpenAI embeddings endpoint
+       -> OPENAI_API_KEY from process environment
+```
+
+Hard rules:
+
+- no ideation module calls `LLMBackend.llm_completion`, LiteLLM, Responses API,
+  Chat Completions, or another direct generative API;
+- generator, repair, selector, and optional model-assisted extraction all use
+  the coding-agent runner contract;
+- candidate and selector roles both accept `cli: codex|claude_code`;
+- coding-agent subprocesses do not inherit `OPENAI_API_KEY` merely because the
+  orchestrator needs it for embeddings;
+- the embedding provider uses the official OpenAI SDK, defaults to
+  `text-embedding-3-small`, and is configurable;
+- embeddings are stored with provider, model, dimensions, and input hash so
+  stale or incompatible vectors are never compared;
+- missing embedding credentials or API failure degrades to exact and
+  descriptor checks rather than failing ideation; and
+- embedding telemetry is attributed separately from CLI-agent cost.
 
 ## Integration waves
 
@@ -178,7 +219,7 @@ Deliver M1:
 - archive query primitives; and
 - corruption and round-trip tests.
 
-Gate: the archive can represent the full design lifecycle without any LLM or
+Gate: the archive can represent the full design lifecycle without any model or
 GenericSearch dependency.
 
 ### Wave 2 — deterministic decision plane
@@ -201,6 +242,8 @@ and directives.
 Deliver M3:
 
 - structured generator results;
+- Codex/Claude CLI runner parity for generator and selector roles;
+- OpenAI embedding provider with keyless degradation and local cosine search;
 - independent operator briefs;
 - archived-idea resurfacing;
 - exact duplicate and semantic-neighbor facts;
@@ -315,6 +358,10 @@ All module plans must preserve these invariants:
 10. An invalid or incomparable evaluation cannot update normalized utility.
 11. Semantic similarity is an observation, not a reward or hard rejection.
 12. Resume reuses durable work and fails loudly on conflicting links.
+13. Every generative or judgment call is traceable to a Codex or Claude Code
+    CLI invocation; embeddings are the only direct model API call.
+14. `OPENAI_API_KEY` is never persisted, logged, or forwarded to coding-agent
+    subprocesses by the ideation subsystem.
 
 ## Test strategy
 
@@ -352,7 +399,7 @@ Each module owns unit tests; M6 owns integration and failure-injection tests.
 
 The implementation is complete only when:
 
-- all twelve design acceptance criteria pass;
+- all design acceptance criteria pass;
 - every module plan's definition of done is satisfied;
 - legacy checkpoints load without fabricated history;
 - v3 checkpoints cannot resume under legacy semantics or vice versa;
@@ -372,6 +419,9 @@ The implementation is complete only when:
 | D5 | Use `legacy|v3`, not live shadow generation | Avoid silently doubling campaign cost |
 | D6 | Persist outcomes after orchestrator candidate evaluation | External metrics and validity must be attached first |
 | D7 | Give `strategy.py` to M4 and `orchestrator.py` write ordering to M5 | Minimize high-conflict parallel edits |
+| D8 | Use Codex/Claude Code CLIs for every AI reasoning call | Reuse existing agent execution, tool, auth, timeout, and telemetry boundaries |
+| D9 | Use direct OpenAI API only through a narrow embedding provider | Embeddings are mechanical similarity features, not generative judgment |
+| D10 | Default idea embeddings to `text-embedding-3-small` | Duplicate alarms favor low cost; the model remains configurable and versioned |
 
 ## Progress ledger
 

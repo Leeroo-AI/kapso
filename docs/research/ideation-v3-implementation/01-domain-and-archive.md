@@ -5,8 +5,8 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 ## Objective
 
 Create the stable, strategy-local domain and persistence substrate on which all
-other ideation-v3 modules depend. This module contains no LLM calls, policy
-judgment, Git operations, or experiment execution.
+other ideation-v3 modules depend. This module contains no model or coding-agent
+calls, policy judgment, Git operations, or experiment execution.
 
 ## Owned responsibilities
 
@@ -43,6 +43,11 @@ Default archive path:
       parent-plan states.
 - [ ] Define immutable value objects listed in the orchestrator contract
       freeze.
+- [ ] Define `CodingAgentCallRequest` and `CodingAgentCallResult` without
+      importing a concrete CLI adapter.
+- [ ] Define embedding records and telemetry with provider, model, dimensions,
+      input hash, vector, call count, input tokens, and duration; never include
+      credentials.
 - [ ] Separate `origin_batch_id` from `selected_in_batch_id`.
 - [ ] Represent raw score separately from normalized utility.
 - [ ] Require source references for non-insufficient evidence claims.

@@ -76,7 +76,8 @@ Add separate proposal-memory tools:
 
 ```text
 get_recent_ideas
-search_similar_ideas
+get_idea
+get_idea_neighbors
 get_idea_lineage
 list_evaluation_gaps
 ```
@@ -86,6 +87,10 @@ list_evaluation_gaps
 - [ ] Show idea selection/defer/reject reason without implying execution.
 - [ ] Join idea lineage through IDs, never embedded text heuristics.
 - [ ] Pass the archive path to MCP processes separately from experiment path.
+- [ ] Make `get_idea_neighbors` read precomputed archive results; the MCP
+      process must not receive `OPENAI_API_KEY` or call the embeddings API.
+- [ ] Keep free-text semantic idea retrieval in the trusted Kapso process and
+      push its results through the campaign evidence packet.
 - [ ] Ensure missing optional idea-history capability follows configured gate
       failure policy.
 
@@ -101,6 +106,7 @@ list_evaluation_gaps
 - Experiment tools never return unexecuted ideas.
 - Idea tools clearly distinguish deferred, rejected, selected, and evaluated.
 - Similarity searches remain separate across stores.
+- Coding-agent and MCP subprocess environments contain no embedding API key.
 
 ## Definition of done
 

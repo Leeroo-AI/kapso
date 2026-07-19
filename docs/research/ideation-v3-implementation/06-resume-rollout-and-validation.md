@@ -37,6 +37,8 @@ tests/
 
 - [ ] Persist `ideation_mode`, active batch ID, archive schema version, and
       archive revision in strategy state or the appropriate checkpoint layer.
+- [ ] Persist CLI role/model configuration and embedding provider/model identity
+      in the configuration fingerprint, never credentials.
 - [ ] Reject silent resume across different ideation modes.
 - [ ] Load legacy state with no fabricated idea links.
 - [ ] Validate every v3 node's `idea_id` and `selection_batch_id`.
@@ -138,6 +140,8 @@ terminal action, and gap effects.
 - Every transaction boundary survives injected termination.
 - Legacy and v3 resume semantics are deterministic and non-interchangeable.
 - V3 can run end-to-end without changing existing execution authority.
+- Tests prove every reasoning call uses a fake Codex/Claude CLI runner and only
+  the embedding provider can reach the direct OpenAI client.
 - Activation report justifies the default switch using measured outcomes.
 
 ## Non-goals

@@ -8,7 +8,7 @@ Depends on: M1 contract freeze.
 
 Implement the deterministic decision plane that converts campaign facts and
 capacity into a reproducible `SearchDirective`. This module must be testable
-without an LLM, MCP server, or writable repository.
+without a coding-agent call, MCP server, or writable repository.
 
 ## Owned responsibilities
 
@@ -107,7 +107,7 @@ tests/
 
 ## Non-goals
 
-- Prompt construction and LLM calls.
+- Prompt construction and coding-agent calls.
 - Semantic embeddings.
 - Branch materialization.
 - Actual budget admission or fidelity selection.

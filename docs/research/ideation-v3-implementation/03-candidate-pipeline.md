@@ -11,19 +11,21 @@ structured `SelectionDecision` without executing an experiment.
 
 ## Owned responsibilities
 
-- Existing Claude Code and Codex generation adapters behind one interface.
+- Existing Claude Code and Codex CLI adapters behind one interface.
 - Operator-specific structured prompts.
 - Independent ensemble generation.
 - Prior-idea resurfacing into the considered pool.
 - Schema, provenance, duplicate, descriptor, evidence, and capacity analysis.
 - One bounded diversity-repair round.
-- Selector hard rules, LLM criticism, structured fallback order.
+- Selector hard rules, coding-agent criticism, structured fallback order.
+- Narrow OpenAI embedding provider and local cosine similarity.
 
 ## Proposed code surface
 
 ```text
 generic/ideation/
   generator.py
+  embeddings.py
   analyzer.py
   selector.py
 
@@ -39,7 +41,10 @@ tests/
 
 ## Generator tasks
 
-- [ ] Define an adapter-neutral request/result contract.
+- [ ] Define one `CodingAgentCallRunner` contract implemented by Codex CLI and
+      Claude Code runners.
+- [ ] Prohibit direct generative calls through `LLMBackend`, LiteLLM, or an
+      OpenAI/Anthropic model API inside the candidate pipeline.
 - [ ] Reuse current read-only tool restrictions, timeout/cost telemetry, and
       output-salvage behavior.
 - [ ] Push the mandatory evidence packet into every member prompt.
@@ -50,18 +55,43 @@ tests/
 - [ ] Persist every returned candidate, including invalid candidates with raw
       parse provenance.
 - [ ] Preserve partial-member failure without hiding quota shortfall.
+- [ ] Allow both generator and selector configuration to choose
+      `cli: codex|claude_code`; remove the current Claude-only selector
+      restriction.
+
+## Embedding provider tasks
+
+- [ ] Define a narrow `EmbeddingProvider` protocol separate from generative
+      agent interfaces.
+- [ ] Implement `OpenAIEmbeddingProvider` with the official OpenAI SDK and the
+      embeddings endpoint only.
+- [ ] Do not route ideation embeddings through `LLMBackend.create_embedding`;
+      keep the direct API exception visible in the narrow provider type.
+- [ ] Resolve `OPENAI_API_KEY` from the process environment after existing
+      dotenv startup; never read a machine-specific `.env` path.
+- [ ] Default to `text-embedding-3-small` with a configuration override.
+- [ ] Never log, persist, or forward the API key to Codex or Claude subprocesses.
+- [ ] Embed a canonical descriptor/proposal representation, storing provider,
+      model, dimensions, and input hash with each vector.
+- [ ] Reuse a vector only when all embedding metadata matches.
+- [ ] Compute cosine similarity locally; do not require Weaviate for idea
+      duplicate alarms.
+- [ ] On missing key, rate limit, timeout, or API error, record
+      `embedding_unavailable` and continue exact/descriptor analysis.
+- [ ] Record model, call count, input-token usage when returned, duration, and
+      failure class as embedding telemetry without hard-coded price claims.
 
 ## Analyzer tasks
 
 - [ ] Validate candidate schema, referenced IDs, parent, artifacts, expected
       observation, evaluation method, and resource request.
 - [ ] Mark exact duplicates ineligible but retain their records.
-- [ ] Compute semantic neighbors using the configured embedding model and store
-      model/version metadata with the result.
+- [ ] Compute semantic neighbors through `EmbeddingProvider` and store complete
+      compatibility metadata with the result.
 - [ ] Compare structured descriptors independently of embedding similarity.
 - [ ] Verify evidence references and flag unsupported or contradicted claims.
 - [ ] Ask the capacity provider whether implementation plus comparable
-      evaluation fits; do not trust LLM duration estimates.
+      evaluation fits; do not trust coding-agent duration estimates.
 - [ ] Summarize operator/descriptor coverage and candidate eligibility.
 - [ ] Request at most one repair round when fewer than two distinct eligible
       candidates survive outside `RECOVER`/`VERIFY`.
@@ -94,6 +124,12 @@ tests/
 - Selector cannot return an unknown or hard-ineligible ID.
 - Selector failure produces a persisted deterministic fallback decision.
 - Deferred archived idea can compete with new ideas without being regenerated.
+- No generator, repair, selector, or extraction test reaches a direct model
+  API; fake CLI runners cover every reasoning call.
+- OpenAI embedding calls are isolated behind a fake provider in unit tests.
+- Missing embedding credentials degrade cleanly without changing eligibility
+  except for the absent semantic warning.
+- Vectors from different models or dimensions are never compared.
 
 ## Definition of done
 
@@ -109,3 +145,4 @@ tests/
 - Parent branch creation.
 - Experiment outcome recording.
 - Training a learned candidate ranker.
+- Non-OpenAI embedding providers in v1.

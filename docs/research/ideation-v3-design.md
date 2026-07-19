@@ -126,14 +126,67 @@ The following boundaries are mandatory:
   ideation agents; it does not become a second search-state authority.
 - **Idea history owns proposals.** Generated, rejected, selected, and
   not-yet-executed candidates remain idea records.
-- **Evaluation owns truth.** An LLM may identify an assumption or propose a
-  test, but only recorded evaluation evidence can mark a gap tested or close a
-  claim.
+- **Evaluation owns truth.** A coding agent may identify an assumption or
+  propose a test, but only recorded evaluation evidence can mark a gap tested
+  or close a claim.
 - **GenericSearch remains the strategy.** Ideation is an internal subsystem,
   not a competing search strategy or a second orchestrator.
-- **The LLM proposes and criticizes. Deterministic code enforces.** Capacity,
-  schema validity, lifecycle transitions, exact duplicates, evidence status,
-  and resume behavior are not prompt responsibilities.
+- **Coding-agent CLIs propose and criticize. Deterministic code enforces.**
+  Capacity, schema validity, lifecycle transitions, exact duplicates, evidence
+  status, and resume behavior are not prompt responsibilities.
+
+## Model invocation boundary
+
+All generative or judgment-bearing ideation calls run through a coding-agent
+CLI. The supported implementations are Codex CLI and Claude Code. Ideation must
+not call a chat, completions, responses, or generic `LLMBackend` inference API
+directly.
+
+This boundary covers:
+
+- initial candidate generation;
+- diversity-repair generation;
+- selector/critic judgment;
+- optional claim or descriptor extraction that requires model reasoning; and
+- any future model-assisted ideation operation.
+
+The CLI runner contract supplies the prompt, read-only workspace, allowed
+tools, model/effort configuration, timeout, telemetry, and structured output.
+Codex and Claude Code may implement that contract differently, but downstream
+ideation code receives the same result type. Candidate and selector roles may
+independently choose either CLI.
+
+The only direct model API boundary in ideation is embeddings:
+
+```text
+OpenAIEmbeddingProvider
+  authentication: OPENAI_API_KEY from the process environment
+  default model: text-embedding-3-small
+  operation: embeddings only
+  consumers: CandidateAnalyzer and idea retrieval
+```
+
+`text-embedding-3-small` is the cost-oriented default for duplicate alarms; the
+model remains configurable and every stored vector records its provider,
+model, dimensions, and input hash. `text-embedding-3-large` may be selected
+when multilingual or domain-specific calibration demonstrates a material
+benefit. OpenAI documents both as current embedding models, with
+[`text-embedding-3-large`](https://developers.openai.com/api/docs/models/text-embedding-3-large)
+described as the more capable option and
+[`text-embedding-3-small`](https://developers.openai.com/api/docs/models/text-embedding-3-small)
+as the smaller option.
+
+The provider uses the official OpenAI SDK's embeddings endpoint. It resolves
+the key through `os.environ` after Kapso's existing dotenv startup; it never
+reads a hard-coded `.env` path, logs the key, persists it, or passes it to
+coding-agent subprocesses. Codex continues to use CLI login or its dedicated
+CLI credentials, and Claude Code continues to use its configured auth mode.
+
+Embedding failure is non-fatal because similarity is only an alarm. Exact and
+descriptor duplicate checks still run, and the analysis records
+`embedding_unavailable`. Cached vectors are reused only when provider, model,
+dimensions, and input hash match. Embedding call count, input tokens, duration,
+and model are recorded separately from coding-agent telemetry.
 
 ## Connection to the current system
 
@@ -200,7 +253,7 @@ the decision that led to the node.
 | `GenericSearch.run()` | Remains the iteration entry point and calls `IdeationEngine` instead of asking directly for one solution string |
 | `_generate_solution()` | Becomes the single-member `CandidateGenerator` adapter; existing read-only agent setup and repository tooling are reused |
 | `_generate_solution_ensemble()` | Remains the fan-out mechanism but returns structured `IdeaRecord` proposals instead of an ephemeral list of strings |
-| `_select_from_candidates()` | Becomes the LLM-critic portion of `CandidateSelector`; deterministic eligibility runs before it and structured decision persistence follows it |
+| `_select_from_candidates()` | Becomes one coding-agent CLI implementation of the critic portion of `CandidateSelector`; deterministic eligibility runs before it and structured decision persistence follows it |
 | `_build_ideation_prompt()` | Receives the frozen evidence snapshot, search directive, operator brief, prior-idea context, and capacity summary |
 | `_select_parent()` | Stops making the iteration's single parent decision before ideation; its branch-resolution logic moves behind `ParentPlan` after candidate selection |
 | `materialize_ref()` | Is reused to give each operator a read-only view of its concrete parent ref |
@@ -367,10 +420,16 @@ separate:
 
 ```text
 get_recent_ideas
-search_similar_ideas
+get_idea(idea_id)
+get_idea_neighbors(idea_id)
 get_idea_lineage
 list_evaluation_gaps
 ```
+
+Free-text semantic idea retrieval runs in the trusted Kapso process through
+`OpenAIEmbeddingProvider`. The coding-agent/MCP subprocess receives precomputed
+neighbors and never receives `OPENAI_API_KEY`. `get_idea_neighbors` therefore
+reads stored analysis rather than calling the embeddings API.
 
 This gives the model an unambiguous distinction:
 
@@ -691,9 +750,9 @@ EvidenceClaim
   updated_at
 ```
 
-The evidence builder may derive status from structured results. An LLM critic
-may recommend a status, but deterministic validation must reject nonexistent or
-incompatible references.
+The evidence builder may derive status from structured results. A coding-agent
+critic may recommend a status, but deterministic validation must reject
+nonexistent or incompatible references.
 
 ### Evaluation gaps
 
@@ -869,7 +928,8 @@ unbounded regeneration loop.
 
 ## Selection contract
 
-The selector combines an LLM critic with deterministic eligibility rules.
+The selector combines a Codex or Claude Code critic call with deterministic
+eligibility rules.
 
 ### Hard rules
 
@@ -883,7 +943,7 @@ A candidate is ineligible when:
 - it is an exact duplicate without an explicit changed condition; or
 - its output schema or provenance is invalid.
 
-The LLM cannot override these rules.
+The coding agent cannot override these rules.
 
 ### Selection output
 
@@ -1014,7 +1074,7 @@ separate file or class.
 | `EvidenceLedger` | Claims, gaps, provenance, evidence-state transitions | Candidate ranking or branch selection |
 | `ExperimentCapacityProvider` | Remaining capacity, fidelity contract, reserve, completion feasibility | Idea generation or semantic ranking |
 | `IdeaArchive` | Idea batches, candidates, embeddings, decisions, outcomes, migrations | Executed score authority or Git lifecycle |
-| `IdeationPolicy` | Pure mode and terminal decision from evidence and capacity | LLM calls or persistence side effects |
+| `IdeationPolicy` | Pure mode and terminal decision from evidence and capacity | Coding-agent calls or persistence side effects |
 | `OperatorPlanner` | Distinct operator briefs, descriptor coverage, gap reservation | Final candidate selection |
 | `CandidateGenerator` | Independent structured proposals | Comparing candidates or declaring evidence true |
 | `CandidateAnalyzer` | Validation, similarity facts, feasibility, evidence references, bounded repair requests | Utility judgment beyond hard eligibility |
@@ -1040,8 +1100,10 @@ list_evaluation_gaps(state, priority)
   -> typed gaps and evidence references
 ```
 
-An ideation agent may receive these through an MCP tool or a context packet. The
-transport is an implementation decision; the semantic separation is not.
+`search_ideas` is an internal trusted-process query and may use the embedding
+provider. An ideation agent receives its results in the mandatory context
+packet and may inspect stored ideas/neighbors through keyless MCP tools. The
+semantic separation and credential boundary are not optional.
 
 ## Behavior under representative campaigns
 
@@ -1165,16 +1227,21 @@ following hold:
     evidence.
 12. A terminal opportunity probe cannot consume protected finalization
     capacity.
+13. Every generative or judgment-bearing model call runs through Codex CLI or
+    Claude Code and is attributable to a coding-agent invocation.
+14. Direct OpenAI API access is limited to embeddings; its key is never stored,
+    logged, or passed into a coding-agent/MCP subprocess.
 
 ## Explicit non-goals
 
 - MCTS, UCB, novelty search, or reinforcement learning inside a campaign.
 - A global scalar novelty objective.
-- LLM-controlled budget or fidelity decisions.
+- Coding-agent-controlled budget or fidelity decisions.
 - Unbounded candidate regeneration.
 - Running multiple expensive experiments concurrently by default.
 - Treating prompt prose as verified evaluation coverage.
 - Replacing existing Git experiment isolation or evaluation machinery.
+- Direct chat, completions, or responses API calls from ideation modules.
 - Learning a cross-campaign policy before enough calibrated outcome data
   exists.
 
