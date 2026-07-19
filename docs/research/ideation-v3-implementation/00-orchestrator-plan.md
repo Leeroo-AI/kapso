@@ -415,6 +415,8 @@ The implementation is complete only when:
 | D8 | Use Codex/Claude Code CLIs for every AI reasoning call | Reuse existing agent execution, tool, auth, timeout, and telemetry boundaries |
 | D9 | Use direct OpenAI API only through a narrow embedding provider | Embeddings are mechanical similarity features, not generative judgment |
 | D10 | Default idea embeddings to `text-embedding-3-small` | Duplicate alarms favor low cost; the model remains configurable and versioned |
+| D11 | Use one exact archive schema identity, not per-record versions | Strict replacement needs one accepted shape and no migration branches |
+| D12 | Freeze resolved parent provenance and per-candidate dispositions in the domain | Generation and selection must be reproducible without reconstructing hidden choices |
 
 ## Progress ledger
 
@@ -423,7 +425,7 @@ inside module plans as the campaign-level source of truth.
 
 | Module | Status | Implementation reference | Validation reference | Blocker |
 |---|---|---|---|---|
-| M1 Domain and Archive | Not started | — | — | — |
+| M1 Domain and Archive | Complete | `generic/ideation/types.py`, `archive.py` | 20 focused tests | — |
 | M2 Evidence, Policy, Operators | Not started | — | — | M1 contract freeze |
 | M3 Candidate Pipeline | Not started | — | — | M1, M2 |
 | M4 GenericSearch Bridge | Not started | — | — | M1–M3 |

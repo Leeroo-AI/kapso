@@ -39,22 +39,22 @@ Default archive path:
 
 ## Contract tasks
 
-- [ ] Define string enums for idea, batch, gap, claim, policy, operator, and
+- [x] Define string enums for idea, batch, gap, claim, policy, operator, and
       parent-plan states.
-- [ ] Define immutable value objects listed in the orchestrator contract
+- [x] Define immutable value objects listed in the orchestrator contract
       freeze.
-- [ ] Define `CodingAgentCallRequest` and `CodingAgentCallResult` without
+- [x] Define `CodingAgentCallRequest` and `CodingAgentCallResult` without
       importing a concrete CLI adapter.
-- [ ] Define embedding records and telemetry with provider, model, dimensions,
+- [x] Define embedding records and telemetry with provider, model, dimensions,
       input hash, vector, call count, input tokens, and duration; never include
       credentials.
-- [ ] Separate `origin_batch_id` from `selected_in_batch_id`.
-- [ ] Represent raw score separately from normalized utility.
-- [ ] Require source references for non-insufficient evidence claims.
-- [ ] Encode idea-to-node linkage without importing `SearchNode`.
-- [ ] Make `to_dict`/`from_dict` reject unknown and missing fields explicitly.
-- [ ] Validate finite numeric values and reject booleans as integers.
-- [ ] Define transition tables and reject illegal backward transitions.
+- [x] Separate `origin_batch_id` from `selected_in_batch_id`.
+- [x] Represent raw score separately from normalized utility.
+- [x] Require source references for non-insufficient evidence claims.
+- [x] Encode idea-to-node linkage without importing `SearchNode`.
+- [x] Make `to_dict`/`from_dict` reject unknown and missing fields explicitly.
+- [x] Validate finite numeric values and reject booleans as integers.
+- [x] Define transition tables and reject illegal backward transitions.
 
 ## Archive operations
 
@@ -81,14 +81,14 @@ it with different data fails loudly.
 
 ## Persistence rules
 
-- [ ] Write a complete new document to a same-directory temporary file.
-- [ ] Flush and atomically replace the prior archive.
-- [ ] Never leave an empty/truncated archive after interruption.
-- [ ] Increment a monotonic archive revision per committed mutation.
-- [ ] Include campaign identity, revision, created/updated timestamps, batches,
+- [x] Write a complete new document to a same-directory temporary file.
+- [x] Flush and atomically replace the prior archive.
+- [x] Never leave an empty/truncated archive after interruption.
+- [x] Increment a monotonic archive revision per committed mutation.
+- [x] Include campaign identity, revision, created/updated timestamps, batches,
       ideas, claims, and gaps.
-- [ ] Refuse any incompatible persisted shape.
-- [ ] Avoid storing model transcripts unless explicitly required for audit;
+- [x] Refuse any incompatible persisted shape.
+- [x] Avoid storing model transcripts unless explicitly required for audit;
       structured outputs and compact provenance are the contract.
 
 ## Tests
