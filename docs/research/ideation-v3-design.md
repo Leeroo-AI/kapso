@@ -13,6 +13,9 @@ Implementation planning is deliberately out of scope. The purpose of this
 document is to establish stable responsibilities, contracts, invariants, and
 end-to-end behavior before choosing files, phases, or migrations.
 
+Implementation work is decomposed and coordinated by the
+[ideation v3 implementation orchestrator](ideation-v3-implementation/00-orchestrator-plan.md).
+
 ## Executive decision
 
 Kapso should use a **small, durable idea population controlled by a
