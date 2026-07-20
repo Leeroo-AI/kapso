@@ -3,6 +3,9 @@
 Status: refined architecture; not implemented. This supersedes the earlier
 merged-store/starter-kit proposal.
 
+Controlling implementation plan:
+[`cross-run-knowledge-implementation/00-orchestrator-plan.md`](cross-run-knowledge-implementation/00-orchestrator-plan.md)
+
 ## Decision
 
 Kapso should learn on two timescales:
@@ -1336,19 +1339,20 @@ Reject:
 
 ## 13. Design boundary
 
-This document defines the target architecture and invariants. The implementation
-plan should be split into independently reviewable modules in this order:
+This document defines the target architecture and invariants. The
+[controlling orchestrator plan](cross-run-knowledge-implementation/00-orchestrator-plan.md)
+splits implementation into independently reviewable modules in this order:
 
-1. expert-scope contracts, task-context bindings, and domain-neutral schemas;
-2. GitHub publication records, protected repository conventions, artifact
-   resolver, transactional local cache, and candidate-publication gate;
-3. repository-architect bootstrap, module contracts, and semantic-book compiler;
-4. immutable run bundles, catalog, sanitation, assertions, and snapshots;
-5. portable hybrid-search sidecars, `PriorKnowledgeGate`, and ideation-v3
-   provenance integration;
-6. capability and repository-architecture candidate validation;
-7. immutable GitHub release publication and transactional workspace startup;
-8. matched-control measurement and operational rollout.
+1. contracts, canonical identity, and strict configuration;
+2. GitHub control plane and verified local materialization;
+3. run capture, quarantine, sanitation, and bundles;
+4. catalog projection, assertions, claims, and admission;
+5. standalone snapshots, hybrid search, and the read-only knowledge gate;
+6. ideation-v3 and current-run memory integration;
+7. expert candidates, repository architecture, and semantic-book compilation;
+8. expert validation, composition, release, and revocation;
+9. launch resolution, transactional bootstrap, and resume; and
+10. system rollout, failure injection, production validation, and legacy deletion.
 
 The scope and bootstrap layers prevent the first benchmark from hardcoding the
 framework's ontology. Capability or structural evolution should ship only after
