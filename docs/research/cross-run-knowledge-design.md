@@ -617,6 +617,28 @@ match `launch_request_hash` to its own request, preventing substitution with a
 validly attested manifest for another task. New runs fail before startup if the
 current release is expired, unrevalidated, or incompatible.
 
+### 4.14 `GitHubPublicationRecord`
+
+```text
+GitHubPublicationRecord
+  publication_id
+  artifact_kind                # knowledge_snapshot | expert_base_release
+  artifact_id
+  repository_node_id + repository_full_name
+  commit_sha
+  immutable_release_id + tag
+  assets[]                     # asset id, exact name, media type, size, sha256
+  release_attestation_ref
+  published_at
+  publisher_identity
+```
+
+This is a transport and provenance envelope, not part of the scientific or
+expert-artifact content identity. Moving a byte-identical artifact to another
+authorized repository publishes a new location record without changing its
+`snapshot_id` or `release_id`. A launch pins the artifact identity, commit SHA,
+release tag, and asset digests; it never resolves `latest` after startup.
+
 ## 5. Module responsibilities
 
 | Module | Input | Output | Hard responsibility |
@@ -630,11 +652,14 @@ current release is expired, unrevalidated, or incompatible.
 | `ClaimProposer` | Selected episodes and contradictions | Proposed/revised claims | Use a coding agent to abstract mechanisms; never admit or certify its own output |
 | `CrossRunCatalog` | Bundles, projections, assertions, claims | Ordered immutable generations | Global identity, lineage, exact assertion/revocation closure, taint, supersession, and auditability |
 | `KnowledgeSnapshotPublisher` | Catalog closure and policy | Immutable snapshot + CAS pointer | Deterministic admission, proof closure, revocation, sidecar indexing, attestation, and atomic publication |
+| `GitHubArtifactResolver` | Repository coordinates, artifact ID, trust roots | Verified local materialization | Resolve mutable heads only before launch; verify commit, immutable release, asset digests, and attestation; cache by content identity |
 | `CrossRunRetriever` | Pinned snapshot and current query | Bounded prior packet | Hard compatibility before similarity; trust/outcome/diversity balance; no current-run mutation |
+| `PriorKnowledgeGate` | Pinned materialized snapshot or persisted prior packet | Read-only MCP results | Give coding-agent CLIs structured knowledge access without GitHub credentials; log exact record IDs and return complete records only |
 | `PriorKnowledgeAdapter` | Prior packet | v3 prompt/analysis input | Keep foreign refs typed and separate from local evidence; persist exact packet in batch provenance |
 | `ExpertRepoArchitect` | Scope contract, current release/map, task-family bindings, evidence | Architecture candidate with repository map | In bootstrap mode create the minimal initial topology; later propose atomic move/split/merge/refactor changes and capability lineage without mutating a stable release |
 | `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
 | `ExpertCandidateValidator` | Capability or architecture candidate and evaluator cascade | Promotion evidence | Scope conformance, contract/topology graph integrity, security, leakage, replay, fresh-task, cross-family, cost, and full-release regression checks |
+| `GitHubCandidatePublisher` | Valid local knowledge delta or expert candidate | Candidate branch and pull request | Own the short-lived write credential, enforce repository/path/parent-SHA/branch-prefix limits, and never advance a stable release |
 | `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
 | `LaunchResolver` | Snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Prevent torn combinations; enforce eligibility, compatibility, freshness, and denylist state |
 | `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
@@ -951,65 +976,201 @@ revocations may continue purely from an offline pin. The observed denylist
 generation is checkpointed, and local ideas/artifacts citing newly revoked prior
 references are tainted as derivatives.
 
-## 8. Publication, concurrency, and storage
+## 8. GitHub publication, concurrency, and retrieval
 
-Conceptual layout:
+GitHub is the central control and distribution plane, not the live query engine
+and not a raw-trace data lake. Use two private repositories for each scope lineage
+(or two repositories total for one broad scope):
 
 ```text
-knowledge/<scope_id>/
-  bundles/<run_id>/<bundle_id>/manifest.json
-  objects/<sha256>
-  assertions/<assertion_id>.json
+<scope>-expert/
+  EXPERT_REPO.md
+  expert-release.json
+  expert-repository-map.json
+  CURRENT.json
+  <architect-owned source and tests>
+  .github/workflows/validate-and-release.yml
+
+<scope>-knowledge/
+  scope-contract.json
+  catalog-deltas/<catalog_generation>/
   claims/<claim_id>/<revision>.json
   snapshots/<snapshot_id>/manifest.json
-  CURRENT
-
-expert-base/<scope_id>/
-  candidates/<candidate_id>/manifest.json
-  releases/<release_id>/manifest.json
-  objects/<sha256>
-  CURRENT
-
-launches/<scope_id>/
-  manifests/<launch_manifest_id>.json
+  CURRENT.json
+  .github/workflows/validate-and-publish.yml
 ```
 
-Raw captures live in a separate restricted, deletable quarantine prefix and never
-in these global content-addressed stores. Only `CURRENT` pointers are mutable;
-updates use a generation precondition and a trusted publisher attestation. The
-launcher receives its exact launch-manifest ID from the resolver and verifies the
-attestation and request hash against pinned trust roots, preventing a malicious,
-torn, or cross-task component-pointer update.
-If runs 17 and 18 finish concurrently from snapshot S10, they publish distinct
-bundles B17 and B18. The snapshot publisher deterministically unions both; a CAS
-conflict reloads the pointer and republishes the union. Last-writer-wins loss is
-impossible.
-All set construction and budgeted ranking use a specified total order ending in
-content ID. Prompt budgeting admits or skips whole records. The same catalog
-closure therefore produces byte-identical manifests under concurrent retries.
+The split is mandatory because code promotion and scientific-memory admission
+have different writers, reviewers, CI, retention, and leakage risks. Knowledge
+records and manifests remain small and reviewable in Git. Raw quarantine never
+enters GitHub. Sanitized run-bundle archives and large materializations are release
+assets, not Git objects; [GitHub recommends](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
+keeping repositories small and using releases rather than regular Git for large
+distribution files.
 
-Archive retention and active-context budgeting are separate:
+### 8.1 Immutable GitHub release units
 
-- sanitized bundles and assertions are immutable audit history;
-- large blobs are content-addressed and deduplicated;
-- snapshots preserve all admitted metadata plus its proof dependency closure;
-- prompt packets have explicit record/byte budgets;
-- embeddings are rebuildable sidecars, not duplicated truth fields.
+Enable [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+on both repositories. GitHub then locks a published release's tag and assets and
+generates release provenance. Publication first creates a draft, uploads every
+asset, verifies each returned SHA-256 digest, and only then publishes it.
 
-An explicit validated `EMPTY` snapshot represents a scope with no history.
-The corresponding first-run expert base is an explicit validated release `E0`
-(the minimal clean scaffold proposed by `ExpertRepoArchitect` and accepted by
-bootstrap gates), not an absent repository.
-Missing pointers, authorization failures, network failures, checksum mismatch,
-and corrupt manifests fail before paid work; they are not silently treated as
-“no seed.” A resume may reuse verified local components for performance state,
-but must still obtain and verify the fresh security/contamination denylist.
+An expert release tag such as `expert/E000007` points at the exact reviewed source
+commit and carries `expert-release.json` plus its checksums. A knowledge release
+tag such as `knowledge/S000025` carries:
 
-Fresh materialization is transactional: download to staging, verify attestations,
-schema and hashes, fsync, atomic rename, then write the `BootstrapPin` commit
-marker. Resume first verifies that marker and the existing materialized tree,
-then constructs `ExperimentWorkspace`; it never passes the release through the
-empty-workspace `initial_repo` path. Partial extraction is never visible.
+```text
+knowledge-snapshot-S000025.tar.zst    # complete semantic/proof closure
+knowledge-search-S000025.tar.zst      # rebuildable search sidecars
+catalog-delta-S000025.tar.zst         # new sanitized audit records
+SHA256SUMS
+```
+
+The snapshot package is independently usable for retrieval without historical
+task workspaces or traces. The catalog delta supports audit and future
+reprocessing. A package may be deterministically sharded when it crosses a
+configured asset-size bound; the manifest names every shard and digest. Do not
+put a growing SQLite database, vector index, dataset, weights, or trace archive in
+Git history.
+
+`CURRENT.json` is only a discovery pointer on the protected default branch. It
+contains the content ID, immutable tag, commit SHA, and asset digests. The trusted
+publisher updates it from an expected base commit without force. Readers resolve
+it once, verify the corresponding immutable release, and pin the result in their
+`LaunchManifest`.
+
+### 8.2 Credential and authority boundary
+
+Do not pass a reusable GitHub credential into Codex or Claude Code. Retrieved
+content is untrusted and a coding agent with raw network/write authority could
+exfiltrate the token or bypass the candidate protocol. It would also contradict
+Kapso's existing coding-agent contract: agents edit files while the trusted
+session owns Git.
+
+Use separate GitHub App installations for read, candidate publication, and stable
+release publication. [Installation tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+expire after one hour and can be repository- and permission-scoped. Repository
+[rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
+protect the default branch and release-tag patterns, block force pushes and
+deletion, and require pull requests, designated reviews, and validation checks.
+
+| Principal | Minimum authority |
+|---|---|
+| Launcher/resolver | Read the two repositories and release assets |
+| Coding-agent CLI | No GitHub credential and no direct network publication |
+| `GitHubCandidatePublisher` | Create/update only a candidate branch and pull request in one repository |
+| Validation workflow | Read candidate content; publish status/attestation only |
+| Stable publisher | Merge an approved exact commit, create the protected tag, upload draft assets, and publish the immutable release |
+
+If an agent must explicitly request publication, expose a narrow MCP operation
+such as `submit_candidate`; the gate process owns the token and enforces the
+repository, allowed paths, branch prefix, parent SHA, byte bound, and candidate
+manifest. Do not expose raw `git push`, `gh`, arbitrary GitHub API calls, release
+creation, workflow modification, secrets, administration, or stable-tag writes.
+GitHub authentication is supplied by the external GitHub provider/credential
+helper; secrets never enter `config.yaml`, prompts, invocation artifacts, or the
+coding-agent subprocess environment.
+
+### 8.3 Read and materialization protocol
+
+`GitHubArtifactResolver` is the only live component that speaks to GitHub. For a
+fresh run it:
+
+1. resolves each protected default-branch head once and reads both `CURRENT.json`
+   files at those explicit commit SHAs;
+2. verifies publisher identity and resolves the immutable release records;
+3. downloads the expert source and materialized snapshot/search assets to staging;
+4. verifies release attestations, schemas, every asset digest, and the snapshot's
+   transitive proof closure;
+5. atomically installs content-addressed, read-only local cache entries;
+6. emits one `LaunchManifest` binding both artifacts and writes `BootstrapPin`.
+
+There is no GitHub request in the scientific hot path. Resume verifies the local
+tree/package against its pin and never follows `CURRENT`; only the fresh
+security/contamination denylist is rechecked. Missing pointers, authorization
+failures, network failures, checksum mismatches, and corrupt manifests fail before
+paid work. An explicit validated `EMPTY` snapshot and validated expert release
+`E0` represent the no-history state.
+
+### 8.4 Portable hybrid search
+
+The canonical snapshot contains complete JSON records. Its rebuildable search
+package contains:
+
+```text
+metadata index                 # IDs, trust, scope/context, outcome, lineage
+lexical index                  # exact terms and identifiers
+vectors/<EmbeddingSpaceId>     # record IDs plus compact float32 vectors
+optional ANN index             # only after configured scale/latency threshold
+index-manifest.json            # canonicalizer, provider, model, dimensions, hashes
+```
+
+The trusted snapshot publisher computes embeddings through the existing isolated
+OpenAI embeddings boundary. The reader first performs hard scope, context,
+evaluation, trust, and revocation filtering; it then combines lexical and semantic
+rank within compatible records, applies evidence-quality and diversity policy,
+and closes the selected records over their proofs. GitHub code search is never a
+knowledge-retrieval dependency. For the expected early corpus, exact cosine over
+the compact vector sidecar is simpler and auditable; a deterministic ANN sidecar
+may replace only the candidate-generation step at the configured scale threshold.
+Canonical records, not vectors or the ANN index, remain truth.
+
+### 8.5 Coding-agent read access
+
+All three model-assisted consumers use one `PriorKnowledgeGate` over a pinned
+local materialization:
+
+| Consumer | Reader input | Persisted result |
+|---|---|---|
+| Live evolve ideation | Problem, task binding, local gaps, ideation directive | `PriorKnowledgeSnapshot` stored with the `IdeaBatch` |
+| Post-run `ClaimProposer` | New episodes, contradictions, existing claims | Evidence packet stored with claim-proposal provenance |
+| Expert architect/generalizer | Promotion trigger, current release/map, relevant claims and episodes | Evidence packet stored in the candidate manifest |
+
+For ideation v1, semantic search happens before the coding-agent call. The MCP
+gate mounted into Codex/Claude exposes only `list_prior_knowledge` and
+`get_prior_knowledge_record` over that persisted packet and its proof closure.
+It does not expose the GitHub repository or an unconstrained search whose results
+would escape batch provenance. Records are returned whole; a record that cannot
+fit the configured packet budget is skipped rather than clipped. A later
+interactive-search protocol would need an atomic access session whose exact
+queries and returned records are sealed into the batch before selection.
+
+### 8.6 Write flows and concurrency
+
+Expert evolution reads pinned release `E` as its working tree and a persisted
+knowledge packet from snapshot `S`. Codex/Claude edits only the local candidate
+tree. After local validation, `GitHubCandidatePublisher` creates a candidate pull
+request. Required CI performs the evaluator cascade; the stable publisher rebuilds
+and validates the complete release, regenerates `EXPERT_REPO.md`, and publishes
+`E+1` only after approval.
+
+Post-run learning reads pinned snapshot `S` plus newly sanitized bundles. The
+coding agent emits only proposed claim revisions into local staging. Deterministic
+projection, reference validation, review, and adjudication produce a catalog
+delta. `GitHubCandidatePublisher` opens a knowledge pull request; required CI
+rebuilds the complete snapshot and search sidecars, validates proof closure, and
+the stable publisher publishes `S+1` only after approval.
+
+Stable publication is ordered: merge the exact validated manifest/source commit,
+create a draft release at that commit, upload and verify all assets, publish the
+immutable release, and only then advance `CURRENT.json` in a separate protected
+compare-and-swap commit. A crash before the last step leaves an inactive but
+auditable release; it cannot point readers at a partial publication.
+
+If two publishers start from the same protected commit, both may create candidate
+branches, but only a current-base merge can advance `CURRENT.json`. The loser
+reloads the new base, deterministically unions catalog inputs or rebases the expert
+candidate, reruns all required checks, and retries.
+[GitHub merge queues](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/merging-a-pull-request-with-a-merge-queue)
+may serialize validated pull requests, but correctness still depends on the
+explicit parent commit and non-force update rather than queue behavior.
+
+Archive retention and active-context budgeting remain separate. Immutable releases
+retain audit history; launch caches retain only pinned active packages under a
+configured policy; prompt packets remain independently bounded. GitHub is not
+trusted merely because it served internally consistent bytes: publication and
+launch still verify the configured publisher identity, artifact identity,
+attestation, and all content digests.
 
 ## 9. Sanitation and trust
 
@@ -1043,6 +1204,12 @@ and `revoked`. A high score never raises trust by itself.
 | Scenario | Unsafe behavior in the earlier proposal | Required behavior in this design |
 |---|---|---|
 | Two runs publish simultaneously | Last mutable merged-store upload loses one run | Unique bundles; serialized/CAS snapshot union; wave pins one immutable snapshot |
+| Agent receives GitHub token | Retrieved prompt injection can exfiltrate credentials or write around admission gates | Agent edits local staging only; token-owning MCP/publisher permits a bounded candidate PR operation |
+| Publication crashes after asset upload | Mutable `latest` points at an incomplete snapshot | Draft release is verified and made immutable before a separate CAS update advances `CURRENT.json` |
+| Tag or asset is replaced | Same release name resolves to different startup bytes | Immutable GitHub release plus pinned commit, tag, asset IDs/digests, and attestation |
+| Snapshot outgrows comfortable Git history | Vectors, traces, and databases make clone/search progressively unusable | Reviewable manifests/deltas stay in Git; sharded materializations and indexes are release assets |
+| Semantic neighbor is context-incompatible | Cosine similarity transfers an attractive but invalid recipe | Structured compatibility and trust filters precede lexical/semantic rank; similarity has no authority |
+| Search sidecar is stale or corrupt | Reader silently omits or misranks knowledge | Sidecar identity pins canonicalizer/embedding space and record closure; digest mismatch fails, rebuild publishes a new release |
 | Duplicate node IDs | Run-local `node 0` collides and foreign parents become ambiguous | Content-addressed episode ID plus explicit run/campaign/local ID; no foreign live parentage |
 | Valid negative vs technical failure | Both render as `FAILED` | Separate execution, evaluation, and comparison states; preserve valid negative evidence |
 | Score improves under changed evaluator | Mechanical sign says success and anchors EXPLOIT | `not_comparable`; raw measurements retained; reviewer interpretation cannot change comparability |
@@ -1114,6 +1281,8 @@ Cross-run learning is valuable only if it improves matched outcomes. Record:
   exploration by coding agents;
 - architecture churn, dependency cycles, adapter leakage, and cross-family reuse;
 - anchor regressions, contamination findings, revocations, and rollback time;
+- GitHub publication conflicts, orphan releases, materialization bytes/cache hits,
+  verification failures, and time from approved candidate to active pin;
 - total prompt bytes, retrieval latency, and expert-base maintenance cost.
 
 Use periodic no-knowledge and prior-release controls under matched compute. Expert
@@ -1143,7 +1312,9 @@ Modify:
 - fixed post-training repository/schema -> scope contract, domain-neutral context
   binding, and architect-owned topology;
 - “no generalization” -> generalization may propose, but never certify;
-- seed copy -> atomic, pinned workspace materialization.
+- seed copy -> atomic, pinned workspace materialization;
+- generic mutable remote prefixes -> separately protected GitHub expert and
+  knowledge repositories with immutable releases and content-pinned local reads.
 
 Reject:
 
@@ -1154,6 +1325,10 @@ Reject:
 - promoting copied best-branch code or counting correlated copies as evidence;
 - hardcoded model/tokenizer or relational-schema fields in core cross-run records;
 - treating the initial repository layout or semantic book as permanently fixed;
+- passing a raw GitHub credential, `git push`, or unrestricted GitHub API to a
+  coding-agent subprocess;
+- storing growing vector indexes, databases, or raw task traces in Git history;
+- using GitHub code search as the semantic-memory reader;
 - live intra-wave knowledge mutation;
 - silently treating a missing or corrupt remote as an empty knowledge state;
 - any backward-compatibility path that revives ideation-v2 prompts or the rejected
@@ -1165,12 +1340,15 @@ This document defines the target architecture and invariants. The implementation
 plan should be split into independently reviewable modules in this order:
 
 1. expert-scope contracts, task-context bindings, and domain-neutral schemas;
-2. repository-architect bootstrap, module contracts, and semantic-book compiler;
-3. immutable run bundles, catalog, sanitation, assertions, and snapshots;
-4. read-only prior retrieval and ideation-v3 provenance integration;
-5. capability and repository-architecture candidate validation;
-6. expert release publication and transactional workspace startup;
-7. matched-control measurement and operational rollout.
+2. GitHub publication records, protected repository conventions, artifact
+   resolver, transactional local cache, and candidate-publication gate;
+3. repository-architect bootstrap, module contracts, and semantic-book compiler;
+4. immutable run bundles, catalog, sanitation, assertions, and snapshots;
+5. portable hybrid-search sidecars, `PriorKnowledgeGate`, and ideation-v3
+   provenance integration;
+6. capability and repository-architecture candidate validation;
+7. immutable GitHub release publication and transactional workspace startup;
+8. matched-control measurement and operational rollout.
 
 The scope and bootstrap layers prevent the first benchmark from hardcoding the
 framework's ontology. Capability or structural evolution should ship only after
