@@ -13,14 +13,15 @@ Kapso should learn on two timescales:
    tests, replay, transfer checks, and review enters a versioned expert-base
    release used to start future runs.
 
-The system has four durable artifacts:
+The system has five durable artifacts:
 
 | Artifact | Purpose | May influence a live run? | May become startup code? |
 |---|---|---:|---:|
+| `ExpertScopeContract` | Defines the repo lineage's task families and domain-specific context dimensions without hardcoding them in core | Yes; all bindings validate against it | No |
 | `RunBundle` | Sanitized durable evidence plus an explicit completeness frontier | No; source material only | No |
 | `KnowledgeSnapshot` | Frozen, sanitized cross-run episodes, claims, and prior ideas | Yes; read-only prior evidence | No |
 | `ExpertCandidate` | Isolated proposal for a reusable module change | No | Only after promotion |
-| `ExpertBaseRelease` | Immutable, tested, history-free post-training repo | Yes; the run starts from it | Yes |
+| `ExpertBaseRelease` | Immutable, tested, history-free ML/AI capability repo | Yes; the run starts from it | Yes |
 
 The core invariant is:
 
@@ -74,7 +75,7 @@ benchmark/model decision tree or copying the latest winning repository.
   revocation, and an untouched validation surface as governance controls.
 
 These results motivate a two-timescale architecture; no cited work evaluates this
-exact combined design for post-training. They do not justify automatic
+exact combined design across heterogeneous ML/AI tasks. They do not justify automatic
 cross-domain transfer or automatic promotion of generated code.
 
 ## 2. Current Kapso authority boundaries
@@ -120,7 +121,7 @@ flowchart LR
     P --> S["Immutable KnowledgeSnapshot"]
     S -->|read-only prior packet| R2["Next pinned live run"]
 
-    C --> G["Generalization proposer"]
+    C --> G["Architecture or generalization proposer"]
     G --> Q["Quarantined ExpertCandidate"]
     Q --> T["Replay, anchors, security, transfer tests"]
     T -->|approved| E["Immutable ExpertBaseRelease"]
@@ -138,6 +139,7 @@ torn pair. It contains:
 
 ```text
 launch_manifest_id
+scope_contract_id
 knowledge_snapshot_id
 expert_base_release_id
 embedding_space_id
@@ -145,6 +147,10 @@ task_adapter_id
 dependency/runtime contract
 security denylist generation
 ```
+
+If the pinned scope has no release, the resolver first completes the
+`ExpertRepoArchitect` bootstrap pipeline and publishes validated `E0`; it never
+launches a scientific run from an unstructured mutable directory.
 
 The launcher verifies the manifest and its publisher attestation, materializes the
 expert base and task adapter atomically, checks the resulting workspace tree hash,
@@ -178,7 +184,8 @@ After runs finish or stop, an offline, serialized publisher:
 5. appends review assertions and proposes evidence-linked knowledge claims;
 6. resolves admission, dispute, supersession, taint, and revocation states;
 7. publishes a new immutable `KnowledgeSnapshot` by compare-and-swap;
-8. proposes expert-module patches only when a generalization trigger fires;
+8. proposes capability or repository-architecture patches only when their
+   respective evidence triggers fire;
 9. validates candidates through an evaluator cascade;
 10. publishes a new `ExpertBaseRelease` and compatible `LaunchManifest` only
     after their promotion and startup policies pass.
@@ -198,12 +205,52 @@ envelope excluded from that preimage, avoiding signature/hash recursion.
 Adjudication, admission, eligibility, and revocation state live in separate
 immutable catalog revisions; they never mutate a content-addressed payload.
 
-### 4.1 `RunBundle`
+### 4.1 `ExpertScopeContract`
+
+```text
+ExpertScopeContract
+  scope_contract_id            # immutable revision identity
+  scope_id
+  supersedes_scope_contract_id
+  purpose + explicit non-goals
+  task_family_ontology
+  task_family_lineage
+  artifact_classes
+  required_context_dimensions
+  context_dimension_schemas
+  context_dimension_lineage
+  task_adapter_contract
+  sanitation_policy_ref
+  validation_policy_ref
+  repository_architecture_constraints
+```
+
+The scope contract is the only framework-level declaration of what one expert
+repo lineage is intended to cover. It may be narrow or broad: a single `ml_ai`
+scope can include language-model post-training and relational tabular prediction,
+while a deployment that needs isolation can declare separate scopes. Scope is not
+inferred from folder names or benchmark conditionals. Each contract revision is
+immutable, attested, and pinned by runs, bundles, snapshots, candidates, and
+releases. Adding a task family publishes a reviewed successor revision; lineage
+metadata keeps older episode bindings interpretable without runtime compatibility
+paths or rewriting history.
+
+A broad scope is justified only when its task families can share a release,
+security, dependency, and validation envelope or have evidence-backed reusable
+capabilities. Incompatible trust boundaries, runtimes, licenses, or operational
+owners require separate scope lineages rather than one universal repository.
+
+Domain-specific context keys are registered here with exact schemas. That lets a
+post-training adapter bind model/tokenizer/template facts and a RelBench adapter
+bind entity/schema/time-split facts without adding either vocabulary to core
+cross-run code.
+
+### 4.2 `RunBundle`
 
 ```text
 RunBundle
   bundle_id                    # hash of canonical manifest
-  domain_id, run_id, campaign_id
+  scope_contract_id, scope_id, run_id, campaign_id
   completion_state             # complete | stopped | crashed
   capture_generation
   supersedes_bundle_id
@@ -215,7 +262,7 @@ RunBundle
   launch_manifest_id
   knowledge_snapshot_id
   expert_base_release_id
-  task_context
+  task_context_binding
   artifact_environment
   checkpoint_ref
   execution_event_journal_ref
@@ -240,7 +287,7 @@ directory; implementation must explicitly export and test an atomic capture
 manifest for the local store, archive, checkpoint, event journal, selected source
 snapshot, and branch frontier.
 
-### 4.2 Context fingerprints
+### 4.3 Context fingerprints
 
 Score comparison and transfer applicability are different questions and use
 different fingerprints.
@@ -254,14 +301,16 @@ EvaluationFingerprint
   exact seed or replicate set + aggregation protocol
   judge/model version where applicable
 
-TransferContext
+TaskContextBinding
+  scope_contract_id
   task family and capability tags
-  base model exact revision
-  tokenizer and template hashes
-  data construction regime
-  training algorithm and harness version
+  task-adapter id
+  input and target contract fingerprints
+  starting artifact refs
+  method and toolchain fingerprints
   dependency/runtime versions
   budget and hardware envelope
+  transfer dimensions            # exact keys/types declared by the scope
 
 ArtifactEnvironment
   kapso commit
@@ -271,20 +320,29 @@ ArtifactEnvironment
 ```
 
 An effect is mechanically comparable only when its source measurements share an
-`EvaluationFingerprint`. Transfer compatibility separately classifies a source
+`EvaluationFingerprint`. Transfer compatibility over `TaskContextBinding`
+separately classifies a source
 as `exact_context`, `analogical`, or `incompatible` for the current task.
 An experiment whose parent is the unmeasured baseline has no relative effect;
 harvest must not reinterpret a delta against numeric zero as improvement.
 
-### 4.3 `TransferEpisode`
+This is the neutrality boundary for `KnowledgeSnapshot`: core records know only
+the scope, task family, registered context dimensions, generic intervention and
+outcome states, and artifact references. Adding RelBench or another ML/AI family
+requires a new scope/task-family contract, adapter, sanitation policy, and
+validation policy—not a new episode/snapshot schema or a core conditional.
+Within a broad scope, cross-family records may be retrieved as explicit analogies,
+but raw measurements are comparable only under the same evaluation fingerprint.
+
+### 4.4 `TransferEpisode`
 
 ```text
 TransferEpisode
   episode_id                   # content identity
-  source                       # domain/run/campaign/node/idea/batch
+  source                       # scope/run/campaign/node/idea/batch
   source_bundle_id
   supersedes_episode_id
-  transfer_context
+  task_context_binding
   artifact_environment
   proposal                     # exact source proposal
   intervention_ref             # exact diff/artifact reference
@@ -320,7 +378,7 @@ pretend to be a scored experiment.
 An episode with coupled changes may inspire transfer but cannot support a causal
 mechanism claim until an ablation or other identification evidence isolates it.
 
-### 4.4 `PriorIdea`
+### 4.5 `PriorIdea`
 
 ```text
 PriorIdea
@@ -330,7 +388,7 @@ PriorIdea
   source_status                 # deferred | rejected | unexecuted
   source_rationale
   evidence_refs
-  transfer_context
+  task_context_binding
   sanitation_report_id
 ```
 
@@ -344,7 +402,7 @@ For a run with multiple capture generations, projection uses the latest admitted
 supersession frontier and content-deduplicates already journaled node revisions;
 partial and final bundles cannot count the same execution twice.
 
-### 4.5 `ReviewAssertion`
+### 4.6 `ReviewAssertion`
 
 ```text
 ReviewAssertion
@@ -366,12 +424,13 @@ Configured adjudication derives the active state. Unresolved disagreement yields
 Reviewer identity is accepted only through a configured trust root or cloud-IAM
 attestation; a string `reviewer_id` is not authentication.
 
-### 4.6 `KnowledgeClaim`
+### 4.7 `KnowledgeClaim`
 
 ```text
 KnowledgeClaim
   claim_id
   revision_id                   # immutable revision payload identity
+  scope_contract_id
   statement
   mechanism
   applicability_predicates
@@ -389,10 +448,13 @@ Claims are semantic memory, not instructions or routing rules. A coding agent ma
 propose or revise them, but cannot certify them. Evidence and review transition
 their state. Every claim renders with applicability, exclusions, support,
 contradictions, and state; an unbound statement is unrepresentable.
+Applicability and exclusion predicates may use only context dimensions registered
+by the pinned `ExpertScopeContract`; core code contains no LLM- or tabular-specific
+predicate names.
 Updating evidence or state creates a new immutable claim revision. `claim_id`
 names the lineage; `revision_id` names the exact object pinned by a snapshot.
 
-### 4.7 `CatalogEntryState`
+### 4.8 `CatalogEntryState`
 
 ```text
 CatalogEntryState
@@ -410,7 +472,7 @@ This immutable projection keeps active trust state out of episode, module, and
 candidate payload identities. A later assertion publishes a new catalog
 generation; it does not rewrite the subject.
 
-### 4.8 Expert artifacts
+### 4.9 Expert artifacts
 
 ```text
 ExpertModuleContract
@@ -424,9 +486,21 @@ ExpertModuleContract
   known_failure_episode_ids
   test and replay refs
 
+ExpertRepositoryMap
+  repository_map_id
+  scope_contract_id
+  capability_nodes[]           # stable capability ID, contract ref, owned paths,
+                               # and task-family bindings
+  dependency_edges[]
+  task_adapter_boundary
+  validation_entrypoints
+  architecture_invariants
+
 ExpertBaseReleaseManifest
   release_id                   # source tree + manifest hash
+  scope_contract_id + scope_id
   parent_release_ids
+  repository_map_ref
   module_versions
   semantic_book_digest
   source_archive_ref
@@ -441,19 +515,26 @@ ExpertBaseReleaseManifest
 Contracts describe capability and operating envelope. They do not say “if model X
 and benchmark Y, run recipe Z.” Task identity may appear in evidence or an
 explicit external adapter, never as a hidden default in the generic core.
+`ExpertRepositoryMap` is the machine-readable topology authority. Capability IDs
+are semantic and independent of paths, so a directory move does not sever evidence
+lineage; splits and merges mint new IDs with explicit lineage.
 
-### 4.9 `ExpertCandidateManifest`
+### 4.10 `ExpertCandidateManifest`
 
 ```text
 ExpertCandidateManifest
   candidate_id
+  scope_contract_id
+  change_kind                  # capability | repository_architecture
   parent_release_id + parent_tree_hash
   trigger + trigger_evidence_ids
   patch_ref + candidate_tree_hash
   module_contract_refs
+  proposed_repository_map_ref
   proposer_operation + model/CLI provenance
   source_dependency_ids
   ancestor_candidate_ids
+  capability_lineage           # preserve evidence provenance across move/split/merge
   validation_attempt_refs       # full dev results; opaque sealed attestations
   sanitation_report_id
 ```
@@ -461,13 +542,16 @@ ExpertCandidateManifest
 Failed and non-dominated candidates remain immutable, auditable inputs to future
 generalization. Their active eligibility lives in `CatalogEntryState`.
 
-### 4.10 `TaskAdapterManifest`
+### 4.11 `TaskAdapterManifest`
 
 ```text
 TaskAdapterManifest
   task_adapter_id
+  scope_contract_id
+  task_family_id
   publisher_attestation
   task/evaluator binding
+  context-dimension binding
   source_tree_ref + tree_hash
   dependency/runtime contract
   sanitation_report_id
@@ -478,12 +562,13 @@ The benchmark or an explicitly authorized publisher supplies this read-only,
 pinned adapter. Kapso may change a local copy in experiment branches, but cannot
 silently update the shared adapter or use it to bypass expert-release gates.
 
-### 4.11 `KnowledgeSnapshotManifest`
+### 4.12 `KnowledgeSnapshotManifest`
 
 ```text
 KnowledgeSnapshotManifest
   snapshot_id
-  domain_id
+  scope_contract_id
+  scope_id
   parent_snapshot_ids
   included_bundle_ids
   admitted_episode_ids
@@ -508,12 +593,13 @@ metadata and proof dependency closure for its catalog generation; only the
 query-specific prompt packet is bounded. Exact assertion and revocation closures,
 not timestamps, define reproducible state.
 
-### 4.12 `LaunchManifest`
+### 4.13 `LaunchManifest`
 
 ```text
 LaunchManifest
   launch_manifest_id
   launch_request_hash           # intended run/campaign/task/runtime request
+  scope_contract_id
   knowledge_snapshot_id
   expert_base_release_id
   embedding_space_id
@@ -526,7 +612,7 @@ LaunchManifest
 
 The launch resolver creates this only after checking release/module and adapter
 preconditions against the intended task and runtime. It passes the immutable ID
-directly to that run; there is no domain-global launch pointer. The launcher must
+directly to that run; there is no scope-global launch pointer. The launcher must
 match `launch_request_hash` to its own request, preventing substitution with a
 validly attested manifest for another task. New runs fail before startup if the
 current release is expired, unrevalidated, or incompatible.
@@ -537,7 +623,7 @@ current release is expired, unrevalidated, or incompatible.
 |---|---|---|---|
 | `RunCaptureExporter` | Reconciled local checkpoint frontier | Atomic restricted capture | Journal revisions; publish one complete generation with watermarks and supersession |
 | `CaptureValidator` | Restricted capture | Valid structural projection | Verify schema, hashes, trust, provenance, cross-artifact joins, and evaluation fingerprints |
-| `SanitationGate` | Valid quarantined capture and domain policy | Allowlisted payload + report | Detect secrets, eval leakage, forbidden artifacts, licenses, unsafe paths, and taint closure before global CAS |
+| `SanitationGate` | Valid quarantined capture and scope policy | Allowlisted payload + report | Detect secrets, eval leakage, forbidden artifacts, licenses, unsafe paths, and taint closure before global CAS |
 | `RunBundlePublisher` | Allowlisted payload | Immutable sanitized bundle | Content-address and attest one capture generation; never interpret results |
 | `EpisodeProjector` | Valid sanitized local store/archive | Episodes and prior ideas | Preserve exact source meaning; decompose execution/evaluation/comparison states; mint no lessons |
 | `ReviewRegistry` | Reviewer assertions | Append-only adjudicated view | Preserve authorship, rubric, conflict, supersession, and audit history |
@@ -546,18 +632,19 @@ current release is expired, unrevalidated, or incompatible.
 | `KnowledgeSnapshotPublisher` | Catalog closure and policy | Immutable snapshot + CAS pointer | Deterministic admission, proof closure, revocation, sidecar indexing, attestation, and atomic publication |
 | `CrossRunRetriever` | Pinned snapshot and current query | Bounded prior packet | Hard compatibility before similarity; trust/outcome/diversity balance; no current-run mutation |
 | `PriorKnowledgeAdapter` | Prior packet | v3 prompt/analysis input | Keep foreign refs typed and separate from local evidence; persist exact packet in batch provenance |
+| `ExpertRepoArchitect` | Scope contract, current release/map, task-family bindings, evidence | Architecture candidate with repository map | In bootstrap mode create the minimal initial topology; later propose atomic move/split/merge/refactor changes and capability lineage without mutating a stable release |
 | `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
-| `ExpertCandidateValidator` | Candidate and evaluator cascade | Promotion evidence | Static, security, leakage, replay, fresh-task, cross-task, cost, and regression checks |
+| `ExpertCandidateValidator` | Capability or architecture candidate and evaluator cascade | Promotion evidence | Scope conformance, contract/topology graph integrity, security, leakage, replay, fresh-task, cross-family, cost, and full-release regression checks |
 | `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
 | `LaunchResolver` | Snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Prevent torn combinations; enforce eligibility, compatibility, freshness, and denylist state |
 | `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
 
 The catalog and expert-base release store are separate. A high-confidence episode
 can immediately improve retrieval while its code remains quarantined.
-`ClaimProposer` and `GeneralizationProposer` use the configured Codex or Claude
-Code CLI through the existing coding-agent boundary. Direct model API use is
-limited to embeddings; model output never performs an admission or promotion
-state transition by itself.
+`ClaimProposer`, `ExpertRepoArchitect`, and `GeneralizationProposer` use the
+configured Codex or Claude Code CLI through the existing coding-agent boundary.
+Direct model API use is limited to embeddings; model output never performs an
+admission or promotion state transition by itself.
 
 ## 6. Retrieval and ideation-v3 integration
 
@@ -568,7 +655,8 @@ local policy, ranks gaps, and plans the directive. Only then does
 `CrossRunRetriever` build a query from the problem, transfer context, open local
 gaps, and the directive's operator descriptors. It then:
 
-1. excludes revoked, tainted, unauthorized, and domain-incompatible records;
+1. excludes revoked, tainted, unauthorized, and scope/task-family-incompatible
+   records;
 2. classifies structured transfer compatibility;
 3. filters claims by state and applicability;
 4. ranks within a compatibility tier by evidence quality, retrieval utility,
@@ -660,26 +748,24 @@ cleanly, matching the repository's no-backward-compatibility rule.
 ## 7. The expert-base repository
 
 The user-visible behavior is “start each task from the expert repo,” but the
-artifact is the latest pinned stable release, not the best previous run.
-There is one promoted `CURRENT` expert repo per domain. A name such as `E7` means
-the seventh immutable version of that single repo; it is not a task-specific
-branch. Older releases exist only for rollback and reproducibility.
+artifact is the latest pinned stable release, not the best previous run. There is
+one promoted `CURRENT` expert repo per `ExpertScopeContract`. A broad `ml_ai`
+scope may deliberately contain both post-training and relational predictive
+modeling capabilities. A name such as `E7` means the seventh immutable version of
+that one repo, not a task-specific branch. Older releases exist only for rollback
+and reproducibility.
 
-Recommended layering:
+Core code assumes no source topology beyond two release artifacts:
 
 ```text
 expert-base/
-  EXPERT_REPO.md  semantic book of contents for coding agents
-  kernel/        reproducibility, provenance, budgets, checkpointing, safety
-  data/          generic ingestion, validation, cleaning, mixing contracts
-  templates/     tokenizer/chat-template parity and validators
-  training/      composable SFT, preference, DPO/RL, distillation capabilities
-  evaluation/    evaluator adapters and integrity checks
-  promotion/     artifact validation and export
-  diagnostics/   resource, distribution, and failure diagnostics
-  adapters/      interfaces and examples; run-specific adapter supplied outside core
-  tests/         unit, synthetic, replay, portability, and identity lints
+  EXPERT_REPO.md        generated semantic book for coding agents
+  expert-release.json  attested release/module/contract manifest
+  <architect-owned source and test topology>
 ```
+
+Directories such as `templates/`, `training/`, `features/`, `models/`, or
+`ensembling/` are scope/task-family outcomes, not framework conventions.
 
 The base contains no datasets, weights, hidden evaluation material, experiment
 memory, run logs, git history, benchmark answers, model-specific score thresholds,
@@ -688,7 +774,67 @@ The separately pinned task adapter is also attested, sanitized, versioned, and
 validated. It supplies the task/evaluator boundary read-only; task-local changes
 occur only on run branches and cannot flow back through this escape hatch.
 
-### 7.1 Semantic book of contents
+### 7.1 Repository architecture lifecycle
+
+`ExpertRepoArchitect` owns topology as a proposal role.
+
+When a scope has no expert release, bootstrap mode receives the attested scope
+contract, current task-family bindings, runtime constraints, and representative
+public task contracts. Through the configured coding-agent CLI it proposes the
+smallest useful initial repository:
+
+1. capability boundaries and IDs;
+2. physical source/test layout;
+3. module contracts and a machine-readable repository map/dependency graph;
+4. adapter boundary and fresh-task smoke harness;
+5. enough validated metadata for the release publisher to generate the first
+   semantic book.
+
+It must not create speculative empty subsystems merely because a future task family
+might need them. The proposal enters quarantine as a
+`repository_architecture` candidate. Schema, dependency, sanitation, identity,
+fresh-task, and review gates—not the architect itself—certify bootstrap release
+`E0`. The first scientific run then pins that release.
+
+Later releases may restructure the repo. Architecture triggers are:
+
+- a newly admitted task family or artifact class does not fit current boundaries;
+- repeated cross-module duplication suggests a shared capability;
+- dependency cycles or adapter leakage reveal incorrect ownership;
+- capability contracts and physical layout disagree;
+- the semantic book cannot express an important composition without special cases.
+
+A task family outside the current scope contract cannot trigger architecture
+implicitly. It first requires an attested, reviewed successor scope contract that
+defines its adapter, context dimensions, sanitation policy, validation policy,
+and lineage to existing dimensions.
+
+A restructure is one atomic candidate over the full tree. It may move, split,
+merge, rename, or delete capabilities and must update module contracts, tests,
+entrypoints, dependency edges, and repository map in the same release; publication
+then regenerates the semantic book. Its
+`capability_lineage` records old-to-new/split/merge relationships so historical
+evidence remains interpretable; it is provenance, not a runtime compatibility
+shim. Old releases remain reconstructable, while new runs see only the new shape.
+A structural candidate must either accommodate an admitted scope change or show a
+measured reduction in duplication, cycles, adapter leakage, or navigation cost
+without release-matrix regressions. An aesthetic rearrangement alone is rejected.
+
+For example, evidence might lead a broad `ml_ai` repo to organize capabilities as:
+
+```text
+shared/                      reproducibility, provenance, resource controls
+task_families/
+  language_posttraining/     data curation, formatting, training, generation
+  relational_prediction/    schema analysis, features, models, validation
+evaluation/                  metric contracts and integrity
+artifacts/                   validation and export
+```
+
+That is illustrative, not prescribed. The architect could choose another
+topology if its contracts and release-wide tests demonstrate a cleaner design.
+
+### 7.2 Semantic book of contents
 
 Every release includes one concise `EXPERT_REPO.md` that lets a coding agent
 understand the repo before opening implementation files. It is a release-certified
@@ -710,21 +856,22 @@ For example:
 
 | Problem signal | Capability | Provides | Inspect first |
 |---|---|---|---|
-| Train/eval formatting drift | `template.parity_validation` | Validated template + parity report | `templates/parity/contract.yaml` |
-| Repeated or interrupted teacher calls | `generation.resumable_teacher` | Resumable, provenance-bound generations | `generation/teacher/contract.yaml` |
-| Unsafe model export | `artifacts.safe_promotion` | Size-bounded, checksummed artifact | `promotion/model/contract.yaml` |
+| Train/eval formatting drift | `language.template_parity` | Validated representation contract | Module contract path from release manifest |
+| Temporal/entity leakage risk | `relational.leakage_safe_split` | Validated relational split | Module contract path from release manifest |
+| Repeated expensive computation | `shared.resumable_execution` | Provenance-bound resumable outputs | Module contract path from release manifest |
 
-The source of truth is each promoted module's `ExpertModuleContract`. The release
-publisher mechanically renders `EXPERT_REPO.md`, validates every link, entrypoint,
-dependency, incompatibility, test, and evidence reference, and records its digest
-in the release manifest. Agents never hand-edit the generated book. This prevents
-drift and avoids a second `KNOWLEDGE.md`-style truth source.
+The source of truth is the release's `ExpertRepositoryMap` plus each promoted
+module's `ExpertModuleContract`. The release publisher mechanically renders
+`EXPERT_REPO.md`, validates every path, link, entrypoint, dependency,
+incompatibility, test, and evidence reference against the candidate tree, and
+records its digest in the release manifest. Agents never hand-edit the generated
+book. This prevents drift and avoids a second `KNOWLEDGE.md`-style truth source.
 
 The book describes **what the repo can do and how capabilities compose**. Prior
 experimental conclusions—what worked, failed, or remains uncertain—stay in the
 read-only `KnowledgeSnapshot` and are retrieved separately for the current task.
 
-### 7.2 Generalization triggers
+### 7.3 Generalization triggers
 
 An expert candidate is proposed only for:
 
@@ -740,21 +887,22 @@ The proposer may reuse a non-revoked candidate ancestor selected by relevant
 mechanism, validation evidence, and lineage diversity. It never defaults to the
 latest or highest-scoring failed candidate.
 
-### 7.3 Promotion classes
+### 7.4 Promotion classes
 
 | Candidate class | Minimum evidence before release |
 |---|---|
 | Mechanically provable infrastructure fix | Static/unit/integration gates, faithful source replay, synthetic fresh-context execution, and review |
-| Behavioral post-training capability | Independent supporting contexts, contradiction review, development anchors, sealed canary attestation, and review |
+| Behaviorally evaluated ML/AI capability | Independent supporting contexts, contradiction review, development anchors, sealed canary attestation, and review |
 | Task-specific improvement | Never core; remains an episode or separately authorized, fully gated task-adapter release |
 | Confounded/noisy improvement | Quarantined until resolved |
 | Identity-specialized, leaking, unsafe, or unbounded-cost change | Rejected or revoked regardless of score |
 
-“Independent” means distinct campaign lineage and a configured difference in task,
-data regime, base model, or other material transfer context. Three copies of one
+“Independent” means distinct campaign lineage and a configured difference in task
+family, data regime, starting artifact, or another registered transfer dimension.
+Three copies of one
 ancestor are one lineage, not three confirmations.
 
-### 7.4 Evaluator cascade
+### 7.5 Evaluator cascade
 
 Promotion proceeds from cheap and deterministic to expensive:
 
@@ -782,7 +930,7 @@ promotion optimism.
 Failed and non-dominated candidates remain in the candidate archive as possible
 stepping stones. They are not installed into live runs.
 
-### 7.5 Release and rollback
+### 7.6 Release and rollback
 
 Runs pin a `LaunchManifest`; component `CURRENT` pointers are publisher inputs,
 not independently consumed by the launcher.
@@ -808,7 +956,7 @@ references are tainted as derivatives.
 Conceptual layout:
 
 ```text
-knowledge/<domain>/
+knowledge/<scope_id>/
   bundles/<run_id>/<bundle_id>/manifest.json
   objects/<sha256>
   assertions/<assertion_id>.json
@@ -816,13 +964,13 @@ knowledge/<domain>/
   snapshots/<snapshot_id>/manifest.json
   CURRENT
 
-expert-base/<domain>/
+expert-base/<scope_id>/
   candidates/<candidate_id>/manifest.json
   releases/<release_id>/manifest.json
   objects/<sha256>
   CURRENT
 
-launches/<domain>/
+launches/<scope_id>/
   manifests/<launch_manifest_id>.json
 ```
 
@@ -848,9 +996,10 @@ Archive retention and active-context budgeting are separate:
 - prompt packets have explicit record/byte budgets;
 - embeddings are rebuildable sidecars, not duplicated truth fields.
 
-An explicit validated `EMPTY` snapshot represents a domain with no history.
+An explicit validated `EMPTY` snapshot represents a scope with no history.
 The corresponding first-run expert base is an explicit validated release `E0`
-(the minimal clean harness), not an absent repository.
+(the minimal clean scaffold proposed by `ExpertRepoArchitect` and accepted by
+bootstrap gates), not an absent repository.
 Missing pointers, authorization failures, network failures, checksum mismatch,
 and corrupt manifests fail before paid work; they are not silently treated as
 “no seed.” A resume may reuse verified local components for performance state,
@@ -870,8 +1019,9 @@ Sanitation minimizes stored sensitive surface before trying to detect leakage.
    hidden evaluation examples merely because they appeared in feedback or logs.
 2. Export source from allowlisted paths. Exclude `.env`, credentials, data,
    weights, caches, logs, VCS history, hidden evaluator material, and task outputs.
-3. Run deterministic domain-specific secret, path, artifact, identity, license,
-   and contamination scanners. Token shingles are one signal, not the whole gate.
+3. Run deterministic scope/task-family-specific secret, path, artifact, identity,
+   license, and contamination scanners. Token shingles are one signal, not the
+   whole gate.
 4. Treat all retrieved prose and code as untrusted input. Typed delimiters,
    explicit source/trust state, least-privilege tools, injection-specific tests,
    and no autonomous action authority reduce prompt-injection risk; they do not
@@ -899,7 +1049,11 @@ and `revoked`. A high score never raises trust by itself.
 | Minimize objective | `score > parent` signs the result backward | Evaluation fingerprint includes objective; effects use objective-normalized utility |
 | Unmeasured baseline parent | Delta against numeric zero looks like improvement | Relative outcome is `not_comparable` until a real comparable parent measurement exists |
 | Noisy small delta | One seed promotes a behavioral recipe | Estimate noise/repeat; inconclusive evidence cannot support a claim or promotion |
-| Task/model/tokenizer drift | Same-task or cosine retrieval transfers a brittle recipe | Structured compatibility first; analogical evidence inspires but cannot establish a local lever |
+| Empty repo bootstrap | First task hardcodes a speculative post-training tree into the framework | Scope-driven architect proposes the smallest E0; generic gates and review certify it before experimentation |
+| New task family does not fit | RelBench code is forced into LLM-shaped folders or a parallel branch | Atomic architecture candidate may move/split/merge the whole tree and records capability lineage |
+| Structural edit leaves stale navigation | Coding agent follows obsolete paths in the semantic book | Release publisher regenerates the book from contracts and rejects any link/digest/graph mismatch |
+| Task-family schema bias | Episode schema adds model/tokenizer fields and later needs RelBench conditionals | Scope contract registers exact context dimensions; core bundle/snapshot schemas stay unchanged |
+| Registered context-dimension drift | Same-task or cosine retrieval transfers a brittle recipe | Scope-declared compatibility first; analogical evidence inspires but cannot establish a local lever |
 | Old rare failure | Last-N pruning forgets it | Snapshot retains admitted metadata/proof closure; query-time retrieval bounds prompt material |
 | Poisoned recent run | Recency makes it dominant | Quarantine, sanitation, trust weighting, outcome balance, and no automatic authority |
 | Conflicting reviews | Last verdict file wins | Append-only assertions; conflict becomes disputed and blocks exploit/promotion |
@@ -925,21 +1079,25 @@ Concrete loop simulation:
 1. Run 1 finds an absolute-path evaluator fix. It is mechanically general, passes
    unit/integration tests, faithful replay, and a synthetic fresh-context run, and
    becomes release E1.
-2. Run 2 finds a DPO recipe that improves one Qwen/data regime. It becomes an
-   episode, proposed claim, and quarantined candidate—not stable code.
-3. Run 3 shows that recipe failing under a different pairing regime. The claim
-   gains a contradiction and exclusion; no global rule or suppression is minted.
-4. Run 4 independently confirms template-parity handling across another model and
-   task. A generic validator passes both source replays, a fresh development
-   adapter, and the sealed canary service, producing E2.
-5. Run 5 obtains the highest score with a benchmark-specific constant and leaked
+2. A post-training run finds a DPO recipe that improves one model/data regime. It
+   becomes an episode, proposed claim, and quarantined candidate—not stable code.
+3. Another run shows that recipe failing under a different pairing regime. The
+   claim gains a contradiction and exclusion; no global rule is minted.
+4. When relational prediction enters the scope, `ExpertRepoArchitect` proposes an
+   atomic restructure into shared and task-family capabilities. It updates all
+   contracts and the book, passes post-training regressions plus a relational
+   fresh-task smoke, and publishes E2.
+5. Relational-prediction runs independently confirm leakage-safe temporal/entity
+   splitting. The capability passes source replays, a development adapter, and
+   the sealed canary service, producing E3 in the same broad expert scope.
+6. A later run obtains the highest score with a benchmark-specific constant and leaked
    evaluator content. Sanitation rejects it regardless of performance.
-6. Runs 6 and 7 launch concurrently from the same manifest binding E2 and S5.
-   Both publish bundles; neither mutates E2 or S5. The offline publisher combines
+7. Concurrent runs launch from the same manifest binding E3 and S5. Both publish
+   bundles; neither mutates E3 or S5. The offline publisher combines
    their evidence.
-7. One candidate improves two anchors and regresses a third. It stays on the
+8. One candidate improves two anchors and regresses a third. It stays on the
    candidate Pareto frontier instead of becoming the universal base.
-8. A later scanner finds a leak in an old episode used by a module. The episode,
+9. A later scanner finds a leak in an old episode used by a module. The episode,
    derived claim, candidate, and release are tainted; a clean successor is
    published, and affected run outputs cannot promote further.
 
@@ -952,6 +1110,9 @@ Cross-run learning is valuable only if it improves matched outcomes. Record:
 - repeated-discovery rate and avoided repeated failures;
 - prior records retrieved, cited, contradicted, and later judged useful;
 - expert-module activation and successful reuse by independent lineage;
+- semantic-book navigation success, stale-link failures, and unnecessary file
+  exploration by coding agents;
+- architecture churn, dependency cycles, adapter leakage, and cross-family reuse;
 - anchor regressions, contamination findings, revocations, and rollback time;
 - total prompt bytes, retrieval latency, and expert-base maintenance cost.
 
@@ -979,6 +1140,8 @@ Modify:
 - shingle/grep-only gates -> versioned layered sanitation and taint propagation;
 - copied starter-kit examples -> quarantined candidates and immutable expert-base
   releases;
+- fixed post-training repository/schema -> scope contract, domain-neutral context
+  binding, and architect-owned topology;
 - “no generalization” -> generalization may propose, but never certify;
 - seed copy -> atomic, pinned workspace materialization.
 
@@ -989,6 +1152,8 @@ Reject:
 - putting foreign executed or unexecuted records into current v3 authorities;
 - same-task raw-score anchors without evaluation equivalence;
 - promoting copied best-branch code or counting correlated copies as evidence;
+- hardcoded model/tokenizer or relational-schema fields in core cross-run records;
+- treating the initial repository layout or semantic book as permanently fixed;
 - live intra-wave knowledge mutation;
 - silently treating a missing or corrupt remote as an empty knowledge state;
 - any backward-compatibility path that revives ideation-v2 prompts or the rejected
@@ -999,13 +1164,15 @@ Reject:
 This document defines the target architecture and invariants. The implementation
 plan should be split into independently reviewable modules in this order:
 
-1. immutable run bundles and exact context fingerprints;
-2. catalog, sanitation, assertions, and snapshot publication;
-3. read-only prior retrieval and ideation-v3 provenance integration;
-4. expert-candidate extraction and validation harness;
-5. expert release publication and transactional workspace startup;
-6. matched-control measurement and operational rollout.
+1. expert-scope contracts, task-context bindings, and domain-neutral schemas;
+2. repository-architect bootstrap, module contracts, and semantic-book compiler;
+3. immutable run bundles, catalog, sanitation, assertions, and snapshots;
+4. read-only prior retrieval and ideation-v3 provenance integration;
+5. capability and repository-architecture candidate validation;
+6. expert release publication and transactional workspace startup;
+7. matched-control measurement and operational rollout.
 
-The first three deliver safe cross-run evidence without changing startup code.
-The last three should ship only after retrieval demonstrates value and the anchor
-suite can reliably reject task-specialized or contaminated candidates.
+The scope and bootstrap layers prevent the first benchmark from hardcoding the
+framework's ontology. Capability or structural evolution should ship only after
+the applicable replay/anchor suite can reject task-specialized, incompatible, or
+contaminated candidates.
