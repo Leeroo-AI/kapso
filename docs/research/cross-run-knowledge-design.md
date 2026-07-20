@@ -1,145 +1,970 @@
-# Cross-run knowledge — experiment memory + the expert repo
+# Cross-run learning and the expert base
 
-Synthesis of three judged designs. Base: C (minimal-delta), ranked first by all three judges. Grafts: A's signing discipline, bug-class screen, and measurement KPIs; B's alarm wording and maturity-stage lint suite. Everything judged fatal or theater is dropped (§6).
+Status: refined architecture; not implemented. This supersedes the earlier
+merged-store/starter-kit proposal.
 
-> **Integration status after ideation v3:** this is a reviewed research input,
-> not an implemented cross-run subsystem. The merged code now persists one
-> full-solution embedding per strict executed record and supports cosine
-> retrieval. The remaining seed, harvest, signing, and starter-kit work needs a
-> separate implementation plan. In v3, foreign executed episodes must remain
-> read-only evidence with an origin-qualified identity; they cannot be appended
-> directly to the live store because live node IDs are contiguous campaign
-> identities. Foreign unexecuted candidates must not enter
-> `ExperimentHistoryStore`; a future importer should present them to
-> `IdeaArchive` as provenance-bound inspiration. The deleted ideation-v2 prompts
-> and selector path are not reintroduced.
+## Decision
 
-## 1. Research digest (only what shaped the design)
+Kapso should learn on two timescales:
 
-- **CoALA memory taxonomy** — episodic/semantic/procedural is the organizing frame; the design maps all three onto artifacts kapso already has rather than new subsystems.
-- **ExpeL** — exemplars with bindings plus fresh abstraction by the consuming agent transfer; compiled rules don't. This is why lessons render as bound episodes ("run 18, arena×1.7B, FAILED: …"), never as distilled rules.
-- **Add-all study (arXiv 2505.16067)** — 2,400 uncurated records: 13% vs 39% curated. Governs the mandatory sliding window: archive everything, render a bounded window.
-- **ETH generated-context result** — LLM-generated context files *decreased* success 2–3% at +20% cost. Kills auto-generated KNOWLEDGE.md/directory maps; the delivery channel is the store itself.
-- **TroVE compute-matched** — library gains largely vanish under compute matching; usage-frequency tiering needs episode volume that 2–3 iterations/run × 10–30 runs never produces. Kills candidate/core tiers, reuse counters, card-embedding dedup; motivates A's KPI discipline (transfer measured, not assumed).
-- **Faulty-consolidation + token-rent results** — LLM consolidation overgeneralizes (the decision-tree minting step); skill modules often don't pay their token rent. Kills any LLM curation pass; commit ef0127c5 (difficulties ARE the lesson artifact) already made this call in-repo.
-- **Voyager** — execution-verified admission is the honest core of "battle-tested": nothing enters the seed that didn't actually run and get judged.
+1. **Fast evidence learning.** Every run publishes an immutable, provenance-bound
+   record of what was tried, what happened, and what remains unresolved.
+2. **Slow procedural learning.** Only reusable code that survives independent
+   tests, replay, transfer checks, and review enters a versioned expert-base
+   release used to start future runs.
 
-## 2. The retro-simulation
+The system has four durable artifacts:
 
-Condensed per-run harvest, what a seeded successor would have received:
+| Artifact | Purpose | May influence a live run? | May become startup code? |
+|---|---|---:|---:|
+| `RunBundle` | Sanitized durable evidence plus an explicit completeness frontier | No; source material only | No |
+| `KnowledgeSnapshot` | Frozen, sanitized cross-run episodes, claims, and prior ideas | Yes; read-only prior evidence | No |
+| `ExpertCandidate` | Isolated proposal for a reusable module change | No | Only after promotion |
+| `ExpertBaseRelease` | Immutable, tested, history-free post-training repo | Yes; the run starts from it | Yes |
 
-| Run | Harvestable | Priced counterfactual |
+The core invariant is:
+
+> Experiment memory records what happened. Knowledge claims state where an
+> interpretation might apply. Expert candidates preserve possible procedures.
+> Only cross-context executable evidence changes the expert base.
+
+This realizes the human-scientist analogy without turning experience into a
+benchmark/model decision tree or copying the latest winning repository.
+
+## 1. Evidence that shaped the design
+
+- [CoALA](https://arxiv.org/abs/2309.02427) provides the useful separation of
+  episodic, semantic, and procedural memory. It is a taxonomy, not evidence that
+  these should share a physical store.
+- [ExpeL](https://arxiv.org/abs/2308.10144) supports retrieving both prior
+  episodes and derived insights. In one HotpotQA ablation, adding Reflexion
+  outputs to insight construction reduced success; the authors identify
+  hallucination as a possible explanation. Kapso therefore treats independent
+  acceptance of derived claims as a governance requirement, not as a result the
+  paper itself establishes.
+- [Voyager](https://arxiv.org/abs/2305.16291) demonstrates composable executable
+  skills admitted after execution, environment feedback, and LLM
+  self-verification. Its success check is not an objective verifier, so one
+  successful execution is necessary evidence, not sufficient promotion evidence.
+- [Agent Workflow Memory](https://arxiv.org/abs/2409.07429) demonstrates induction
+  of recurring fine-grained workflows with example-specific context abstracted.
+- The [memory-management study](https://arxiv.org/abs/2505.16067) shows why
+  add-all is unsafe: similar inputs make agents follow retrieved outputs, so bad
+  or misaligned episodes propagate errors. Admission and retrieval quality are
+  correctness concerns, not just token optimizations.
+- [Darwin Gödel Machine](https://arxiv.org/abs/2505.22954) supports preserving
+  diverse candidate lineages rather than hill-climbing only from the current
+  winner. Temporary regressions can be useful stepping stones.
+- [AlphaEvolve](https://arxiv.org/abs/2506.13131) motivates staged evaluation
+  and multiple metrics; [GEPA](https://arxiv.org/abs/2507.19457) motivates
+  preserving candidates that are Pareto-optimal across task subsets. Kapso's
+  quality/robustness/cost/portability promotion dimensions are a design decision
+  inspired by those mechanisms, not an evaluated result from either paper.
+- The compute-matched [TroVE re-evaluation](https://openreview.net/forum?id=7AJJgfqNEL)
+  and [SWE-Skills-Bench](https://arxiv.org/abs/2603.15401) are important
+  counterevidence: apparent skill gains can vanish after compute matching, most
+  evaluated skills add no pass-rate lift, and version-mismatched guidance can hurt.
+- The [AGENTS.md evaluation](https://arxiv.org/abs/2602.11988) finds that
+  indiscriminate repository context can reduce task success while increasing
+  cost. It supports keeping live context selected and measured. Encoding durable
+  capability in code and tests instead of an ever-growing generated instruction
+  file is Kapso's architectural choice.
+- [MLE-bench](https://arxiv.org/abs/2410.07095) reinforces that contamination is
+  an evaluation threat. Kapso therefore requires provenance, sanitation,
+  revocation, and an untouched validation surface as governance controls.
+
+These results motivate a two-timescale architecture; no cited work evaluates this
+exact combined design for post-training. They do not justify automatic
+cross-domain transfer or automatic promotion of generated code.
+
+## 2. Current Kapso authority boundaries
+
+The existing v3 contracts are correct and remain unchanged:
+
+| Current authority | Owns | Must not own |
 |---|---|---|
-| 13 | RM-stage candidate (untried), early lessons | Plan died with the VM (~5h/$30); run 16 lost ~1.5h re-deriving lessons |
-| 16 | 0.4815 record; FAILED DPO with diagnosed cause (static mismatched pairs); cwd-bugged wrapper | Raw score mis-signs as SUCCESS — actually PLATEAU, 36 under tier |
-| 17 | 89.64 teacher-distill; teacher-choice/decoding-bake/template-parity derivations; promote.py with 53GB copy bug | Kit-worthy scripts AND a latent bug in a high-scoring run |
-| 18/19 | Eval-wrapper cwd bugs (again); same-day re-derivation of the same three facts as 17 | ~1–2h/run rebuilt scripts; three parallel language-mix P1s from one unrun measurement |
+| `GenericSearch.node_history` | Current campaign's contiguous executable nodes and parentage | Foreign nodes |
+| `IdeaArchive` (`kapso.ideation_archive.v3`) | Current campaign batches, ideas, claims, gaps, decisions, outcomes | Foreign ideas with missing local batches |
+| `CampaignEvidenceSnapshot` | Deterministic projection of the current archive and current nodes | Prior-run evidence |
+| `ExperimentHistoryStore` (`kapso.experiment_history.v4`) | Strict executed projection of the current run; contiguous local node IDs | Cross-run records or unexecuted ideas |
+| `RepoMemory` | Understanding of the code in one run's branches | Cross-run scientific truth |
+| `RunCheckpoint` | Exact resumable state of one run | A mutable global knowledge pointer |
 
-Family-entry episodic+semantic transfer was priced at ≈+28 cell points; toolkit at ≈1–2h/run. The simulation surfaced three failure modes, each answered structurally:
+Consequences:
 
-1. **Wrong-sign retrieval.** An unscoped "greedy > sampling" invariant carried into a judge-eval run is anti-knowledge (temp-1.0: 0.081 vs 0.378; >20 points). Answer: no rules exist — only exemplars with mandatory bindings (run/task/model/sign/date); the render raises if a binding is missing, so an unscoped rule is *unrepresentable*. The duplicate-alarm variant (run 17's on-policy DPO cosine-matches run 16's FAILED static-pairs DPO; suppression kills the +40-point candidate) is answered by the sign-conditional advisory alarm (§3).
-2. **Staleness.** Run-13-era self-censoring caution rendered post-relaxation misleads. Answer: sliding window (`seed_max_runs`) deletes without curation; harvest stamps `{date, kapso_commit}`; prior eval profiles are archived as exemplar context, never rendered as current fact — profiles are re-measured every run.
-3. **Decision-tree drift.** "Qwen3-30B for arena×Qwen" would have shipped the wrong teacher for SmolLM3. Answer: no generalization step exists to mint the rule (harvest is copy+stamp), and at toolkit maturity the identity lint becomes executable tests (§3).
+- Foreign episodes never enter `ExperimentHistoryStore`, `node_history`, the
+  run checkpoint's node list, or the local evidence snapshot.
+- Foreign ideas never enter `IdeaArchive` directly. A generator may use a prior
+  idea as inspiration, but it creates a new local `IdeaRecord` with a new local
+  batch, parent resolution, analysis, and selection.
+- Foreign nodes cannot be parents, incumbents, local supported levers, or local
+  gap closures.
+- Local integer node IDs are display identifiers only outside their run. A
+  cross-run reference is globally qualified and content addressed.
+- The current `solution_embedding` remains a local convenience. Cross-run
+  vectors require an explicit embedding-space identity.
 
-Plus two the judges added: **mis-signing** (mechanical score-vs-parent stamps run 16 SUCCESS) — answered by a *required* human verdict for scored runs; **defect amplification** (verbatim exemplars re-ship the cwd/53GB bug classes) — answered by the mechanical bug-class screen at harvest.
+The previous proposal contradicted these boundaries by adding `origin` to a
+mutable merged `experiment_history.json`. It would break contiguity, archive
+references, reconciliation, resume, and parent semantics. That path is rejected.
 
-## 3. Design
+## 3. Architecture
 
-**One durable prefix per domain** — `<knowledge.root>/<domain>/` (GCS for posttrain, local dir for relbench) — holding a merged `experiment_history.json` and a `starter_kit/` directory. Cross-run transfer is file placement, not new memory machinery.
+```mermaid
+flowchart LR
+    R["Pinned live run"] -->|atomic capture generation| Q0["Restricted quarantine"]
+    Q0 --> V["Validate, allowlist, and sanitize"]
+    V --> B["Immutable sanitized RunBundle"]
+    B --> C["Cross-run catalog"]
+    C --> P["Knowledge snapshot publisher"]
+    P --> S["Immutable KnowledgeSnapshot"]
+    S -->|read-only prior packet| R2["Next pinned live run"]
 
-### Three layers
+    C --> G["Generalization proposer"]
+    G --> Q["Quarantined ExpertCandidate"]
+    Q --> T["Replay, anchors, security, transfer tests"]
+    T -->|approved| E["Immutable ExpertBaseRelease"]
+    E -->|history-free starting repo| R2
+    T -->|failed or non-dominated| A["Candidate archive"]
+```
 
-| Layer | Content | Lives | Delivered by |
+There are two loops.
+
+### 3.1 Live run loop
+
+At launch, a trusted resolver publishes one immutable, attested `LaunchManifest`
+so independently changing knowledge and expert-base pointers cannot produce a
+torn pair. It contains:
+
+```text
+launch_manifest_id
+knowledge_snapshot_id
+expert_base_release_id
+embedding_space_id
+task_adapter_id
+dependency/runtime contract
+security denylist generation
+```
+
+The launcher verifies the manifest and its publisher attestation, materializes the
+expert base and task adapter atomically, checks the resulting workspace tree hash,
+and writes a pre-orchestrator `BootstrapPin` before the first paid action. The pin
+is absorbed into `RunCheckpoint` after strategy construction; current checkpoint
+state cannot exist early enough to serve this bootstrap role.
+The knowledge snapshot remains read-only. The run then:
+
+1. starts from the pinned expert-base source plus a task adapter;
+2. builds a local `RepoMemory` for that actual workspace;
+3. retrieves a bounded prior-knowledge packet for ideation;
+4. uses v3 normally to generate, analyze, select, execute, and evaluate local ideas;
+5. persists local nodes to the existing experiment store and local ideas to the
+   existing archive;
+6. appends execution-revision events and periodically atomically publishes a
+   mutually reconcilable capture manifest so stopped runs remain harvestable.
+
+A run never updates global knowledge or the stable expert base.
+
+### 3.2 Cross-run evolve loop
+
+After runs finish or stop, an offline, serialized publisher:
+
+1. receives an atomically published run capture in access-restricted quarantine;
+2. validates its checkpoint frontier, provenance, evaluation integrity, and
+   allowlisted payload, then sanitizes it before global persistence;
+3. publishes an immutable sanitized `RunBundle` that supersedes any older capture
+   of the same run;
+4. projects executed work into `TransferEpisode` records and unexecuted work into
+   `PriorIdea` records;
+5. appends review assertions and proposes evidence-linked knowledge claims;
+6. resolves admission, dispute, supersession, taint, and revocation states;
+7. publishes a new immutable `KnowledgeSnapshot` by compare-and-swap;
+8. proposes expert-module patches only when a generalization trigger fires;
+9. validates candidates through an evaluator cascade;
+10. publishes a new `ExpertBaseRelease` and compatible `LaunchManifest` only
+    after their promotion and startup policies pass.
+
+Learning is therefore fast in the catalog and intentionally slow in startup code.
+At the expected scale of 10-30 runs, a healthy outcome is many useful episodes,
+fewer supported claims, and perhaps only a handful of expert-base promotions.
+
+## 4. Durable schemas
+
+These are semantic contracts, not a commitment to one serialization library.
+All documents use exact fields, canonical JSON, UTC timestamps, checksums for
+referenced blobs, and fail-loud validation. For a content-addressed object, the
+hash preimage is the canonical immutable payload with its ID field omitted.
+Attestations sign the resulting ID and publication context and live in an outer
+envelope excluded from that preimage, avoiding signature/hash recursion.
+Adjudication, admission, eligibility, and revocation state live in separate
+immutable catalog revisions; they never mutate a content-addressed payload.
+
+### 4.1 `RunBundle`
+
+```text
+RunBundle
+  bundle_id                    # hash of canonical manifest
+  domain_id, run_id, campaign_id
+  completion_state             # complete | stopped | crashed
+  capture_generation
+  supersedes_bundle_id
+  checkpoint_frontier
+  capture_watermarks
+  artifact_completeness        # present | absent_before_frontier | unavailable
+  started_at, captured_at
+  kapso_commit
+  launch_manifest_id
+  knowledge_snapshot_id
+  expert_base_release_id
+  task_context
+  artifact_environment
+  checkpoint_ref
+  execution_event_journal_ref
+  idea_archive_ref
+  experiment_history_ref
+  branch_snapshot_refs
+  run_log_refs
+  checksums
+```
+
+Every artifact is conditionally present according to `artifact_completeness`; a
+crash bundle is valid only when its declared frontier is internally reconcilable.
+The append-only event journal preserves failed and recovered execution revisions
+that the current experiment-store projection replaces in place. Until that journal
+exists, a bundle can honestly preserve only the latest durable projection.
+
+The manifest references sanitized content-addressed blobs rather than duplicating
+weights, data, repositories, and logs. Raw capture first lands in a restricted,
+deletable quarantine surface. Only allowlisted output may enter the durable
+cross-run object store. The current post-training scripts merely sync the results
+directory; implementation must explicitly export and test an atomic capture
+manifest for the local store, archive, checkpoint, event journal, selected source
+snapshot, and branch frontier.
+
+### 4.2 Context fingerprints
+
+Score comparison and transfer applicability are different questions and use
+different fingerprints.
+
+```text
+EvaluationFingerprint
+  benchmark + dataset/split versions
+  evaluator code/config hash
+  metric + objective direction
+  fidelity and fraction
+  exact seed or replicate set + aggregation protocol
+  judge/model version where applicable
+
+TransferContext
+  task family and capability tags
+  base model exact revision
+  tokenizer and template hashes
+  data construction regime
+  training algorithm and harness version
+  dependency/runtime versions
+  budget and hardware envelope
+
+ArtifactEnvironment
+  kapso commit
+  expert-base release
+  task-adapter hash
+  relevant dependency lock hash
+```
+
+An effect is mechanically comparable only when its source measurements share an
+`EvaluationFingerprint`. Transfer compatibility separately classifies a source
+as `exact_context`, `analogical`, or `incompatible` for the current task.
+An experiment whose parent is the unmeasured baseline has no relative effect;
+harvest must not reinterpret a delta against numeric zero as improvement.
+
+### 4.3 `TransferEpisode`
+
+```text
+TransferEpisode
+  episode_id                   # content identity
+  source                       # domain/run/campaign/node/idea/batch
+  source_bundle_id
+  supersedes_episode_id
+  transfer_context
+  artifact_environment
+  proposal                     # exact source proposal
+  intervention_ref             # exact diff/artifact reference
+  intervention_structure       # coupled | isolated_by_ablation
+  parent_episode_ref           # qualified; never a live parent
+  attempts[]
+    execution_revision
+    captured_at
+    evaluation_fingerprint     # null only when evaluation did not run
+    execution_status           # completed | failed_technical | interrupted
+    evaluation_status          # valid | invalid | partial | not_run
+    comparison_status          # comparable | not_comparable | inconclusive
+    measurements
+    source_parent_effect       # value + uncertainty, only if comparable
+    feedback
+    technical_difficulties
+    confounders
+  terminal_attempt_revision
+  safe_observation_refs
+  sanitation_report_id
+  derivation_refs
+```
+
+One source idea/node produces one episode with an ordered, gap-free attempt list.
+This matches v3 recovery, where several execution revisions share one idea and
+node while the local store keeps only the latest projection. The append-only
+journal reconstructs the earlier failed and interrupted attempts; a later capture
+publishes a superseding episode rather than a second independent observation.
+`FAILED` is deliberately not one state. A failed implementation, a valid negative
+result, an invalid evaluation, and an interrupted attempt have different transfer
+meaning. Partial observations are retained with explicit validity; they never
+pretend to be a scored experiment.
+An episode with coupled changes may inspire transfer but cannot support a causal
+mechanism claim until an ablation or other identification evidence isolates it.
+
+### 4.4 `PriorIdea`
+
+```text
+PriorIdea
+  prior_idea_id
+  source_bundle_id + source campaign/batch/idea
+  proposal + descriptor + assumptions
+  source_status                 # deferred | rejected | unexecuted
+  source_rationale
+  evidence_refs
+  transfer_context
+  sanitation_report_id
+```
+
+A `PriorIdea` is frontier inspiration. It cannot be selected or executed directly.
+Generation must produce a new local idea that cites it and passes current v3
+parent resolution, hard rules, novelty analysis, and selection.
+Projection is disjoint: every source idea appears exactly once. Any idea linked to
+a node, including an interrupted or recoverable node, becomes a `TransferEpisode`;
+only never-linked ideas may become `PriorIdea`s.
+For a run with multiple capture generations, projection uses the latest admitted
+supersession frontier and content-deduplicates already journaled node revisions;
+partial and final bundles cannot count the same execution twice.
+
+### 4.5 `ReviewAssertion`
+
+```text
+ReviewAssertion
+  assertion_id
+  subject_id                    # episode, claim, candidate, or release
+  reviewer_id + reviewer_role
+  rubric_version
+  judgment
+  rationale
+  exact_evidence_refs
+  created_at
+  supersedes_assertion_id
+  reviewer_attestation
+```
+
+Assertions are append-only. They do not overwrite a one-line `verdict.json`.
+Configured adjudication derives the active state. Unresolved disagreement yields
+`disputed` or `inconclusive`, blocking exploit anchoring and expert promotion.
+Reviewer identity is accepted only through a configured trust root or cloud-IAM
+attestation; a string `reviewer_id` is not authentication.
+
+### 4.6 `KnowledgeClaim`
+
+```text
+KnowledgeClaim
+  claim_id
+  revision_id                   # immutable revision payload identity
+  statement
+  mechanism
+  applicability_predicates
+  explicit_exclusions
+  supporting_episode_ids
+  contradicting_episode_ids
+  proposal_provenance
+  state                         # proposed | provisional | supported | disputed |
+                                # superseded | revoked
+  review_assertion_ids
+  supersedes_claim_ids
+```
+
+Claims are semantic memory, not instructions or routing rules. A coding agent may
+propose or revise them, but cannot certify them. Evidence and review transition
+their state. Every claim renders with applicability, exclusions, support,
+contradictions, and state; an unbound statement is unrepresentable.
+Updating evidence or state creates a new immutable claim revision. `claim_id`
+names the lineage; `revision_id` names the exact object pinned by a snapshot.
+
+### 4.7 `CatalogEntryState`
+
+```text
+CatalogEntryState
+  subject_payload_id
+  catalog_generation
+  admission_state               # quarantined | admitted | disputed |
+                                # superseded | revoked
+  assertion_ids
+  revocation_ids
+  taint_source_ids
+  publisher_attestation
+```
+
+This immutable projection keeps active trust state out of episode, module, and
+candidate payload identities. A later assertion publishes a new catalog
+generation; it does not rewrite the subject.
+
+### 4.8 Expert artifacts
+
+```text
+ExpertModuleContract
+  module_id + version
+  purpose
+  inputs + outputs
+  preconditions + incompatibilities
+  resource bounds
+  dependency/license manifest
+  supporting_episode_ids
+  known_failure_episode_ids
+  test and replay refs
+
+ExpertBaseReleaseManifest
+  release_id                   # source tree + manifest hash
+  parent_release_ids
+  module_versions
+  source_archive_ref
+  test-matrix results
+  approval assertions
+  contamination scanner version
+  dependency lock hash
+  compatibility_envelope
+  publisher_attestation
+```
+
+Contracts describe capability and operating envelope. They do not say “if model X
+and benchmark Y, run recipe Z.” Task identity may appear in evidence or an
+explicit external adapter, never as a hidden default in the generic core.
+
+### 4.9 `ExpertCandidateManifest`
+
+```text
+ExpertCandidateManifest
+  candidate_id
+  parent_release_id + parent_tree_hash
+  trigger + trigger_evidence_ids
+  patch_ref + candidate_tree_hash
+  module_contract_refs
+  proposer_operation + model/CLI provenance
+  source_dependency_ids
+  ancestor_candidate_ids
+  validation_attempt_refs       # full dev results; opaque sealed attestations
+  sanitation_report_id
+```
+
+Failed and non-dominated candidates remain immutable, auditable inputs to future
+generalization. Their active eligibility lives in `CatalogEntryState`.
+
+### 4.10 `TaskAdapterManifest`
+
+```text
+TaskAdapterManifest
+  task_adapter_id
+  publisher_attestation
+  task/evaluator binding
+  source_tree_ref + tree_hash
+  dependency/runtime contract
+  sanitation_report_id
+  validation_refs
+```
+
+The benchmark or an explicitly authorized publisher supplies this read-only,
+pinned adapter. Kapso may change a local copy in experiment branches, but cannot
+silently update the shared adapter or use it to bypass expert-release gates.
+
+### 4.11 `KnowledgeSnapshotManifest`
+
+```text
+KnowledgeSnapshotManifest
+  snapshot_id
+  domain_id
+  parent_snapshot_ids
+  included_bundle_ids
+  admitted_episode_ids
+  admitted_prior_idea_ids
+  active_claim_revision_ids
+  catalog_generation
+  entry_state_refs
+  included_assertion_ids
+  included_revocation_ids
+  proof_dependency_closure_ids
+  sanitation_policy_version
+  retrieval_policy_version
+  embedding_sidecars[]          # each names its EmbeddingSpaceId
+  prompt_budget_policy
+  checksums
+  published_at
+  publisher_attestation
+```
+
+Raw sanitized bundles are retained. The snapshot carries the complete admitted
+metadata and proof dependency closure for its catalog generation; only the
+query-specific prompt packet is bounded. Exact assertion and revocation closures,
+not timestamps, define reproducible state.
+
+### 4.12 `LaunchManifest`
+
+```text
+LaunchManifest
+  launch_manifest_id
+  launch_request_hash           # intended run/campaign/task/runtime request
+  knowledge_snapshot_id
+  expert_base_release_id
+  embedding_space_id
+  task_adapter_id
+  dependency/runtime contract
+  sanitation and security-denylist generations
+  expected source composition hash
+  publisher_attestation
+```
+
+The launch resolver creates this only after checking release/module and adapter
+preconditions against the intended task and runtime. It passes the immutable ID
+directly to that run; there is no domain-global launch pointer. The launcher must
+match `launch_request_hash` to its own request, preventing substitution with a
+validly attested manifest for another task. New runs fail before startup if the
+current release is expired, unrevalidated, or incompatible.
+
+## 5. Module responsibilities
+
+| Module | Input | Output | Hard responsibility |
 |---|---|---|---|
-| Episodic | Full prior records: solution, feedback, difficulties, score, sign, embedding, candidate pool + selector reasoning (ideation-v2) | Merged domain store, seeded to `workspace/.kapso/experiment_history.json` | Existing gate tools; `search_similar` spans origins out of the box (embeddings persist on records) |
-| Semantic | Signed `technical_difficulties` + feedback **on those same records** (ef0127c5: difficulties IS the lesson artifact — no second store) | Same file | Generated `PRIOR RUN LESSONS` block in problem context |
-| Procedural | The ~8 scripts every run rebuilds, verbatim from each seeded run's best branch | `task_dir/starter_kit/run<id>_<task>_<score>/` + generated provenance README + that run's `eval_profile.md` | Path rendered into problem context; agent copies/adapts. **Not** `initial_repo` — workspace boots empty |
+| `RunCaptureExporter` | Reconciled local checkpoint frontier | Atomic restricted capture | Journal revisions; publish one complete generation with watermarks and supersession |
+| `CaptureValidator` | Restricted capture | Valid structural projection | Verify schema, hashes, trust, provenance, cross-artifact joins, and evaluation fingerprints |
+| `SanitationGate` | Valid quarantined capture and domain policy | Allowlisted payload + report | Detect secrets, eval leakage, forbidden artifacts, licenses, unsafe paths, and taint closure before global CAS |
+| `RunBundlePublisher` | Allowlisted payload | Immutable sanitized bundle | Content-address and attest one capture generation; never interpret results |
+| `EpisodeProjector` | Valid sanitized local store/archive | Episodes and prior ideas | Preserve exact source meaning; decompose execution/evaluation/comparison states; mint no lessons |
+| `ReviewRegistry` | Reviewer assertions | Append-only adjudicated view | Preserve authorship, rubric, conflict, supersession, and audit history |
+| `ClaimProposer` | Selected episodes and contradictions | Proposed/revised claims | Use a coding agent to abstract mechanisms; never admit or certify its own output |
+| `CrossRunCatalog` | Bundles, projections, assertions, claims | Ordered immutable generations | Global identity, lineage, exact assertion/revocation closure, taint, supersession, and auditability |
+| `KnowledgeSnapshotPublisher` | Catalog closure and policy | Immutable snapshot + CAS pointer | Deterministic admission, proof closure, revocation, sidecar indexing, attestation, and atomic publication |
+| `CrossRunRetriever` | Pinned snapshot and current query | Bounded prior packet | Hard compatibility before similarity; trust/outcome/diversity balance; no current-run mutation |
+| `PriorKnowledgeAdapter` | Prior packet | v3 prompt/analysis input | Keep foreign refs typed and separate from local evidence; persist exact packet in batch provenance |
+| `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
+| `ExpertCandidateValidator` | Candidate and evaluator cascade | Promotion evidence | Static, security, leakage, replay, fresh-task, cross-task, cost, and regression checks |
+| `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, rerun the full release matrix, publish history-free source, support revocation |
+| `LaunchResolver` | Snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Prevent torn combinations; enforce eligibility, compatibility, freshness, and denylist state |
+| `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
 
-Skipping workspace seeding sidesteps four verified hazards at once: the never-benchmark-exercised `is_seeded` path, the RepoMemory bootstrap clobber (base.py:507–540 → manager.py:670–728), the resume+seed collision (experiment_workspace.py:264–267), and git-history contamination (a once-committed leak survives deletion in every judged clone). Seeded records are structurally retrieval-only: `node_history` is built in-run or checkpoint-restored in `benchmark_tree_search.py`, never from the store — seeded records can never become parents.
+The catalog and expert-base release store are separate. A high-confidence episode
+can immediately improve retrieval while its code remains quarantined.
+`ClaimProposer` and `GeneralizationProposer` use the configured Codex or Claude
+Code CLI through the existing coding-agent boundary. Direct model API use is
+limited to embeddings; model output never performs an admission or promotion
+state transition by itself.
 
-### Harvest — who runs it, when
+## 6. Retrieval and ideation-v3 integration
 
-Two stages. **Stage 1, automatic, already shipped:** the periodic rsync + self_destruct sync (run_startup.sh:147–149/:25–33) delivers `.kapso/{experiment_history.json, repo_memory.json, run_state.json}` for every run, including killed ones — run 13's dead-VM loss is covered with nothing to build. **Stage 2, mechanical, at fetch:** `benchmarks/shared/harvest.py`, invoked from `20_fetch_results.sh`, runs on fetched results — including stopped runs — with zero LLM curation and zero standing human session. A wave can never launch on knowledge frozen by a skipped meeting. Declared inputs: the run's store **and `run_state.json`** (parent linkage for mechanical signs — judge-verified present in synced results), the best branch working tree, eval data (local, for the sweep), and `verdict.json`.
+### 6.1 Retrieval plan
 
-### Admission + pruning = "battle-tested" operationalized
+For each ideation batch, the engine first builds current-run evidence, chooses the
+local policy, ranks gaps, and plans the directive. Only then does
+`CrossRunRetriever` build a query from the problem, transfer context, open local
+gaps, and the directive's operator descriptors. It then:
 
-- **Execution-verified (Voyager):** only records with real feedback from the synced store enter; starter-kit exemplars come only from a run's best branch — code that ran end-to-end under judgment.
-- **Human-verdicted:** `verdict.json` — one line per node id, written during the per-run review that already happens in `benchmarks/posttrain/reviews/` — is **required for scored runs; harvest raises (Rule 2) if a scored node lacks one**. This is the only reliable producer of PLATEAU-vs-tier and the fix for C's judged-fatal optional-verdict hole.
-- **Bug-class screen (from A, mechanized):** a grep-class checklist over starter-kit files — non-weights-only checkpoint copies, cwd-relative eval paths, missing absolute-path guards — grown one entry per diagnosed bug class. A hit blocks that file's admission with a named finding. Kills the cwd×4 / 53GB×2 amplifier without admission machinery.
-- **Pruning:** sliding window `seed_max_runs` keeps the last N runs per domain — deletion without curation (add-all result); the full archive stays in the per-run GCS results untouched.
-- **Maturity trigger:** when harvest's free file-similarity check sees the same kit file copied-and-modified in ≥3 runs, that file has earned a one-time, human-reviewed promotion into a `toolkit/` repo whose own `tests/` are B's mechanical lints: identity lint over a per-domain ban-list data file, and the argparse fresh-task drill (model/data/template required args, no identity-named defaults, synthetic-tiny smokes). Standing repo-evolution machinery never ships (§6).
+1. excludes revoked, tainted, unauthorized, and domain-incompatible records;
+2. classifies structured transfer compatibility;
+3. filters claims by state and applicability;
+4. ranks within a compatibility tier by evidence quality, retrieval utility,
+   semantic similarity, and recency;
+5. applies diversity caps by run, lineage, approach family, and outcome;
+6. selects separate positive, negative, inconclusive, and frontier slots within
+   configured record and byte budgets.
 
-### Outcome-signed rendering
+Semantic similarity is a ranking hint, never an admission, truth, or sign signal.
+Selected packet records render in full according to their schema; the selector
+skips a whole oversized record rather than clipping its contents. Raw diffs and
+logs remain addressable artifacts and are loaded only when explicitly needed.
+The packet is proof-closed: selecting a claim or relative effect also selects its
+required parent measurement, supporting/contradicting episodes, assertions, and
+active sanitation/trust state. If that closure exceeds budget, the top-level item
+is skipped rather than rendered without the evidence that makes it auditable.
 
-Mechanical default from store + run_state: `SUCCESS` (score > parent), `NO_GAIN`, `FAILED` (had_error/no score), `UNTRIED` (pool entries never implemented). `verdict.json` enriches with the judgment-grade enum: `PLATEAU(known_ceiling)`, `INCONCLUSIVE(confounder)`. Sign + human verdict line render as the header of **every** surface — gate emissions (experiment_history_gate.py:188–215), lessons block, duplicate alarm — with the verbatim full feedback beneath (Rule 6: k caps *selection*, never clips content). Sign completeness is enforced **at harvest push, not at load** — B's raise-at-load would let one stamping bug brick an entire wave at $65/run through the shared `_load_from_json` path (orchestrator boot + every MCP-gate store rebuild).
+Vectors are sidecars keyed by:
 
-**Retrieval scoping.** Records carry `origin` (run id); **empty origin = current run** — the convention that survives the MCP env-transport boundary (the gate process has no run id) with zero plumbing. `get_top_experiments` filters to current-run only, so a foreign-scale 96.0 never occupies an authority render; `search_similar`/`get_recent` span origins unchanged. Gate headers render origin ("Experiment 3 [run17]"), defusing the verified node_id collision between seeded and live records.
+```text
+EmbeddingSpaceId = hash(provider, model, dimensions, canonicalizer_version)
+```
 
-**Lessons-block selection (pinned — the main token-rent knob):** same-task seeded records first, then recency, capped at `lessons_k`; every seeded run additionally contributes its verdict lines (one per node — cheap, high-signal). Selected records render in full.
+Search never compares vectors from different spaces. Canonical source text is
+authoritative and permits deterministic re-indexing into a new snapshot.
 
-### Anti-decision-tree enforcement — mechanism, not intention
+### 6.2 Exact v3 connection
 
-1. **No generalization step exists.** Harvest is copy+stamp; the pass that mints rules was deleted, not regulated.
-2. **Scoping-by-schema, fail-loud.** Every lessons block must carry `run_id/task/model/sign/date`; the render function raises on a missing field. Validation runs **at harvest** (bad blocks can't ship) and the render assert is a backstop, so a live run's first ideation call is not the discovery point.
-3. **Exemplars, not rules.** "Greedy wins" arrives permanently framed as an exact-match observation; it cannot masquerade as an arena invariant.
-4. **Provenance-named kit dirs** + README ("prior-run exemplars — adapt, don't invoke"); no merged framework exists for identity branches to accrete in. At maturity, B's identity lint becomes the promoted toolkit's own executable tests.
+Add a new immutable `PriorKnowledgeSnapshot` beside, not inside,
+`CampaignEvidenceSnapshot`.
 
-### Sanitation gate (the PTB judge reads the workspace)
+- `GenericSearch.run` passes the pinned launch/knowledge identity and a retriever
+  boundary to `IdeationEngine.run`.
+- After local directive planning and before `IdeaBatch` creation, the engine
+  retrieves exactly one query-specific prior snapshot. Resume uses the persisted
+  packet and never calls retrieval again.
+- `IdeaBatch` stores the exact prior snapshot and its source
+  `knowledge_snapshot_id`.
+- The batch `context_hash` includes that packet. Checkpoint state, generated
+  artifact manifests, and result metadata pin only its ID and digest, avoiding
+  redundant copies of untrusted prior prose.
+- Generator and selector mandatory packets receive local evidence and prior
+  knowledge in separately labelled sections.
+- `CandidateAnalyzer` compares novelty against prior ideas/episodes as well as the
+  local archive, but a foreign exact or semantic match is advisory: it may require
+  an adaptation/different-context justification but cannot make a local idea
+  ineligible. Hard exact-duplicate rejection remains local-campaign-only.
+- `IdeaRecord` gains `prior_knowledge_refs`; existing `evidence_refs`, `claim_ids`,
+  parent idea IDs, and parent node IDs remain local-only.
+- A generated local idea may cite a prior episode, claim, or idea, but it gets a
+  new local ID and is reanalyzed under the current problem and parent snapshot.
+- If implementation needs a prior diff or artifact, expose it through a separate
+  read-only `prior_knowledge` gate. Do not broaden the experiment-history gate.
+- `CampaignEvidenceBuilder`, `choose_policy`, local gap closure, incumbent choice,
+  and experiment-memory reconciliation remain current-run-only.
 
-- **Source prevention:** the feedback-generator leak-ban paragraph (feedback_generator.md:121–129) is copied into `implementation_claude_code.md`, `coding_agent_implement.md`, and `difficulties_fallback.md` — closing the verified gap where difficulties can quote eval items.
-- **Hard mechanical gate:** any 12-token shingle from the task's eval set found in the merged store or kit files **aborts the push** — deterministic, testable with planted fixtures, eval data local at harvest.
-- **Layered LLM sweep (from A/B, subordinated):** runs second on the surviving surface for paraphrase/memorized-answer leakage; it can only **escalate to the human keystroke**, never pass what the shingle gate would block. Vibes never decide.
-- **Surface minimization:** kit takes working-tree code/md only — no git history, no PLAN.md/changes.log, no data/weights (size + path-pattern excludes); no workspace seeding means no carried branch history at all.
+Cross-run evidence can shape *what* BOOTSTRAP/EXPLORE proposes. It cannot promote
+the current policy to EXPLOIT. EXPLOIT still requires a supported local lever.
+A future `ADAPT_PRIOR` operator may explicitly adapt an exact or analogical prior,
+but it remains an ideation operator with a new local experiment, not a foreign
+experiment replay shortcut.
 
-### Domain scoping
+This prevents three subtle errors:
 
-One config block (Rules 1/3): `knowledge: {root, domain, seed_max_runs, lessons_k}`. Harvest, seeding, signing, rendering, sweeping are domain-blind; the domain is a path segment plus two data files (ban-list terms, leak spec). Zero benchmark conditionals in `src/kapso/`; posttrain and relbench differ only in content and root (GCS vs local dir).
+- a high score under another evaluator cannot become the local incumbent;
+- a foreign failed experiment cannot close a local gap;
+- a prior unexecuted idea cannot bypass current novelty, feasibility, or parent
+  validation.
 
-### PTB deployment flow + failure semantics
+### 6.3 Connection to experiment memory
 
-Boot: `run_startup.sh` (~:74, after cache mount) pulls `gs://…/knowledge/posttrain/` → `/mnt/hfcache/kapso_seed/`. `solve.sh` (:63–68): if the seed exists, JSON-validate once, untar the kit into `task_dir/starter_kit/`, append `--experiment-history-seed`; `runner.py` (:318–327) threads it; `orchestrator.py` (:327–336) copies it into `workspace/.kapso/` before store construction. Finalize: stage-1 rsync/self_destruct is unconditional (dead-VM safe); harvest runs at fetch.
+The connection is one-way at each boundary:
 
-**Failure semantics (explicit, with WHERE):**
-- **Missing seed** (no prefix yet, or pull found nothing) = **documented default**: launch seedless AND write a loud `SEED_ABSENT` marker into the synced results dir — surfaces in `solve.sh`. Never a silent degradation.
-- **Corrupt seed** = **raise**: primary gate at **harvest push** (JSON round-trip + schema + sign-completeness + checksum before upload; gsutil CRC covers the download), backstop at **orchestrator copy-in**, where malformed JSON raises and kills the run before any spend (Rule 2). The two-layer placement means the backstop should be unreachable in practice.
-- **`--resume`** ignores seed flags — the populated workspace already contains its store; nothing to collide, since the git workspace is never seeded.
+```text
+local nodes -> local ExperimentHistoryStore -> RunBundle -> TransferEpisodes
+TransferEpisodes -> prior packet -> new local ideas -> new local nodes
+```
 
-### Composition with ideation-v2
+There is no store merge and no `origin == empty means current` convention. A new
+run always begins with an empty local executed store even when it has rich prior
+knowledge. That keeps v4's contiguous identity and resume reconciliation honest.
 
-- **Duplicate alarm — sign-conditional, advisory-only, never suppressing** (all three designs converged on this spec; B's wording adopted): FAILED match → "similar attempt failed because ⟨cause⟩ — differentiate on that cause or justify" (*raises* interest — preserves run 17's tier-jumper); PLATEAU → "basin exhausted at X vs ceiling Y; pursue only with a mechanism escaping it"; SUCCESS → "exploit or differentiate"; UNTRIED → routes to EXPLORE.
-- **Stance rule:** EXPLORE draws on carried UNTRIED pool entries (run 13's VM-lost RM-stage candidate re-enters run 16's ideation as vetted frontier capital); EXPLOIT anchors only on SUCCESS-signed records.
-- **Gap slot:** best prior same-task score renders as a measured anchor ("best prior: 89.64, run 17"), turning the gap into gap-vs-known-tier — the signal whose absence let run 16 sit 36 under. Prior `eval_profile.md` ships in the kit as exemplar context; profiles are re-measured every run.
+The clean schema change is `kapso.cross_run_knowledge.v1`, `IdeaArchive` v4
+(because `IdeaBatch` persists the prior snapshot), and `GenericSearch` state v4
+(because checkpoint state pins knowledge and release identities). There are no
+migration shims: pre-release v3 checkpoints are unsupported and campaigns restart
+cleanly, matching the repository's no-backward-compatibility rule.
 
-## 4. Why this fits
+## 7. The expert-base repository
 
-**Counterfactual walk.** *13→16:* stage-1 rsync preserves run 13's store past the dead VM; run 16 boots with its lessons (~1.5h saved) and the RM-stage UNTRIED candidate in its EXPLORE pool. *16→17:* the reviewer's verdict line signs 0.4815 `PLATEAU(36-under-tier)` — run 17 is never anchored into the basin, and the gap slot shows tier explicitly; run 16's FAILED DPO renders with its diagnosed cause, so run 17's on-policy candidate draws "differentiate on the cause" instead of suppression; `teacher_generate.py` is copied from the kit, not rewritten. *17→18/19:* same wave — honest per-wave granularity means 18/19 launch on pre-17 knowledge; but the teacher-choice/decoding-bake/template-parity facts each of 17/18/19 re-derived the same day were already in ≤16-era records and arrive in every lessons block. *Post-17 harvest:* the bug-class screen flags the 53GB non-weights-only copy before it enters the kit; the shingle sweep blocks any R10-P2-1-class quoted target from tainting future runs.
+The user-visible behavior is “start each task from the expert repo,” but the
+artifact is the latest pinned stable release, not the best previous run.
 
-**Net-value verdict at 10–30 runs.** The mechanical pipeline captures the priced value — ≈+28 family-entry points episodic/semantic, most of the 1–2h/run procedural — at ~40 lines of core delta, one script, and one reviewer keystroke per node. Repo-evolution machinery is negative-EV at this scale (ETH/TroVE/token-rent + our own defect-amplifier evidence); the maturity trigger prices exactly when a human half-day starts paying. Transfer is measured, not assumed (from A): re-derivation events and time-to-first-successful-training become campaign KPIs, with an occasional no-seed control run.
+Recommended layering:
 
-**RelBench:** zero code changes — `knowledge.root` is a local durable dir on the dev box (no GCS round-trip), domain `relbench`, ban list carries `rel-amazon`-style task/dataset strings, leak spec targets test-split values and leaky columns. Its runner threads the same two paths.
+```text
+expert-base/
+  kernel/        reproducibility, provenance, budgets, checkpointing, safety
+  data/          generic ingestion, validation, cleaning, mixing contracts
+  templates/     tokenizer/chat-template parity and validators
+  training/      composable SFT, preference, DPO/RL, distillation capabilities
+  evaluation/    evaluator adapters and integrity checks
+  promotion/     artifact validation and export
+  diagnostics/   resource, distribution, and failure diagnostics
+  adapters/      interfaces and examples; run-specific adapter supplied outside core
+  tests/         unit, synthetic, replay, portability, and identity lints
+```
 
-## 5. Touchpoints and migration (6 atomic commits, Rule 8)
+The base contains no datasets, weights, hidden evaluation material, experiment
+memory, run logs, git history, benchmark answers, model-specific score thresholds,
+or identity-named defaults.
+The separately pinned task adapter is also attested, sanitized, versioned, and
+validated. It supplies the task/evaluator boundary read-only; task-local changes
+occur only on run branches and cannot flow back through this escape hatch.
 
-Files: `store.py`, `orchestrator.py`, `benchmark_tree_search.py`, `experiment_history_gate.py`, ideation-v2 templates, three difficulties prompts, `src/kapso/config.yaml`; benchmark-side: `benchmarks/shared/harvest.py` (new), `benchmarks/posttrain/{runner.py, gcp/run_startup.sh, gcp/20_fetch_results.sh, ptb_adapter/agents/kapso/solve.sh}`, relbench runner.
+### 7.1 Generalization triggers
 
-1. **[framework] Store: origin/sign/seed-load.** Fields (`origin` empty = current run), seed copy-in at orchestrator.py:327–336, origin-scoped `get_top`, embedding-role pinned in config (dimension mismatch already raises, store.py:36–39). *Tests:* fixture seed loads; corrupt JSON raises; seeded records excluded from top, included in similar/recent; mismatch raises.
-2. **[framework] Leak-ban prompts.** Paragraph into the three difficulties prompts. *Tests:* contract pins. Campaign-urgent; independent of everything else.
-3. **[framework] Renders.** Lessons block in problem-context assembly (`benchmark_tree_search.py`), sign+origin headers in gate renders, sign-aware alarm + UNTRIED surfacing + prior-tier anchor in ideation-v2 templates. *Tests:* schema validation raises on a missing binding; FAILED-match renders differentiate-on-cause; difficulties text verbatim (Rule 6); "Experiment 3 [run17]" header.
-4. **[benchmark] Harvest.** Merge+window+mechanical signs (store + run_state.json)+required-verdict raise+shingle gate+LLM-escalation sweep+bug-class grep+kit build+pre-push validation/checksum. *Tests:* planted shingle aborts; scored node without verdict raises; window drops oldest; planted 53GB-pattern flagged; data/history excluded; idempotent re-harvest.
-5. **[benchmark] PTB plumbing + config.** `knowledge:` block; run_startup pull; solve.sh validate/flags/`SEED_ABSENT` marker; runner threading; resume ignores seeds. *Tests:* config round-trip; threading unit test; absent-seed marker written; shell dry-run.
-6. **[benchmark] RelBench wiring.** Same keys, local root, domain data files. *Tests:* runner threads paths; relbench leak fixture aborts harvest.
+An expert candidate is proposed only for:
 
-Not booked: shrinking `PRIOR_RUN_INSIGHTS` — verified already paper-facts-only.
+- a repeated difficulty across independent run lineages;
+- a repeated successful mechanism in distinct transfer contexts;
+- a mechanically general infrastructure/reliability fix;
+- a supported claim whose executable form removes repeated work;
+- a released module contradicted by new valid evidence.
 
-## 6. Explicitly rejected
+Best score, file-copy frequency, and one reviewer preference are not triggers by
+themselves.
+The proposer may reuse a non-revoked candidate ancestor selected by relevant
+mechanism, validation evidence, and lineage diversity. It never defaults to the
+latest or highest-scoring failed candidate.
 
-- **Workspace seeding via `initial_repo` (v1)** — activates an unexercised path in a live campaign, requires the clobber fix and resume precedence surgery, and clones git history (contamination hole no sweep covers). Revisit at the maturity trigger; first exercise on relbench/dev-box, never a live PTB wave, from a history-free snapshot.
-- **Consolidation-as-kapso.evolve / LLM curation** — lints check shape, not truth; unsupervised consolidation re-admits mis-signing and self-verified admission (cwd×4, 53GB×2); re-adds what ef0127c5 deleted.
-- **TroVE tiering, reuse counters, embedding dedup, ≥2-run provenance lints** — amortization needs volume 10–30 runs never produce; dead weight (Rule 10).
-- **Separate LESSONS.md/KNOWLEDGE.md** — indicted side-doc pattern (`arena-best-baseline-traces.md` held the ⅓-non-English fact; all three runs drew P1s anyway); one channel, the store.
-- **Unsigned-record-raises-at-load** — one stamping bug bricks a wave via the shared load path; enforce at harvest push.
-- **Auto-suppressing duplicate alarm** — kills tier-jumping candidates; advisory + sign-conditional only.
-- **LLM-only contamination sweep** — a nondeterministic gate is what the judge threat model forbids; LLM layer escalates only.
-- **Store committed into any seeded repo** — tracked-file modification breaks `switch_branch` (verified).
-- **Live intra-wave sync** — 17/18/19 launched simultaneously; per-wave granularity is honest.
-- **Carrying eval profiles as facts** — fastest-staling knowledge; re-measure every run, archive as exemplars.
+### 7.2 Promotion classes
+
+| Candidate class | Minimum evidence before release |
+|---|---|
+| Mechanically provable infrastructure fix | Static/unit/integration gates, faithful source replay, synthetic fresh-context execution, and review |
+| Behavioral post-training capability | Independent supporting contexts, contradiction review, development anchors, sealed canary attestation, and review |
+| Task-specific improvement | Never core; remains an episode or separately authorized, fully gated task-adapter release |
+| Confounded/noisy improvement | Quarantined until resolved |
+| Identity-specialized, leaking, unsafe, or unbounded-cost change | Rejected or revoked regardless of score |
+
+“Independent” means distinct campaign lineage and a configured difference in task,
+data regime, base model, or other material transfer context. Three copies of one
+ancestor are one lineage, not three confirmations.
+
+### 7.3 Evaluator cascade
+
+Promotion proceeds from cheap and deterministic to expensive:
+
+```text
+contract/schema -> identity/secrets/license/dependency scan
+-> unit/static/security tests -> synthetic fresh-task smoke
+-> source-run replay -> visible development anchor suite
+-> sealed promotion service -> matched-compute canary attestation
+-> reviewer approval -> release-wide matrix -> immutable publication
+```
+
+The proposer may inspect development anchors and their failures. It never receives
+sealed examples or detailed sealed outcomes—only a signed aggregate promotion
+attestation. Sealed checks are rate-limited and rotated. A separate untouched
+final audit/control surface is used for release-quality and transfer-value claims
+and is not fed back into candidate generation. This prevents archived failed
+candidates from turning a nominal held-out suite into an adaptive hill-climbing
+target.
+
+As a Kapso policy, the decision is Pareto-aware across quality, robustness, cost,
+portability, and reproducibility. A mean gain does not erase a configured hard
+regression. Small gains within the measured noise floor require repeats, not
+promotion optimism.
+
+Failed and non-dominated candidates remain in the candidate archive as possible
+stepping stones. They are not installed into live runs.
+
+### 7.4 Release and rollback
+
+Runs pin a `LaunchManifest`; component `CURRENT` pointers are publisher inputs,
+not independently consumed by the launcher.
+Concurrent candidates never mutate a stable release. Publication serializes,
+rebases or composes candidates, reruns the complete release matrix, writes an
+immutable history-free artifact, then advances `CURRENT` with compare-and-swap.
+`LaunchResolver` still checks module preconditions, expiration/revalidation state,
+adapter compatibility, and the intended runtime. An incompatible or stale
+`CURRENT` fails before a new run rather than becoming its implicit baseline.
+
+Revocation appends a signed event and publishes a successor view. Existing runs
+remain reproducible. A performance revocation marks their output ineligible for
+promotion until reviewed. A security or contamination revocation is also added to
+an emergency denylist checked at launch, resume, before agent execution, before
+evaluation, and before publication. Those checks require fresh authenticated
+state and fail closed on network or verification failure; only performance
+revocations may continue purely from an offline pin. The observed denylist
+generation is checkpointed, and local ideas/artifacts citing newly revoked prior
+references are tainted as derivatives.
+
+## 8. Publication, concurrency, and storage
+
+Conceptual layout:
+
+```text
+knowledge/<domain>/
+  bundles/<run_id>/<bundle_id>/manifest.json
+  objects/<sha256>
+  assertions/<assertion_id>.json
+  claims/<claim_id>/<revision>.json
+  snapshots/<snapshot_id>/manifest.json
+  CURRENT
+
+expert-base/<domain>/
+  candidates/<candidate_id>/manifest.json
+  releases/<release_id>/manifest.json
+  objects/<sha256>
+  CURRENT
+
+launches/<domain>/
+  manifests/<launch_manifest_id>.json
+```
+
+Raw captures live in a separate restricted, deletable quarantine prefix and never
+in these global content-addressed stores. Only `CURRENT` pointers are mutable;
+updates use a generation precondition and a trusted publisher attestation. The
+launcher receives its exact launch-manifest ID from the resolver and verifies the
+attestation and request hash against pinned trust roots, preventing a malicious,
+torn, or cross-task component-pointer update.
+If runs 17 and 18 finish concurrently from snapshot S10, they publish distinct
+bundles B17 and B18. The snapshot publisher deterministically unions both; a CAS
+conflict reloads the pointer and republishes the union. Last-writer-wins loss is
+impossible.
+All set construction and budgeted ranking use a specified total order ending in
+content ID. Prompt budgeting admits or skips whole records. The same catalog
+closure therefore produces byte-identical manifests under concurrent retries.
+
+Archive retention and active-context budgeting are separate:
+
+- sanitized bundles and assertions are immutable audit history;
+- large blobs are content-addressed and deduplicated;
+- snapshots preserve all admitted metadata plus its proof dependency closure;
+- prompt packets have explicit record/byte budgets;
+- embeddings are rebuildable sidecars, not duplicated truth fields.
+
+An explicit validated `EMPTY` snapshot represents a domain with no history.
+The corresponding first-run expert base is an explicit validated release `E0`
+(the minimal clean harness), not an absent repository.
+Missing pointers, authorization failures, network failures, checksum mismatch,
+and corrupt manifests fail before paid work; they are not silently treated as
+“no seed.” A resume may reuse verified local components for performance state,
+but must still obtain and verify the fresh security/contamination denylist.
+
+Fresh materialization is transactional: download to staging, verify attestations,
+schema and hashes, fsync, atomic rename, then write the `BootstrapPin` commit
+marker. Resume first verifies that marker and the existing materialized tree,
+then constructs `ExperimentWorkspace`; it never passes the release through the
+empty-workspace `initial_repo` path. Partial extraction is never visible.
+
+## 9. Sanitation and trust
+
+Sanitation minimizes stored sensitive surface before trying to detect leakage.
+
+1. Persist allowlisted metrics and safe observation references; never persist
+   hidden evaluation examples merely because they appeared in feedback or logs.
+2. Export source from allowlisted paths. Exclude `.env`, credentials, data,
+   weights, caches, logs, VCS history, hidden evaluator material, and task outputs.
+3. Run deterministic domain-specific secret, path, artifact, identity, license,
+   and contamination scanners. Token shingles are one signal, not the whole gate.
+4. Treat all retrieved prose and code as untrusted input. Typed delimiters,
+   explicit source/trust state, least-privilege tools, injection-specific tests,
+   and no autonomous action authority reduce prompt-injection risk; they do not
+   create a guaranteed instruction/data security boundary. Raw artifacts require
+   explicit opt-in rather than automatic prompt inclusion.
+5. An optional LLM sweep may escalate a surviving item for review; it cannot pass
+   an item rejected by deterministic gates and should not receive secrets outside
+   an approved boundary.
+6. Scanner versions are recorded. A scanner upgrade rescans the complete active
+   dependency closure before the next snapshot or release is published.
+7. A late leak or vulnerability revokes the source episode and taints all derived
+   claims, candidates, and releases until independently cleared.
+
+Trust states are explicit: `quarantined`, `admitted`, `disputed`, `superseded`,
+and `revoked`. A high score never raises trust by itself.
+
+## 10. Adversarial simulation
+
+| Scenario | Unsafe behavior in the earlier proposal | Required behavior in this design |
+|---|---|---|
+| Two runs publish simultaneously | Last mutable merged-store upload loses one run | Unique bundles; serialized/CAS snapshot union; wave pins one immutable snapshot |
+| Duplicate node IDs | Run-local `node 0` collides and foreign parents become ambiguous | Content-addressed episode ID plus explicit run/campaign/local ID; no foreign live parentage |
+| Valid negative vs technical failure | Both render as `FAILED` | Separate execution, evaluation, and comparison states; preserve valid negative evidence |
+| Score improves under changed evaluator | Mechanical sign says success and anchors EXPLOIT | `not_comparable`; raw measurements retained; reviewer interpretation cannot change comparability |
+| Minimize objective | `score > parent` signs the result backward | Evaluation fingerprint includes objective; effects use objective-normalized utility |
+| Unmeasured baseline parent | Delta against numeric zero looks like improvement | Relative outcome is `not_comparable` until a real comparable parent measurement exists |
+| Noisy small delta | One seed promotes a behavioral recipe | Estimate noise/repeat; inconclusive evidence cannot support a claim or promotion |
+| Task/model/tokenizer drift | Same-task or cosine retrieval transfers a brittle recipe | Structured compatibility first; analogical evidence inspires but cannot establish a local lever |
+| Old rare failure | Last-N pruning forgets it | Snapshot retains admitted metadata/proof closure; query-time retrieval bounds prompt material |
+| Poisoned recent run | Recency makes it dominant | Quarantine, sanitation, trust weighting, outcome balance, and no automatic authority |
+| Conflicting reviews | Last verdict file wins | Append-only assertions; conflict becomes disputed and blocks exploit/promotion |
+| Renamed large-copy bug | Grep misses it; copied branch is promoted after three clones | Clean-room module extraction, resource tests, provenance-lineage counting, fresh-task smoke |
+| Foreign unexecuted idea | Inserted into current archive without a local batch | Read-only `PriorIdea`; generator creates and validates a new local idea |
+| Foreign exact duplicate | Global novelty check suppresses a needed replay/adaptation | Advisory adaptation justification only; hard duplicate rejection remains local-campaign-only |
+| Mixed crash artifacts | Independently synced store/archive/branch files never represented one instant | Atomic capture generation at a reconciled checkpoint frontier; older generations superseded |
+| Crash during seed import | Resume observes a half-copied store or kit | Staging plus hash verification, atomic rename, pin/commit marker, exact resume validation |
+| Missing remote prefix | Quiet seedless spend hides auth/network failure | Explicit `EMPTY` snapshot only; all other absence/corruption fails before spend |
+| Same-dimensional embedding model change | Cosine silently compares unrelated spaces | Space-qualified sidecars; cross-space comparison is unrepresentable; publish after re-index |
+| Late contamination discovery | Existing derivatives remain trusted | Append revocation, propagate taint, rescan closure, publish successor snapshot/release |
+| One huge run | It dominates storage, download, or context | CAS dedup; metadata-only snapshot refs; per-run/family query caps; whole-record prompt selection |
+| Prior prompt injection | Episode text becomes persistent instruction | Delimiting + least privilege + injection tests + opt-in raw access reduce risk; retrieved text has no autonomous action authority |
+| Forged release/pointer | Self-consistent hashes still install attacker-written startup code | Trusted publisher/reviewer attestations and launcher-pinned trust roots |
+| Torn startup pair | Separate `CURRENT` reads combine untested snapshot/release/adapter versions | One attested immutable `LaunchManifest` binds the complete startup identity |
+| Task-adapter escape hatch | Rejected task-specific code bypasses core gates in an adapter | Pinned attested adapter manifest with the same sanitation/integrity boundary; shared adapter is read-only |
+| Stable release becomes stale | New runs inherit it indefinitely | Launch compatibility/expiry check fails before startup until a compatible revalidated release exists |
+| Assertion race | Timestamp watermark yields different review closure | Publisher-assigned CAS catalog generation plus exact included assertion/revocation IDs |
+| Best candidate regresses one anchor | Mean score hides the regression | Pareto evidence retains candidate but blocks universal default until resolved or made optional |
+
+Concrete loop simulation:
+
+1. Run 1 finds an absolute-path evaluator fix. It is mechanically general, passes
+   unit/integration tests, faithful replay, and a synthetic fresh-context run, and
+   becomes release E1.
+2. Run 2 finds a DPO recipe that improves one Qwen/data regime. It becomes an
+   episode, proposed claim, and quarantined candidate—not stable code.
+3. Run 3 shows that recipe failing under a different pairing regime. The claim
+   gains a contradiction and exclusion; no global rule or suppression is minted.
+4. Run 4 independently confirms template-parity handling across another model and
+   task. A generic validator passes both source replays, a fresh development
+   adapter, and the sealed canary service, producing E2.
+5. Run 5 obtains the highest score with a benchmark-specific constant and leaked
+   evaluator content. Sanitation rejects it regardless of performance.
+6. Runs 6 and 7 launch concurrently from the same manifest binding E2 and S5.
+   Both publish bundles; neither mutates E2 or S5. The offline publisher combines
+   their evidence.
+7. One candidate improves two anchors and regresses a third. It stays on the
+   candidate Pareto frontier instead of becoming the universal base.
+8. A later scanner finds a leak in an old episode used by a module. The episode,
+   derived claim, candidate, and release are tainted; a clean successor is
+   published, and affected run outputs cannot promote further.
+
+## 11. Measurement and stopping rules
+
+Cross-run learning is valuable only if it improves matched outcomes. Record:
+
+- score/utility after fixed run budget, with noise and fidelity;
+- time and cost to first valid evaluation and first competitive result;
+- repeated-discovery rate and avoided repeated failures;
+- prior records retrieved, cited, contradicted, and later judged useful;
+- expert-module activation and successful reuse by independent lineage;
+- anchor regressions, contamination findings, revocations, and rollback time;
+- total prompt bytes, retrieval latency, and expert-base maintenance cost.
+
+Use periodic no-knowledge and prior-release controls under matched compute. Expert
+promotion compares against the parent release, not against an underfunded
+baseline. If a snapshot or module does not earn its token, latency, and validation
+cost, it should leave the active view while remaining auditable.
+
+## 12. Final disposition of the earlier proposal
+
+Retain:
+
+- frozen per-wave knowledge;
+- provenance-bound positive and negative episodes;
+- advisory, outcome-aware similarity rather than duplicate suppression;
+- contamination and defect gates;
+- no foreign parentage and no benchmark/model decision tree;
+- dead-run capture and matched transfer KPIs.
+
+Modify:
+
+- last-N pruning -> immutable archive, complete trusted metadata snapshot, and
+  bounded query-specific packet;
+- one-line verdict -> append-only review assertions and adjudication;
+- shingle/grep-only gates -> versioned layered sanitation and taint propagation;
+- copied starter-kit examples -> quarantined candidates and immutable expert-base
+  releases;
+- “no generalization” -> generalization may propose, but never certify;
+- seed copy -> atomic, pinned workspace materialization.
+
+Reject:
+
+- a mutable merged `experiment_history.json`;
+- `origin == empty means current` identity semantics;
+- putting foreign executed or unexecuted records into current v3 authorities;
+- same-task raw-score anchors without evaluation equivalence;
+- promoting copied best-branch code or counting correlated copies as evidence;
+- live intra-wave knowledge mutation;
+- silently treating a missing or corrupt remote as an empty knowledge state;
+- any backward-compatibility path that revives ideation-v2 prompts or the rejected
+  merged-store design.
+
+## 13. Design boundary
+
+This document defines the target architecture and invariants. The implementation
+plan should be split into independently reviewable modules in this order:
+
+1. immutable run bundles and exact context fingerprints;
+2. catalog, sanitation, assertions, and snapshot publication;
+3. read-only prior retrieval and ideation-v3 provenance integration;
+4. expert-candidate extraction and validation harness;
+5. expert release publication and transactional workspace startup;
+6. matched-control measurement and operational rollout.
+
+The first three deliver safe cross-run evidence without changing startup code.
+The last three should ship only after retrieval demonstrates value and the anchor
+suite can reliably reject task-specialized or contaminated candidates.
