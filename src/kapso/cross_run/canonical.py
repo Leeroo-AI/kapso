@@ -10,6 +10,7 @@ from calendar import monthrange
 from dataclasses import fields, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -209,6 +210,33 @@ def tree_or_blob_digest(payload: bytes) -> str:
     if not isinstance(payload, bytes):
         raise CanonicalizationError("digest input must be bytes")
     return f"{HASH_ALGORITHM}:{hashlib.sha256(payload).hexdigest()}"
+
+
+def source_tree_digest(files: Mapping[str, tuple[str, str, int]]) -> str:
+    """Hash an exact regular-file tree including paths, modes, sizes, and bytes."""
+    if not files:
+        raise CanonicalizationError("source tree descriptor must not be empty")
+    descriptor = []
+    for path in sorted(files):
+        normalized = PurePosixPath(path)
+        if (
+            normalized.is_absolute()
+            or ".." in normalized.parts
+            or normalized.as_posix() != path
+            or path == "."
+        ):
+            raise CanonicalizationError(
+                "source tree path must be normalized and relative"
+            )
+        digest, mode, size = files[path]
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise CanonicalizationError("source tree file digest is invalid")
+        if mode not in {"100644", "100755"}:
+            raise CanonicalizationError("source tree file mode is invalid")
+        if type(size) is not int or size < 0:
+            raise CanonicalizationError("source tree file size is invalid")
+        descriptor.append({"digest": digest, "mode": mode, "path": path, "size": size})
+    return tree_or_blob_digest(canonical_json_bytes(tuple(descriptor)))
 
 
 def content_id(namespace: str, payload_without_id: Any) -> str:

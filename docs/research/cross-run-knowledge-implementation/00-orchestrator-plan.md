@@ -1,6 +1,6 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
-Status: **M1 complete; M2–M10 planned**
+Status: **M1–M2 complete; M3–M10 planned**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -41,7 +41,7 @@ not the live experiment store, and not a raw-trace data lake.
 |---|---|---|---|
 | M1 | [`01-contracts-and-config.md`](01-contracts-and-config.md) | Domain-neutral schemas, canonical identity, scope registry/bindings, strict config | — |
 | M2 | [`02-github-control-plane.md`](02-github-control-plane.md) | Autonomous direct GitHub publication, immutable releases, verified cache | M1 |
-| M3 | [`03-run-capture-and-bundles.md`](03-run-capture-and-bundles.md) | Atomic capture, execution journal, quarantine, sanitation, `RunBundle` | M1; M2 publication boundary |
+| M3 | [`03-run-capture-and-bundles.md`](03-run-capture-and-bundles.md) | Atomic capture, execution journal, quarantine, sanitation, local immutable `RunBundle` | M1 |
 | M4 | [`04-catalog-episodes-and-claims.md`](04-catalog-episodes-and-claims.md) | Episode/prior-idea projection, assertions, claims, catalog generations | M1, M3 |
 | M5 | [`05-snapshots-search-and-reader.md`](05-snapshots-search-and-reader.md) | Snapshot packaging, embeddings/indexes, retrieval, read-only MCP gate | M1, M2, M4 |
 | M6 | [`06-ideation-and-memory-bridge.md`](06-ideation-and-memory-bridge.md) | Ideation-v3 provenance, prior packets, local-memory separation | M1, M5 |
@@ -71,7 +71,6 @@ flowchart LR
 
     M1 --> M2
     M1 --> M3
-    M2 --> M3
     M3 --> M4
     M1 --> M4
     M2 --> M5
@@ -91,8 +90,8 @@ flowchart LR
     M9 --> M10
 ```
 
-After M1 freezes contracts, M2 and the local-only portion of M3 may proceed in
-parallel. M6 and M7 may proceed in parallel after M5. M9 begins only when both
+After M1 freezes contracts, M2 and M3 may proceed in parallel. M6 and M7 may
+proceed in parallel after M5. M9 begins only when both
 artifact release paths exist. M10 is the sole owner of activation and removal of
 superseded startup behavior.
 
@@ -306,8 +305,8 @@ Deliver M2 and M3:
 - deterministic validation and sanitation; and
 - immutable sanitized `RunBundle`.
 
-Gate: a stopped synthetic run can be captured, sanitized, published to a fake
-GitHub boundary, downloaded, and verified byte-for-byte without an LLM.
+Gate: a stopped synthetic run can be captured, sanitized, committed to the local
+immutable bundle store, reopened, and verified byte-for-byte without an LLM.
 
 ### Wave 3 — evidence catalog
 
@@ -552,14 +551,17 @@ The implementation is complete only when:
 | D13 | Remove old formats and startup paths directly | Pre-release development has no compatibility obligation |
 | D14 | Route repositories by scope, never by benchmark | One registry keeps locations single-sourced while scope contracts and task adapters retain semantic separation |
 | D15 | Keep cross-run operator settings outside the existing campaign fingerprint | Capture, retrieval, publication, and cache knobs do not redefine scientific campaign identity; each cross-run artifact records its relevant configuration projection, and M9 binds those projections through `LaunchManifest` |
+| D16 | Bind publication twice: pre-release intent, then global artifact identity | A durable intent makes release retries exact; a write-once identity keeps every immutable artifact resolvable after `CURRENT` advances or loses a race |
+| D17 | Describe Git source and materialized packages independently | Snapshot indexes and split expert assets need not be Git files, while both closures must remain exact and verifiable |
+| D18 | Treat immutable publication and `CURRENT` activation as distinct outcomes | A final CAS loser remains auditable and reproducible but must not be reported as the active artifact |
 
 ## Progress ledger
 
 | Module | Status | Implementation reference | Validation reference | Blocker |
 |---|---|---|---|---|
 | M1 Contracts and Config | Complete | `kapso.cross_run.{canonical,contracts,settings}`, `kapso.core.config`, canonical `cross_run` config | 63 focused + 89 affected integration tests; installed-package/config/GitHub/import-boundary production checks; four `fable` max-reasoning reviews | — |
-| M2 GitHub Control Plane | Planned | — | — | M1 |
-| M3 Run Capture and Bundles | Planned | — | — | M1 transport contract |
+| M2 GitHub Control Plane | Complete | `kapso.cross_run.git_refs`, `kapso.cross_run.github`, strict GitHub/cache config | 203 focused + 4 affected tests; Black, diff, and standalone `gpt-5.6-sol` xhigh approval | — |
+| M3 Run Capture and Bundles | Planned | — | — | M1 |
 | M4 Catalog, Episodes, Claims | Planned | — | — | M3 |
 | M5 Snapshots, Search, Reader | Planned | — | — | M2, M4 |
 | M6 Ideation and Memory Bridge | Planned | — | — | M5 |

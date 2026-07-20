@@ -218,6 +218,18 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
     ("path", "value"),
     [
         (("github", "command_timeout_seconds"), 0),
+        (("github", "control_blob_size_bytes"), 0),
+        (("github", "content_write_budget_per_minute"), 1),
+        (("github", "content_write_budget_per_minute"), 34),
+        (("github", "git_tree_request_size_bytes"), 0),
+        (("github", "release_asset_count_limit"), 256),
+        (("github", "request_point_budget_per_minute"), 1),
+        (("github", "request_point_budget_per_minute"), 747),
+        (("github", "source_entry_limit"), 0),
+        (("github", "source_entry_limit"), 100000),
+        (("github", "source_tree_size_bytes"), 0),
+        (("github", "zstd_window_size_bytes"), 1),
+        (("github", "zstd_window_size_bytes"), 1023),
         (("knowledge", "retrieval", "lexical_weight"), 1.1),
         (("knowledge", "embeddings", "dimensions"), True),
         (("expert", "validation", "reviewer_count"), 0),
@@ -232,6 +244,24 @@ def test_invalid_operational_values_fail_before_external_work(path, value):
     target[path[-1]] = value
 
     with pytest.raises((ContractValidationError, CrossRunConfigurationError)):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_zstd_window_configuration_uses_decoder_byte_units():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["github"]["zstd_window_size_bytes"] = 1024
+
+    settings = CrossRunSettings.from_dict(raw)
+
+    assert settings.github.zstd_window_size_bytes == 1024
+
+
+def test_github_rate_budget_scales_with_failed_upload_recovery():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["github"]["release_asset_count_limit"] = 17
+    raw["github"]["content_write_budget_per_minute"] = 43
+
+    with pytest.raises(CrossRunConfigurationError, match="content-write budget"):
         CrossRunSettings.from_dict(raw)
 
 

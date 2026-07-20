@@ -1,6 +1,6 @@
 # Cross-run learning and the expert base
 
-Status: refined architecture; not implemented. This supersedes the earlier
+Status: M1–M2 implemented; M3–M10 planned. This supersedes the earlier
 merged-store/starter-kit proposal.
 
 Controlling implementation plan:
@@ -10,7 +10,7 @@ Controlling implementation plan:
 
 Kapso should learn on two timescales:
 
-1. **Fast evidence learning.** Every run publishes an immutable, provenance-bound
+1. **Fast evidence learning.** Every run produces an immutable, provenance-bound
    record of what was tried, what happened, and what remains unresolved.
 2. **Slow procedural learning.** Only reusable code that survives independent
    tests, replay, transfer checks, and review enters a versioned expert-base
@@ -251,8 +251,8 @@ After runs finish or stop, an offline, serialized publisher:
 1. receives an atomically published run capture in access-restricted quarantine;
 2. validates its checkpoint frontier, provenance, evaluation integrity, and
    allowlisted payload, then sanitizes it before global persistence;
-3. publishes an immutable sanitized `RunBundle` that supersedes any older capture
-   of the same run;
+3. commits an immutable sanitized `RunBundle` to the local content-addressed
+   handoff store, superseding any older capture of the same run;
 4. projects executed work into `TransferEpisode` records and unexecuted work into
    `PriorIdea` records;
 5. appends review assertions and proposes evidence-linked knowledge claims;
@@ -721,20 +721,20 @@ release tag, and asset digests; it never resolves `latest` after startup.
 | `RunCaptureExporter` | Reconciled local checkpoint frontier | Atomic restricted capture | Journal revisions; publish one complete generation with watermarks and supersession |
 | `CaptureValidator` | Restricted capture | Valid structural projection | Verify schema, hashes, trust, provenance, cross-artifact joins, and evaluation fingerprints |
 | `SanitationGate` | Valid quarantined capture and scope policy | Allowlisted payload + report | Detect secrets, eval leakage, forbidden artifacts, licenses, unsafe paths, and taint closure before global CAS |
-| `RunBundlePublisher` | Allowlisted payload | Immutable sanitized bundle | Content-address and attest one capture generation; never interpret results |
+| `RunBundlePublisher` | Allowlisted payload | Immutable local sanitized bundle | Content-address one capture generation for M4 handoff; never interpret results or call GitHub |
 | `EpisodeProjector` | Valid sanitized local store/archive | Episodes and prior ideas | Preserve exact source meaning; decompose execution/evaluation/comparison states; mint no lessons |
 | `ReviewRegistry` | Reviewer assertions | Append-only adjudicated view | Preserve authorship, rubric, conflict, supersession, and audit history |
 | `ClaimProposer` | Selected episodes and contradictions | Proposed/revised claims | Use a coding agent to abstract mechanisms; never admit or certify its own output |
 | `CrossRunCatalog` | Bundles, projections, assertions, claims | Ordered immutable generations | Global identity, lineage, exact assertion/revocation closure, taint, supersession, and auditability |
 | `KnowledgeSnapshotPublisher` | Catalog closure and policy | Immutable snapshot + CAS pointer | Deterministic admission, proof closure, revocation, sidecar indexing, attestation, and atomic publication |
-| `GitHubArtifactResolver` | Repository coordinates, artifact ID, trust roots | Verified local materialization | Resolve mutable heads only before launch; verify commit, immutable release, asset digests, and attestation; cache by content identity |
+| `GitHubArtifactResolver` | Resolved scope repositories, current pointer or artifact ID, trust roots | Verified local materialization | Resolve mutable heads only before launch or resolve a write-once artifact identity; verify the complete intent, exact Git source, immutable release/package, and attestation; cache by content identity |
 | `CrossRunRetriever` | Pinned snapshot and current query | Bounded prior packet | Hard compatibility before similarity; trust/outcome/diversity balance; no current-run mutation |
 | `PriorKnowledgeGate` | Pinned materialized snapshot or persisted prior packet | Read-only MCP results | Give coding-agent CLIs reproducible knowledge access; log exact record IDs and return complete records only |
 | `PriorKnowledgeAdapter` | Prior packet | v3 prompt/analysis input | Keep foreign refs typed and separate from local evidence; persist exact packet in batch provenance |
 | `ExpertRepoArchitect` | Scope contract, current release/map, task-family bindings, evidence | Architecture candidate with repository map | In bootstrap mode create the minimal initial topology; later propose atomic move/split/merge/refactor changes and capability lineage without mutating a stable release |
 | `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
 | `ExpertCandidateValidator` | Capability or architecture candidate and evaluator cascade | Promotion evidence | Scope conformance, contract/topology graph integrity, security, leakage, replay, fresh-task, cross-family, cost, and full-release regression checks |
-| `AutonomousGitHubPublisher` | Validated knowledge or expert artifact | Direct commit, immutable release, CAS pointer | Use the configured Git/`gh` identity, enforce expected-parent publication, and never activate an incomplete release |
+| `AutonomousGitHubPublisher` | Validated knowledge or expert artifact | Direct commit, immutable release, global identity, CAS pointer | Use the configured Git/`gh` identity, bind complete intent before release work, enforce expected-parent publication, and distinguish publication from activation |
 | `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
 | `LaunchResolver` | Scope registry, task binding, snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Resolve one configured repository pair; prevent torn combinations; enforce lineage, eligibility, compatibility, freshness, and denylist state |
 | `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
@@ -1079,7 +1079,8 @@ The split is mandatory because executable expert code and scientific-memory
 artifacts have different schemas, validation, retention, and leakage risks even
 though one autonomous identity writes both. Knowledge records and manifests remain
 small and inspectable in Git. Raw quarantine never enters GitHub. Sanitized
-run-bundle archives and large materializations are release assets, not Git objects;
+run-bundle audit closure and large materializations are packaged by the snapshot
+publisher as release assets, not standalone pre-admission releases or Git objects;
 [GitHub recommends](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
 keeping repositories small and using releases rather than regular Git for large
 distribution files.
@@ -1088,8 +1089,9 @@ distribution files.
 
 Enable [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
 on both repositories. GitHub then locks a published release's tag and assets and
-generates release provenance. Publication first creates a draft, uploads every
-asset, verifies each returned SHA-256 digest, and only then publishes it.
+generates release provenance. Publication first creates a draft, streams every
+asset through the raw upload endpoint with its manifest-bound filename and media
+type, verifies each returned SHA-256 digest, and only then publishes it.
 
 An expert release tag such as `expert/E000007` points at the exact validated source
 commit and carries `expert-release.json` plus its checksums. A knowledge release
@@ -1109,11 +1111,30 @@ configured asset-size bound; the manifest names every shard and digest. Do not
 put a growing SQLite database, vector index, dataset, weights, or trace archive in
 Git history.
 
-`CURRENT.json` is only a discovery pointer on the default branch. It
-contains the content ID, immutable tag, commit SHA, and asset digests. The trusted
-publisher updates it from an expected base commit without force. Readers resolve
-it once, verify the corresponding immutable release, and pin the result in their
-`LaunchManifest`.
+The Git source descriptor and materialized package descriptor are independent.
+The first binds every committed path, mode, size, raw-blob SHA-256, and Git blob
+identity. The second binds the complete installable package, including snapshot
+indexes or expert assets that need not be Git files.
+
+Git source is a small UTF-8 code/config/document tree, not an artifact store. The
+publisher submits its complete nested file closure in one Git tree request and
+checks GitHub's returned tree identity against a locally reconstructed, linear-time
+Git tree hash. Shipped limits admit at most 512 source entries, 8 MiB of source,
+a 32 MiB encoded tree request, and 16 release assets. Configuration validation
+also proves the worst-case transaction remains inside the configured GitHub
+80-content-write and 900-request-point minute budgets by taking the larger of the
+normal transaction and a retry that deletes and reuploads every configured asset.
+Larger or binary payloads belong in manifest-bound release assets. A publication
+or resolution traverses the immutable remote source closure exactly once,
+verifies that every bounded blob is UTF-8, and release completion does not repeat
+that bounded read.
+
+`CURRENT.json` is only an activation/discovery pointer on the default branch. It
+contains the content ID, complete publication-intent digest, immutable tag,
+commit/tree identities, source and package digests, and exact asset closure. The
+trusted publisher updates it from an expected base commit without force. Readers
+resolve it once, verify the corresponding intent and immutable release, and pin
+the result in their `LaunchManifest`.
 
 ### 8.2 Autonomous authority model
 
@@ -1146,14 +1167,40 @@ operator-selected trust model.
 `GitHubArtifactResolver` is the framework's canonical read/verification path even
 though the autonomous agent also has direct GitHub authority. For a fresh run it:
 
-1. resolves each default-branch head once and reads both `CURRENT.json`
-   files at those explicit commit SHAs;
-2. verifies publisher identity and resolves the immutable release records;
-3. downloads the expert source and materialized snapshot/search assets to staging;
-4. verifies release attestations, schemas, every asset digest, and the snapshot's
-   transitive proof closure;
-5. atomically installs content-addressed, read-only local cache entries;
-6. emits one `LaunchManifest` binding both artifacts and writes `BootstrapPin`.
+1. resolves each default-branch head once and reads both `CURRENT.json` files at
+   those explicit commit SHAs, or resolves an explicit write-once artifact identity;
+2. verifies the complete publication intent, publisher identity, source parent,
+   exact globally bounded non-recursive Git tree closure, and every bounded raw
+   blob;
+3. verifies the immutable tag, release record, asset closure, and attestation,
+   including the percent-encoded slash-bearing tag in its package URL;
+4. downloads the expert source and materialized snapshot/search assets to staging;
+5. accepts exactly one zstd frame; rejects concatenated, skippable, or trailing
+   frames, PAX/GNU extension headers, hidden regular-file members, and tar special
+   files in a bounded physical-header scan; charges both headers and implicit
+   parent directories to the entry budget; then verifies paths, schemas,
+   package/tree digests, and the snapshot's transitive proof closure;
+6. atomically installs content-addressed, read-only local cache entries; and
+7. emits one `LaunchManifest` binding both artifacts and writes `BootstrapPin`.
+
+Cache roots and kind directories must be ordinary directories with no symlinked
+ancestor. One advisory cache lease serializes cooperating Kapso materialization,
+inspection, and pruning operations. Descriptor anchoring preserves the identity
+of the directory being operated on and prevents symlink-following; canonical
+placement is revalidated before exposure and before irreversible deletion.
+Traversal is streamed under configured entry/byte bounds. Pruning atomically
+renames a canonical entry to a hidden tombstone before deletion, so a crash leaves
+reclaimable garbage rather than a partially writable canonical path. Staging and
+pruning debris from a hard crash is reclaimed under the lease before committed
+entry limits are enforced.
+
+The OS account running Kapso is inside the local trust boundary. These guards
+contain untrusted release bytes, reject pre-existing symlinks and corrupt state,
+and coordinate Kapso processes that honor the lease. They are not a sandbox
+against arbitrary code running as the same UID: such a process can rename any
+user-owned ancestor, modify Kapso itself, or ptrace the verifier. Deploy a narrow
+materialization service under a separate UID with root-owned, agent-read-only
+cache ancestors when hostile local code is in scope.
 
 There is no GitHub request in the scientific hot path. Resume verifies the local
 tree/package against its pin and never follows `CURRENT`; only the fresh
@@ -1221,16 +1268,23 @@ produce a catalog delta. The publisher rebuilds the complete snapshot and search
 sidecars, validates proof closure, commits directly, and publishes `S+1` without a
 human gate.
 
-Publication is ordered: commit the exact validated manifest/source tree from the
-expected parent, create a draft release at that commit, upload and verify all
-assets, publish the immutable release, and only then advance `CURRENT.json` in a
-separate compare-and-swap commit. A crash before the last step leaves an inactive
-but auditable commit or release; it cannot point readers at partial publication.
+Publication is ordered: validate the exact Git source and materialized package;
+commit the source tree from the expected parent; write a content-derived,
+write-once publication intent; bind the exact tag ref; create/resume a draft;
+upload and verify every asset; publish and verify the immutable release and
+attestation; write the publication record and pointer; bind a global write-once
+artifact-identity ref; and only then advance `CURRENT.json` in a separate
+compare-and-swap commit. A crash before the last step leaves an inactive but
+auditable artifact. It remains resolvable by artifact ID and cannot point current
+readers at partial publication.
 
 If two publishers start from the same commit, only one expected-parent update can
-succeed. The loser reloads the new base, deterministically unions catalog inputs or
-rebases the expert candidate, reruns all required checks, and retries. Correctness
-depends on explicit parent commits and non-force updates, not a GitHub queue.
+succeed. A loser before immutable publication reloads the new base; a loser at the
+final activation CAS retains a reproducible immutable identity but returns a typed
+conflict rather than false success. The domain publisher deterministically unions
+catalog inputs or rebases the expert candidate, reruns all required checks, and
+publishes a successor. Correctness depends on explicit parent commits, write-once
+refs, and non-force updates, not a GitHub queue.
 
 Archive retention and active-context budgeting remain separate. Immutable releases
 retain audit history; launch caches retain only pinned active packages under a
@@ -1326,8 +1380,8 @@ Concrete loop simulation:
    the sealed canary service, producing E3 in the same broad expert scope.
 6. A later run obtains the highest score with a benchmark-specific constant and leaked
    evaluator content. Sanitation rejects it regardless of performance.
-7. Concurrent runs launch from the same manifest binding E3 and S5. Both publish
-   bundles; neither mutates E3 or S5. The offline publisher combines
+7. Concurrent runs launch from the same manifest binding E3 and S5. Both commit
+   local bundles; neither mutates E3 or S5. The offline publisher combines
    their evidence.
 8. One candidate improves two anchors and regresses a third. It stays on the
    candidate Pareto frontier instead of becoming the universal base.

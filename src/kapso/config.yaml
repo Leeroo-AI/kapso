@@ -31,14 +31,30 @@ cross_run:
         expert: "Leeroo-AI/kapso-expert"
         knowledge: "Leeroo-AI/kapso-knowledge"
   github:
+    api_version: "2026-03-10"
+    minimum_cli_version: "2.93.0"
     default_branch: "main"
+    publisher_login: "leeroo-coder"
+    commit_author_name: "Kapso Autonomous Publisher"
+    commit_author_email: "kapso-publisher@users.noreply.github.com"
     expert_tag_prefix: "expert/"
     knowledge_tag_prefix: "knowledge/"
     cache_path: ".kapso/cross_run/github_cache"
     command_timeout_seconds: 120
     release_asset_size_bytes: &cross_run_asset_size_bytes 1073741824
+    release_asset_count_limit: 16
+    materialized_asset_size_bytes: 4294967296
+    archive_entry_limit: 100000
+    zstd_window_size_bytes: 134217728
+    source_tree_size_bytes: 8388608
+    source_entry_limit: 512
+    git_tree_request_size_bytes: 33554432
+    content_write_budget_per_minute: 80
+    request_point_budget_per_minute: 900
+    cache_entry_limit: 10000
+    git_tree_metadata_size_bytes: 67108864
+    control_blob_size_bytes: 262144
     cache_retention_releases: 3
-    publication_retry_limit: 2
   capture:
     state_path: ".kapso/cross_run/capture"
     quarantine_path: ".kapso/cross_run/quarantine"

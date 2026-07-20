@@ -21,12 +21,18 @@ from kapso.cross_run.contracts import (
     ScopeRepositorySettings,
     StrictContract,
 )
+from kapso.cross_run.git_refs import require_git_ref_name
 
 _SECRET_KEY_PATTERN = re.compile(
     r"^(?:.*_)?(?:access_token|api_key|auth_token|credential|credentials|oauth_token|password|private_key|secret|secrets|token)$",
     re.IGNORECASE,
 )
 _CLI_NAMES = ("claude_code", "codex")
+_MINIMUM_ZSTD_WINDOW_SIZE_BYTES = 1024
+_PUBLICATION_NORMAL_FIXED_CONTENT_WRITES = 18
+_PUBLICATION_RECOVERY_FIXED_CONTENT_WRITES = 10
+_PUBLICATION_AND_RESOLUTION_FIXED_READS = 64
+_CONTENT_WRITE_REQUEST_POINTS = 5
 
 
 class CrossRunConfigurationError(ValueError):
@@ -146,22 +152,58 @@ class ScopeRegistrySettings(StrictContract):
 
 @dataclass(frozen=True)
 class GitHubSettings(StrictContract):
+    api_version: str
+    minimum_cli_version: str
     default_branch: str
+    publisher_login: str
+    commit_author_name: str
+    commit_author_email: str
     expert_tag_prefix: str
     knowledge_tag_prefix: str
     cache_path: str
     command_timeout_seconds: int
     release_asset_size_bytes: int
+    release_asset_count_limit: int
+    materialized_asset_size_bytes: int
+    archive_entry_limit: int
+    zstd_window_size_bytes: int
+    source_tree_size_bytes: int
+    source_entry_limit: int
+    git_tree_request_size_bytes: int
+    content_write_budget_per_minute: int
+    request_point_budget_per_minute: int
+    cache_entry_limit: int
+    git_tree_metadata_size_bytes: int
+    control_blob_size_bytes: int
     cache_retention_releases: int
-    publication_retry_limit: int
 
     def _validate(self) -> None:
-        if not re.fullmatch(r"[A-Za-z0-9._/-]+", self.default_branch):
-            raise CrossRunConfigurationError("invalid GitHub default branch")
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", self.api_version):
+            raise CrossRunConfigurationError("invalid GitHub API version")
+        if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", self.minimum_cli_version):
+            raise CrossRunConfigurationError("invalid minimum GitHub CLI version")
+        require_git_ref_name(
+            f"refs/heads/{self.default_branch}",
+            "GitHub default branch",
+            qualified=True,
+            error_type=CrossRunConfigurationError,
+        )
+        if not re.fullmatch(r"[A-Za-z0-9-]+", self.publisher_login):
+            raise CrossRunConfigurationError("invalid GitHub publisher login")
+        if not self.commit_author_name.strip():
+            raise CrossRunConfigurationError("GitHub commit author name is required")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+", self.commit_author_email):
+            raise CrossRunConfigurationError("invalid GitHub commit author email")
         for name in ("expert_tag_prefix", "knowledge_tag_prefix"):
             value = getattr(self, name)
-            if not value.endswith("/") or not re.fullmatch(r"[A-Za-z0-9._/-]+", value):
+            if not isinstance(value, str) or not value.endswith("/"):
                 raise CrossRunConfigurationError(f"invalid {name}")
+            require_git_ref_name(
+                f"refs/tags/{value}artifact",
+                name,
+                qualified=True,
+                error_type=CrossRunConfigurationError,
+            )
         if self.expert_tag_prefix == self.knowledge_tag_prefix:
             raise CrossRunConfigurationError("expert and knowledge tags must differ")
         _require_path(self.cache_path, "github.cache_path")
@@ -172,10 +214,64 @@ class GitHubSettings(StrictContract):
             self.release_asset_size_bytes, "github.release_asset_size_bytes"
         )
         _require_positive(
-            self.cache_retention_releases, "github.cache_retention_releases"
+            self.release_asset_count_limit, "github.release_asset_count_limit"
         )
-        _require_non_negative(
-            self.publication_retry_limit, "github.publication_retry_limit"
+        _require_positive(
+            self.materialized_asset_size_bytes,
+            "github.materialized_asset_size_bytes",
+        )
+        _require_positive(self.archive_entry_limit, "github.archive_entry_limit")
+        _require_positive(
+            self.zstd_window_size_bytes,
+            "github.zstd_window_size_bytes",
+        )
+        if self.zstd_window_size_bytes < _MINIMUM_ZSTD_WINDOW_SIZE_BYTES:
+            raise CrossRunConfigurationError(
+                "github.zstd_window_size_bytes is below the decoder minimum"
+            )
+        _require_positive(self.source_tree_size_bytes, "github.source_tree_size_bytes")
+        _require_positive(self.source_entry_limit, "github.source_entry_limit")
+        _require_positive(
+            self.git_tree_request_size_bytes,
+            "github.git_tree_request_size_bytes",
+        )
+        _require_positive(
+            self.content_write_budget_per_minute,
+            "github.content_write_budget_per_minute",
+        )
+        _require_positive(
+            self.request_point_budget_per_minute,
+            "github.request_point_budget_per_minute",
+        )
+        maximum_content_writes = max(
+            _PUBLICATION_NORMAL_FIXED_CONTENT_WRITES + self.release_asset_count_limit,
+            _PUBLICATION_RECOVERY_FIXED_CONTENT_WRITES
+            + 2 * self.release_asset_count_limit,
+        )
+        if maximum_content_writes > self.content_write_budget_per_minute:
+            raise CrossRunConfigurationError(
+                "GitHub publication exceeds configured content-write budget"
+            )
+        maximum_request_points = (
+            self.source_entry_limit
+            + 1
+            + _PUBLICATION_AND_RESOLUTION_FIXED_READS
+            + maximum_content_writes * _CONTENT_WRITE_REQUEST_POINTS
+        )
+        if maximum_request_points > self.request_point_budget_per_minute:
+            raise CrossRunConfigurationError(
+                "GitHub publication/resolution exceeds configured request-point budget"
+            )
+        _require_positive(self.cache_entry_limit, "github.cache_entry_limit")
+        _require_positive(
+            self.git_tree_metadata_size_bytes,
+            "github.git_tree_metadata_size_bytes",
+        )
+        _require_positive(
+            self.control_blob_size_bytes, "github.control_blob_size_bytes"
+        )
+        _require_positive(
+            self.cache_retention_releases, "github.cache_retention_releases"
         )
 
 

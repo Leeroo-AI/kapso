@@ -2,7 +2,7 @@
 
 Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
-Depends on: M1. Uses M2's publication boundary after its contract is stable.
+Depends on: M1.
 
 ## Objective
 
@@ -18,7 +18,7 @@ jointly prove.
 - Cross-artifact structural/provenance validation.
 - Restricted local quarantine.
 - Deterministic scope/task-family sanitation and taint report.
-- Immutable sanitized `RunBundle` assembly/publication.
+- Immutable local sanitized `RunBundle` assembly and content-addressed storage.
 - Supersession of older captures from the same run.
 
 ## Proposed code surface
@@ -131,7 +131,7 @@ sanitation result.
 - [ ] Delete raw quarantine according to configured retention only after bundle
       publication/verification or explicit rejection recording.
 
-## Bundle publication
+## Bundle storage
 
 `RunBundlePublisher`:
 
@@ -139,8 +139,10 @@ sanitation result.
 - [ ] Content-addresses referenced blobs and avoids duplicate manifest payloads.
 - [ ] Preserves completion state and the honest capture frontier.
 - [ ] Publishes a later capture as a superseding bundle, never an overwrite.
-- [ ] Uses M2 to submit/publish the knowledge-repository delta; it never performs
-      GitHub calls itself.
+- [ ] Commits the bundle to an atomic local content-addressed store consumed by
+      M4; it never performs GitHub calls itself.
+- [ ] Leaves remote publication to M5, which packages admitted bundle audit
+      closure into the next immutable `KnowledgeSnapshot` release.
 - [ ] Does not label outcomes positive/negative, propose claims, or trigger expert
       evolution.
 
@@ -156,7 +158,7 @@ sanitation result.
 - Prove model weights/data/raw logs never enter sanitized output by default.
 - Prove repeated final capture is idempotent and a later frontier supersedes rather
   than double-counts the earlier one.
-- Round-trip a bundle through M2's fake publication/materialization boundary.
+- Round-trip a bundle through its local immutable store and M4 projection input.
 
 ## Definition of done
 

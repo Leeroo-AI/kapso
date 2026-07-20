@@ -20,6 +20,9 @@ weaviate-client>=4.0.0
 # OpenAI embeddings API
 openai>=1.0.0
 
+# Immutable cross-run release package extraction
+zstandard>=0.22.0
+
 # Configuration file parsing
 PyYAML
 
