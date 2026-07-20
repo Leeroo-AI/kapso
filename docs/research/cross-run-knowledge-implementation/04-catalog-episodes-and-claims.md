@@ -88,9 +88,9 @@ source idea never linked to a node      -> one PriorIdea
 - [ ] Make disputed evidence ineligible for exploit anchoring and expert promotion.
 - [ ] Propagate later revocation/taint to every dependent catalog subject.
 
-Reviewer assertions may come from authorized humans or a separately configured
-review service. The claim-proposing coding-agent invocation cannot review or admit
-its own output.
+Reviewer assertions come from a separately configured autonomous coding-agent role
+or review service. The pipeline never pauses for human approval, and the
+claim-proposing invocation cannot review or admit its own output.
 
 ## Claim proposer
 

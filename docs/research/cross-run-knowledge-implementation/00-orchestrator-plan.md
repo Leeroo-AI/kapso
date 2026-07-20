@@ -16,8 +16,8 @@ first updating this plan.
 
 Every evolve run starts from one attested `LaunchManifest` binding:
 
-- an immutable `ExpertBaseRelease` from a protected GitHub expert repository;
-- an immutable, locally materialized `KnowledgeSnapshot` from a protected GitHub
+- an immutable `ExpertBaseRelease` from a private GitHub expert repository;
+- an immutable, locally materialized `KnowledgeSnapshot` from a private GitHub
   knowledge repository;
 - one task adapter and `ExpertScopeContract`;
 - exact runtime/dependency and security-denylist generations; and
@@ -39,7 +39,7 @@ not the live experiment store, and not a raw-trace data lake.
 | ID | Module plan | Responsibility | Depends on |
 |---|---|---|---|
 | M1 | [`01-contracts-and-config.md`](01-contracts-and-config.md) | Domain-neutral schemas, canonical identity, strict config | — |
-| M2 | [`02-github-control-plane.md`](02-github-control-plane.md) | GitHub transport, candidate PR gate, immutable releases, verified cache | M1 |
+| M2 | [`02-github-control-plane.md`](02-github-control-plane.md) | Autonomous direct GitHub publication, immutable releases, verified cache | M1 |
 | M3 | [`03-run-capture-and-bundles.md`](03-run-capture-and-bundles.md) | Atomic capture, execution journal, quarantine, sanitation, `RunBundle` | M1; M2 publication boundary |
 | M4 | [`04-catalog-episodes-and-claims.md`](04-catalog-episodes-and-claims.md) | Episode/prior-idea projection, assertions, claims, catalog generations | M1, M3 |
 | M5 | [`05-snapshots-search-and-reader.md`](05-snapshots-search-and-reader.md) | Snapshot packaging, embeddings/indexes, retrieval, read-only MCP gate | M1, M2, M4 |
@@ -152,8 +152,7 @@ src/kapso/cross_run/
   settings.py
   github/
     command.py
-    candidate_publisher.py
-    release_publisher.py
+    publisher.py
     resolver.py
     materializer.py
   capture/
@@ -288,8 +287,8 @@ or a coding-agent adapter.
 
 Deliver M2 and M3:
 
-- fakeable Git/`gh` boundary and protected-ref protocol;
-- candidate PR and immutable-release transaction primitives;
+- fakeable Git/`gh` boundary and expected-parent direct-write protocol;
+- autonomous commit and immutable-release transaction primitives;
 - verified transactional local cache;
 - atomic run capture and execution-revision journal;
 - deterministic validation and sanitation; and
@@ -347,10 +346,11 @@ Deliver M7:
 - evidence-backed capability and architecture triggers;
 - isolated expert candidates and repository-map lineage;
 - deterministic semantic-book compilation; and
-- candidate pull-request publication.
+- validated handoff to autonomous direct publication.
 
-Gate: a coding agent can propose a complete candidate, but cannot change a stable
-release or its generated book directly.
+Gate: a coding agent can propose and write a complete candidate autonomously, but
+it becomes an active release only after the automated validation state machine and
+immutable publication complete.
 
 ### Wave 7 — expert validation and release
 
@@ -402,7 +402,7 @@ sequenceDiagram
     participant K as Knowledge Publisher
     participant X as Expert Evolution
 
-    L->>G: resolve protected CURRENT files
+    L->>G: resolve CURRENT files at exact commits
     G-->>L: immutable E and S records/assets
     L->>L: verify, materialize, write LaunchManifest/BootstrapPin
     L->>E: expert workspace + read-only snapshot + task adapter
@@ -410,11 +410,10 @@ sequenceDiagram
     E->>C: atomic reconciled capture generation
     C->>K: sanitized RunBundle
     K->>K: episodes, prior ideas, claims, review, catalog generation
-    K->>G: candidate PR, checks, immutable S+1, CAS CURRENT
+    K->>G: validate, direct commit, immutable S+1, CAS CURRENT
     K->>X: supported triggers and pinned evidence packet
-    X->>G: expert candidate PR
-    G->>X: required validation/review results
-    X->>G: immutable E+1, then CAS CURRENT
+    X->>X: automated review and evaluator cascade
+    X->>G: direct commit, immutable E+1, CAS CURRENT
 ```
 
 ## Global invariants
@@ -508,8 +507,10 @@ The implementation is complete only when:
 - ideation resume performs no unrecorded cross-run retrieval;
 - a stopped/crashed run can be harvested from its last reconciled frontier;
 - catalog and release races preserve all admitted evidence;
-- coding agents cannot access GitHub/OpenAI credentials;
-- the expert and knowledge repositories enforce the documented rulesets;
+- coding agents use the configured Git/`gh` identity without copying credentials
+  into prompts, artifacts, config, or logs;
+- the expert and knowledge repositories allow autonomous direct publication and
+  enforce immutable releases;
 - immutable GitHub publication and attestation verification work in production;
 - the old startup and persistence paths are absent; and
 - full tests pass after legacy deletion.
@@ -521,10 +522,10 @@ The implementation is complete only when:
 | D1 | Use ten module plans | Match transaction boundaries and keep high-conflict files singly owned |
 | D2 | Create `kapso.cross_run` | Cross-run behavior spans strategies and must not inherit Generic assumptions |
 | D3 | Keep `kapso.knowledge_base` separate | Wiki/research knowledge is not experiment evidence or scientific truth |
-| D4 | Use two GitHub repositories per scope | Expert code and scientific memory have different writers, reviews, and retention |
+| D4 | Use two GitHub repositories per scope | Expert code and scientific memory have different artifact structures, validation, retention, and leakage risks |
 | D5 | Keep large packages/indexes in immutable release assets | Avoid unbounded Git history and keep clean-machine materialization simple |
 | D6 | Keep GitHub locations outside content identity | Preserve artifact identity across authorized relocation |
-| D7 | Never pass raw GitHub credentials to agents | Preserve proposal/promotion separation and resist prompt-exfiltration paths |
+| D7 | Use one fully authorized external Git/`gh` identity | The operator explicitly trusts autonomous agents to read and write both repositories without human gates |
 | D8 | Semantic search runs locally over a pinned package | Avoid mutable remote queries and make retrieval reproducible |
 | D9 | Prefetch ideation knowledge, then expose packet-only MCP reads | Give CLI agents reader access without unrecorded dynamic retrieval |
 | D10 | Use exact cosine before ANN | Keep the early corpus simple; add deterministic ANN only after measured threshold |

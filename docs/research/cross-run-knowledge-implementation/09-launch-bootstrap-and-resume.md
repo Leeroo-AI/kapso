@@ -68,8 +68,8 @@ budget/fidelity envelope
 `LaunchResolver`:
 
 - [ ] Validates the request against the current `ExpertScopeContract`.
-- [ ] Uses M2 to resolve expert and knowledge discovery pointers once at protected
-      branch commits.
+- [ ] Uses M2 to resolve expert and knowledge discovery pointers once at exact
+      default-branch commits.
 - [ ] Resolves and verifies the exact task adapter.
 - [ ] Checks release/module preconditions, task-family bindings, context dimensions,
       dependency/runtime/hardware compatibility, expiration/revalidation, and

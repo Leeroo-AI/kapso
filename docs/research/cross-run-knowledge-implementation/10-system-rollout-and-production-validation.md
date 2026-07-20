@@ -13,7 +13,7 @@ cross-run learning as the sole supported evolve startup/publication design.
 ## Owned responsibilities
 
 - Operational commands and status/diagnostic output.
-- GitHub repository/workflow/ruleset setup documentation and validation.
+- Minimal autonomous GitHub repository/authentication setup and validation.
 - Cross-module deterministic, failure-injection, and scenario-replay suites.
 - Credentialed Codex/Claude/OpenAI/GitHub production tests.
 - Clean-machine and offline-resume tests.
@@ -70,8 +70,8 @@ kapso cross-run revoke
       expected parent identities.
 - [ ] `inspect`/`verify` are read-only and work against local pins when applicable.
 - [ ] Provider diagnostics distinguish missing authentication, insufficient
-      permission, ruleset rejection, network failure, schema corruption, and digest
-      failure without fallback.
+      permission, stale-parent conflict, network failure, schema corruption, and
+      digest failure without fallback.
 
 ## Deterministic integration suite
 
@@ -88,8 +88,8 @@ Build typed fixtures for:
 - late contamination causing claim/candidate/release taint and revocation; and
 - clean successor release plus rollback/reproducibility of older runs.
 
-- [ ] Use deterministic fake coding-agent, embedding, GitHub, reviewer, evaluator,
-      and sealed-service boundaries for the primary CI suite.
+- [ ] Use deterministic fake coding-agent, embedding, GitHub, automated-reviewer,
+      evaluator, and sealed-service boundaries for the primary CI suite.
 - [ ] Assert complete artifacts and side effects, not mock call counts alone.
 - [ ] Verify content IDs/bytes under input reordering and independent process runs.
 - [ ] Validate all fail-loud paths and absence of partial durable state.
@@ -103,7 +103,7 @@ Inject process failure immediately before/after:
 - quarantine sanitation and bundle publication;
 - catalog generation and claim proposal artifact persistence;
 - snapshot/index packaging;
-- candidate branch push/PR creation;
+- expected-parent direct commit;
 - GitHub draft creation and each release-asset upload;
 - immutable release publication and `CURRENT.json` CAS;
 - expert workspace extraction/rename/bootstrap pin;
@@ -146,23 +146,23 @@ Production tests are manually/explicitly enabled and never run in normal CI:
 
 1. **Read-only GitHub smoke:** resolve private expert/knowledge EMPTY/E0 releases,
    verify attestations/digests, materialize twice, and prove cache reuse.
-2. **Knowledge publication smoke:** publish one sanitized synthetic bundle and a
-   candidate knowledge PR, run required checks/review, publish immutable S1, and
-   resolve it from a clean directory.
+2. **Knowledge publication smoke:** publish one sanitized synthetic bundle, run
+   automated admission, commit directly, publish immutable S1, and resolve it from
+   a clean directory.
 3. **Embedding smoke:** build/rebuild S1 search sidecars through the official OpenAI
    embeddings endpoint and verify stable space/input identities.
 4. **Ideation CLI smoke:** run one Codex or Claude Code ideation batch with the
-   packet-only MCP reader; verify packet/MCP provenance and absence of GitHub/OpenAI
-   credentials in the agent environment.
-5. **Expert bootstrap smoke:** let the configured coding-agent CLI propose E0 in a
-   disposable expert repository; validate, review, publish, and verify the semantic
-   book/repository map.
+   packet-only MCP reader; verify packet/MCP provenance, configured GitHub write
+   access, and absence of secret bytes from prompts/artifacts/logs.
+5. **Expert bootstrap smoke:** let the configured coding-agent CLI propose E0 in
+   the configured expert repository; validate through automated independent roles,
+   publish directly, and verify the semantic book/repository map.
 6. **Expert successor smoke:** create one mechanically general synthetic fix,
    validate through the configured non-sealed cascade, publish E1, and ensure a new
    launch pins E1 while the old run remains on E0.
 7. **Concurrency smoke:** race two knowledge candidates and two expert candidates;
    verify merge/CAS conflict behavior without data loss or force updates.
-8. **Revocation smoke:** revoke the disposable release, refresh the denylist, and
+8. **Revocation smoke:** revoke the synthetic smoke release, refresh the denylist, and
    prove new launch/resume blocking under security policy.
 9. **Clean-machine smoke:** with only configured provider authentication and task
    input, resolve/materialize/run from immutable releases without historical run
@@ -178,20 +178,29 @@ Do not paste long-lived secrets into prompts, commits, config, test output, or t
 repository. Before production smokes, the operator supplies authentication through
 the provider-owned mechanisms:
 
+### Provisioned GitHub resources
+
+Verified on 2026-07-20:
+
+- owner: `Leeroo-AI`;
+- expert repository: `Leeroo-AI/kapso-expert`, private, default branch `main`;
+- knowledge repository: `Leeroo-AI/kapso-knowledge`, private, default branch `main`;
+- autonomous actor: `leeroo-coder`, authenticated through the external SSH/`gh`
+  credential stores with repository administrator authority;
+- immutable releases: enabled on both repositories; and
+- branch/tag rulesets: none.
+
+No credential value is stored in this repository. M2 preflight must revalidate
+this external state rather than trusting the planning-time observation.
+
 ### Required
 
-- GitHub organization/owner and the two disposable private repository names.
-- An authenticated **read** GitHub App installation or `gh` profile with metadata,
-  contents, and release-asset read permission for both repositories.
-- An authenticated **candidate publisher** GitHub App installation limited to the
-  disposable repositories with metadata read, contents read/write, and pull-request
-  read/write permission; no administration, secrets, workflow mutation, or stable
-  ruleset bypass.
-- A **stable publisher** GitHub Actions identity or separate App allowed by the
-  repository policy to merge approved exact commits, create protected release tags,
-  upload/publish releases, and generate/verify attestations.
-- Protected branch/tag rulesets, required checks/reviewers, and immutable releases
-  enabled on both repositories.
+- GitHub organization/owner and the two private repository names.
+- One authenticated Git/`gh` profile with full read/write authority for both
+  repositories, including direct commits, tags, releases, assets, and workflows.
+- Direct default-branch writes enabled with no pull-request, reviewer, ruleset, or
+  human approval requirement.
+- Immutable releases enabled on both repositories.
 - An authenticated supported coding-agent CLI: Codex login/profile or Claude Code
   login/provider configuration. Only the CLI selected in `config.yaml` is required.
 - OpenAI embeddings authentication available to the trusted parent process through
@@ -203,7 +212,8 @@ the provider-owned mechanisms:
 - Task-adapter repository/artifact access and any public task data/runtime required
   by the chosen RelBench or language-post-training smoke.
 - Compute runner credentials/capacity for configured training/evaluation jobs.
-- Trusted reviewer identities/attestation mechanism for claim and expert approval.
+- Configured autonomous reviewer/evaluator identities or services for claim and
+  expert admission; they execute without human intervention.
 
 ### Optional until sealed promotion testing
 
@@ -223,8 +233,8 @@ After the credentialed path passes:
 - [ ] Delete active `initial_repo`/starter-selection cloning and config/docs.
 - [ ] Delete any prototype merged cross-run experiment store.
 - [ ] Delete duplicate embedding providers and old imports.
-- [ ] Delete direct GitHub PAT/env/agent publication paths used by the new feature;
-      do not reuse the legacy wiki-repository creator's credential behavior.
+- [ ] Delete any prototype GitHub App, candidate-PR, or human approval path; retain
+      only the configured external Git/`gh` credential discovery.
 - [ ] Delete fallback retrieval/publication paths and legacy aliases.
 - [ ] Run the complete suite after deletion and verify repository search finds no
       superseded schema/config/prompt names.
@@ -232,9 +242,10 @@ After the credentialed path passes:
 ## Definition of done
 
 - All deterministic and failure-injection suites pass.
-- All required real-provider smokes pass in disposable private repositories.
-- Provider credentials are absent from agent artifacts/process environments.
-- GitHub rulesets and immutable releases enforce the documented authority model.
+- All required real-provider smokes pass in the configured private repositories.
+- Provider credential bytes are absent from prompts, artifacts, config, and logs.
+- Autonomous direct GitHub publication and immutable releases enforce the
+  documented operating model.
 - Matched domain-neutral scenarios produce auditable evidence without overclaiming
   transfer benefit.
 - The GitHub-backed launch/publication path is the only supported path.

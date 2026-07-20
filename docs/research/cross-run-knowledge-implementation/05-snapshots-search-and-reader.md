@@ -175,13 +175,12 @@ shortcut.
 
 ## Knowledge release publication
 
-- [ ] Submit the reviewable snapshot manifest/catalog delta through M2's candidate
-      PR boundary.
-- [ ] Required CI rebuilds canonical package and search sidecars from the merged
-      exact catalog generation.
+- [ ] Run automated admission on the exact snapshot manifest/catalog delta.
+- [ ] Rebuild the canonical package and search sidecars from the admitted exact
+      catalog generation.
 - [ ] Compare built IDs/digests with the proposed manifest.
-- [ ] Use M2's stable transaction to publish the immutable knowledge release, then
-      CAS `CURRENT.json`.
+- [ ] Use M2's autonomous transaction to commit directly, publish the immutable
+      knowledge release, then CAS `CURRENT.json`.
 - [ ] On CAS conflict, reload the catalog base, rebuild the deterministic union,
       rerun checks, and publish a new identity.
 

@@ -19,7 +19,7 @@ book mechanically synchronized.
 - Candidate workspace/store and immutable manifest.
 - `ExpertRepositoryMap`, module contracts, and capability lineage.
 - Deterministic `EXPERT_REPO.md` compilation and validation.
-- Candidate pull-request submission through M2.
+- Validated candidate handoff to M8's autonomous release path.
 
 ## Proposed code surface
 
@@ -139,8 +139,8 @@ ancestors, and a proof-closed knowledge packet.
       candidate proposal identity.
 - [ ] Identical candidate replay is idempotent; conflicting content under one ID
       fails.
-- [ ] Submit only locally schema/sanitation-valid candidates through M2's candidate
-      publisher.
+- [ ] Hand only locally schema/sanitation-valid candidates to M8's automated
+      validation state machine.
 
 ## Semantic book compiler
 
@@ -169,7 +169,8 @@ ancestors, and a proof-closed knowledge packet.
 - Verify path moves preserve capability IDs and splits/merges require lineage.
 - Compile the same book from shuffled inputs and require identical bytes.
 - Break each path/link/dependency/test/evidence ref and require rejection.
-- Prove agent cannot publish E0/E+1 or edit the generated book.
+- Prove proposer output alone cannot activate E0/E+1 and manual book edits fail
+  deterministic validation.
 
 ## Definition of done
 

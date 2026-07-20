@@ -16,7 +16,7 @@ release. No proposer, score, or single task can grant promotion authority.
 - Static/security/sanitation/identity/dependency/license gates.
 - Source replay, synthetic fresh-task, development-anchor, cross-family, sealed
   canary, cost, and release-wide regression evidence.
-- Trusted reviewer assertions and Pareto-aware promotion decision.
+- Independent automated reviewer assertions and Pareto-aware promotion decision.
 - Candidate rebase/composition against current stable release.
 - Final source/map/contracts/book assembly and immutable GitHub publication.
 - Performance/security/contamination revocation behavior.
@@ -39,9 +39,10 @@ tests/
   test_expert_revocation.py
 ```
 
-Target expert repositories also receive generated, reviewed workflow definitions
-for candidate validation and release publication. Workflow changes follow the same
-candidate/review path and are never agent-writable through the normal gate.
+Target expert repositories may also receive generated workflow definitions for
+validation and release publication. The autonomous agent may change them directly;
+their exact content is included in the candidate identity and must pass the same
+automated evaluator cascade before activation.
 
 ## Evaluator cascade
 
@@ -56,7 +57,7 @@ contract/schema
 -> visible development anchors
 -> configured cross-family transfer matrix
 -> sealed canary attestation
--> trusted reviewer approval
+-> independent automated reviewer decision
 -> complete release matrix
 -> publication eligibility
 ```
@@ -77,13 +78,14 @@ contract/schema
 - [ ] Treat noise-floor gains as inconclusive until configured repeat evidence
       exists.
 
-## Review and decision
+## Automated review and decision
 
-- [ ] Accept reviewer assertions only from configured trusted identities/roles.
+- [ ] Accept reviewer assertions only from configured autonomous identities/roles.
 - [ ] Require exact candidate, evidence, evaluator-run, rubric, and parent-release
       references.
 - [ ] Preserve conflicting reviews as disputed; do not overwrite by time.
-- [ ] Coding-agent proposers cannot review their own output or transition state.
+- [ ] A separate coding-agent/service role reviews each proposal; the proposing
+      invocation cannot review its own output or transition state.
 - [ ] Supported task-specific improvements remain knowledge/task-adapter candidates,
       never expert core.
 - [ ] Failed or non-dominated candidates stay immutable in the candidate archive;
@@ -91,7 +93,8 @@ contract/schema
 
 Promotion states are explicit: `ineligible`, `validating`, `failed`, `disputed`,
 `pareto_retained`, `approved`, `released`, and `revoked` as frozen by M1. There is
-no implicit promotion from a merged pull request.
+no implicit promotion from a direct Git commit; only a completely validated
+immutable release referenced by `CURRENT.json` is active.
 
 ## Rebase and composition
 
@@ -106,7 +109,7 @@ Before release:
       bounds.
 - [ ] Rerun the complete cascade/release matrix on the exact composed tree.
 - [ ] Preserve all candidate ancestry/evidence in the release manifest.
-- [ ] Serialize final publication through the explicit protected-base/CAS protocol.
+- [ ] Serialize final publication through the explicit expected-parent/CAS protocol.
 
 ## Release assembly and GitHub publication
 
@@ -118,7 +121,7 @@ Before release:
    evaluation, Git metadata, and task outputs;
 4. builds the history-free source archive, dependency lock, release manifest,
    checksums, and test-matrix summary;
-5. submits/verifies the protected source commit;
+5. commits the exact validated source directly from the expected parent;
 6. invokes M2's immutable-release transaction; and
 7. advances expert `CURRENT.json` only after immutable publication verifies.
 
