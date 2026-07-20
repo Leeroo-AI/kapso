@@ -12,7 +12,12 @@ from kapso.core.llm import (
     RetryPolicy,
     is_transient_llm_error,
 )
-from kapso.core.config import load_config, load_mode_config
+from kapso.core.config import (
+    compose_runtime_config,
+    load_config,
+    load_effective_config,
+    load_mode_config,
+)
 
 __all__ = [
     # Types
@@ -26,6 +31,8 @@ __all__ = [
     "RetryPolicy",
     "is_transient_llm_error",
     # Config
+    "compose_runtime_config",
     "load_config",
+    "load_effective_config",
     "load_mode_config",
 ]

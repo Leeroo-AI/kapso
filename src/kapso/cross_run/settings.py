@@ -1,0 +1,544 @@
+"""Strict configuration and scope routing for cross-run behavior."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    to_json_value,
+    tree_or_blob_digest,
+)
+from kapso.cross_run.contracts import (
+    ContractValidationError,
+    CrossRunTaskBindingSettings,
+    ExpertScopeContract,
+    IdentityConflictError,
+    ScopeRepositorySettings,
+    StrictContract,
+)
+
+_SECRET_KEY_PATTERN = re.compile(
+    r"^(?:.*_)?(?:access_token|api_key|auth_token|credential|credentials|oauth_token|password|private_key|secret|secrets|token)$",
+    re.IGNORECASE,
+)
+_CLI_NAMES = ("claude_code", "codex")
+
+
+class CrossRunConfigurationError(ValueError):
+    """Cross-run configuration is missing, malformed, or contradictory."""
+
+
+def _require_path(value: str, name: str) -> None:
+    if not value:
+        raise CrossRunConfigurationError(f"{name} must not be empty")
+    path = PurePosixPath(value)
+    if ".." in path.parts or value != path.as_posix():
+        raise CrossRunConfigurationError(f"{name} must be a normalized path")
+
+
+def _require_positive(value: int | float, name: str) -> None:
+    if value <= 0:
+        raise CrossRunConfigurationError(f"{name} must be positive")
+
+
+def _require_non_negative(value: int | float, name: str) -> None:
+    if value < 0:
+        raise CrossRunConfigurationError(f"{name} must be non-negative")
+
+
+def _require_ratio(value: float, name: str) -> None:
+    if not 0.0 <= value <= 1.0:
+        raise CrossRunConfigurationError(f"{name} must be in [0, 1]")
+
+
+def _require_cli(value: str, name: str) -> None:
+    if value not in _CLI_NAMES:
+        raise CrossRunConfigurationError(f"{name} must be one of {_CLI_NAMES}")
+
+
+def _reject_secret_keys(value: Any, path: str = "cross_run") -> None:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if _SECRET_KEY_PATTERN.search(str(key)):
+                raise CrossRunConfigurationError(
+                    f"secret-bearing configuration key is forbidden: {path}.{key}"
+                )
+            _reject_secret_keys(child, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for position, child in enumerate(value):
+            _reject_secret_keys(child, f"{path}[{position}]")
+
+
+@dataclass(frozen=True)
+class ScopeRegistrySettings(StrictContract):
+    scopes: tuple[ScopeRepositorySettings, ...]
+
+    def _validate(self) -> None:
+        if not self.scopes:
+            raise CrossRunConfigurationError("scope registry must not be empty")
+        scope_ids = tuple(scope.scope_id for scope in self.scopes)
+        if scope_ids != tuple(sorted(set(scope_ids))):
+            raise IdentityConflictError("scope registry must be sorted and unique")
+        repositories: set[str] = set()
+        for scope in self.scopes:
+            pair = (scope.expert_repository, scope.knowledge_repository)
+            for repository in pair:
+                if repository in repositories:
+                    raise IdentityConflictError(
+                        f"repository {repository} belongs to more than one scope"
+                    )
+                repositories.add(repository)
+
+    @classmethod
+    def from_config(cls, payload: Mapping[str, Any]) -> ScopeRegistrySettings:
+        if not isinstance(payload, Mapping):
+            raise CrossRunConfigurationError("cross_run.scopes must be an object")
+        scopes: list[ScopeRepositorySettings] = []
+        for scope_id in sorted(payload):
+            value = payload[scope_id]
+            if not isinstance(value, Mapping) or set(value) != {"repositories"}:
+                raise CrossRunConfigurationError(
+                    f"scope {scope_id} must contain only repositories"
+                )
+            repositories = value["repositories"]
+            if not isinstance(repositories, Mapping) or set(repositories) != {
+                "expert",
+                "knowledge",
+            }:
+                raise CrossRunConfigurationError(
+                    f"scope {scope_id} repositories must contain expert and knowledge"
+                )
+            scopes.append(
+                ScopeRepositorySettings(
+                    scope_id=scope_id,
+                    expert_repository=repositories["expert"],
+                    knowledge_repository=repositories["knowledge"],
+                )
+            )
+        return cls(scopes=tuple(scopes))
+
+    def resolve(self, scope_id: str) -> ScopeRepositorySettings:
+        matches = tuple(scope for scope in self.scopes if scope.scope_id == scope_id)
+        if not matches:
+            raise CrossRunConfigurationError(f"unknown cross-run scope: {scope_id}")
+        return matches[0]
+
+    @property
+    def fingerprint(self) -> str:
+        return tree_or_blob_digest(canonical_json_bytes(self.to_config()))
+
+    def to_config(self) -> dict[str, Any]:
+        return {
+            scope.scope_id: {
+                "repositories": {
+                    "expert": scope.expert_repository,
+                    "knowledge": scope.knowledge_repository,
+                }
+            }
+            for scope in self.scopes
+        }
+
+
+@dataclass(frozen=True)
+class GitHubSettings(StrictContract):
+    default_branch: str
+    expert_tag_prefix: str
+    knowledge_tag_prefix: str
+    cache_path: str
+    command_timeout_seconds: int
+    release_asset_size_bytes: int
+    cache_retention_releases: int
+    publication_retry_limit: int
+
+    def _validate(self) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", self.default_branch):
+            raise CrossRunConfigurationError("invalid GitHub default branch")
+        for name in ("expert_tag_prefix", "knowledge_tag_prefix"):
+            value = getattr(self, name)
+            if not value.endswith("/") or not re.fullmatch(r"[A-Za-z0-9._/-]+", value):
+                raise CrossRunConfigurationError(f"invalid {name}")
+        if self.expert_tag_prefix == self.knowledge_tag_prefix:
+            raise CrossRunConfigurationError("expert and knowledge tags must differ")
+        _require_path(self.cache_path, "github.cache_path")
+        _require_positive(
+            self.command_timeout_seconds, "github.command_timeout_seconds"
+        )
+        _require_positive(
+            self.release_asset_size_bytes, "github.release_asset_size_bytes"
+        )
+        _require_positive(
+            self.cache_retention_releases, "github.cache_retention_releases"
+        )
+        _require_non_negative(
+            self.publication_retry_limit, "github.publication_retry_limit"
+        )
+
+
+@dataclass(frozen=True)
+class CaptureSettings(StrictContract):
+    state_path: str
+    quarantine_path: str
+    journal_filename: str
+    bundle_asset_size_bytes: int
+    capture_interval_seconds: int
+
+    def _validate(self) -> None:
+        _require_path(self.state_path, "capture.state_path")
+        _require_path(self.quarantine_path, "capture.quarantine_path")
+        _require_path(self.journal_filename, "capture.journal_filename")
+        _require_positive(
+            self.bundle_asset_size_bytes, "capture.bundle_asset_size_bytes"
+        )
+        _require_positive(
+            self.capture_interval_seconds, "capture.capture_interval_seconds"
+        )
+
+
+@dataclass(frozen=True)
+class SanitationSettings(StrictContract):
+    policy_version: str
+    max_file_bytes: int
+    allowed_suffixes: tuple[str, ...]
+    denied_path_patterns: tuple[str, ...]
+
+    def _validate(self) -> None:
+        if not self.policy_version:
+            raise CrossRunConfigurationError("sanitation.policy_version is required")
+        _require_positive(self.max_file_bytes, "sanitation.max_file_bytes")
+        if not self.allowed_suffixes or self.allowed_suffixes != tuple(
+            sorted(set(self.allowed_suffixes))
+        ):
+            raise CrossRunConfigurationError(
+                "sanitation.allowed_suffixes must be sorted and unique"
+            )
+        if not self.denied_path_patterns:
+            raise CrossRunConfigurationError(
+                "sanitation.denied_path_patterns must not be empty"
+            )
+
+
+@dataclass(frozen=True)
+class CatalogSettings(StrictContract):
+    state_path: str
+    claim_proposer_cli: str
+    reviewer_cli: str
+    reviewer_count: int
+    publication_interval_runs: int
+
+    def _validate(self) -> None:
+        _require_path(self.state_path, "catalog.state_path")
+        _require_cli(self.claim_proposer_cli, "catalog.claim_proposer_cli")
+        _require_cli(self.reviewer_cli, "catalog.reviewer_cli")
+        _require_positive(self.reviewer_count, "catalog.reviewer_count")
+        _require_positive(
+            self.publication_interval_runs, "catalog.publication_interval_runs"
+        )
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings(StrictContract):
+    provider: str
+    model: str
+    dimensions: int
+    batch_size: int
+    timeout_seconds: int
+    max_retries: int
+
+    def _validate(self) -> None:
+        if self.provider != "openai":
+            raise CrossRunConfigurationError(
+                "only the configured OpenAI provider is supported"
+            )
+        if not self.model:
+            raise CrossRunConfigurationError("embedding model is required")
+        _require_positive(self.dimensions, "knowledge.embeddings.dimensions")
+        _require_positive(self.batch_size, "knowledge.embeddings.batch_size")
+        _require_positive(self.timeout_seconds, "knowledge.embeddings.timeout_seconds")
+        _require_non_negative(self.max_retries, "knowledge.embeddings.max_retries")
+
+
+@dataclass(frozen=True)
+class RetrievalSettings(StrictContract):
+    lexical_weight: float
+    max_records: int
+    max_records_per_run: int
+    max_records_per_family: int
+    prompt_token_budget: int
+
+    def _validate(self) -> None:
+        _require_ratio(self.lexical_weight, "knowledge.retrieval.lexical_weight")
+        for name in (
+            "max_records",
+            "max_records_per_run",
+            "max_records_per_family",
+            "prompt_token_budget",
+        ):
+            _require_positive(getattr(self, name), f"knowledge.retrieval.{name}")
+        if self.max_records_per_run > self.max_records:
+            raise CrossRunConfigurationError("per-run cap exceeds total record cap")
+        if self.max_records_per_family > self.max_records:
+            raise CrossRunConfigurationError("per-family cap exceeds total record cap")
+
+    @property
+    def semantic_weight(self) -> float:
+        return 1.0 - self.lexical_weight
+
+
+@dataclass(frozen=True)
+class KnowledgeSettings(StrictContract):
+    snapshot_path: str
+    index_path: str
+    embeddings: EmbeddingSettings
+    retrieval: RetrievalSettings
+
+    def _validate(self) -> None:
+        _require_path(self.snapshot_path, "knowledge.snapshot_path")
+        _require_path(self.index_path, "knowledge.index_path")
+
+
+@dataclass(frozen=True)
+class ExpertValidationSettings(StrictContract):
+    reviewer_cli: str
+    reviewer_count: int
+    sealed_canary_enabled: bool
+    maximum_regression_ratio: float
+    minimum_independent_contexts: int
+    timeout_seconds: int
+
+    def _validate(self) -> None:
+        _require_cli(self.reviewer_cli, "expert.validation.reviewer_cli")
+        _require_positive(self.reviewer_count, "expert.validation.reviewer_count")
+        _require_ratio(
+            self.maximum_regression_ratio,
+            "expert.validation.maximum_regression_ratio",
+        )
+        _require_positive(
+            self.minimum_independent_contexts,
+            "expert.validation.minimum_independent_contexts",
+        )
+        _require_positive(self.timeout_seconds, "expert.validation.timeout_seconds")
+
+
+@dataclass(frozen=True)
+class ExpertSettings(StrictContract):
+    candidate_path: str
+    architect_cli: str
+    generalizer_cli: str
+    validation: ExpertValidationSettings
+
+    def _validate(self) -> None:
+        _require_path(self.candidate_path, "expert.candidate_path")
+        _require_cli(self.architect_cli, "expert.architect_cli")
+        _require_cli(self.generalizer_cli, "expert.generalizer_cli")
+
+
+@dataclass(frozen=True)
+class LaunchSettings(StrictContract):
+    cache_path: str
+    bootstrap_pin_path: str
+    artifact_ttl_seconds: int
+    denylist_refresh_seconds: int
+
+    def _validate(self) -> None:
+        _require_path(self.cache_path, "launch.cache_path")
+        _require_path(self.bootstrap_pin_path, "launch.bootstrap_pin_path")
+        _require_positive(self.artifact_ttl_seconds, "launch.artifact_ttl_seconds")
+        _require_positive(
+            self.denylist_refresh_seconds, "launch.denylist_refresh_seconds"
+        )
+
+
+@dataclass(frozen=True)
+class ProductionValidationSettings(StrictContract):
+    fixture_path: str
+    github_write_smoke: bool
+    embedding_smoke: bool
+    coding_agent_smoke: bool
+    task_smoke_timeout_seconds: int
+
+    def _validate(self) -> None:
+        _require_path(self.fixture_path, "production_validation.fixture_path")
+        _require_positive(
+            self.task_smoke_timeout_seconds,
+            "production_validation.task_smoke_timeout_seconds",
+        )
+
+
+@dataclass(frozen=True)
+class CrossRunSettings(StrictContract):
+    scopes: ScopeRegistrySettings
+    github: GitHubSettings
+    capture: CaptureSettings
+    sanitation: SanitationSettings
+    catalog: CatalogSettings
+    knowledge: KnowledgeSettings
+    expert: ExpertSettings
+    launch: LaunchSettings
+    production_validation: ProductionValidationSettings
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> CrossRunSettings:
+        if not isinstance(payload, Mapping):
+            raise CrossRunConfigurationError("cross_run must be an object")
+        _reject_secret_keys(payload)
+        expected = {
+            "scopes",
+            "github",
+            "capture",
+            "sanitation",
+            "catalog",
+            "knowledge",
+            "expert",
+            "launch",
+            "production_validation",
+        }
+        missing = tuple(sorted(expected - set(payload)))
+        unknown = tuple(sorted(set(payload) - expected))
+        if missing or unknown:
+            raise CrossRunConfigurationError(
+                f"cross_run fields mismatch; missing={missing}, unknown={unknown}"
+            )
+        return cls(
+            scopes=ScopeRegistrySettings.from_config(payload["scopes"]),
+            github=payload["github"],
+            capture=payload["capture"],
+            sanitation=payload["sanitation"],
+            catalog=payload["catalog"],
+            knowledge=payload["knowledge"],
+            expert=payload["expert"],
+            launch=payload["launch"],
+            production_validation=payload["production_validation"],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scopes": self.scopes.to_config(),
+            "github": to_json_value(self.github),
+            "capture": to_json_value(self.capture),
+            "sanitation": to_json_value(self.sanitation),
+            "catalog": to_json_value(self.catalog),
+            "knowledge": to_json_value(self.knowledge),
+            "expert": to_json_value(self.expert),
+            "launch": to_json_value(self.launch),
+            "production_validation": to_json_value(self.production_validation),
+        }
+
+    @property
+    def configuration_fingerprint(self) -> str:
+        return tree_or_blob_digest(canonical_json_bytes(self.to_dict()))
+
+    def resolve_binding(
+        self,
+        binding: CrossRunTaskBindingSettings,
+        scope_contract: ExpertScopeContract,
+    ) -> ScopeRepositorySettings:
+        scope_contract.validate_binding(binding)
+        return self.scopes.resolve(binding.scope_id)
+
+
+@dataclass(frozen=True)
+class EffectiveConfig:
+    mode_name: str
+    mode: Mapping[str, Any]
+    cross_run: CrossRunSettings | None
+    registry_source_fingerprint: str | None
+
+    def __post_init__(self) -> None:
+        if not self.mode_name:
+            raise CrossRunConfigurationError("mode_name must not be empty")
+        object.__setattr__(self, "mode", MappingProxyType(dict(self.mode)))
+        forbidden_mode_fields = {
+            "cross_run",
+            "cross_run_registry_fingerprint",
+        } & set(self.mode)
+        if forbidden_mode_fields:
+            raise CrossRunConfigurationError(
+                "mode cannot override global cross-run configuration: "
+                f"{tuple(sorted(forbidden_mode_fields))}"
+            )
+        if self.cross_run is None and self.registry_source_fingerprint is not None:
+            raise CrossRunConfigurationError(
+                "registry fingerprint cannot exist without cross_run settings"
+            )
+        if self.cross_run is not None:
+            if self.registry_source_fingerprint != self.cross_run.scopes.fingerprint:
+                raise CrossRunConfigurationError(
+                    "runtime scope registry fingerprint mismatch"
+                )
+
+
+def compose_runtime_config(
+    canonical_config: Mapping[str, Any],
+    workload_config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Compose a self-contained runtime config with one pinned scope registry."""
+    if "cross_run" not in canonical_config:
+        raise CrossRunConfigurationError("canonical config has no cross_run tree")
+    if (
+        "cross_run" in workload_config
+        or "cross_run_registry_fingerprint" in workload_config
+    ):
+        raise CrossRunConfigurationError(
+            "workload config cannot override the canonical cross_run tree"
+        )
+    settings = CrossRunSettings.from_dict(canonical_config["cross_run"])
+    repository_coordinates = {
+        repository
+        for scope in settings.scopes.scopes
+        for repository in (scope.expert_repository, scope.knowledge_repository)
+    }
+
+    def reject_repository_copy(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, child in value.items():
+                if key == "cross_run_binding":
+                    binding = CrossRunTaskBindingSettings.from_dict(child)
+                    settings.scopes.resolve(binding.scope_id)
+                if key in {
+                    "cross_run",
+                    "cross_run_registry_fingerprint",
+                    "expert_repository",
+                    "knowledge_repository",
+                    "repositories",
+                }:
+                    raise CrossRunConfigurationError(
+                        f"workload config cannot declare repository routing at {path}.{key}"
+                    )
+                reject_repository_copy(child, f"{path}.{key}")
+        elif isinstance(value, (list, tuple)):
+            for position, child in enumerate(value):
+                reject_repository_copy(child, f"{path}[{position}]")
+        elif value in repository_coordinates:
+            raise CrossRunConfigurationError(
+                f"workload config duplicates a repository coordinate at {path}"
+            )
+
+    reject_repository_copy(workload_config, "workload")
+    runtime = to_json_value(workload_config)
+    runtime["cross_run"] = settings.to_dict()
+    runtime["cross_run_registry_fingerprint"] = settings.scopes.fingerprint
+    return runtime
+
+
+def validate_runtime_registry(
+    runtime_config: Mapping[str, Any], canonical_settings: CrossRunSettings
+) -> None:
+    required = {"cross_run", "cross_run_registry_fingerprint"}
+    missing = tuple(sorted(required - set(runtime_config)))
+    if missing:
+        raise CrossRunConfigurationError(
+            f"runtime config is missing copied scope registry fields: {missing}"
+        )
+    runtime_settings = CrossRunSettings.from_dict(runtime_config["cross_run"])
+    declared = runtime_config["cross_run_registry_fingerprint"]
+    if declared != canonical_settings.scopes.fingerprint:
+        raise CrossRunConfigurationError("runtime registry source fingerprint is stale")
+    if runtime_settings.scopes.to_config() != canonical_settings.scopes.to_config():
+        raise CrossRunConfigurationError(
+            "runtime registry differs from canonical source"
+        )

@@ -2,6 +2,8 @@
 
 Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
+Status: **complete**
+
 ## Objective
 
 Create the domain-neutral, strict substrate used by every cross-run module. This
@@ -43,36 +45,36 @@ tests/
 
 ## Contract tasks
 
-- [ ] Define immutable dataclasses/enums for every frozen contract.
-- [ ] Reject unknown fields, missing fields, duplicate JSON keys, booleans used as
+- [x] Define immutable dataclasses/enums for every frozen contract.
+- [x] Reject unknown fields, missing fields, duplicate JSON keys, booleans used as
       integers, non-finite numbers, naive timestamps, empty identifiers, and
       unordered/gapped revision lists.
-- [ ] Validate `ExpertScopeContract` task-family and context-dimension lineage.
-- [ ] Define strict `ScopeRepositorySettings` and `CrossRunTaskBindingSettings`:
+- [x] Validate `ExpertScopeContract` task-family and context-dimension lineage.
+- [x] Define strict `ScopeRepositorySettings` and `CrossRunTaskBindingSettings`:
       the former maps one `scope_id` to one expert/knowledge repository pair; the
       latter carries only `scope_id`, `task_family_id`, and `task_adapter_id`.
-- [ ] Canonically fingerprint each resolved scope repository entry so
+- [x] Canonically fingerprint each resolved scope repository entry so
       `LaunchManifest` can record the exact location binding used at startup.
-- [ ] Reject missing scopes, duplicate repository pairs, any repository assigned to
+- [x] Reject missing scopes, duplicate repository pairs, any repository assigned to
       more than one scope, expert/knowledge self-aliasing, and unknown task-family
       or adapter bindings.
-- [ ] Validate `TaskContextBinding` exclusively against its pinned scope revision;
+- [x] Validate `TaskContextBinding` exclusively against its pinned scope revision;
       do not add model/tokenizer/table/schema names to core code.
-- [ ] Keep `EvaluationFingerprint` equivalence separate from transfer
+- [x] Keep `EvaluationFingerprint` equivalence separate from transfer
       compatibility.
-- [ ] Require globally qualified source identity on cross-run records while
+- [x] Require globally qualified source identity on cross-run records while
       retaining local IDs only as provenance fields.
-- [ ] Define exact supersession and capability split/merge lineage rules.
-- [ ] Separate immutable content payloads from `CatalogEntryState`, attestations,
+- [x] Define exact supersession and capability split/merge lineage rules.
+- [x] Separate immutable content payloads from `CatalogEntryState`, attestations,
       and `GitHubPublicationRecord`.
-- [ ] Require claim applicability, exclusions, support, contradiction, and state.
-- [ ] Require knowledge/expert manifests to name complete dependency and checksum
+- [x] Require claim applicability, exclusions, support, contradiction, and state.
+- [x] Require knowledge/expert manifests to name complete dependency and checksum
       closures.
-- [ ] Define `PriorKnowledgeSnapshot` as complete selected records plus query,
+- [x] Define `PriorKnowledgeSnapshot` as complete selected records plus query,
       policy, source snapshot, proof references, and digest.
-- [ ] Define `BootstrapPin` independently of `RunCheckpoint` so startup can become
+- [x] Define `BootstrapPin` independently of `RunCheckpoint` so startup can become
       durable before orchestrator construction.
-- [ ] Use descriptive code identifiers; design index names remain documentation
+- [x] Use descriptive code identifiers; design index names remain documentation
       provenance only.
 
 ## Canonical identity
@@ -104,32 +106,32 @@ different IDs.
 
 ## Configuration tasks
 
-- [ ] Add one `cross_run` tree to `src/kapso/config.yaml` containing all paths,
+- [x] Add one `cross_run` tree to `src/kapso/config.yaml` containing all paths,
       budgets, thresholds, timeouts, branch/tag conventions, cache policy,
       embedding model, CLI roles, validation gates, and production-test settings.
-- [ ] Make `cross_run.scopes` the sole repository-location registry. For the first
+- [x] Make `cross_run.scopes` the sole repository-location registry. For the first
       deployment it contains `ml_ai -> Leeroo-AI/kapso-expert +
       Leeroo-AI/kapso-knowledge`; no other author-maintained config contains those
       coordinates.
-- [ ] Define and validate the typed `cross_run_binding` config shape; M9 owns
+- [x] Define and validate the typed `cross_run_binding` config shape; M9 owns
       populating and wiring the concrete PostTrainBench and RelBench bindings.
-- [ ] Add explicit config composition that copies the canonical scope registry into
+- [x] Add explicit config composition that copies the canonical scope registry into
       each generated self-contained runtime config with its source fingerprint.
       Benchmark config files and runners must not duplicate, override, infer, or
       hardcode repository coordinates.
-- [ ] Return one typed effective config containing the global `cross_run` tree and
-      the selected workload mode; do not let mode-only extraction discard the
-      scope registry. Replace affected callers directly rather than maintaining a
-      parallel legacy config path.
-- [ ] Add strict typed settings in `cross_run/settings.py`; module/dataclass defaults
+- [x] Return one typed effective config containing the global `cross_run` tree and
+      the selected workload mode. Keep the workload-only projection free of
+      cross-run operator settings so they cannot enter the existing campaign
+      resume fingerprint; M9 owns threading the typed effective config into launch.
+- [x] Add strict typed settings in `cross_run/settings.py`; module/dataclass defaults
       are sourced from the loaded canonical config rather than repeated literals.
-- [ ] Validate repository coordinates, branch/tag prefixes, filesystem paths,
+- [x] Validate repository coordinates, branch/tag prefixes, filesystem paths,
       non-negative budgets, ratios, timeouts, index settings, and enabled role
       combinations before any external call.
-- [ ] Keep secrets and authentication material out of the config.
-- [ ] Thread settings explicitly from `load_config()`/`load_mode_config()`; no new
+- [x] Keep secrets and authentication material out of the config.
+- [x] Thread settings explicitly from `load_config()`/`load_effective_config()`; no new
       module reads process environment variables.
-- [ ] Include the relevant cross-run configuration projection in launch, capture,
+- [x] Include the relevant cross-run configuration projection in launch, capture,
       catalog, snapshot, and validation fingerprints.
 
 The plan intentionally does not freeze example numeric defaults. Each operational
@@ -170,6 +172,23 @@ there in code and tests.
   or `Kapso.evolve` argument.
 - No compatibility parser, schema migration, deprecated alias, or domain-specific
   field exists.
+
+## Implementation and validation
+
+Implemented in `kapso.cross_run.canonical`, `kapso.cross_run.contracts`,
+`kapso.cross_run.settings`, and `kapso.core.config`, with the canonical settings
+tree in `src/kapso/config.yaml`.
+
+- 63 focused canonical/contract/config tests pass.
+- 89 affected config, ideation, budget, and checkpoint tests pass.
+- Canonical configuration identity is stable across fresh Python processes.
+- Both configured private GitHub repositories resolve under the authenticated
+  production identity with administrator permission.
+- Installed-package loading, PostTrainBench/RelBench config composition,
+  compilation, and the Generic/GitHub/OpenAI/coding-agent import boundary pass.
+- Four independent `fable` reviews at maximum reasoning were applied; their
+  integration, strictness, and causal-evidence findings are covered by regression
+  tests.
 
 ## Non-goals
 

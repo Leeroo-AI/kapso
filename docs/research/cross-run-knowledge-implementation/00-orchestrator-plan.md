@@ -1,6 +1,6 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
-Status: **planned; no module implemented**
+Status: **M1 complete; M2–M10 planned**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -97,6 +97,8 @@ artifact release paths exist. M10 is the sole owner of activation and removal of
 superseded startup behavior.
 
 ## Shared contract freeze
+
+Status: **complete and frozen by M1**
 
 M1 must land these exact semantic contracts before dependent modules begin:
 
@@ -213,9 +215,12 @@ is extracted only when both consumers have demonstrated the same contract.
 ## Configuration authority
 
 All tunable values are added once under `cross_run` in
-`src/kapso/config.yaml`. `load_config()`/`load_mode_config()` validate and thread
-them to call sites. New code must not read environment variables and must not
-duplicate defaults in dataclasses or modules.
+`src/kapso/config.yaml`. `load_config()`/`load_effective_config()` validate and
+thread them to cross-run call sites. `load_mode_config()` remains a workload-only
+projection: global cross-run operator settings never enter the scientific campaign
+resume fingerprint. M9 threads the typed effective config into launch separately.
+New code must not read environment variables and must not duplicate defaults in
+dataclasses or modules.
 
 Configuration groups are:
 
@@ -546,12 +551,13 @@ The implementation is complete only when:
 | D12 | Coding agents propose claims/code; policies certify | A model cannot grant authority to its own output |
 | D13 | Remove old formats and startup paths directly | Pre-release development has no compatibility obligation |
 | D14 | Route repositories by scope, never by benchmark | One registry keeps locations single-sourced while scope contracts and task adapters retain semantic separation |
+| D15 | Keep cross-run operator settings outside the existing campaign fingerprint | Capture, retrieval, publication, and cache knobs do not redefine scientific campaign identity; each cross-run artifact records its relevant configuration projection, and M9 binds those projections through `LaunchManifest` |
 
 ## Progress ledger
 
 | Module | Status | Implementation reference | Validation reference | Blocker |
 |---|---|---|---|---|
-| M1 Contracts and Config | Planned | — | — | — |
+| M1 Contracts and Config | Complete | `kapso.cross_run.{canonical,contracts,settings}`, `kapso.core.config`, canonical `cross_run` config | 63 focused + 89 affected integration tests; installed-package/config/GitHub/import-boundary production checks; four `fable` max-reasoning reviews | — |
 | M2 GitHub Control Plane | Planned | — | — | M1 |
 | M3 Run Capture and Bundles | Planned | — | — | M1 transport contract |
 | M4 Catalog, Episodes, Claims | Planned | — | — | M3 |

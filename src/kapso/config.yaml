@@ -21,6 +21,80 @@
 # Default mode to use
 default_mode: GENERIC
 
+# Canonical deployment configuration for cross-run scientific memory and the
+# expert repository. Workload configs carry only a typed cross_run_binding;
+# generated runtime configs receive this tree plus its registry fingerprint.
+cross_run:
+  scopes:
+    ml_ai:
+      repositories:
+        expert: "Leeroo-AI/kapso-expert"
+        knowledge: "Leeroo-AI/kapso-knowledge"
+  github:
+    default_branch: "main"
+    expert_tag_prefix: "expert/"
+    knowledge_tag_prefix: "knowledge/"
+    cache_path: ".kapso/cross_run/github_cache"
+    command_timeout_seconds: 120
+    release_asset_size_bytes: &cross_run_asset_size_bytes 1073741824
+    cache_retention_releases: 3
+    publication_retry_limit: 2
+  capture:
+    state_path: ".kapso/cross_run/capture"
+    quarantine_path: ".kapso/cross_run/quarantine"
+    journal_filename: "execution_events.jsonl"
+    bundle_asset_size_bytes: *cross_run_asset_size_bytes
+    capture_interval_seconds: 300
+  sanitation:
+    policy_version: "kapso.sanitation.v1"
+    max_file_bytes: 16777216
+    allowed_suffixes: [".json", ".jsonl", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"]
+    denied_path_patterns: [".env", ".git", "auth.json", "credentials", "secrets"]
+  catalog:
+    state_path: ".kapso/cross_run/catalog"
+    claim_proposer_cli: "codex"
+    reviewer_cli: "claude_code"
+    reviewer_count: 2
+    publication_interval_runs: 1
+  knowledge:
+    snapshot_path: ".kapso/cross_run/knowledge"
+    index_path: ".kapso/cross_run/knowledge_index"
+    embeddings:
+      provider: "openai"
+      model: &default_embedding_model "text-embedding-3-small"
+      dimensions: &default_embedding_dimensions 1536
+      batch_size: 64
+      timeout_seconds: 60
+      max_retries: 2
+    retrieval:
+      lexical_weight: 0.35
+      max_records: 24
+      max_records_per_run: 4
+      max_records_per_family: 16
+      prompt_token_budget: 12000
+  expert:
+    candidate_path: ".kapso/cross_run/expert_candidates"
+    architect_cli: "claude_code"
+    generalizer_cli: "codex"
+    validation:
+      reviewer_cli: "claude_code"
+      reviewer_count: 2
+      sealed_canary_enabled: false
+      maximum_regression_ratio: 0.0
+      minimum_independent_contexts: 2
+      timeout_seconds: 21600
+  launch:
+    cache_path: ".kapso/cross_run/launch_cache"
+    bootstrap_pin_path: ".kapso/bootstrap_pin.json"
+    artifact_ttl_seconds: 604800
+    denylist_refresh_seconds: 300
+  production_validation:
+    fixture_path: "tests/fixtures/cross_run"
+    github_write_smoke: true
+    embedding_smoke: true
+    coding_agent_smoke: true
+    task_smoke_timeout_seconds: 21600
+
 # One shared source for evidence-directed ideation operating parameters.
 ideation_profiles:
   DEFAULT:
@@ -79,8 +153,8 @@ ideation_profiles:
         allowed_tools: ["Read"]
     embeddings:
       enabled: true
-      model: "text-embedding-3-small"
-      dimensions: 1536
+      model: *default_embedding_model
+      dimensions: *default_embedding_dimensions
       timeout_seconds: 30
       max_retries: 0
     analyzer:
