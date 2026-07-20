@@ -14,6 +14,8 @@ modes:
     search_strategy:
       type: "generic"
       params:
+        # Fallback single-session model (used only if the ensemble is removed)
+        # and the implementation-session model.
         idea_generation_model: "claude-opus-4-8"
         implementation_model: "claude-opus-4-8"
         auth_mode: "oauth"
@@ -26,6 +28,28 @@ modes:
         implementation_timeout: 7200
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # Ensemble ideation (PostTrainBench pattern): two idea-generators of
+        # DIFFERENT models run in parallel over the same read-only worktree —
+        # a GPT member (codex CLI) and a Claude member — each emitting
+        # <solution> candidates; a Claude selector-critic then picks the best
+        # single candidate to implement. Requires on the run host: the codex
+        # CLI (`npm i -g @openai/codex`) and a `~/.codex/auth.json` login (the
+        # codex subprocess strips OPENAI_API_KEY and authenticates via that
+        # file / CODEX_API_KEY). Remove these two keys to fall back to
+        # single-session ideation on idea_generation_model.
+        ideation_ensemble:
+          - cli: "codex"
+            model: "gpt-5.6-sol"
+            effort: "xhigh"
+            lens: "information-theoretic & algorithmic first — the optimal ask/guess decision policy and question-selection math"
+          - cli: "claude_code"
+            model: "claude-fable-5"
+            effort: "xhigh"
+            lens: "engineering & measurement first — oracle-replica fidelity, real-vs-mock validation, robustness to oracle bit-flips"
+        ideation_selector:
+          cli: "claude_code"
+          model: "claude-opus-4-8"
+          effort: "xhigh"
         # Bash-tool clock policy for agent sessions: without these the CLI
         # auto-backgrounds any foreground command at 120s.
         session_env_defaults:
