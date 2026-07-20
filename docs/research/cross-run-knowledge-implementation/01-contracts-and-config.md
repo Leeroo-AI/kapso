@@ -14,6 +14,7 @@ embedding call, strategy mutation, or task-family conditional.
 - Canonical JSON, exact-key parsing, and content-addressed identifiers.
 - Payload/envelope separation for attestations and GitHub locations.
 - Scope-contract and registered context-dimension validation.
+- Typed `ScopeRegistry` repository routing and `CrossRunTaskBinding` validation.
 - Comparability, lineage, supersession, and proof-reference primitives.
 - One validated `cross_run` configuration tree with a single source for defaults.
 - Typed errors for incompatible, corrupt, missing-reference, and identity-conflict
@@ -47,6 +48,14 @@ tests/
       integers, non-finite numbers, naive timestamps, empty identifiers, and
       unordered/gapped revision lists.
 - [ ] Validate `ExpertScopeContract` task-family and context-dimension lineage.
+- [ ] Define strict `ScopeRepositorySettings` and `CrossRunTaskBindingSettings`:
+      the former maps one `scope_id` to one expert/knowledge repository pair; the
+      latter carries only `scope_id`, `task_family_id`, and `task_adapter_id`.
+- [ ] Canonically fingerprint each resolved scope repository entry so
+      `LaunchManifest` can record the exact location binding used at startup.
+- [ ] Reject missing scopes, duplicate repository pairs, any repository assigned to
+      more than one scope, expert/knowledge self-aliasing, and unknown task-family
+      or adapter bindings.
 - [ ] Validate `TaskContextBinding` exclusively against its pinned scope revision;
       do not add model/tokenizer/table/schema names to core code.
 - [ ] Keep `EvaluationFingerprint` equivalence separate from transfer
@@ -98,6 +107,20 @@ different IDs.
 - [ ] Add one `cross_run` tree to `src/kapso/config.yaml` containing all paths,
       budgets, thresholds, timeouts, branch/tag conventions, cache policy,
       embedding model, CLI roles, validation gates, and production-test settings.
+- [ ] Make `cross_run.scopes` the sole repository-location registry. For the first
+      deployment it contains `ml_ai -> Leeroo-AI/kapso-expert +
+      Leeroo-AI/kapso-knowledge`; no other author-maintained config contains those
+      coordinates.
+- [ ] Define and validate the typed `cross_run_binding` config shape; M9 owns
+      populating and wiring the concrete PostTrainBench and RelBench bindings.
+- [ ] Add explicit config composition that copies the canonical scope registry into
+      each generated self-contained runtime config with its source fingerprint.
+      Benchmark config files and runners must not duplicate, override, infer, or
+      hardcode repository coordinates.
+- [ ] Return one typed effective config containing the global `cross_run` tree and
+      the selected workload mode; do not let mode-only extraction discard the
+      scope registry. Replace affected callers directly rather than maintaining a
+      parallel legacy config path.
 - [ ] Add strict typed settings in `cross_run/settings.py`; module/dataclass defaults
       are sourced from the loaded canonical config rather than repeated literals.
 - [ ] Validate repository coordinates, branch/tag prefixes, filesystem paths,
@@ -121,6 +144,14 @@ there in code and tests.
 - Prove attestations and GitHub relocation do not change scientific content IDs.
 - Prove registered post-training and relational-prediction context bindings both
   validate without core conditionals.
+- Prove both bindings resolve to the same configured `ml_ai` repository pair while
+  preserving distinct task-family and adapter identities.
+- Reject unknown scope, unknown family/adapter, duplicated repository ownership,
+  expert/knowledge aliasing, and any benchmark-level repository override.
+- Reject a generated runtime config whose copied registry does not match its
+  canonical source fingerprint.
+- Prove repository relocation changes only settings/location records, not scope
+  contracts, artifact content IDs, or persisted launch identities.
 - Reject unregistered dimensions and incompatible scope revisions.
 - Prove comparable evaluation fingerprints and analogical task contexts remain
   independent classifications.
@@ -135,6 +166,8 @@ there in code and tests.
   GitHub, OpenAI, or a coding-agent adapter.
 - Canonical identity is deterministic across process restarts and input ordering.
 - The config fails before work on every invalid operational value.
+- Repository coordinates are single-sourced by scope and never accepted as a task
+  or `Kapso.evolve` argument.
 - No compatibility parser, schema migration, deprecated alias, or domain-specific
   field exists.
 

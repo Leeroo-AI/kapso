@@ -13,12 +13,14 @@ new GitHub pointers.
 
 ## Owned responsibilities
 
+- `CrossRunTaskBinding` to `ScopeRegistry` resolution.
 - `LaunchResolver` compatibility and trust decision.
 - Empty-scope E0/S-EMPTY bootstrap orchestration.
 - `TaskAdapterManifest` validation/materialization.
 - `LaunchManifest` and pre-orchestrator `BootstrapPin` persistence.
 - Atomic expert workspace and read-only snapshot/adapter construction.
 - `Kapso.evolve`, CLI, `ExperimentWorkspace`, and `RunCheckpoint` integration.
+- PostTrainBench/RelBench scope-binding config and runner integration.
 - Resume identity/reconciliation and fresh denylist enforcement.
 - Direct replacement/removal of active `initial_repo`/starter-selection behavior.
 
@@ -43,6 +45,14 @@ src/kapso/execution/experiment_workspace/
   experiment_workspace.py
   experiment_session.py
 
+benchmarks/posttrain/
+  config.yaml
+  runner.py
+
+benchmarks/relbench/
+  config.yaml
+  runner.py
+
 tests/
   test_launch_resolver.py
   test_bootstrap_pin.py
@@ -53,7 +63,8 @@ tests/
 
 ## Launch request and resolver
 
-The caller supplies a complete launch request:
+The caller supplies a complete launch request. It names a scope/task binding, not
+GitHub repositories:
 
 ```text
 scope/task-family identity
@@ -67,9 +78,14 @@ budget/fidelity envelope
 
 `LaunchResolver`:
 
-- [ ] Validates the request against the current `ExpertScopeContract`.
-- [ ] Uses M2 to resolve expert and knowledge discovery pointers once at exact
-      default-branch commits.
+- [ ] Resolves `scope_id` through M1's canonical `ScopeRegistry`; reject any
+      caller-supplied or benchmark-level repository override.
+- [ ] Passes the resolved `ScopeRepositorySettings` to M2 and resolves both
+      discovery pointers once at exact default-branch commits.
+- [ ] Verifies repository publication records, expert release, knowledge snapshot,
+      and task adapter all name the requested scope lineage.
+- [ ] Validates `task_family_id` and `task_adapter_id` against the pinned current
+      `ExpertScopeContract` before materialization.
 - [ ] Resolves and verifies the exact task adapter.
 - [ ] Checks release/module preconditions, task-family bindings, context dimensions,
       dependency/runtime/hardware compatibility, expiration/revalidation, and
@@ -77,7 +93,8 @@ budget/fidelity envelope
 - [ ] Verifies the chosen expert release and knowledge snapshot were tested as an
       eligible combination or under an explicit compatibility policy.
 - [ ] Creates one immutable `LaunchManifest` binding all identities, digests,
-      publications, expected source composition hash, and request hash.
+      publications, the scope repository-binding hash, expected source composition
+      hash, and request hash.
 - [ ] Never exposes independently mutable current pointers to the run.
 
 If no release/snapshot exists, the resolver invokes the explicit bootstrap
@@ -108,8 +125,16 @@ For a fresh launch:
 
 ## API and CLI integration
 
-- [ ] Add explicit config-path/scope/task-adapter launch inputs to `Kapso.evolve`
-      and `kapso evolve` while keeping operational defaults in config.
+- [ ] Add explicit config-path plus `scope_id`/`task_family_id`/`task_adapter_id`
+      launch inputs to `Kapso.evolve` and `kapso evolve`. Never accept expert or
+      knowledge repository coordinates through the API/CLI.
+- [ ] Make benchmark runners obtain those three values from their typed
+      `cross_run_binding`; callers normally select a benchmark mode rather than
+      repeat the binding on every task.
+- [ ] Bind PostTrainBench to
+      `ml_ai/language_model_post_training/posttrain` and RelBench to
+      `ml_ai/relational_tabular_prediction/relbench`; neither benchmark file may
+      name the expert or knowledge repository.
 - [ ] Replace direct `initial_repo` cloning and starter-repository selection with
       `LaunchResolver`/`StarterWorkspaceBuilder`.
 - [ ] Delete the old active arguments, config keys, selectors, cloning helpers,
@@ -149,6 +174,10 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
 
 ## Tests
 
+- Resolve PostTrainBench and RelBench bindings through `ml_ai` to the same expert
+  and knowledge repositories while retaining distinct family/adapter identities.
+- Reject unknown scope, unknown family/adapter, repository overrides, a repository
+  pair whose publications name another scope, and an expert/snapshot scope mismatch.
 - Resolve compatible expert/snapshot/adapter tuples and reject every incompatible
   dimension independently.
 - Reject torn pairs, substituted manifests, cross-task launch reuse, stale release,
@@ -166,6 +195,8 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
 ## Definition of done
 
 - Every run begins from one verified atomic launch identity.
+- Every fresh run reaches GitHub only through the scope registry mapping; task
+  inputs never carry repository coordinates.
 - Fresh startup and resume expose no partial/torn component combination.
 - The current run remains reproducible when GitHub pointers advance.
 - Security/contamination freshness is enforced before dangerous operations.

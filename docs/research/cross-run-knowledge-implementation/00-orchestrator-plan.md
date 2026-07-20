@@ -16,6 +16,7 @@ first updating this plan.
 
 Every evolve run starts from one attested `LaunchManifest` binding:
 
+- one typed task binding resolved through the canonical `ScopeRegistry`;
 - an immutable `ExpertBaseRelease` from a private GitHub expert repository;
 - an immutable, locally materialized `KnowledgeSnapshot` from a private GitHub
   knowledge repository;
@@ -38,7 +39,7 @@ not the live experiment store, and not a raw-trace data lake.
 
 | ID | Module plan | Responsibility | Depends on |
 |---|---|---|---|
-| M1 | [`01-contracts-and-config.md`](01-contracts-and-config.md) | Domain-neutral schemas, canonical identity, strict config | — |
+| M1 | [`01-contracts-and-config.md`](01-contracts-and-config.md) | Domain-neutral schemas, canonical identity, scope registry/bindings, strict config | — |
 | M2 | [`02-github-control-plane.md`](02-github-control-plane.md) | Autonomous direct GitHub publication, immutable releases, verified cache | M1 |
 | M3 | [`03-run-capture-and-bundles.md`](03-run-capture-and-bundles.md) | Atomic capture, execution journal, quarantine, sanitation, `RunBundle` | M1; M2 publication boundary |
 | M4 | [`04-catalog-episodes-and-claims.md`](04-catalog-episodes-and-claims.md) | Episode/prior-idea projection, assertions, claims, catalog generations | M1, M3 |
@@ -100,6 +101,8 @@ superseded startup behavior.
 M1 must land these exact semantic contracts before dependent modules begin:
 
 ```text
+ScopeRepositorySettings
+CrossRunTaskBindingSettings
 ExpertScopeContract
 TaskContextBinding
 EvaluationFingerprint
@@ -128,6 +131,7 @@ The freeze covers:
 - exact required/optional fields and enum values;
 - canonical JSON and content-ID preimages;
 - global versus run-local identifier rules;
+- scope-to-repository routing and workload-binding validation;
 - scope-contract and context-dimension validation;
 - evaluation-comparability semantics;
 - immutable payload versus mutable catalog-state separation;
@@ -195,15 +199,15 @@ is extracted only when both consumers have demonstrated the same contract.
 
 | Surface | Primary owner | Rule |
 |---|---|---|
-| `cross_run/contracts.py`, canonical IDs, strict settings | M1 | Other modules import; they do not redefine schemas |
-| GitHub/`gh`/Git command boundary and local artifact cache | M2 | No other module invokes GitHub directly |
+| `cross_run/contracts.py`, canonical IDs, scope registry/config composition, strict settings | M1 | Other modules import; they do not redefine schemas or repository mappings |
+| Framework GitHub/`gh`/Git command boundary and local artifact cache | M2 | Other framework modules use this boundary; the fully authorized coding agent may also invoke GitHub directly |
 | `ExperimentHistoryStore` journal additions and capture hooks | M3 | M6 reads local authorities but does not change capture ordering |
 | Cross-run catalog, assertions, claims, admission state | M4 | Snapshot code consumes immutable generations only |
 | Shared embeddings extraction, search package, prior-knowledge MCP gate | M5 | M6 only mounts and persists reader output |
 | `generic/ideation/`, `generic/strategy.py`, `IdeaArchive`, Generic checkpoint projection | M6 | Sole owner of live ideation integration |
 | Expert architect/generalizer prompts, repository map, book compiler | M7 | M8 validates; it does not regenerate proposals |
 | Expert evaluator cascade and release assembly | M8 | Sole owner of stable expert publication policy |
-| `Kapso.evolve`, CLI launch options, `ExperimentWorkspace`, `RunCheckpoint`, bootstrap pin | M9 | Sole owner until M10 deletes superseded startup code |
+| `Kapso.evolve`, CLI launch options, benchmark scope bindings/runners, `ExperimentWorkspace`, `RunCheckpoint`, bootstrap pin | M9 | Sole owner until M10 deletes superseded startup code |
 | End-to-end fixtures, workflow templates, operational docs, legacy deletion | M10 | Starts after all live paths are complete |
 
 ## Configuration authority
@@ -216,7 +220,7 @@ duplicate defaults in dataclasses or modules.
 Configuration groups are:
 
 ```text
-cross_run.scope
+cross_run.scopes
 cross_run.github
 cross_run.capture
 cross_run.sanitation
@@ -234,6 +238,8 @@ Repository coordinates, paths, budgets, thresholds, model/CLI selection,
 timeouts, branch/tag conventions, shard sizes, cache retention, and validation
 schedules belong there. Secrets do not. Git/`gh`, the official OpenAI SDK, Codex,
 and Claude Code use their own externally configured authentication mechanisms.
+Repository coordinates occur only under `cross_run.scopes`; workload modes carry
+only `cross_run_binding.scope_id/task_family_id/task_adapter_id`.
 
 ## Provider and authority boundaries
 
@@ -247,8 +253,8 @@ Semantic vectors
        -> official OpenAI embeddings endpoint
 
 GitHub transport
-  -> trusted GitHub command/provider boundary
-       -> git credential helper | authenticated gh | GitHub Actions identity
+  -> AutonomousGitHubPublisher or fully authorized coding agent
+       -> git credential helper | authenticated gh
 ```
 
 Hard rules:
@@ -257,10 +263,10 @@ Hard rules:
 - `ClaimProposer`, `ExpertRepoArchitect`, and `GeneralizationProposer` use the
   existing Codex/Claude coding-agent boundary;
 - the only direct OpenAI model call is the embeddings endpoint;
-- coding-agent subprocesses receive neither the embedding credential nor a
-  GitHub credential;
-- an agent may edit local staging and request a bounded `submit_candidate` MCP
-  action, but cannot invoke raw GitHub writes;
+- coding-agent subprocesses may use external Git/`gh` authentication but never
+  receive the OpenAI embedding credential as prompt/config/artifact content;
+- an agent may invoke raw GitHub writes under the explicit trusted autonomous
+  operating model; the framework publisher remains the crash-safe normal path;
 - deterministic validators and trusted review own admission and promotion;
 - GitHub `CURRENT.json` is discovery only; launches pin immutable identities;
 - all external command failures propagate and no fallback backend is selected;
@@ -277,6 +283,7 @@ Deliver M1:
 - strict schemas and canonical JSON;
 - content-addressed IDs and attestation envelopes;
 - domain-neutral context binding;
+- single-sourced scope registry and typed workload bindings;
 - config structure and validation; and
 - round-trip/corruption/hash tests.
 
@@ -402,6 +409,7 @@ sequenceDiagram
     participant K as Knowledge Publisher
     participant X as Expert Evolution
 
+    L->>L: resolve task binding through ScopeRegistry
     L->>G: resolve CURRENT files at exact commits
     G-->>L: immutable E and S records/assets
     L->>L: verify, materialize, write LaunchManifest/BootstrapPin
@@ -418,33 +426,36 @@ sequenceDiagram
 
 ## Global invariants
 
-1. A run consumes one immutable launch identity and never follows `CURRENT`.
-2. Foreign evidence never enters local `node_history`, `IdeaArchive` authorities,
+1. Tasks provide scope/family/adapter identities, never repository coordinates;
+   one canonical registry resolves the repository pair.
+2. A run consumes one immutable launch identity and never follows `CURRENT`.
+3. Foreign evidence never enters local `node_history`, `IdeaArchive` authorities,
    local parents/incumbents, or `ExperimentHistoryStore`.
-3. Every capture generation represents one mutually reconciled frontier.
-4. Raw quarantine is deletable and never enters GitHub.
-5. Every source idea projects exactly once: node-linked to `TransferEpisode`,
+4. Every capture generation represents one mutually reconciled frontier.
+5. Raw quarantine is deletable and never enters GitHub.
+6. Every source idea projects exactly once: node-linked to `TransferEpisode`,
    never-linked to `PriorIdea`.
-6. Technical failure, invalid evaluation, negative result, interruption, and
+7. Technical failure, invalid evaluation, negative result, interruption, and
    incomparability remain distinct.
-7. A claim is unrepresentable without applicability, exclusions, evidence, and
+8. A claim is unrepresentable without applicability, exclusions, evidence, and
    contradiction sets.
-8. Coding agents propose; deterministic code and trusted review admit or promote.
-9. Snapshot packages include the complete semantic and proof closure required by
+9. Coding agents propose; deterministic code and trusted review admit or promote.
+10. Snapshot packages include the complete semantic and proof closure required by
    readers; archival traces are not a runtime dependency.
-10. Structured compatibility/trust filtering precedes semantic similarity.
-11. Embeddings and ANN indexes are rebuildable sidecars, never truth.
-12. Prompt budgets skip complete records and never clip model-bound content.
-13. Coding-agent CLIs receive no OpenAI embedding or GitHub credential.
-14. GitHub release tags/assets are immutable before `CURRENT.json` advances.
-15. Stable publishers use explicit parent commits and non-force updates.
-16. A crash may leave an inactive orphan release, never a partial active release.
-17. Expert capability IDs are semantic and path-independent; splits/merges record
+11. Structured compatibility/trust filtering precedes semantic similarity.
+12. Embeddings and ANN indexes are rebuildable sidecars, never truth.
+13. Prompt budgets skip complete records and never clip model-bound content.
+14. Coding-agent CLIs may use external Git/`gh` authentication; credential bytes
+    and the OpenAI embedding credential never enter prompts or artifacts.
+15. GitHub release tags/assets are immutable before `CURRENT.json` advances.
+16. Autonomous publishers use explicit parent commits and non-force updates.
+17. A crash may leave an inactive orphan release, never a partial active release.
+18. Expert capability IDs are semantic and path-independent; splits/merges record
     lineage without compatibility shims.
-18. `EXPERT_REPO.md` is generated from the repository map and module contracts.
-19. Resume verifies the original local materialization and refreshes only the
+19. `EXPERT_REPO.md` is generated from the repository map and module contracts.
+20. Resume verifies the original local materialization and refreshes only the
     security/contamination denylist.
-20. Missing, unauthorized, corrupt, stale, or incompatible remote state fails
+21. Missing, unauthorized, corrupt, stale, or incompatible remote state fails
     before spend; only explicit `EMPTY`/`E0` represents no history.
 
 ## Test strategy
@@ -504,6 +515,8 @@ The implementation is complete only when:
 - every module plan's definition of done passes;
 - the progress ledger identifies the exact commits and validation evidence;
 - a clean machine can materialize and use pinned expert/knowledge releases;
+- PostTrainBench and RelBench resolve through distinct task bindings to the same
+  configured `ml_ai` repository pair without duplicating repository names;
 - ideation resume performs no unrecorded cross-run retrieval;
 - a stopped/crashed run can be harvested from its last reconciled frontier;
 - catalog and release races preserve all admitted evidence;
@@ -532,6 +545,7 @@ The implementation is complete only when:
 | D11 | Publish immutable release before updating `CURRENT.json` | Crash leaves an orphan, not a broken active pointer |
 | D12 | Coding agents propose claims/code; policies certify | A model cannot grant authority to its own output |
 | D13 | Remove old formats and startup paths directly | Pre-release development has no compatibility obligation |
+| D14 | Route repositories by scope, never by benchmark | One registry keeps locations single-sourced while scope contracts and task adapters retain semantic separation |
 
 ## Progress ledger
 

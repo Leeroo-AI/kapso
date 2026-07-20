@@ -120,6 +120,8 @@ artifact.
 
 - Run one language-post-training-shaped fixture and one RelBench-shaped relational
   prediction fixture under the same broad scope.
+- Prove their typed bindings resolve through `ml_ai` to the same configured expert
+  and knowledge repositories without either benchmark config containing repo names.
 - Prove core schemas/index/filter code contain no task-family-specific conditionals.
 - Prove raw measurements do not compare across evaluator fingerprints while
   analogical records may still inspire a local idea.
@@ -183,6 +185,7 @@ the provider-owned mechanisms:
 Verified on 2026-07-20:
 
 - owner: `Leeroo-AI`;
+- scope registry entry: `ml_ai`;
 - expert repository: `Leeroo-AI/kapso-expert`, private, default branch `main`;
 - knowledge repository: `Leeroo-AI/kapso-knowledge`, private, default branch `main`;
 - autonomous actor: `leeroo-coder`, authenticated through the external SSH/`gh`
@@ -195,6 +198,8 @@ this external state rather than trusting the planning-time observation.
 
 ### Required
 
+- Canonical `cross_run.scopes.ml_ai` mapping to the two provisioned repositories;
+  benchmark configs contain only their scope/family/adapter bindings.
 - GitHub organization/owner and the two private repository names.
 - One authenticated Git/`gh` profile with full read/write authority for both
   repositories, including direct commits, tags, releases, assets, and workflows.

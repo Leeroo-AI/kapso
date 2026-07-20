@@ -16,6 +16,8 @@ human approval gates.
 
 - Git and `gh` command execution behind a fakeable typed runner.
 - Repository/ref/release/asset discovery and strict response validation.
+- Transport over M1-resolved `ScopeRepositorySettings`; no task-supplied repository
+  coordinates or repository-name inference.
 - Direct expected-parent commits for validated expert and knowledge artifacts.
 - `GitHubPublicationRecord` creation and verification.
 - Draft-upload-verify-publish-CAS release protocol.
@@ -69,7 +71,7 @@ the developer's GitHub authentication.
 
 ```text
 artifact ID and kind
-target repository
+resolved scope repository settings
 expected default-branch commit
 candidate manifest
 validated local tree/assets
@@ -79,6 +81,8 @@ publication provenance
 Tasks:
 
 - [ ] Verify target repository/node identity against config.
+- [ ] Require the artifact's `scope_id` to match the resolved registry entry and
+      reject expert/knowledge publication to the opposite or an unregistered repo.
 - [ ] Verify the local tree, manifest, total bytes, symlinks, submodules, and parent
       commit before publication.
 - [ ] Build a deterministic commit from the exact validated tree.
@@ -121,6 +125,8 @@ The publisher exposes one artifact-neutral protocol used by M5 and M8:
 
 `GitHubArtifactResolver`:
 
+- [ ] Accepts only an M1-resolved scope repository pair, never raw repository
+      coordinates from a launch request or task adapter.
 - [ ] Resolves the default-branch head once and reads `CURRENT.json` at that commit.
 - [ ] Validates repository identity, publication record, tag, source commit,
       immutable-release state, asset set, digests, and configured publisher.
@@ -161,6 +167,8 @@ default branch, authenticated actor, write access, and immutable-release status.
 - Assert exact safe argv for every framework-owned Git/`gh` call.
 - Reject invalid repository/ref names, unexpected artifact shapes, symlinks,
   submodules, oversized publications, and stale parents.
+- Reject unregistered repositories, wrong-scope publication records, swapped
+  expert/knowledge repositories, and task-supplied location overrides.
 - Prove identical replay is idempotent and conflicting replay fails.
 - Inject failure after direct commit, draft creation, each asset upload, release
   publication, and before/after pointer commit.

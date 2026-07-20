@@ -26,6 +26,10 @@ The system has five durable artifacts:
 | `ExpertCandidate` | Isolated proposal for a reusable module change | No | Only after promotion |
 | `ExpertBaseRelease` | Immutable, tested, history-free ML/AI capability repo | Yes; the run starts from it | Yes |
 
+`ScopeRegistry` and `CrossRunTaskBinding` are strict deployment configuration,
+not additional scientific artifacts. They route a task to a lineage; they do not
+assert compatibility or evidence.
+
 The core invariant is:
 
 > Experiment memory records what happened. Knowledge claims state where an
@@ -134,7 +138,72 @@ flowchart LR
 
 There are two loops.
 
-### 3.1 Live run loop
+### 3.1 Scope routing and task binding
+
+Repository location is deployment configuration, not task-family semantics and
+not part of a scientific artifact's content identity. One canonical
+`ScopeRegistry` maps a stable `scope_id` to exactly one expert/knowledge repository
+pair:
+
+```yaml
+cross_run:
+  scopes:
+    ml_ai:
+      repositories:
+        expert: "Leeroo-AI/kapso-expert"
+        knowledge: "Leeroo-AI/kapso-knowledge"
+```
+
+Workloads never receive repository names. Each benchmark mode supplies only a
+typed binding:
+
+```yaml
+# PostTrainBench
+cross_run_binding:
+  scope_id: "ml_ai"
+  task_family_id: "language_model_post_training"
+  task_adapter_id: "posttrain"
+
+# RelBench
+cross_run_binding:
+  scope_id: "ml_ai"
+  task_family_id: "relational_tabular_prediction"
+  task_adapter_id: "relbench"
+```
+
+Both task families therefore share the `ml_ai` expert and knowledge lineage while
+remaining distinct task contexts. The registry answers **where** the lineage
+lives; `ExpertScopeContract` answers **what** families and context dimensions it
+admits; the task adapter answers **how** one family executes; and
+`LaunchManifest` freezes **which exact** expert and knowledge versions a run used.
+
+The repository mapping is single-sourced in the canonical Kapso configuration.
+Benchmark runtime-config builders compose that registry with their own binding;
+they must not copy repository coordinates into PostTrainBench/RelBench configs,
+infer them from folder or repository names, query GitHub topics, or embed them in
+task adapters. Repository relocation changes the trusted registry and
+`GitHubPublicationRecord`, not `ExpertScopeContract`, snapshot/release content IDs,
+or historical launch pins.
+
+Resolution is fail-loud:
+
+```text
+CrossRunTaskBinding
+-> ScopeRegistry[scope_id]
+-> configured expert + knowledge repositories
+-> pinned ExpertScopeContract validates task_family_id/task_adapter_id
+-> exact CURRENT records and immutable releases
+-> LaunchManifest
+```
+
+The resolver verifies that the repository records, expert release, knowledge
+snapshot, adapter, and scope contract all name the same scope lineage. A missing
+scope, unknown family, mismatched pair, or duplicate repository assignment fails
+before network-heavy or paid work. Separate trust, license, runtime, or ownership
+boundaries require a new scope and repository pair; they do not create conditional
+routing inside `ml_ai`.
+
+### 3.2 Live run loop
 
 At launch, a trusted resolver publishes one immutable, attested `LaunchManifest`
 so independently changing knowledge and expert-base pointers cannot produce a
@@ -142,11 +211,13 @@ torn pair. It contains:
 
 ```text
 launch_manifest_id
-scope_contract_id
+scope_id + scope_contract_id
+scope_repository_binding_hash
+task_family_id + task_adapter_id
 knowledge_snapshot_id
 expert_base_release_id
+knowledge/expert GitHub publication refs
 embedding_space_id
-task_adapter_id
 dependency/runtime contract
 security denylist generation
 ```
@@ -173,7 +244,7 @@ The knowledge snapshot remains read-only. The run then:
 
 A run never updates global knowledge or the stable expert base.
 
-### 3.2 Cross-run evolve loop
+### 3.3 Cross-run evolve loop
 
 After runs finish or stop, an offline, serialized publisher:
 
@@ -602,11 +673,12 @@ not timestamps, define reproducible state.
 LaunchManifest
   launch_manifest_id
   launch_request_hash           # intended run/campaign/task/runtime request
-  scope_contract_id
-  knowledge_snapshot_id
-  expert_base_release_id
+  scope_id + scope_contract_id
+  scope_repository_binding_hash # exact registry entry used for location routing
+  task_family_id + task_adapter_id
+  knowledge_snapshot_id + knowledge_publication_ref
+  expert_base_release_id + expert_publication_ref
   embedding_space_id
-  task_adapter_id
   dependency/runtime contract
   sanitation and security-denylist generations
   expected source composition hash
@@ -664,7 +736,7 @@ release tag, and asset digests; it never resolves `latest` after startup.
 | `ExpertCandidateValidator` | Capability or architecture candidate and evaluator cascade | Promotion evidence | Scope conformance, contract/topology graph integrity, security, leakage, replay, fresh-task, cross-family, cost, and full-release regression checks |
 | `AutonomousGitHubPublisher` | Validated knowledge or expert artifact | Direct commit, immutable release, CAS pointer | Use the configured Git/`gh` identity, enforce expected-parent publication, and never activate an incomplete release |
 | `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
-| `LaunchResolver` | Snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Prevent torn combinations; enforce eligibility, compatibility, freshness, and denylist state |
+| `LaunchResolver` | Scope registry, task binding, snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Resolve one configured repository pair; prevent torn combinations; enforce lineage, eligibility, compatibility, freshness, and denylist state |
 | `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
 
 The catalog and expert-base release store are separate. A high-confidence episode
