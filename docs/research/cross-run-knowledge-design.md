@@ -428,6 +428,7 @@ ExpertBaseReleaseManifest
   release_id                   # source tree + manifest hash
   parent_release_ids
   module_versions
+  semantic_book_digest
   source_archive_ref
   test-matrix results
   approval assertions
@@ -547,7 +548,7 @@ current release is expired, unrevalidated, or incompatible.
 | `PriorKnowledgeAdapter` | Prior packet | v3 prompt/analysis input | Keep foreign refs typed and separate from local evidence; persist exact packet in batch provenance |
 | `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
 | `ExpertCandidateValidator` | Candidate and evaluator cascade | Promotion evidence | Static, security, leakage, replay, fresh-task, cross-task, cost, and regression checks |
-| `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, rerun the full release matrix, publish history-free source, support revocation |
+| `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
 | `LaunchResolver` | Snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Prevent torn combinations; enforce eligibility, compatibility, freshness, and denylist state |
 | `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
 
@@ -660,11 +661,15 @@ cleanly, matching the repository's no-backward-compatibility rule.
 
 The user-visible behavior is “start each task from the expert repo,” but the
 artifact is the latest pinned stable release, not the best previous run.
+There is one promoted `CURRENT` expert repo per domain. A name such as `E7` means
+the seventh immutable version of that single repo; it is not a task-specific
+branch. Older releases exist only for rollback and reproducibility.
 
 Recommended layering:
 
 ```text
 expert-base/
+  EXPERT_REPO.md  semantic book of contents for coding agents
   kernel/        reproducibility, provenance, budgets, checkpointing, safety
   data/          generic ingestion, validation, cleaning, mixing contracts
   templates/     tokenizer/chat-template parity and validators
@@ -683,7 +688,43 @@ The separately pinned task adapter is also attested, sanitized, versioned, and
 validated. It supplies the task/evaluator boundary read-only; task-local changes
 occur only on run branches and cannot flow back through this escape hatch.
 
-### 7.1 Generalization triggers
+### 7.1 Semantic book of contents
+
+Every release includes one concise `EXPERT_REPO.md` that lets a coding agent
+understand the repo before opening implementation files. It is a release-certified
+semantic index, not scientific memory and not a task-to-recipe router.
+
+It contains:
+
+1. the repo's purpose, boundaries, and invariants;
+2. a one-screen architecture and stage flow;
+3. a capability index mapping problem signals to reusable capabilities;
+4. each capability's inputs, outputs, preconditions, incompatibilities, entry
+   point, tests, and validation envelope;
+5. capability dependencies and valid compositions;
+6. the task-adapter boundary and the commands that validate a fresh workspace;
+7. links to known-failure and supporting-evidence IDs in the external knowledge
+   snapshot.
+
+For example:
+
+| Problem signal | Capability | Provides | Inspect first |
+|---|---|---|---|
+| Train/eval formatting drift | `template.parity_validation` | Validated template + parity report | `templates/parity/contract.yaml` |
+| Repeated or interrupted teacher calls | `generation.resumable_teacher` | Resumable, provenance-bound generations | `generation/teacher/contract.yaml` |
+| Unsafe model export | `artifacts.safe_promotion` | Size-bounded, checksummed artifact | `promotion/model/contract.yaml` |
+
+The source of truth is each promoted module's `ExpertModuleContract`. The release
+publisher mechanically renders `EXPERT_REPO.md`, validates every link, entrypoint,
+dependency, incompatibility, test, and evidence reference, and records its digest
+in the release manifest. Agents never hand-edit the generated book. This prevents
+drift and avoids a second `KNOWLEDGE.md`-style truth source.
+
+The book describes **what the repo can do and how capabilities compose**. Prior
+experimental conclusions—what worked, failed, or remains uncertain—stay in the
+read-only `KnowledgeSnapshot` and are retrieved separately for the current task.
+
+### 7.2 Generalization triggers
 
 An expert candidate is proposed only for:
 
@@ -699,7 +740,7 @@ The proposer may reuse a non-revoked candidate ancestor selected by relevant
 mechanism, validation evidence, and lineage diversity. It never defaults to the
 latest or highest-scoring failed candidate.
 
-### 7.2 Promotion classes
+### 7.3 Promotion classes
 
 | Candidate class | Minimum evidence before release |
 |---|---|
@@ -713,7 +754,7 @@ latest or highest-scoring failed candidate.
 data regime, base model, or other material transfer context. Three copies of one
 ancestor are one lineage, not three confirmations.
 
-### 7.3 Evaluator cascade
+### 7.4 Evaluator cascade
 
 Promotion proceeds from cheap and deterministic to expensive:
 
@@ -741,7 +782,7 @@ promotion optimism.
 Failed and non-dominated candidates remain in the candidate archive as possible
 stepping stones. They are not installed into live runs.
 
-### 7.4 Release and rollback
+### 7.5 Release and rollback
 
 Runs pin a `LaunchManifest`; component `CURRENT` pointers are publisher inputs,
 not independently consumed by the launcher.
