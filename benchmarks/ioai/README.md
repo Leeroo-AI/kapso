@@ -1,4 +1,28 @@
-# IOAI 2025 × Kapso
+# IOAI × Kapso
+
+## 0. First live probe: IOAI 2026 Home Task 3 (built)
+
+Before the 2025 contest integration below, `runner.py`/`handler.py`/
+`config.yaml` implement a single live task as a pipe-cleaner: **IOAI 2026
+Home Task 3 "Animal Deduction"** ([notebook](https://github.com/IOAI-official/IOAI-2026/blob/main/Home%20Task/Home-Task-3.ipynb))
+— 20-questions against a local Qwen2.5-3B oracle (1,471 animals, 558
+questions, 15-query budget, `score = solved − 0.02·queries`). Being a 2026
+task it is post-cutoff for current models: no contamination caveat. The agent
+iterates on `dev.csv` (150 rows); `test1.csv` (500 rows) is held out and
+scored by the runner with a pristine harness + static source audit.
+
+```bash
+python -m benchmarks.ioai.data.prepare_animal_deduction --root ~/ioai_run
+python -m benchmarks.ioai.runner --root ~/ioai_run --hours 2
+python -m benchmarks.ioai.runner --root ~/ioai_run --final-eval-only  # rescore
+```
+
+Needs one ≥16 GB GPU (the oracle is a 3B model; contest reference is a free
+Colab T4), `CLAUDE_CODE_OAUTH_TOKEN` + `OPENAI_API_KEY` in the env.
+
+---
+
+# IOAI 2025 × Kapso (contest integration design)
 
 **Status: design — nothing built yet.** Run Kapso as a "virtual contestant" on the
 [IOAI 2025](https://ioai-official.org/) Individual Contest (2nd International Olympiad in

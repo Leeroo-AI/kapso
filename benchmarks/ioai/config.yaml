@@ -1,0 +1,100 @@
+# IOAI 2026 Home Task configuration
+#
+# Runs on a plain single-GPU VM (no container). Credentials in the run env:
+#   - CLAUDE_CODE_OAUTH_TOKEN  (Claude Max — coding agent + feedback generator)
+#   - OPENAI_API_KEY           (litellm utility roles + experiment-store embeddings)
+# Wall-clock budgeting is handled by the runner (orchestrator.solve
+# time_budget_minutes), not by this file; timeouts here are per-session
+# ceilings which the runner shrinks for short runs (session_budget below).
+
+default_mode: IOAI
+
+modes:
+  IOAI:
+    search_strategy:
+      type: "generic"
+      params:
+        idea_generation_model: "claude-opus-4-8"
+        implementation_model: "claude-opus-4-8"
+        auth_mode: "oauth"
+        gate_failure_policy: "skip"
+        parent_policy: "best"
+        effort: "xhigh"
+        # Ceilings; the runner's session_budget shaping shrinks these for a
+        # 2h run (ideation ~18 min, implementation ~90 min).
+        ideation_timeout: 1500
+        implementation_timeout: 7200
+        ideation_gates: ["experiment_history", "repo_memory"]
+        implementation_gates: ["repo_memory"]
+        # Bash-tool clock policy for agent sessions: without these the CLI
+        # auto-backgrounds any foreground command at 120s.
+        session_env_defaults:
+          BASH_DEFAULT_TIMEOUT_MS: "900000"
+          BASH_MAX_TIMEOUT_MS: "7200000"
+
+    # Wall-clock shaping, read by benchmarks/ioai/runner.py (posttrain
+    # pattern): per-session deadlines scale with the run size so a fixed cap
+    # never dominates a short run.
+    session_budget:
+      ideation_fraction: 0.15
+      ideation_min_seconds: 300
+      implementation_fraction: 0.75
+      implementation_min_seconds: 1800
+      finalization_reserve_fraction: 0.10
+      finalization_reserve_min_minutes: 5
+      finalization_reserve_max_minutes: 15
+      # Held OUTSIDE the orchestrator budget for the runner's post-campaign
+      # work before any external kill.
+      guard_minutes: 5
+
+    # Iteration admission floor: a useful improve+confirm cycle on this task
+    # (tweak solver + subset eval) fits in ~15 minutes.
+    budget:
+      min_iteration_seconds: 900
+
+    # Held-out scoring after the campaign: 500 test1 rows + 150 dev rows of
+    # sequential 3B-model oracle calls — generous ceiling.
+    final_eval:
+      timeout_seconds: 10800
+
+    models:
+      utility:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      reasoning:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      web_search:
+        model: "gpt-5.6-luna"
+        reasoning_effort: "xhigh"
+      embedding: "text-embedding-3-small"
+    retry:
+      max_attempts: 5
+      initial_delay_seconds: 5
+      max_delay_seconds: 120
+      multiplier: 2
+      jitter: true
+
+    coding_agent:
+      type: "claude_code"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
+      agent_specific:
+        auth_mode: "oauth"
+        effort: "xhigh"
+        streaming: true
+        timeout: 7200
+
+    feedback_generator:
+      type: "claude_code"
+      model: "claude-opus-4-8"
+      debug_model: "claude-opus-4-8"
+      agent_specific:
+        auth_mode: "oauth"
+        effort: "xhigh"
+        streaming: true
+        timeout: 900
+
+    knowledge_search:
+      type: "kg_llm_navigation"
+      enabled: false
