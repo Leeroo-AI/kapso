@@ -130,7 +130,7 @@ def parse_eval_output(stdout: str) -> dict:
     return metrics
 
 
-def run_final_eval(root: str, timeout_seconds: int) -> dict:
+def run_final_eval(root: str, timeout_seconds: int, task_python: str) -> dict:
     """Score the submission on dev + held-out test1 with a pristine harness."""
     pristine = os.path.join(root, "private", "dataset_pristine")
     submission_src = os.path.join(root, "task", "submission")
@@ -152,7 +152,7 @@ def run_final_eval(root: str, timeout_seconds: int) -> dict:
     ):
         print(f"[final-eval] scoring {split} ...", flush=True)
         proc = subprocess.run(
-            [sys.executable, "evaluate.py", "--csv", csv_path,
+            [task_python, "evaluate.py", "--csv", csv_path,
              "--solution", "submission/solution.py:MySolution"],
             cwd=eval_dir, capture_output=True, text=True,
             timeout=timeout_seconds,
@@ -182,6 +182,10 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-final-eval", action="store_true")
     parser.add_argument("--final-eval-only", action="store_true")
+    parser.add_argument("--task-python", default=sys.executable,
+                        help="Python with the task's ML stack (torch/"
+                             "transformers) used to run evaluate.py; kapso "
+                             "itself may live in a different env")
     args = parser.parse_args()
 
     root = os.path.abspath(args.root)
@@ -194,7 +198,8 @@ def main():
         mode_cfg = yaml.safe_load(f)["modes"][args.mode]
 
     if args.final_eval_only:
-        report = run_final_eval(root, mode_cfg["final_eval"]["timeout_seconds"])
+        report = run_final_eval(root, mode_cfg["final_eval"]["timeout_seconds"],
+                                args.task_python)
         results_path = os.path.join(root, "results.json")
         with open(results_path, "w") as f:
             json.dump(report, f, indent=2)
@@ -275,7 +280,7 @@ def main():
     }
     if not args.skip_final_eval:
         summary["final"] = run_final_eval(
-            root, mode_cfg["final_eval"]["timeout_seconds"])
+            root, mode_cfg["final_eval"]["timeout_seconds"], args.task_python)
     results_path = os.path.join(root, "results.json")
     with open(results_path, "w") as f:
         json.dump(summary, f, indent=2)
