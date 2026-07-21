@@ -355,13 +355,20 @@ class GitHubArtifactMaterializer:
         materialized: MaterializedArtifact,
         expected: SourceArchiveExtractionReceipt,
         destination: Path,
+        destination_parent_descriptor: int,
     ) -> SourceArchiveExtractionReceipt:
         """Recreate one attested source tree in a fresh private destination."""
 
-        destination_parent_identity = self._validate_source_destination(destination)
+        destination_parent_identity = self._validate_source_destination(
+            destination,
+            destination_parent_descriptor,
+        )
         with self._cache_lease():
             if (
-                self._validate_source_destination(destination)
+                self._validate_source_destination(
+                    destination,
+                    destination_parent_descriptor,
+                )
                 != destination_parent_identity
             ):
                 raise MaterializationError(
@@ -381,7 +388,7 @@ class GitHubArtifactMaterializer:
                 )
             with tempfile.TemporaryDirectory(
                 prefix=".source-materialization-",
-                dir=destination.parent,
+                dir=self._descriptor_path(destination_parent_descriptor),
             ) as staging_name:
                 staged_source = Path(staging_name) / "source"
                 staged_source.mkdir(mode=0o700)
@@ -404,6 +411,7 @@ class GitHubArtifactMaterializer:
                 self._publish_source_tree(
                     staged_source,
                     destination,
+                    destination_parent_descriptor,
                     destination_parent_identity,
                     expected,
                 )
@@ -558,11 +566,14 @@ class GitHubArtifactMaterializer:
                 "verified source archive changed during extraction"
             )
 
-    def _validate_source_destination(self, destination: Path) -> tuple[int, int]:
+    def _validate_source_destination(
+        self,
+        destination: Path,
+        destination_parent_descriptor: int,
+    ) -> tuple[int, int]:
         if (
             not destination.is_absolute()
             or destination != Path(os.path.abspath(destination))
-            or os.path.lexists(destination)
             or destination == self.cache_root
             or self.cache_root in destination.parents
         ):
@@ -580,14 +591,29 @@ class GitHubArtifactMaterializer:
                 "source extraction parent must be a normalized real directory"
             )
         metadata = parent.stat(follow_symlinks=False)
-        if metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID):
+        opened_parent = os.fstat(destination_parent_descriptor)
+        if not stat.S_ISDIR(opened_parent.st_mode) or (
+            opened_parent.st_dev,
+            opened_parent.st_ino,
+        ) != (metadata.st_dev, metadata.st_ino):
+            raise MaterializationError(
+                "source extraction parent differs from its pinned descriptor"
+            )
+        if destination.name in os.listdir(
+            destination_parent_descriptor
+        ) or os.path.lexists(destination):
+            raise MaterializationError(
+                "source extraction destination must be absent and normalized"
+            )
+        if opened_parent.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID):
             raise MaterializationError("source extraction parent must be private")
-        return metadata.st_dev, metadata.st_ino
+        return opened_parent.st_dev, opened_parent.st_ino
 
     def _publish_source_tree(
         self,
         staged_source: Path,
         destination: Path,
+        destination_parent_descriptor: int,
         expected_parent_identity: tuple[int, int],
         expected: SourceArchiveExtractionReceipt,
     ) -> None:
@@ -603,24 +629,19 @@ class GitHubArtifactMaterializer:
                 dir_fd=staging_parent_descriptor,
             )
             descriptors.callback(os.close, source_descriptor)
-            parent_descriptor = os.open(
-                destination.parent,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-            )
-            descriptors.callback(os.close, parent_descriptor)
             source_metadata = os.fstat(source_descriptor)
             named_source_metadata = os.stat(
                 staged_source.name,
                 dir_fd=staging_parent_descriptor,
                 follow_symlinks=False,
             )
-            parent_metadata = os.fstat(parent_descriptor)
+            parent_metadata = os.fstat(destination_parent_descriptor)
             if (
                 not stat.S_ISDIR(source_metadata.st_mode)
                 or (source_metadata.st_dev, source_metadata.st_ino)
                 != (named_source_metadata.st_dev, named_source_metadata.st_ino)
                 or source_metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
-                or os.path.lexists(destination)
+                or destination.name in os.listdir(destination_parent_descriptor)
                 or (parent_metadata.st_dev, parent_metadata.st_ino)
                 != expected_parent_identity
                 or parent_metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
@@ -667,7 +688,7 @@ class GitHubArtifactMaterializer:
             result = rename_at2(
                 staging_parent_descriptor,
                 os.fsencode(staged_source.name),
-                parent_descriptor,
+                destination_parent_descriptor,
                 os.fsencode(destination.name),
                 _RENAME_NOREPLACE,
             )
@@ -677,7 +698,7 @@ class GitHubArtifactMaterializer:
                     "atomic source-tree publication failed: "
                     f"{os.strerror(error_number)}"
                 )
-            os.fsync(parent_descriptor)
+            os.fsync(destination_parent_descriptor)
 
     def _materialize(self, resolved: ResolvedGitHubArtifact) -> MaterializedArtifact:
         self._validate_cache_ancestors()

@@ -578,6 +578,119 @@ def test_distinct_operations_cannot_concurrently_edit_one_workspace(
     assert (tmp_path / "edit-invocations.txt").read_text(encoding="utf-8") == "x"
 
 
+def test_edit_call_executes_and_seals_through_one_pinned_workspace_descriptor(
+    tmp_path,
+    monkeypatch,
+):
+    ready = tmp_path / "ready.pipe"
+    resume = tmp_path / "resume.pipe"
+    edited = tmp_path / "edited.pipe"
+    restored = tmp_path / "restored.pipe"
+    for pipe in (ready, resume, edited, restored):
+        os.mkfifo(pipe)
+    install_executable(
+        tmp_path,
+        "codex",
+        f"""#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+with pathlib.Path({str(ready)!r}).open("w") as handle:
+    handle.write("ready")
+with pathlib.Path({str(resume)!r}).open("r") as handle:
+    handle.read()
+pathlib.Path("existing.txt").write_text("after")
+pathlib.Path("created.py").write_text("print('created')\\n")
+pathlib.Path("deleted.txt").unlink()
+with pathlib.Path({str(edited)!r}).open("w") as handle:
+    handle.write("edited")
+with pathlib.Path({str(restored)!r}).open("r") as handle:
+    handle.read()
+arguments = sys.argv[1:]
+final_path = pathlib.Path(arguments[arguments.index("--output-last-message") + 1])
+final_path.write_text('{{"changed_paths":["created.py","existing.txt"],"deleted_paths":["deleted.txt"]}}')
+print(json.dumps({{"type":"turn.completed","usage":{{"input_tokens":3,"output_tokens":2}}}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace_parent = tmp_path / "workspace-parent"
+    workspace_parent.mkdir(mode=0o700)
+    workspace = workspace_parent / "workspace"
+    workspace.mkdir(mode=0o700)
+    (workspace / "existing.txt").write_text("before", encoding="utf-8")
+    (workspace / "deleted.txt").write_text("remove", encoding="utf-8")
+    call_request = editable_request(workspace, "codex")
+    moved_parent = tmp_path / "moved-workspace-parent"
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            runner(tmp_path).run,
+            call_request,
+            {"type": "object"},
+        )
+        with ready.open("r") as handle:
+            assert handle.read() == "ready"
+        workspace_parent.rename(moved_parent)
+        workspace_parent.mkdir(mode=0o700)
+        replacement_workspace = workspace_parent / "workspace"
+        replacement_workspace.mkdir(mode=0o700)
+        (replacement_workspace / "substituted.py").write_bytes(b"substituted")
+        with resume.open("w") as handle:
+            handle.write("resume")
+        with edited.open("r") as handle:
+            assert handle.read() == "edited"
+        (replacement_workspace / "substituted.py").unlink()
+        replacement_workspace.rmdir()
+        workspace_parent.rmdir()
+        moved_parent.rename(workspace_parent)
+        with restored.open("w") as handle:
+            handle.write("restored")
+        result = future.result()
+
+    delta_path = next(
+        Path(path)
+        for path in result.artifacts
+        if Path(path).name == CODING_AGENT_WORKSPACE_DELTA_FILENAME
+    )
+    delta = CodingAgentWorkspaceDelta.from_json_bytes(delta_path.read_bytes())
+    assert delta.changed_paths == ("created.py", "existing.txt")
+    assert delta.deleted_paths == ("deleted.txt",)
+    assert not (workspace / "substituted.py").exists()
+
+
+def test_edit_call_rejects_text_workspace_that_differs_from_outer_authority(
+    tmp_path,
+    monkeypatch,
+):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace = editable_workspace(tmp_path)
+    call_request = editable_request(workspace, "codex")
+    authority_descriptor = os.open(
+        workspace,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    moved_workspace = tmp_path / "moved-workspace"
+    workspace.rename(moved_workspace)
+    workspace.mkdir(mode=0o700)
+    (workspace / "existing.txt").write_text("before", encoding="utf-8")
+    (workspace / "deleted.txt").write_text("remove", encoding="utf-8")
+
+    with pytest.raises(CodingAgentInvocationError, match="differs from its authority"):
+        runner(tmp_path).run(
+            call_request,
+            {"type": "object"},
+            workspace_authority_descriptor=authority_descriptor,
+        )
+
+    os.close(authority_descriptor)
+    (workspace / "existing.txt").unlink()
+    (workspace / "deleted.txt").unlink()
+    workspace.rmdir()
+    moved_workspace.rename(workspace)
+    assert not (tmp_path / "edit-invocations.txt").exists()
+
+
 def test_incomplete_edit_artifacts_rerun_only_from_exact_parent(tmp_path, monkeypatch):
     install_edit_executable(tmp_path, "codex")
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")

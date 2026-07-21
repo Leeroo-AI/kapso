@@ -61,9 +61,27 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert settings.architect.effort == "xhigh"
     assert settings.generalizer.cli == "codex"
     assert settings.generalizer.model == "gpt-5.6-sol"
+    assert settings.workspace_path == ".kapso/cross_run/expert_workspaces"
     assert settings.triggers.inspector_id == "expert_trigger_inspector"
     assert settings.triggers.inspection_policy_version == "kapso.expert_inspection.v1"
     assert settings.triggers.minimum_success_contexts == 2
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda expert: expert.__setitem__("workspace_path", expert["candidate_path"]),
+        lambda expert: expert.__setitem__(
+            "workspace_path", expert["agent_artifact_path"] + "/nested"
+        ),
+    ),
+)
+def test_expert_workspace_path_must_be_disjoint(mutate):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    mutate(raw["expert"])
+
+    with pytest.raises(CrossRunConfigurationError, match="must be disjoint"):
+        CrossRunSettings.from_dict(raw)
 
 
 @pytest.mark.parametrize(

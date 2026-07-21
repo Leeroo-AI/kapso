@@ -78,10 +78,44 @@ def inspect_coding_agent_workspace(
             "coding-agent editable workspace must be a normalized real directory"
         )
     root_metadata = root.stat(follow_symlinks=False)
-    if root_metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID):
-        raise CodingAgentWorkspaceError(
-            "coding-agent editable workspace must be private"
+    with ExitStack() as descriptors:
+        root_descriptor = os.open(
+            root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
+        descriptors.callback(os.close, root_descriptor)
+        opened_root = os.fstat(root_descriptor)
+        if (opened_root.st_dev, opened_root.st_ino) != (
+            root_metadata.st_dev,
+            root_metadata.st_ino,
+        ):
+            raise CodingAgentWorkspaceError(
+                "coding-agent workspace root changed while opening"
+            )
+        snapshot = inspect_coding_agent_workspace_descriptor(
+            root_descriptor,
+            maximum_entries=maximum_entries,
+            maximum_bytes=maximum_bytes,
+        )
+        current_root = os.stat(root, follow_symlinks=False)
+        if (current_root.st_dev, current_root.st_ino) != (
+            opened_root.st_dev,
+            opened_root.st_ino,
+        ):
+            raise CodingAgentWorkspaceError(
+                "coding-agent workspace root changed during inspection"
+            )
+        return snapshot
+
+
+def inspect_coding_agent_workspace_descriptor(
+    root_descriptor: int,
+    *,
+    maximum_entries: int,
+    maximum_bytes: int,
+) -> CodingAgentWorkspaceSnapshot:
+    """Read one exact tree from a caller-owned pinned directory descriptor."""
+
     if (
         isinstance(maximum_entries, bool)
         or not isinstance(maximum_entries, int)
@@ -93,25 +127,24 @@ def inspect_coding_agent_workspace(
         raise CodingAgentWorkspaceError(
             "coding-agent workspace limits must be positive integers"
         )
+    root_metadata = os.fstat(root_descriptor)
+    if not stat.S_ISDIR(root_metadata.st_mode) or root_metadata.st_mode & (
+        0o077 | stat.S_ISUID | stat.S_ISGID
+    ):
+        raise CodingAgentWorkspaceError(
+            "coding-agent editable workspace descriptor must be private"
+        )
     state = _WorkspaceScanState(maximum_entries, maximum_bytes)
-    with ExitStack() as descriptors:
-        root_descriptor = os.open(
-            root,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    files = _read_workspace_directory(
+        root_descriptor,
+        PurePosixPath("."),
+        state,
+    )
+    observed_root = os.fstat(root_descriptor)
+    if _metadata_identity(observed_root) != _metadata_identity(root_metadata):
+        raise CodingAgentWorkspaceError(
+            "coding-agent workspace descriptor changed during inspection"
         )
-        descriptors.callback(os.close, root_descriptor)
-        opened_root = os.fstat(root_descriptor)
-        root_identity = (opened_root.st_dev, opened_root.st_ino)
-        files = _read_workspace_directory(
-            root_descriptor,
-            PurePosixPath("."),
-            state,
-        )
-        current_root = os.stat(root, follow_symlinks=False)
-        if (current_root.st_dev, current_root.st_ino) != root_identity:
-            raise CodingAgentWorkspaceError(
-                "coding-agent workspace root changed during inspection"
-            )
     ordered_files = tuple(sorted(files, key=lambda file: file.descriptor.relative_path))
     tree_hash = _descriptor_tree_hash(
         {file.descriptor.relative_path: file.descriptor for file in ordered_files}

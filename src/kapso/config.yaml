@@ -144,6 +144,7 @@ cross_run:
       prompt_byte_budget: 48000
       materialization_byte_budget: 65536
   expert:
+    workspace_path: ".kapso/cross_run/expert_workspaces"
     candidate_path: ".kapso/cross_run/expert_candidates"
     agent_artifact_path: ".kapso/cross_run/expert_agent_calls"
     candidate_entry_limit: 10000

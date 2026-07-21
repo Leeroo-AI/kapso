@@ -37,7 +37,7 @@ from kapso.execution.coding_agents.credential_environment import (
 from kapso.execution.coding_agents.workspace_delta import (
     CodingAgentWorkspaceSnapshot,
     build_coding_agent_workspace_delta,
-    inspect_coding_agent_workspace,
+    inspect_coding_agent_workspace_descriptor,
     validate_coding_agent_workspace_delta,
 )
 
@@ -728,6 +728,8 @@ class CodingAgentCallRunner(Protocol):
         self,
         request: CodingAgentCallRequest,
         response_schema: Mapping[str, Any],
+        *,
+        workspace_authority_descriptor: int | None = None,
     ) -> CodingAgentCallResult:
         """Run one complete structured agent invocation."""
 
@@ -766,9 +768,18 @@ class CodingAgentRunnerSettings:
 class _CodingAgentWorkspaceLease:
     """Exclusive lease for one private editable workspace path."""
 
-    def __init__(self, workspace: Path):
+    def __init__(
+        self,
+        workspace: Path,
+        authority_descriptor: int | None,
+    ):
         self.workspace = workspace
+        self.authority_descriptor = authority_descriptor
         self.handle = None
+        self.parent_descriptor = None
+        self.parent_identity = None
+        self.workspace_descriptor = None
+        self.workspace_identity = None
 
     def __enter__(self):
         parent = self.workspace.parent
@@ -781,6 +792,7 @@ class _CodingAgentWorkspaceLease:
             raise CodingAgentInvocationError(
                 "editable coding-agent workspace parent must be private"
             )
+        parent_identity = parent_metadata.st_dev, parent_metadata.st_ino
         lease_digest = tree_or_blob_digest(str(self.workspace).encode("utf-8"))[7:39]
         lease_name = f".kapso-workspace-{lease_digest}.lock"
         with ExitStack() as descriptors:
@@ -789,31 +801,102 @@ class _CodingAgentWorkspaceLease:
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
             )
             descriptors.callback(os.close, parent_descriptor)
+            opened_parent = os.fstat(parent_descriptor)
+            if (opened_parent.st_dev, opened_parent.st_ino) != parent_identity:
+                raise CodingAgentInvocationError(
+                    "editable coding-agent workspace parent changed while opening"
+                )
+            workspace_metadata = os.stat(
+                self.workspace.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            workspace_identity = (
+                workspace_metadata.st_dev,
+                workspace_metadata.st_ino,
+            )
+            workspace_descriptor = os.open(
+                self.workspace.name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=parent_descriptor,
+            )
+            descriptors.callback(os.close, workspace_descriptor)
+            opened_workspace = os.fstat(workspace_descriptor)
+            if (
+                not stat.S_ISDIR(workspace_metadata.st_mode)
+                or (opened_workspace.st_dev, opened_workspace.st_ino)
+                != workspace_identity
+            ):
+                raise CodingAgentInvocationError(
+                    "editable coding-agent workspace changed while opening"
+                )
+            if self.authority_descriptor is not None:
+                authority = os.fstat(self.authority_descriptor)
+                if (
+                    not stat.S_ISDIR(authority.st_mode)
+                    or (authority.st_dev, authority.st_ino) != workspace_identity
+                ):
+                    raise CodingAgentInvocationError(
+                        "editable coding-agent workspace differs from its authority"
+                    )
             lease_descriptor = os.open(
                 lease_name,
                 os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
                 0o600,
                 dir_fd=parent_descriptor,
             )
-        self.handle = os.fdopen(lease_descriptor, "r+b")
-        metadata = os.fstat(self.handle.fileno())
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
-        ):
-            self.handle.close()
-            self.handle = None
-            raise CodingAgentInvocationError(
-                "coding-agent workspace lease must be a private independent file"
-            )
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
-        return self
+            descriptors.callback(os.close, lease_descriptor)
+            handle = os.fdopen(lease_descriptor, "r+b", closefd=False)
+            descriptors.enter_context(handle)
+            metadata = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+            ):
+                raise CodingAgentInvocationError(
+                    "coding-agent workspace lease must be a private independent file"
+                )
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            self.handle = handle
+            self.parent_descriptor = parent_descriptor
+            self.parent_identity = parent_identity
+            self.workspace_descriptor = workspace_descriptor
+            self.workspace_identity = workspace_identity
+            descriptors.pop_all()
+            return self
 
     def __exit__(self, exception_type, exception, traceback):
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
-        self.handle.close()
+        with ExitStack() as descriptors:
+            descriptors.callback(os.close, self.parent_descriptor)
+            descriptors.callback(os.close, self.workspace_descriptor)
+            descriptors.callback(os.close, self.handle.fileno())
+            descriptors.enter_context(self.handle)
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+            current_parent = self.workspace.parent.stat(follow_symlinks=False)
+            current_workspace = os.stat(
+                self.workspace.name,
+                dir_fd=self.parent_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                (current_parent.st_dev, current_parent.st_ino) != self.parent_identity
+                or (current_workspace.st_dev, current_workspace.st_ino)
+                != self.workspace_identity
+                or (
+                    os.fstat(self.workspace_descriptor).st_dev,
+                    os.fstat(self.workspace_descriptor).st_ino,
+                )
+                != self.workspace_identity
+            ):
+                raise CodingAgentInvocationError(
+                    "editable coding-agent workspace binding changed during use"
+                )
         self.handle = None
+        self.parent_descriptor = None
+        self.parent_identity = None
+        self.workspace_descriptor = None
+        self.workspace_identity = None
         return False
 
 
@@ -827,6 +910,8 @@ class SubprocessCodingAgentCallRunner:
         self,
         request: CodingAgentCallRequest,
         response_schema: Mapping[str, Any],
+        *,
+        workspace_authority_descriptor: int | None = None,
     ) -> CodingAgentCallResult:
         workspace = _validate_coding_agent_workspace(request.workspace)
         if shutil.which("timeout") is None:
@@ -855,10 +940,21 @@ class SubprocessCodingAgentCallRunner:
         ).decode("utf-8")
         artifact_root = self._prepare_artifact_root()
         with ExitStack() as descriptors:
+            workspace_descriptor = None
             if request.workspace_policy.access is (
                 CodingAgentWorkspaceAccess.EDIT_WORKSPACE
             ):
-                descriptors.enter_context(_CodingAgentWorkspaceLease(workspace))
+                workspace_lease = descriptors.enter_context(
+                    _CodingAgentWorkspaceLease(
+                        workspace,
+                        workspace_authority_descriptor,
+                    )
+                )
+                workspace_descriptor = workspace_lease.workspace_descriptor
+            elif workspace_authority_descriptor is not None:
+                raise CodingAgentInvocationError(
+                    "read-only coding-agent call cannot receive edit authority"
+                )
             root_descriptor = os.open(
                 artifact_root,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -895,6 +991,7 @@ class SubprocessCodingAgentCallRunner:
                 invocation_text=invocation_text,
                 operation_descriptor=operation_descriptor,
                 artifact_directory=artifact_directory,
+                workspace_descriptor=workspace_descriptor,
             )
 
     def _prepare_artifact_root(self) -> Path:
@@ -994,6 +1091,7 @@ class SubprocessCodingAgentCallRunner:
         invocation_text: str,
         operation_descriptor: int,
         artifact_directory: Path,
+        workspace_descriptor: int | None,
     ) -> CodingAgentCallResult:
         self._validate_and_recover_operation_directory(operation_descriptor)
         entries = set(os.listdir(operation_descriptor))
@@ -1037,8 +1135,12 @@ class SubprocessCodingAgentCallRunner:
                 operation_descriptor,
                 artifact_directory,
                 request,
+                workspace_descriptor,
             )
-        baseline = self._inspect_editable_workspace(request)
+        baseline = self._inspect_editable_workspace(
+            request,
+            workspace_descriptor,
+        )
         recoverable_outputs = {
             filename
             for access in CodingAgentWorkspaceAccess
@@ -1063,16 +1165,23 @@ class SubprocessCodingAgentCallRunner:
             schema_path,
             final_path,
             mcp_config_path,
+            workspace_descriptor,
+        )
+        execution_workspace = (
+            Path(request.workspace)
+            if workspace_descriptor is None
+            else Path("/proc/self/fd") / str(workspace_descriptor)
         )
         started = time.monotonic()
         completed = subprocess.run(
             command,
-            cwd=Path(request.workspace),
+            cwd=execution_workspace,
             env=coding_agent_credential_environment(request.cli),
             input=request.prompt,
             text=True,
             capture_output=True,
             check=False,
+            pass_fds=(() if workspace_descriptor is None else (workspace_descriptor,)),
         )
         duration = time.monotonic() - started
         self._write_atomic_text(
@@ -1111,7 +1220,11 @@ class SubprocessCodingAgentCallRunner:
             )
         workspace_delta_digest = None
         if baseline is not None:
-            edited = self._inspect_editable_workspace(request, require_baseline=False)
+            edited = self._inspect_editable_workspace(
+                request,
+                workspace_descriptor,
+                require_baseline=False,
+            )
             if edited is None:
                 raise CodingAgentInvocationError(
                     "editable coding-agent workspace produced no observation"
@@ -1256,6 +1369,7 @@ class SubprocessCodingAgentCallRunner:
         operation_descriptor: int,
         artifact_directory: Path,
         request: CodingAgentCallRequest,
+        workspace_descriptor: int | None,
     ) -> CodingAgentCallResult:
         workspace_access = request.workspace_policy.access
         if set(os.listdir(operation_descriptor)) != set(
@@ -1309,6 +1423,7 @@ class SubprocessCodingAgentCallRunner:
                 )
             observed = self._inspect_editable_workspace(
                 request,
+                workspace_descriptor,
                 require_baseline=False,
             )
             if observed is None:
@@ -1346,14 +1461,23 @@ class SubprocessCodingAgentCallRunner:
     @staticmethod
     def _inspect_editable_workspace(
         request: CodingAgentCallRequest,
+        workspace_descriptor: int | None,
         *,
         require_baseline: bool = True,
     ) -> CodingAgentWorkspaceSnapshot | None:
         policy = request.workspace_policy
         if policy.access is CodingAgentWorkspaceAccess.READ_ONLY:
+            if workspace_descriptor is not None:
+                raise CodingAgentInvocationError(
+                    "read-only coding-agent workspace received edit authority"
+                )
             return None
-        observed = inspect_coding_agent_workspace(
-            Path(request.workspace),
+        if workspace_descriptor is None:
+            raise CodingAgentInvocationError(
+                "editable coding-agent workspace lacks a pinned descriptor"
+            )
+        observed = inspect_coding_agent_workspace_descriptor(
+            workspace_descriptor,
             maximum_entries=policy.maximum_entries,
             maximum_bytes=policy.maximum_bytes,
         )
@@ -1397,6 +1521,7 @@ class SubprocessCodingAgentCallRunner:
         schema_path: Path,
         final_path: Path,
         mcp_config_path: Path,
+        workspace_descriptor: int | None,
     ) -> list[str]:
         deadline = f"{request.timeout_seconds}s"
         grace = f"{self.settings.termination_grace_seconds}s"
@@ -1420,7 +1545,7 @@ class SubprocessCodingAgentCallRunner:
                     "--skip-git-repo-check",
                     "--ignore-user-config",
                     "--cd",
-                    request.workspace,
+                    "." if workspace_descriptor is not None else request.workspace,
                     "--output-schema",
                     str(schema_path),
                     "--output-last-message",
@@ -1469,7 +1594,11 @@ class SubprocessCodingAgentCallRunner:
             "",
             "--exclude-dynamic-system-prompt-sections",
             "--settings",
-            self._claude_security_settings(request, mcp_config_path.parent),
+            self._claude_security_settings(
+                request,
+                mcp_config_path.parent,
+                workspace_descriptor,
+            ),
             "--permission-mode",
             (
                 "acceptEdits"
@@ -1545,6 +1674,7 @@ class SubprocessCodingAgentCallRunner:
     def _claude_security_settings(
         request: CodingAgentCallRequest,
         artifact_directory: Path,
+        workspace_descriptor: int | None,
     ) -> str:
         denied_reads = [
             "Read(//proc/**)",
@@ -1572,7 +1702,11 @@ class SubprocessCodingAgentCallRunner:
                     "filesystem": {
                         "denyRead": ["/"],
                         "allowRead": [
-                            request.workspace,
+                            (
+                                "."
+                                if workspace_descriptor is not None
+                                else request.workspace
+                            ),
                             str(artifact_directory),
                         ],
                     },

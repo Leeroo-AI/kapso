@@ -728,6 +728,7 @@ class ExpertValidationSettings(StrictContract):
 
 @dataclass(frozen=True)
 class ExpertSettings(StrictContract):
+    workspace_path: str
     candidate_path: str
     agent_artifact_path: str
     candidate_entry_limit: int
@@ -745,6 +746,10 @@ class ExpertSettings(StrictContract):
     validation: ExpertValidationSettings
 
     def _validate(self) -> None:
+        workspace_path = _require_relative_path(
+            self.workspace_path,
+            "expert.workspace_path",
+        )
         candidate_path = _require_relative_path(
             self.candidate_path,
             "expert.candidate_path",
@@ -753,14 +758,21 @@ class ExpertSettings(StrictContract):
             self.agent_artifact_path,
             "expert.agent_artifact_path",
         )
-        if (
-            candidate_path == artifact_path
-            or candidate_path in artifact_path.parents
-            or artifact_path in candidate_path.parents
-        ):
-            raise CrossRunConfigurationError(
-                "expert candidates and agent artifacts must be disjoint"
-            )
+        paths = {
+            "workspaces": workspace_path,
+            "candidates": candidate_path,
+            "agent artifacts": artifact_path,
+        }
+        for name, path in paths.items():
+            for other_name, other_path in paths.items():
+                if name < other_name and (
+                    path == other_path
+                    or path in other_path.parents
+                    or other_path in path.parents
+                ):
+                    raise CrossRunConfigurationError(
+                        f"expert {name} and {other_name} must be disjoint"
+                    )
         _require_positive(
             self.candidate_entry_limit,
             "expert.candidate_entry_limit",

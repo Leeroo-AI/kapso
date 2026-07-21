@@ -194,7 +194,7 @@ the same release.
       verify.
 - [x] Reproduces an attested source archive into a private destination only after
       the exact extraction receipt matches, then exposes the tree with an atomic
-      no-replace rename.
+      no-replace rename through the caller's pinned destination-parent descriptor.
 - [x] Exposes explicit cache inspection/pruning; never removes a pinned entry.
 
 Cache roots reject symlinked ancestors and stream configured entry bounds before

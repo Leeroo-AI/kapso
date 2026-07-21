@@ -28,6 +28,12 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerObservation,
     ExpertTriggerObservationKind,
 )
+from kapso.cross_run.expert.workspace import (
+    ExpertCandidateWorkspaceError,
+    ExpertCandidateWorkspaceLease,
+    ExpertCandidateWorkspaceManager,
+    PreparedExpertCandidateWorkspace,
+)
 
 __all__ = [
     "EXPERT_BOOK_PATH",
@@ -36,6 +42,9 @@ __all__ = [
     "ExpertCandidateClosure",
     "ExpertCandidateValidationError",
     "ExpertCandidateValidator",
+    "ExpertCandidateWorkspaceError",
+    "ExpertCandidateWorkspaceLease",
+    "ExpertCandidateWorkspaceManager",
     "ExpertCandidateSanitizer",
     "ExpertCandidateStore",
     "ExpertCandidateStoreError",
@@ -47,6 +56,7 @@ __all__ = [
     "ExpertTriggerEvaluator",
     "ExpertTriggerObservation",
     "ExpertTriggerObservationKind",
+    "PreparedExpertCandidateWorkspace",
     "StoredExpertCandidate",
     "compile_expert_semantic_book",
     "expert_semantic_book_digest",

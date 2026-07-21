@@ -3,6 +3,7 @@ import os
 import shutil
 import struct
 import tarfile
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -45,6 +46,27 @@ from tests.cross_run_github_fixtures import release_attestation
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 REPOSITORY = "Leeroo-AI/kapso-knowledge"
+
+
+def extract_verified_source_archive(
+    materializer,
+    *,
+    materialized,
+    expected,
+    destination,
+):
+    with ExitStack() as descriptors:
+        parent_descriptor = os.open(
+            destination.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, parent_descriptor)
+        return materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=expected,
+            destination=destination,
+            destination_parent_descriptor=parent_descriptor,
+        )
 
 
 def test_source_extraction_receipt_rejects_file_directory_collision():
@@ -444,7 +466,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     )
     extracted_source = (tmp_path / "extracted-source").resolve()
     assert (
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=extracted_source,
@@ -474,10 +497,33 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     assert tuple(file.relative_path for file in source_receipt.source_tree_files) == (
         "main.py",
     )
+    pinned_parent = (tmp_path / "pinned-extraction-parent").resolve()
+    pinned_parent.mkdir(mode=0o700)
+    pinned_parent.chmod(0o700)
+    pinned_destination = pinned_parent / "source"
+    moved_parent = (tmp_path / "moved-extraction-parent").resolve()
+    with ExitStack() as descriptors:
+        pinned_parent_descriptor = os.open(
+            pinned_parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        descriptors.callback(os.close, pinned_parent_descriptor)
+        pinned_parent.rename(moved_parent)
+        pinned_parent.mkdir(mode=0o700)
+        with pytest.raises(MaterializationError, match="pinned descriptor"):
+            materializer.extract_verified_source_archive(
+                materialized=materialized,
+                expected=source_receipt,
+                destination=pinned_destination,
+                destination_parent_descriptor=pinned_parent_descriptor,
+            )
+    assert tuple(pinned_parent.iterdir()) == ()
+    assert tuple(moved_parent.iterdir()) == ()
     with pytest.raises(MaterializationError, match="reference is invalid"):
         replace(source_receipt, source_archive_ref="source.bin")
     with pytest.raises(MaterializationError, match="must be absent"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=extracted_source,
@@ -485,7 +531,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     symlink_destination = (tmp_path / "linked-extraction").resolve()
     symlink_destination.symlink_to(extracted_source, target_is_directory=True)
     with pytest.raises(MaterializationError, match="must be absent"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=symlink_destination,
@@ -494,7 +541,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     public_parent.mkdir(mode=0o755)
     public_parent.chmod(0o755)
     with pytest.raises(MaterializationError, match="parent must be private"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=public_parent / "source",
@@ -509,7 +557,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         extractor_version=source_receipt.extractor_version,
     )
     with pytest.raises(MaterializationError, match="differs from verified asset"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=wrong_source_receipt,
             destination=wrong_destination,
@@ -539,7 +588,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     )
     wrong_tree_destination = (tmp_path / "wrong-tree-extraction").resolve()
     with pytest.raises(MaterializationError, match="differs from expected receipt"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=wrong_tree_receipt,
             destination=wrong_tree_destination,
@@ -550,6 +600,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     def substitute_staged_source(
         staged_source,
         destination,
+        destination_parent_descriptor,
         expected_parent_identity,
         expected,
     ):
@@ -557,6 +608,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         return original_publish(
             staged_source,
             destination,
+            destination_parent_descriptor,
             expected_parent_identity,
             expected,
         )
@@ -568,7 +620,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     )
     substituted_destination = (tmp_path / "substituted-extraction").resolve()
     with pytest.raises(MaterializationError, match="at publication"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=substituted_destination,
@@ -578,6 +631,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     def inject_empty_git_directory(
         staged_source,
         destination,
+        destination_parent_descriptor,
         expected_parent_identity,
         expected,
     ):
@@ -585,6 +639,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         return original_publish(
             staged_source,
             destination,
+            destination_parent_descriptor,
             expected_parent_identity,
             expected,
         )
@@ -596,7 +651,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     )
     git_injected_destination = (tmp_path / "git-injected-extraction").resolve()
     with pytest.raises(MaterializationError, match="unsafe path"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=git_injected_destination,
@@ -608,6 +664,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     def inject_hardlinked_source(
         staged_source,
         destination,
+        destination_parent_descriptor,
         expected_parent_identity,
         expected,
     ):
@@ -616,6 +673,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         return original_publish(
             staged_source,
             destination,
+            destination_parent_descriptor,
             expected_parent_identity,
             expected,
         )
@@ -627,7 +685,8 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     )
     hardlinked_destination = (tmp_path / "hardlinked-extraction").resolve()
     with pytest.raises(MaterializationError, match="must be independent"):
-        materializer.extract_verified_source_archive(
+        extract_verified_source_archive(
+            materializer,
             materialized=materialized,
             expected=source_receipt,
             destination=hardlinked_destination,

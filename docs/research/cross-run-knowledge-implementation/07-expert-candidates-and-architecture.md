@@ -6,8 +6,8 @@ Depends on: M1, M2, and M5.
 
 Status: **Trigger/materialization, candidate closure/book, immutable candidate
 store, replayable coding-agent workspace edits, and self-contained operation
-provenance independently approved; candidate parent construction and proposers
-remain.**
+provenance plus exact private candidate-parent workspaces independently approved;
+architect/generalizer proposers remain.**
 
 ## Objective
 
@@ -37,6 +37,7 @@ src/kapso/cross_run/expert/
   candidates.py
   book.py
   store.py
+  workspace.py
 
 src/kapso/execution/coding_agents/
   structured_call.py
@@ -142,12 +143,18 @@ ancestors, and a proof-closed knowledge packet.
 
 ## Candidate store and manifest
 
-- [ ] Create an isolated candidate workspace from the exact parent tree hash.
+- [x] Create an isolated private candidate workspace from the canonical empty tree
+      or the exact released-parent source receipt; validate generated controls,
+      remove only those controls through pinned descriptors, and require the
+      remaining editable tree to equal parent-minus-controls.
 - [x] Serialize edits as a canonical create/modify/delete delta bound to both exact
       parent and edited tree hashes; validate and replay it without relying on
       subprocess side effects.
 - [x] Lease a workspace across baseline inspection, CLI execution, and delta
       sealing so distinct operation IDs cannot race on one tree.
+- [x] Thread the active expert lease's descriptor authority into editable coding
+      agents; execute the CLI and inspect both sides of its delta through that
+      descriptor so temporary path substitution cannot enter a candidate.
 - [x] Bind cached results to exact invocation, `final.json`, audit, artifact set,
       and workspace delta; reject partial, public, linked, or substituted
       artifacts.
@@ -201,6 +208,11 @@ ancestors, and a proof-closed knowledge packet.
 - Prove editable calls reject wrong parents, symlinks, hardlinks, special files,
   oversize trees, path collisions, cross-operation workspace races, and tampered
   cached output/deltas.
+- Prove construction failures remove created destinations; root/control/source
+  swap races fail loud; cleanup handles read-only trees, FIFOs, sockets, links,
+  and replacement names without following or changing outside targets.
+- Prove a replace-edit-restore ABA sequence cannot redirect CLI execution or
+  delta sealing, and an already-substituted path differs from outer authority.
 
 ## Definition of done
 
