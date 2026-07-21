@@ -145,8 +145,33 @@ cross_run:
       materialization_byte_budget: 65536
   expert:
     candidate_path: ".kapso/cross_run/expert_candidates"
-    architect_cli: "claude_code"
-    generalizer_cli: "codex"
+    agent_artifact_path: ".kapso/cross_run/expert_agent_calls"
+    termination_grace_seconds: 5
+    sensitive_file_glob_scan_max_depth: 8
+    architect_id: "expert_repository_architect"
+    architect_role: "expert_repository_architect"
+    architect:
+      cli: "claude_code"
+      model: "fable"
+      timeout_seconds: 900
+      effort: "xhigh"
+      allowed_tools: ["Edit", "Glob", "Grep", "Read", "Write"]
+    generalizer_id: "expert_capability_generalizer"
+    generalizer_role: "expert_capability_generalizer"
+    generalizer:
+      cli: "codex"
+      model: "gpt-5.6-sol"
+      timeout_seconds: 900
+      effort: "xhigh"
+      allowed_tools: ["Read"]
+    triggers:
+      policy_version: "kapso.expert_triggers.v1"
+      minimum_failure_lineages: 2
+      minimum_failure_contexts: 2
+      minimum_success_lineages: 2
+      minimum_success_contexts: 2
+      minimum_duplicate_files: 2
+      maximum_ancestor_candidates: 4
     validation:
       reviewer_cli: "claude_code"
       reviewer_count: 2

@@ -12,7 +12,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import CodingAgentOperationReceipt
 from kapso.cross_run.record_contracts import CatalogAgentOperationError
-from kapso.cross_run.settings import CatalogAgentSettings
+from kapso.cross_run.settings import CodingAgentSettings
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 
 _RECEIPT_ARTIFACT_FILENAMES = {
@@ -42,7 +42,7 @@ def build_catalog_agent_operation_receipt(
     operation_id: str,
     principal_id: str,
     role: str,
-    agent: CatalogAgentSettings,
+    agent: CodingAgentSettings,
     result: CodingAgentCallResult,
 ) -> tuple[CodingAgentOperationReceipt, str]:
     artifact_paths = tuple(Path(path) for path in result.artifacts)

@@ -408,7 +408,7 @@ class SanitationSettings(StrictContract):
 
 
 @dataclass(frozen=True)
-class CatalogAgentSettings(StrictContract):
+class CodingAgentSettings(StrictContract):
     cli: str
     model: str
     timeout_seconds: int
@@ -416,27 +416,34 @@ class CatalogAgentSettings(StrictContract):
     allowed_tools: tuple[str, ...]
 
     def _validate(self) -> None:
-        _require_cli(self.cli, "catalog agent cli")
+        _require_cli(self.cli, "coding agent cli")
         if not self.model:
-            raise CrossRunConfigurationError("catalog agent model must not be empty")
-        _require_positive(self.timeout_seconds, "catalog agent timeout_seconds")
+            raise CrossRunConfigurationError("coding agent model must not be empty")
+        _require_positive(self.timeout_seconds, "coding agent timeout_seconds")
         valid_efforts = {
             "codex": {"minimal", "low", "medium", "high", "xhigh"},
-            "claude_code": {"low", "medium", "high", "max"},
+            "claude_code": {"low", "medium", "high", "xhigh", "max"},
         }
         if self.effort not in valid_efforts[self.cli]:
             raise CrossRunConfigurationError(
-                "catalog agent effort is incompatible with its CLI"
+                "coding agent effort is incompatible with its CLI"
             )
         supported_tools = {
             "codex": {"Read", "WebSearch"},
-            "claude_code": {"Glob", "Grep", "Read", "WebSearch"},
+            "claude_code": {
+                "Edit",
+                "Glob",
+                "Grep",
+                "Read",
+                "WebSearch",
+                "Write",
+            },
         }
         if self.allowed_tools != tuple(sorted(set(self.allowed_tools))) or not set(
             self.allowed_tools
         ).issubset(supported_tools[self.cli]):
             raise CrossRunConfigurationError(
-                "catalog agent tools must be supported, sorted, and unique"
+                "coding agent tools must be supported, sorted, and unique"
             )
 
 
@@ -445,7 +452,7 @@ class CatalogReviewerSettings(StrictContract):
     reviewer_id: str
     reviewer_role: str
     rubric_version: str
-    agent: CatalogAgentSettings
+    agent: CodingAgentSettings
 
     def _validate(self) -> None:
         for value, name in (
@@ -504,7 +511,7 @@ class CatalogSettings(StrictContract):
     review_packet_record_limit: int
     claim_proposer_id: str
     claim_proposer_role: str
-    claim_proposer: CatalogAgentSettings
+    claim_proposer: CodingAgentSettings
     reviewers: tuple[CatalogReviewerSettings, ...]
     admission: CatalogAdmissionSettings
     publication_interval_runs: int
@@ -665,6 +672,29 @@ class KnowledgeSettings(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertTriggerSettings(StrictContract):
+    policy_version: str
+    minimum_failure_lineages: int
+    minimum_failure_contexts: int
+    minimum_success_lineages: int
+    minimum_success_contexts: int
+    minimum_duplicate_files: int
+    maximum_ancestor_candidates: int
+
+    def _validate(self) -> None:
+        require_identifier(self.policy_version, "expert trigger policy_version")
+        for value, name in (
+            (self.minimum_failure_lineages, "minimum_failure_lineages"),
+            (self.minimum_failure_contexts, "minimum_failure_contexts"),
+            (self.minimum_success_lineages, "minimum_success_lineages"),
+            (self.minimum_success_contexts, "minimum_success_contexts"),
+            (self.minimum_duplicate_files, "minimum_duplicate_files"),
+            (self.maximum_ancestor_candidates, "maximum_ancestor_candidates"),
+        ):
+            _require_positive(value, f"expert.triggers.{name}")
+
+
+@dataclass(frozen=True)
 class ExpertValidationSettings(StrictContract):
     reviewer_cli: str
     reviewer_count: int
@@ -690,14 +720,71 @@ class ExpertValidationSettings(StrictContract):
 @dataclass(frozen=True)
 class ExpertSettings(StrictContract):
     candidate_path: str
-    architect_cli: str
-    generalizer_cli: str
+    agent_artifact_path: str
+    termination_grace_seconds: int
+    sensitive_file_glob_scan_max_depth: int
+    architect_id: str
+    architect_role: str
+    architect: CodingAgentSettings
+    generalizer_id: str
+    generalizer_role: str
+    generalizer: CodingAgentSettings
+    triggers: ExpertTriggerSettings
     validation: ExpertValidationSettings
 
     def _validate(self) -> None:
-        _require_path(self.candidate_path, "expert.candidate_path")
-        _require_cli(self.architect_cli, "expert.architect_cli")
-        _require_cli(self.generalizer_cli, "expert.generalizer_cli")
+        candidate_path = _require_relative_path(
+            self.candidate_path,
+            "expert.candidate_path",
+        )
+        artifact_path = _require_relative_path(
+            self.agent_artifact_path,
+            "expert.agent_artifact_path",
+        )
+        if (
+            candidate_path == artifact_path
+            or candidate_path in artifact_path.parents
+            or artifact_path in candidate_path.parents
+        ):
+            raise CrossRunConfigurationError(
+                "expert candidates and agent artifacts must be disjoint"
+            )
+        _require_positive(
+            self.termination_grace_seconds,
+            "expert.termination_grace_seconds",
+        )
+        _require_positive(
+            self.sensitive_file_glob_scan_max_depth,
+            "expert.sensitive_file_glob_scan_max_depth",
+        )
+        for value, name in (
+            (self.architect_id, "expert.architect_id"),
+            (self.architect_role, "expert.architect_role"),
+            (self.generalizer_id, "expert.generalizer_id"),
+            (self.generalizer_role, "expert.generalizer_role"),
+        ):
+            require_identifier(value, name)
+        if self.architect_id == self.generalizer_id:
+            raise CrossRunConfigurationError(
+                "expert architect and generalizer identities must differ"
+            )
+        self._validate_candidate_editor(self.architect, "architect")
+        self._validate_candidate_editor(self.generalizer, "generalizer")
+
+    @staticmethod
+    def _validate_candidate_editor(
+        agent: CodingAgentSettings,
+        name: str,
+    ) -> None:
+        if "WebSearch" in agent.allowed_tools:
+            raise CrossRunConfigurationError(
+                f"expert {name} cannot search outside its persisted packet"
+            )
+        required = {"Read"} if agent.cli == "codex" else {"Edit", "Read", "Write"}
+        if not required.issubset(agent.allowed_tools):
+            raise CrossRunConfigurationError(
+                f"expert {name} lacks required candidate-workspace tools"
+            )
 
 
 @dataclass(frozen=True)

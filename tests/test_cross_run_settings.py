@@ -51,6 +51,19 @@ def test_catalog_agents_and_admission_policy_are_fully_typed():
     assert settings.configuration_fingerprint.startswith("sha256:")
 
 
+def test_expert_proposers_and_trigger_policy_are_fully_typed():
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    ).expert
+
+    assert settings.architect.cli == "claude_code"
+    assert settings.architect.model == "fable"
+    assert settings.architect.effort == "xhigh"
+    assert settings.generalizer.cli == "codex"
+    assert settings.generalizer.model == "gpt-5.6-sol"
+    assert settings.triggers.minimum_success_contexts == 2
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
