@@ -95,6 +95,25 @@ implementing anything:
 - **Datasets**: If provided, datasets are in `kapso_datasets/`.
 - Use relative paths, not absolute paths.
 
+## Shared Campaign Cache
+
+`$KAPSO_SHARED_CACHE_DIR` is a persistent cache that survives across
+experiments and campaign resumes. Store expensive reusable artifacts there —
+precomputed tables, embeddings, feature matrices, per-model predictions —
+keyed by a content/version string. **Check-before-compute**: extend what
+exists rather than rebuilding it. Large binaries belong there, never in the
+git workspace.
+
+When you store a reusable artifact, register it: append an entry to
+`$KAPSO_SHARED_CACHE_DIR/artifacts.json` (a JSON list) like
+`{"name": "...", "path": "<relative to cache>", "description": "...",
+"content_key": "...", "rebuild_hint": "..."}` so later experiments and
+campaigns can find it.
+
+### Available artifacts (optional)
+
+{{shared_artifacts_brief}}
+
 ## Repository Memory
 
 {{repo_memory_brief}}

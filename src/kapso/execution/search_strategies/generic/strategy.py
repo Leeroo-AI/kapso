@@ -46,6 +46,10 @@ import shlex
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from kapso.execution.search_strategies.generic import codex_ideation
+from kapso.execution.search_strategies.generic.shared_cache import (
+    SHARED_CACHE_ENV_VAR,
+    build_shared_artifacts_brief,
+)
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
 from kapso.execution.search_strategies.generic.difficulties_generator import (
@@ -307,6 +311,19 @@ class GenericSearch(SearchStrategy):
         self.experiment_history_path = self.params.get(
             "experiment_history_path",
             os.path.join(self.workspace_dir, ".kapso", "experiment_history.json")
+        )
+
+        # Campaign shared cache: persists across experiments (and campaigns,
+        # when params.shared_cache_dir points at a task-level path). Sessions
+        # find it via the env var; the registry's artifact offer is rendered
+        # into ideation + implementation prompts as OPTIONAL context.
+        self.shared_cache_dir, self.shared_artifacts_brief = (
+            build_shared_artifacts_brief(
+                self.workspace_dir, self.params.get("shared_cache_dir")
+            )
+        )
+        self.env_defaults.setdefault(
+            SHARED_CACHE_ENV_VAR, str(self.shared_cache_dir)
         )
         
         # State
@@ -952,6 +969,7 @@ class GenericSearch(SearchStrategy):
                 "problem": problem or "(No problem description provided)",
                 "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
                 "budget_status": self._render_budget_status(),
+                "shared_artifacts_brief": self.shared_artifacts_brief,
             },
         )
     
@@ -1252,6 +1270,7 @@ Problem: {problem}"""
                 "previous_errors": previous_errors or "(No previous errors)",
                 "budget_status": self._render_budget_status(),
                 "evaluation_instructions": self._evaluation_instructions(),
+                "shared_artifacts_brief": self.shared_artifacts_brief,
             },
         )
 

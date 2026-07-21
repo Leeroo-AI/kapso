@@ -60,6 +60,11 @@ modes:
           cli: "claude_code"
           model: "claude-opus-4-8"
           effort: "xhigh"
+        # Optional: point the campaign shared cache at a persistent
+        # task-level path to carry artifacts (e.g. the oracle answer table)
+        # across campaigns; agents get them as an OPTIONAL offer with a
+        # verify-before-trust contract. Default: <workspace>/.kapso/shared_cache
+        # shared_cache_dir: "/home/ubuntu/ioai_shared_cache"
         # Bash-tool clock policy for agent sessions: without these the CLI
         # auto-backgrounds any foreground command at 120s.
         session_env_defaults:

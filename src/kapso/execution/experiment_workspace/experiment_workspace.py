@@ -333,6 +333,9 @@ class ExperimentWorkspace:
             "!changes.log",
             ".kapso/run_state.json",
             ".kapso/.run_state.*.tmp",
+            # Campaign shared cache holds large reusable artifacts (tables,
+            # embeddings); they must never enter experiment branches.
+            ".kapso/shared_cache/",
             # Seeded repos may arrive with bytecode; once tracked it goes
             # stale on re-import and blocks every later branch checkout.
             "__pycache__/",

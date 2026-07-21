@@ -75,6 +75,13 @@ budget enforcement is handled mechanically by the system, not by you.
 ### Repository Memory (Summary + TOC)
 {{repo_memory_brief}}
 
+### Shared-Cache Artifacts (optional)
+{{shared_artifacts_brief}}
+
+If artifacts above are usable (after verification), your candidate solutions
+may ASSUME them and spend the budget on what they enable instead of
+rebuilding them — say so explicitly in the solution.
+
 ## Your Process
 1. **Check experiment history FIRST**: 
    - Call `get_top_experiments(5)` to see what worked best

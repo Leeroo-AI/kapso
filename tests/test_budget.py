@@ -347,12 +347,14 @@ def test_budget_status_block_renders_in_all_modes():
     assert "searchable time remaining: 50 minutes" in budgeted_text
     assert "Spent $2.50 of $10.00." in budgeted_text
 
+    strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
     rendered = strategy._build_ideation_prompt(
         problem="the problem",
         repo_memory_brief="memory",
     )
     assert "{{budget_status}}" not in rendered
     assert "Spent $2.50 of $10.00." in rendered
+    assert "{{shared_artifacts_brief}}" not in rendered
 
 
 def test_clamped_timeout_helper_uses_the_snapshot():

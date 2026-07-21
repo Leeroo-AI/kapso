@@ -213,6 +213,7 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.gate_failure_policy = "warn"
     strategy.idea_generation_model = "model"
     strategy._claude_auth_settings = {"auth_mode": "oauth"}
+    strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
     strategy.aws_region = "us-east-1"
     strategy.ideation_timeout = 10
     strategy.budget_snapshot = None
