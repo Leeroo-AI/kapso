@@ -10,6 +10,7 @@ import shutil
 import stat
 import tarfile
 import tempfile
+import ctypes
 from contextlib import ExitStack
 from dataclasses import dataclass
 from io import DEFAULT_BUFFER_SIZE
@@ -45,6 +46,7 @@ _CANONICAL_TAR_TYPES = {b"\0", b"0", b"5"}
 _ZSTD_MAX_BLOCK_SIZE = 128 * 1024
 _ZSTD_MAX_FRAME_HEADER_SIZE = 18
 SOURCE_ARCHIVE_EXTRACTOR_VERSION = "kapso.source_archive_extractor.v1"
+_RENAME_NOREPLACE = 1
 
 
 class MaterializationError(RuntimeError):
@@ -321,6 +323,97 @@ class GitHubArtifactMaterializer:
         source_archive_ref: str,
     ) -> SourceArchiveExtractionReceipt:
         """Re-extract one verified asset and attest its exact source-only tree."""
+        with self._cache_lease():
+            receipt, source_archive, source_digest = self._verified_source_archive(
+                materialized,
+                source_archive_ref,
+            )
+            kind_directory = materialized.root.parent
+            with tempfile.TemporaryDirectory(
+                prefix=".validation-source-",
+                dir=kind_directory,
+            ) as staging_name:
+                source_tree = Path(staging_name) / "source"
+                source_tree.mkdir()
+                extraction_receipt = self._extract_source_tree(
+                    receipt=receipt,
+                    source_archive=source_archive,
+                    source_archive_digest=source_digest,
+                    destination=source_tree,
+                )
+                self._reverify_source_archive(
+                    materialized,
+                    receipt,
+                    source_archive,
+                    source_digest,
+                )
+                return extraction_receipt
+
+    def extract_verified_source_archive(
+        self,
+        *,
+        materialized: MaterializedArtifact,
+        expected: SourceArchiveExtractionReceipt,
+        destination: Path,
+    ) -> SourceArchiveExtractionReceipt:
+        """Recreate one attested source tree in a fresh private destination."""
+
+        destination_parent_identity = self._validate_source_destination(destination)
+        with self._cache_lease():
+            if (
+                self._validate_source_destination(destination)
+                != destination_parent_identity
+            ):
+                raise MaterializationError(
+                    "source extraction parent changed before materialization"
+                )
+            receipt, source_archive, source_digest = self._verified_source_archive(
+                materialized,
+                expected.source_archive_ref,
+            )
+            if (
+                expected.artifact_id != receipt.artifact_id
+                or expected.source_archive_digest != source_digest
+                or expected.extractor_version != SOURCE_ARCHIVE_EXTRACTOR_VERSION
+            ):
+                raise MaterializationError(
+                    "expected source extraction differs from verified asset"
+                )
+            with tempfile.TemporaryDirectory(
+                prefix=".source-materialization-",
+                dir=destination.parent,
+            ) as staging_name:
+                staged_source = Path(staging_name) / "source"
+                staged_source.mkdir(mode=0o700)
+                observed = self._extract_source_tree(
+                    receipt=receipt,
+                    source_archive=source_archive,
+                    source_archive_digest=source_digest,
+                    destination=staged_source,
+                )
+                if observed != expected:
+                    raise MaterializationError(
+                        "extracted source tree differs from expected receipt"
+                    )
+                self._reverify_source_archive(
+                    materialized,
+                    receipt,
+                    source_archive,
+                    source_digest,
+                )
+                self._publish_source_tree(
+                    staged_source,
+                    destination,
+                    destination_parent_identity,
+                    expected,
+                )
+                return observed
+
+    def _verified_source_archive(
+        self,
+        materialized: MaterializedArtifact,
+        source_archive_ref: str,
+    ) -> tuple[CacheVerificationReceipt, Path, str]:
         source_ref = PurePosixPath(source_archive_ref)
         if (
             not source_archive_ref
@@ -331,96 +424,260 @@ class GitHubArtifactMaterializer:
             raise MaterializationError("source archive reference is invalid")
         if not self._is_archive(source_archive_ref):
             raise MaterializationError("source archive is not a supported archive")
-        with self._cache_lease():
-            expected_root = (
-                self.cache_root
-                / materialized.receipt.artifact_kind.value
-                / materialized.receipt.artifact_id.rsplit(":", 1)[1]
+        expected_root = (
+            self.cache_root
+            / materialized.receipt.artifact_kind.value
+            / materialized.receipt.artifact_id.rsplit(":", 1)[1]
+        )
+        if materialized.root != expected_root:
+            raise CacheCorruptionError(
+                "materialized artifact is outside the authorized cache"
             )
-            if materialized.root != expected_root:
-                raise CacheCorruptionError(
-                    "materialized artifact is outside the authorized cache"
-                )
-            receipt = self._read_and_verify_receipt(
+        receipt = self._read_and_verify_receipt(
+            materialized.root,
+            materialized.receipt.artifact_kind,
+        )
+        if (
+            receipt != materialized.receipt
+            or materialized.content != materialized.root / "content"
+            or materialized.assets != materialized.root / "assets"
+        ):
+            raise CacheCorruptionError(
+                "materialized artifact differs from its verified cache entry"
+            )
+        source_digest = receipt.asset_digests.get(source_archive_ref)
+        if source_digest is None:
+            raise MaterializationError(
+                "source archive is absent from the verified asset closure"
+            )
+        source_archive = materialized.assets / source_archive_ref
+        if source_archive.is_symlink() or not source_archive.is_file():
+            raise CacheCorruptionError("source archive asset is not regular")
+        if self._file_digest(source_archive) != source_digest:
+            raise CacheCorruptionError("source archive asset digest changed")
+        return receipt, source_archive, source_digest
+
+    def _extract_source_tree(
+        self,
+        *,
+        receipt: CacheVerificationReceipt,
+        source_archive: Path,
+        source_archive_digest: str,
+        destination: Path,
+    ) -> SourceArchiveExtractionReceipt:
+        self._extract_archive(
+            source_archive,
+            destination,
+            {},
+            self.settings.materialized_asset_size_bytes,
+            self.settings.archive_entry_limit,
+        )
+        source_files = self._source_tree_files(destination)
+        return SourceArchiveExtractionReceipt.mint(
+            artifact_id=receipt.artifact_id,
+            source_archive_ref=source_archive.name,
+            source_archive_digest=source_archive_digest,
+            source_tree_hash=source_tree_digest(
+                {
+                    item.relative_path: (item.digest, item.mode, item.size)
+                    for item in source_files
+                }
+            ),
+            source_tree_files=source_files,
+            extractor_version=SOURCE_ARCHIVE_EXTRACTOR_VERSION,
+        )
+
+    def _source_tree_files(
+        self,
+        source_tree: Path,
+    ) -> tuple[SourceFileDescriptor, ...]:
+        source_paths = tuple(sorted(source_tree.rglob("*")))
+        relative_entries = {
+            path: path.relative_to(source_tree).as_posix() for path in source_paths
+        }
+        for path, relative_path in relative_entries.items():
+            self._safe_archive_path(relative_path, path.is_dir())
+        if any(
+            path.is_symlink() or (not path.is_file() and not path.is_dir())
+            for path in source_paths
+        ):
+            raise MaterializationError(
+                "extracted source tree contains an invalid entry"
+            )
+        if any(
+            path.stat(follow_symlinks=False).st_nlink != 1
+            for path in source_paths
+            if path.is_file()
+        ):
+            raise MaterializationError(
+                "extracted source tree files must be independent"
+            )
+        source_files = tuple(
+            SourceFileDescriptor(
+                relative_path=relative_entries[path],
+                digest=self._file_digest(path),
+                mode="100755" if path.stat().st_mode & 0o111 else "100644",
+                size=path.stat().st_size,
+            )
+            for path in source_paths
+            if path.is_file()
+        )
+        if not source_files:
+            raise MaterializationError("source archive tree is empty")
+        observed_directories = {
+            relative_entries[path] for path in source_paths if path.is_dir()
+        }
+        implied_directories = {
+            parent.as_posix()
+            for source_file in source_files
+            for parent in PurePosixPath(source_file.relative_path).parents
+            if parent != PurePosixPath(".")
+        }
+        if observed_directories != implied_directories:
+            raise MaterializationError(
+                "source tree contains undeclared empty directories"
+            )
+        return source_files
+
+    def _reverify_source_archive(
+        self,
+        materialized: MaterializedArtifact,
+        receipt: CacheVerificationReceipt,
+        source_archive: Path,
+        source_digest: str,
+    ) -> None:
+        if (
+            self._file_digest(source_archive) != source_digest
+            or self._read_and_verify_receipt(
                 materialized.root,
                 materialized.receipt.artifact_kind,
             )
+            != receipt
+        ):
+            raise CacheCorruptionError(
+                "verified source archive changed during extraction"
+            )
+
+    def _validate_source_destination(self, destination: Path) -> tuple[int, int]:
+        if (
+            not destination.is_absolute()
+            or destination != Path(os.path.abspath(destination))
+            or os.path.lexists(destination)
+            or destination == self.cache_root
+            or self.cache_root in destination.parents
+        ):
+            raise MaterializationError(
+                "source extraction destination must be absent and normalized"
+            )
+        parent = destination.parent
+        if (
+            parent in {Path("/"), Path.home()}
+            or parent.is_symlink()
+            or not parent.is_dir()
+            or parent.resolve() != parent
+        ):
+            raise MaterializationError(
+                "source extraction parent must be a normalized real directory"
+            )
+        metadata = parent.stat(follow_symlinks=False)
+        if metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID):
+            raise MaterializationError("source extraction parent must be private")
+        return metadata.st_dev, metadata.st_ino
+
+    def _publish_source_tree(
+        self,
+        staged_source: Path,
+        destination: Path,
+        expected_parent_identity: tuple[int, int],
+        expected: SourceArchiveExtractionReceipt,
+    ) -> None:
+        with ExitStack() as descriptors:
+            staging_parent_descriptor = os.open(
+                staged_source.parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            descriptors.callback(os.close, staging_parent_descriptor)
+            source_descriptor = os.open(
+                staged_source.name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=staging_parent_descriptor,
+            )
+            descriptors.callback(os.close, source_descriptor)
+            parent_descriptor = os.open(
+                destination.parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            descriptors.callback(os.close, parent_descriptor)
+            source_metadata = os.fstat(source_descriptor)
+            named_source_metadata = os.stat(
+                staged_source.name,
+                dir_fd=staging_parent_descriptor,
+                follow_symlinks=False,
+            )
+            parent_metadata = os.fstat(parent_descriptor)
             if (
-                receipt != materialized.receipt
-                or materialized.content != materialized.root / "content"
-                or materialized.assets != materialized.root / "assets"
+                not stat.S_ISDIR(source_metadata.st_mode)
+                or (source_metadata.st_dev, source_metadata.st_ino)
+                != (named_source_metadata.st_dev, named_source_metadata.st_ino)
+                or source_metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+                or os.path.lexists(destination)
+                or (parent_metadata.st_dev, parent_metadata.st_ino)
+                != expected_parent_identity
+                or parent_metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
             ):
-                raise CacheCorruptionError(
-                    "materialized artifact differs from its verified cache entry"
-                )
-            source_digest = receipt.asset_digests.get(source_archive_ref)
-            if source_digest is None:
                 raise MaterializationError(
-                    "source archive is absent from the verified asset closure"
+                    "source extraction staging or destination changed before publication"
                 )
-            source_archive = materialized.assets / source_archive_ref
-            if source_archive.is_symlink() or not source_archive.is_file():
-                raise CacheCorruptionError("source archive asset is not regular")
-            if self._file_digest(source_archive) != source_digest:
-                raise CacheCorruptionError("source archive asset digest changed")
-            kind_directory = materialized.root.parent
-            with tempfile.TemporaryDirectory(
-                prefix=".validation-source-",
-                dir=kind_directory,
-            ) as staging_name:
-                source_tree = Path(staging_name) / "source"
-                source_tree.mkdir()
-                self._extract_archive(
-                    source_archive,
-                    source_tree,
-                    {},
-                    self.settings.materialized_asset_size_bytes,
-                    self.settings.archive_entry_limit,
+            source_files = self._source_tree_files(
+                self._descriptor_path(source_descriptor)
+            )
+            observed_tree_hash = source_tree_digest(
+                {
+                    item.relative_path: (item.digest, item.mode, item.size)
+                    for item in source_files
+                }
+            )
+            named_source_metadata = os.stat(
+                staged_source.name,
+                dir_fd=staging_parent_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                source_files != expected.source_tree_files
+                or observed_tree_hash != expected.source_tree_hash
+                or (source_metadata.st_dev, source_metadata.st_ino)
+                != (named_source_metadata.st_dev, named_source_metadata.st_ino)
+            ):
+                raise MaterializationError(
+                    "source tree differs from expected receipt at publication"
                 )
-                source_files = tuple(
-                    SourceFileDescriptor(
-                        relative_path=path.relative_to(source_tree).as_posix(),
-                        digest=self._file_digest(path),
-                        mode="100755" if path.stat().st_mode & 0o111 else "100644",
-                        size=path.stat().st_size,
-                    )
-                    for path in sorted(source_tree.rglob("*"))
-                    if path.is_file() and not path.is_symlink()
+            libc = ctypes.CDLL(None, use_errno=True)
+            if not hasattr(libc, "renameat2"):
+                raise MaterializationError(
+                    "atomic source-tree publication is unavailable"
                 )
-                if any(
-                    path.is_symlink() or (not path.is_file() and not path.is_dir())
-                    for path in source_tree.rglob("*")
-                ):
-                    raise MaterializationError(
-                        "extracted source tree contains an invalid entry"
-                    )
-                if not source_files:
-                    raise MaterializationError("source archive tree is empty")
-                source_tree_hash = source_tree_digest(
-                    {
-                        item.relative_path: (item.digest, item.mode, item.size)
-                        for item in source_files
-                    }
+            rename_at2 = libc.renameat2
+            rename_at2.argtypes = (
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_uint,
+            )
+            result = rename_at2(
+                staging_parent_descriptor,
+                os.fsencode(staged_source.name),
+                parent_descriptor,
+                os.fsencode(destination.name),
+                _RENAME_NOREPLACE,
+            )
+            if result != 0:
+                error_number = ctypes.get_errno()
+                raise MaterializationError(
+                    "atomic source-tree publication failed: "
+                    f"{os.strerror(error_number)}"
                 )
-                if (
-                    self._file_digest(source_archive) != source_digest
-                    or self._read_and_verify_receipt(
-                        materialized.root,
-                        materialized.receipt.artifact_kind,
-                    )
-                    != receipt
-                ):
-                    raise CacheCorruptionError(
-                        "verified source archive changed during extraction"
-                    )
-                return SourceArchiveExtractionReceipt.mint(
-                    artifact_id=receipt.artifact_id,
-                    source_archive_ref=source_archive_ref,
-                    source_archive_digest=source_digest,
-                    source_tree_hash=source_tree_hash,
-                    source_tree_files=source_files,
-                    extractor_version=SOURCE_ARCHIVE_EXTRACTOR_VERSION,
-                )
+            os.fsync(parent_descriptor)
 
     def _materialize(self, resolved: ResolvedGitHubArtifact) -> MaterializedArtifact:
         self._validate_cache_ancestors()

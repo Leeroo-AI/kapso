@@ -192,6 +192,9 @@ the same release.
 - [x] Marks the completed cache read-only and writes a verification receipt.
 - [x] Reuses a cache entry only when its receipt and complete tree/package digest
       verify.
+- [x] Reproduces an attested source archive into a private destination only after
+      the exact extraction receipt matches, then exposes the tree with an atomic
+      no-replace rename.
 - [x] Exposes explicit cache inspection/pruning; never removes a pinned entry.
 
 Cache roots reject symlinked ancestors and stream configured entry bounds before

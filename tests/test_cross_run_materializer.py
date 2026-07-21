@@ -311,7 +311,10 @@ def test_materializer_accepts_manifest_bound_asset_only_search_content(tmp_path)
     )
 
 
-def test_materializer_accepts_split_expert_source_and_release_assets(tmp_path):
+def test_materializer_accepts_split_expert_source_and_release_assets(
+    tmp_path,
+    monkeypatch,
+):
     expert_repository = "Leeroo-AI/kapso-expert"
     source_payload = b"def train():\n    return 'validated'\n"
     source_archive = tar_payload((("main.py", source_payload),))
@@ -439,8 +442,18 @@ def test_materializer_accepts_split_expert_source_and_release_assets(tmp_path):
         materialized,
         manifest.source_archive_ref,
     )
+    extracted_source = (tmp_path / "extracted-source").resolve()
+    assert (
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=extracted_source,
+        )
+        == source_receipt
+    )
 
     assert (materialized.content / "main.py").read_bytes() == source_payload
+    assert (extracted_source / "main.py").read_bytes() == source_payload
     assert (materialized.assets / "test-summary.json").read_bytes() == test_summary
     assert source_receipt.source_tree_hash == source_tree_digest(
         {
@@ -463,6 +476,163 @@ def test_materializer_accepts_split_expert_source_and_release_assets(tmp_path):
     )
     with pytest.raises(MaterializationError, match="reference is invalid"):
         replace(source_receipt, source_archive_ref="source.bin")
+    with pytest.raises(MaterializationError, match="must be absent"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=extracted_source,
+        )
+    symlink_destination = (tmp_path / "linked-extraction").resolve()
+    symlink_destination.symlink_to(extracted_source, target_is_directory=True)
+    with pytest.raises(MaterializationError, match="must be absent"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=symlink_destination,
+        )
+    public_parent = (tmp_path / "public-extraction-parent").resolve()
+    public_parent.mkdir(mode=0o755)
+    public_parent.chmod(0o755)
+    with pytest.raises(MaterializationError, match="parent must be private"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=public_parent / "source",
+        )
+    wrong_destination = (tmp_path / "wrong-extraction").resolve()
+    wrong_source_receipt = SourceArchiveExtractionReceipt.mint(
+        artifact_id=source_receipt.artifact_id,
+        source_archive_ref=source_receipt.source_archive_ref,
+        source_archive_digest=tree_or_blob_digest(b"another archive"),
+        source_tree_hash=source_receipt.source_tree_hash,
+        source_tree_files=source_receipt.source_tree_files,
+        extractor_version=source_receipt.extractor_version,
+    )
+    with pytest.raises(MaterializationError, match="differs from verified asset"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=wrong_source_receipt,
+            destination=wrong_destination,
+        )
+    assert not wrong_destination.exists()
+    wrong_file = SourceFileDescriptor(
+        relative_path="main.py",
+        digest=tree_or_blob_digest(b"different source"),
+        mode="100644",
+        size=len(b"different source"),
+    )
+    wrong_tree_receipt = SourceArchiveExtractionReceipt.mint(
+        artifact_id=source_receipt.artifact_id,
+        source_archive_ref=source_receipt.source_archive_ref,
+        source_archive_digest=source_receipt.source_archive_digest,
+        source_tree_hash=source_tree_digest(
+            {
+                wrong_file.relative_path: (
+                    wrong_file.digest,
+                    wrong_file.mode,
+                    wrong_file.size,
+                )
+            }
+        ),
+        source_tree_files=(wrong_file,),
+        extractor_version=source_receipt.extractor_version,
+    )
+    wrong_tree_destination = (tmp_path / "wrong-tree-extraction").resolve()
+    with pytest.raises(MaterializationError, match="differs from expected receipt"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=wrong_tree_receipt,
+            destination=wrong_tree_destination,
+        )
+    assert not wrong_tree_destination.exists()
+    original_publish = materializer._publish_source_tree
+
+    def substitute_staged_source(
+        staged_source,
+        destination,
+        expected_parent_identity,
+        expected,
+    ):
+        (staged_source / "main.py").write_bytes(b"attacker substitution")
+        return original_publish(
+            staged_source,
+            destination,
+            expected_parent_identity,
+            expected,
+        )
+
+    monkeypatch.setattr(
+        materializer,
+        "_publish_source_tree",
+        substitute_staged_source,
+    )
+    substituted_destination = (tmp_path / "substituted-extraction").resolve()
+    with pytest.raises(MaterializationError, match="at publication"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=substituted_destination,
+        )
+    assert not substituted_destination.exists()
+
+    def inject_empty_git_directory(
+        staged_source,
+        destination,
+        expected_parent_identity,
+        expected,
+    ):
+        (staged_source / ".git").mkdir()
+        return original_publish(
+            staged_source,
+            destination,
+            expected_parent_identity,
+            expected,
+        )
+
+    monkeypatch.setattr(
+        materializer,
+        "_publish_source_tree",
+        inject_empty_git_directory,
+    )
+    git_injected_destination = (tmp_path / "git-injected-extraction").resolve()
+    with pytest.raises(MaterializationError, match="unsafe path"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=git_injected_destination,
+        )
+    assert not git_injected_destination.exists()
+    outside_source = tmp_path / "outside-source.py"
+    outside_source.write_bytes(source_payload)
+
+    def inject_hardlinked_source(
+        staged_source,
+        destination,
+        expected_parent_identity,
+        expected,
+    ):
+        (staged_source / "main.py").unlink()
+        os.link(outside_source, staged_source / "main.py")
+        return original_publish(
+            staged_source,
+            destination,
+            expected_parent_identity,
+            expected,
+        )
+
+    monkeypatch.setattr(
+        materializer,
+        "_publish_source_tree",
+        inject_hardlinked_source,
+    )
+    hardlinked_destination = (tmp_path / "hardlinked-extraction").resolve()
+    with pytest.raises(MaterializationError, match="must be independent"):
+        materializer.extract_verified_source_archive(
+            materialized=materialized,
+            expected=source_receipt,
+            destination=hardlinked_destination,
+        )
+    assert not hardlinked_destination.exists()
     parent_receipt = ExpertParentTreeReceipt.mint(
         release_id=manifest.release_id,
         cache_verification_receipt=materialized.receipt,
