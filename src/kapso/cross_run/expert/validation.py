@@ -458,6 +458,22 @@ class ExpertValidationReducer:
         stored_candidate: StoredExpertCandidate,
         eligibility: ExpertEligibilityResult,
     ) -> ExpertValidationStart:
+        predecessor = self.validation_state_provider.current(
+            eligibility.decision.candidate_id
+        )
+        return self.start_from_predecessor(
+            stored_candidate=stored_candidate,
+            eligibility=eligibility,
+            predecessor=predecessor,
+        )
+
+    def start_from_predecessor(
+        self,
+        *,
+        stored_candidate: StoredExpertCandidate,
+        eligibility: ExpertEligibilityResult,
+        predecessor: ExpertValidationPredecessor | None,
+    ) -> ExpertValidationStart:
         expected = ExpertCandidateEligibilityEvaluator(
             self.settings,
             _PinnedCandidateStore(stored_candidate),
@@ -473,9 +489,6 @@ class ExpertValidationReducer:
             raise ExpertValidationError(
                 "eligibility differs from deterministic candidate enrollment"
             )
-        predecessor = self.validation_state_provider.current(
-            eligibility.decision.candidate_id
-        )
         predecessor_attempt = (
             None if predecessor is None else predecessor.latest_attempt
         )

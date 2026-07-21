@@ -89,10 +89,16 @@ Implemented validation substrate:
 - retry lineage preserves both the current state and latest historical attempt,
   and restarts at stage one. An intervening ineligible state cannot reset attempt
   identity; approved, released, validating, and revoked states cannot be retried.
+- durable validation history stores immutable content-addressed decisions,
+  configurations, attempts, signed evaluator-result envelopes, states, operations,
+  and transitions behind one atomic per-candidate journal; and
+- operation-to-transition bindings make lost-response retries exact, while the
+  journal head provides compare-and-swap publication with no fork, merge, or
+  rollback behavior.
 
-The automated-review, promotion-decision, persistence, composition, and release
-paths remain separate later slices; the executable reducer cannot synthesize
-their authority.
+The automated-review, promotion-decision, composition, and release paths remain
+separate later slices; the executable reducer and store cannot synthesize their
+authority.
 
 The task-adapter reader remains intentionally unimplemented until a typed package
 and verification receipt bind the full manifest bytes (including its excluded
