@@ -302,6 +302,15 @@ def test_real_archive_round_trip_and_identical_publication_replay(tmp_path):
     assert replay == published
     assert exact == published
     assert exact.source_contents == {"adapter.py": source}
+    assert set(exact.dependency_ids) == {
+        exact.verification_receipt.verification_receipt_id,
+        exact.verification_receipt.source_extraction_receipt_id,
+        exact.manifest.sanitation_report_id,
+        *exact.verification_receipt.proof_object_ids,
+    }
+    assert len(exact.verification_receipt.proof_object_ids) == len(
+        exact.verification_receipt.proof_object_digests
+    )
     assert len(tuple((store.state_path / "packages").iterdir())) == 1
 
 

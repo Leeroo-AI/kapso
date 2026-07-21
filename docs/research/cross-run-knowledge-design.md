@@ -1616,6 +1616,20 @@ process spawn, re-observe `CURRENT`, candidate/release revocation, and every pin
 adapter package's verifier authority, trust, and revocation state before publishing
 its receipt against that reservation.
 
+That reservation is an immutable operation alias bound atomically to the existing
+authorization transition, not a second validation state or expiring lease. The
+unchanged head keeps preflight reconstruction deterministic after a crash. One
+head admits one exact request; identical retries replay the same reservation and
+a different request conflicts. Reservation versus invalidation serializes through
+the validation journal, while final receipt publication still compare-and-swaps
+the same authorization head. Any local execution lock is only a cost optimization,
+never publication authority.
+
+Admission takes the runtime-only prepared closure, not an independently mintable
+request contract. It reconstructs that closure at the boundary, so a request with
+self-consistent IDs but substituted lineage, episode, context, artifact, adapter,
+parent, or candidate facts cannot reserve execution.
+
 ## 12. Final disposition of the earlier proposal
 
 Retain:

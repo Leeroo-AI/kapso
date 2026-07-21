@@ -130,6 +130,21 @@ class TaskAdapterVerificationReceipt(StrictContract):
         require_identifier(self.verifier_id, "task adapter verifier_id")
         require_identifier(self.verifier_version, "task adapter verifier_version")
 
+    @property
+    def proof_object_ids(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                content_id(
+                    "task-adapter-proof-object",
+                    {
+                        "digest": digest,
+                        "proof_ref": proof_ref,
+                    },
+                )
+                for proof_ref, digest in self.proof_object_digests.items()
+            )
+        )
+
 
 @dataclass(frozen=True)
 class TaskAdapterPackage:
@@ -285,6 +300,7 @@ class VerifiedTaskAdapter:
                     self.verification_receipt.verification_receipt_id,
                     self.verification_receipt.source_extraction_receipt_id,
                     self.manifest.sanitation_report_id,
+                    *self.verification_receipt.proof_object_ids,
                 }
             )
         )

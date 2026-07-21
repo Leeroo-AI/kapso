@@ -3461,6 +3461,77 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertSourceReplayExecutionReservation(StrictContract):
+    reservation_id: str
+    execution_request_id: str
+    authorization_transition_id: str
+    validation_attempt_id: str
+    authorization_state_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    observed_parent_release_id: str
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-execution-reservation"
+    IDENTITY_FIELD: ClassVar[str] = "reservation_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.execution_request_id,
+                "expert-source-replay-execution-request",
+                "execution_request_id",
+            ),
+            (
+                self.authorization_transition_id,
+                "expert-validation-transition",
+                "authorization_transition_id",
+            ),
+            (
+                self.validation_attempt_id,
+                "expert-validation-attempt",
+                "validation_attempt_id",
+            ),
+            (
+                self.authorization_state_id,
+                "expert-candidate-validation-state",
+                "authorization_state_id",
+            ),
+            (self.candidate_id, "expert-candidate", "candidate_id"),
+            (
+                self.observed_parent_release_id,
+                "expert-base-release",
+                "observed_parent_release_id",
+            ),
+        ):
+            require_content_id(value, f"source replay reservation {name}")
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(
+                    f"source replay reservation {name} must name a {namespace} record"
+                )
+        _require_digest(
+            self.candidate_tree_hash,
+            "source replay reservation candidate_tree_hash",
+        )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "source replay reservation exact_dependency_ids",
+        )
+        expected_dependencies = {
+            self.execution_request_id,
+            self.authorization_transition_id,
+            self.validation_attempt_id,
+            self.authorization_state_id,
+            self.candidate_id,
+            self.observed_parent_release_id,
+        }
+        if set(self.exact_dependency_ids) != expected_dependencies:
+            raise MissingReferenceError(
+                "source replay reservation dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
 class TaskAdapterPackagePin(StrictContract):
     adapter_binding_id: str
     task_adapter_manifest_id: str

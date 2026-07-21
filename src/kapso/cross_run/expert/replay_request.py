@@ -46,7 +46,6 @@ from kapso.cross_run.expert.validation import (
     ExpertCurrentReleaseProvider,
     ExpertValidationPredecessor,
 )
-from kapso.cross_run.expert.validation_store import ExpertValidationCommitResult
 from kapso.cross_run.settings import ExpertValidationSettings
 from kapso.cross_run.task_adapters import (
     VerifiedTaskAdapter,
@@ -75,6 +74,14 @@ class ExpertSourceReplayBundleProvider(Protocol):
     ) -> VerifiedRunBundleLineage: ...
 
 
+class ExpertSourceReplayValidationSnapshot(Protocol):
+    state: ExpertCandidateValidationState
+
+
+class ExpertSourceReplayValidationCommit(Protocol):
+    snapshot: ExpertSourceReplayValidationSnapshot
+
+
 class ExpertSourceReplayValidationAuthority(Protocol):
     def current(self, candidate_id: str) -> ExpertValidationPredecessor | None: ...
 
@@ -83,7 +90,7 @@ class ExpertSourceReplayValidationAuthority(Protocol):
         *,
         candidate_id: str,
         expected_validation_state_id: str,
-    ) -> ExpertValidationCommitResult: ...
+    ) -> ExpertSourceReplayValidationCommit: ...
 
 
 class ExpertSourceReplayParentProvider(Protocol):

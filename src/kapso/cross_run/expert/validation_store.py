@@ -24,6 +24,8 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
     ExpertEvaluatorRun,
     ExpertPromotionState,
+    ExpertSourceReplayExecutionRequest,
+    ExpertSourceReplayExecutionReservation,
     ExpertValidationAuthorityInvalidation,
     ExpertValidationAttempt,
     StrictContract,
@@ -33,7 +35,9 @@ from kapso.cross_run.expert.validation import (
     ExpertEvaluatorResult,
     ExpertValidationPredecessor,
     ExpertValidationReducer,
+    validate_source_replay_request_authority_shape,
 )
+from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 from kapso.cross_run.settings import (
     ExpertValidationPolicy,
     ExpertValidationSettings,
@@ -51,6 +55,7 @@ class ExpertValidationCompareAndSwapError(ExpertValidationStoreError):
 class ExpertValidationOperationKind(str, Enum):
     START = "start"
     EVALUATOR_RESULT = "evaluator_result"
+    SOURCE_REPLAY_RESERVATION = "source_replay_reservation"
     AUTHORITY_INVALIDATION = "authority_invalidation"
 
 
@@ -240,6 +245,13 @@ class ExpertValidationCommitResult:
     replayed: bool
 
 
+@dataclass(frozen=True)
+class ExpertSourceReplayReservationCommitResult:
+    reservation: ExpertSourceReplayExecutionReservation
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
 class ExpertValidationStore:
     """Publish linear validation transitions through one atomic candidate journal."""
 
@@ -418,6 +430,105 @@ class ExpertValidationStore:
             self._publish_journal_unlocked(updated)
             return ExpertValidationCommitResult(
                 snapshot=self._snapshot_at_unlocked(updated, transition.transition_id),
+                replayed=False,
+            )
+
+    def reserve_source_replay(
+        self,
+        *,
+        expected_transition_id: str,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> ExpertSourceReplayReservationCommitResult:
+        require_content_id(expected_transition_id, "expected_transition_id")
+        if not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
+            raise ExpertValidationStoreError(
+                "source replay reservation requires a verified prepared request"
+            )
+        prepared = PreparedExpertSourceReplayRequest(
+            request=prepared_request.request,
+            settings=prepared_request.settings,
+            attempt=prepared_request.attempt,
+            selection=prepared_request.selection,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            authorization_state=prepared_request.authorization_state,
+            cases=prepared_request.cases,
+        )
+        request = prepared.request
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(request.candidate_id)
+            existing = self._source_replay_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            if existing is not None:
+                reservation, stored_request = existing
+                if stored_request != request:
+                    raise ExpertValidationCompareAndSwapError(
+                        "validation head already reserves another source replay request"
+                    )
+                current = self._current_from_journal_unlocked(journal)
+                self._require_expected_head(current, expected_transition_id)
+                return ExpertSourceReplayReservationCommitResult(
+                    reservation=reservation,
+                    snapshot=self._snapshot_at_unlocked(
+                        journal,
+                        expected_transition_id,
+                    ),
+                    replayed=True,
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(current, expected_transition_id)
+            if current is None or current.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "source replay reservation requires a current validation attempt"
+                )
+            self.reducer.validate_source_replay_request(
+                state=current.state,
+                attempt=current.latest_attempt,
+                accepted_results=current.accepted_results,
+                request=request,
+            )
+            reservation = ExpertSourceReplayExecutionReservation.mint(
+                execution_request_id=request.execution_request_id,
+                authorization_transition_id=current.transition.transition_id,
+                validation_attempt_id=current.latest_attempt.validation_attempt_id,
+                authorization_state_id=current.state.validation_state_id,
+                candidate_id=current.state.candidate_id,
+                candidate_tree_hash=current.state.candidate_tree_hash,
+                observed_parent_release_id=request.parent_release_id,
+                exact_dependency_ids=tuple(
+                    sorted(
+                        {
+                            request.execution_request_id,
+                            current.transition.transition_id,
+                            current.latest_attempt.validation_attempt_id,
+                            current.state.validation_state_id,
+                            current.state.candidate_id,
+                            request.parent_release_id,
+                        }
+                    )
+                ),
+            )
+            operation = ExpertValidationOperation.mint(
+                operation_kind=(
+                    ExpertValidationOperationKind.SOURCE_REPLAY_RESERVATION
+                ),
+                candidate_id=request.candidate_id,
+                expected_transition_id=current.transition.transition_id,
+                request_record_id=reservation.reservation_id,
+            )
+            self._write_contract_unlocked(request)
+            self._write_contract_unlocked(reservation)
+            self._write_contract_unlocked(operation)
+            updated = self._bind_operation(journal, operation, current.transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertSourceReplayReservationCommitResult(
+                reservation=reservation,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    current.transition.transition_id,
+                ),
                 replayed=False,
             )
 
@@ -688,6 +799,7 @@ class ExpertValidationStore:
             )
             for transition_id in journal.transition_ids
         }
+        reserved_transition_ids: set[str] = set()
         for operation_id, transition_id in journal.operation_transition_ids.items():
             operation = self._read_contract_unlocked(
                 operation_id,
@@ -698,20 +810,126 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "validation operation belongs to another candidate"
                 )
-            if operation_id != transition.operation_id and (
-                operation.operation_kind is not ExpertValidationOperationKind.START
-                or transition.eligibility_decision_id is None
-                or operation.request_record_id != transition.eligibility_decision_id
-                or operation.expected_transition_id != transition.transition_id
-                or self._read_contract_unlocked(
+            if operation_id == transition.operation_id:
+                continue
+            ineligible_start_replay = (
+                operation.operation_kind is ExpertValidationOperationKind.START
+                and transition.eligibility_decision_id is not None
+                and operation.request_record_id == transition.eligibility_decision_id
+                and operation.expected_transition_id == transition.transition_id
+                and self._read_contract_unlocked(
                     transition.target_state_id,
                     ExpertCandidateValidationState,
                 ).promotion_state
-                is not ExpertPromotionState.INELIGIBLE
+                is ExpertPromotionState.INELIGIBLE
+            )
+            if ineligible_start_replay:
+                continue
+            if (
+                operation.operation_kind
+                is ExpertValidationOperationKind.SOURCE_REPLAY_RESERVATION
             ):
-                raise ExpertValidationStoreError(
-                    "validation replay operation does not bind its transition"
+                if transition_id in reserved_transition_ids:
+                    raise ExpertValidationStoreError(
+                        "validation transition has multiple source replay reservations"
+                    )
+                self._validate_source_replay_reservation_alias_unlocked(
+                    operation,
+                    transition,
                 )
+                reserved_transition_ids.add(transition_id)
+                continue
+            raise ExpertValidationStoreError(
+                "validation replay operation does not bind its transition"
+            )
+
+    def _validate_source_replay_reservation_alias_unlocked(
+        self,
+        operation: ExpertValidationOperation,
+        transition: ExpertValidationTransition,
+    ) -> None:
+        reservation = self._read_contract_unlocked(
+            operation.request_record_id,
+            ExpertSourceReplayExecutionReservation,
+        )
+        request = self._read_contract_unlocked(
+            reservation.execution_request_id,
+            ExpertSourceReplayExecutionRequest,
+        )
+        state = self._read_contract_unlocked(
+            transition.target_state_id,
+            ExpertCandidateValidationState,
+        )
+        if transition.latest_attempt_id is None:
+            raise ExpertValidationStoreError(
+                "source replay reservation requires a validation attempt"
+            )
+        attempt = self._read_contract_unlocked(
+            transition.latest_attempt_id,
+            ExpertValidationAttempt,
+        )
+        persisted_settings = self._read_configuration_unlocked(
+            transition.configuration_fingerprint
+        )
+        validate_source_replay_request_authority_shape(
+            state=state,
+            attempt=attempt,
+            request=request,
+            settings=persisted_settings,
+            error_type=ExpertValidationStoreError,
+        )
+        if (
+            operation.expected_transition_id != transition.transition_id
+            or operation.candidate_id != transition.candidate_id
+            or reservation.authorization_transition_id != transition.transition_id
+            or reservation.validation_attempt_id != attempt.validation_attempt_id
+            or reservation.authorization_state_id != state.validation_state_id
+            or reservation.candidate_id != transition.candidate_id
+            or reservation.candidate_tree_hash != transition.candidate_tree_hash
+            or reservation.observed_parent_release_id != request.parent_release_id
+        ):
+            raise ExpertValidationStoreError(
+                "source replay reservation alias closure is inconsistent"
+            )
+
+    def _source_replay_reservation_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        authorization_transition_id: str,
+    ) -> (
+        tuple[
+            ExpertSourceReplayExecutionReservation,
+            ExpertSourceReplayExecutionRequest,
+        ]
+        | None
+    ):
+        matches = []
+        for operation_id, transition_id in journal.operation_transition_ids.items():
+            if transition_id != authorization_transition_id:
+                continue
+            operation = self._read_contract_unlocked(
+                operation_id,
+                ExpertValidationOperation,
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.SOURCE_REPLAY_RESERVATION
+            ):
+                continue
+            reservation = self._read_contract_unlocked(
+                operation.request_record_id,
+                ExpertSourceReplayExecutionReservation,
+            )
+            request = self._read_contract_unlocked(
+                reservation.execution_request_id,
+                ExpertSourceReplayExecutionRequest,
+            )
+            matches.append((reservation, request))
+        if len(matches) > 1:
+            raise ExpertValidationStoreError(
+                "validation transition has multiple source replay reservations"
+            )
+        return None if not matches else matches[0]
 
     def _validate_transition_closure_unlocked(
         self,

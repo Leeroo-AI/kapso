@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol
 
 from kapso.cross_run.canonical import (
+    canonical_json_bytes,
     require_content_id,
     tree_or_blob_digest,
 )
@@ -20,6 +21,7 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
     ExpertEvaluatorRun,
     ExpertPromotionState,
+    ExpertSourceReplayExecutionRequest,
     ExpertSourceReplaySelection,
     ExpertValidationAuthorityInvalidation,
     ExpertValidationAuthorityInvalidationKind,
@@ -68,6 +70,97 @@ class ExpertValidationStart:
 class ExpertValidationAuthorityInvalidationResult:
     invalidation: ExpertValidationAuthorityInvalidation
     state: ExpertCandidateValidationState
+
+
+def validate_source_replay_request_authority_shape(
+    *,
+    state: ExpertCandidateValidationState,
+    attempt: ExpertValidationAttempt,
+    request: ExpertSourceReplayExecutionRequest,
+    settings: ExpertValidationSettings,
+    error_type: type[ValueError] = ExpertValidationError,
+) -> None:
+    evaluator_matches = tuple(
+        evaluator
+        for evaluator in settings.policy.evaluators
+        if evaluator.stage is ExpertValidationStage.SOURCE_RUN_REPLAY
+    )
+    selection = attempt.source_replay_selection
+    if len(evaluator_matches) != 1 or selection is None:
+        raise error_type("source replay request has no unique configured authority")
+    evaluator = evaluator_matches[0]
+    selected_by_episode = {
+        episode_id: (
+            selection_case.source_bundle_id,
+            selection_case.episode_reason_codes[episode_id],
+        )
+        for selection_case in selection.cases
+        for episode_id in selection_case.episode_ids
+    }
+    adapter_pin_by_episode = {
+        episode_id: pin
+        for pin in selection.source_adapter_pins
+        for episode_id in pin.episode_ids
+    }
+    request_by_episode = {case.episode_id: case for case in request.cases}
+    if (
+        state.promotion_state is not ExpertPromotionState.VALIDATING
+        or state.next_stage is not ExpertValidationStage.SOURCE_RUN_REPLAY
+        or state.validation_attempt_id != attempt.validation_attempt_id
+        or state.candidate_id != attempt.candidate_id
+        or state.candidate_tree_hash != attempt.candidate_tree_hash
+        or attempt.parent_release_id is None
+        or attempt.validation_policy_id
+        != settings.policy.validation_policy().validation_policy_id
+        or attempt.configuration_fingerprint != settings.configuration_fingerprint
+        or request.validation_attempt_id != attempt.validation_attempt_id
+        or request.authorization_state_id != state.validation_state_id
+        or request.source_replay_selection_id != selection.source_replay_selection_id
+        or request.candidate_id != attempt.candidate_id
+        or request.candidate_tree_hash != attempt.candidate_tree_hash
+        or request.candidate_commit_record_id != attempt.candidate_commit_record_id
+        or request.scope_contract_id != attempt.scope_contract_id
+        or request.parent_release_id != attempt.parent_release_id
+        or request.validation_policy_id != attempt.validation_policy_id
+        or request.configuration_fingerprint != attempt.configuration_fingerprint
+        or request.request_policy_version
+        != settings.policy.source_replay_request_policy_version
+        or (
+            request.evaluator_id,
+            request.evaluator_role,
+            request.evaluator_version,
+        )
+        != (
+            evaluator.evaluator_id,
+            evaluator.evaluator_role,
+            evaluator.evaluator_version,
+        )
+        or request.attempt_dependency_ids != attempt.eligibility_dependency_ids
+        or set(request_by_episode) != set(selected_by_episode)
+        or set(adapter_pin_by_episode) != set(selected_by_episode)
+    ):
+        raise error_type(
+            "source replay request differs from current validation authority"
+        )
+    for episode_id, request_case in request_by_episode.items():
+        source_bundle_id, reason_codes = selected_by_episode[episode_id]
+        adapter_pin = adapter_pin_by_episode[episode_id]
+        if (
+            request_case.source_bundle_id != source_bundle_id
+            or request_case.episode_reason_codes != reason_codes
+            or request_case.adapter_binding_id
+            != task_adapter_binding_id(
+                adapter_pin.task_family_id,
+                adapter_pin.task_adapter_id,
+            )
+            or request_case.task_adapter_manifest_id
+            != adapter_pin.task_adapter_manifest_id
+            or request_case.verification_receipt_id
+            != adapter_pin.verification_receipt_id
+        ):
+            raise error_type(
+                "source replay request cases differ from the selected evidence"
+            )
 
 
 class ExpertAttestationVerifier(Protocol):
@@ -744,6 +837,119 @@ class ExpertValidationReducer:
             invalidation=invalidation,
             state=target_state,
         )
+
+    def validate_source_replay_request(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        accepted_results: tuple[ExpertEvaluatorResult, ...],
+        request: ExpertSourceReplayExecutionRequest,
+    ) -> None:
+        validate_source_replay_request_authority_shape(
+            state=state,
+            attempt=attempt,
+            request=request,
+            settings=self.settings,
+        )
+        stored = self.candidate_store.read(attempt.candidate_id)
+        manifest = stored.closure.manifest
+        packet = stored.closure.trigger_packet
+        parent_receipt = packet.parent_tree_receipt
+        current_parent = self.current_release_provider.current_release_id(
+            packet.scope_contract.scope_id
+        )
+        if current_parent is not None:
+            require_content_id(current_parent, "current source replay parent release")
+        if (
+            manifest.candidate_id != attempt.candidate_id
+            or manifest.candidate_tree_hash != attempt.candidate_tree_hash
+            or stored.commit_record.commit_record_id
+            != attempt.candidate_commit_record_id
+            or request.candidate_source_tree_manifest_id
+            != stored.closure.candidate_tree.source_tree_manifest_id
+            or manifest.scope_contract_id != attempt.scope_contract_id
+            or manifest.parent_release_id != attempt.parent_release_id
+            or parent_receipt is None
+            or request.parent_tree_receipt_id != parent_receipt.parent_tree_receipt_id
+            or request.parent_source_extraction_receipt_id
+            != parent_receipt.source_extraction_receipt.extraction_receipt_id
+            or request.parent_tree_hash != parent_receipt.parent_tree_hash
+            or current_parent != attempt.parent_release_id
+        ):
+            raise ExpertValidationError(
+                "source replay request differs from current validation authority"
+            )
+        request_cases = {case.episode_id: case for case in request.cases}
+        selection = attempt.source_replay_selection
+        if selection is None:
+            raise ExpertValidationError(
+                "source replay request has no selected adapter authority"
+            )
+        packet_episodes = {episode.episode_id: episode for episode in packet.episodes}
+        for episode_id, request_case in request_cases.items():
+            episode = packet_episodes.get(episode_id)
+            if episode is None:
+                raise ExpertValidationError(
+                    "source replay request episode is absent from candidate evidence"
+                )
+            terminal_attempt = episode.attempts[episode.terminal_attempt_revision]
+            context = episode.task_context_binding
+            environment = episode.artifact_environment
+            if (
+                request_case.source_bundle_id != episode.source_bundle_id
+                or request_case.source_node_id != episode.source["node_id"]
+                or request_case.source_execution_revision
+                != episode.terminal_attempt_revision
+                or request_case.source_evaluation_fingerprint_ids
+                != tuple(
+                    fingerprint.evaluation_fingerprint_id
+                    for fingerprint in terminal_attempt.evaluation_fingerprints
+                )
+                or request_case.task_context_binding_id
+                != context.task_context_binding_id
+                or request_case.source_expert_base_release_id
+                != environment.expert_base_release_id
+                or request_case.starting_artifact_content_ids
+                != tuple(sorted(environment.starting_artifact_content_ids.values()))
+                or request_case.task_adapter_manifest_id
+                != environment.task_adapter_manifest_id
+                or request_case.verification_receipt_id
+                != environment.task_adapter_verification_receipt_id
+            ):
+                raise ExpertValidationError(
+                    "source replay request differs from exact candidate evidence"
+                )
+        for pin in selection.source_adapter_pins:
+            adapter = self.task_adapter_provider.resolve_exact(
+                task_adapter_manifest_id=pin.task_adapter_manifest_id,
+                verification_receipt_id=pin.verification_receipt_id,
+            )
+            if (
+                not isinstance(adapter, VerifiedTaskAdapter)
+                or adapter.manifest.scope_contract_id != pin.scope_contract_id
+                or adapter.manifest.task_family_id != pin.task_family_id
+                or adapter.manifest.task_adapter_id != pin.task_adapter_id
+                or adapter.manifest.task_adapter_manifest_id
+                != pin.task_adapter_manifest_id
+                or adapter.verification_receipt.verification_receipt_id
+                != pin.verification_receipt_id
+                or any(
+                    request_cases[episode_id].task_adapter_source_tree_hash
+                    != adapter.manifest.tree_hash
+                    or request_cases[episode_id].task_evaluator_binding_digest
+                    != tree_or_blob_digest(
+                        canonical_json_bytes(adapter.manifest.task_evaluator_binding)
+                    )
+                    or request_cases[episode_id].task_adapter_dependency_ids
+                    != adapter.dependency_ids
+                    for episode_id in pin.episode_ids
+                )
+            ):
+                raise ExpertValidationError(
+                    "historical source replay adapter differs from its exact pin"
+                )
+        self._validate_accepted_history(state, attempt, accepted_results)
 
     def advance(
         self,

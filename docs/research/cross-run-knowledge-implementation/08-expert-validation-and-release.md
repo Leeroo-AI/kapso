@@ -145,6 +145,31 @@ the stale parent. Evolution must rebase the change into a new successor candidat
 against current authority and enroll that new identity; retrying the old candidate
 deterministically remains ineligible.
 
+The reservation substrate records admission as one immutable, content-addressed
+operation alias on the unchanged authorization transition. It does not mint a
+second scientific validation state, mutable lease, owner, nonce, or expiry.
+Rebuilding preflight after a crash therefore produces the same request against
+the same state: an identical reservation replays exactly, while a different
+request cannot reserve that head. The journal lock makes reservation versus
+invalidation atomic, orphan objects before journal publication are harmless, and
+one authorization transition admits at most one request. A local execution lock
+may avoid duplicate paid work but is never authority; final receipt publication
+remains fenced by validation-head compare-and-swap.
+
+The reservation API accepts only the runtime-only prepared closure, reconstructs
+it to rerun all byte, lineage, context, artifact, adapter, parent, candidate, and
+aggregate-budget invariants, and then persists its request. A self-consistent
+content contract without those prepared authorities is not executable admission.
+
+Reservation admission reopens the candidate, rechecks `CURRENT`, re-resolves
+every historical adapter package through its retained trusted verifier, and
+revalidates the accepted evaluator prefix before binding the operation. A
+historical reservation stays auditable after authority changes, while execution
+must perform fresh parent, revocation, and verifier observations immediately
+before each spawn and again before receipt publication. Adapter dependency
+closure includes every sanitation and validation proof reference, so later taint
+or revocation cannot miss a proof that package verification consumed.
+
 Implemented validation substrate:
 
 - enrollment reopens the exact M7 candidate, resolves the current release through
@@ -173,7 +198,10 @@ Implemented validation substrate:
   and transitions behind one atomic per-candidate journal;
 - operation-to-transition bindings make lost-response retries exact, while the
   journal head provides compare-and-swap publication with no fork, merge, or
-  rollback behavior; and
+  rollback behavior;
+- immutable source-replay reservation aliases admit exactly one byte-closed
+  prepared execution request without changing the validation head and replay
+  exactly across process/store recovery; and
 - parent-authority invalidation is a content-addressed terminal transition that
   preserves accepted-stage history, proves expected versus observed `CURRENT`,
   and makes stale attempts recoverable without accepting their remaining work.
