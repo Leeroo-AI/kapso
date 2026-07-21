@@ -61,6 +61,7 @@ BRANCH_SNAPSHOT_SCHEMA = "kapso.branch_snapshot.v1"
 CAPTURE_MANIFEST_FILENAME = "capture_manifest.json"
 CAPTURE_DESCRIPTOR_REF = "payload/capture_descriptor.json"
 CAPTURE_CURRENT_FILENAME = "current.json"
+CAPTURE_EXPORT_LOCK_FILENAME = ".export.lock"
 _CORE_ARTIFACT_REFS = {
     "checkpoint": "payload/checkpoint.json",
     "execution_event_journal": "payload/execution_events.jsonl",
@@ -450,7 +451,7 @@ class RunCaptureExporter:
         run_root = runs_root / _storage_key(request.run_id)
         run_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         run_root.chmod(0o700)
-        lock_path = run_root / ".export.lock"
+        lock_path = run_root / CAPTURE_EXPORT_LOCK_FILENAME
         _reject_symlink_components(lock_path)
         with lock_path.open("a+", encoding="utf-8") as lock_handle:
             lock_path.chmod(0o600)

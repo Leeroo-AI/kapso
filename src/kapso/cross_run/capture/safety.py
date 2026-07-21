@@ -40,7 +40,10 @@ def read_restricted_regular_file(
     error_type: type[Exception],
     *,
     require_restricted: bool = True,
+    maximum_bytes: int | None = None,
 ) -> bytes:
+    if maximum_bytes is not None and maximum_bytes <= 0:
+        raise ValueError("maximum_bytes must be positive")
     normalized = _require_safe_relative_path(relative_path, error_type)
     _reject_existing_symlink_components(root, normalized, error_type)
     with ExitStack() as descriptors:
@@ -61,7 +64,12 @@ def read_restricted_regular_file(
             raise error_type("artifact is not an independent regular file")
         if require_restricted and metadata.st_mode & 0o077:
             raise error_type("artifact is not access restricted")
-        return handle.read()
+        if maximum_bytes is not None and metadata.st_size > maximum_bytes:
+            raise error_type("artifact exceeds configured size limit")
+        payload = handle.read(-1 if maximum_bytes is None else maximum_bytes + 1)
+        if maximum_bytes is not None and len(payload) > maximum_bytes:
+            raise error_type("artifact exceeds configured size limit")
+        return payload
 
 
 def remove_restricted_directory(

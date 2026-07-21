@@ -25,7 +25,10 @@ def test_pipeline_publishes_first_frontier_and_honors_interval(tmp_path, monkeyp
     assert skipped is None
     assert forced is not None
     assert forced.manifest.bundle_id == first.manifest.bundle_id
-    assert pipeline.publisher.load(first.manifest.bundle_id).manifest == first.manifest
+    assert (
+        pipeline.publisher.store.require_exact(first.manifest.bundle_id).manifest
+        == first.manifest
+    )
 
 
 def test_pipeline_rejects_runtime_identity_drift(tmp_path):

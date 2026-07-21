@@ -170,10 +170,36 @@ report without advancing the accepted bundle.
 - [x] Publishes a later capture as a superseding bundle, never an overwrite.
 - [x] Commits the bundle to an atomic local content-addressed store consumed by
       M4; it never performs GitHub calls itself.
-- [x] Leaves remote publication to M5, which packages admitted bundle audit
-      closure into the next immutable `KnowledgeSnapshot` release.
+- [x] Stores one canonical manifest at
+      `bundles/<bundle-id-sha256-hex>/manifest.json` and each referenced byte
+      payload once at `objects/sha256/<blob-sha256-hex>`; no second refs map
+      duplicates the manifest checksum authority.
+- [x] Keeps `runs/<run-id-sha256-hex>/current.json` as mutable publisher-only
+      control state. It is excluded from the exact reader and from any replicated
+      immutable byte authority.
+- [x] Serializes cooperating publishers on the pinned store directory, uses
+      durable atomic rename boundaries, and safely reclaims one fixed staging
+      path per target after interruption.
+- [x] Acquires the exporter lease for quarantine retention, verifies the export
+      marker and its manifest, counts only marker-committed generations, and
+      leaves newer crash-recovery directories for the exporter to reconcile.
+- [x] Exposes a separate exact-ID, read-only store that never follows the mutable
+      run marker, bounds control/object reads before allocation, verifies the
+      admitted sanitation closure, and returns one frozen in-memory byte snapshot.
+- [x] Performs no remote publication; normalized M5 snapshot records are never
+      treated as substitutes for these raw sanitized bytes.
+- [ ] M9/M10 production composition must retain the exact sanitized bundle asset
+      closure in a durable locator before a task workspace can be pruned; the
+      local M3 store is the only implemented byte authority today.
 - [x] Does not label outcomes positive/negative, propose claims, or trigger expert
       evolution.
+
+As established by the system threat model, the Kapso OS account is trusted. The
+store rejects pre-existing links, special files, corrupt state, and replaced
+authoritative directories, while the directory lease coordinates Kapso
+publishers. It is not a sandbox against a hostile process running as the same UID;
+that deployment requires the separate-UID, root-owned service boundary described
+in the main design.
 
 Checkpoint and experiment-history locations are typed `cross_run.capture`
 settings, not duplicated literals. M3 implements and injects `RunCapturePipeline`;

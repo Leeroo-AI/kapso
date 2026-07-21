@@ -53,7 +53,7 @@ class RunCapturePipeline:
         )
         self.sanitized_root = state_root / "sanitized"
         self.publisher = RunBundlePublisher(
-            state_root / "bundles",
+            state_root,
             settings.capture,
             settings.sanitation,
         )

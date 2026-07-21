@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
@@ -15,6 +15,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.capture.evaluation_evidence import evaluation_scores_match
+from kapso.cross_run.capture.bundle import RunBundleReader
 from kapso.cross_run.capture.exporter import BranchSnapshot, CaptureDescriptor
 from kapso.cross_run.contracts import (
     ArtifactCompleteness,
@@ -59,15 +60,6 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     IdeaRecord,
     IdeaStatus,
 )
-
-
-class RunBundleReader(Protocol):
-    """Read-only surface implemented by the immutable M3 bundle store."""
-
-    manifest: RunBundle
-
-    def read_ref(self, relative_path: str) -> bytes:
-        """Return the exact sanitized bytes for one manifest reference."""
 
 
 @dataclass(frozen=True)
