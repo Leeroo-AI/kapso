@@ -15,7 +15,11 @@ from kapso.cross_run.capture.exporter import (
 )
 from kapso.cross_run.capture.journal import ExecutionRevisionEvent
 from kapso.cross_run.capture.validator import CaptureValidator
-from kapso.cross_run.contracts import CaptureManifest, CompletionState
+from kapso.cross_run.contracts import (
+    CaptureManifest,
+    CompletionState,
+    EvaluationFingerprint,
+)
 from kapso.cross_run.github.command import GitHubCommandError
 from cross_run_capture_fixtures import make_capture_fixture
 
@@ -340,3 +344,60 @@ def test_each_recovery_revision_keeps_its_immutable_git_commit(tmp_path):
         for branch in CaptureValidator().validate(exported.path).branch_snapshots
     }
     assert commits == {0: original_commit, 1: recovered_commit}
+
+
+def test_recovery_retains_every_historical_evaluation_fingerprint(tmp_path):
+    fixture = make_capture_fixture(tmp_path)
+    original = fixture.strategy.node_history[0]
+    original_commit = original.evaluation_attempts[0].commit_sha
+    repo = fixture.strategy.workspace.repo
+    repo.git.checkout(original.branch_name)
+    (fixture.workspace / "solution.py").write_text("VALUE = 2\n", encoding="utf-8")
+    repo.git.add(["solution.py"])
+    repo.git.commit("-m", "recovered under successor evaluator")
+    recovered_commit = repo.head.commit.hexsha
+    repo.git.checkout("main")
+
+    original_fingerprint = fixture.request.evaluation_fingerprints[0]
+    fingerprint_values = original_fingerprint.to_dict()
+    fingerprint_values.pop("evaluation_fingerprint_id")
+    fingerprint_values["evaluator_fingerprint"] = "sha256:" + "b" * 64
+    successor_fingerprint = EvaluationFingerprint.mint(**fingerprint_values)
+    recovered = replace(original, execution_revision=1, score=0.9)
+    recovered.implementation_base_ref = original_commit
+    recovered.evaluation_attempts = [
+        replace(
+            original.evaluation_attempts[0],
+            commit_sha=recovered_commit,
+            evaluator_id="b" * 64,
+            score=0.9,
+            metrics={"quality": 0.9},
+        )
+    ]
+    recovered.metrics = {"quality": 0.9}
+    fixture.store.add_experiment(recovered)
+    fixture.strategy.node_history = [recovered]
+    fixture.save_checkpoint("running")
+    request = replace(
+        fixture.request,
+        evaluation_fingerprints=tuple(
+            sorted(
+                (original_fingerprint, successor_fingerprint),
+                key=lambda fingerprint: fingerprint.evaluation_fingerprint_id,
+            )
+        ),
+    )
+
+    exported = RunCaptureExporter(
+        fixture.settings.capture,
+        fixture.settings.sanitation,
+    ).export(request)
+    validated = CaptureValidator().validate(exported.path)
+
+    assert {
+        fingerprint.evaluation_fingerprint_id
+        for fingerprint in validated.descriptor.evaluation_fingerprints
+    } == {
+        original_fingerprint.evaluation_fingerprint_id,
+        successor_fingerprint.evaluation_fingerprint_id,
+    }

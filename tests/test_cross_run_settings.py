@@ -35,6 +35,50 @@ def test_shipped_cross_run_config_is_strict_and_single_sourced():
     assert "oauth_token" not in str(settings.to_dict()).lower()
 
 
+def test_catalog_agents_and_admission_policy_are_fully_typed():
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    ).catalog
+
+    assert settings.claim_proposer.cli == "codex"
+    assert settings.claim_proposer.model == "gpt-5.6-sol"
+    assert tuple(reviewer.agent.effort for reviewer in settings.reviewers) == (
+        "xhigh",
+        "xhigh",
+    )
+    assert settings.admission.required_approvals == len(settings.reviewers)
+    assert settings.configuration_fingerprint.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda catalog: catalog["claim_proposer"].__setitem__("effort", "max"),
+        lambda catalog: catalog["claim_proposer"].__setitem__(
+            "allowed_tools", ["Write"]
+        ),
+        lambda catalog: catalog.__setitem__(
+            "agent_artifact_path", catalog["state_path"] + "/agent_calls"
+        ),
+        lambda catalog: catalog["reviewers"].__setitem__(
+            1, copy.deepcopy(catalog["reviewers"][0])
+        ),
+        lambda catalog: catalog["admission"].__setitem__(
+            "required_approvals", len(catalog["reviewers"]) + 1
+        ),
+        lambda catalog: catalog["admission"].__setitem__(
+            "rejection_judgment", catalog["admission"]["approval_judgment"]
+        ),
+    ],
+)
+def test_invalid_catalog_agent_or_admission_configuration_fails(mutate):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    mutate(raw["catalog"])
+
+    with pytest.raises((ContractValidationError, CrossRunConfigurationError)):
+        CrossRunSettings.from_dict(raw)
+
+
 def test_effective_config_retains_registry_without_polluting_workload_mode():
     effective = load_effective_config(CANONICAL_CONFIG_PATH, "GENERIC")
     mode = load_mode_config(CANONICAL_CONFIG_PATH, "GENERIC")

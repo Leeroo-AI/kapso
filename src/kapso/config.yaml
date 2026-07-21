@@ -76,9 +76,44 @@ cross_run:
     denied_path_patterns: [".aws", ".azure", ".bzr", ".cache", ".docker", ".dvc", ".env", ".git", ".gnupg", ".hg", ".mypy_cache", ".netrc", ".npmrc", ".pypirc", ".pytest_cache", ".ruff_cache", ".ssh", ".svn", "__pycache__", "auth.json", "cache", "caches", "checkpoints", "data", "dataset", "datasets", "evaluation", "evaluations", "evaluator", "evaluators", "hidden_eval", "hidden_evaluation", "hidden_evaluator", "kapso_datasets", "kapso_evaluation", "model_weights", "outputs", "task_outputs", "token:credential", "token:credentials", "token:secret", "token:secrets", "training_data", "weights"]
   catalog:
     state_path: ".kapso/cross_run/catalog"
-    claim_proposer_cli: "codex"
-    reviewer_cli: "claude_code"
-    reviewer_count: 2
+    agent_artifact_path: ".kapso/cross_run/catalog_agent_calls"
+    termination_grace_seconds: 5
+    claim_packet_record_limit: 32
+    claim_proposer:
+      cli: "codex"
+      model: "gpt-5.6-sol"
+      timeout_seconds: 300
+      effort: "high"
+      allowed_tools: []
+    reviewers:
+      - reviewer_id: "catalog_reviewer_primary"
+        reviewer_role: "independent_scientific_reviewer"
+        rubric_version: "kapso.catalog_review.v1"
+        agent:
+          cli: "codex"
+          model: "gpt-5.6-sol"
+          timeout_seconds: 300
+          effort: "xhigh"
+          allowed_tools: []
+      - reviewer_id: "catalog_reviewer_secondary"
+        reviewer_role: "independent_scientific_reviewer"
+        rubric_version: "kapso.catalog_review.v1"
+        agent:
+          cli: "codex"
+          model: "gpt-5.6-sol"
+          timeout_seconds: 300
+          effort: "xhigh"
+          allowed_tools: []
+    admission:
+      policy_version: "kapso.catalog_admission.v1"
+      approval_judgment: "approve"
+      rejection_judgment: "reject"
+      required_approvals: 2
+      required_rejections: 2
+      minimum_supporting_runs: 2
+      minimum_supporting_task_contexts: 1
+      require_comparable_support: true
+      require_isolated_support: true
     publication_interval_runs: 1
   knowledge:
     snapshot_path: ".kapso/cross_run/knowledge"

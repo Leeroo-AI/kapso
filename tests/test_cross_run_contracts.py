@@ -14,10 +14,11 @@ from kapso.cross_run.contracts import (
     ArtifactCompleteness,
     ArtifactEnvironment,
     BootstrapPin,
+    BundleArtifactRef,
     CandidateChangeKind,
     CaptureManifest,
     CatalogEntryState,
-    ClaimState,
+    CodingAgentOperationReceipt,
     ComparisonStatus,
     CompletionState,
     ContextDimensionSchema,
@@ -27,6 +28,7 @@ from kapso.cross_run.contracts import (
     EmbeddingSidecar,
     EpisodeEvaluationStatus,
     EvaluationFingerprint,
+    EffectUncertaintyMethod,
     ExecutionStatus,
     ExpertBaseReleaseManifest,
     ExpertCandidateManifest,
@@ -52,6 +54,7 @@ from kapso.cross_run.contracts import (
     PriorKnowledgeSnapshot,
     PublicationArtifactKind,
     ReviewAssertion,
+    RelativeEffect,
     RunBundle,
     ScopeRepositorySettings,
     TaskAdapterBinding,
@@ -75,7 +78,32 @@ def digest(name):
     return tree_or_blob_digest(name.encode("utf-8"))
 
 
-def assertion(subject_id, name):
+def operation_receipt(name):
+    operation_suffix = digest(name).removeprefix("sha256:")[:32]
+    return CodingAgentOperationReceipt.mint(
+        operation_id=f"agent_call_{operation_suffix}",
+        principal_id=f"reviewer-{name}",
+        role="independent_reviewer",
+        cli="codex",
+        model="gpt-5.6-sol",
+        effort="xhigh",
+        artifact_checksums={
+            filename: digest(f"{name}-{filename}")
+            for filename in (
+                "final.json",
+                "invocation.json",
+                "prompt.txt",
+                "response_schema.json",
+                "result.json",
+                "stderr.txt",
+                "stdout.txt",
+            )
+        },
+        completed_at="2026-07-20T12:00:00Z",
+    )
+
+
+def assertion(subject_id, name, receipt):
     return ReviewAssertion.mint(
         subject_id=subject_id,
         reviewer_id=f"reviewer-{name}",
@@ -86,7 +114,7 @@ def assertion(subject_id, name):
         exact_evidence_refs=(fixture_id(f"{name}-evidence"),),
         created_at="2026-07-20T12:00:00Z",
         supersedes_assertion_id=None,
-        reviewer_attestation={"issuer": "test-trust-root", "signature": name},
+        review_operation_ref=receipt.operation_receipt_id,
     )
 
 
@@ -180,7 +208,12 @@ def build_records():
         aggregation_protocol="arithmetic-mean",
         judge_version=None,
     )
-    bootstrap_assertion = assertion(fixture_id("bootstrap-candidate"), "bootstrap")
+    bootstrap_review_operation = operation_receipt("bootstrap")
+    bootstrap_assertion = assertion(
+        fixture_id("bootstrap-candidate"),
+        "bootstrap",
+        bootstrap_review_operation,
+    )
     module = ExpertModuleContract.mint(
         module_id="shared.reproducible_execution",
         version="v1",
@@ -312,30 +345,52 @@ def build_records():
         expert_base_release_id=expert_release.release_id,
         task_context_binding=context,
         artifact_environment=artifact_environment,
+        capture_descriptor_ref="capture_descriptor.json",
         checkpoint_ref="checkpoint.json",
         execution_event_journal_ref="events.jsonl",
         idea_archive_ref="idea_archive.json",
         experiment_history_ref="experiment_history.json",
+        sanitation_report_ref="sanitation_report.json",
         branch_snapshot_refs=("branches/node-1.tar.zst",),
         run_log_refs=("logs/run.log",),
         checksums={
             "branches/node-1.tar.zst": digest("branch"),
+            "capture_descriptor.json": digest("descriptor"),
             "checkpoint.json": digest("checkpoint"),
             "events.jsonl": digest("events"),
             "experiment_history.json": digest("history"),
             "idea_archive.json": digest("ideas"),
             "logs/run.log": digest("log"),
+            "sanitation_report.json": digest("sanitation"),
         },
     )
+    intervention_ref = BundleArtifactRef(
+        relative_path="branches/node-1.tar.zst",
+        checksum=digest("branch"),
+    )
+    relative_effect = RelativeEffect(
+        evaluation_fingerprint_id=evaluation.evaluation_fingerprint_id,
+        metric_name="quality",
+        objective_direction=ObjectiveDirection.MAXIMIZE,
+        candidate_value=0.8,
+        source_parent_value=0.7,
+        raw_delta=0.1,
+        normalized_delta=0.1,
+        uncertainty=None,
+        uncertainty_method=EffectUncertaintyMethod.UNAVAILABLE,
+    )
     attempt = TransferAttempt(
-        execution_revision=1,
+        execution_revision=0,
         captured_at="2026-07-20T12:55:00Z",
-        evaluation_fingerprint=evaluation,
         execution_status=ExecutionStatus.COMPLETED,
         evaluation_status=EpisodeEvaluationStatus.VALID,
+        evaluation_fingerprints=(evaluation,),
+        score_of_record_fingerprint_id=evaluation.evaluation_fingerprint_id,
         comparison_status=ComparisonStatus.COMPARABLE,
         measurements={"quality": 0.8},
-        source_parent_effect={"delta": 0.1, "uncertainty": 0.02},
+        source_parent_effect=relative_effect,
+        intervention_ref=intervention_ref,
+        intervention_structure=InterventionStructure.ISOLATED_BY_ABLATION,
         feedback=("Improved validation quality.",),
         technical_difficulties=(),
         confounders=(),
@@ -350,36 +405,47 @@ def build_records():
             "batch_id": "batch-1",
         },
         source_bundle_id=run_bundle.bundle_id,
-        supersedes_episode_id=None,
+        supersedes_projection_id=None,
         task_context_binding=context,
         artifact_environment=artifact_environment,
         proposal="Validate representation parity before training.",
-        intervention_ref="artifacts/node-1.patch",
-        intervention_structure=InterventionStructure.ISOLATED_BY_ABLATION,
         parent_episode_ref=None,
         attempts=(attempt,),
-        terminal_attempt_revision=1,
-        safe_observation_refs=("observation/parity",),
+        terminal_attempt_revision=0,
+        safe_observation_refs=(),
         sanitation_report_id=fixture_id("episode-sanitation"),
         derivation_refs=(run_bundle.bundle_id,),
     )
     prior_idea = PriorIdea.mint(
         source_bundle_id=run_bundle.bundle_id,
+        supersedes_projection_id=None,
         source={
+            "scope_id": "ml_ai",
+            "run_id": "run-1",
             "campaign_id": "campaign-1",
             "batch_id": "batch-1",
             "idea_id": "idea-2",
         },
         proposal="Explore a different packing policy.",
-        descriptor="Packing-policy exploration",
+        descriptor={
+            "approach_family": "packing",
+            "expected_effect": "reduce padding",
+            "intervention_target": "batch construction",
+            "mechanism": "length grouping",
+        },
         assumptions=("Examples have varied lengths.",),
         source_status=PriorIdeaStatus.DEFERRED,
         source_rationale="The run budget ended.",
-        evidence_refs=(episode.episode_id,),
+        source_evidence_refs=("local-evidence-1",),
         task_context_binding=context,
         sanitation_report_id=fixture_id("prior-sanitation"),
     )
-    claim_assertion = assertion(episode.episode_id, "claim")
+    claim_review_operation = operation_receipt("claim")
+    claim_assertion = assertion(
+        episode.episode_id,
+        "claim",
+        claim_review_operation,
+    )
     claim = KnowledgeClaim.mint(
         claim_id="claim-template-parity",
         scope_contract_id=scope.scope_contract_id,
@@ -390,19 +456,18 @@ def build_records():
         supporting_episode_ids=(episode.episode_id,),
         contradicting_episode_ids=(),
         proposal_provenance={"operation": "codex-cli", "source": episode.episode_id},
-        state=ClaimState.PROVISIONAL,
-        review_assertion_ids=(claim_assertion.assertion_id,),
-        supersedes_claim_ids=(),
+        supersedes_revision_ids=(),
     )
     catalog_state = CatalogEntryState.mint(
         subject_payload_id=claim.revision_id,
         catalog_generation=1,
+        predecessor_state_id=None,
         configuration_fingerprint=digest("catalog-config"),
         admission_state=AdmissionState.ADMITTED,
+        superseded_by_payload_ids=(),
         assertion_ids=(claim_assertion.assertion_id,),
         revocation_ids=(),
         taint_source_ids=(),
-        publisher_attestation={"issuer": "test-publisher", "signature": "catalog"},
     )
     proof_ids = tuple(
         sorted(
@@ -533,6 +598,7 @@ def build_records():
         scope,
         context,
         evaluation,
+        bootstrap_review_operation,
         bootstrap_assertion,
         module,
         capability_node,
@@ -547,6 +613,7 @@ def build_records():
         attempt,
         episode,
         prior_idea,
+        claim_review_operation,
         claim_assertion,
         claim,
         catalog_state,
@@ -575,7 +642,7 @@ def test_nested_contract_has_stable_golden_bytes_and_identity():
 
     assert attempt.to_json_bytes() == (
         b'{"captured_at":"2026-07-20T12:55:00Z","comparison_status":"comparable",'
-        b'"confounders":[],"evaluation_fingerprint":{"aggregation_protocol":'
+        b'"confounders":[],"evaluation_fingerprints":[{"aggregation_protocol":'
         b'"arithmetic-mean","benchmark_id":"posttrain","dataset_version":"v1",'
         b'"evaluation_fingerprint_id":"evaluation-fingerprint:sha256:'
         b'746d9917d4b68f1398a01b3c41cd97f367b9e69c0a170654de99375abbfec5de",'
@@ -583,15 +650,26 @@ def test_nested_contract_has_stable_golden_bytes_and_identity():
         b'27f6343f980c4c0ab821d9c72d211d0eb76b0853825cefd80476a05e43cab27e",'
         b'"fidelity":"full","fraction":1.0,"judge_version":null,"metric_name":'
         b'"quality","objective_direction":"maximize","seed_or_replicate_ids":'
-        b'["seed-1"],"split_version":"public-v1"},"evaluation_status":"valid",'
-        b'"execution_revision":1,"execution_status":"completed","feedback":'
-        b'["Improved validation quality."],"measurements":{"quality":0.8},'
-        b'"source_parent_effect":{"delta":0.1,"uncertainty":0.02},'
+        b'["seed-1"],"split_version":"public-v1"}],"evaluation_status":"valid",'
+        b'"execution_revision":0,"execution_status":"completed","feedback":'
+        b'["Improved validation quality."],"intervention_ref":{"checksum":'
+        b'"sha256:f38c764c8aa00b6578f4254a4dc6d9b50f88fa926e270ea7859bd1b707cd8662",'
+        b'"relative_path":"branches/node-1.tar.zst"},"intervention_structure":'
+        b'"isolated_by_ablation","measurements":{"quality":0.8},'
+        b'"score_of_record_fingerprint_id":"evaluation-fingerprint:sha256:'
+        b'746d9917d4b68f1398a01b3c41cd97f367b9e69c0a170654de99375abbfec5de",'
+        b'"source_parent_effect":{"candidate_value":0.8,'
+        b'"evaluation_fingerprint_id":"evaluation-fingerprint:sha256:'
+        b'746d9917d4b68f1398a01b3c41cd97f367b9e69c0a170654de99375abbfec5de",'
+        b'"metric_name":"quality","normalized_delta":0.1,'
+        b'"objective_direction":"maximize","raw_delta":0.1,'
+        b'"source_parent_value":0.7,"uncertainty":null,'
+        b'"uncertainty_method":"unavailable"},'
         b'"technical_difficulties":[]}'
     )
     assert content_id("transfer-attempt-fixture", attempt) == (
         "transfer-attempt-fixture:sha256:"
-        "7bf501999a228f2cf9e0f971b9425a8f1793cbeb3836132749eb77288d4485a1"
+        "0a9ebdf2a5e37ab72c8883744c1e3f12c55839367999773133bcc388a8ffd6e6"
     )
 
 
@@ -850,7 +928,76 @@ def test_attempt_cannot_present_invalid_or_unbound_evaluation_as_comparable():
     with pytest.raises(ContractValidationError):
         replace(attempt, evaluation_status=EpisodeEvaluationStatus.INVALID)
     with pytest.raises(ContractValidationError):
-        replace(attempt, evaluation_fingerprint=None)
+        replace(attempt, evaluation_fingerprints=())
+
+
+def test_attempt_effect_is_bound_to_the_score_measurement():
+    attempt = next(
+        record for record in build_records() if isinstance(record, TransferAttempt)
+    )
+
+    with pytest.raises(ContractValidationError):
+        replace(attempt, measurements={"quality": 0.9})
+    with pytest.raises(ContractValidationError):
+        replace(
+            attempt,
+            source_parent_effect=replace(
+                attempt.source_parent_effect,
+                metric_name="other_metric",
+            ),
+        )
+    with pytest.raises(ContractValidationError):
+        replace(
+            attempt,
+            evaluation_status=EpisodeEvaluationStatus.NOT_RUN,
+            evaluation_fingerprints=(),
+            score_of_record_fingerprint_id=None,
+            comparison_status=ComparisonStatus.NOT_COMPARABLE,
+            source_parent_effect=None,
+        )
+
+
+def test_prior_idea_may_preserve_an_empty_source_assumption_set():
+    prior_idea = next(
+        record for record in build_records() if isinstance(record, PriorIdea)
+    )
+
+    empty_assumptions = PriorIdea.mint(
+        **{
+            key: value
+            for key, value in prior_idea.to_dict().items()
+            if key not in {"prior_idea_id", "assumptions"}
+        },
+        assumptions=(),
+    )
+
+    assert empty_assumptions.assumptions == ()
+
+
+def test_catalog_state_preserves_revocation_precedence_over_supersession():
+    state = next(
+        record for record in build_records() if isinstance(record, CatalogEntryState)
+    )
+    successor_id = fixture_id("successor-payload")
+    taint_id = fixture_id("taint-source")
+
+    revoked = CatalogEntryState.mint(
+        subject_payload_id=state.subject_payload_id,
+        catalog_generation=2,
+        predecessor_state_id=state.catalog_entry_state_id,
+        configuration_fingerprint=state.configuration_fingerprint,
+        admission_state=AdmissionState.REVOKED,
+        superseded_by_payload_ids=(successor_id,),
+        assertion_ids=state.assertion_ids,
+        revocation_ids=(),
+        taint_source_ids=(taint_id,),
+    )
+    assert revoked.superseded_by_payload_ids == (successor_id,)
+
+    with pytest.raises(ContractValidationError):
+        replace(revoked, admission_state=AdmissionState.SUPERSEDED)
+    with pytest.raises(ContractValidationError):
+        replace(state, superseded_by_payload_ids=(successor_id,))
 
 
 def test_prose_tuple_fields_reject_blank_elements():

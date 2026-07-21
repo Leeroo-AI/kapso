@@ -711,8 +711,12 @@ class RunCaptureExporter:
                 or idea.selected_in_batch_id != record.selection_batch_id
             ):
                 raise CaptureExportError("idea archive and experiment history diverged")
+        revision_records = tuple(
+            ExperimentRecord.from_dict(to_json_value(event.projection))
+            for event in selected_events
+        )
         evaluation_fingerprints = validate_evaluation_fingerprints(
-            records,
+            revision_records,
             request.evaluation_fingerprints,
             CaptureExportError,
         )

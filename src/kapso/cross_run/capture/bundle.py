@@ -200,12 +200,16 @@ class RunBundlePublisher:
                 expert_base_release_id=descriptor.expert_base_release_id,
                 task_context_binding=descriptor.task_context_binding,
                 artifact_environment=descriptor.artifact_environment,
+                capture_descriptor_ref=descriptor.artifact_refs[
+                    "capture_descriptor"
+                ],
                 checkpoint_ref=descriptor.artifact_refs["checkpoint"],
                 execution_event_journal_ref=descriptor.artifact_refs[
                     "execution_event_journal"
                 ],
                 idea_archive_ref=descriptor.artifact_refs["idea_archive"],
                 experiment_history_ref=descriptor.artifact_refs["experiment_history"],
+                sanitation_report_ref=SANITATION_REPORT_REF,
                 branch_snapshot_refs=descriptor.branch_snapshot_refs,
                 run_log_refs=descriptor.run_log_refs,
                 checksums=sanitized.checksums,

@@ -338,10 +338,12 @@ RunBundle
   expert_base_release_id
   task_context_binding
   artifact_environment
+  capture_descriptor_ref
   checkpoint_ref
   execution_event_journal_ref
   idea_archive_ref
   experiment_history_ref
+  sanitation_report_ref
   branch_snapshot_refs
   run_log_refs
   checksums
@@ -415,22 +417,23 @@ TransferEpisode
   episode_id                   # content identity
   source                       # scope/run/campaign/node/idea/batch
   source_bundle_id
-  supersedes_episode_id
+  supersedes_projection_id     # prior or episode projection of this source idea
   task_context_binding
   artifact_environment
   proposal                     # exact source proposal
-  intervention_ref             # exact diff/artifact reference
-  intervention_structure       # coupled | isolated_by_ablation
   parent_episode_ref           # qualified; never a live parent
   attempts[]
-    execution_revision
+    execution_revision         # exact zero-based journal revision
     captured_at
-    evaluation_fingerprint     # null only when evaluation did not run
     execution_status           # completed | failed_technical | interrupted
     evaluation_status          # valid | invalid | partial | not_run
+    evaluation_fingerprints[]  # every evaluator group used by this revision
+    score_of_record_fingerprint_id
     comparison_status          # comparable | not_comparable | inconclusive
-    measurements
-    source_parent_effect       # value + uncertainty, only if comparable
+    measurements               # finite evaluator-declared numbers only
+    source_parent_effect       # typed, direction-aligned; only if comparable
+    intervention_ref           # exact branch artifact; null after pre-write failure
+    intervention_structure     # coupled | isolated_by_ablation | undetermined
     feedback
     technical_difficulties
     confounders
@@ -451,17 +454,25 @@ meaning. Partial observations are retained with explicit validity; they never
 pretend to be a scored experiment.
 An episode with coupled changes may inspire transfer but cannot support a causal
 mechanism claim until an ablation or other identification evidence isolates it.
+The projector never infers isolation from a branch diff: absent explicit evidence,
+the intervention is `undetermined`. Relative effects require the exact same full
+evaluation fingerprint on a measured parent and child. The stored effect includes
+the source and candidate values, raw delta, objective direction, direction-aligned
+delta, and an explicit unavailable uncertainty method; no uncertainty estimator is
+invented.
 
 ### 4.5 `PriorIdea`
 
 ```text
 PriorIdea
   prior_idea_id
-  source_bundle_id + source campaign/batch/idea
-  proposal + descriptor + assumptions
+  source_bundle_id
+  supersedes_projection_id
+  source scope/run/campaign/batch/idea
+  proposal + structured descriptor + assumptions
   source_status                 # deferred | rejected | unexecuted
   source_rationale
-  evidence_refs
+  source_evidence_refs          # run-local provenance, not catalog IDs
   task_context_binding
   sanitation_report_id
 ```
@@ -489,14 +500,16 @@ ReviewAssertion
   exact_evidence_refs
   created_at
   supersedes_assertion_id
-  reviewer_attestation
+  review_operation_ref          # immutable registered coding-agent receipt
 ```
 
 Assertions are append-only. They do not overwrite a one-line `verdict.json`.
 Configured adjudication derives the active state. Unresolved disagreement yields
 `disputed` or `inconclusive`, blocking exploit anchoring and expert promotion.
-Reviewer identity is accepted only through a configured trust root or cloud-IAM
-attestation; a string `reviewer_id` is not authentication.
+Reviewer identity is assigned by the configured reviewer slot and bound to an
+immutable operation receipt; a model-returned `reviewer_id` is never trusted.
+Attestations are stored as separate envelopes keyed to immutable payload identity,
+so rotation cannot create byte-distinct objects under one content ID.
 
 ### 4.7 `KnowledgeClaim`
 
@@ -512,20 +525,18 @@ KnowledgeClaim
   supporting_episode_ids
   contradicting_episode_ids
   proposal_provenance
-  state                         # proposed | provisional | supported | disputed |
-                                # superseded | revoked
-  review_assertion_ids
-  supersedes_claim_ids
+  supersedes_revision_ids
 ```
 
 Claims are semantic memory, not instructions or routing rules. A coding agent may
-propose or revise them, but cannot certify them. Evidence and review transition
-their state. Every claim renders with applicability, exclusions, support,
-contradictions, and state; an unbound statement is unrepresentable.
+propose or revise them, but cannot certify them. Every claim renders with
+applicability, exclusions, support, and contradictions; an unbound statement is
+unrepresentable. Trust state and active review heads are derived only in
+`CatalogEntryState`, so payload and reducer can never disagree.
 Applicability and exclusion predicates may use only context dimensions registered
 by the pinned `ExpertScopeContract`; core code contains no LLM- or tabular-specific
 predicate names.
-Updating evidence or state creates a new immutable claim revision. `claim_id`
+Updating evidence creates a new immutable claim revision. `claim_id`
 names the lineage; `revision_id` names the exact object pinned by a snapshot.
 
 ### 4.8 `CatalogEntryState`
@@ -534,17 +545,20 @@ names the lineage; `revision_id` names the exact object pinned by a snapshot.
 CatalogEntryState
   subject_payload_id
   catalog_generation
+  predecessor_state_id
   admission_state               # quarantined | admitted | disputed |
                                 # superseded | revoked
+  superseded_by_payload_ids
   assertion_ids
   revocation_ids
   taint_source_ids
-  publisher_attestation
 ```
 
-This immutable projection keeps active trust state out of episode, module, and
-candidate payload identities. A later assertion publishes a new catalog
-generation; it does not rewrite the subject.
+This deterministic immutable projection keeps active trust state out of episode,
+claim, module, and candidate payload identities. A later assertion publishes a
+new catalog generation; it does not rewrite the subject. State precedence is
+`revoked/tainted > superseded > disputed > admitted/quarantined`; lower-precedence
+facts remain named so a revoked superseded revision retains both histories.
 
 ### 4.9 Expert artifacts
 

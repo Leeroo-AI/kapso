@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, fields
@@ -39,6 +40,16 @@ _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$"
 )
+_CODING_AGENT_OPERATION_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
+_CODING_AGENT_ARTIFACT_FILENAMES = {
+    "final.json",
+    "invocation.json",
+    "prompt.txt",
+    "response_schema.json",
+    "result.json",
+    "stderr.txt",
+    "stdout.txt",
+}
 
 
 class CrossRunContractError(ValueError):
@@ -336,21 +347,13 @@ class ComparisonStatus(str, Enum):
 class InterventionStructure(str, Enum):
     COUPLED = "coupled"
     ISOLATED_BY_ABLATION = "isolated_by_ablation"
+    UNDETERMINED = "undetermined"
 
 
 class PriorIdeaStatus(str, Enum):
     DEFERRED = "deferred"
     REJECTED = "rejected"
     UNEXECUTED = "unexecuted"
-
-
-class ClaimState(str, Enum):
-    PROPOSED = "proposed"
-    PROVISIONAL = "provisional"
-    SUPPORTED = "supported"
-    DISPUTED = "disputed"
-    SUPERSEDED = "superseded"
-    REVOKED = "revoked"
 
 
 class AdmissionState(str, Enum):
@@ -782,10 +785,12 @@ class RunBundle(StrictContract):
     expert_base_release_id: str
     task_context_binding: TaskContextBinding
     artifact_environment: ArtifactEnvironment
+    capture_descriptor_ref: str
     checkpoint_ref: str
     execution_event_journal_ref: str
     idea_archive_ref: str
     experiment_history_ref: str
+    sanitation_report_ref: str
     branch_snapshot_refs: tuple[str, ...]
     run_log_refs: tuple[str, ...]
     checksums: Mapping[str, str]
@@ -842,10 +847,12 @@ class RunBundle(StrictContract):
                 "bundle environment uses another Kapso commit"
             )
         for name in (
+            "capture_descriptor_ref",
             "checkpoint_ref",
             "execution_event_journal_ref",
             "idea_archive_ref",
             "experiment_history_ref",
+            "sanitation_report_ref",
         ):
             _require_relative_path(getattr(self, name), name)
         for name in ("branch_snapshot_refs", "run_log_refs"):
@@ -854,9 +861,11 @@ class RunBundle(StrictContract):
         _require_checksum_mapping(self.checksums, "checksums")
         referenced_paths = {
             self.checkpoint_ref,
+            self.capture_descriptor_ref,
             self.execution_event_journal_ref,
             self.idea_archive_ref,
             self.experiment_history_ref,
+            self.sanitation_report_ref,
             *self.branch_snapshot_refs,
             *self.run_log_refs,
         }
@@ -867,37 +876,110 @@ class RunBundle(StrictContract):
             )
 
 
+class EffectUncertaintyMethod(str, Enum):
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class BundleArtifactRef(StrictContract):
+    relative_path: str
+    checksum: str
+
+    def _validate(self) -> None:
+        _require_relative_path(self.relative_path, "bundle artifact relative_path")
+        _require_digest(self.checksum, "bundle artifact checksum")
+
+
+@dataclass(frozen=True)
+class RelativeEffect(StrictContract):
+    evaluation_fingerprint_id: str
+    metric_name: str
+    objective_direction: ObjectiveDirection
+    candidate_value: float
+    source_parent_value: float
+    raw_delta: float
+    normalized_delta: float
+    uncertainty: float | None
+    uncertainty_method: EffectUncertaintyMethod
+
+    def _validate(self) -> None:
+        require_content_id(
+            self.evaluation_fingerprint_id,
+            "relative effect evaluation_fingerprint_id",
+        )
+        require_identifier(self.metric_name, "relative effect metric_name")
+        expected_raw = self.candidate_value - self.source_parent_value
+        if abs(self.raw_delta - expected_raw) > 1e-12:
+            raise ContractValidationError("relative effect raw delta is inconsistent")
+        direction = (
+            1.0 if self.objective_direction is ObjectiveDirection.MAXIMIZE else -1.0
+        )
+        if abs(self.normalized_delta - direction * self.raw_delta) > 1e-12:
+            raise ContractValidationError(
+                "relative effect normalized delta is inconsistent"
+            )
+        if self.uncertainty_method is EffectUncertaintyMethod.UNAVAILABLE:
+            if self.uncertainty is not None:
+                raise ContractValidationError(
+                    "unavailable relative-effect uncertainty must be null"
+                )
+        elif self.uncertainty is None or self.uncertainty < 0.0:
+            raise ContractValidationError(
+                "estimated relative-effect uncertainty must be non-negative"
+            )
+
+
 @dataclass(frozen=True)
 class TransferAttempt(StrictContract):
     execution_revision: int
     captured_at: str
-    evaluation_fingerprint: EvaluationFingerprint | None
     execution_status: ExecutionStatus
     evaluation_status: EpisodeEvaluationStatus
+    evaluation_fingerprints: tuple[EvaluationFingerprint, ...]
+    score_of_record_fingerprint_id: str | None
     comparison_status: ComparisonStatus
     measurements: Mapping[str, Any]
-    source_parent_effect: Mapping[str, Any] | None
+    source_parent_effect: RelativeEffect | None
+    intervention_ref: BundleArtifactRef | None
+    intervention_structure: InterventionStructure
     feedback: tuple[str, ...]
     technical_difficulties: tuple[str, ...]
     confounders: tuple[str, ...]
 
     def _validate(self) -> None:
-        if self.execution_revision < 1:
-            raise ContractValidationError("execution_revision must start at one")
+        if self.execution_revision < 0:
+            raise ContractValidationError("execution_revision must be non-negative")
         normalize_utc_timestamp(self.captured_at, "captured_at")
-        if (
-            self.evaluation_status is EpisodeEvaluationStatus.NOT_RUN
-            and self.evaluation_fingerprint is not None
+        fingerprint_ids = tuple(
+            fingerprint.evaluation_fingerprint_id
+            for fingerprint in self.evaluation_fingerprints
+        )
+        if fingerprint_ids != tuple(sorted(set(fingerprint_ids))):
+            raise ContractValidationError(
+                "attempt evaluation fingerprints must be sorted and unique"
+            )
+        if self.evaluation_status is EpisodeEvaluationStatus.NOT_RUN and (
+            self.evaluation_fingerprints
+            or self.score_of_record_fingerprint_id is not None
+            or self.measurements
         ):
             raise ContractValidationError(
-                "not-run evaluation cannot have an evaluation fingerprint"
+                "not-run evaluation cannot have fingerprints or measurements"
             )
         if (
             self.evaluation_status is EpisodeEvaluationStatus.VALID
-            and self.evaluation_fingerprint is None
+            and self.score_of_record_fingerprint_id not in fingerprint_ids
         ):
             raise ContractValidationError(
-                "valid evaluation requires an evaluation fingerprint"
+                "valid evaluation requires one score-of-record fingerprint"
+            )
+        if (
+            self.evaluation_status
+            in {EpisodeEvaluationStatus.INVALID, EpisodeEvaluationStatus.PARTIAL}
+            and self.score_of_record_fingerprint_id is not None
+        ):
+            raise ContractValidationError(
+                "non-valid evaluation cannot name a score-of-record fingerprint"
             )
         if (
             self.comparison_status is ComparisonStatus.COMPARABLE
@@ -906,13 +988,34 @@ class TransferAttempt(StrictContract):
             raise ContractValidationError(
                 "comparable attempt requires a valid evaluation"
             )
-        if (
-            self.comparison_status is ComparisonStatus.COMPARABLE
-            and self.source_parent_effect is None
+        if self.comparison_status is ComparisonStatus.COMPARABLE and (
+            self.source_parent_effect is None
+            or self.source_parent_effect.evaluation_fingerprint_id
+            != self.score_of_record_fingerprint_id
         ):
             raise ContractValidationError(
                 "comparable attempt requires a source-parent effect"
             )
+        if self.source_parent_effect is not None:
+            score_fingerprint = next(
+                (
+                    fingerprint
+                    for fingerprint in self.evaluation_fingerprints
+                    if fingerprint.evaluation_fingerprint_id
+                    == self.score_of_record_fingerprint_id
+                ),
+                None,
+            )
+            if (
+                score_fingerprint is None
+                or self.source_parent_effect.metric_name
+                != score_fingerprint.metric_name
+                or self.measurements.get(score_fingerprint.metric_name)
+                != self.source_parent_effect.candidate_value
+            ):
+                raise ContractValidationError(
+                    "source-parent effect does not match the score of record"
+                )
         if (
             self.comparison_status is not ComparisonStatus.COMPARABLE
             and self.source_parent_effect is not None
@@ -925,6 +1028,31 @@ class TransferAttempt(StrictContract):
             and not self.measurements
         ):
             raise ContractValidationError("valid evaluation requires measurements")
+        if any(
+            not isinstance(name, str)
+            or not name
+            or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for name, value in self.measurements.items()
+        ):
+            raise ContractValidationError(
+                "attempt measurements must be finite named numbers"
+            )
+        if (
+            self.execution_status is ExecutionStatus.COMPLETED
+            and self.intervention_ref is None
+        ):
+            raise ContractValidationError(
+                "completed execution requires an intervention artifact"
+            )
+        if (
+            self.intervention_ref is None
+            and self.intervention_structure is not InterventionStructure.UNDETERMINED
+        ):
+            raise ContractValidationError(
+                "missing intervention cannot claim a known structure"
+            )
         for name in ("feedback", "technical_difficulties", "confounders"):
             _require_text_tuple(getattr(self, name), name)
 
@@ -934,16 +1062,14 @@ class TransferEpisode(StrictContract):
     episode_id: str
     source: Mapping[str, str]
     source_bundle_id: str
-    supersedes_episode_id: str | None
+    supersedes_projection_id: str | None
     task_context_binding: TaskContextBinding
     artifact_environment: ArtifactEnvironment
     proposal: str
-    intervention_ref: str
-    intervention_structure: InterventionStructure
     parent_episode_ref: str | None
     attempts: tuple[TransferAttempt, ...]
     terminal_attempt_revision: int
-    safe_observation_refs: tuple[str, ...]
+    safe_observation_refs: tuple[BundleArtifactRef, ...]
     sanitation_report_id: str
     derivation_refs: tuple[str, ...]
 
@@ -968,16 +1094,20 @@ class TransferEpisode(StrictContract):
         if self.source["scope_id"] != self.task_context_binding.scope_id:
             raise IncompatibleArtifactError("episode source uses another scope")
         require_content_id(self.source_bundle_id, "source_bundle_id")
-        if self.supersedes_episode_id is not None:
-            require_content_id(self.supersedes_episode_id, "supersedes_episode_id")
+        if self.supersedes_projection_id is not None:
+            require_content_id(
+                self.supersedes_projection_id,
+                "supersedes_projection_id",
+            )
+            if self.supersedes_projection_id == self.episode_id:
+                raise ContractValidationError("episode cannot supersede itself")
         _require_text(self.proposal, "proposal")
-        _require_text(self.intervention_ref, "intervention_ref")
         if self.parent_episode_ref is not None:
             require_content_id(self.parent_episode_ref, "parent_episode_ref")
         if not self.attempts:
             raise ContractValidationError("episode must contain at least one attempt")
         revisions = tuple(attempt.execution_revision for attempt in self.attempts)
-        if revisions != tuple(range(1, len(self.attempts) + 1)):
+        if revisions != tuple(range(len(self.attempts))):
             raise ContractValidationError(
                 "attempt revisions must be ordered and gap-free"
             )
@@ -986,23 +1116,32 @@ class TransferEpisode(StrictContract):
                 "terminal_attempt_revision must name the final attempt"
             )
         require_content_id(self.sanitation_report_id, "sanitation_report_id")
-        if self.safe_observation_refs:
-            _require_sorted_unique(self.safe_observation_refs, "safe_observation_refs")
+        observation_keys = tuple(
+            (reference.relative_path, reference.checksum)
+            for reference in self.safe_observation_refs
+        )
+        if observation_keys != tuple(sorted(set(observation_keys))):
+            raise ContractValidationError(
+                "safe observation refs must be sorted and unique"
+            )
         if self.derivation_refs:
             _require_sorted_unique(self.derivation_refs, "derivation_refs")
+            for derivation_ref in self.derivation_refs:
+                require_content_id(derivation_ref, "derivation_ref")
 
 
 @dataclass(frozen=True)
 class PriorIdea(StrictContract):
     prior_idea_id: str
     source_bundle_id: str
+    supersedes_projection_id: str | None
     source: Mapping[str, str]
     proposal: str
-    descriptor: str
+    descriptor: Mapping[str, str]
     assumptions: tuple[str, ...]
     source_status: PriorIdeaStatus
     source_rationale: str
-    evidence_refs: tuple[str, ...]
+    source_evidence_refs: tuple[str, ...]
     task_context_binding: TaskContextBinding
     sanitation_report_id: str
 
@@ -1010,21 +1149,87 @@ class PriorIdea(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "prior_idea_id"
 
     def _validate(self) -> None:
-        required_source_keys = {"campaign_id", "batch_id", "idea_id"}
+        required_source_keys = {
+            "scope_id",
+            "run_id",
+            "campaign_id",
+            "batch_id",
+            "idea_id",
+        }
         if set(self.source) != required_source_keys:
             raise ContractValidationError(
                 "prior idea source must contain campaign, batch, and idea IDs"
             )
         for key, value in self.source.items():
             require_identifier(value, f"source.{key}")
+        if self.source["scope_id"] != self.task_context_binding.scope_id:
+            raise IncompatibleArtifactError("prior idea source uses another scope")
         require_content_id(self.source_bundle_id, "source_bundle_id")
+        if self.supersedes_projection_id is not None:
+            require_content_id(
+                self.supersedes_projection_id,
+                "supersedes_projection_id",
+            )
+            if self.supersedes_projection_id == self.prior_idea_id:
+                raise ContractValidationError("prior idea cannot supersede itself")
         _require_text(self.proposal, "proposal")
-        _require_text(self.descriptor, "descriptor")
-        _require_text_tuple(self.assumptions, "assumptions", required=True)
+        descriptor_keys = {
+            "approach_family",
+            "expected_effect",
+            "intervention_target",
+            "mechanism",
+        }
+        if set(self.descriptor) != descriptor_keys or any(
+            not isinstance(value, str) or not value
+            for value in self.descriptor.values()
+        ):
+            raise ContractValidationError("prior idea descriptor is invalid")
+        _require_text_tuple(self.assumptions, "assumptions")
         _require_text(self.source_rationale, "source_rationale")
-        if self.evidence_refs:
-            _require_sorted_unique(self.evidence_refs, "evidence_refs")
+        if self.source_evidence_refs:
+            _require_sorted_unique(
+                self.source_evidence_refs,
+                "source_evidence_refs",
+            )
         require_content_id(self.sanitation_report_id, "sanitation_report_id")
+
+
+@dataclass(frozen=True)
+class CodingAgentOperationReceipt(StrictContract):
+    operation_receipt_id: str
+    operation_id: str
+    principal_id: str
+    role: str
+    cli: str
+    model: str
+    effort: str
+    artifact_checksums: Mapping[str, str]
+    completed_at: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "coding-agent-operation-receipt"
+    IDENTITY_FIELD: ClassVar[str] = "operation_receipt_id"
+
+    def _validate(self) -> None:
+        if _CODING_AGENT_OPERATION_PATTERN.fullmatch(self.operation_id) is None:
+            raise ContractValidationError("invalid coding-agent operation ID")
+        for value, name in (
+            (self.principal_id, "coding-agent principal_id"),
+            (self.role, "coding-agent role"),
+            (self.effort, "coding-agent effort"),
+        ):
+            require_identifier(value, name)
+        if self.cli not in {"codex", "claude_code"}:
+            raise ContractValidationError("invalid coding-agent CLI")
+        _require_text(self.model, "coding-agent model")
+        _require_checksum_mapping(
+            self.artifact_checksums,
+            "coding-agent artifact_checksums",
+        )
+        if set(self.artifact_checksums) != _CODING_AGENT_ARTIFACT_FILENAMES:
+            raise MissingReferenceError(
+                "coding-agent receipt requires the complete artifact set"
+            )
+        normalize_utc_timestamp(self.completed_at, "completed_at")
 
 
 @dataclass(frozen=True)
@@ -1039,11 +1244,10 @@ class ReviewAssertion(StrictContract):
     exact_evidence_refs: tuple[str, ...]
     created_at: str
     supersedes_assertion_id: str | None
-    reviewer_attestation: Mapping[str, Any]
+    review_operation_ref: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "review-assertion"
     IDENTITY_FIELD: ClassVar[str] = "assertion_id"
-    CONTENT_EXCLUDED_FIELDS: ClassVar[tuple[str, ...]] = ("reviewer_attestation",)
 
     def _validate(self) -> None:
         require_content_id(self.subject_id, "subject_id")
@@ -1054,8 +1258,7 @@ class ReviewAssertion(StrictContract):
         normalize_utc_timestamp(self.created_at, "created_at")
         if self.supersedes_assertion_id is not None:
             require_content_id(self.supersedes_assertion_id, "supersedes_assertion_id")
-        if not self.reviewer_attestation:
-            raise ContractValidationError("reviewer_attestation must not be empty")
+        require_content_id(self.review_operation_ref, "review_operation_ref")
 
 
 @dataclass(frozen=True)
@@ -1070,9 +1273,7 @@ class KnowledgeClaim(StrictContract):
     supporting_episode_ids: tuple[str, ...]
     contradicting_episode_ids: tuple[str, ...]
     proposal_provenance: Mapping[str, Any]
-    state: ClaimState
-    review_assertion_ids: tuple[str, ...]
-    supersedes_claim_ids: tuple[str, ...]
+    supersedes_revision_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "knowledge-claim-revision"
     IDENTITY_FIELD: ClassVar[str] = "revision_id"
@@ -1094,8 +1295,7 @@ class KnowledgeClaim(StrictContract):
         for name in (
             "supporting_episode_ids",
             "contradicting_episode_ids",
-            "review_assertion_ids",
-            "supersedes_claim_ids",
+            "supersedes_revision_ids",
         ):
             values = getattr(self, name)
             if values:
@@ -1108,6 +1308,8 @@ class KnowledgeClaim(StrictContract):
             )
         if not self.proposal_provenance:
             raise ContractValidationError("proposal_provenance must not be empty")
+        if self.revision_id in self.supersedes_revision_ids:
+            raise ContractValidationError("claim revision cannot supersede itself")
 
 
 @dataclass(frozen=True)
@@ -1115,30 +1317,61 @@ class CatalogEntryState(StrictContract):
     catalog_entry_state_id: str
     subject_payload_id: str
     catalog_generation: int
+    predecessor_state_id: str | None
     configuration_fingerprint: str
     admission_state: AdmissionState
+    superseded_by_payload_ids: tuple[str, ...]
     assertion_ids: tuple[str, ...]
     revocation_ids: tuple[str, ...]
     taint_source_ids: tuple[str, ...]
-    publisher_attestation: Mapping[str, Any]
 
     CONTENT_NAMESPACE: ClassVar[str] = "catalog-entry-state"
     IDENTITY_FIELD: ClassVar[str] = "catalog_entry_state_id"
-    CONTENT_EXCLUDED_FIELDS: ClassVar[tuple[str, ...]] = ("publisher_attestation",)
 
     def _validate(self) -> None:
         require_content_id(self.subject_payload_id, "subject_payload_id")
         if self.catalog_generation < 0:
             raise ContractValidationError("catalog_generation must be non-negative")
+        if self.predecessor_state_id is not None:
+            require_content_id(self.predecessor_state_id, "predecessor_state_id")
+            if self.predecessor_state_id == self.catalog_entry_state_id:
+                raise ContractValidationError(
+                    "catalog entry state cannot precede itself"
+                )
         _require_digest(self.configuration_fingerprint, "configuration_fingerprint")
-        for name in ("assertion_ids", "revocation_ids", "taint_source_ids"):
+        for name in (
+            "superseded_by_payload_ids",
+            "assertion_ids",
+            "revocation_ids",
+            "taint_source_ids",
+        ):
             values = getattr(self, name)
             if values:
                 _require_sorted_unique(values, name)
                 for value in values:
                     require_content_id(value, name)
-        if not self.publisher_attestation:
-            raise ContractValidationError("publisher_attestation must not be empty")
+        has_revocation_or_taint = bool(self.revocation_ids or self.taint_source_ids)
+        if (self.admission_state is AdmissionState.REVOKED) != has_revocation_or_taint:
+            raise ContractValidationError(
+                "revoked state must match revocation or taint evidence"
+            )
+        if self.admission_state is AdmissionState.SUPERSEDED and not (
+            self.superseded_by_payload_ids
+        ):
+            raise ContractValidationError(
+                "superseded state must name successor payloads"
+            )
+        if self.superseded_by_payload_ids and self.admission_state not in {
+            AdmissionState.SUPERSEDED,
+            AdmissionState.REVOKED,
+        }:
+            raise ContractValidationError(
+                "successor payloads require superseded or revoked state"
+            )
+        if self.admission_state is AdmissionState.ADMITTED and has_revocation_or_taint:
+            raise ContractValidationError(
+                "admitted state cannot carry revocation or taint"
+            )
 
 
 @dataclass(frozen=True)

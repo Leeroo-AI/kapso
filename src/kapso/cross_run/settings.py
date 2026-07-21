@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
+    require_identifier,
     to_json_value,
     tree_or_blob_digest,
 )
@@ -404,21 +405,147 @@ class SanitationSettings(StrictContract):
 
 
 @dataclass(frozen=True)
+class CatalogAgentSettings(StrictContract):
+    cli: str
+    model: str
+    timeout_seconds: int
+    effort: str
+    allowed_tools: tuple[str, ...]
+
+    def _validate(self) -> None:
+        _require_cli(self.cli, "catalog agent cli")
+        if not self.model:
+            raise CrossRunConfigurationError("catalog agent model must not be empty")
+        _require_positive(self.timeout_seconds, "catalog agent timeout_seconds")
+        valid_efforts = {
+            "codex": {"minimal", "low", "medium", "high", "xhigh"},
+            "claude_code": {"low", "medium", "high", "max"},
+        }
+        if self.effort not in valid_efforts[self.cli]:
+            raise CrossRunConfigurationError(
+                "catalog agent effort is incompatible with its CLI"
+            )
+        supported_tools = {
+            "codex": {"Read", "WebSearch"},
+            "claude_code": {"Glob", "Grep", "Read", "WebSearch"},
+        }
+        if self.allowed_tools != tuple(sorted(set(self.allowed_tools))) or not set(
+            self.allowed_tools
+        ).issubset(supported_tools[self.cli]):
+            raise CrossRunConfigurationError(
+                "catalog agent tools must be supported, sorted, and unique"
+            )
+
+
+@dataclass(frozen=True)
+class CatalogReviewerSettings(StrictContract):
+    reviewer_id: str
+    reviewer_role: str
+    rubric_version: str
+    agent: CatalogAgentSettings
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.reviewer_id, "catalog reviewer_id"),
+            (self.reviewer_role, "catalog reviewer_role"),
+            (self.rubric_version, "catalog reviewer rubric_version"),
+        ):
+            require_identifier(value, name)
+
+
+@dataclass(frozen=True)
+class CatalogAdmissionSettings(StrictContract):
+    policy_version: str
+    approval_judgment: str
+    rejection_judgment: str
+    required_approvals: int
+    required_rejections: int
+    minimum_supporting_runs: int
+    minimum_supporting_task_contexts: int
+    require_comparable_support: bool
+    require_isolated_support: bool
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.policy_version, "catalog admission policy_version"),
+            (self.approval_judgment, "catalog admission approval_judgment"),
+            (self.rejection_judgment, "catalog admission rejection_judgment"),
+        ):
+            require_identifier(value, name)
+        if self.approval_judgment == self.rejection_judgment:
+            raise CrossRunConfigurationError(
+                "catalog approval and rejection judgments must differ"
+            )
+        for value, name in (
+            (self.required_approvals, "catalog admission required_approvals"),
+            (self.required_rejections, "catalog admission required_rejections"),
+            (
+                self.minimum_supporting_runs,
+                "catalog admission minimum_supporting_runs",
+            ),
+            (
+                self.minimum_supporting_task_contexts,
+                "catalog admission minimum_supporting_task_contexts",
+            ),
+        ):
+            _require_positive(value, name)
+
+
+@dataclass(frozen=True)
 class CatalogSettings(StrictContract):
     state_path: str
-    claim_proposer_cli: str
-    reviewer_cli: str
-    reviewer_count: int
+    agent_artifact_path: str
+    termination_grace_seconds: int
+    claim_packet_record_limit: int
+    claim_proposer: CatalogAgentSettings
+    reviewers: tuple[CatalogReviewerSettings, ...]
+    admission: CatalogAdmissionSettings
     publication_interval_runs: int
 
     def _validate(self) -> None:
-        _require_path(self.state_path, "catalog.state_path")
-        _require_cli(self.claim_proposer_cli, "catalog.claim_proposer_cli")
-        _require_cli(self.reviewer_cli, "catalog.reviewer_cli")
-        _require_positive(self.reviewer_count, "catalog.reviewer_count")
+        state_path = _require_relative_path(self.state_path, "catalog.state_path")
+        artifact_path = _require_relative_path(
+            self.agent_artifact_path,
+            "catalog.agent_artifact_path",
+        )
+        if (
+            state_path == artifact_path
+            or state_path in artifact_path.parents
+            or artifact_path in state_path.parents
+        ):
+            raise CrossRunConfigurationError(
+                "catalog state and agent artifacts must be disjoint"
+            )
+        _require_positive(
+            self.termination_grace_seconds,
+            "catalog.termination_grace_seconds",
+        )
+        _require_positive(
+            self.claim_packet_record_limit,
+            "catalog.claim_packet_record_limit",
+        )
+        if not self.reviewers:
+            raise CrossRunConfigurationError("catalog reviewers must not be empty")
+        reviewer_ids = tuple(reviewer.reviewer_id for reviewer in self.reviewers)
+        if reviewer_ids != tuple(sorted(set(reviewer_ids))):
+            raise CrossRunConfigurationError(
+                "catalog reviewers must be sorted and uniquely identified"
+            )
+        if self.admission.required_approvals > len(self.reviewers):
+            raise CrossRunConfigurationError(
+                "catalog approval quorum exceeds configured reviewers"
+            )
+        if self.admission.required_rejections > len(self.reviewers):
+            raise CrossRunConfigurationError(
+                "catalog rejection quorum exceeds configured reviewers"
+            )
         _require_positive(
             self.publication_interval_runs, "catalog.publication_interval_runs"
         )
+
+    @property
+    def configuration_fingerprint(self) -> str:
+        return tree_or_blob_digest(canonical_json_bytes(self.to_dict()))
 
 
 @dataclass(frozen=True)

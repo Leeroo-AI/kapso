@@ -321,8 +321,12 @@ class CaptureValidator:
         if dict(manifest.capture_watermarks) != expected_watermarks:
             raise CaptureValidationError("capture watermarks do not match authorities")
         records = tuple(history.experiments)
+        revision_records = tuple(
+            ExperimentRecord.from_dict(to_json_value(event.projection))
+            for event in events
+        )
         referenced_evaluation_fingerprints = validate_evaluation_fingerprints(
-            records,
+            revision_records,
             descriptor.evaluation_fingerprints,
             CaptureValidationError,
         )
