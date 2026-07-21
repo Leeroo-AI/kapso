@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Callable, ContextManager, Mapping, Optional, Sequence, Tuple
 
 from kapso.core.embeddings import EmbeddingTelemetry
+from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.analyzer import (
     CandidateAnalyzer,
@@ -27,6 +28,9 @@ from kapso.execution.search_strategies.generic.ideation.operators import (
     plan_search_directive,
 )
 from kapso.execution.search_strategies.generic.ideation.policy import choose_policy
+from kapso.execution.search_strategies.generic.ideation.prior_knowledge import (
+    IdeationCrossRunRuntime,
+)
 from kapso.execution.search_strategies.generic.ideation.selector import (
     CandidateSelector,
 )
@@ -38,6 +42,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     IdeaBatch,
     IdeaRecord,
     IdeaStatus,
+    IdeationCrossRunIdentity,
     IdeationCapacityView,
     ObjectiveDirection,
     OperatorBrief,
@@ -58,6 +63,7 @@ class IdeationEngineTelemetry:
     generation_calls: Tuple[CodingAgentCallResult, ...]
     selection_call: Optional[CodingAgentCallResult]
     embedding: Optional[EmbeddingTelemetry]
+    prior_retrieval_embedding: Optional[EmbeddingTelemetry] = None
 
     @property
     def coding_agent_call_count(self) -> int:
@@ -144,6 +150,7 @@ class IdeationEngine:
         generator: CandidateGenerator,
         analyzer: CandidateAnalyzer,
         selector: CandidateSelector,
+        cross_run_runtime: IdeationCrossRunRuntime | None = None,
     ):
         self.archive = archive
         self.evidence_builder = evidence_builder
@@ -152,6 +159,12 @@ class IdeationEngine:
         self.generator = generator
         self.analyzer = analyzer
         self.selector = selector
+        if cross_run_runtime is not None and not isinstance(
+            cross_run_runtime,
+            IdeationCrossRunRuntime,
+        ):
+            raise TypeError("ideation cross-run runtime is invalid")
+        self.cross_run_runtime = cross_run_runtime
 
     def run(
         self,
@@ -192,6 +205,7 @@ class IdeationEngine:
             )
             if current_parents != batch.resolved_parents:
                 raise ValueError("resume batch parent snapshot changed")
+            self._validate_batch_cross_run_identity(batch)
             expected_context_hash = self._context_hash(
                 problem_statement=batch.problem_statement,
                 evidence_snapshot=batch.evidence_snapshot,
@@ -199,6 +213,8 @@ class IdeationEngine:
                 directive=batch.directive,
                 resolved_parents=batch.resolved_parents,
                 archive_revision=batch.planning_archive_revision,
+                cross_run_identity=batch.cross_run_identity,
+                prior_knowledge=batch.prior_knowledge,
             )
             if batch.context_hash != expected_context_hash:
                 raise ValueError("resume batch context hash is invalid")
@@ -263,7 +279,18 @@ class IdeationEngine:
         resolved_parents = tuple(
             parent_resolver(brief.parent_plan) for brief in directive.operator_briefs
         )
-        resurfaced = self._resurfaceable(evidence_snapshot, archive_state)
+        cross_run_identity = None
+        prior_knowledge = None
+        prior_retrieval_embedding = None
+        if self.cross_run_runtime is not None:
+            prior_result = self.cross_run_runtime.retrieve(
+                problem_statement=problem_statement,
+                evidence_snapshot=evidence_snapshot,
+                directive=directive,
+            )
+            cross_run_identity = self.cross_run_runtime.identity
+            prior_knowledge = prior_result.retrieval.access_materialization
+            prior_retrieval_embedding = prior_result.embedding_telemetry
         batch_id = new_identifier("batch")
         context_hash = self._context_hash(
             problem_statement=problem_statement,
@@ -272,6 +299,8 @@ class IdeationEngine:
             directive=directive,
             resolved_parents=resolved_parents,
             archive_revision=archive_state.revision,
+            cross_run_identity=cross_run_identity,
+            prior_knowledge=prior_knowledge,
         )
         batch = IdeaBatch(
             batch_id=batch_id,
@@ -286,6 +315,9 @@ class IdeationEngine:
             resolved_parents=resolved_parents,
             created_at=timestamp,
             updated_at=timestamp,
+            cross_run_identity=cross_run_identity,
+            prior_knowledge=prior_knowledge,
+            prior_retrieval_embedding_telemetry=prior_retrieval_embedding,
         )
         self.archive.create_batch(batch, expected_revision=archive_state.revision)
         return self._continue_batch(
@@ -323,6 +355,7 @@ class IdeationEngine:
                     archive_state=self.archive.state,
                     resolved_parents=batch.resolved_parents,
                     workspaces=workspaces,
+                    prior_knowledge=batch.prior_knowledge,
                 )
                 resurfaced = self._resurfaceable(
                     batch.evidence_snapshot,
@@ -354,6 +387,7 @@ class IdeationEngine:
                         evidence_snapshot=batch.evidence_snapshot,
                         directive=batch.directive,
                         capacity=batch.capacity,
+                        prior_knowledge=batch.prior_knowledge,
                     )
                     repair_request = preliminary_analyzer.repair_request(
                         preliminary,
@@ -377,6 +411,7 @@ class IdeationEngine:
                             resolved_parent=batch.resolved_parents[repair_index],
                             repair_request=repair_request.to_dict(),
                             workspace=workspaces[repair_index],
+                            prior_knowledge=batch.prior_knowledge,
                         )
                         self.archive.add_repair_idea(
                             batch.batch_id,
@@ -392,6 +427,7 @@ class IdeationEngine:
                     evidence_snapshot=batch.evidence_snapshot,
                     directive=batch.directive,
                     capacity=batch.capacity,
+                    prior_knowledge=batch.prior_knowledge,
                 )
                 self.archive.record_analyses(
                     batch.batch_id,
@@ -410,6 +446,7 @@ class IdeationEngine:
                     candidates=pool,
                     analyses=current.analyses,
                     workspace=selector_workspace,
+                    prior_knowledge=batch.prior_knowledge,
                 )
                 self.archive.record_selection(
                     batch.batch_id,
@@ -436,6 +473,7 @@ class IdeationEngine:
                 generation_calls=current.generation_calls,
                 selection_call=current.selection_call,
                 embedding=current.embedding_telemetry,
+                prior_retrieval_embedding=(current.prior_retrieval_embedding_telemetry),
             ),
         )
 
@@ -465,6 +503,7 @@ class IdeationEngine:
         batch = next(
             batch for batch in self.archive.state.batches if batch.batch_id == batch_id
         )
+        self._validate_batch_cross_run_identity(batch)
         if batch.selection is None or batch.selection.selected_idea_id != idea.idea_id:
             raise ValueError("recovery selection provenance is invalid")
         resolved_parent = parent_resolver(directive.operator_briefs[0].parent_plan)
@@ -545,6 +584,8 @@ class IdeationEngine:
         directive: SearchDirective,
         resolved_parents: Tuple[ResolvedParentSnapshot, ...],
         archive_revision: int,
+        cross_run_identity: IdeationCrossRunIdentity | None,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> str:
         content = {
             "problem_statement": problem_statement,
@@ -553,6 +594,12 @@ class IdeationEngine:
             "directive": directive.to_dict(),
             "resolved_parents": [parent.to_dict() for parent in resolved_parents],
             "archive_revision": archive_revision,
+            "cross_run_identity": (
+                None if cross_run_identity is None else cross_run_identity.to_dict()
+            ),
+            "prior_knowledge": (
+                None if prior_knowledge is None else prior_knowledge.to_dict()
+            ),
         }
         return hashlib.sha256(
             json.dumps(
@@ -563,3 +610,14 @@ class IdeationEngine:
                 allow_nan=False,
             ).encode("utf-8")
         ).hexdigest()
+
+    def _validate_batch_cross_run_identity(self, batch: IdeaBatch) -> None:
+        if self.cross_run_runtime is None:
+            if batch.cross_run_identity is not None:
+                raise ValueError("cross-run batch resumed without its pinned runtime")
+            return
+        self.cross_run_runtime.validate_persisted_batch_identity(
+            batch.cross_run_identity
+        )
+        if batch.prior_knowledge is None:
+            raise ValueError("cross-run batch is missing its persisted prior packet")

@@ -27,6 +27,10 @@ from kapso.execution.search_strategies.generic.ideation.types import (
 )
 from test_ideation_domain import BATCH_ID, NOW, directive, resolved_parent
 from test_ideation_evidence import capacity, evidence_settings
+from test_prior_knowledge_gate import (
+    access_materialization,
+    citable_access_materialization,
+)
 
 
 def payload(descriptor: IdeaDescriptor, proposal: str = "Measure one intervention"):
@@ -46,6 +50,8 @@ def payload(descriptor: IdeaDescriptor, proposal: str = "Measure one interventio
         "confidence": 0.6,
         "claimed_nearest_idea_id": None,
         "claimed_nearest_experiment_node_id": None,
+        "prior_knowledge_refs": [],
+        "prior_adaptation_rationale": None,
     }
 
 
@@ -167,12 +173,15 @@ def test_every_member_receives_full_common_evidence_and_distinct_brief(tmp_path)
     for request, schema in fake.requests:
         packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
         assert packet["problem_statement"] == problem
-        assert packet["evidence_snapshot"]["snapshot_id"] == snapshot.snapshot_id
-        assert packet["allowed_evidence_refs"] == sorted(
+        local_context = packet["local_current_run"]
+        assert local_context["evidence_snapshot"]["snapshot_id"] == snapshot.snapshot_id
+        assert local_context["allowed_evidence_refs"] == sorted(
             evidence_reference_ids(snapshot)
         )
-        assert packet["allowed_evidence_refs"] == [snapshot.snapshot_id]
-        assert packet["prior_ideas"] == []
+        assert local_context["allowed_evidence_refs"] == [snapshot.snapshot_id]
+        assert local_context["current_run_ideas"] == []
+        assert packet["foreign_prior_knowledge"]["materialization"] is None
+        assert packet["foreign_prior_knowledge"]["allowed_prior_knowledge_refs"] == []
         assert "Copy `operator_brief.descriptor_target` exactly" in request.prompt
         assert "capacity snapshot is planning context, not evidence" in request.prompt
         assert schema["additionalProperties"] is False
@@ -200,6 +209,102 @@ def test_malformed_structured_candidate_fails_without_salvage(tmp_path):
             archive_state=archive.state,
             resolved_parents=(resolved_parent(),),
             workspaces=(str(tmp_path),),
+        )
+
+
+def test_generator_preserves_only_packet_member_prior_references(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    materialization = citable_access_materialization()
+    selected_id = materialization.prior_knowledge_snapshot.selected_record_ids[0]
+    generated_payload = payload(search_directive.operator_briefs[0].descriptor_target)
+    generated_payload["prior_knowledge_refs"] = [selected_id]
+    generated_payload["prior_adaptation_rationale"] = (
+        "Adapt the prior mechanism under the current local evaluator."
+    )
+    fake = FakeRunner({"candidate_0": generated_payload})
+    generator = CandidateGenerator(
+        fake,
+        CandidateGeneratorSettings(
+            members=(member(),),
+            repair_member=member(),
+        ),
+    )
+
+    result = generator.generate(
+        batch_id=BATCH_ID,
+        problem_statement="full problem",
+        evidence_snapshot=snapshot,
+        directive=search_directive,
+        archive_state=archive.state,
+        resolved_parents=(resolved_parent(),),
+        workspaces=(str(tmp_path),),
+        prior_knowledge=materialization,
+    )[0]
+
+    assert result.idea.prior_knowledge_refs == (selected_id,)
+    assert result.idea.prior_adaptation_rationale == (
+        "Adapt the prior mechanism under the current local evaluator."
+    )
+    request, _ = fake.requests[0]
+    assert request.prior_knowledge == materialization
+    packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
+    assert packet["foreign_prior_knowledge"]["materialization"] == (
+        materialization.to_dict()
+    )
+
+
+def test_generator_rejects_prior_reference_outside_frozen_packet(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    materialization = access_materialization()
+    generated_payload = payload(search_directive.operator_briefs[0].descriptor_target)
+    generated_payload["prior_knowledge_refs"] = ["prior-idea:sha256:" + "0" * 64]
+    generated_payload["prior_adaptation_rationale"] = "Adapt an unknown prior."
+    generator = CandidateGenerator(
+        FakeRunner({"candidate_0": generated_payload}),
+        CandidateGeneratorSettings(
+            members=(member(),),
+            repair_member=member(),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="outside its packet"):
+        generator.generate(
+            batch_id=BATCH_ID,
+            problem_statement="full problem",
+            evidence_snapshot=snapshot,
+            directive=search_directive,
+            archive_state=archive.state,
+            resolved_parents=(resolved_parent(),),
+            workspaces=(str(tmp_path),),
+            prior_knowledge=materialization,
+        )
+
+
+def test_generator_rejects_control_record_as_scientific_provenance(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    materialization = access_materialization()
+    control_record_id = materialization.prior_knowledge_snapshot.selected_record_ids[0]
+    generated_payload = payload(search_directive.operator_briefs[0].descriptor_target)
+    generated_payload["prior_knowledge_refs"] = [control_record_id]
+    generated_payload["prior_adaptation_rationale"] = "Cite a control record."
+    generator = CandidateGenerator(
+        FakeRunner({"candidate_0": generated_payload}),
+        CandidateGeneratorSettings(
+            members=(member(),),
+            repair_member=member(),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="outside its packet"):
+        generator.generate(
+            batch_id=BATCH_ID,
+            problem_statement="full problem",
+            evidence_snapshot=snapshot,
+            directive=search_directive,
+            archive_state=archive.state,
+            resolved_parents=(resolved_parent(),),
+            workspaces=(str(tmp_path),),
+            prior_knowledge=materialization,
         )
 
 

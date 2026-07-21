@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 from kapso.core.embeddings import EmbeddingTelemetry
+from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.types import (
     AnalyzedCandidate,
@@ -32,7 +33,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     utc_now,
 )
 
-IDEA_ARCHIVE_SCHEMA = "kapso.ideation_archive.v3"
+IDEA_ARCHIVE_SCHEMA = "kapso.ideation_archive.v4"
 
 
 class IdeaArchiveError(RuntimeError):
@@ -241,12 +242,60 @@ class IdeaArchiveState:
                     raise ArchiveCorruptionError(
                         "generated idea does not point back to its origin batch"
                     )
+            citable_prior_ids = set()
+            selected_prior_ids = set()
+            if batch.prior_knowledge is not None:
+                packet = batch.prior_knowledge.prior_knowledge_snapshot
+                selected_prior_ids.update(
+                    record["record_id"]
+                    for record in packet.selected_records
+                    if record["record_kind"] in {"prior-idea", "transfer-episode"}
+                )
+                citable_prior_ids.update(
+                    record["record_id"]
+                    for record in PriorKnowledgeAccess(
+                        batch.prior_knowledge
+                    ).list_citable_records()
+                )
+            for analysis in batch.analyses:
+                if not {
+                    match.record_id for match in analysis.prior_knowledge_matches
+                }.issubset(selected_prior_ids):
+                    raise ArchiveCorruptionError(
+                        "candidate analysis references foreign records outside its batch"
+                    )
+            if batch.selection is not None:
+                if not set(batch.selection.prior_knowledge_refs).issubset(
+                    citable_prior_ids
+                ):
+                    raise ArchiveCorruptionError(
+                        "selection references foreign records outside its batch"
+                    )
+                selected_idea = idea_by_id[batch.selection.selected_idea_id]
+                if selected_idea.origin_batch_id == batch.batch_id and not set(
+                    selected_idea.prior_knowledge_refs
+                ).issubset(batch.selection.prior_knowledge_refs):
+                    raise ArchiveCorruptionError(
+                        "selection omits the selected idea's prior references"
+                    )
         linked_nodes = set()
         for idea in self.ideas:
             origin = batch_by_id.get(idea.origin_batch_id)
             if origin is None or idea.idea_id not in origin.generated_idea_ids:
                 raise ArchiveCorruptionError(
                     f"idea has invalid origin batch: {idea.idea_id}"
+                )
+            origin_prior_ids = set()
+            if origin.prior_knowledge is not None:
+                origin_prior_ids.update(
+                    record["record_id"]
+                    for record in PriorKnowledgeAccess(
+                        origin.prior_knowledge
+                    ).list_citable_records()
+                )
+            if not set(idea.prior_knowledge_refs).issubset(origin_prior_ids):
+                raise ArchiveCorruptionError(
+                    "idea references foreign knowledge outside its origin batch"
                 )
             for parent_id in idea.parent_idea_ids:
                 if parent_id not in idea_by_id:
@@ -492,6 +541,9 @@ class IdeaArchive:
             batch.capacity,
             batch.directive,
             batch.resolved_parents,
+            batch.cross_run_identity,
+            batch.prior_knowledge,
+            batch.prior_retrieval_embedding_telemetry,
             batch.created_at,
         )
 
@@ -507,6 +559,8 @@ class IdeaArchive:
             idea.resolved_parent,
             idea.assumptions,
             idea.evidence_refs,
+            idea.prior_knowledge_refs,
+            idea.prior_adaptation_rationale,
             idea.directive_rationale,
             idea.evaluation_method,
             idea.resource_request,

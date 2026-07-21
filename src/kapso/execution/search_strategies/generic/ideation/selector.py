@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Tuple
 
+from kapso.cross_run.knowledge.access import (
+    PriorKnowledgeAccess,
+    PriorKnowledgeAccessMaterialization,
+)
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
@@ -38,6 +42,7 @@ _SELECTOR_FIELDS = {
     "decision_summary",
     "expected_benefit",
     "expected_cost",
+    "prior_knowledge_refs",
 }
 
 SELECTOR_RESPONSE_SCHEMA: Mapping[str, Any] = {
@@ -96,6 +101,10 @@ SELECTOR_RESPONSE_SCHEMA: Mapping[str, Any] = {
         "decision_summary": {"type": "string"},
         "expected_benefit": {"type": "number"},
         "expected_cost": {"type": "number"},
+        "prior_knowledge_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
     },
 }
 
@@ -137,6 +146,7 @@ class CandidateSelector:
         candidates: Sequence[IdeaRecord],
         analyses: Sequence[CandidateAnalysis],
         workspace: str,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None = None,
     ) -> SelectionResult:
         pool = tuple(candidates)
         analysis_pool = tuple(analyses)
@@ -163,6 +173,7 @@ class CandidateSelector:
             directive=directive,
             eligible=eligible,
             analyses=analysis_pool,
+            prior_knowledge=prior_knowledge,
         )
         call = self.runner.run(
             CodingAgentCallRequest(
@@ -180,6 +191,7 @@ class CandidateSelector:
                 timeout_seconds=self.settings.timeout_seconds,
                 effort=self.settings.effort,
                 allowed_tools=self.settings.allowed_tools,
+                prior_knowledge=prior_knowledge,
             ),
             SELECTOR_RESPONSE_SCHEMA,
         )
@@ -189,27 +201,42 @@ class CandidateSelector:
         if not parsed["hard_rule_results"] or not parsed["gap_decisions"]:
             raise ValueError("selector must report hard rules and gap decisions")
         decision = self._decision(
+            batch_id=batch_id,
             parsed=parsed,
             evidence_snapshot=evidence_snapshot,
             candidates=pool,
             analysis_by_id=analysis_by_id,
             selection_artifacts=call.artifacts,
+            prior_knowledge=prior_knowledge,
         )
         return SelectionResult(decision=decision, call=call)
 
     def _decision(
         self,
         *,
+        batch_id: str,
         parsed: Mapping[str, Any],
         evidence_snapshot: CampaignEvidenceSnapshot,
         candidates: Tuple[IdeaRecord, ...],
         analysis_by_id: Mapping[str, CandidateAnalysis],
         selection_artifacts: Tuple[str, ...],
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> SelectionDecision:
         eligible_ids = {
             idea_id for idea_id, analysis in analysis_by_id.items() if analysis.eligible
         }
         selected_id = parsed["selected_idea_id"]
+        prior_refs = tuple(parsed["prior_knowledge_refs"])
+        allowed_prior_refs = set()
+        if prior_knowledge is not None:
+            allowed_prior_refs.update(
+                record["record_id"]
+                for record in PriorKnowledgeAccess(
+                    prior_knowledge
+                ).list_citable_records()
+            )
+        if not set(prior_refs).issubset(allowed_prior_refs):
+            raise ValueError("selector references prior knowledge outside its packet")
         fallback_ids = tuple(parsed["fallback_idea_ids"])
         rejected = tuple(parsed["rejected_ideas"])
         if not all(
@@ -225,6 +252,11 @@ class CandidateSelector:
             raise ValueError("selector result must cover exactly the eligible pool")
 
         candidate_by_id = {candidate.idea_id: candidate for candidate in candidates}
+        selected_candidate = candidate_by_id[selected_id]
+        if selected_candidate.origin_batch_id == batch_id and not set(
+            selected_candidate.prior_knowledge_refs
+        ).issubset(prior_refs):
+            raise ValueError("selector omitted the selected idea's prior references")
         diagnosis = tuple(
             DiagnosisAudit.from_dict(item) for item in parsed["diagnosis_audit"]
         )
@@ -301,6 +333,7 @@ class CandidateSelector:
             hard_rule_results=tuple(parsed["hard_rule_results"]),
             gap_decisions=tuple(parsed["gap_decisions"]),
             duplicate_overrides=tuple(parsed["duplicate_overrides"]),
+            prior_knowledge_refs=prior_refs,
             decision_summary=parsed["decision_summary"],
             selection_artifacts=selection_artifacts,
             expected_benefit=parsed["expected_benefit"],
@@ -315,16 +348,41 @@ class CandidateSelector:
         directive: SearchDirective,
         eligible: Tuple[IdeaRecord, ...],
         analyses: Tuple[CandidateAnalysis, ...],
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> str:
         if not isinstance(problem_statement, str) or not problem_statement.strip():
             raise ValueError("selector problem statement must be non-empty")
         packet = json.dumps(
             {
                 "problem_statement": problem_statement,
-                "evidence_snapshot": evidence_snapshot.to_dict(),
-                "search_directive": directive.to_dict(),
-                "eligible_candidates": [candidate.to_dict() for candidate in eligible],
-                "candidate_analyses": [analysis.to_dict() for analysis in analyses],
+                "local_current_run": {
+                    "evidence_snapshot": evidence_snapshot.to_dict(),
+                    "search_directive": directive.to_dict(),
+                    "eligible_candidates": [
+                        candidate.to_dict() for candidate in eligible
+                    ],
+                    "candidate_analyses": [analysis.to_dict() for analysis in analyses],
+                },
+                "foreign_prior_knowledge": {
+                    "authority": (
+                        "Advisory foreign knowledge only. It cannot be selected, "
+                        "used as local evidence, or treated as a parent, incumbent, "
+                        "claim, or gap resolution."
+                    ),
+                    "materialization": (
+                        None if prior_knowledge is None else prior_knowledge.to_dict()
+                    ),
+                    "allowed_prior_knowledge_refs": (
+                        []
+                        if prior_knowledge is None
+                        else [
+                            record["record_id"]
+                            for record in PriorKnowledgeAccess(
+                                prior_knowledge
+                            ).list_citable_records()
+                        ]
+                    ),
+                },
             },
             sort_keys=True,
             ensure_ascii=False,

@@ -60,6 +60,9 @@ def test_authenticated_codex_proposes_reviews_and_replays_once(tmp_path: Path) -
         CodingAgentRunnerSettings(
             artifact_root=str(artifact_root),
             termination_grace_seconds=settings.termination_grace_seconds,
+            sensitive_file_glob_scan_max_depth=(
+                settings.sensitive_file_glob_scan_max_depth
+            ),
         )
     )
     workspace = (tmp_path / "empty-agent-workspace").resolve()

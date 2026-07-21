@@ -431,6 +431,7 @@ def _strict_generic_strategy(tmp_path: Path) -> GenericSearch:
     source.ideation_campaign_id = campaign_id
     source.idea_archive = archive
     source.active_batch_id = BATCH_ID
+    source.ideation_cross_run_runtime = None
     source.node_history = [
         SearchNode(
             node_id=0,
@@ -458,6 +459,7 @@ def test_generic_strategy_state_round_trip(tmp_path: Path) -> None:
     restored.workspace_dir = str(tmp_path)
     restored.ideation_config = {"archive_path": "ideas.json"}
     restored.idea_archive = None
+    restored.ideation_cross_run_runtime = None
     restored.load_state(source.dump_state())
 
     assert restored.node_history[0].branch_name == "generic_exp_0"

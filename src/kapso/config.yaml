@@ -79,6 +79,7 @@ cross_run:
     state_path: ".kapso/cross_run/catalog"
     agent_artifact_path: ".kapso/cross_run/catalog_agent_calls"
     termination_grace_seconds: 5
+    sensitive_file_glob_scan_max_depth: 8
     claim_packet_record_limit: 32
     review_packet_record_limit: 32
     claim_proposer_id: "catalog_claim_proposer"
@@ -191,6 +192,7 @@ ideation_profiles:
     coding_agents:
       artifact_path: ".kapso/ideation/agent_calls"
       termination_grace_seconds: 5
+      sensitive_file_glob_scan_max_depth: 8
       generator:
         members:
           - cli: "codex"

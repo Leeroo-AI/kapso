@@ -13,6 +13,12 @@ from kapso.core.embeddings import (
     cosine_similarity,
     embedding_can_be_reused,
 )
+from kapso.cross_run.contracts import PriorIdea, TransferCompatibility, TransferEpisode
+from kapso.cross_run.knowledge.access import (
+    PriorKnowledgeAccess,
+    PriorKnowledgeAccessMaterialization,
+)
+from kapso.cross_run.record_registry import parse_knowledge_record_payload
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
 )
@@ -29,9 +35,21 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     IdeationCapacityView,
     IdeationMode,
     ParentPlanKind,
+    PriorKnowledgeMatch,
     SearchDirective,
     SimilarityMatch,
 )
+
+
+@dataclass(frozen=True)
+class _PriorNoveltyRecord:
+    record_id: str
+    record_kind: str
+    proposal: str
+    descriptor: IdeaDescriptor | None
+    compatibility: TransferCompatibility
+    outcome: str
+    embedding_text: str
 
 
 def canonical_idea_embedding_text(idea: IdeaRecord) -> str:
@@ -48,10 +66,32 @@ def canonical_idea_embedding_text(idea: IdeaRecord) -> str:
             "evaluation_method": idea.evaluation_method,
             "expected_observations": list(idea.expected_observations),
             "resource_request": idea.resource_request,
+            "prior_knowledge_refs": list(idea.prior_knowledge_refs),
+            "prior_adaptation_rationale": idea.prior_adaptation_rationale,
             "claimed_nearest_idea_id": idea.claimed_nearest_idea_id,
             "claimed_nearest_experiment_node_id": (
                 idea.claimed_nearest_experiment_node_id
             ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
+def _canonical_prior_embedding_text(
+    record_kind: str,
+    record: PriorIdea | TransferEpisode,
+) -> str:
+    descriptor = dict(record.descriptor) if isinstance(record, PriorIdea) else None
+    assumptions = record.assumptions if isinstance(record, PriorIdea) else ()
+    return json.dumps(
+        {
+            "record_kind": record_kind,
+            "proposal": record.proposal,
+            "descriptor": descriptor,
+            "assumptions": list(assumptions),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -141,6 +181,7 @@ class CandidateAnalyzer:
         evidence_snapshot: CampaignEvidenceSnapshot,
         directive: SearchDirective,
         capacity: IdeationCapacityView,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None = None,
     ) -> AnalysisPoolResult:
         pool = tuple(candidates)
         if not pool:
@@ -153,7 +194,9 @@ class CandidateAnalyzer:
             idea for idea in archive_state.ideas if idea.idea_id not in current_ids
         )
         comparison = self._comparison_pool(pool, archive_state)
-        embeddings, telemetry = self._embeddings(comparison)
+        prior_records = self._prior_novelty_records(prior_knowledge)
+        prior_member_ids = self._prior_member_ids(prior_knowledge)
+        embeddings, telemetry = self._embeddings(comparison, prior_records)
         results = tuple(
             self._analyze_one(
                 batch_id=batch_id,
@@ -164,6 +207,8 @@ class CandidateAnalyzer:
                 evidence_snapshot=evidence_snapshot,
                 directive=directive,
                 capacity=capacity,
+                prior_records=prior_records,
+                prior_member_ids=prior_member_ids,
             )
             for index, candidate in enumerate(pool)
         )
@@ -214,15 +259,67 @@ class CandidateAnalyzer:
                 ordered.append(idea)
         return tuple(ordered)
 
+    @staticmethod
+    def _prior_member_ids(
+        materialization: PriorKnowledgeAccessMaterialization | None,
+    ) -> frozenset[str]:
+        if materialization is None:
+            return frozenset()
+        return frozenset(
+            record["record_id"]
+            for record in PriorKnowledgeAccess(materialization).list_citable_records()
+        )
+
+    @staticmethod
+    def _prior_novelty_records(
+        materialization: PriorKnowledgeAccessMaterialization | None,
+    ) -> Tuple[_PriorNoveltyRecord, ...]:
+        if materialization is None:
+            return ()
+        packet = materialization.prior_knowledge_snapshot
+        novelty_records = []
+        for envelope in packet.selected_records:
+            record_kind = envelope["record_kind"]
+            if record_kind not in {"prior-idea", "transfer-episode"}:
+                continue
+            parsed = parse_knowledge_record_payload(
+                record_kind,
+                envelope["payload"],
+            )
+            if not isinstance(parsed, (PriorIdea, TransferEpisode)):
+                raise ValueError("prior novelty record parsed to an invalid type")
+            metadata = packet.selection_metadata[envelope["record_id"]]
+            descriptor = (
+                IdeaDescriptor.from_dict(dict(parsed.descriptor))
+                if isinstance(parsed, PriorIdea)
+                else None
+            )
+            novelty_records.append(
+                _PriorNoveltyRecord(
+                    record_id=envelope["record_id"],
+                    record_kind=record_kind,
+                    proposal=parsed.proposal,
+                    descriptor=descriptor,
+                    compatibility=TransferCompatibility(metadata["compatibility"]),
+                    outcome=metadata["outcome"],
+                    embedding_text=_canonical_prior_embedding_text(
+                        record_kind,
+                        parsed,
+                    ),
+                )
+            )
+        return tuple(sorted(novelty_records, key=lambda record: record.record_id))
+
     def _embeddings(
         self,
         ideas: Tuple[IdeaRecord, ...],
+        prior_records: Tuple[_PriorNoveltyRecord, ...],
     ) -> Tuple[Mapping[str, EmbeddingRecord], EmbeddingTelemetry | None]:
         if self.embedding_provider is None:
             return {}, None
         settings = self.embedding_provider.settings
         records = {}
-        missing_ideas = []
+        missing_ids = []
         missing_texts = []
         for idea in ideas:
             text = canonical_idea_embedding_text(idea)
@@ -233,15 +330,18 @@ class CandidateAnalyzer:
             ):
                 records[idea.idea_id] = idea.embedding
             else:
-                missing_ideas.append(idea)
+                missing_ids.append(idea.idea_id)
                 missing_texts.append(text)
+        for prior_record in prior_records:
+            missing_ids.append(prior_record.record_id)
+            missing_texts.append(prior_record.embedding_text)
         if not missing_texts:
             return records, None
         batch = self.embedding_provider.embed(missing_texts)
-        if len(batch.records) != len(missing_ideas):
+        if len(batch.records) != len(missing_ids):
             raise ValueError("embedding provider returned an invalid batch size")
         records.update(
-            {idea.idea_id: record for idea, record in zip(missing_ideas, batch.records)}
+            {record_id: record for record_id, record in zip(missing_ids, batch.records)}
         )
         return records, batch.telemetry
 
@@ -256,6 +356,8 @@ class CandidateAnalyzer:
         evidence_snapshot: CampaignEvidenceSnapshot,
         directive: SearchDirective,
         capacity: IdeationCapacityView,
+        prior_records: Tuple[_PriorNoveltyRecord, ...],
+        prior_member_ids: frozenset[str],
     ) -> AnalyzedCandidate:
         failures = []
         unsupported = []
@@ -291,6 +393,8 @@ class CandidateAnalyzer:
                 for path in candidate.generation_artifacts
             ):
                 failures.append("generation_artifacts_invalid")
+            if not set(candidate.prior_knowledge_refs).issubset(prior_member_ids):
+                failures.append("prior_knowledge_reference_unknown")
         self._validate_parent(
             candidate,
             evidence_snapshot,
@@ -358,6 +462,24 @@ class CandidateAnalyzer:
         flags.extend(
             f"semantic_neighbor:{match.idea_id}" for match in semantic_neighbors
         )
+        prior_matches = self._prior_knowledge_matches(
+            candidate,
+            prior_records,
+            embeddings,
+        )
+        for match in prior_matches:
+            if match.exact_match:
+                flags.append(f"prior_exact_match:{match.record_id}")
+            if match.descriptor_match:
+                flags.append(f"prior_descriptor_match:{match.record_id}")
+            if match.semantic_similarity is not None:
+                flags.append(f"prior_semantic_neighbor:{match.record_id}")
+            if (
+                candidate.origin_batch_id == batch_id
+                and match.exact_match
+                and match.record_id not in candidate.prior_knowledge_refs
+            ):
+                flags.append(f"prior_adaptation_missing:{match.record_id}")
         if (
             candidate.claimed_nearest_idea_id is not None
             and semantic_neighbors
@@ -383,6 +505,7 @@ class CandidateAnalyzer:
             ),
             exact_duplicate_changed_conditions=changed_conditions,
             semantic_neighbors=semantic_neighbors,
+            prior_knowledge_matches=prior_matches,
         )
         return AnalyzedCandidate(
             analysis=analysis,
@@ -478,6 +601,64 @@ class CandidateAnalyzer:
         if set(candidate.evidence_refs) - set(duplicate.evidence_refs):
             conditions.append("new_evidence_available")
         return tuple(conditions)
+
+    def _prior_knowledge_matches(
+        self,
+        candidate: IdeaRecord,
+        prior_records: Tuple[_PriorNoveltyRecord, ...],
+        embeddings: Mapping[str, EmbeddingRecord],
+    ) -> Tuple[PriorKnowledgeMatch, ...]:
+        candidate_embedding = embeddings.get(candidate.idea_id)
+        matches = []
+        for prior_record in prior_records:
+            exact_match = candidate.proposal == prior_record.proposal and (
+                prior_record.descriptor is None
+                or candidate.descriptor == prior_record.descriptor
+            )
+            descriptor_match = (
+                prior_record.descriptor is not None
+                and candidate.descriptor == prior_record.descriptor
+            )
+            semantic_similarity = None
+            prior_embedding = embeddings.get(prior_record.record_id)
+            if candidate_embedding is not None and prior_embedding is not None:
+                similarity = cosine_similarity(candidate_embedding, prior_embedding)
+                if similarity >= self.settings.semantic_similarity_threshold:
+                    semantic_similarity = similarity
+            if exact_match or descriptor_match or semantic_similarity is not None:
+                matches.append(
+                    PriorKnowledgeMatch(
+                        record_id=prior_record.record_id,
+                        record_kind=prior_record.record_kind,
+                        compatibility=prior_record.compatibility,
+                        outcome=prior_record.outcome,
+                        exact_match=exact_match,
+                        descriptor_match=descriptor_match,
+                        semantic_similarity=semantic_similarity,
+                    )
+                )
+        semantic_only = tuple(
+            sorted(
+                (
+                    match
+                    for match in matches
+                    if not match.exact_match and not match.descriptor_match
+                ),
+                key=lambda match: (
+                    -(
+                        match.semantic_similarity
+                        if match.semantic_similarity is not None
+                        else -1.0
+                    ),
+                    match.record_id,
+                ),
+            )[: self.settings.max_neighbors]
+        )
+        structural = tuple(
+            match for match in matches if match.exact_match or match.descriptor_match
+        )
+        retained = {match.record_id: match for match in (*structural, *semantic_only)}
+        return tuple(retained[record_id] for record_id in sorted(retained))
 
     def _semantic_neighbors(
         self,

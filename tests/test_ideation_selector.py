@@ -22,6 +22,10 @@ from kapso.execution.search_strategies.generic.ideation.types import (
 )
 from test_ideation_analyzer import candidate, context
 from test_ideation_domain import BATCH_ID, CLAIM_ID, NOW
+from test_prior_knowledge_gate import (
+    access_materialization,
+    citable_access_materialization,
+)
 
 
 class FakeRunner:
@@ -68,6 +72,7 @@ def output(selected_id, fallback_ids=(), rejected=(), audit=(), overrides=()):
         "decision_summary": "Best evidence-adjusted expected value.",
         "expected_benefit": 0.1,
         "expected_cost": 1.0,
+        "prior_knowledge_refs": [],
     }
 
 
@@ -119,18 +124,21 @@ def test_selector_sees_only_eligible_candidate_content_and_covers_every_idea(
     )
     request, schema = fake.requests[0]
     packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
-    assert [item["idea_id"] for item in packet["eligible_candidates"]] == [
+    local_context = packet["local_current_run"]
+    assert [item["idea_id"] for item in local_context["eligible_candidates"]] == [
         first.idea_id,
         second.idea_id,
     ]
     assert invalid.idea_id not in {
-        item["idea_id"] for item in packet["eligible_candidates"]
+        item["idea_id"] for item in local_context["eligible_candidates"]
     }
-    assert {item["idea_id"] for item in packet["candidate_analyses"]} == {
+    assert {item["idea_id"] for item in local_context["candidate_analyses"]} == {
         first.idea_id,
         second.idea_id,
         invalid.idea_id,
     }
+    assert packet["foreign_prior_knowledge"]["materialization"] is None
+    assert packet["foreign_prior_knowledge"]["allowed_prior_knowledge_refs"] == []
     assert request.cli == "claude_code"
     assert "`gap_decisions` entry" in request.prompt
     assert schema["additionalProperties"] is False
@@ -184,6 +192,91 @@ def test_selector_failure_propagates_without_a_fallback_winner(tmp_path):
             candidates=(first,),
             analyses=(CandidateAnalysis(idea_id=first.idea_id, eligible=True),),
             workspace=str(tmp_path),
+        )
+
+
+def test_selector_preserves_selected_idea_prior_provenance(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    materialization = citable_access_materialization()
+    selected_record_id = materialization.prior_knowledge_snapshot.selected_record_ids[0]
+    first = replace(
+        candidate(tmp_path, snapshot, search_directive),
+        prior_knowledge_refs=(selected_record_id,),
+        prior_adaptation_rationale="Adapt the foreign mechanism locally.",
+    )
+    selector_output = output(first.idea_id)
+    selector_output["prior_knowledge_refs"] = [selected_record_id]
+    fake = FakeRunner(selector_output)
+    selector = CandidateSelector(fake, settings())
+
+    result = selector.select(
+        batch_id=BATCH_ID,
+        problem_statement="problem",
+        evidence_snapshot=snapshot,
+        directive=search_directive,
+        candidates=(first,),
+        analyses=(CandidateAnalysis(idea_id=first.idea_id, eligible=True),),
+        workspace=str(tmp_path),
+        prior_knowledge=materialization,
+    )
+
+    assert result.decision.prior_knowledge_refs == (selected_record_id,)
+    request, _ = fake.requests[0]
+    assert request.prior_knowledge == materialization
+    packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
+    assert packet["foreign_prior_knowledge"]["materialization"] == (
+        materialization.to_dict()
+    )
+
+
+def test_selector_does_not_rebind_resurfaced_idea_origin_prior_refs(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    origin_materialization = citable_access_materialization()
+    origin_record_id = (
+        origin_materialization.prior_knowledge_snapshot.selected_record_ids[0]
+    )
+    resurfaced = replace(
+        candidate(tmp_path, snapshot, search_directive),
+        origin_batch_id=new_identifier("batch"),
+        prior_knowledge_refs=(origin_record_id,),
+        prior_adaptation_rationale="Original batch adaptation rationale.",
+    )
+    selector = CandidateSelector(FakeRunner(output(resurfaced.idea_id)), settings())
+
+    result = selector.select(
+        batch_id=BATCH_ID,
+        problem_statement="problem",
+        evidence_snapshot=snapshot,
+        directive=search_directive,
+        candidates=(resurfaced,),
+        analyses=(CandidateAnalysis(idea_id=resurfaced.idea_id, eligible=True),),
+        workspace=str(tmp_path),
+        prior_knowledge=None,
+    )
+
+    assert result.decision.prior_knowledge_refs == ()
+    assert resurfaced.prior_knowledge_refs == (origin_record_id,)
+
+
+def test_selector_rejects_control_record_as_scientific_provenance(tmp_path):
+    archive, snapshot, search_directive = context(tmp_path)
+    materialization = access_materialization()
+    control_record_id = materialization.prior_knowledge_snapshot.selected_record_ids[0]
+    first = candidate(tmp_path, snapshot, search_directive)
+    selector_output = output(first.idea_id)
+    selector_output["prior_knowledge_refs"] = [control_record_id]
+    selector = CandidateSelector(FakeRunner(selector_output), settings())
+
+    with pytest.raises(ValueError, match="outside its packet"):
+        selector.select(
+            batch_id=BATCH_ID,
+            problem_statement="problem",
+            evidence_snapshot=snapshot,
+            directive=search_directive,
+            candidates=(first,),
+            analyses=(CandidateAnalysis(idea_id=first.idea_id, eligible=True),),
+            workspace=str(tmp_path),
+            prior_knowledge=materialization,
         )
 
 

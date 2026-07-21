@@ -2,11 +2,16 @@
 
 import hashlib
 import json
+import math
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Tuple
 
+from kapso.cross_run.knowledge.access import (
+    PriorKnowledgeAccess,
+    PriorKnowledgeAccessMaterialization,
+)
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
@@ -46,6 +51,8 @@ _CANDIDATE_FIELDS = {
     "confidence",
     "claimed_nearest_idea_id",
     "claimed_nearest_experiment_node_id",
+    "prior_knowledge_refs",
+    "prior_adaptation_rationale",
 }
 
 CANDIDATE_RESPONSE_SCHEMA: Mapping[str, Any] = {
@@ -100,6 +107,11 @@ CANDIDATE_RESPONSE_SCHEMA: Mapping[str, Any] = {
         "claimed_nearest_experiment_node_id": {
             "type": ["integer", "null"],
         },
+        "prior_knowledge_refs": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "prior_adaptation_rationale": {"type": ["string", "null"]},
     },
 }
 
@@ -113,17 +125,29 @@ class GenerationMemberSettings:
     allowed_tools: Tuple[str, ...]
 
     def __post_init__(self) -> None:
-        CodingAgentCallRequest(
-            operation_id="agent_call_" + "0" * 32,
-            role="settings_validation",
-            cli=self.cli,
-            model=self.model,
-            prompt="settings validation",
-            workspace="settings validation",
-            timeout_seconds=self.timeout_seconds,
-            effort=self.effort,
-            allowed_tools=self.allowed_tools,
-        )
+        if self.cli not in {"codex", "claude_code"}:
+            raise ValueError("generation member CLI must be codex or claude_code")
+        if not isinstance(self.model, str) or not self.model.strip():
+            raise ValueError("generation member model must be non-empty")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(float(self.timeout_seconds))
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("generation member timeout must be positive")
+        if self.effort is not None and (
+            not isinstance(self.effort, str) or not self.effort.strip()
+        ):
+            raise ValueError("generation member effort must be null or non-empty")
+        if not isinstance(self.allowed_tools, (list, tuple)):
+            raise ValueError("generation member tools must be an array")
+        tools = tuple(self.allowed_tools)
+        if any(not isinstance(tool, str) or not tool.strip() for tool in tools):
+            raise ValueError("generation member tools must be non-empty strings")
+        if len(tools) != len(set(tools)):
+            raise ValueError("generation member tools must be unique")
+        object.__setattr__(self, "allowed_tools", tools)
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "GenerationMemberSettings":
@@ -212,6 +236,7 @@ class CandidateGenerator:
         archive_state: IdeaArchiveState,
         resolved_parents: Sequence[ResolvedParentSnapshot],
         workspaces: Sequence[str],
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None = None,
     ) -> Tuple[GeneratedCandidate, ...]:
         briefs = directive.operator_briefs
         parents = tuple(resolved_parents)
@@ -239,6 +264,7 @@ class CandidateGenerator:
                     operator_brief=brief,
                     resolved_parent=parents[index],
                     repair_request=None,
+                    prior_knowledge=prior_knowledge,
                 ),
                 member_workspaces[index],
             )
@@ -257,6 +283,7 @@ class CandidateGenerator:
                     parent,
                     prompt,
                     workspace,
+                    prior_knowledge,
                 )
                 for index, member, brief, parent, prompt, workspace in tasks
             )
@@ -274,6 +301,7 @@ class CandidateGenerator:
         resolved_parent: ResolvedParentSnapshot,
         repair_request: Mapping[str, Any],
         workspace: str,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None = None,
     ) -> GeneratedCandidate:
         if directive.repair_quota != 1:
             raise ValueError("search directive does not authorize a repair call")
@@ -287,6 +315,7 @@ class CandidateGenerator:
             operator_brief=operator_brief,
             resolved_parent=resolved_parent,
             repair_request=repair_request,
+            prior_knowledge=prior_knowledge,
         )
         return self._invoke(
             batch_id,
@@ -296,6 +325,7 @@ class CandidateGenerator:
             resolved_parent,
             prompt,
             workspace,
+            prior_knowledge,
         )
 
     def _invoke(
@@ -307,6 +337,7 @@ class CandidateGenerator:
         resolved_parent: ResolvedParentSnapshot,
         prompt: str,
         workspace: str,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> GeneratedCandidate:
         call = self.runner.run(
             CodingAgentCallRequest(
@@ -322,6 +353,7 @@ class CandidateGenerator:
                 timeout_seconds=settings.timeout_seconds,
                 effort=settings.effort,
                 allowed_tools=settings.allowed_tools,
+                prior_knowledge=prior_knowledge,
             ),
             CANDIDATE_RESPONSE_SCHEMA,
         )
@@ -329,6 +361,17 @@ class CandidateGenerator:
         if not isinstance(parsed, dict) or set(parsed) != _CANDIDATE_FIELDS:
             raise ValueError("coding-agent candidate fields are invalid")
         descriptor = IdeaDescriptor.from_dict(parsed["descriptor"])
+        prior_refs = tuple(parsed["prior_knowledge_refs"])
+        allowed_prior_refs = set()
+        if prior_knowledge is not None:
+            allowed_prior_refs.update(
+                record["record_id"]
+                for record in PriorKnowledgeAccess(
+                    prior_knowledge
+                ).list_citable_records()
+            )
+        if not set(prior_refs).issubset(allowed_prior_refs):
+            raise ValueError("candidate references prior knowledge outside its packet")
         source_nodes = list(brief.parent_plan.source_experiment_node_ids)
         if brief.parent_plan.experiment_node_id is not None:
             source_nodes.append(brief.parent_plan.experiment_node_id)
@@ -351,6 +394,8 @@ class CandidateGenerator:
             evaluation_method=parsed["evaluation_method"],
             resource_request=parsed["resource_request"],
             created_at=utc_now(),
+            prior_knowledge_refs=prior_refs,
+            prior_adaptation_rationale=parsed["prior_adaptation_rationale"],
             parent_idea_ids=brief.parent_plan.source_idea_ids,
             parent_experiment_node_ids=parent_nodes,
             target_gap_ids=target_gaps,
@@ -380,24 +425,48 @@ class CandidateGenerator:
         operator_brief: OperatorBrief,
         resolved_parent: ResolvedParentSnapshot,
         repair_request: Mapping[str, Any] | None,
+        prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> str:
         if not isinstance(problem_statement, str) or not problem_statement.strip():
             raise ValueError("candidate problem statement must be non-empty")
+        local_current_run = {
+            "evidence_snapshot": evidence_snapshot.to_dict(),
+            "allowed_evidence_refs": sorted(evidence_reference_ids(evidence_snapshot)),
+            "current_run_ideas": [idea.to_dict() for idea in archive_state.ideas],
+            "archive_claims": [claim.to_dict() for claim in archive_state.claims],
+            "archive_gaps": [gap.to_dict() for gap in archive_state.gaps],
+        }
+        foreign_prior_knowledge = {
+            "authority": (
+                "Advisory foreign knowledge only: never use these records as local "
+                "parents, evidence, claims, incumbents, or gap resolutions. Cite "
+                "them only through prior_knowledge_refs; exact reuse requires an "
+                "adaptation or deliberate local-replication rationale."
+            ),
+            "materialization": (
+                None if prior_knowledge is None else prior_knowledge.to_dict()
+            ),
+            "allowed_prior_knowledge_refs": (
+                []
+                if prior_knowledge is None
+                else [
+                    record["record_id"]
+                    for record in PriorKnowledgeAccess(
+                        prior_knowledge
+                    ).list_citable_records()
+                ]
+            ),
+        }
         packet = json.dumps(
             {
                 "batch_id": batch_id,
                 "role": role,
                 "problem_statement": problem_statement,
-                "evidence_snapshot": evidence_snapshot.to_dict(),
-                "allowed_evidence_refs": sorted(
-                    evidence_reference_ids(evidence_snapshot)
-                ),
                 "search_directive": directive.to_dict(),
                 "operator_brief": operator_brief.to_dict(),
                 "resolved_parent": resolved_parent.to_dict(),
-                "prior_ideas": [idea.to_dict() for idea in archive_state.ideas],
-                "archive_claims": [claim.to_dict() for claim in archive_state.claims],
-                "archive_gaps": [gap.to_dict() for gap in archive_state.gaps],
+                "local_current_run": local_current_run,
+                "foreign_prior_knowledge": foreign_prior_knowledge,
                 "repair_request": repair_request,
             },
             sort_keys=True,

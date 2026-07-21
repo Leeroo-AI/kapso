@@ -4,8 +4,11 @@ import logging
 import subprocess
 import sys
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
+from mcp import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import (
@@ -17,6 +20,7 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import (
     ContractValidationError,
     MissingReferenceError,
+    PriorIdea,
     PriorKnowledgeSnapshot,
 )
 from kapso.cross_run.record_contracts import CatalogRevocation
@@ -30,6 +34,7 @@ from kapso.gated_mcp.gates.base import GateConfig
 from kapso.gated_mcp.gates.prior_knowledge_gate import PriorKnowledgeGate
 from kapso.gated_mcp.presets import get_mcp_config
 from kapso.gated_mcp.server import _resolve_configuration
+from test_cross_run_contracts import build_records
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -117,6 +122,49 @@ def access_materialization():
     )
 
 
+def citable_access_materialization():
+    prior_idea = next(
+        record for record in build_records() if isinstance(record, PriorIdea)
+    )
+    selected = {
+        "record_id": prior_idea.prior_idea_id,
+        "record_kind": "prior-idea",
+        "payload": prior_idea.to_dict(),
+    }
+    selected_records = (selected,)
+    packet = PriorKnowledgeSnapshot.mint(
+        source_snapshot_id=content_id(
+            "knowledge-snapshot",
+            {"fixture": "citable-source-snapshot"},
+        ),
+        query={"problem": "Improve reliability."},
+        retrieval_policy_version="kapso.retrieval.v1",
+        task_context_binding_id=prior_idea.task_context_binding.task_context_binding_id,
+        selected_records=selected_records,
+        selected_record_ids=(prior_idea.prior_idea_id,),
+        proof_reference_ids=(),
+        selection_metadata={
+            prior_idea.prior_idea_id: {
+                "compatibility": "exact_context",
+                "evidence_quality": 1,
+                "lexical_score": 1.0,
+                "outcome": "positive",
+                "proof_reference_ids": (),
+                "rank": 0,
+                "recency": "",
+                "retrieval_utility": 1.0,
+                "semantic_score": 0.0,
+            }
+        },
+        prompt_budget_policy={"maximum_records": 4},
+        records_digest=tree_or_blob_digest(canonical_json_bytes(selected_records)),
+    )
+    return PriorKnowledgeAccessMaterialization.mint(
+        prior_knowledge_snapshot=packet,
+        proof_records=(),
+    )
+
+
 def persist_materialization(tmp_path, materialization=None):
     materialization = materialization or access_materialization()
     return materialization.persist(
@@ -148,11 +196,15 @@ def test_gate_serves_complete_selected_and_proof_records_with_labels_and_audit(
 ):
     materialization = access_materialization()
     path = persist_materialization(tmp_path, materialization)
+    audit_path = (tmp_path / "mcp-audit.jsonl").resolve()
+    operation_id = "agent_call_" + "a" * 32
     gate = PriorKnowledgeGate(
         GateConfig(
             params={
                 "materialization_path": str(path),
                 "maximum_bytes": materialization_byte_budget(),
+                "audit_path": str(audit_path),
+                "operation_id": operation_id,
             }
         )
     )
@@ -165,7 +217,6 @@ def test_gate_serves_complete_selected_and_proof_records_with_labels_and_audit(
         "path" not in tool.inputSchema.get("properties", {})
         for tool in gate.get_tools()
     )
-
     with caplog.at_level(logging.INFO):
         listed = asyncio.run(gate.handle_call("list_prior_knowledge", {}))
         selected_id = materialization.prior_knowledge_snapshot.selected_record_ids[0]
@@ -215,6 +266,103 @@ def test_gate_serves_complete_selected_and_proof_records_with_labels_and_audit(
     assert selected_id in caplog.text
     assert proof_id in caplog.text
     assert "prior_knowledge_mcp_access" in caplog.text
+    audit_events = tuple(
+        json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()
+    )
+    assert tuple(event["tool_name"] for event in audit_events) == (
+        "list_prior_knowledge",
+        "get_prior_knowledge_record",
+        "get_prior_knowledge_record",
+    )
+    assert all(event["operation_id"] == operation_id for event in audit_events)
+    assert all(
+        event["prior_knowledge_snapshot_id"]
+        == materialization.prior_knowledge_snapshot.prior_knowledge_snapshot_id
+        for event in audit_events
+    )
+
+
+def test_real_stdio_mcp_handshake_lists_reads_and_returns_errors(tmp_path):
+    materialization = access_materialization()
+    path = persist_materialization(tmp_path, materialization)
+    audit_path = (tmp_path / "stdio-audit.jsonl").resolve()
+    operation_id = "agent_call_" + "b" * 32
+    project_root = Path(__file__).resolve().parents[1]
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-m",
+            "kapso.gated_mcp.server",
+            "--enabled-gates",
+            "prior_knowledge",
+            "--gate-failure-policy",
+            "error",
+            "--prior-knowledge-path",
+            str(path),
+            "--prior-knowledge-maximum-bytes",
+            str(materialization_byte_budget()),
+            "--prior-knowledge-audit-path",
+            str(audit_path),
+            "--operation-id",
+            operation_id,
+        ],
+        env={"PYTHONPATH": str(project_root / "src")},
+    )
+
+    async def exercise_server():
+        async with stdio_client(parameters) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                listed_tools = await session.list_tools()
+                listed = await session.call_tool("list_prior_knowledge", {})
+                selected_id = (
+                    materialization.prior_knowledge_snapshot.selected_record_ids[0]
+                )
+                selected = await session.call_tool(
+                    "get_prior_knowledge_record",
+                    {"record_id": selected_id},
+                )
+                denied = await session.call_tool(
+                    "get_prior_knowledge_record",
+                    {"record_id": fixture_id("outside-packet")},
+                )
+                return listed_tools, listed, selected, denied
+
+    listed_tools, listed, selected, denied = asyncio.run(exercise_server())
+
+    assert [tool.name for tool in listed_tools.tools] == [
+        "list_prior_knowledge",
+        "get_prior_knowledge_record",
+    ]
+    assert listed.isError is False
+    assert selected.isError is False
+    assert denied.isError is True
+    assert "not a member" in denied.content[0].text
+    audit_events = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(audit_events) == 2
+
+
+@pytest.mark.parametrize(
+    "operation_id",
+    (
+        "agent_call_",
+        "agent_call_" + "a" * 31,
+        "agent_call_" + "A" * 32,
+        "agent_call_" + "a" * 33,
+    ),
+)
+def test_gate_rejects_noncanonical_operation_identity(tmp_path, operation_id):
+    with pytest.raises(ValueError, match="operation id is invalid"):
+        PriorKnowledgeGate(
+            GateConfig(
+                params={
+                    "materialization_path": str(persist_materialization(tmp_path)),
+                    "maximum_bytes": materialization_byte_budget(),
+                    "audit_path": str((tmp_path / "audit.jsonl").resolve()),
+                    "operation_id": operation_id,
+                }
+            )
+        )
 
 
 def test_access_rejects_tampered_packet_digest_and_record_identity(tmp_path):

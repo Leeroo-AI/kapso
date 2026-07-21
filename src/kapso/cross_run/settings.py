@@ -499,6 +499,7 @@ class CatalogSettings(StrictContract):
     state_path: str
     agent_artifact_path: str
     termination_grace_seconds: int
+    sensitive_file_glob_scan_max_depth: int
     claim_packet_record_limit: int
     review_packet_record_limit: int
     claim_proposer_id: str
@@ -525,6 +526,10 @@ class CatalogSettings(StrictContract):
         _require_positive(
             self.termination_grace_seconds,
             "catalog.termination_grace_seconds",
+        )
+        _require_positive(
+            self.sensitive_file_glob_scan_max_depth,
+            "catalog.sensitive_file_glob_scan_max_depth",
         )
         _require_positive(
             self.claim_packet_record_limit,

@@ -205,6 +205,21 @@ class CrossRunRetriever:
             {record["record_id"]: record for record in snapshot.record_envelopes}
         )
 
+    @property
+    def semantic_embedding_space_ids(self) -> tuple[str, ...]:
+        """Return the exact semantic spaces published by the pinned index."""
+
+        return tuple(
+            sidecar.embedding_space.embedding_space_id
+            for sidecar in self._index.manifest.vector_sidecars
+        )
+
+    @property
+    def source_snapshot_id(self) -> str:
+        """Return the immutable knowledge snapshot owned by this retriever."""
+
+        return self._snapshot.manifest.snapshot_id
+
     def retrieve(self, query: PriorKnowledgeQuery) -> CrossRunRetrievalResult:
         """Return byte-budgeted roots and their complete recursive proof closure."""
 

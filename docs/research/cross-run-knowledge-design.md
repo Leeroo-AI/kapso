@@ -92,7 +92,7 @@ The existing v3 contracts are correct and remain unchanged:
 | Current authority | Owns | Must not own |
 |---|---|---|
 | `GenericSearch.node_history` | Current campaign's contiguous executable nodes and parentage | Foreign nodes |
-| `IdeaArchive` (`kapso.ideation_archive.v3`) | Current campaign batches, ideas, claims, gaps, decisions, outcomes | Foreign ideas with missing local batches |
+| `IdeaArchive` (`kapso.ideation_archive.v4`) | Current campaign batches, ideas, claims, gaps, decisions, outcomes, frozen prior packets | Foreign ideas with missing local batches |
 | `CampaignEvidenceSnapshot` | Deterministic projection of the current archive and current nodes | Prior-run evidence |
 | `ExperimentHistoryStore` (`kapso.experiment_history.v4`) | Strict executed projection of the current run; contiguous local node IDs | Cross-run records or unexecuted ideas |
 | `RepoMemory` | Understanding of the code in one run's branches | Cross-run scientific truth |
@@ -779,7 +779,7 @@ release tag, and asset digests; it never resolves `latest` after startup.
 | `KnowledgeSnapshotPublisher` | Catalog closure and policy | Immutable snapshot + CAS pointer | Deterministic admission, proof closure, revocation, sidecar indexing, attestation, and atomic publication |
 | `GitHubArtifactResolver` | Resolved scope repositories, current pointer or artifact ID, trust roots | Verified local materialization | Resolve mutable heads only before launch or resolve a write-once artifact identity; verify the complete intent, exact Git source, immutable release/package, and attestation; cache by content identity |
 | `CrossRunRetriever` | Pinned snapshot and current query | Bounded prior packet | Hard compatibility before similarity; trust/outcome/diversity balance; no current-run mutation |
-| `PriorKnowledgeGate` | Pinned materialized snapshot or persisted prior packet | Read-only MCP results | Give coding-agent CLIs reproducible knowledge access; log exact record IDs and return complete records only |
+| `PriorKnowledgeGate` | Pinned materialized snapshot or persisted prior packet | Read-only MCP results | Give coding-agent CLIs reproducible knowledge access; log exact record IDs, return complete records only, and seal reconstructible response digests |
 | `PriorKnowledgeAdapter` | Prior packet | v3 prompt/analysis input | Keep foreign refs typed and separate from local evidence; persist exact packet in batch provenance |
 | `ExpertRepoArchitect` | Scope contract, current release/map, task-family bindings, evidence | Architecture candidate with repository map | In bootstrap mode create the minimal initial topology; later propose atomic move/split/merge/refactor changes and capability lineage without mutating a stable release |
 | `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
@@ -871,6 +871,10 @@ Add a new immutable `PriorKnowledgeSnapshot` beside, not inside,
   parent idea IDs, and parent node IDs remain local-only.
 - A generated local idea may cite a prior episode, claim, or idea, but it gets a
   new local ID and is reanalyzed under the current problem and parent snapshot.
+- Only `prior-idea`, `transfer-episode`, and `knowledge-claim-revision` records are
+  citable. Sanitation, trust, revocation, operation, and other proof/control
+  records remain readable for verification but cannot become scientific
+  provenance.
 - If implementation needs a prior diff or artifact, expose it through a separate
   read-only `prior_knowledge` gate. Do not broaden the experiment-history gate.
 - `CampaignEvidenceBuilder`, `choose_policy`, local gap closure, incumbent choice,
@@ -903,8 +907,9 @@ run always begins with an empty local executed store even when it has rich prior
 knowledge. That keeps v4's contiguous identity and resume reconciliation honest.
 
 The clean schema change is `kapso.cross_run_knowledge.v1`, `IdeaArchive` v4
-(because `IdeaBatch` persists the prior snapshot), and `GenericSearch` state v4
-(because checkpoint state pins knowledge and release identities). There are no
+(because `IdeaBatch` persists the prior snapshot), and `GenericSearch` state v5
+(v4 already existed before this bridge; v5 pins knowledge and release identities).
+There are no
 migration shims: pre-release v3 checkpoints are unsupported and campaigns restart
 cleanly, matching the repository's no-backward-compatibility rule.
 
@@ -1326,9 +1331,14 @@ access packet is atomically persisted as one canonical write-once file before th
 MCP process starts, and the reader validates its byte bound, digest, and exact
 selected/proof membership before serving. Every selected record carries
 digest-bound compatibility, outcome, rank, and proof metadata so analogical
-evidence cannot be presented as exact-context evidence. M6 seals the gate's
-canonical access events into the consuming coding-agent invocation artifacts. A later
-interactive-search protocol would need an atomic access session whose exact
+evidence cannot be presented as exact-context evidence. M6 pre-creates and
+fsyncs the audit before agent launch, strictly parses canonical unique-key JSONL,
+reconstructs every response digest from the immutable packet, and binds the final
+audit digest and event count into the completed call result. The MCP child has an
+empty environment. The outer CLI receives only its provider credential family
+and runs behind a workspace-scoped filesystem policy that denies `.env`, `/proc`,
+and known credential stores. A later interactive-search protocol would need an
+atomic access session whose exact
 queries and returned records are sealed into the batch before selection.
 
 ### 8.6 Write flows and concurrency

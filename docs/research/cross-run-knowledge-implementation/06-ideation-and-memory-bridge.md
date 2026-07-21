@@ -4,6 +4,9 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M1 and M5.
 
+Status: **implemented and independently approved**. Runtime construction remains
+owned by M9 and sole-path activation/legacy deletion remains owned by M10.
+
 ## Objective
 
 Connect one pinned `KnowledgeSnapshot` to live ideation without merging foreign
@@ -31,10 +34,17 @@ src/kapso/execution/search_strategies/generic/ideation/
   generator.py
   selector.py
   engine.py
-  coding_agents.py
+  prior_knowledge.py
 
 src/kapso/execution/search_strategies/generic/
   strategy.py
+
+src/kapso/execution/coding_agents/
+  structured_call.py
+
+src/kapso/gated_mcp/
+  server.py
+  gates/prior_knowledge_gate.py
 
 src/kapso/execution/search_strategies/generic/prompts/
   ideation_v3_candidate.md
@@ -50,18 +60,18 @@ tests/
 
 ## Persisted shape changes
 
-- [ ] Replace `kapso.ideation_archive.v3` with the one new archive shape containing
+- [x] Replace `kapso.ideation_archive.v3` with the one new archive shape containing
       a source snapshot ID and exact `PriorKnowledgeSnapshot` on each applicable
       `IdeaBatch`.
-- [ ] Add typed `prior_knowledge_refs` to `IdeaRecord`; keep local `evidence_refs`,
+- [x] Add typed `prior_knowledge_refs` to `IdeaRecord`; keep local `evidence_refs`,
       claim IDs, parent idea IDs, and node IDs local-only.
-- [ ] Add launch/scope/snapshot/expert-release identities to the Generic strategy
+- [x] Add launch/scope/snapshot/expert-release identities to the Generic strategy
       state and context hash.
-- [ ] Replace the current Generic checkpoint schema directly; old checkpoints fail
+- [x] Replace the current Generic checkpoint schema directly; old checkpoints fail
       with an explicit restart requirement.
-- [ ] Update every serializer, fixture, prompt artifact, result manifest, and
+- [x] Update every serializer, fixture, prompt artifact, result manifest, and
       reconciliation test in the same changes.
-- [ ] Add no migration, dual reader, missing-field default, or compatibility alias.
+- [x] Add no migration, dual reader, missing-field default, or compatibility alias.
 
 ## Engine transaction ordering
 
@@ -78,42 +88,95 @@ For a new batch:
 8. persist selected local idea before node creation; and
 9. continue the existing implementation/evaluation path.
 
-- [ ] If retrieval fails, the batch is not created and no model call starts.
-- [ ] If the configured snapshot is explicit `EMPTY`, persist an explicit empty
+- [x] If retrieval fails, the batch is not created and no model call starts.
+- [x] If the configured snapshot is explicit `EMPTY`, persist an explicit empty
       prior packet with its real identity/digest.
-- [ ] Resume loads the persisted packet and never searches the snapshot again for
+- [x] Resume loads the persisted packet and never searches the snapshot again for
       that batch.
-- [ ] Context hashes include full packet identity/content, not a clipped rendering.
+- [x] Context hashes include full packet identity/content, not a clipped rendering.
 
 ## Prompt and CLI integration
 
-- [ ] Render local current-run evidence and foreign prior knowledge in separately
+- [x] Render local current-run evidence and foreign prior knowledge in separately
       labelled mandatory sections.
-- [ ] Preserve complete selected records; packet budgeting happened before prompt
+- [x] Preserve complete selected records; packet budgeting happened before prompt
       construction.
-- [ ] State that foreign scores are not local incumbents, foreign failures do not
+- [x] State that foreign scores are not local incumbents, foreign failures do not
       close local gaps, and foreign records cannot be parents.
-- [ ] Mount M5's `PriorKnowledgeGate` into generator and selector Codex/Claude CLI
+- [x] Mount M5's `PriorKnowledgeGate` into generator and selector Codex/Claude CLI
       configurations against the persisted packet.
-- [ ] Expose only packet list/get tools; implementation raw artifacts remain behind
+- [x] Expose only packet list/get tools; implementation raw artifacts remain behind
       a separate future read-only gate.
-- [ ] Persist MCP calls/results with the normal coding-agent invocation artifacts.
-- [ ] Do not pass GitHub or OpenAI credentials to the agent/MCP subprocesses.
+- [x] Persist MCP access audits with the normal coding-agent invocation artifacts;
+      the immutable packet reconstructs every returned record from its logged ID.
+- [x] Pre-create/fsync the MCP audit before launch, require canonical unique-key
+      JSONL, recompute each response digest from the packet, and bind the final
+      audit digest/event count into the completed coding-agent result.
+- [x] Give each outer CLI only its own credential family; the MCP child receives
+      an empty environment. Do not pass GitHub or embedding credentials.
+- [x] Run Codex with a custom workspace/minimal filesystem profile and Claude
+      with fail-closed sandboxing plus explicit Read denies for `.env`, `/proc`,
+      and credential stores.
+
+Claude runs in `--safe-mode` with empty settings sources, not `--bare`: bare mode
+rejects the externally supplied Claude Code OAuth token. Production activation is
+still gated on M10's authenticated policy-recognition and denied-read probes,
+because Claude print mode silently ignores settings that fail its own validation.
 
 ## Analysis and selection semantics
 
-- [ ] Compute exact/descriptor/embedding neighbors against both local ideas and
+- [x] Compute exact/descriptor/embedding neighbors against both local ideas and
       eligible prior records, but label their origins.
-- [ ] Keep hard exact-duplicate rejection local-campaign-only.
-- [ ] A close foreign record may require an explicit adaptation or changed-context
+- [x] Keep hard exact-duplicate rejection local-campaign-only.
+- [x] A close foreign record may require an explicit adaptation or changed-context
       rationale; it cannot make the local idea ineligible by itself.
-- [ ] Cross-run evidence may influence BOOTSTRAP/EXPLORE proposals but cannot move
+- [x] Cross-run evidence may influence BOOTSTRAP/EXPLORE proposals but cannot move
       local policy to EXPLOIT.
-- [ ] EXPLOIT still requires a supported local lever under the current evidence
+- [x] EXPLOIT still requires a supported local lever under the current evidence
       snapshot.
-- [ ] Selector criticism may cite prior records but must create/select one new local
+- [x] Selector criticism may cite prior records but must create/select one new local
       idea with valid local parent/artifact/capacity references.
-- [ ] Generated foreign-reference IDs are validated against the persisted packet.
+- [x] Generated foreign-reference IDs are validated against the persisted packet's
+      citable scientific subset: prior ideas, transfer episodes, and knowledge-claim
+      revisions. Control and proof records remain inspectable but cannot become
+      idea/decision provenance.
+
+## Implemented module responsibilities
+
+| Module | Exact responsibility |
+|---|---|
+| `IdeationCrossRunRuntime` | Bind one verified retriever and optional query embedder to the immutable launch identity and its exact embedding space; build the complete post-directive query |
+| `IdeationEngine` | Retrieve before batch creation, persist the exact access materialization, reuse it on resume, and thread it unchanged through generation, repair, analysis, and selection |
+| `IdeaArchive` v4 | Validate packet membership and keep global prior content IDs separate from all run-local IDs |
+| `CandidateGenerator` | Present separately labelled local and foreign sections; mint only new local ideas and require typed prior citations plus adaptation rationale |
+| `CandidateAnalyzer` | Compute separately typed foreign exact/descriptor/semantic matches; foreign matches produce advisory flags, never local duplicate authority |
+| `CandidateSelector` | Select only eligible local ideas while preserving the selected idea's foreign provenance |
+| `SubprocessCodingAgentCallRunner` | Persist packet/config/audit artifacts, mount exactly two read-only MCP tools, broker a per-CLI credential allowlist, enforce filesystem restrictions, and bind the canonical MCP audit into the result |
+| `PriorKnowledgeGate` | Serve complete packet members only; append and fsync operation-, packet-, tool-, ID-, and reconstructible-response-digest-bound audit events |
+| `GenericSearch` v5 state | Project and reconcile the pinned cross-run identity; include query-embedding cost and duration in phase telemetry |
+
+The batch stores the complete content-addressed
+`PriorKnowledgeAccessMaterialization`, rather than a filesystem pointer. This
+makes archive recovery self-contained, binds proof records into the context hash,
+and avoids a second mutable store. M5's byte budget bounds that duplication.
+When a deferred idea resurfaces in a later batch, its citations remain validated
+against its immutable origin batch. The new selection records only foreign
+records from the new batch's packet; it never rebinds inherited provenance.
+
+```mermaid
+flowchart TD
+    A["Local archive, experiments, capacity"] --> B["CampaignEvidenceSnapshot"]
+    B --> C["Local policy, gaps, directive, parents"]
+    C --> D["Complete PriorKnowledgeQuery"]
+    D --> E["Verified CrossRunRetriever"]
+    E --> F["Proof-closed access materialization"]
+    F --> G["Persist PLANNED IdeaBatch"]
+    G --> H["Generator / repair"]
+    H --> I["Local + foreign-labelled novelty analysis"]
+    I --> J["Local-only selection"]
+    J --> K["New local node and experiment memory"]
+    G -. "resume reuses packet; no query" .-> H
+```
 
 ## Authority separation
 
@@ -150,8 +213,13 @@ analysis, decision, node link, and evaluation.
 - Prove global exact duplicate remains advisory while local exact duplicate remains
   a hard rule.
 - Verify EXPLOIT cannot be anchored by cross-run support alone.
-- Verify Codex and Claude configurations both mount packet-only MCP tools with no
-  provider credentials.
+- Verify Codex and Claude configurations both mount packet-only MCP tools while
+  receiving only their own provider-authentication family, never GitHub,
+  embedding, or unrelated credentials.
+- Verify the real stdio MCP handshake, error response, canonical audit, response
+  reconstruction, duplicate-key rejection, and cached-result audit binding.
+- Verify the real CLI parsers accept the generated Codex/Claude security policy;
+  authenticated tool-use probes remain part of M10 production validation.
 - End-to-end deterministic run: prior failure changes the generated/selected local
   idea while the executed store still begins empty.
 
@@ -164,6 +232,12 @@ analysis, decision, node link, and evaluation.
 - Both supported coding-agent CLIs can inspect full selected prior records through
   MCP.
 - No pre-cross-run archive/checkpoint path remains.
+
+The Claude policy intentionally sets `sandbox.failIfUnavailable`. A host without
+`bubblewrap` and `socat` cannot start Claude ideation; M10 provisions those OS
+dependencies and proves both the allowed packet read and denied secret reads on
+the exact installed CLI build before activation, rather than weakening or merely
+assuming the boundary.
 
 ## Non-goals
 

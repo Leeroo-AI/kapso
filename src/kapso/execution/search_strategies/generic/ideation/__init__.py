@@ -25,6 +25,10 @@ from kapso.execution.search_strategies.generic.ideation.engine import (
     ParentMaterializer,
     ParentResolver,
 )
+from kapso.execution.search_strategies.generic.ideation.prior_knowledge import (
+    IdeationCrossRunRuntime,
+    IdeationPriorKnowledgeResult,
+)
 from kapso.execution.search_strategies.generic.ideation.evaluator_evidence import (
     EVALUATOR_EVIDENCE_KEY,
     EvaluatorEvidenceWriteback,
@@ -62,6 +66,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     IdeaRecord,
     IdeaStatus,
     IdeationCapacityView,
+    IdeationCrossRunIdentity,
     IdeationMode,
     ImplementationStatus,
     ObjectiveDirection,
@@ -76,6 +81,7 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     SearchDirective,
     SelectionDecision,
     SimilarityMatch,
+    PriorKnowledgeMatch,
     content_identifier,
     new_identifier,
     require_batch_transition,
@@ -171,6 +177,8 @@ __all__ = [
     "IdeaRecord",
     "IdeaStatus",
     "IdeationCapacityView",
+    "IdeationCrossRunIdentity",
+    "IdeationCrossRunRuntime",
     "IdeationEngine",
     "IdeationEngineResult",
     "IdeationEngineTelemetry",
@@ -192,6 +200,8 @@ __all__ = [
     "SelectionDecision",
     "SelectionResult",
     "SimilarityMatch",
+    "PriorKnowledgeMatch",
+    "IdeationPriorKnowledgeResult",
     "CANDIDATE_RESPONSE_SCHEMA",
     "SELECTOR_RESPONSE_SCHEMA",
     "DiversityRepairRequest",

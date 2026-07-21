@@ -2,12 +2,14 @@
 
 import json
 import os
+import pwd
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from kapso.core.config import load_config
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
@@ -15,6 +17,16 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentRunnerSettings,
     SubprocessCodingAgentCallRunner,
 )
+from kapso.execution.coding_agents.credential_environment import (
+    coding_agent_credential_environment,
+)
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
+from test_prior_knowledge_gate import access_materialization
+
+SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH = load_config("src/kapso/config.yaml")[
+    "ideation_profiles"
+]["DEFAULT"]["coding_agents"]["sensitive_file_glob_scan_max_depth"]
 
 
 def install_executable(directory: Path, name: str, source: str) -> Path:
@@ -43,7 +55,113 @@ def runner(tmp_path: Path) -> SubprocessCodingAgentCallRunner:
         CodingAgentRunnerSettings(
             artifact_root=str((tmp_path / "artifacts").resolve()),
             termination_grace_seconds=1,
+            sensitive_file_glob_scan_max_depth=(SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH),
         )
+    )
+
+
+@pytest.mark.parametrize(
+    ("workspace", "error"),
+    (("relative/workspace", "absolute"),),
+)
+def test_request_rejects_relative_agent_workspace(workspace, error):
+    with pytest.raises(ValueError, match=error):
+        CodingAgentCallRequest(
+            operation_id="agent_call_" + "1" * 32,
+            role="candidate",
+            cli="codex",
+            model="test-model",
+            prompt="complete prompt",
+            workspace=workspace,
+            timeout_seconds=10,
+        )
+
+
+@pytest.mark.parametrize(
+    "workspace",
+    ("/", pwd.getpwuid(os.getuid()).pw_dir),
+)
+def test_runner_rejects_broad_agent_workspace(tmp_path, workspace):
+    call_request = CodingAgentCallRequest(
+        operation_id="agent_call_" + "1" * 32,
+        role="candidate",
+        cli="codex",
+        model="test-model",
+        prompt="complete prompt",
+        workspace=workspace,
+        timeout_seconds=10,
+    )
+
+    with pytest.raises(ValueError, match="broader than an allowed project"):
+        runner(tmp_path).run(call_request, {"type": "object"})
+
+
+def test_request_rejects_non_normalized_agent_workspace(tmp_path):
+    with pytest.raises(ValueError, match="normalized"):
+        CodingAgentCallRequest(
+            operation_id="agent_call_" + "1" * 32,
+            role="candidate",
+            cli="codex",
+            model="test-model",
+            prompt="complete prompt",
+            workspace=str(tmp_path / "target" / ".." / "target"),
+            timeout_seconds=10,
+        )
+
+
+def test_runner_rejects_symlinked_agent_workspace(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    symlink = tmp_path / "linked-target"
+    symlink.symlink_to(target, target_is_directory=True)
+    call_request = CodingAgentCallRequest(
+        operation_id="agent_call_" + "1" * 32,
+        role="candidate",
+        cli="codex",
+        model="test-model",
+        prompt="complete prompt",
+        workspace=str(symlink),
+        timeout_seconds=10,
+    )
+
+    with pytest.raises(ValueError, match="must not traverse symlinks"):
+        runner(tmp_path).run(call_request, {"type": "object"})
+
+
+def test_credential_broker_exposes_only_the_selected_cli_auth_family(monkeypatch):
+    values = {
+        "ANTHROPIC_API_KEY": "anthropic-secret",
+        "AWS_ACCESS_KEY_ID": "aws-id",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret",
+        "CODEX_HOME": "/tmp/codex-auth",
+        "GH_TOKEN": "github-secret",
+        "OPENAI_API_KEY": "embedding-secret",
+        "PRIVATE_REGISTRY_TOKEN": "registry-secret",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+    codex_environment = coding_agent_credential_environment("codex")
+    claude_environment = coding_agent_credential_environment("claude_code")
+
+    assert codex_environment["CODEX_HOME"] == values["CODEX_HOME"]
+    assert not set(codex_environment).intersection(
+        {
+            "ANTHROPIC_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "GH_TOKEN",
+            "OPENAI_API_KEY",
+            "PRIVATE_REGISTRY_TOKEN",
+        }
+    )
+    assert claude_environment["ANTHROPIC_API_KEY"] == values["ANTHROPIC_API_KEY"]
+    assert claude_environment["AWS_ACCESS_KEY_ID"] == values["AWS_ACCESS_KEY_ID"]
+    assert (
+        claude_environment["AWS_SECRET_ACCESS_KEY"] == values["AWS_SECRET_ACCESS_KEY"]
+    )
+    assert not set(claude_environment).intersection(
+        {"CODEX_HOME", "GH_TOKEN", "OPENAI_API_KEY", "PRIVATE_REGISTRY_TOKEN"}
     )
 
 
@@ -79,11 +197,19 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     ).prompt
     assert request(tmp_path, "codex").prompt not in args
     assert (tmp_path / "codex_env.txt").read_text() == "False"
-    assert args[args.index("--sandbox") + 1] == "read-only"
+    assert "--sandbox" not in args
+    assert "--strict-config" in args
     assert "--ephemeral" in args
     assert "--skip-git-repo-check" in args
     assert "--ignore-user-config" in args
     assert "--search" in args
+    permission_overrides = [
+        args[position + 1] for position, value in enumerate(args) if value == "--config"
+    ]
+    assert 'default_permissions="kapso_ideation_read"' in permission_overrides
+    assert any('"/proc"="deny"' in value for value in permission_overrides)
+    assert any('"~/.config/gh"="deny"' in value for value in permission_overrides)
+    assert any('"**/.env"="deny"' in value for value in permission_overrides)
     assert args[-1] == "-"
     assert json.loads(result.output) == {"proposal": "structured"}
     assert result.input_tokens == 11
@@ -131,6 +257,17 @@ print(json.dumps({
     assert request(tmp_path, "claude_code").prompt not in args
     assert (tmp_path / "claude_env.txt").read_text() == "False"
     assert args[args.index("--permission-mode") + 1] == "plan"
+    assert "--bare" not in args
+    assert "--safe-mode" in args
+    assert args[args.index("--setting-sources") + 1] == ""
+    settings_payload = json.loads(args[args.index("--settings") + 1])
+    assert settings_payload["sandbox"]["enabled"] is True
+    assert settings_payload["sandbox"]["failIfUnavailable"] is True
+    assert settings_payload["sandbox"]["filesystem"]["denyRead"] == ["/"]
+    assert str(tmp_path) in settings_payload["sandbox"]["filesystem"]["allowRead"]
+    assert "Read(//proc/**)" in settings_payload["permissions"]["deny"]
+    assert "Read(~/.config/gh/**)" in settings_payload["permissions"]["deny"]
+    assert args[args.index("--disallowedTools") + 1] == ("Bash,Edit,Write,NotebookEdit")
     assert "--no-session-persistence" in args
     assert args[args.index("--tools") + 1] == "Read,WebSearch"
     assert json.loads(result.output) == {"proposal": "structured"}
@@ -138,6 +275,105 @@ print(json.dumps({
     assert result.output_tokens == 5
     assert result.cost_usd == 0.25
     assert all(Path(path).is_file() for path in result.artifacts)
+
+
+@pytest.mark.parametrize("cli", ("codex", "claude_code"))
+def test_prior_packet_mount_is_explicit_auditable_and_credential_isolated(
+    tmp_path,
+    monkeypatch,
+    cli,
+):
+    executable = "codex" if cli == "codex" else "claude"
+    if cli == "codex":
+        source = """#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import sys
+pathlib.Path("prior_agent_args.json").write_text(json.dumps(sys.argv[1:]))
+pathlib.Path("prior_agent_env.json").write_text(json.dumps(sorted(os.environ)))
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"structured"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":7}}))
+"""
+    else:
+        source = """#!/usr/bin/env python3
+import json
+import os
+import pathlib
+import sys
+pathlib.Path("prior_agent_args.json").write_text(json.dumps(sys.argv[1:]))
+pathlib.Path("prior_agent_env.json").write_text(json.dumps(sorted(os.environ)))
+print(json.dumps({
+  "is_error": False,
+  "structured_output": {"proposal": "structured"},
+  "usage": {"input_tokens": 13, "output_tokens": 5},
+  "total_cost_usd": 0.25
+}))
+"""
+    install_executable(tmp_path, executable, source)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    secret_names = (
+        "OPENAI_API_KEY",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "SSH_AUTH_SOCK",
+        "GIT_ASKPASS",
+        "DATABASE_URL",
+        "PRIVATE_REGISTRY_TOKEN",
+    )
+    for secret_name in secret_names:
+        monkeypatch.setenv(secret_name, "must-not-reach-agent")
+    materialization = access_materialization()
+    call_request = replace(
+        request(tmp_path, cli),
+        prior_knowledge=materialization,
+    )
+
+    result = runner(tmp_path).run(call_request, {"type": "object"})
+
+    artifact_by_name = {Path(path).name: Path(path) for path in result.artifacts}
+    persisted_packet = json.loads(
+        artifact_by_name["prior_knowledge.json"].read_text(encoding="utf-8")
+    )
+    assert persisted_packet == materialization.to_dict()
+    mcp_config = json.loads(
+        artifact_by_name["mcp_config.json"].read_text(encoding="utf-8")
+    )
+    server = mcp_config["mcpServers"]["prior_knowledge"]
+    assert Path(server["command"]).name == "env"
+    assert server["args"][0] == "-i"
+    assert any(argument.startswith("PYTHONPATH=") for argument in server["args"])
+    assert "--enabled-gates" in server["args"]
+    assert server["args"][server["args"].index("--enabled-gates") + 1] == (
+        "prior_knowledge"
+    )
+    assert "--operation-id" in server["args"]
+    assert server["args"][server["args"].index("--operation-id") + 1] == (
+        call_request.operation_id
+    )
+    assert artifact_by_name["mcp_audit.jsonl"].read_text(encoding="utf-8") == ""
+    agent_environment = set(
+        json.loads((tmp_path / "prior_agent_env.json").read_text(encoding="utf-8"))
+    )
+    assert not agent_environment.intersection(secret_names)
+    agent_arguments = json.loads(
+        (tmp_path / "prior_agent_args.json").read_text(encoding="utf-8")
+    )
+    if cli == "codex":
+        assert any(
+            argument.startswith("mcp_servers.prior_knowledge.command=")
+            for argument in agent_arguments
+        )
+    else:
+        assert "--strict-mcp-config" in agent_arguments
+        assert agent_arguments[agent_arguments.index("--mcp-config") + 1] == str(
+            artifact_by_name["mcp_config.json"]
+        )
+        tools = agent_arguments[agent_arguments.index("--tools") + 1].split(",")
+        assert "mcp__prior_knowledge__list_prior_knowledge" in tools
+        assert "mcp__prior_knowledge__get_prior_knowledge_record" in tools
 
 
 def test_completed_operation_is_reused_without_invoking_the_cli_again(
@@ -173,6 +409,156 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
         call_runner.run(changed_model, {"type": "object"})
     assert (tmp_path / "invocations.txt").read_text() == "x"
 
+    changed_security_runner = SubprocessCodingAgentCallRunner(
+        replace(
+            call_runner.settings,
+            sensitive_file_glob_scan_max_depth=(
+                call_runner.settings.sensitive_file_glob_scan_max_depth + 1
+            ),
+        )
+    )
+    with pytest.raises(CodingAgentInvocationError, match="identity was reused"):
+        changed_security_runner.run(
+            request(tmp_path, "codex"),
+            {"type": "object"},
+        )
+
+
+def test_cached_operation_rejects_semantically_corrupt_prior_audit(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"structured"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":7}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    materialization = access_materialization()
+    call_request = replace(
+        request(tmp_path, "codex"),
+        prior_knowledge=materialization,
+    )
+    call_runner = runner(tmp_path)
+    result = call_runner.run(call_request, {"type": "object"})
+    artifacts = {Path(path).name: Path(path) for path in result.artifacts}
+    selected_id = materialization.prior_knowledge_snapshot.selected_record_ids[0]
+    corrupt_event = {
+        "arguments": {},
+        "operation_id": call_request.operation_id,
+        "prior_knowledge_snapshot_id": (
+            materialization.prior_knowledge_snapshot.prior_knowledge_snapshot_id
+        ),
+        "response_digest": "sha256:" + "0" * 64,
+        "returned_ids": [selected_id],
+        "tool_name": "get_prior_knowledge_record",
+    }
+    artifacts["mcp_audit.jsonl"].write_text(
+        json.dumps(corrupt_event, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodingAgentInvocationError, match="get audit arguments"):
+        call_runner.run(call_request, {"type": "object"})
+
+
+def valid_list_audit(call_request):
+    access = PriorKnowledgeAccess(call_request.prior_knowledge)
+    member_ids = sorted(
+        set(access.packet.selected_record_ids) | set(access.packet.proof_reference_ids)
+    )
+    event = {
+        "arguments": {},
+        "operation_id": call_request.operation_id,
+        "prior_knowledge_snapshot_id": access.packet.prior_knowledge_snapshot_id,
+        "response_digest": tree_or_blob_digest(
+            canonical_json_bytes(access.list_response_payload())
+        ),
+        "returned_ids": member_ids,
+        "tool_name": "list_prior_knowledge",
+    }
+    return canonical_json_bytes(event).decode("utf-8") + "\n"
+
+
+def test_mcp_audit_requires_canonical_unique_json_and_reconstructible_response():
+    call_request = replace(
+        request(Path("/tmp"), "codex"),
+        prior_knowledge=access_materialization(),
+    )
+    valid_audit = valid_list_audit(call_request)
+
+    count, digest = SubprocessCodingAgentCallRunner._validate_mcp_audit(
+        call_request,
+        valid_audit,
+    )
+
+    assert count == 1
+    assert digest == tree_or_blob_digest(valid_audit.encode("utf-8"))
+    with pytest.raises(CodingAgentInvocationError, match="incomplete final event"):
+        SubprocessCodingAgentCallRunner._validate_mcp_audit(
+            call_request,
+            valid_audit.rstrip("\n"),
+        )
+    event = json.loads(valid_audit)
+    event["response_digest"] = "sha256:" + "0" * 64
+    with pytest.raises(CodingAgentInvocationError, match="digest is inconsistent"):
+        SubprocessCodingAgentCallRunner._validate_mcp_audit(
+            call_request,
+            canonical_json_bytes(event).decode("utf-8") + "\n",
+        )
+    with pytest.raises(CodingAgentInvocationError, match="not canonical JSON"):
+        SubprocessCodingAgentCallRunner._validate_mcp_audit(
+            call_request,
+            json.dumps(json.loads(valid_audit), sort_keys=True) + "\n",
+        )
+    duplicate_key_audit = valid_audit.replace(
+        '"arguments":{}',
+        '"arguments":{},"arguments":{}',
+    )
+    with pytest.raises(CodingAgentInvocationError, match="duplicate JSON key"):
+        SubprocessCodingAgentCallRunner._validate_mcp_audit(
+            call_request,
+            duplicate_key_audit,
+        )
+
+
+def test_cached_result_is_bound_to_the_exact_audit(tmp_path, monkeypatch):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"structured"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+    call_request = request(tmp_path, "codex")
+    result = call_runner.run(call_request, {"type": "object"})
+    result_path = Path(result.artifacts[0]).parent / "result.json"
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["mcp_audit_event_count"] = 1
+    result_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodingAgentInvocationError, match="conflicts with completed"):
+        call_runner.run(call_request, {"type": "object"})
+
 
 @pytest.mark.parametrize(
     ("name", "source", "expected_exception"),
@@ -204,6 +590,7 @@ def test_failed_empty_and_malformed_agent_results_propagate(
     assert (artifact_directories[0] / "prompt.txt").is_file()
     assert (artifact_directories[0] / "stdout.txt").is_file()
     assert (artifact_directories[0] / "stderr.txt").is_file()
+    assert (artifact_directories[0] / "mcp_audit.jsonl").is_file()
 
 
 def test_runner_rejects_non_absolute_artifact_root():
@@ -211,6 +598,7 @@ def test_runner_rejects_non_absolute_artifact_root():
         CodingAgentRunnerSettings(
             artifact_root="relative/artifacts",
             termination_grace_seconds=1,
+            sensitive_file_glob_scan_max_depth=(SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH),
         )
 
 
@@ -421,6 +809,7 @@ def test_artifact_root_rejects_symlinked_parent_without_creating_target_child(
         CodingAgentRunnerSettings(
             artifact_root=str(linked_root / "agent-calls"),
             termination_grace_seconds=1,
+            sensitive_file_glob_scan_max_depth=(SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH),
         )
     )
 

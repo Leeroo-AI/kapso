@@ -4,29 +4,59 @@ import fcntl
 import json
 import math
 import os
+import pwd
 import re
 import shutil
 import stat
 import subprocess
+import sys
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.knowledge.access import (
+    PriorKnowledgeAccess,
+    PriorKnowledgeAccessMaterialization,
+)
+from kapso.execution.coding_agents.credential_environment import (
+    coding_agent_credential_environment,
+)
+
 _OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _INPUT_FILENAMES = (
     "prompt.txt",
     "response_schema.json",
     "invocation.json",
+    "prior_knowledge.json",
+    "mcp_config.json",
 )
 _OUTPUT_FILENAMES = (
     "stdout.txt",
     "stderr.txt",
     "final.json",
+    "mcp_audit.jsonl",
 )
 _RESULT_FILENAME = "result.json"
 _ARTIFACT_FILENAMES = _INPUT_FILENAMES + _OUTPUT_FILENAMES + (_RESULT_FILENAME,)
+_EMPTY_MCP_AUDIT_DIGEST = tree_or_blob_digest(b"")
+_CREDENTIAL_ENVIRONMENT_POLICY_VERSION = "kapso.coding_agent_credentials.v1"
+_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_read.v1"
+_MCP_AUDIT_POLICY_VERSION = "kapso.mcp_audit.v1"
+_SENSITIVE_HOME_PATHS = (
+    "~/.aws",
+    "~/.azure",
+    "~/.codex",
+    "~/.config/gh",
+    "~/.config/gcloud",
+    "~/.docker",
+    "~/.git-credentials",
+    "~/.kube",
+    "~/.netrc",
+    "~/.ssh",
+)
 
 
 class CodingAgentInvocationError(RuntimeError):
@@ -87,6 +117,41 @@ def _require_unique_strings(values: Any, name: str) -> tuple[str, ...]:
     return strings
 
 
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit contains a duplicate JSON key"
+            )
+        payload[key] = value
+    return payload
+
+
+def _coding_agent_workspace_path(value: str) -> Path:
+    workspace_text = _require_nonempty_string(value, "coding-agent workspace")
+    workspace = Path(workspace_text)
+    if not workspace.is_absolute():
+        raise ValueError("coding-agent workspace must be absolute")
+    if str(workspace) != workspace_text or ".." in workspace.parts:
+        raise ValueError("coding-agent workspace must be normalized")
+    return workspace
+
+
+def _validate_coding_agent_workspace(value: str) -> Path:
+    workspace = _coding_agent_workspace_path(value)
+    if not workspace.is_dir():
+        raise ValueError("coding-agent workspace must be an existing directory")
+    resolved_workspace = workspace.resolve(strict=True)
+    if workspace != resolved_workspace:
+        raise ValueError("coding-agent workspace must not traverse symlinks")
+    user_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+    forbidden_broad_roots = {user_home, *user_home.parents}
+    if resolved_workspace in forbidden_broad_roots:
+        raise ValueError("coding-agent workspace is broader than an allowed project")
+    return workspace
+
+
 @dataclass(frozen=True)
 class CodingAgentCallRequest:
     """Complete immutable input to one structured coding-agent operation."""
@@ -100,6 +165,7 @@ class CodingAgentCallRequest:
     timeout_seconds: float
     effort: str | None = None
     allowed_tools: tuple[str, ...] = ()
+    prior_knowledge: PriorKnowledgeAccessMaterialization | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -114,7 +180,7 @@ class CodingAgentCallRequest:
             raise ValueError("coding-agent cli must be codex or claude_code")
         _require_nonempty_string(self.model, "coding-agent model")
         _require_nonempty_string(self.prompt, "coding-agent prompt")
-        _require_nonempty_string(self.workspace, "coding-agent workspace")
+        _coding_agent_workspace_path(self.workspace)
         timeout = _require_nonnegative_number(
             self.timeout_seconds,
             "coding-agent timeout",
@@ -130,6 +196,11 @@ class CodingAgentCallRequest:
                 "coding-agent allowed tools",
             ),
         )
+        if self.prior_knowledge is not None and not isinstance(
+            self.prior_knowledge,
+            PriorKnowledgeAccessMaterialization,
+        ):
+            raise ValueError("coding-agent prior knowledge is invalid")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -142,6 +213,9 @@ class CodingAgentCallRequest:
             "timeout_seconds": self.timeout_seconds,
             "effort": self.effort,
             "allowed_tools": list(self.allowed_tools),
+            "prior_knowledge": (
+                None if self.prior_knowledge is None else self.prior_knowledge.to_dict()
+            ),
         }
 
     @classmethod
@@ -158,6 +232,7 @@ class CodingAgentCallRequest:
                 "timeout_seconds",
                 "effort",
                 "allowed_tools",
+                "prior_knowledge",
             },
             "coding-agent request",
         )
@@ -171,6 +246,13 @@ class CodingAgentCallRequest:
             timeout_seconds=values["timeout_seconds"],
             effort=values["effort"],
             allowed_tools=values["allowed_tools"],
+            prior_knowledge=(
+                None
+                if values["prior_knowledge"] is None
+                else PriorKnowledgeAccessMaterialization.from_dict(
+                    values["prior_knowledge"]
+                )
+            ),
         )
 
 
@@ -184,6 +266,8 @@ class CodingAgentCallResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     artifacts: tuple[str, ...] = ()
+    mcp_audit_digest: str = _EMPTY_MCP_AUDIT_DIGEST
+    mcp_audit_event_count: int = 0
 
     def __post_init__(self) -> None:
         if not isinstance(self.output, str):
@@ -209,6 +293,20 @@ class CodingAgentCallResult:
             "artifacts",
             _require_unique_strings(self.artifacts, "coding-agent artifacts"),
         )
+        if (
+            not isinstance(self.mcp_audit_digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.mcp_audit_digest) is None
+        ):
+            raise ValueError("coding-agent MCP audit digest is invalid")
+        _require_nonnegative_integer(
+            self.mcp_audit_event_count,
+            "coding-agent MCP audit event count",
+        )
+        if (
+            self.mcp_audit_event_count == 0
+            and self.mcp_audit_digest != _EMPTY_MCP_AUDIT_DIGEST
+        ):
+            raise ValueError("empty coding-agent MCP audit has a non-empty digest")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,6 +316,8 @@ class CodingAgentCallResult:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "artifacts": list(self.artifacts),
+            "mcp_audit_digest": self.mcp_audit_digest,
+            "mcp_audit_event_count": self.mcp_audit_event_count,
         }
 
     @classmethod
@@ -231,6 +331,8 @@ class CodingAgentCallResult:
                 "input_tokens",
                 "output_tokens",
                 "artifacts",
+                "mcp_audit_digest",
+                "mcp_audit_event_count",
             },
             "coding-agent result",
         )
@@ -241,6 +343,8 @@ class CodingAgentCallResult:
             input_tokens=values["input_tokens"],
             output_tokens=values["output_tokens"],
             artifacts=values["artifacts"],
+            mcp_audit_digest=values["mcp_audit_digest"],
+            mcp_audit_event_count=values["mcp_audit_event_count"],
         )
 
 
@@ -257,6 +361,7 @@ class CodingAgentCallRunner(Protocol):
 class CodingAgentRunnerSettings:
     artifact_root: str
     termination_grace_seconds: float
+    sensitive_file_glob_scan_max_depth: int
 
     def __post_init__(self) -> None:
         if not isinstance(self.artifact_root, str) or not self.artifact_root.strip():
@@ -273,6 +378,14 @@ class CodingAgentRunnerSettings:
             or self.termination_grace_seconds <= 0
         ):
             raise ValueError("coding-agent termination grace must be positive")
+        if (
+            isinstance(self.sensitive_file_glob_scan_max_depth, bool)
+            or not isinstance(self.sensitive_file_glob_scan_max_depth, int)
+            or self.sensitive_file_glob_scan_max_depth <= 0
+        ):
+            raise ValueError(
+                "coding-agent sensitive-file glob scan depth must be positive"
+            )
 
 
 class SubprocessCodingAgentCallRunner:
@@ -286,9 +399,7 @@ class SubprocessCodingAgentCallRunner:
         request: CodingAgentCallRequest,
         response_schema: Mapping[str, Any],
     ) -> CodingAgentCallResult:
-        workspace = Path(request.workspace)
-        if not workspace.is_dir():
-            raise ValueError("coding-agent workspace must be an existing directory")
+        workspace = _validate_coding_agent_workspace(request.workspace)
         if shutil.which("timeout") is None:
             raise RuntimeError("GNU timeout is required for coding-agent deadlines")
         executable = "codex" if request.cli == "codex" else "claude"
@@ -316,6 +427,24 @@ class SubprocessCodingAgentCallRunner:
                     "timeout_seconds": request.timeout_seconds,
                     "effort": request.effort,
                     "allowed_tools": list(request.allowed_tools),
+                    "credential_environment_policy_version": (
+                        _CREDENTIAL_ENVIRONMENT_POLICY_VERSION
+                    ),
+                    "filesystem_policy_version": _FILESYSTEM_POLICY_VERSION,
+                    "mcp_audit_policy_version": _MCP_AUDIT_POLICY_VERSION,
+                    "sensitive_file_glob_scan_max_depth": (
+                        self.settings.sensitive_file_glob_scan_max_depth
+                    ),
+                    "prior_knowledge_snapshot_id": (
+                        None
+                        if request.prior_knowledge is None
+                        else request.prior_knowledge.prior_knowledge_snapshot.prior_knowledge_snapshot_id
+                    ),
+                    "prior_knowledge_materialization_digest": (
+                        None
+                        if request.prior_knowledge is None
+                        else request.prior_knowledge.materialization_digest
+                    ),
                 },
                 indent=2,
                 sort_keys=True,
@@ -449,6 +578,11 @@ class SubprocessCodingAgentCallRunner:
             "prompt.txt": request.prompt,
             "response_schema.json": schema_text,
             "invocation.json": invocation_text,
+            "prior_knowledge.json": self._prior_knowledge_text(request),
+            "mcp_config.json": self._mcp_config_text(
+                request,
+                artifact_directory,
+            ),
         }
         for filename, expected_text in expected_inputs.items():
             if filename in entries:
@@ -478,17 +612,31 @@ class SubprocessCodingAgentCallRunner:
             return self._read_cached_result(
                 operation_descriptor,
                 artifact_directory,
+                request,
             )
         for filename in _OUTPUT_FILENAMES:
             if filename in set(os.listdir(operation_descriptor)):
                 self._remove_regular_file(operation_descriptor, filename)
+        self._write_atomic_text(
+            operation_descriptor,
+            "mcp_audit.jsonl",
+            "",
+        )
         schema_path = artifact_directory / "response_schema.json"
         final_path = artifact_directory / "final.json"
-        command = self._command(request, schema_text, schema_path, final_path)
+        mcp_config_path = artifact_directory / "mcp_config.json"
+        command = self._command(
+            request,
+            schema_text,
+            schema_path,
+            final_path,
+            mcp_config_path,
+        )
         started = time.monotonic()
         completed = subprocess.run(
             command,
             cwd=Path(request.workspace),
+            env=coding_agent_credential_environment(request.cli),
             input=request.prompt,
             text=True,
             capture_output=True,
@@ -510,6 +658,10 @@ class SubprocessCodingAgentCallRunner:
                 f"{request.cli} exited with status {completed.returncode}; "
                 f"artifacts: {artifact_directory}"
             )
+        audit_event_count, audit_digest = self._validate_mcp_audit(
+            request,
+            self._read_regular_text(operation_descriptor, "mcp_audit.jsonl"),
+        )
         if request.cli == "codex":
             output, input_tokens, output_tokens = self._parse_codex(
                 completed.stdout,
@@ -533,6 +685,8 @@ class SubprocessCodingAgentCallRunner:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             artifacts=artifacts,
+            mcp_audit_digest=audit_digest,
+            mcp_audit_event_count=audit_event_count,
         )
         self._write_atomic_text(
             operation_descriptor,
@@ -615,12 +769,24 @@ class SubprocessCodingAgentCallRunner:
         self,
         operation_descriptor: int,
         artifact_directory: Path,
+        request: CodingAgentCallRequest,
     ) -> CodingAgentCallResult:
         for filename in _INPUT_FILENAMES + _OUTPUT_FILENAMES + (_RESULT_FILENAME,):
             self._require_regular_file(operation_descriptor, filename)
         result = CodingAgentCallResult.from_dict(
             json.loads(self._read_regular_text(operation_descriptor, _RESULT_FILENAME))
         )
+        audit_event_count, audit_digest = self._validate_mcp_audit(
+            request,
+            self._read_regular_text(operation_descriptor, "mcp_audit.jsonl"),
+        )
+        if (
+            result.mcp_audit_digest != audit_digest
+            or result.mcp_audit_event_count != audit_event_count
+        ):
+            raise CodingAgentInvocationError(
+                "cached coding-agent MCP audit conflicts with completed result"
+            )
         if result.artifacts != self._artifact_paths(artifact_directory):
             raise CodingAgentInvocationError(
                 "cached coding-agent artifact references are invalid"
@@ -634,12 +800,179 @@ class SubprocessCodingAgentCallRunner:
             for filename in _INPUT_FILENAMES + _OUTPUT_FILENAMES
         )
 
+    @staticmethod
+    def _prior_knowledge_text(request: CodingAgentCallRequest) -> str:
+        if request.prior_knowledge is None:
+            return "null\n"
+        return request.prior_knowledge.to_json_bytes().decode("utf-8")
+
+    @staticmethod
+    def _mcp_server_config(
+        request: CodingAgentCallRequest,
+        artifact_directory: Path,
+    ) -> dict[str, Any]:
+        if request.prior_knowledge is None:
+            raise ValueError("prior-knowledge MCP requires a materialization")
+        python_path = Path(__file__).resolve().parents[3]
+        if not (python_path / "kapso" / "gated_mcp").is_dir():
+            raise ValueError("Kapso package root is missing for prior-knowledge MCP")
+        materialization_path = artifact_directory / "prior_knowledge.json"
+        audit_path = artifact_directory / "mcp_audit.jsonl"
+        maximum_bytes = len(request.prior_knowledge.to_json_bytes())
+        environment_executable = shutil.which("env")
+        if environment_executable is None:
+            raise ValueError("env executable is required for MCP isolation")
+        return {
+            "command": environment_executable,
+            "args": [
+                "-i",
+                f"PYTHONPATH={python_path}",
+                str(Path(sys.executable).resolve()),
+                "-m",
+                "kapso.gated_mcp.server",
+                "--enabled-gates",
+                "prior_knowledge",
+                "--gate-failure-policy",
+                "error",
+                "--prior-knowledge-path",
+                str(materialization_path),
+                "--prior-knowledge-maximum-bytes",
+                str(maximum_bytes),
+                "--prior-knowledge-audit-path",
+                str(audit_path),
+                "--operation-id",
+                request.operation_id,
+            ],
+        }
+
+    def _mcp_config_text(
+        self,
+        request: CodingAgentCallRequest,
+        artifact_directory: Path,
+    ) -> str:
+        servers = {}
+        if request.prior_knowledge is not None:
+            servers["prior_knowledge"] = self._mcp_server_config(
+                request,
+                artifact_directory,
+            )
+        return (
+            json.dumps(
+                {"mcpServers": servers},
+                indent=2,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            + "\n"
+        )
+
+    @staticmethod
+    def _validate_mcp_audit(
+        request: CodingAgentCallRequest,
+        audit_text: str,
+    ) -> tuple[int, str]:
+        if not audit_text:
+            return 0, _EMPTY_MCP_AUDIT_DIGEST
+        if request.prior_knowledge is None:
+            raise CodingAgentInvocationError(
+                "coding-agent call without prior knowledge produced an MCP audit"
+            )
+        if not audit_text.endswith("\n"):
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit has an incomplete final event"
+            )
+        lines = audit_text.splitlines()
+        if any(not line.strip() for line in lines):
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit has a blank line"
+            )
+        access = PriorKnowledgeAccess(request.prior_knowledge)
+        packet = access.packet
+        member_ids = set(packet.selected_record_ids) | set(packet.proof_reference_ids)
+        expected_fields = {
+            "arguments",
+            "operation_id",
+            "prior_knowledge_snapshot_id",
+            "response_digest",
+            "returned_ids",
+            "tool_name",
+        }
+        allowed_tools = {
+            "list_prior_knowledge",
+            "get_prior_knowledge_record",
+        }
+        for line in lines:
+            event = json.loads(line, object_pairs_hook=_strict_json_object)
+            if not isinstance(event, dict) or set(event) != expected_fields:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit fields are invalid"
+                )
+            if event["operation_id"] != request.operation_id:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit operation identity changed"
+                )
+            if (
+                event["prior_knowledge_snapshot_id"]
+                != packet.prior_knowledge_snapshot_id
+            ):
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit packet identity changed"
+                )
+            if event["tool_name"] not in allowed_tools:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit names an unknown tool"
+                )
+            arguments = event["arguments"]
+            if not isinstance(arguments, dict):
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit arguments are invalid"
+                )
+            returned_ids = event["returned_ids"]
+            if (
+                not isinstance(returned_ids, list)
+                or len(returned_ids) != len(set(returned_ids))
+                or not set(returned_ids).issubset(member_ids)
+            ):
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit returned IDs are invalid"
+                )
+            if event["tool_name"] == "list_prior_knowledge":
+                if arguments or returned_ids != sorted(member_ids):
+                    raise CodingAgentInvocationError(
+                        "prior-knowledge list audit is inconsistent"
+                    )
+                response_payload = access.list_response_payload()
+            else:
+                if set(arguments) != {"record_id"}:
+                    raise CodingAgentInvocationError(
+                        "prior-knowledge get audit arguments are invalid"
+                    )
+                record_id = arguments["record_id"]
+                if record_id not in member_ids or returned_ids != [record_id]:
+                    raise CodingAgentInvocationError(
+                        "prior-knowledge get audit is inconsistent"
+                    )
+                response_payload = access.record_response_payload(record_id)
+            expected_response_digest = tree_or_blob_digest(
+                canonical_json_bytes(response_payload)
+            )
+            if event["response_digest"] != expected_response_digest:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit response digest is inconsistent"
+                )
+            if canonical_json_bytes(event).decode("utf-8") != line:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge MCP audit event is not canonical JSON"
+                )
+        return len(lines), tree_or_blob_digest(audit_text.encode("utf-8"))
+
     def _command(
         self,
         request: CodingAgentCallRequest,
         schema_text: str,
         schema_path: Path,
         final_path: Path,
+        mcp_config_path: Path,
     ) -> list[str]:
         deadline = f"{request.timeout_seconds}s"
         grace = f"{self.settings.termination_grace_seconds}s"
@@ -648,9 +981,6 @@ class SubprocessCodingAgentCallRunner:
             "--signal=TERM",
             f"--kill-after={grace}",
             deadline,
-            "env",
-            "-u",
-            "OPENAI_API_KEY",
         ]
         if request.cli == "codex":
             command = prefix + ["codex"]
@@ -661,11 +991,12 @@ class SubprocessCodingAgentCallRunner:
                     "--ask-for-approval",
                     "never",
                     "exec",
-                    "--sandbox",
-                    "read-only",
+                    "--strict-config",
                     "--ephemeral",
                     "--skip-git-repo-check",
                     "--ignore-user-config",
+                    "--cd",
+                    request.workspace,
                     "--output-schema",
                     str(schema_path),
                     "--output-last-message",
@@ -677,9 +1008,24 @@ class SubprocessCodingAgentCallRunner:
                     request.model,
                 ]
             )
+            command.extend(self._codex_permission_profile())
             if request.effort is not None:
                 command.extend(
                     ["--config", f'model_reasoning_effort="{request.effort}"']
+                )
+            if request.prior_knowledge is not None:
+                mcp_server = self._mcp_server_config(
+                    request,
+                    mcp_config_path.parent,
+                )
+                command.extend(
+                    [
+                        "--config",
+                        f'mcp_servers.prior_knowledge.command={json.dumps(mcp_server["command"])}',
+                        "--config",
+                        "mcp_servers.prior_knowledge.args="
+                        + json.dumps(mcp_server["args"], separators=(",", ":")),
+                    ]
                 )
             command.append("-")
             return command
@@ -692,6 +1038,12 @@ class SubprocessCodingAgentCallRunner:
         command = prefix + [
             "claude",
             "--print",
+            "--safe-mode",
+            "--setting-sources",
+            "",
+            "--exclude-dynamic-system-prompt-sections",
+            "--settings",
+            self._claude_security_settings(request, mcp_config_path.parent),
             "--permission-mode",
             "plan",
             "--no-session-persistence",
@@ -701,11 +1053,76 @@ class SubprocessCodingAgentCallRunner:
             schema,
             "--model",
             request.model,
+            "--disallowedTools",
+            "Bash,Edit,Write,NotebookEdit",
         ]
         if request.effort is not None:
             command.extend(["--effort", request.effort])
-        command.extend(["--tools", ",".join(request.allowed_tools)])
+        effective_tools = request.allowed_tools
+        if request.prior_knowledge is not None:
+            command.extend(
+                [
+                    "--mcp-config",
+                    str(mcp_config_path),
+                    "--strict-mcp-config",
+                ]
+            )
+            effective_tools += (
+                "mcp__prior_knowledge__list_prior_knowledge",
+                "mcp__prior_knowledge__get_prior_knowledge_record",
+            )
+        command.extend(["--tools", ",".join(effective_tools)])
         return command
+
+    def _codex_permission_profile(self) -> list[str]:
+        profile = "kapso_ideation_read"
+        denied_paths = ("/proc", *_SENSITIVE_HOME_PATHS)
+        denied_entries = ",".join(f'{json.dumps(path)}="deny"' for path in denied_paths)
+        filesystem = (
+            "{"
+            f"glob_scan_max_depth={self.settings.sensitive_file_glob_scan_max_depth},"
+            '":minimal"="read",'
+            '":workspace_roots"={"."="read","**/.env"="deny",'
+            '"**/.env.*"="deny"},'
+            f"{denied_entries}"
+            "}"
+        )
+        overrides = (
+            f'default_permissions="{profile}"',
+            f"permissions={{{profile}={{filesystem={filesystem}}}}}",
+        )
+        return [item for override in overrides for item in ("--config", override)]
+
+    @staticmethod
+    def _claude_security_settings(
+        request: CodingAgentCallRequest,
+        artifact_directory: Path,
+    ) -> str:
+        denied_reads = [
+            "Read(//proc/**)",
+            "Read(**/.env)",
+            "Read(**/.env.*)",
+            *(f"Read({path}/**)" for path in _SENSITIVE_HOME_PATHS),
+        ]
+        return json.dumps(
+            {
+                "permissions": {"deny": denied_reads},
+                "sandbox": {
+                    "enabled": True,
+                    "failIfUnavailable": True,
+                    "filesystem": {
+                        "denyRead": ["/"],
+                        "allowRead": [
+                            request.workspace,
+                            str(artifact_directory),
+                        ],
+                    },
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
 
     @staticmethod
     def _parse_codex(

@@ -8,12 +8,15 @@ import git
 import pytest
 
 from kapso.core.config import load_config
+from kapso.cross_run.canonical import content_id
+from kapso.cross_run.contracts import TaskContextBinding
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
 from kapso.execution.search_strategies.base import SearchNode, SearchStrategyConfig
 from kapso.execution.search_strategies.generic.ideation import (
     IdeaArchive,
+    IdeationCrossRunIdentity,
     ResolvedParentSnapshot,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
@@ -29,6 +32,7 @@ from test_ideation_domain import (
     selection,
 )
 from test_run_checkpoint import _strict_generic_strategy
+from test_prior_knowledge_gate import citable_access_materialization
 
 CAMPAIGN_ID = "campaign_" + "f" * 32
 
@@ -38,6 +42,7 @@ def restored_shell(workspace: Path) -> GenericSearch:
     strategy.workspace_dir = str(workspace)
     strategy.ideation_config = {"archive_path": "ideas.json"}
     strategy.idea_archive = None
+    strategy.ideation_cross_run_runtime = None
     return strategy
 
 
@@ -73,19 +78,25 @@ def test_real_generic_uses_pinned_campaign_and_rejects_resume_drift(tmp_path):
         restored.load_state(fresh.dump_state())
 
 
-def test_checkpoint_is_exact_v4_and_rejects_pre_v4_state(tmp_path):
+def test_checkpoint_is_exact_v5_and_rejects_pre_v5_state(tmp_path):
     source = _strict_generic_strategy(tmp_path)
     state = source.dump_state()
 
-    assert state["schema"] == "kapso.generic_search.v4"
+    assert state["schema"] == "kapso.generic_search.v5"
+    assert state["cross_run_identity"] is None
     assert state["campaign_id"] == CAMPAIGN_ID
     assert state["idea_archive_snapshot"]["revision"] == 5
     assert state["active_batch_id"] == BATCH_ID
 
     legacy = dict(state)
-    legacy.pop("schema")
-    with pytest.raises(ValueError, match="fields are incompatible"):
+    legacy["schema"] = "kapso.generic_search.v4"
+    with pytest.raises(ValueError, match="schema is incompatible"):
         restored_shell(tmp_path).load_state(legacy)
+
+    legacy_archive = dict(state)
+    legacy_archive["idea_archive_schema"] = "kapso.ideation_archive.v3"
+    with pytest.raises(ValueError, match="idea archive schema is incompatible"):
+        restored_shell(tmp_path).load_state(legacy_archive)
 
 
 def test_checkpoint_rejects_missing_archive_and_archive_behind(tmp_path):
@@ -100,6 +111,45 @@ def test_checkpoint_rejects_missing_archive_and_archive_behind(tmp_path):
     (tmp_path / "ideas.json").unlink()
     with pytest.raises(ValueError, match="archive is missing"):
         restored_shell(tmp_path).load_state(valid_state)
+
+
+def test_checkpoint_rejects_live_archive_advanced_under_another_launch(tmp_path):
+    source = _strict_generic_strategy(tmp_path)
+    checkpoint = source.dump_state()
+    materialization = citable_access_materialization()
+    task_context = TaskContextBinding.from_dict(
+        materialization.prior_knowledge_snapshot.selected_records[0]["payload"][
+            "task_context_binding"
+        ]
+    )
+    identity = IdeationCrossRunIdentity(
+        launch_manifest_id=content_id("launch-manifest", {"resume": "other"}),
+        scope_contract_id=task_context.scope_contract_id,
+        knowledge_snapshot_id=(
+            materialization.prior_knowledge_snapshot.source_snapshot_id
+        ),
+        expert_base_release_id=content_id(
+            "expert-base-release",
+            {"resume": "other"},
+        ),
+        embedding_space_id=content_id("embedding-space", {"resume": "other"}),
+        task_context_binding=task_context,
+    )
+    live_state = replace(
+        source.idea_archive.state,
+        revision=source.idea_archive.revision + 1,
+        batches=(
+            replace(
+                source.idea_archive.state.batches[0],
+                cross_run_identity=identity,
+                prior_knowledge=materialization,
+            ),
+        ),
+    )
+    source.idea_archive._write_atomic(live_state)
+
+    with pytest.raises(ValueError, match="live idea archive conflicts"):
+        restored_shell(tmp_path).load_state(checkpoint)
 
 
 def test_checkpoint_requires_exact_search_node_fields(tmp_path):
@@ -175,6 +225,7 @@ def linked_strategy(tmp_path: Path) -> tuple[GenericSearch, IdeaArchive, git.Rep
     strategy.ideation_campaign_id = CAMPAIGN_ID
     strategy.idea_archive = archive
     strategy.active_batch_id = BATCH_ID
+    strategy.ideation_cross_run_runtime = None
     strategy.node_history = []
     strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
     return strategy, archive, repo

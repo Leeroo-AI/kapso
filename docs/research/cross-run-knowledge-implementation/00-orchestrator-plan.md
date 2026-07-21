@@ -1,6 +1,6 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
-Status: **M1–M5 implemented; M4 live Codex validation pending; M6–M10 planned**
+Status: **M1–M6 implemented; M6 independently approved; M4 live Codex validation pending; M7–M10 planned**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -345,6 +345,9 @@ without historical workspaces, raw traces, or GitHub access.
 
 ### Wave 5 — live ideation bridge
 
+Status: **implemented**. M9 supplies the verified launch runtime; M10 activates the
+GitHub-backed path as the sole production path.
+
 Deliver M6:
 
 - prior packet retrieval after local directive planning;
@@ -574,7 +577,7 @@ The implementation is complete only when:
 | M3 Run Capture and Bundles | Complete | `kapso.cross_run.capture`, `kapso.cross_run.git_command`, journal-integrated `ExperimentHistoryStore`, checkpoint/archive/orchestrator capture seams | 415 affected integration tests plus 131 final focused tests; compile/diff gates; standalone `gpt-5.6-sol` xhigh approval | M9 composes and activates the pinned runtime context |
 | M4 Catalog, Episodes, Claims | Implemented; live CLI pending | `kapso.cross_run.catalog` | 175 focused M4 tests; 377 complete cross-run tests; adversarial provenance, successor projection, configuration rotation, deterministic store, and service integration coverage; standalone `gpt-5.6-sol` xhigh approval | Authenticated Codex account usage limit; typed isolation evidence intentionally absent |
 | M5 Snapshots, Search, Reader | Implemented; independent hardening approved | `kapso.core.embeddings`, `kapso.cross_run.{record_contracts,record_registry,knowledge}`, `kapso.gated_mcp.gates.prior_knowledge_gate` | 499-test broad combined pass; 89 focused reader/gate tests plus 35 affected ideation tests; malformed-schema, typed-proof, index corruption, compatibility, proof-budget, silent MCP import, no-replace materialization, and M2 publication coverage; independent reviewer found no remaining P0–P2 issues | Authenticated Codex usage limit blocks the requested exact `gpt-5.6-sol` xhigh CLI review; live embedding/GitHub production validation remains M10 |
-| M6 Ideation and Memory Bridge | Planned | — | — | M5 |
+| M6 Ideation and Memory Bridge | Implemented; independent hardening approved | `generic.ideation` v4 archive, Generic v5 checkpoint, `IdeationCrossRunRuntime`, structured coding-agent packet/MCP boundary | 451 cross-run/knowledge tests; 167 ideation/checkpoint tests (1 unrelated skip); matched empty-memory/negative-prior E2E; real stdio MCP handshake; real Codex policy parse; independent reviewer found no remaining P0–P2 issues | Exact external `gpt-5.6-sol` xhigh replay is quota-blocked; M9 constructs the runtime and M10 provisions `bubblewrap`/`socat` plus authenticated CLI policy probes |
 | M7 Expert Candidates and Architecture | Planned | — | — | M2, M5 |
 | M8 Expert Validation and Release | Planned | — | — | M7 |
 | M9 Launch, Bootstrap, Resume | Planned | — | — | M5, M8 |

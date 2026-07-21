@@ -33,6 +33,11 @@ _MATERIALIZATION_DIGEST_FIELDS = (
     "prior_knowledge_snapshot",
     "proof_records",
 )
+_CITABLE_RECORD_KINDS = frozenset(
+    {"knowledge-claim-revision", "prior-idea", "transfer-episode"}
+)
+_CONTENT_TRUST_LABEL = "untrusted_prior_knowledge"
+_INSTRUCTION_AUTHORITY_LABEL = "none"
 
 
 class PriorKnowledgeAccessError(ValueError):
@@ -254,6 +259,15 @@ class PriorKnowledgeAccess:
             for record_id in sorted(self._records_by_id)
         )
 
+    def list_citable_records(self) -> tuple[Mapping[str, Any], ...]:
+        """List scientific records that may be cited by local ideation."""
+
+        return tuple(
+            record
+            for record in self.list_records()
+            if record["record_kind"] in _CITABLE_RECORD_KINDS
+        )
+
     def selection_metadata(self, record_id: str) -> Mapping[str, Any] | None:
         """Return persisted rank/compatibility data only for a selected root."""
 
@@ -271,6 +285,40 @@ class PriorKnowledgeAccess:
                 "record is not a member of the persisted prior-knowledge packet"
             )
         return record
+
+    def list_response_payload(self) -> Mapping[str, Any]:
+        """Build the canonical gated response for packet discovery."""
+
+        return self._response_payload({"records": self.list_records()})
+
+    def record_response_payload(self, record_id: str) -> Mapping[str, Any]:
+        """Build the canonical gated response for one complete packet member."""
+
+        return self._response_payload(
+            {
+                "membership": self.membership(record_id),
+                "record": self.get_record(record_id),
+                "selection_metadata": self.selection_metadata(record_id),
+            }
+        )
+
+    def _response_payload(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        packet = self.packet
+        return freeze_json(
+            {
+                "security_labels": {
+                    "content_trust": _CONTENT_TRUST_LABEL,
+                    "instruction_authority": _INSTRUCTION_AUTHORITY_LABEL,
+                },
+                "provenance": {
+                    "prior_knowledge_snapshot_id": (packet.prior_knowledge_snapshot_id),
+                    "source_snapshot_id": packet.source_snapshot_id,
+                    "task_context_binding_id": packet.task_context_binding_id,
+                },
+                **payload,
+            },
+            "prior knowledge response",
+        )
 
     def membership(self, record_id: str) -> str:
         if record_id not in self._records_by_id:

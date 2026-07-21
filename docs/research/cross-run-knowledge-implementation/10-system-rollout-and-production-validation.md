@@ -155,7 +155,14 @@ Production tests are manually/explicitly enabled and never run in normal CI:
    embeddings endpoint and verify stable space/input identities.
 4. **Ideation CLI smoke:** run one Codex or Claude Code ideation batch with the
    packet-only MCP reader; verify packet/MCP provenance, configured GitHub write
-   access, and absence of secret bytes from prompts/artifacts/logs.
+   credentials are absent, and all secret bytes are absent from
+   prompts/artifacts/logs.
+   For Claude, first verify the exact installed build accepts the generated
+   sandbox settings, has `bubblewrap` and `socat`, authenticates through the
+   configured OAuth/provider mechanism, can read only the workspace and packet,
+   and is denied `.env`, `/proc`, and provider/GitHub credential-store canaries.
+   A response from an unknown-setting probe is a hard activation failure because
+   print mode can silently ignore invalid settings.
 5. **Expert bootstrap smoke:** let the configured coding-agent CLI propose E0 in
    the configured expert repository; validate through automated independent roles,
    publish directly, and verify the semantic book/repository map.
@@ -208,6 +215,8 @@ this external state rather than trusting the planning-time observation.
 - Immutable releases enabled on both repositories.
 - An authenticated supported coding-agent CLI: Codex login/profile or Claude Code
   login/provider configuration. Only the CLI selected in `config.yaml` is required.
+- For Claude activation, `bubblewrap` and `socat`, plus a successful authenticated
+  allow-read/deny-read/MCP preflight against the exact installed CLI version.
 - OpenAI embeddings authentication available to the trusted parent process through
   official SDK credential discovery; it must be absent from coding-agent/MCP child
   environments.

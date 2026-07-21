@@ -103,10 +103,20 @@ The current schema is:
   "last_stop": null,
   "current_feedback": "Address the failing edge case",
   "strategy_state": {
-    "schema": "kapso.generic_search.v3",
+    "schema": "kapso.generic_search.v5",
     "campaign_id": "campaign_0123456789abcdef0123456789abcdef",
-    "idea_archive_schema": "kapso.ideation_archive.v3",
-    "archive_revision": 7,
+    "idea_archive_schema": "kapso.ideation_archive.v4",
+    "idea_archive_snapshot": {
+      "schema": "kapso.ideation_archive.v4",
+      "campaign_id": "campaign_0123456789abcdef0123456789abcdef",
+      "revision": 7,
+      "created_at": "2026-07-21T00:00:00+00:00",
+      "updated_at": "2026-07-21T00:01:00+00:00",
+      "batches": [],
+      "ideas": [],
+      "claims": [],
+      "gaps": []
+    },
     "active_batch_id": null,
     "node_history": [],
     "iteration_count": 1,
@@ -117,7 +127,8 @@ The current schema is:
       "fingerprint": null
     },
     "scores_evaluator_id": "",
-    "evaluator_transition": null
+    "evaluator_transition": null,
+    "cross_run_identity": null
   }
 }
 ```
@@ -197,12 +208,13 @@ fields to force a resume; use a new output path for a new campaign.
 
 ## Generic ideation reconciliation
 
-Generic v3 resumes only the exact current JSON schemas. Pre-v3 checkpoints,
-archives, and experiment records are rejected; there is no pickle importer or
-migration shim.
+Generic ideation resumes only the exact current JSON schemas. Pre-v5 Generic
+checkpoints, pre-v4 idea archives, and incompatible experiment records are
+rejected; there is no pickle importer or migration shim.
 
-The run checkpoint stores the campaign/archive identity and revision, active
-batch, strict node history, and evaluator state. The separate IdeaArchive may
+The run checkpoint stores the campaign/archive identity and revision, pinned
+cross-run identity, active batch, strict node history, and evaluator state. The
+separate IdeaArchive may
 legitimately be ahead because each ideation phase is committed immediately.
 Resume validates the frozen problem, capacity, directive, parents, and context
 hash, then continues the first unfinished phase:
@@ -215,7 +227,10 @@ hash, then continues the first unfinished phase:
   interrupted.
 
 Completed CLI operations are replayed from their durable operation-ID result,
-not invoked again. Cross-store reconciliation can recreate a missing executed
+not invoked again. A cached coding-agent result is accepted only when its
+canonical MCP audit has the exact persisted event count/digest and every response
+digest can be reconstructed from the batch's immutable prior packet. Cross-store
+reconciliation can recreate a missing executed
 record or final idea outcome, but any conflicting identity, lineage, or frozen
 context fails loudly.
 

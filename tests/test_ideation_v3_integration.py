@@ -111,6 +111,7 @@ def _strategy(path: Path, repo: git.Repo, ideation_config: dict) -> GenericSearc
     strategy.ideation_campaign_id = new_identifier("campaign")
     strategy.idea_archive = None
     strategy.active_batch_id = None
+    strategy.ideation_cross_run_runtime = None
     strategy.iteration_count = 0
     strategy.node_history = []
     strategy.previous_errors = []

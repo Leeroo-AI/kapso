@@ -76,6 +76,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     IdeationCapacityView,
     IdeationEngine,
     IdeationEngineTelemetry,
+    IdeationCrossRunRuntime,
     ObjectiveDirection,
     OperatorSettings,
     ParentPlan,
@@ -91,7 +92,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-GENERIC_SEARCH_STATE_SCHEMA = "kapso.generic_search.v4"
+GENERIC_SEARCH_STATE_SCHEMA = "kapso.generic_search.v5"
 
 GENERIC_SEARCH_STATE_FIELDS = {
     "schema",
@@ -105,6 +106,7 @@ GENERIC_SEARCH_STATE_FIELDS = {
     "evaluation_integrity",
     "scores_evaluator_id",
     "evaluator_transition",
+    "cross_run_identity",
 }
 
 # Enforcement mechanic (mirrors the coding-agent adapter's deadline grace):
@@ -197,6 +199,7 @@ class GenericSearch(SearchStrategy):
         )
         self.idea_archive: Optional[IdeaArchive] = None
         self.active_batch_id: Optional[str] = None
+        self.ideation_cross_run_runtime: IdeationCrossRunRuntime | None = None
 
         if self.params.get("auth_mode") is not None:
             self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
@@ -299,6 +302,7 @@ class GenericSearch(SearchStrategy):
         if not isinstance(coding_config, dict) or set(coding_config) != {
             "artifact_path",
             "termination_grace_seconds",
+            "sensitive_file_glob_scan_max_depth",
             "evidence_author",
             "generator",
             "selector",
@@ -341,7 +345,28 @@ class GenericSearch(SearchStrategy):
                 runner,
                 GenerationMemberSettings.from_dict(coding_config["selector"]),
             ),
+            cross_run_runtime=self.ideation_cross_run_runtime,
         )
+
+    def bind_ideation_cross_run_runtime(
+        self,
+        runtime: IdeationCrossRunRuntime,
+    ) -> None:
+        """Bind the verified M9 launch runtime before the first ideation batch."""
+
+        if not isinstance(runtime, IdeationCrossRunRuntime):
+            raise TypeError("ideation cross-run runtime is invalid")
+        archive = self._ensure_idea_archive()
+        identities = tuple(
+            batch.cross_run_identity
+            for batch in archive.state.batches
+            if batch.cross_run_identity is not None
+        )
+        if identities and any(identity != runtime.identity for identity in identities):
+            raise ValueError("idea archive belongs to another cross-run launch")
+        if any(batch.cross_run_identity is None for batch in archive.state.batches):
+            raise ValueError("idea archive contains a pre-cross-run batch")
+        self.ideation_cross_run_runtime = runtime
 
     def _build_ideation_call_runner(
         self,
@@ -353,6 +378,9 @@ class GenericSearch(SearchStrategy):
                     self._workspace_config_path(coding_config["artifact_path"])
                 ),
                 termination_grace_seconds=coding_config["termination_grace_seconds"],
+                sensitive_file_glob_scan_max_depth=coding_config[
+                    "sensitive_file_glob_scan_max_depth"
+                ],
             )
         )
 
@@ -496,10 +524,21 @@ class GenericSearch(SearchStrategy):
     @staticmethod
     def _ideation_phase_telemetry(telemetry) -> Dict[str, float]:
         duration = telemetry.coding_agent_duration_seconds
-        if telemetry.embedding is not None:
-            duration += telemetry.embedding.duration_seconds
+        cost_usd = telemetry.known_coding_agent_cost_usd
+        embedding_telemetries = tuple(
+            item
+            for item in (
+                telemetry.embedding,
+                telemetry.prior_retrieval_embedding,
+            )
+            if item is not None
+        )
+        duration += sum(item.duration_seconds for item in embedding_telemetries)
+        cost_usd += sum(
+            item.cost_usd for item in embedding_telemetries if item.cost_usd is not None
+        )
         return {
-            "cost_usd": telemetry.known_coding_agent_cost_usd,
+            "cost_usd": cost_usd,
             "duration_seconds": duration,
             "coding_agent_call_count": float(telemetry.coding_agent_call_count),
             "unpriced_coding_agent_call_count": float(
@@ -1988,8 +2027,31 @@ class GenericSearch(SearchStrategy):
     # Checkpoint Methods
     # =========================================================================
 
+    @staticmethod
+    def _state_cross_run_identity(state: IdeaArchiveState) -> Dict[str, Any] | None:
+        identities = tuple(batch.cross_run_identity for batch in state.batches)
+        if not identities:
+            return None
+        if any(identity is None for identity in identities):
+            if any(identity is not None for identity in identities):
+                raise ValueError("idea archive mixes cross-run and unbound batches")
+            return None
+        first = identities[0]
+        if any(identity != first for identity in identities[1:]):
+            raise ValueError("idea archive contains multiple cross-run launches")
+        return first.to_dict()
+
+    def _archive_cross_run_identity(
+        self,
+        archive: IdeaArchive,
+    ) -> Dict[str, Any] | None:
+        projected = self._state_cross_run_identity(archive.state)
+        if projected is not None or self.ideation_cross_run_runtime is None:
+            return projected
+        return self.ideation_cross_run_runtime.identity.to_dict()
+
     def dump_state(self) -> Dict[str, Any]:
-        """Return the exact v3 generic-search checkpoint projection."""
+        """Return the exact v5 generic-search checkpoint projection."""
         archive = self._ensure_idea_archive()
         active_batch_id = self._archive_active_batch_id(archive)
         self.active_batch_id = active_batch_id
@@ -2005,10 +2067,11 @@ class GenericSearch(SearchStrategy):
             "evaluation_integrity": (self.dump_evaluation_integrity_state()),
             "scores_evaluator_id": self.scores_evaluator_id,
             "evaluator_transition": self.evaluator_transition,
+            "cross_run_identity": self._archive_cross_run_identity(archive),
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
-        """Restore only the exact v3 state and reconcile archive advancement."""
+        """Restore only the exact v5 state and reconcile archive advancement."""
         if not isinstance(state, dict) or set(state) != GENERIC_SEARCH_STATE_FIELDS:
             raise ValueError("GenericSearch checkpoint fields are incompatible")
         if state["schema"] != GENERIC_SEARCH_STATE_SCHEMA:
@@ -2024,6 +2087,22 @@ class GenericSearch(SearchStrategy):
         saved_archive = IdeaArchiveState.from_dict(state["idea_archive_snapshot"])
         if saved_archive.campaign_id != campaign_id:
             raise ValueError("GenericSearch checkpoint archive campaign changed")
+        saved_cross_run_identity = state["cross_run_identity"]
+        projected_cross_run_identity = self._state_cross_run_identity(saved_archive)
+        if (
+            projected_cross_run_identity is None
+            and self.ideation_cross_run_runtime is not None
+        ):
+            projected_cross_run_identity = (
+                self.ideation_cross_run_runtime.identity.to_dict()
+            )
+        if saved_cross_run_identity != projected_cross_run_identity:
+            raise ValueError("checkpoint cross-run identity conflicts with archive")
+        if self.ideation_cross_run_runtime is not None and (
+            saved_cross_run_identity
+            != self.ideation_cross_run_runtime.identity.to_dict()
+        ):
+            raise ValueError("checkpoint belongs to another cross-run launch")
         saved_active_batch_id = state["active_batch_id"]
         if saved_active_batch_id is not None and (
             not isinstance(saved_active_batch_id, str)
@@ -2046,6 +2125,17 @@ class GenericSearch(SearchStrategy):
         self.ideation_campaign_id = campaign_id
         self.idea_archive = IdeaArchive(archive_path, campaign_id)
         archive = self._ensure_idea_archive()
+        live_cross_run_identity = self._state_cross_run_identity(archive.state)
+        if (
+            live_cross_run_identity is None
+            and not archive.state.batches
+            and self.ideation_cross_run_runtime is not None
+        ):
+            live_cross_run_identity = self.ideation_cross_run_runtime.identity.to_dict()
+        if live_cross_run_identity != saved_cross_run_identity:
+            raise ValueError(
+                "live idea archive conflicts with checkpoint cross-run identity"
+            )
         if archive.revision < saved_archive.revision:
             raise ValueError("idea archive revision is behind the run checkpoint")
         archive_active_batch_id = self._archive_active_batch_id(archive)

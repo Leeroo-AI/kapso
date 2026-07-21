@@ -3,12 +3,16 @@
 import math
 import re
 import uuid
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping as MappingABC
+from dataclasses import dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional, Tuple, Type, TypeVar
 
 from kapso.core.embeddings import EmbeddingRecord, EmbeddingTelemetry
+from kapso.cross_run.canonical import require_content_id
+from kapso.cross_run.contracts import TaskContextBinding, TransferCompatibility
+from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
 from kapso.execution.coding_agents import structured_call
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*_[0-9a-f]{32}$")
@@ -130,6 +134,24 @@ def _require_strings(values: Any, name: str) -> Tuple[str, ...]:
     return result
 
 
+def _require_content_ids(values: Any, name: str) -> Tuple[str, ...]:
+    if not isinstance(values, (list, tuple)):
+        raise ValueError(f"{name} must be a list of content IDs")
+    result = tuple(values)
+    if result != tuple(sorted(set(result))):
+        raise ValueError(f"{name} must be sorted and unique")
+    for value in result:
+        require_content_id(value, name)
+    return result
+
+
+def _require_namespaced_content_id(value: Any, name: str, namespace: str) -> str:
+    identifier = require_content_id(value, name)
+    if not identifier.startswith(f"{namespace}:sha256:"):
+        raise ValueError(f"{name} must use the {namespace} content namespace")
+    return identifier
+
+
 def _require_identifiers(values: Any, name: str) -> Tuple[str, ...]:
     identifiers = _require_strings(values, name)
     for identifier in identifiers:
@@ -190,7 +212,9 @@ def _parse_enum(enum_type: Type[_EnumType], value: Any, name: str) -> _EnumType:
 def _json_value(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
-    if isinstance(value, dict):
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return _json_value(value.to_dict())
+    if isinstance(value, MappingABC):
         return {key: _json_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_value(item) for item in value]
@@ -201,7 +225,9 @@ class JsonRecord:
     """Mixin for deterministic dataclass serialization."""
 
     def to_dict(self) -> Dict[str, Any]:
-        return _json_value(asdict(self))
+        return {
+            item.name: _json_value(getattr(self, item.name)) for item in fields(self)
+        }
 
 
 class BatchStatus(str, Enum):
@@ -794,6 +820,76 @@ class SimilarityMatch(JsonRecord):
 
 
 @dataclass(frozen=True)
+class PriorKnowledgeMatch(JsonRecord):
+    """Advisory novelty relation to one selected foreign record."""
+
+    record_id: str
+    record_kind: str
+    compatibility: TransferCompatibility
+    outcome: str
+    exact_match: bool
+    descriptor_match: bool
+    semantic_similarity: Optional[float]
+
+    def __post_init__(self) -> None:
+        require_content_id(self.record_id, "prior knowledge match record id")
+        if self.record_kind not in {"prior-idea", "transfer-episode"}:
+            raise ValueError("prior knowledge match record kind is invalid")
+        if not isinstance(self.compatibility, TransferCompatibility):
+            raise ValueError("prior knowledge match compatibility is invalid")
+        if self.outcome not in {
+            "positive",
+            "negative",
+            "inconclusive",
+            "frontier",
+        }:
+            raise ValueError("prior knowledge match outcome is invalid")
+        if not isinstance(self.exact_match, bool) or not isinstance(
+            self.descriptor_match, bool
+        ):
+            raise ValueError("prior knowledge match flags must be boolean")
+        similarity = _require_optional_number(
+            self.semantic_similarity,
+            "prior knowledge semantic similarity",
+            -1.0,
+        )
+        if similarity is not None and similarity > 1.0:
+            raise ValueError("prior knowledge semantic similarity must be <= 1")
+        object.__setattr__(self, "semantic_similarity", similarity)
+        if not self.exact_match and not self.descriptor_match and similarity is None:
+            raise ValueError("prior knowledge match must name a novelty relation")
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PriorKnowledgeMatch":
+        _require_exact_keys(
+            data,
+            {
+                "record_id",
+                "record_kind",
+                "compatibility",
+                "outcome",
+                "exact_match",
+                "descriptor_match",
+                "semantic_similarity",
+            },
+            "prior knowledge match",
+        )
+        return cls(
+            record_id=data["record_id"],
+            record_kind=data["record_kind"],
+            compatibility=_parse_enum(
+                TransferCompatibility,
+                data["compatibility"],
+                "prior knowledge match compatibility",
+            ),
+            outcome=data["outcome"],
+            exact_match=data["exact_match"],
+            descriptor_match=data["descriptor_match"],
+            semantic_similarity=data["semantic_similarity"],
+        )
+
+
+@dataclass(frozen=True)
 class CandidateAnalysis(JsonRecord):
     idea_id: str
     eligible: bool
@@ -802,6 +898,7 @@ class CandidateAnalysis(JsonRecord):
     exact_duplicate_of: Optional[str] = None
     exact_duplicate_changed_conditions: Tuple[str, ...] = ()
     semantic_neighbors: Tuple[SimilarityMatch, ...] = ()
+    prior_knowledge_matches: Tuple[PriorKnowledgeMatch, ...] = ()
 
     def __post_init__(self) -> None:
         _require_typed_identifier(self.idea_id, "analyzed idea id", "idea")
@@ -855,6 +952,21 @@ class CandidateAnalysis(JsonRecord):
             raise ValueError(
                 "candidate semantic neighbors must be deterministically ordered"
             )
+        if not isinstance(self.prior_knowledge_matches, (list, tuple)) or not all(
+            isinstance(match, PriorKnowledgeMatch)
+            for match in self.prior_knowledge_matches
+        ):
+            raise ValueError("candidate prior knowledge matches are invalid")
+        object.__setattr__(
+            self,
+            "prior_knowledge_matches",
+            tuple(self.prior_knowledge_matches),
+        )
+        prior_ids = tuple(match.record_id for match in self.prior_knowledge_matches)
+        if prior_ids != tuple(sorted(set(prior_ids))):
+            raise ValueError(
+                "candidate prior knowledge matches must be sorted and unique"
+            )
         if self.eligible and self.hard_failures:
             raise ValueError("eligible candidates cannot have hard failures")
         if self.exact_duplicate_of == self.idea_id:
@@ -882,6 +994,7 @@ class CandidateAnalysis(JsonRecord):
                 "exact_duplicate_of",
                 "exact_duplicate_changed_conditions",
                 "semantic_neighbors",
+                "prior_knowledge_matches",
             },
             "candidate analysis",
         )
@@ -896,6 +1009,10 @@ class CandidateAnalysis(JsonRecord):
             ],
             semantic_neighbors=tuple(
                 SimilarityMatch.from_dict(match) for match in data["semantic_neighbors"]
+            ),
+            prior_knowledge_matches=tuple(
+                PriorKnowledgeMatch.from_dict(match)
+                for match in data["prior_knowledge_matches"]
             ),
         )
 
@@ -1008,6 +1125,7 @@ class SelectionDecision(JsonRecord):
     selection_artifacts: Tuple[str, ...]
     expected_benefit: float
     expected_cost: float
+    prior_knowledge_refs: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_typed_identifier(self.selected_idea_id, "selected idea id", "idea")
@@ -1064,6 +1182,14 @@ class SelectionDecision(JsonRecord):
             "duplicate_overrides",
             _require_strings(self.duplicate_overrides, "duplicate overrides"),
         )
+        object.__setattr__(
+            self,
+            "prior_knowledge_refs",
+            _require_content_ids(
+                self.prior_knowledge_refs,
+                "selection prior knowledge refs",
+            ),
+        )
         _require_nonempty_string(self.decision_summary, "selection summary")
         object.__setattr__(
             self,
@@ -1095,6 +1221,7 @@ class SelectionDecision(JsonRecord):
                 "hard_rule_results",
                 "gap_decisions",
                 "duplicate_overrides",
+                "prior_knowledge_refs",
                 "decision_summary",
                 "selection_artifacts",
                 "expected_benefit",
@@ -1115,6 +1242,7 @@ class SelectionDecision(JsonRecord):
             hard_rule_results=data["hard_rule_results"],
             gap_decisions=data["gap_decisions"],
             duplicate_overrides=data["duplicate_overrides"],
+            prior_knowledge_refs=data["prior_knowledge_refs"],
             decision_summary=data["decision_summary"],
             selection_artifacts=data["selection_artifacts"],
             expected_benefit=data["expected_benefit"],
@@ -1262,6 +1390,8 @@ class IdeaRecord(JsonRecord):
     evaluation_method: str
     resource_request: str
     created_at: str
+    prior_knowledge_refs: Tuple[str, ...] = ()
+    prior_adaptation_rationale: Optional[str] = None
     status: IdeaStatus = IdeaStatus.GENERATED
     selected_in_batch_id: Optional[str] = None
     parent_idea_ids: Tuple[str, ...] = ()
@@ -1312,6 +1442,22 @@ class IdeaRecord(JsonRecord):
         _require_nonempty_string(self.evaluation_method, "idea evaluation method")
         _require_nonempty_string(self.resource_request, "idea resource request")
         _require_timestamp(self.created_at, "idea created timestamp")
+        object.__setattr__(
+            self,
+            "prior_knowledge_refs",
+            _require_content_ids(
+                self.prior_knowledge_refs,
+                "idea prior knowledge refs",
+            ),
+        )
+        _require_optional_string(
+            self.prior_adaptation_rationale,
+            "idea prior adaptation rationale",
+        )
+        if bool(self.prior_knowledge_refs) != bool(self.prior_adaptation_rationale):
+            raise ValueError(
+                "idea prior references and adaptation rationale must appear together"
+            )
         if not isinstance(self.status, IdeaStatus):
             raise ValueError("idea status is invalid")
         _require_optional_typed_identifier(
@@ -1502,6 +1648,8 @@ class IdeaRecord(JsonRecord):
             "evaluation_method",
             "resource_request",
             "created_at",
+            "prior_knowledge_refs",
+            "prior_adaptation_rationale",
             "status",
             "selected_in_batch_id",
             "parent_idea_ids",
@@ -1541,6 +1689,8 @@ class IdeaRecord(JsonRecord):
             evaluation_method=data["evaluation_method"],
             resource_request=data["resource_request"],
             created_at=data["created_at"],
+            prior_knowledge_refs=data["prior_knowledge_refs"],
+            prior_adaptation_rationale=data["prior_adaptation_rationale"],
             status=_parse_enum(IdeaStatus, data["status"], "idea status"),
             selected_in_batch_id=data["selected_in_batch_id"],
             parent_idea_ids=data["parent_idea_ids"],
@@ -1606,6 +1756,92 @@ class ResurfacedIdea(JsonRecord):
 
 
 @dataclass(frozen=True)
+class IdeationCrossRunIdentity(JsonRecord):
+    """Pinned launch identities needed to reproduce one ideation query."""
+
+    launch_manifest_id: str
+    scope_contract_id: str
+    knowledge_snapshot_id: str
+    expert_base_release_id: str
+    embedding_space_id: str
+    task_context_binding: TaskContextBinding
+    effect_evaluation_fingerprint_ids: Tuple[str, ...] = ()
+    active_exclusions: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _require_namespaced_content_id(
+            self.launch_manifest_id,
+            "ideation launch manifest id",
+            "launch-manifest",
+        )
+        _require_namespaced_content_id(
+            self.scope_contract_id,
+            "ideation scope contract id",
+            "expert-scope-contract",
+        )
+        _require_namespaced_content_id(
+            self.knowledge_snapshot_id,
+            "ideation knowledge snapshot id",
+            "knowledge-snapshot",
+        )
+        _require_namespaced_content_id(
+            self.expert_base_release_id,
+            "ideation expert base release id",
+            "expert-base-release",
+        )
+        _require_namespaced_content_id(
+            self.embedding_space_id,
+            "ideation embedding space id",
+            "embedding-space",
+        )
+        if not isinstance(self.task_context_binding, TaskContextBinding):
+            raise ValueError("ideation task context binding is invalid")
+        if self.task_context_binding.scope_contract_id != self.scope_contract_id:
+            raise ValueError("ideation task context uses another scope contract")
+        object.__setattr__(
+            self,
+            "effect_evaluation_fingerprint_ids",
+            _require_content_ids(
+                self.effect_evaluation_fingerprint_ids,
+                "ideation evaluation fingerprint ids",
+            ),
+        )
+        exclusions = _require_strings(self.active_exclusions, "active exclusions")
+        if exclusions != tuple(sorted(set(exclusions))):
+            raise ValueError("active exclusions must be sorted and unique")
+        object.__setattr__(self, "active_exclusions", exclusions)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IdeationCrossRunIdentity":
+        _require_exact_keys(
+            data,
+            {
+                "launch_manifest_id",
+                "scope_contract_id",
+                "knowledge_snapshot_id",
+                "expert_base_release_id",
+                "embedding_space_id",
+                "task_context_binding",
+                "effect_evaluation_fingerprint_ids",
+                "active_exclusions",
+            },
+            "ideation cross-run identity",
+        )
+        return cls(
+            launch_manifest_id=data["launch_manifest_id"],
+            scope_contract_id=data["scope_contract_id"],
+            knowledge_snapshot_id=data["knowledge_snapshot_id"],
+            expert_base_release_id=data["expert_base_release_id"],
+            embedding_space_id=data["embedding_space_id"],
+            task_context_binding=TaskContextBinding.from_dict(
+                data["task_context_binding"]
+            ),
+            effect_evaluation_fingerprint_ids=data["effect_evaluation_fingerprint_ids"],
+            active_exclusions=data["active_exclusions"],
+        )
+
+
+@dataclass(frozen=True)
 class IdeaBatch(JsonRecord):
     batch_id: str
     campaign_id: str
@@ -1619,6 +1855,9 @@ class IdeaBatch(JsonRecord):
     resolved_parents: Tuple[ResolvedParentSnapshot, ...]
     created_at: str
     updated_at: str
+    cross_run_identity: Optional[IdeationCrossRunIdentity] = None
+    prior_knowledge: Optional[PriorKnowledgeAccessMaterialization] = None
+    prior_retrieval_embedding_telemetry: Optional[EmbeddingTelemetry] = None
     status: BatchStatus = BatchStatus.PLANNED
     generated_idea_ids: Tuple[str, ...] = ()
     generation_calls: Tuple[structured_call.CodingAgentCallResult, ...] = ()
@@ -1657,6 +1896,43 @@ class IdeaBatch(JsonRecord):
         object.__setattr__(self, "resolved_parents", tuple(self.resolved_parents))
         if len(self.resolved_parents) != len(self.directive.operator_briefs):
             raise ValueError("batch requires one resolved parent per operator brief")
+        if self.prior_knowledge is not None and not isinstance(
+            self.prior_knowledge,
+            PriorKnowledgeAccessMaterialization,
+        ):
+            raise ValueError("batch prior knowledge materialization is invalid")
+        if self.cross_run_identity is not None and not isinstance(
+            self.cross_run_identity,
+            IdeationCrossRunIdentity,
+        ):
+            raise ValueError("batch cross-run identity is invalid")
+        if (self.cross_run_identity is None) != (self.prior_knowledge is None):
+            raise ValueError(
+                "batch cross-run identity and prior knowledge must appear together"
+            )
+        if self.cross_run_identity is not None and self.prior_knowledge is not None:
+            packet = self.prior_knowledge.prior_knowledge_snapshot
+            if (
+                packet.source_snapshot_id
+                != self.cross_run_identity.knowledge_snapshot_id
+            ):
+                raise ValueError("batch prior knowledge uses another source snapshot")
+            if (
+                packet.task_context_binding_id
+                != self.cross_run_identity.task_context_binding.task_context_binding_id
+            ):
+                raise ValueError("batch prior knowledge uses another task binding")
+        if self.prior_retrieval_embedding_telemetry is not None and not isinstance(
+            self.prior_retrieval_embedding_telemetry,
+            EmbeddingTelemetry,
+        ):
+            raise ValueError("batch prior retrieval embedding telemetry is invalid")
+        if self.cross_run_identity is None and (
+            self.prior_retrieval_embedding_telemetry is not None
+        ):
+            raise ValueError(
+                "batch without cross-run retrieval cannot have retrieval telemetry"
+            )
         _require_timestamp(self.created_at, "batch created timestamp")
         _require_timestamp(self.updated_at, "batch updated timestamp")
         if datetime.fromisoformat(self.updated_at) < datetime.fromisoformat(
@@ -1856,6 +2132,9 @@ class IdeaBatch(JsonRecord):
             "resolved_parents",
             "created_at",
             "updated_at",
+            "cross_run_identity",
+            "prior_knowledge",
+            "prior_retrieval_embedding_telemetry",
             "status",
             "generated_idea_ids",
             "generation_calls",
@@ -1886,6 +2165,25 @@ class IdeaBatch(JsonRecord):
             ),
             created_at=data["created_at"],
             updated_at=data["updated_at"],
+            cross_run_identity=(
+                None
+                if data["cross_run_identity"] is None
+                else IdeationCrossRunIdentity.from_dict(data["cross_run_identity"])
+            ),
+            prior_knowledge=(
+                None
+                if data["prior_knowledge"] is None
+                else PriorKnowledgeAccessMaterialization.from_dict(
+                    data["prior_knowledge"]
+                )
+            ),
+            prior_retrieval_embedding_telemetry=(
+                None
+                if data["prior_retrieval_embedding_telemetry"] is None
+                else EmbeddingTelemetry.from_dict(
+                    data["prior_retrieval_embedding_telemetry"]
+                )
+            ),
             status=_parse_enum(BatchStatus, data["status"], "batch status"),
             generated_idea_ids=data["generated_idea_ids"],
             generation_calls=tuple(

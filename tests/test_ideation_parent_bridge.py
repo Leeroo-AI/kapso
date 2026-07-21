@@ -193,6 +193,7 @@ def test_selected_idea_is_linked_before_implementation_and_uses_frozen_bases():
         coding_agent_call_count=3,
         unpriced_coding_agent_call_count=2,
         embedding=None,
+        prior_retrieval_embedding=None,
     )
     result = SimpleNamespace(
         action=CampaignAction.IDEATE,
@@ -307,6 +308,7 @@ def test_recovery_reexecutes_same_node_and_preserves_all_attempt_telemetry(
             coding_agent_call_count=1,
             unpriced_coding_agent_call_count=0,
             embedding=None,
+            prior_retrieval_embedding=None,
         ),
     )
     strategy.iteration_count = 1

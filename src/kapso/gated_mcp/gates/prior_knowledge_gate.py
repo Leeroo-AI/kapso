@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+import os
+import re
+import stat
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional
 
 from mcp.types import TextContent, Tool
 
-from kapso.cross_run.canonical import canonical_json_bytes
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from kapso.gated_mcp.gates.base import GateConfig, ToolGate
 
 logger = logging.getLogger(__name__)
 
-_CONTENT_TRUST_LABEL = "untrusted_prior_knowledge"
-_INSTRUCTION_AUTHORITY_LABEL = "none"
+_OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 
 
 class PriorKnowledgeGate(ToolGate):
@@ -52,6 +55,26 @@ class PriorKnowledgeGate(ToolGate):
         if not isinstance(access, PriorKnowledgeAccess):
             raise TypeError("prior knowledge gate access must be PriorKnowledgeAccess")
         self._access = access
+        audit_path = self.get_param("audit_path")
+        operation_id = self.get_param("operation_id")
+        if (audit_path is None) != (operation_id is None):
+            raise ValueError(
+                "prior knowledge gate audit path and operation id must appear together"
+            )
+        if audit_path is not None:
+            path = Path(audit_path)
+            if not path.is_absolute() or ".." in path.parts:
+                raise ValueError("prior knowledge audit path must be absolute")
+            if (
+                not isinstance(operation_id, str)
+                or _OPERATION_IDENTIFIER_PATTERN.fullmatch(operation_id) is None
+            ):
+                raise ValueError("prior knowledge audit operation id is invalid")
+            self._audit_path = path
+            self._operation_id = operation_id
+        else:
+            self._audit_path = None
+            self._operation_id = None
 
     def get_tools(self) -> List[Tool]:
         return [
@@ -96,48 +119,27 @@ class PriorKnowledgeGate(ToolGate):
             if arguments:
                 raise ValueError("list_prior_knowledge accepts no arguments")
             records = self._access.list_records()
+            content = self._content(self._access.list_response_payload())
             self._audit(
                 tool_name,
                 arguments,
                 tuple(record["record_id"] for record in records),
+                content,
             )
-            return [self._content({"records": records})]
+            return [content]
         if tool_name == "get_prior_knowledge_record":
             if set(arguments) != {"record_id"}:
                 raise ValueError("get_prior_knowledge_record requires only record_id")
             record_id = arguments["record_id"]
-            record = self._access.get_record(record_id)
-            self._audit(tool_name, arguments, (record_id,))
-            return [
-                self._content(
-                    {
-                        "membership": self._access.membership(record_id),
-                        "record": record,
-                        "selection_metadata": self._access.selection_metadata(
-                            record_id
-                        ),
-                    }
-                )
-            ]
+            content = self._content(self._access.record_response_payload(record_id))
+            self._audit(tool_name, arguments, (record_id,), content)
+            return [content]
         return None
 
-    def _content(self, payload: Dict[str, Any]) -> TextContent:
-        packet = self._access.packet
-        response = {
-            "security_labels": {
-                "content_trust": _CONTENT_TRUST_LABEL,
-                "instruction_authority": _INSTRUCTION_AUTHORITY_LABEL,
-            },
-            "provenance": {
-                "prior_knowledge_snapshot_id": packet.prior_knowledge_snapshot_id,
-                "source_snapshot_id": packet.source_snapshot_id,
-                "task_context_binding_id": packet.task_context_binding_id,
-            },
-            **payload,
-        }
+    def _content(self, payload: Mapping[str, Any]) -> TextContent:
         return TextContent(
             type="text",
-            text=canonical_json_bytes(response).decode("utf-8"),
+            text=canonical_json_bytes(payload).decode("utf-8"),
         )
 
     def _audit(
@@ -145,13 +147,46 @@ class PriorKnowledgeGate(ToolGate):
         tool_name: str,
         arguments: Dict[str, Any],
         returned_ids: tuple[str, ...],
+        content: TextContent,
     ) -> None:
         packet = self._access.packet
         event = {
             "arguments": arguments,
-            "event": "prior_knowledge_mcp_access",
+            "operation_id": self._operation_id,
             "prior_knowledge_snapshot_id": packet.prior_knowledge_snapshot_id,
             "returned_ids": returned_ids,
+            "response_digest": tree_or_blob_digest(content.text.encode("utf-8")),
             "tool_name": tool_name,
         }
-        logger.info(canonical_json_bytes(event).decode("utf-8"))
+        logger.info(
+            "prior_knowledge_mcp_access %s",
+            canonical_json_bytes(event).decode("utf-8"),
+        )
+        if self._audit_path is None:
+            return
+        parent = self._audit_path.parent
+        if parent.is_symlink() or not parent.is_dir():
+            raise ValueError("prior knowledge audit parent must be a real directory")
+        parent_descriptor = os.open(
+            parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
+        existed = self._audit_path.name in set(os.listdir(parent_descriptor))
+        descriptor = os.open(
+            self._audit_path.name,
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            os.close(descriptor)
+            os.close(parent_descriptor)
+            raise ValueError("prior knowledge audit must be a regular file")
+        with os.fdopen(descriptor, "ab") as handle:
+            handle.write(canonical_json_bytes(event) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if not existed:
+            os.fsync(parent_descriptor)
+        os.close(parent_descriptor)

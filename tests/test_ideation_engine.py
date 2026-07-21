@@ -57,9 +57,11 @@ class PacketRunner:
         self.invalidate_first = invalidate_first
         self.fail_selector = fail_selector
         self.roles = []
+        self.requests = []
 
     def run(self, request, response_schema):
         self.roles.append(request.role)
+        self.requests.append(request)
         if request.role == "candidate_selector" and self.fail_selector:
             raise RuntimeError("selector failed")
         packet = json.loads(request.prompt.split("Mandatory packet:\n\n", 1)[1])
@@ -87,8 +89,9 @@ class PacketRunner:
                 "targeted_gap_updates": [],
             }
         elif request.role == "candidate_selector":
+            local_context = packet["local_current_run"]
             eligible_ids = tuple(
-                item["idea_id"] for item in packet["eligible_candidates"]
+                item["idea_id"] for item in local_context["eligible_candidates"]
             )
             output = {
                 "selected_idea_id": eligible_ids[0],
@@ -101,6 +104,7 @@ class PacketRunner:
                 "decision_summary": "Select the strongest eligible intervention.",
                 "expected_benefit": 0.1,
                 "expected_cost": 1.0,
+                "prior_knowledge_refs": [],
             }
         else:
             descriptor = packet["operator_brief"]["descriptor_target"]
@@ -116,7 +120,9 @@ class PacketRunner:
                 "directive_rationale": "It follows the assigned evidence-backed operator.",
                 "descriptor": descriptor,
                 "assumptions": ["The intervention can be evaluated independently."],
-                "evidence_refs": [packet["evidence_snapshot"]["snapshot_id"]],
+                "evidence_refs": [
+                    packet["local_current_run"]["evidence_snapshot"]["snapshot_id"]
+                ],
                 "claim_ids": [],
                 "resolves_claim_ids": [],
                 "expected_observations": ["Comparable utility changes."],
@@ -127,6 +133,8 @@ class PacketRunner:
                 "confidence": 0.6,
                 "claimed_nearest_idea_id": None,
                 "claimed_nearest_experiment_node_id": None,
+                "prior_knowledge_refs": [],
+                "prior_adaptation_rationale": None,
             }
         artifact = (self.artifact_dir / f"{request.role}.json").resolve()
         artifact.write_text(json.dumps(output), encoding="utf-8")
@@ -234,6 +242,7 @@ def build_engine(
     *,
     minimum_distinct=2,
     embedding_provider=None,
+    cross_run_runtime=None,
 ):
     archive = IdeaArchive(tmp_path / "ideas.json", "campaign-alpha")
     generator_settings = CandidateGeneratorSettings(
@@ -264,6 +273,7 @@ def build_engine(
             embedding_provider=embedding_provider,
         ),
         selector=CandidateSelector(runner, member()),
+        cross_run_runtime=cross_run_runtime,
     )
     return archive, engine
 
