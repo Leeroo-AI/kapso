@@ -4,6 +4,8 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M1.
 
+Status: **implemented; M9 runtime composition and M10 production activation remain**.
+
 ## Objective
 
 Turn one reconciled local evolve frontier into an immutable, sanitized
@@ -31,6 +33,14 @@ src/kapso/cross_run/capture/
   validator.py
   sanitation.py
   bundle.py
+  pipeline.py
+  evaluation_evidence.py
+  git_evidence.py
+  provenance.py
+  safety.py
+
+src/kapso/cross_run/
+  git_command.py
 
 src/kapso/execution/
   orchestrator.py
@@ -39,11 +49,14 @@ src/kapso/execution/memories/experiment_memory/
   store.py
 
 tests/
+  cross_run_capture_fixtures.py
   test_execution_revision_journal.py
   test_cross_run_capture_exporter.py
   test_cross_run_capture_validator.py
   test_cross_run_sanitation.py
   test_cross_run_bundle.py
+  test_cross_run_capture_pipeline.py
+  test_cross_run_git_command.py
 ```
 
 ## Execution-revision journal
@@ -51,15 +64,15 @@ tests/
 The current experiment store is a latest executed projection. Cross-run evidence
 also needs failed/interrupted revisions that a later recovery replaces.
 
-- [ ] Add one strict append-only journal event per execution revision before the
+- [x] Add one strict append-only journal event per execution revision before the
       latest projection is replaced.
-- [ ] Record run/campaign/node/idea/batch identity, revision, timestamps,
+- [x] Record run/campaign/node/idea/batch identity, revision, timestamps,
       execution/evaluation state, feedback, technical difficulties, evaluator
       fingerprint, measurements, and exact artifact refs.
-- [ ] Require per-node gap-free revisions and idempotent identical replay.
-- [ ] Reject the same node/revision with different content.
-- [ ] Keep the journal local and current-run-only; it is not a cross-run store.
-- [ ] Reconcile journal terminal revisions with `ExperimentHistoryStore`,
+- [x] Require per-node gap-free revisions and idempotent identical replay.
+- [x] Reject the same node/revision with different content.
+- [x] Keep the journal local and current-run-only; it is not a cross-run store.
+- [x] Reconcile journal terminal revisions with `ExperimentHistoryStore`,
       `IdeaArchive`, node history, and checkpoint before capture.
 
 M3 owns the necessary orchestrator/store write-order changes. M6 must not modify
@@ -82,15 +95,22 @@ content refs and checksums
 superseded capture generation
 ```
 
-- [ ] Export only after local checkpoint/archive/store reconciliation succeeds.
-- [ ] Stage one complete manifest plus referenced files on the same filesystem,
+- [x] Export only after local checkpoint/archive/store reconciliation succeeds.
+- [x] Stage one complete manifest plus referenced files on the same filesystem,
       flush, and atomically publish the generation marker.
-- [ ] Never infer absent content: mark it `present`, `absent_before_frontier`, or
+- [x] Never infer absent content: mark it `present`, `absent_before_frontier`, or
       `unavailable` under strict rules.
-- [ ] Permit periodic capture after a durable checkpoint and final capture after
+- [x] Permit periodic capture after a durable checkpoint and final capture after
       a normal/stopped run; no asynchronous snapshot of mutating stores.
-- [ ] Preserve the last committed capture if the next generation is interrupted.
-- [ ] Keep branch/source exports path-allowlisted and tied to exact Git commits.
+- [x] Preserve the last committed capture if the next generation is interrupted.
+- [x] Keep branch/source exports path-allowlisted and tied to exact Git commits.
+
+The exporter binds every revision to raw Git commit objects, reconstructed trees,
+ancestry, source partitions, and exact evaluator fingerprints. Complete runs use
+their terminal frontier; stopped and crashed runs use only the last jointly durable
+checkpoint prefix. `CURRENT` is a lineage-local marker: stable run identity must
+match exactly, while a changed capture-configuration fingerprint creates a valid
+successor generation rather than a second run.
 
 ## Validation
 
@@ -115,36 +135,51 @@ Raw capture first enters an access-restricted, deletable local quarantine root
 from config. `SanitationGate` emits only allowlisted content and a signed/reportable
 sanitation result.
 
-- [ ] Exclude `.env`, credentials, Git credential/config material, VCS history,
+- [x] Exclude `.env`, credentials, Git credential/config material, VCS history,
       caches, datasets, model weights, hidden evaluator material, raw task output,
       and unapproved logs before durable publication.
-- [ ] Validate archive paths before extraction/copy; reject traversal, device
+- [x] Validate paths before copy; reject traversal, device
       files, unexpected symlinks, and submodules.
-- [ ] Apply exact scope/task-family secret, identity, contamination, license,
+- [x] Apply exact scope/task-family secret, identity, contamination, license,
       dependency, and artifact-class policies.
-- [ ] Retain safe structured observations and content-addressed allowlisted source
+- [x] Retain safe structured observations and content-addressed allowlisted source
       artifacts only.
-- [ ] Record scanner/policy versions, findings, excluded paths/classes, and taint
+- [x] Record scanner/policy versions, findings, excluded paths/classes, and taint
       sources.
 - [ ] An optional coding-agent semantic sweep may only escalate surviving content
-      for review; deterministic rejection cannot be overridden.
-- [ ] Delete raw quarantine according to configured retention only after bundle
+      for review; deterministic rejection cannot be overridden. This optional
+      enhancement is intentionally not required by M3 and is not implemented.
+- [x] Delete raw quarantine according to configured retention only after bundle
       publication/verification or explicit rejection recording.
+
+Free-form model feedback, technical difficulties, raw node output, and raw
+ideation calls are projected out. Safe outcome state and evaluator-declared
+measurements remain mutually consistent across the journal and experiment-history
+projection. The complete sanitation policy contributes to a content fingerprint.
+Descriptor-pinned filesystem operations reject symlink/inode replacement during
+write, verification, and cleanup; a rejected generation retains a restricted
+report without advancing the accepted bundle.
 
 ## Bundle storage
 
 `RunBundlePublisher`:
 
-- [ ] Builds the exact M1 `RunBundle` manifest from sanitized content.
-- [ ] Content-addresses referenced blobs and avoids duplicate manifest payloads.
-- [ ] Preserves completion state and the honest capture frontier.
-- [ ] Publishes a later capture as a superseding bundle, never an overwrite.
-- [ ] Commits the bundle to an atomic local content-addressed store consumed by
+- [x] Builds the exact M1 `RunBundle` manifest from sanitized content.
+- [x] Content-addresses referenced blobs and avoids duplicate manifest payloads.
+- [x] Preserves completion state and the honest capture frontier.
+- [x] Publishes a later capture as a superseding bundle, never an overwrite.
+- [x] Commits the bundle to an atomic local content-addressed store consumed by
       M4; it never performs GitHub calls itself.
-- [ ] Leaves remote publication to M5, which packages admitted bundle audit
+- [x] Leaves remote publication to M5, which packages admitted bundle audit
       closure into the next immutable `KnowledgeSnapshot` release.
-- [ ] Does not label outcomes positive/negative, propose claims, or trigger expert
+- [x] Does not label outcomes positive/negative, propose claims, or trigger expert
       evolution.
+
+Checkpoint and experiment-history locations are typed `cross_run.capture`
+settings, not duplicated literals. M3 implements and injects `RunCapturePipeline`;
+M9 remains responsible for composing those global settings into every workload
+launch and constructing the pinned capture context. Missing composition fails
+loud rather than silently disabling capture.
 
 ## Tests
 

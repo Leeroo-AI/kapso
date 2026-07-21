@@ -65,6 +65,9 @@ def make_store(tmp_path, llm):
         objective_direction="maximize",
         require_idea_links=True,
         llm=llm,
+        run_id="run_test",
+        campaign_id="campaign_test",
+        journal_path=str(tmp_path / "execution_events.jsonl"),
     )
 
 

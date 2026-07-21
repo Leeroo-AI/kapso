@@ -35,6 +35,7 @@ from tests.test_evaluation_maintainer_wiring import (
 )
 from tests.test_evaluator_transition import fake_eval_subprocess
 from tests.test_run_checkpoint import (
+    _effective_config,
     _init_git_workspace,
     _orchestrator,
     _patch_orchestrator,
@@ -158,6 +159,28 @@ def test_reserve_arithmetic():
     # mode=on: always enabled with a time budget, never without one.
     assert policy.enabled(budget)
     assert not policy.enabled(None)
+
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        {"": 0.5},
+        {"quality": True},
+        {"quality": float("nan")},
+        {"quality": "0.5"},
+    ],
+)
+def test_evaluation_attempt_rejects_malformed_metric_evidence(metrics):
+    with pytest.raises(ValueError, match="metrics"):
+        EvaluationAttempt(
+            commit_sha="a" * 40,
+            evaluator_id="b" * 64,
+            fidelity="full",
+            fraction=1.0,
+            seed=0,
+            score=0.5,
+            metrics=metrics,
+        )
 
 
 def test_full_run_price_layers():
@@ -397,12 +420,14 @@ def test_fidelity_without_a_maintainer_fails_loud(tmp_path, monkeypatch):
     _patch_orchestrator(monkeypatch)
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-            "budget": {"fidelity": {"mode": "on"}},
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+                "budget": {"fidelity": {"mode": "on"}},
+            }
+        ),
     )
 
     with pytest.raises(ValueError, match="evaluation_maintainer"):
@@ -410,20 +435,22 @@ def test_fidelity_without_a_maintainer_fails_loud(tmp_path, monkeypatch):
 
 
 def fidelity_mode_config(config_path, mode):
-    return {
-        "ideation_profile": "DEFAULT",
-        "search_strategy": {"type": "generic", "params": {}},
-        "evaluation_maintainer": {"type": "claude_code"},
-        "budget": {
-            "min_iteration_seconds": 90,
-            "fidelity": {
-                "mode": "on",
-                "build": {"fast_fraction": 0.10},
-                "eval": {"fast_fraction": 0.15},
-                "committed_run_fraction": 0.45,
+    return _effective_config(
+        {
+            "ideation_profile": "DEFAULT",
+            "search_strategy": {"type": "generic", "params": {}},
+            "evaluation_maintainer": {"type": "claude_code"},
+            "budget": {
+                "min_iteration_seconds": 90,
+                "fidelity": {
+                    "mode": "on",
+                    "build": {"fast_fraction": 0.10},
+                    "eval": {"fast_fraction": 0.15},
+                    "committed_run_fraction": 0.45,
+                },
             },
-        },
-    }
+        }
+    )
 
 
 def test_probe_grants_and_reserve_slot_reach_the_strategy(tmp_path, monkeypatch):
@@ -431,7 +458,9 @@ def test_probe_grants_and_reserve_slot_reach_the_strategy(tmp_path, monkeypatch)
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", fidelity_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", fidelity_mode_config
+    )
 
     orchestrator = _orchestrator(workspace)
     orchestrator.solve(experiment_max_iter=1, time_budget_minutes=60)
@@ -447,7 +476,9 @@ def test_reserve_gate_executes_the_escrowed_full_run(tmp_path, monkeypatch):
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", fidelity_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", fidelity_mode_config
+    )
 
     orchestrator = _orchestrator(workspace)
     # 2-minute budget: reserve = 54s, searchable = 66s <= the 90s iteration
@@ -650,7 +681,9 @@ def test_champion_shrink_returns_escrow_to_the_search_window(tmp_path, monkeypat
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", fidelity_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", fidelity_mode_config
+    )
 
     orchestrator = _orchestrator(workspace)
     strategy = orchestrator.search_strategy

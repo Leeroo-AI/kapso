@@ -9,6 +9,8 @@ from typing import Any, Dict, Iterator, List, Optional
 import git
 import pytest
 
+from kapso.core.config import load_config
+from kapso.cross_run.settings import CrossRunSettings
 from kapso.execution.iteration_evaluator import (
     IterationEvaluationError,
     IterationEvaluationResult,
@@ -27,6 +29,7 @@ from kapso.gated_mcp.gates.experiment_history_gate import (
     ExperimentHistoryGate,
 )
 from kapso.kapso import Kapso
+from tests.test_run_checkpoint import CHECKPOINT_PATH
 
 
 def _init_workspace(path: Path) -> git.Repo:
@@ -145,14 +148,20 @@ class TwoCandidateStrategy:
 def _patch_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
     import kapso.execution.orchestrator as orchestrator_module
 
+    cross_run = CrossRunSettings.from_dict(
+        load_config("src/kapso/config.yaml")["cross_run"]
+    )
     monkeypatch.setattr(orchestrator_module, "LLMBackend", FakeLLM)
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-        },
+        "load_effective_config",
+        lambda config_path, mode: SimpleNamespace(
+            mode={
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+            },
+            cross_run=cross_run,
+        ),
     )
     monkeypatch.setattr(
         OrchestratorAgent,
@@ -187,6 +196,7 @@ def _orchestrator(
     _patch_orchestrator(monkeypatch)
     return OrchestratorAgent(
         FakeProblemHandler(),
+        config_path="src/kapso/config.yaml",
         workspace_dir=str(workspace),
         iteration_evaluator=evaluator,
         iteration_evaluator_failure_policy=failure_policy,
@@ -320,7 +330,7 @@ def test_every_finalized_candidate_is_evaluated_and_persisted(
     assert records[0]["metrics"] == {"holdout_accuracy": 0.9}
     assert records[1]["primary_metric"] == "holdout_accuracy"
 
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     checkpoint_nodes = checkpoint.strategy_state["node_history"]
     assert checkpoint_nodes[0]["metrics"] == {"holdout_accuracy": 0.9}
     assert checkpoint_nodes[1]["external_evaluation_metadata"] == {"suite": "v1"}
@@ -405,7 +415,7 @@ def test_record_policy_persists_evaluator_failures(
     assert len(history["records"]) == 2
     assert history["records"][0]["metrics"] == {}
     assert "harness unavailable" in history["records"][0]["external_evaluation_error"]
-    assert RunCheckpointStore(str(workspace)).exists()
+    assert RunCheckpointStore(str(workspace), CHECKPOINT_PATH).exists()
 
 
 def test_raise_policy_stops_before_history_and_checkpoint_write(
@@ -430,10 +440,14 @@ def test_raise_policy_stops_before_history_and_checkpoint_write(
     ):
         orchestrator.solve(experiment_max_iter=1)
 
-    assert not (workspace / ".kapso" / "experiment_history.json").exists()
+    history = json.loads(
+        (workspace / ".kapso" / "experiment_history.json").read_text(encoding="utf-8")
+    )
+    assert history["records"] == []
+    assert history["revision"] == 0
     # The bootstrap checkpoint legitimately exists (pre-loop durable work);
     # what must never persist is the poisoned candidate itself.
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert checkpoint.completed_iterations == 0
     assert checkpoint.strategy_state.get("node_history", []) == []
     assert {head.name for head in git.Repo(workspace).heads} >= {

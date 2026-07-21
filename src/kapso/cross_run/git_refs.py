@@ -12,7 +12,7 @@ _SAFE_REF_PATTERN = re.compile(r"[A-Za-z0-9._/-]+")
 
 def git_object_sha(object_kind: str, payload: bytes) -> str:
     """Return the Git SHA-1 identity for canonical object bytes."""
-    if object_kind not in {"blob", "tree"} or not isinstance(payload, bytes):
+    if object_kind not in {"blob", "commit", "tree"} or not isinstance(payload, bytes):
         raise ValueError("Git object identity input is invalid")
     header = f"{object_kind} {len(payload)}\0".encode("ascii")
     return hashlib.sha1(header + payload, usedforsecurity=False).hexdigest()

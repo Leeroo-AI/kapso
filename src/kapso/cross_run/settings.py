@@ -47,6 +47,14 @@ def _require_path(value: str, name: str) -> None:
         raise CrossRunConfigurationError(f"{name} must be a normalized path")
 
 
+def _require_relative_path(value: str, name: str) -> PurePosixPath:
+    _require_path(value, name)
+    path = PurePosixPath(value)
+    if path.is_absolute() or path == PurePosixPath("."):
+        raise CrossRunConfigurationError(f"{name} must be workspace relative")
+    return path
+
+
 def _require_positive(value: int | float, name: str) -> None:
     if value <= 0:
         raise CrossRunConfigurationError(f"{name} must be positive")
@@ -279,19 +287,72 @@ class GitHubSettings(StrictContract):
 class CaptureSettings(StrictContract):
     state_path: str
     quarantine_path: str
+    checkpoint_path: str
+    experiment_history_path: str
     journal_filename: str
     bundle_asset_size_bytes: int
+    source_entry_limit: int
+    git_command_timeout_seconds: int
+    git_command_output_bytes: int
     capture_interval_seconds: int
+    quarantine_retention_generations: int
 
     def _validate(self) -> None:
-        _require_path(self.state_path, "capture.state_path")
-        _require_path(self.quarantine_path, "capture.quarantine_path")
-        _require_path(self.journal_filename, "capture.journal_filename")
+        state_path = _require_relative_path(self.state_path, "capture.state_path")
+        quarantine_path = _require_relative_path(
+            self.quarantine_path, "capture.quarantine_path"
+        )
+        checkpoint_path = _require_relative_path(
+            self.checkpoint_path, "capture.checkpoint_path"
+        )
+        experiment_history_path = _require_relative_path(
+            self.experiment_history_path,
+            "capture.experiment_history_path",
+        )
+        journal_filename = _require_relative_path(
+            self.journal_filename, "capture.journal_filename"
+        )
+        if len(journal_filename.parts) != 1:
+            raise CrossRunConfigurationError(
+                "capture.journal_filename must be one filename"
+            )
+        if (
+            state_path == quarantine_path
+            or state_path in quarantine_path.parents
+            or (quarantine_path in state_path.parents)
+        ):
+            raise CrossRunConfigurationError(
+                "capture state and quarantine paths must be disjoint"
+            )
+        if checkpoint_path == experiment_history_path:
+            raise CrossRunConfigurationError(
+                "capture authority paths must be distinct"
+            )
+        if any(
+            path == quarantine_path or quarantine_path in path.parents
+            for path in (checkpoint_path, experiment_history_path)
+        ):
+            raise CrossRunConfigurationError(
+                "capture authority paths must be outside quarantine"
+            )
         _require_positive(
             self.bundle_asset_size_bytes, "capture.bundle_asset_size_bytes"
         )
+        _require_positive(self.source_entry_limit, "capture.source_entry_limit")
+        _require_positive(
+            self.git_command_timeout_seconds,
+            "capture.git_command_timeout_seconds",
+        )
+        _require_positive(
+            self.git_command_output_bytes,
+            "capture.git_command_output_bytes",
+        )
         _require_positive(
             self.capture_interval_seconds, "capture.capture_interval_seconds"
+        )
+        _require_positive(
+            self.quarantine_retention_generations,
+            "capture.quarantine_retention_generations",
         )
 
 
@@ -300,6 +361,8 @@ class SanitationSettings(StrictContract):
     policy_version: str
     max_file_bytes: int
     allowed_suffixes: tuple[str, ...]
+    allowed_filenames: tuple[str, ...]
+    allowed_spdx_licenses: tuple[str, ...]
     denied_path_patterns: tuple[str, ...]
 
     def _validate(self) -> None:
@@ -312,9 +375,31 @@ class SanitationSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "sanitation.allowed_suffixes must be sorted and unique"
             )
-        if not self.denied_path_patterns:
+        for values, name in (
+            (self.allowed_filenames, "sanitation.allowed_filenames"),
+            (self.allowed_spdx_licenses, "sanitation.allowed_spdx_licenses"),
+        ):
+            if not values or values != tuple(sorted(set(values))):
+                raise CrossRunConfigurationError(f"{name} must be sorted and unique")
+            if any(not value for value in values):
+                raise CrossRunConfigurationError(f"{name} must not contain empty text")
+        if not self.denied_path_patterns or self.denied_path_patterns != tuple(
+            sorted(set(self.denied_path_patterns))
+        ):
             raise CrossRunConfigurationError(
-                "sanitation.denied_path_patterns must not be empty"
+                "sanitation.denied_path_patterns must be sorted and unique"
+            )
+        if any(not value for value in self.denied_path_patterns):
+            raise CrossRunConfigurationError(
+                "sanitation.denied_path_patterns must not contain empty text"
+            )
+        if any(
+            value.startswith("token:")
+            and re.fullmatch(r"token:[a-z0-9]+", value) is None
+            for value in self.denied_path_patterns
+        ):
+            raise CrossRunConfigurationError(
+                "sanitation token path patterns are invalid"
             )
 
 
@@ -476,6 +561,12 @@ class CrossRunSettings(StrictContract):
     expert: ExpertSettings
     launch: LaunchSettings
     production_validation: ProductionValidationSettings
+
+    def _validate(self) -> None:
+        if self.capture.git_command_output_bytes < self.sanitation.max_file_bytes:
+            raise CrossRunConfigurationError(
+                "capture Git output limit must admit one allowlisted source file"
+            )
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> CrossRunSettings:

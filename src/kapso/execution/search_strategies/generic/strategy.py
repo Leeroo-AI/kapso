@@ -20,6 +20,7 @@ from kapso.execution.search_strategies.base import (
     SearchStrategyConfig,
     SearchNode,
 )
+from kapso.cross_run.canonical import require_identifier
 from kapso.execution.search_strategies.factory import register_strategy
 from kapso.execution.fidelity import (
     PROFILE_VALIDATE,
@@ -67,6 +68,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     GapPrioritySettings,
     GenerationMemberSettings,
     IdeaArchive,
+    IdeaArchiveState,
     IDEA_ARCHIVE_SCHEMA,
     IdeationCapacityView,
     IdeationEngine,
@@ -88,13 +90,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-GENERIC_SEARCH_STATE_SCHEMA = "kapso.generic_search.v3"
+GENERIC_SEARCH_STATE_SCHEMA = "kapso.generic_search.v4"
 
-_GENERIC_SEARCH_STATE_FIELDS = {
+GENERIC_SEARCH_STATE_FIELDS = {
     "schema",
     "campaign_id",
     "idea_archive_schema",
-    "archive_revision",
+    "idea_archive_snapshot",
     "active_batch_id",
     "node_history",
     "iteration_count",
@@ -182,8 +184,15 @@ class GenericSearch(SearchStrategy):
             raise ValueError("generic search ideation configuration is invalid")
         super().__init__(config, workspace_dir, import_from_checkpoint)
         self.ideation_config = raw_ideation_config
+        if config.campaign_id is not None:
+            require_identifier(config.campaign_id, "campaign_id")
+            if not config.campaign_id.startswith("campaign_"):
+                raise ValueError("campaign_id must use the campaign prefix")
+        self._expected_campaign_id = config.campaign_id
         self.ideation_campaign_id = (
-            None if import_from_checkpoint else new_identifier("campaign")
+            None
+            if import_from_checkpoint
+            else config.campaign_id or new_identifier("campaign")
         )
         self.idea_archive: Optional[IdeaArchive] = None
         self.active_batch_id: Optional[str] = None
@@ -1987,7 +1996,7 @@ class GenericSearch(SearchStrategy):
             "schema": GENERIC_SEARCH_STATE_SCHEMA,
             "campaign_id": self.ideation_campaign_id,
             "idea_archive_schema": IDEA_ARCHIVE_SCHEMA,
-            "archive_revision": archive.revision,
+            "idea_archive_snapshot": archive.state.to_dict(),
             "active_batch_id": active_batch_id,
             "node_history": [node.to_dict() for node in self.node_history],
             "iteration_count": self.iteration_count,
@@ -1999,7 +2008,7 @@ class GenericSearch(SearchStrategy):
 
     def load_state(self, state: Dict[str, Any]) -> None:
         """Restore only the exact v3 state and reconcile archive advancement."""
-        if not isinstance(state, dict) or set(state) != _GENERIC_SEARCH_STATE_FIELDS:
+        if not isinstance(state, dict) or set(state) != GENERIC_SEARCH_STATE_FIELDS:
             raise ValueError("GenericSearch checkpoint fields are incompatible")
         if state["schema"] != GENERIC_SEARCH_STATE_SCHEMA:
             raise ValueError("GenericSearch checkpoint schema is incompatible")
@@ -2008,19 +2017,27 @@ class GenericSearch(SearchStrategy):
         campaign_id = state["campaign_id"]
         if not isinstance(campaign_id, str) or not campaign_id.startswith("campaign_"):
             raise ValueError("GenericSearch checkpoint campaign id is invalid")
-        saved_revision = state["archive_revision"]
-        if (
-            isinstance(saved_revision, bool)
-            or not isinstance(saved_revision, int)
-            or saved_revision < 0
-        ):
-            raise ValueError("GenericSearch checkpoint archive revision is invalid")
+        expected_campaign_id = getattr(self, "_expected_campaign_id", None)
+        if expected_campaign_id is not None and campaign_id != expected_campaign_id:
+            raise ValueError("GenericSearch checkpoint campaign identity changed")
+        saved_archive = IdeaArchiveState.from_dict(state["idea_archive_snapshot"])
+        if saved_archive.campaign_id != campaign_id:
+            raise ValueError("GenericSearch checkpoint archive campaign changed")
         saved_active_batch_id = state["active_batch_id"]
         if saved_active_batch_id is not None and (
             not isinstance(saved_active_batch_id, str)
             or not saved_active_batch_id.startswith("batch_")
         ):
             raise ValueError("GenericSearch checkpoint active batch id is invalid")
+        snapshot_active_batches = tuple(
+            batch.batch_id
+            for batch in saved_archive.batches
+            if batch.status not in {BatchStatus.COMPLETED, BatchStatus.ABANDONED}
+        )
+        if snapshot_active_batches != (
+            () if saved_active_batch_id is None else (saved_active_batch_id,)
+        ):
+            raise ValueError("checkpoint active batch conflicts with archive snapshot")
 
         archive_path = self._workspace_config_path(self.ideation_config["archive_path"])
         if not archive_path.is_file():
@@ -2028,10 +2045,14 @@ class GenericSearch(SearchStrategy):
         self.ideation_campaign_id = campaign_id
         self.idea_archive = IdeaArchive(archive_path, campaign_id)
         archive = self._ensure_idea_archive()
-        if archive.revision < saved_revision:
+        if archive.revision < saved_archive.revision:
             raise ValueError("idea archive revision is behind the run checkpoint")
         archive_active_batch_id = self._archive_active_batch_id(archive)
-        if archive.revision == saved_revision:
+        if archive.revision == saved_archive.revision:
+            if archive.state != saved_archive:
+                raise ValueError(
+                    "checkpoint archive snapshot conflicts with live archive"
+                )
             if archive_active_batch_id != saved_active_batch_id:
                 raise ValueError("checkpoint active batch conflicts with idea archive")
         elif saved_active_batch_id not in {None, archive_active_batch_id}:
@@ -2086,8 +2107,8 @@ class GenericSearch(SearchStrategy):
         self.previous_errors = list(previous_errors)
 
         nodes_by_id = {node.node_id: node for node in self.node_history}
-        ideas_by_id = {idea.idea_id: idea for idea in archive.state.ideas}
-        batches_by_id = {batch.batch_id: batch for batch in archive.state.batches}
+        ideas_by_id = {idea.idea_id: idea for idea in saved_archive.ideas}
+        batches_by_id = {batch.batch_id: batch for batch in saved_archive.batches}
         for node in self.node_history:
             if node.idea_id is None or node.selection_batch_id is None:
                 raise ValueError("GenericSearch checkpoint node lacks idea provenance")
@@ -2126,7 +2147,7 @@ class GenericSearch(SearchStrategy):
                 )
         linked_node_ids = sorted(
             idea.experiment_node_id
-            for idea in archive.state.ideas
+            for idea in saved_archive.ideas
             if idea.experiment_node_id is not None
         )
         if linked_node_ids != list(range(len(linked_node_ids))):

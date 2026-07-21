@@ -20,6 +20,8 @@ from kapso.execution.budget import (
 from kapso.execution.run_checkpoint import RunCheckpointStore
 
 from tests.test_run_checkpoint import (
+    CHECKPOINT_PATH,
+    _effective_config,
     _init_git_workspace,
     _orchestrator,
     _patch_orchestrator,
@@ -162,12 +164,14 @@ def test_budget_block_is_excluded_from_config_fingerprint(
 
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-            "budget": {"time_budget_minutes": 120},
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+                "budget": {"time_budget_minutes": 120},
+            }
+        ),
     )
     with_budget = _orchestrator(workspace_b)
 
@@ -188,7 +192,10 @@ def test_budget_exhausted_campaign_resumes_with_a_bigger_budget(
         cost_budget=0.5,
     )
     assert first.stopped_reason == "budget_exhausted"
-    assert RunCheckpointStore(str(workspace)).load().last_stop == "cost_budget"
+    assert (
+        RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load().last_stop
+        == "cost_budget"
+    )
 
     # The top-up: same campaign, bigger budget — fingerprint unchanged, the
     # durable ledger seeds from the checkpoint, the loop continues.
@@ -248,7 +255,7 @@ def test_reserve_gate_refuses_admission_and_stays_resumable(
     assert result.stop_detail == "finalization_reserve"
     assert result.iterations_run == 0
 
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert checkpoint.status == "running"
     assert checkpoint.last_stop == "finalization_reserve"
     resumed = _orchestrator(workspace, resume=True)

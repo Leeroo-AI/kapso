@@ -7,6 +7,9 @@ import git
 import pytest
 
 import kapso.execution.run_checkpoint as checkpoint_module
+from kapso.core.config import load_config
+from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.contracts import CompletionState
 from kapso.execution.orchestrator import OrchestratorAgent, SolveResult
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
@@ -37,6 +40,11 @@ from test_ideation_domain import (
     selection,
 )
 from kapso.execution.search_strategies.generic.ideation import IdeaArchive
+
+CROSS_RUN_SETTINGS = CrossRunSettings.from_dict(
+    load_config("src/kapso/config.yaml")["cross_run"]
+)
+CHECKPOINT_PATH = CROSS_RUN_SETTINGS.capture.checkpoint_path
 
 
 def _checkpoint(**overrides: Any) -> RunCheckpoint:
@@ -85,6 +93,13 @@ class FakeProblemHandler:
 class FakeKnowledgeSearch:
     def close(self) -> None:
         pass
+
+
+def _effective_config(mode_config):
+    return SimpleNamespace(
+        mode=mode_config,
+        cross_run=CROSS_RUN_SETTINGS,
+    )
 
 
 class FakeWorkspace:
@@ -230,11 +245,13 @@ def _patch_orchestrator(
     monkeypatch.setattr(orchestrator_module, "LLMBackend", FakeLLM)
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+            },
+        ),
     )
     monkeypatch.setattr(
         OrchestratorAgent,
@@ -265,6 +282,7 @@ def _orchestrator(
 ) -> OrchestratorAgent:
     return OrchestratorAgent(
         FakeProblemHandler(),
+        config_path="src/kapso/config.yaml",
         workspace_dir=str(workspace),
         resume=resume,
         knowledge_search=FakeKnowledgeSearch(),
@@ -273,7 +291,7 @@ def _orchestrator(
 
 
 def test_checkpoint_round_trip(tmp_path: Path) -> None:
-    store = RunCheckpointStore(str(tmp_path))
+    store = RunCheckpointStore(str(tmp_path), CHECKPOINT_PATH)
     expected = _checkpoint()
 
     store.save(expected)
@@ -282,7 +300,7 @@ def test_checkpoint_round_trip(tmp_path: Path) -> None:
 
 
 def test_missing_and_corrupt_checkpoints_fail_clearly(tmp_path: Path) -> None:
-    store = RunCheckpointStore(str(tmp_path))
+    store = RunCheckpointStore(str(tmp_path), CHECKPOINT_PATH)
     with pytest.raises(RunCheckpointMissingError, match="run_state.json"):
         store.load()
 
@@ -290,6 +308,15 @@ def test_missing_and_corrupt_checkpoints_fail_clearly(tmp_path: Path) -> None:
     store.path.write_text("{broken")
     with pytest.raises(RunCheckpointCorruptError, match="Could not read"):
         store.load()
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ("/tmp/run-state.json", "../run-state.json", "."),
+)
+def test_checkpoint_store_rejects_unscoped_paths(tmp_path: Path, relative_path: str):
+    with pytest.raises(ValueError, match="normalized and relative"):
+        RunCheckpointStore(str(tmp_path), relative_path)
 
 
 def test_structurally_invalid_json_is_rejected_as_checkpoint_error() -> None:
@@ -352,7 +379,7 @@ def test_failed_atomic_replace_preserves_previous_checkpoint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store = RunCheckpointStore(str(tmp_path))
+    store = RunCheckpointStore(str(tmp_path), CHECKPOINT_PATH)
     original = _checkpoint(completed_iterations=1)
     store.save(original)
 
@@ -511,7 +538,7 @@ def test_one_iteration_then_resume_restores_feedback_and_state(
     assert resumed_result.total_cost == 2.0
     assert {"generic_exp_0", "generic_exp_1"} <= {head.name for head in repo.heads}
 
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert checkpoint.completed_iterations == 2
     assert checkpoint.current_feedback == "feedback-1"
     assert checkpoint.cumulative_cost == 2.0
@@ -526,7 +553,7 @@ def test_goal_achieved_checkpoint_is_saved_before_stop(
     _patch_orchestrator(monkeypatch, stop_next=True)
 
     result = _orchestrator(workspace).solve(experiment_max_iter=1)
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
 
     assert result.stopped_reason == "goal_achieved"
     assert checkpoint.status == "completed"
@@ -534,6 +561,134 @@ def test_goal_achieved_checkpoint_is_saved_before_stop(
 
     with pytest.raises(RunCheckpointCompletedError):
         _orchestrator(workspace, resume=True)
+
+
+def test_capture_hook_runs_only_after_durable_checkpoint_and_forces_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch, stop_next=True)
+    orchestrator = _orchestrator(workspace)
+    calls = []
+
+    class RecordingPipeline:
+        def capture_if_due(self, completion_state, *, force=False):
+            checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
+            calls.append((completion_state, force, checkpoint.status))
+            return None
+
+    orchestrator.capture_pipeline = RecordingPipeline()
+
+    orchestrator.solve(experiment_max_iter=1)
+
+    assert calls[0] == (CompletionState.STOPPED, False, "running")
+    assert calls[-1] == (CompletionState.COMPLETE, True, "completed")
+
+
+def test_capture_hook_forces_crashed_state_from_last_durable_frontier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    orchestrator = _orchestrator(workspace)
+    calls = []
+
+    class RecordingPipeline:
+        def capture_if_due(self, completion_state, *, force=False):
+            RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
+            calls.append((completion_state, force))
+            return None
+
+    def fail_iteration(context, budget_progress=0.0):
+        raise RuntimeError("simulated strategy crash")
+
+    orchestrator.capture_pipeline = RecordingPipeline()
+    monkeypatch.setattr(orchestrator.search_strategy, "run", fail_iteration)
+
+    with pytest.raises(RuntimeError, match="strategy crash"):
+        orchestrator.solve(experiment_max_iter=1)
+
+    assert calls[-1] == (CompletionState.CRASHED, True)
+
+
+def test_pinned_capture_identity_seeds_fresh_history_and_is_validated_on_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    campaign_id = "campaign_" + "a" * 32
+    run_id = "run_" + "b" * 32
+    archive_path = workspace / ".kapso" / "idea_archive.json"
+
+    def create_strategy(
+        self: OrchestratorAgent,
+        coding_agent: Optional[str],
+        workspace_dir: Optional[str],
+        start_from_checkpoint: bool,
+    ) -> FakeStrategy:
+        strategy = FakeStrategy(workspace_dir)
+        strategy.ideation_campaign_id = campaign_id
+        strategy.idea_archive = SimpleNamespace(path=archive_path)
+        return strategy
+
+    monkeypatch.setattr(
+        OrchestratorAgent,
+        "_create_search_strategy",
+        create_strategy,
+    )
+
+    class PinnedPipeline:
+        def __init__(self, pinned_run_id: str):
+            self.context = SimpleNamespace(
+                request_template=SimpleNamespace(
+                    workspace_dir=workspace,
+                    idea_archive_path=archive_path,
+                    run_id=pinned_run_id,
+                    campaign_id=campaign_id,
+                )
+            )
+
+        def validate_runtime_binding(
+            self,
+            workspace_dir,
+            experiment_store,
+            idea_archive_path,
+        ):
+            assert Path(workspace_dir) == workspace
+            assert experiment_store.run_id == self.context.request_template.run_id
+            assert experiment_store.campaign_id == campaign_id
+            assert Path(idea_archive_path) == archive_path
+
+    fresh = OrchestratorAgent(
+        FakeProblemHandler(),
+        config_path="src/kapso/config.yaml",
+        workspace_dir=str(workspace),
+        knowledge_search=FakeKnowledgeSearch(),
+        goal="Improve support",
+        capture_pipeline=PinnedPipeline(run_id),
+    )
+
+    assert fresh.experiment_store.run_id == run_id
+    assert fresh.experiment_store.campaign_id == campaign_id
+    fresh.capture_pipeline = None
+    fresh._save_run_checkpoint(status="running")
+
+    with pytest.raises(ValueError, match="run identity changed"):
+        OrchestratorAgent(
+            FakeProblemHandler(),
+            config_path="src/kapso/config.yaml",
+            workspace_dir=str(workspace),
+            resume=True,
+            knowledge_search=FakeKnowledgeSearch(),
+            goal="Improve support",
+            capture_pipeline=PinnedPipeline("run_" + "c" * 32),
+        )
 
 
 def test_budget_exhaustion_pauses_resumably_with_last_stop(
@@ -548,7 +703,7 @@ def test_budget_exhaustion_pauses_resumably_with_last_stop(
         experiment_max_iter=1,
         cost_budget=0.5,
     )
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
 
     assert result.stopped_reason == "budget_exhausted"
     # A budget stop is a pause, not a completion: only goal achievement
@@ -572,7 +727,7 @@ def test_durable_clock_continues_across_resume(
     _patch_orchestrator(monkeypatch)
 
     _orchestrator(workspace).solve(experiment_max_iter=1)
-    first = RunCheckpointStore(str(workspace)).load()
+    first = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert first.elapsed_seconds > 0
     assert first.last_stop is None
     assert set(first.cost_by_component) >= {
@@ -583,7 +738,7 @@ def test_durable_clock_continues_across_resume(
     resumed = _orchestrator(workspace, resume=True)
     assert resumed._prior_elapsed_seconds == first.elapsed_seconds
     resumed.solve(experiment_max_iter=1)
-    second = RunCheckpointStore(str(workspace)).load()
+    second = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
 
     assert second.elapsed_seconds > first.elapsed_seconds
     # 1.0 carried in from the prior slice's component record + 1.0 live.
@@ -609,7 +764,7 @@ def test_resume_rejects_missing_candidate_branch(
 
 
 def test_v1_checkpoint_is_rejected_without_migration(tmp_path: Path) -> None:
-    store = RunCheckpointStore(str(tmp_path))
+    store = RunCheckpointStore(str(tmp_path), CHECKPOINT_PATH)
     v1_data = _checkpoint().to_dict()
     v1_data["schema_version"] = 1
     for v2_field in ("elapsed_seconds", "cost_by_component", "last_stop"):

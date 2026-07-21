@@ -230,6 +230,13 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("github", "source_tree_size_bytes"), 0),
         (("github", "zstd_window_size_bytes"), 1),
         (("github", "zstd_window_size_bytes"), 1023),
+        (("capture", "git_command_timeout_seconds"), 0),
+        (("capture", "git_command_output_bytes"), 1),
+        (("capture", "state_path"), "/tmp/absolute-capture"),
+        (("capture", "quarantine_path"), "/tmp/absolute-quarantine"),
+        (("capture", "checkpoint_path"), "/tmp/run-state.json"),
+        (("capture", "experiment_history_path"), "../history.json"),
+        (("capture", "journal_filename"), "nested/events.jsonl"),
         (("knowledge", "retrieval", "lexical_weight"), 1.1),
         (("knowledge", "embeddings", "dimensions"), True),
         (("expert", "validation", "reviewer_count"), 0),
@@ -254,6 +261,53 @@ def test_zstd_window_configuration_uses_decoder_byte_units():
     settings = CrossRunSettings.from_dict(raw)
 
     assert settings.github.zstd_window_size_bytes == 1024
+
+
+@pytest.mark.parametrize(
+    ("state_path", "quarantine_path"),
+    [
+        (".kapso/cross_run", ".kapso/cross_run"),
+        (".kapso/cross_run", ".kapso/cross_run/quarantine"),
+        (".kapso/cross_run/capture", ".kapso/cross_run"),
+    ],
+)
+def test_capture_state_and_quarantine_paths_are_disjoint(state_path, quarantine_path):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["capture"]["state_path"] = state_path
+    raw["capture"]["quarantine_path"] = quarantine_path
+
+    with pytest.raises(CrossRunConfigurationError):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    ("checkpoint_path", "history_path", "quarantine_path"),
+    [
+        (".kapso/state.json", ".kapso/state.json", ".kapso/quarantine"),
+        (
+            ".kapso/quarantine/state.json",
+            ".kapso/history.json",
+            ".kapso/quarantine",
+        ),
+        (
+            ".kapso/state.json",
+            ".kapso/quarantine/history.json",
+            ".kapso/quarantine",
+        ),
+    ],
+)
+def test_capture_authority_paths_are_distinct_and_outside_quarantine(
+    checkpoint_path,
+    history_path,
+    quarantine_path,
+):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["capture"]["checkpoint_path"] = checkpoint_path
+    raw["capture"]["experiment_history_path"] = history_path
+    raw["capture"]["quarantine_path"] = quarantine_path
+
+    with pytest.raises(CrossRunConfigurationError):
+        CrossRunSettings.from_dict(raw)
 
 
 def test_github_rate_budget_scales_with_failed_upload_recovery():

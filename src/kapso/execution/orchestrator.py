@@ -32,9 +32,10 @@ from kapso.execution.search_strategies.generic.ideation.evidence_author import (
 )
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.core.llm import LLMBackend
-from kapso.core.config import load_config, load_mode_config
+from kapso.core.config import load_config, load_effective_config
 from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
+from kapso.execution.search_strategies.generic.ideation.types import new_identifier
 from kapso.execution.iteration_evaluator import (
     IterationEvaluationContext,
     IterationEvaluationError,
@@ -72,6 +73,8 @@ from kapso.execution.fidelity import (
     FidelityPolicy,
     FidelitySpec,
 )
+from kapso.cross_run.capture.pipeline import RunCapturePipeline
+from kapso.cross_run.contracts import CompletionState
 
 CHANGE_REQUEST_PATTERN = re.compile(
     r"<evaluation_change_request>(.*?)</evaluation_change_request>",
@@ -150,14 +153,31 @@ class OrchestratorAgent:
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
         goal: Optional[str] = None,
+        capture_pipeline: Optional[RunCapturePipeline] = None,
     ):
         self.problem_handler = problem_handler
         self.config_path = config_path
         self.mode = mode
         self.goal = goal or ""
+        self.capture_pipeline = capture_pipeline
         # Load once before constructing shared services so model roles and retry
         # behavior apply consistently across strategy, memory, and commit calls.
-        self.mode_config = load_mode_config(config_path, mode)
+        effective_config = (
+            load_effective_config(config_path, mode)
+            if config_path is not None
+            else None
+        )
+        self.mode_config = (
+            dict(effective_config.mode) if effective_config is not None else {}
+        )
+        self.cross_run_settings = (
+            effective_config.cross_run if effective_config is not None else None
+        )
+        if self.cross_run_settings is None:
+            raise ValueError(
+                "evolution requires a runtime config composed with cross_run settings"
+            )
+        self.capture_settings = self.cross_run_settings.capture
         model_routes = self.mode_config.get("models")
         retry_config = self.mode_config.get("retry")
         if model_routes is None and retry_config is None:
@@ -223,7 +243,10 @@ class OrchestratorAgent:
         self._restored_node_count = 0
 
         if workspace_dir is not None:
-            self.checkpoint_store = RunCheckpointStore(workspace_dir)
+            self.checkpoint_store = RunCheckpointStore(
+                workspace_dir,
+                self.capture_settings.checkpoint_path,
+            )
 
         if self.resume:
             if workspace_dir is None:
@@ -291,7 +314,8 @@ class OrchestratorAgent:
 
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
-                self.search_strategy.workspace_dir
+                self.search_strategy.workspace_dir,
+                self.capture_settings.checkpoint_path,
             )
 
         self.budget_ledger = self._create_budget_ledger()
@@ -314,11 +338,41 @@ class OrchestratorAgent:
             )
 
         # Now create experiment history store with the actual workspace path
-        experiment_history_path = os.path.join(
-            self.search_strategy.workspace_dir, ".kapso", "experiment_history.json"
+        workspace_path = Path(self.search_strategy.workspace_dir)
+        experiment_history_path = (
+            workspace_path / self.capture_settings.experiment_history_path
+        )
+        pipeline_request = (
+            self.capture_pipeline.context.request_template
+            if self.capture_pipeline is not None
+            else None
+        )
+        strategy_campaign_id = getattr(
+            self.search_strategy, "ideation_campaign_id", None
+        )
+        if pipeline_request is not None:
+            if (
+                strategy_campaign_id is not None
+                and strategy_campaign_id != pipeline_request.campaign_id
+            ):
+                raise ValueError(
+                    "capture pipeline campaign identity differs from the search strategy"
+                )
+            campaign_id = pipeline_request.campaign_id
+            run_id = pipeline_request.run_id
+        else:
+            campaign_id = strategy_campaign_id
+            if campaign_id is None and not experiment_history_path.exists():
+                campaign_id = new_identifier("campaign")
+            run_id = None if experiment_history_path.exists() else new_identifier("run")
+        journal_path = None
+        journal_path = (
+            workspace_path
+            / self.capture_settings.state_path
+            / self.capture_settings.journal_filename
         )
         self.experiment_store = ExperimentHistoryStore(
-            json_path=experiment_history_path,
+            json_path=str(experiment_history_path),
             objective_direction=(
                 "maximize" if self.problem_handler.maximize_scoring else "minimize"
             ),
@@ -331,6 +385,13 @@ class OrchestratorAgent:
             ),
             goal=self.goal,
             llm=self.llm,
+            run_id=run_id,
+            campaign_id=campaign_id,
+            journal_path=str(journal_path),
+            git_command_timeout_seconds=(
+                self.capture_settings.git_command_timeout_seconds
+            ),
+            git_command_output_bytes=self.capture_settings.git_command_output_bytes,
         )
         reconcile_experiment_memory = getattr(
             self.search_strategy,
@@ -343,6 +404,8 @@ class OrchestratorAgent:
             self._restored_node_count = len(
                 self.search_strategy.get_experiment_history()
             )
+        if self.capture_pipeline is not None:
+            self.attach_capture_pipeline(self.capture_pipeline)
 
         # Create knowledge search backend (or use provided instance).
         # This allows Kapso.evolve() to inject a concrete backend (e.g., kg_graph_search)
@@ -398,6 +461,18 @@ class OrchestratorAgent:
         return FeedbackGenerator(
             coding_agent_config=feedback_agent_config,
         )
+
+    def attach_capture_pipeline(self, pipeline: RunCapturePipeline) -> None:
+        """Bind an M9-supplied, fully identified capture pipeline before solve."""
+        idea_archive = getattr(self.search_strategy, "idea_archive", None)
+        if idea_archive is None or self.experiment_store is None:
+            raise ValueError("capture pipeline requires initialized run authorities")
+        pipeline.validate_runtime_binding(
+            self.search_strategy.workspace_dir,
+            self.experiment_store,
+            idea_archive.path,
+        )
+        self.capture_pipeline = pipeline
 
     def _create_search_strategy(
         self,
@@ -466,6 +541,12 @@ class OrchestratorAgent:
             data_dir=self.data_dir,
             feedback_generator=self.feedback_generator,
             goal=self.goal,
+            campaign_id=(
+                self.capture_pipeline.context.request_template.campaign_id
+                if self.capture_pipeline is not None
+                else None
+            ),
+            checkpoint_path=self.capture_settings.checkpoint_path,
         )
 
     def _resolve_search_strategy_config(self) -> Tuple[str, Dict[str, Any]]:
@@ -900,7 +981,8 @@ class OrchestratorAgent:
         """Atomically persist orchestration and strategy state."""
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
-                self.search_strategy.workspace_dir
+                self.search_strategy.workspace_dir,
+                self.capture_settings.checkpoint_path,
             )
         checkpoint = RunCheckpoint.create(
             strategy_type=self.strategy_type,
@@ -916,6 +998,13 @@ class OrchestratorAgent:
             last_stop=last_stop,
         )
         self.checkpoint_store.save(checkpoint)
+        if self.capture_pipeline is not None:
+            completion_state = (
+                CompletionState.COMPLETE
+                if status == "completed"
+                else CompletionState.STOPPED
+            )
+            self.capture_pipeline.capture_if_due(completion_state)
 
     def _validate_restored_branch_refs(self) -> None:
         """Ensure successful checkpoint nodes still point to Git refs."""
@@ -1132,6 +1221,7 @@ class OrchestratorAgent:
         # Get problem context once (experiment history is accessed via MCP)
         problem = self.problem_handler.get_problem_context()
 
+        normal_exit_reached = False
         try:
             for i in range(experiment_max_iter):
                 # The escrow is re-derived from history each round: once a
@@ -1417,7 +1507,20 @@ class OrchestratorAgent:
             if stopped_reason == "max_iterations":
                 # Persist even a zero-iteration slice so it can be resumed.
                 self._save_run_checkpoint(status="running")
+            normal_exit_reached = True
         finally:
+            if self.capture_pipeline is not None:
+                persisted_checkpoint = self.checkpoint_store.load()
+                terminal_state = (
+                    CompletionState.COMPLETE
+                    if persisted_checkpoint.status == "completed"
+                    else (
+                        CompletionState.STOPPED
+                        if normal_exit_reached
+                        else CompletionState.CRASHED
+                    )
+                )
+                self.capture_pipeline.capture_if_due(terminal_state, force=True)
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
 
             # Close experiment history store

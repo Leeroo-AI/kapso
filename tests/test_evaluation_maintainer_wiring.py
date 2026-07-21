@@ -20,7 +20,9 @@ from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 from tests.test_run_checkpoint import (
+    CHECKPOINT_PATH,
     _init_git_workspace,
+    _effective_config,
     _orchestrator,
     _patch_orchestrator,
 )
@@ -78,12 +80,14 @@ def patch_maintainer_environment(monkeypatch, agent):
     ScriptedMaintainerAgent.calls = []
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-            "evaluation_maintainer": MAINTAINER_BLOCK,
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+                "evaluation_maintainer": MAINTAINER_BLOCK,
+            }
+        ),
     )
     monkeypatch.setattr(
         maintainer_module.CodingAgentFactory,
@@ -122,7 +126,7 @@ def test_setup_runs_once_and_is_budgeted(tmp_path, monkeypatch):
     assert orchestrator.search_strategy.record_eval_duration == (
         orchestrator.evaluation_maintainer.record_run
     )
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert checkpoint.cost_by_component["evaluation_maintenance"] == 0.25
 
     # Resume: the registry exists, so setup is skipped and consistency
@@ -253,13 +257,17 @@ def test_fast_fraction_is_single_sourced_from_the_fidelity_block(tmp_path, monke
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-            "budget": {"fidelity": {"mode": "auto", "eval": {"fast_fraction": 0.2}}},
-            "evaluation_maintainer": MAINTAINER_BLOCK,
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+                "budget": {
+                    "fidelity": {"mode": "auto", "eval": {"fast_fraction": 0.2}}
+                },
+                "evaluation_maintainer": MAINTAINER_BLOCK,
+            }
+        ),
     )
     orchestrator = _orchestrator(workspace)
     assert orchestrator.evaluation_maintainer.fast_fraction == 0.2
@@ -267,12 +275,14 @@ def test_fast_fraction_is_single_sourced_from_the_fidelity_block(tmp_path, monke
     # The maintainer block has no fraction knob of its own.
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-            "evaluation_maintainer": dict(MAINTAINER_BLOCK, fast_fraction=0.3),
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+                "evaluation_maintainer": dict(MAINTAINER_BLOCK, fast_fraction=0.3),
+            }
+        ),
     )
     with pytest.raises(ValueError, match="evaluation_maintainer config keys"):
         _orchestrator(str(tmp_path / "workspace_two"))
@@ -298,7 +308,7 @@ def test_registration_is_checkpointed_before_the_first_iteration(tmp_path, monke
     with pytest.raises(RuntimeError, match="simulated crash"):
         orchestrator.solve(experiment_max_iter=1)
 
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert checkpoint.status == "running"
     assert checkpoint.completed_iterations == 0
     # The paid registration itself is durable on disk alongside it.
@@ -319,14 +329,16 @@ def test_protected_data_is_registered_and_guarded_on_resume(tmp_path, monkeypatc
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
     monkeypatch.setattr(
         orchestrator_module,
-        "load_mode_config",
-        lambda config_path, mode: {
-            "ideation_profile": "DEFAULT",
-            "search_strategy": {"type": "generic", "params": {}},
-            "evaluation_maintainer": dict(
-                MAINTAINER_BLOCK, protected_data_paths=["data"]
-            ),
-        },
+        "load_effective_config",
+        lambda config_path, mode: _effective_config(
+            {
+                "ideation_profile": "DEFAULT",
+                "search_strategy": {"type": "generic", "params": {}},
+                "evaluation_maintainer": dict(
+                    MAINTAINER_BLOCK, protected_data_paths=["data"]
+                ),
+            }
+        ),
     )
 
     orchestrator = _orchestrator(workspace)

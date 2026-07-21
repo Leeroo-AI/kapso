@@ -21,13 +21,12 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
-
 FIDELITIES = {"fast", "full"}
 
 # Tier order for committed/final selection. Higher is better evidence.
-TIER_FULL = 2       # full-build artifact measured at full eval
+TIER_FULL = 2  # full-build artifact measured at full eval
 TIER_VALIDATED = 1  # fast-built artifact measured at full eval
-TIER_PROBE = 0      # fast-eval evidence only (or none)
+TIER_PROBE = 0  # fast-eval evidence only (or none)
 
 
 def _require_finite(name: str, value: Any) -> float:
@@ -53,9 +52,7 @@ class ComparabilityClass:
         if not isinstance(self.evaluator_id, str) or not self.evaluator_id:
             raise ValueError("evaluator_id must be a non-empty string")
         if self.fidelity not in FIDELITIES:
-            raise ValueError(
-                f"fidelity must be one of {sorted(FIDELITIES)}"
-            )
+            raise ValueError(f"fidelity must be one of {sorted(FIDELITIES)}")
         _require_finite("fraction", self.fraction)
         if not 0 < self.fraction <= 1:
             raise ValueError("fraction must be in (0, 1]")
@@ -77,6 +74,12 @@ class EvaluationAttempt:
     def __post_init__(self) -> None:
         if not isinstance(self.commit_sha, str) or not self.commit_sha:
             raise ValueError("commit_sha must be a non-empty string")
+        if (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+        ):
+            raise ValueError("seed must be a non-negative integer")
         # Reuse the class validation for the shared identity fields.
         ComparabilityClass(
             evaluator_id=self.evaluator_id,
@@ -86,11 +89,23 @@ class EvaluationAttempt:
         )
         _require_finite("score", self.score)
         if self.duration_seconds is not None:
-            duration = _require_finite(
-                "duration_seconds", self.duration_seconds
-            )
+            duration = _require_finite("duration_seconds", self.duration_seconds)
             if duration < 0:
                 raise ValueError("duration_seconds must be non-negative")
+        if not isinstance(self.metrics, dict) or any(
+            not isinstance(name, str)
+            or not name
+            or isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for name, value in self.metrics.items()
+        ):
+            raise ValueError("evaluation attempt metrics must be finite named numbers")
+        object.__setattr__(
+            self,
+            "metrics",
+            {name: float(value) for name, value in self.metrics.items()},
+        )
 
     @property
     def comparability_class(self) -> ComparabilityClass:
@@ -139,9 +154,7 @@ def attempts_in_class(
     ]
 
 
-def project_score(
-    node: Any, comparability: ComparabilityClass
-) -> Optional[float]:
+def project_score(node: Any, comparability: ComparabilityClass) -> Optional[float]:
     """The node's score under one ruler: mean of its replications there.
 
     None when the node was never measured in this class — and None never
@@ -158,8 +171,7 @@ def evidence_tier(node: Any, evaluator_id: str) -> int:
     full_eval_attempts = [
         attempt
         for attempt in getattr(node, "evaluation_attempts", [])
-        if attempt.evaluator_id == evaluator_id
-        and attempt.fidelity == "full"
+        if attempt.evaluator_id == evaluator_id and attempt.fidelity == "full"
     ]
     if not full_eval_attempts:
         return TIER_PROBE
@@ -173,8 +185,7 @@ def full_eval_score(node: Any, evaluator_id: str) -> Optional[float]:
     matching = [
         attempt
         for attempt in getattr(node, "evaluation_attempts", [])
-        if attempt.evaluator_id == evaluator_id
-        and attempt.fidelity == "full"
+        if attempt.evaluator_id == evaluator_id and attempt.fidelity == "full"
     ]
     if not matching:
         return None
@@ -254,9 +265,7 @@ class FidelitySpec:
 
     def __post_init__(self) -> None:
         if self.mode not in FIDELITY_MODES:
-            raise ValueError(
-                f"fidelity mode must be one of {sorted(FIDELITY_MODES)}"
-            )
+            raise ValueError(f"fidelity mode must be one of {sorted(FIDELITY_MODES)}")
         if self.build_fast_fraction is not None and not (
             0 < self.build_fast_fraction <= 1
         ):
@@ -272,18 +281,14 @@ class FidelitySpec:
             return cls()
         unknown = sorted(set(block) - _FIDELITY_BLOCK_KEYS)
         if unknown:
-            raise ValueError(
-                "Unknown fidelity config keys: " + ", ".join(unknown)
-            )
+            raise ValueError("Unknown fidelity config keys: " + ", ".join(unknown))
         build_block = dict(block.get("build") or {})
         eval_block = dict(block.get("eval") or {})
         kwargs: Dict[str, Any] = {
             "mode": block.get("mode", "off"),
         }
         if "min_affordable_full_runs" in block:
-            kwargs["min_affordable_full_runs"] = block[
-                "min_affordable_full_runs"
-            ]
+            kwargs["min_affordable_full_runs"] = block["min_affordable_full_runs"]
         if "fast_fraction" in build_block:
             kwargs["build_fast_fraction"] = build_block["fast_fraction"]
         if "fast_fraction" in eval_block:
@@ -366,9 +371,7 @@ class FidelityPolicy:
     @property
     def fast_eval_upper_seconds(self) -> float:
         return float(
-            self._maintainer.timing(
-                self.spec.eval_fast_fraction
-            ).upper_seconds
+            self._maintainer.timing(self.spec.eval_fast_fraction).upper_seconds
         )
 
     # -- derived arithmetic ------------------------------------------------
@@ -380,9 +383,7 @@ class FidelityPolicy:
 
     def full_champion(self, nodes: Iterable[Any]) -> Optional[Any]:
         """The committed candidate at FULL tier under the head evaluator."""
-        committed = select_committed_candidate(
-            nodes, evaluator_id=self.evaluator_id
-        )
+        committed = select_committed_candidate(nodes, evaluator_id=self.evaluator_id)
         if committed is not None and (
             evidence_tier(committed, self.evaluator_id) == TIER_FULL
         ):
@@ -408,8 +409,7 @@ class FidelityPolicy:
     def build_cap_seconds(self, time_budget_seconds: float) -> float:
         return max(
             0.0,
-            self.reserve_seconds(time_budget_seconds)
-            - self.full_eval_upper_seconds,
+            self.reserve_seconds(time_budget_seconds) - self.full_eval_upper_seconds,
         )
 
     def full_run_price_seconds(
@@ -454,9 +454,7 @@ class FidelityPolicy:
         price = probe_estimate_seconds + self.full_eval_upper_seconds
         if self.spec.build_fast_fraction is not None:
             implementation_durations = [
-                node.phase_telemetry.get("implementation", {}).get(
-                    "duration_seconds"
-                )
+                node.phase_telemetry.get("implementation", {}).get("duration_seconds")
                 for node in fast_nodes
             ]
             implementation_durations = [
@@ -517,9 +515,7 @@ class FidelityPolicy:
 
     def full_runs_used(self, nodes: Iterable[Any]) -> int:
         return sum(
-            1
-            for node in nodes
-            if evidence_tier(node, self.evaluator_id) == TIER_FULL
+            1 for node in nodes if evidence_tier(node, self.evaluator_id) == TIER_FULL
         )
 
     def calibration_pairs(self, nodes: Iterable[Any]) -> int:
@@ -557,9 +553,7 @@ class FidelityPolicy:
         """Grant this iteration's profile. Pure arithmetic; no estimation
         beyond measured uppers and the declared fractions."""
         spec = self.spec
-        build_fast = (
-            spec.build_fast_fraction is not None
-        )
+        build_fast = spec.build_fast_fraction is not None
 
         if reserve_run:
             committed = select_committed_candidate(
@@ -571,20 +565,15 @@ class FidelityPolicy:
                 build_fidelity="full",
                 eval_fidelity="full",
                 eval_fraction=1.0,
-                target_node_id=(
-                    target.node_id if target is not None else None
-                ),
+                target_node_id=(target.node_id if target is not None else None),
                 reserve_run=True,
                 reason=(
-                    "reserve run: the escrowed full-size attempt on the "
-                    "best recipe"
+                    "reserve run: the escrowed full-size attempt on the " "best recipe"
                 ),
             )
 
         fast_leader = self._fast_leader(nodes)
-        committed = select_committed_candidate(
-            nodes, evaluator_id=self.evaluator_id
-        )
+        committed = select_committed_candidate(nodes, evaluator_id=self.evaluator_id)
         leader_unvalidated = (
             fast_leader is not None
             and evidence_tier(fast_leader, self.evaluator_id) == TIER_PROBE
@@ -600,9 +589,7 @@ class FidelityPolicy:
             fast_class = self._fast_class()
             leader_score = project_score(fast_leader, fast_class)
             incumbent_score = (
-                project_score(committed, fast_class)
-                if committed is not None
-                else None
+                project_score(committed, fast_class) if committed is not None else None
             )
             clears_margin = incumbent_score is None or (
                 leader_score - incumbent_score >= spec.promotion_margin
@@ -636,8 +623,7 @@ class FidelityPolicy:
         # escrow, the pair table has earned trust, and slots remain.
         if (
             committed is not None
-            and evidence_tier(committed, self.evaluator_id)
-            == TIER_VALIDATED
+            and evidence_tier(committed, self.evaluator_id) == TIER_VALIDATED
             and remaining_after_reserve is not None
             and self._mid_campaign_full_affordable(
                 remaining_after_reserve, nodes, probe_estimate_seconds

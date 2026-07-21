@@ -13,6 +13,7 @@ import git
 
 from kapso.execution.budget import BudgetSnapshot
 from kapso.core.config import load_config
+from kapso.cross_run.settings import CrossRunSettings
 from kapso.execution.evaluation_integrity import AGENT_GENERATED
 from kapso.execution.fidelity import FULL_PASSTHROUGH
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
@@ -267,10 +268,18 @@ def test_generic_ideation_archive_memory_checkpoint_and_resume_are_one_lifecycle
     # Simulate the crash window where durable execution and outcome advance
     # after the last run checkpoint was written.
     stale_checkpoint = strategy.dump_state()
+    capture_settings = CrossRunSettings.from_dict(
+        load_config("src/kapso/config.yaml")["cross_run"]
+    ).capture
     history = ExperimentHistoryStore(
         str(workspace / ".kapso" / "experiment_history.json"),
         objective_direction="maximize",
         require_idea_links=True,
+        run_id="run_test",
+        campaign_id=strategy.ideation_campaign_id,
+        journal_path=str(workspace / ".kapso" / "execution_events.jsonl"),
+        git_command_timeout_seconds=capture_settings.git_command_timeout_seconds,
+        git_command_output_bytes=capture_settings.git_command_output_bytes,
     )
     orchestrator = SimpleNamespace(
         experiment_store=history,
@@ -293,7 +302,7 @@ def test_generic_ideation_archive_memory_checkpoint_and_resume_are_one_lifecycle
     )
     assert all(idea.embedding is not None for idea in persisted.state.ideas)
     assert record.idea_id == completed_idea.idea_id
-    assert persisted.revision > stale_checkpoint["archive_revision"]
+    assert persisted.revision > stale_checkpoint["idea_archive_snapshot"]["revision"]
 
     history = ExperimentHistoryStore(
         str(workspace / ".kapso" / "experiment_history.json"),
@@ -316,7 +325,10 @@ def test_generic_ideation_archive_memory_checkpoint_and_resume_are_one_lifecycle
     assert resumed.node_history[0].phase_telemetry == node.phase_telemetry
     assert runner.roles[-1] == "evidence_author"
     assert embedding_provider.call_count == 1
-    assert resumed.dump_state()["archive_revision"] == revision_before_reconcile
+    assert (
+        resumed.dump_state()["idea_archive_snapshot"]["revision"]
+        == revision_before_reconcile
+    )
     assert revision_before_reconcile == persisted.revision
     json.loads(
         (workspace / ".kapso" / "experiment_history.json").read_text(encoding="utf-8")

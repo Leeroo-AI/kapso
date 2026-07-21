@@ -12,6 +12,7 @@ import shutil
 import threading
 import tempfile
 from contextlib import contextmanager
+from pathlib import PurePosixPath
 from typing import Iterator, List, Optional
 
 import git
@@ -67,6 +68,7 @@ class ExperimentWorkspace:
         repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
         repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
         llm_backend=None,
+        checkpoint_path: Optional[str] = None,
     ):
         """
         Initialize the Experiment Workspace.
@@ -98,6 +100,7 @@ class ExperimentWorkspace:
             )
         )
         self.llm_backend = llm_backend
+        self.checkpoint_path = checkpoint_path
         
         # Initialize git repository.
         #
@@ -331,13 +334,22 @@ class ExperimentWorkspace:
             "sessions/*",
             "*.log",
             "!changes.log",
-            ".kapso/run_state.json",
-            ".kapso/.run_state.*.tmp",
             # Seeded repos may arrive with bytecode; once tracked it goes
             # stale on re-import and blocks every later branch checkout.
             "__pycache__/",
             "*.pyc",
         ]
+        if self.checkpoint_path is not None:
+            checkpoint = PurePosixPath(self.checkpoint_path)
+            required_lines.extend(
+                (
+                    checkpoint.as_posix(),
+                    (
+                        checkpoint.parent
+                        / f".{checkpoint.stem}.*.tmp"
+                    ).as_posix(),
+                )
+            )
 
         existing = ""
         if os.path.exists(gitignore_path):

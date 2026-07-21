@@ -58,14 +58,22 @@ cross_run:
   capture:
     state_path: ".kapso/cross_run/capture"
     quarantine_path: ".kapso/cross_run/quarantine"
+    checkpoint_path: ".kapso/run_state.json"
+    experiment_history_path: ".kapso/experiment_history.json"
     journal_filename: "execution_events.jsonl"
     bundle_asset_size_bytes: *cross_run_asset_size_bytes
+    source_entry_limit: 10000
+    git_command_timeout_seconds: 120
+    git_command_output_bytes: 67108864
     capture_interval_seconds: 300
+    quarantine_retention_generations: 1
   sanitation:
     policy_version: "kapso.sanitation.v1"
     max_file_bytes: 16777216
     allowed_suffixes: [".json", ".jsonl", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"]
-    denied_path_patterns: [".env", ".git", "auth.json", "credentials", "secrets"]
+    allowed_filenames: ["Dockerfile", "LICENSE", "Makefile", "README"]
+    allowed_spdx_licenses: ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "MIT"]
+    denied_path_patterns: [".aws", ".azure", ".bzr", ".cache", ".docker", ".dvc", ".env", ".git", ".gnupg", ".hg", ".mypy_cache", ".netrc", ".npmrc", ".pypirc", ".pytest_cache", ".ruff_cache", ".ssh", ".svn", "__pycache__", "auth.json", "cache", "caches", "checkpoints", "data", "dataset", "datasets", "evaluation", "evaluations", "evaluator", "evaluators", "hidden_eval", "hidden_evaluation", "hidden_evaluator", "kapso_datasets", "kapso_evaluation", "model_weights", "outputs", "task_outputs", "token:credential", "token:credentials", "token:secret", "token:secrets", "training_data", "weights"]
   catalog:
     state_path: ".kapso/cross_run/catalog"
     claim_proposer_cli: "codex"

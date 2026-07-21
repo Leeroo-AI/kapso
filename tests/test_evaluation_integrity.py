@@ -283,6 +283,9 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
         json_path=str(tmp_path / "history.json"),
         objective_direction="maximize",
         require_idea_links=False,
+        run_id="run_test",
+        campaign_id="campaign_test",
+        journal_path=str(tmp_path / "execution_events.jsonl"),
     )
     store.add_experiment(invalid)
     store.add_experiment(valid)

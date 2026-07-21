@@ -18,6 +18,18 @@ from kapso.execution.search_strategies.generic.ideation import new_identifier
 from test_ideation_domain import NOW
 
 
+def journaled_store(path, *, objective_direction, require_idea_links, llm=None):
+    return ExperimentHistoryStore(
+        str(path),
+        objective_direction=objective_direction,
+        require_idea_links=require_idea_links,
+        llm=llm,
+        run_id="run_test",
+        campaign_id="campaign_test",
+        journal_path=str(path.with_name("execution_events.jsonl")),
+    )
+
+
 def node(node_id, score, *, maximize=True):
     idea_id = new_identifier("idea")
     batch_id = new_identifier("batch")
@@ -55,8 +67,8 @@ def node(node_id, score, *, maximize=True):
 
 def test_strict_projection_round_trips_complete_idea_and_fidelity_lineage(tmp_path):
     path = tmp_path / "history.json"
-    store = ExperimentHistoryStore(
-        str(path),
+    store = journaled_store(
+        path,
         objective_direction="maximize",
         require_idea_links=True,
     )
@@ -105,8 +117,8 @@ def test_experiment_record_rejects_invalid_phase_telemetry():
 def test_minimize_ranking_uses_normalized_utility_and_invalid_records_do_not_rank(
     tmp_path,
 ):
-    store = ExperimentHistoryStore(
-        str(tmp_path / "history.json"),
+    store = journaled_store(
+        tmp_path / "history.json",
         objective_direction="minimize",
         require_idea_links=True,
     )
@@ -124,8 +136,8 @@ def test_minimize_ranking_uses_normalized_utility_and_invalid_records_do_not_ran
 
 
 def test_recovery_replaces_one_node_only_at_the_next_execution_revision(tmp_path):
-    store = ExperimentHistoryStore(
-        str(tmp_path / "history.json"),
+    store = journaled_store(
+        tmp_path / "history.json",
         objective_direction="maximize",
         require_idea_links=True,
     )
@@ -151,8 +163,8 @@ def test_recovery_replaces_one_node_only_at_the_next_execution_revision(tmp_path
 
 
 def test_agent_render_includes_links_but_not_external_metrics(tmp_path):
-    store = ExperimentHistoryStore(
-        str(tmp_path / "history.json"),
+    store = journaled_store(
+        tmp_path / "history.json",
         objective_direction="maximize",
         require_idea_links=True,
     )

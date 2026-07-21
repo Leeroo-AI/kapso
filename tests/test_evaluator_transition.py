@@ -26,6 +26,8 @@ from tests.test_evaluation_maintainer_wiring import (
     write_entrypoint,
 )
 from tests.test_run_checkpoint import (
+    CHECKPOINT_PATH,
+    _effective_config,
     _init_git_workspace,
     _orchestrator,
     _patch_orchestrator,
@@ -177,14 +179,16 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(tmp_path, monkeyp
 
 
 def maintainer_mode_config(config_path, mode):
-    return {
-        "ideation_profile": "DEFAULT",
-        "search_strategy": {"type": "generic", "params": {}},
-        "evaluation_maintainer": {
-            "type": "claude_code",
-            "max_change_requests": 2,
-        },
-    }
+    return _effective_config(
+        {
+            "ideation_profile": "DEFAULT",
+            "search_strategy": {"type": "generic", "params": {}},
+            "evaluation_maintainer": {
+                "type": "claude_code",
+                "max_change_requests": 2,
+            },
+        }
+    )
 
 
 def test_accepted_change_request_runs_the_full_transition(tmp_path, monkeypatch):
@@ -192,7 +196,9 @@ def test_accepted_change_request_runs_the_full_transition(tmp_path, monkeypatch)
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
 
     # One scripted agent serves both the setup and the CR call: the setup
     # call writes the entrypoint, the CR call edits it (the tree must
@@ -217,7 +223,9 @@ def test_accepted_change_request_runs_the_full_transition(tmp_path, monkeypatch)
             ),
         ),
     )
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
     orchestrator = _orchestrator(workspace)
     strategy = orchestrator.search_strategy
     strategy.next_agent_output = (
@@ -248,7 +256,7 @@ def test_accepted_change_request_runs_the_full_transition(tmp_path, monkeypatch)
         strategy.refreshed_classes[0].evaluator_id == strategy.registered_evaluator_id
     )
 
-    checkpoint = RunCheckpointStore(str(workspace)).load()
+    checkpoint = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     saved_transition = checkpoint.strategy_state["evaluator_transition"]
     assert saved_transition["status"] == "anchored"
 
@@ -258,12 +266,14 @@ def test_pending_transition_replays_idempotently_on_resume(tmp_path, monkeypatch
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
     _orchestrator(workspace).solve(experiment_max_iter=1)
 
     # Simulate a crash between registration and anchoring: rewrite the
     # checkpoint with a pending transition and stale score projections.
-    store = RunCheckpointStore(str(workspace))
+    store = RunCheckpointStore(str(workspace), CHECKPOINT_PATH)
     checkpoint = store.load()
     state = dict(checkpoint.strategy_state)
     state["scores_evaluator_id"] = "stale-head"
@@ -295,7 +305,7 @@ def test_pending_transition_replays_idempotently_on_resume(tmp_path, monkeypatch
     assert strategy.scores_evaluator_id == strategy.registered_evaluator_id
     assert len(strategy.bridge_calls) == 1
 
-    final = RunCheckpointStore(str(workspace)).load()
+    final = RunCheckpointStore(str(workspace), CHECKPOINT_PATH).load()
     assert final.strategy_state["evaluator_transition"]["status"] == "anchored"
 
 
@@ -304,10 +314,12 @@ def test_failed_bridges_anchor_an_empty_frontier(tmp_path, monkeypatch):
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
     _orchestrator(workspace).solve(experiment_max_iter=1)
 
-    store = RunCheckpointStore(str(workspace))
+    store = RunCheckpointStore(str(workspace), CHECKPOINT_PATH)
     checkpoint = store.load()
     state = dict(checkpoint.strategy_state)
     state["scores_evaluator_id"] = "stale-head"
@@ -367,7 +379,9 @@ def test_accepted_request_bridges_the_requester_first(tmp_path, monkeypatch):
             ),
         ),
     )
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
     orchestrator = _orchestrator(workspace)
     strategy = orchestrator.search_strategy
     # Iteration 1: healthy node, high score, no complaint. Iteration 2:
@@ -392,14 +406,16 @@ def test_pending_priority_replays_first_on_resume(tmp_path, monkeypatch):
     _init_git_workspace(workspace)
     _patch_orchestrator(monkeypatch)
     patch_maintainer_environment(monkeypatch, ScriptedMaintainerAgent(write_entrypoint))
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
     first = _orchestrator(workspace)
     # Node 0 scoreless, node 1 scored: without priority, replay would
     # bridge node 1 first.
     first.search_strategy.score_queue = [None, 0.5]
     first.solve(experiment_max_iter=2)
 
-    store = RunCheckpointStore(str(workspace))
+    store = RunCheckpointStore(str(workspace), CHECKPOINT_PATH)
     checkpoint = store.load()
     state = dict(checkpoint.strategy_state)
     state["scores_evaluator_id"] = "stale-head"
@@ -463,7 +479,9 @@ def test_unsound_measurement_bridges_but_tampering_never_does(tmp_path, monkeypa
             ),
         ),
     )
-    monkeypatch.setattr(orchestrator_module, "load_mode_config", maintainer_mode_config)
+    monkeypatch.setattr(
+        orchestrator_module, "load_effective_config", maintainer_mode_config
+    )
     orchestrator = _orchestrator(workspace)
     strategy = orchestrator.search_strategy
     # Iteration 1: a tampering node (integrity error). Iteration 2: the

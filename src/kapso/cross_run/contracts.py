@@ -837,6 +837,10 @@ class RunBundle(StrictContract):
             raise IncompatibleArtifactError(
                 "bundle environment uses another expert release"
             )
+        if self.artifact_environment.kapso_commit != self.kapso_commit:
+            raise IncompatibleArtifactError(
+                "bundle environment uses another Kapso commit"
+            )
         for name in (
             "checkpoint_ref",
             "execution_event_journal_ref",

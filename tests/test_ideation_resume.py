@@ -7,9 +7,11 @@ from types import SimpleNamespace
 import git
 import pytest
 
+from kapso.core.config import load_config
+from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
-from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.search_strategies.base import SearchNode, SearchStrategyConfig
 from kapso.execution.search_strategies.generic.ideation import (
     IdeaArchive,
     ResolvedParentSnapshot,
@@ -39,13 +41,45 @@ def restored_shell(workspace: Path) -> GenericSearch:
     return strategy
 
 
-def test_checkpoint_is_exact_v3_and_rejects_pre_v3_state(tmp_path):
+def test_real_generic_uses_pinned_campaign_and_rejects_resume_drift(tmp_path):
+    campaign_id = "campaign_" + "a" * 32
+    config = SearchStrategyConfig(
+        problem_handler=SimpleNamespace(),
+        llm=SimpleNamespace(),
+        coding_agent_config=CodingAgentConfig(
+            agent_type="aider",
+            model="test",
+            debug_model="test",
+        ),
+        campaign_id=campaign_id,
+        params={
+            "ideation": load_config("src/kapso/config.yaml")["ideation_profiles"][
+                "DEFAULT"
+            ]
+        },
+    )
+    workspace = tmp_path / "workspace"
+    fresh = GenericSearch(config, workspace_dir=str(workspace))
+
+    assert fresh.ideation_campaign_id == campaign_id
+    assert fresh.idea_archive.campaign_id == campaign_id
+
+    restored = GenericSearch(
+        replace(config, campaign_id="campaign_" + "b" * 32),
+        workspace_dir=str(workspace),
+        import_from_checkpoint=True,
+    )
+    with pytest.raises(ValueError, match="checkpoint campaign identity changed"):
+        restored.load_state(fresh.dump_state())
+
+
+def test_checkpoint_is_exact_v4_and_rejects_pre_v4_state(tmp_path):
     source = _strict_generic_strategy(tmp_path)
     state = source.dump_state()
 
-    assert state["schema"] == "kapso.generic_search.v3"
+    assert state["schema"] == "kapso.generic_search.v4"
     assert state["campaign_id"] == CAMPAIGN_ID
-    assert state["archive_revision"] == 5
+    assert state["idea_archive_snapshot"]["revision"] == 5
     assert state["active_batch_id"] == BATCH_ID
 
     legacy = dict(state)
@@ -58,7 +92,8 @@ def test_checkpoint_rejects_missing_archive_and_archive_behind(tmp_path):
     source = _strict_generic_strategy(tmp_path)
     valid_state = source.dump_state()
     state = dict(valid_state)
-    state["archive_revision"] += 1
+    state["idea_archive_snapshot"] = dict(state["idea_archive_snapshot"])
+    state["idea_archive_snapshot"]["revision"] += 1
     with pytest.raises(ValueError, match="behind"):
         restored_shell(tmp_path).load_state(state)
 
@@ -170,6 +205,9 @@ def experiment_store(workspace: Path) -> ExperimentHistoryStore:
         str(workspace / "experiments.json"),
         objective_direction="maximize",
         require_idea_links=True,
+        run_id="run_test",
+        campaign_id="campaign_test",
+        journal_path=str(workspace / "execution_events.jsonl"),
     )
 
 
@@ -224,6 +262,7 @@ def test_newer_recovery_record_replaces_stale_recoverable_checkpoint_node(tmp_pa
         )
     ]
     store = experiment_store(Path(strategy.workspace_dir))
+    store.add_experiment(stale)
     store.add_experiment(recovered)
 
     strategy.reconcile_experiment_memory(store)

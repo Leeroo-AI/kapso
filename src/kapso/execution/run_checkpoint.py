@@ -8,7 +8,7 @@ import math
 import os
 import tempfile
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Optional
 
 
@@ -281,13 +281,19 @@ class RunCheckpoint:
 
 
 class RunCheckpointStore:
-    """Read and atomically replace ``.kapso/run_state.json``."""
+    """Read and atomically replace one configured workspace checkpoint."""
 
-    RELATIVE_PATH = Path(".kapso") / "run_state.json"
-
-    def __init__(self, workspace_dir: str):
+    def __init__(self, workspace_dir: str, relative_path: str):
         self.workspace_dir = Path(workspace_dir)
-        self.path = self.workspace_dir / self.RELATIVE_PATH
+        normalized = PurePosixPath(relative_path)
+        if (
+            normalized.is_absolute()
+            or normalized == PurePosixPath(".")
+            or ".." in normalized.parts
+            or normalized.as_posix() != relative_path
+        ):
+            raise ValueError("run checkpoint path must be normalized and relative")
+        self.path = self.workspace_dir / normalized
 
     def exists(self) -> bool:
         return self.path.is_file()
@@ -310,7 +316,7 @@ class RunCheckpointStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temp_path = tempfile.mkstemp(
             dir=str(self.path.parent),
-            prefix=".run_state.",
+            prefix=f".{self.path.stem}.",
             suffix=".tmp",
         )
         try:

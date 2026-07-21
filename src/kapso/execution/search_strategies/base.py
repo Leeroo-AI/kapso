@@ -393,6 +393,8 @@ class SearchStrategyConfig:
     problem_handler: ProblemHandler
     llm: LLMBackend
     coding_agent_config: CodingAgentConfig
+    campaign_id: Optional[str] = None
+    checkpoint_path: Optional[str] = None
     # Strategy-specific params (from YAML config)
     params: Dict[str, Any] = field(default_factory=dict)
     # Optional: start experiments from an existing local repo (copy/clone into workspace)
@@ -508,6 +510,7 @@ class SearchStrategy(ABC):
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
             llm_backend=self.llm,
+            checkpoint_path=config.checkpoint_path,
         )
 
         # Setup kapso directories (eval_dir -> kapso_evaluation/, data_dir -> kapso_datasets/)
