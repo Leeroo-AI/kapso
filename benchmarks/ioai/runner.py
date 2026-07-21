@@ -72,13 +72,18 @@ def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
 
 
 def build_runtime_config(mode: str, coding_model: "str | None",
-                         task_dir: str, session_timeouts: dict) -> str:
+                         task_dir: str, session_timeouts: dict,
+                         shared_cache_dir: "str | None" = None) -> str:
     """Write the per-run config: shaped session deadlines + model override."""
     with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f)
     mode_cfg = config["modes"][mode]
     params = mode_cfg["search_strategy"]["params"]
     params.update(session_timeouts)
+    if shared_cache_dir:
+        # Persistent task-level cache: artifacts (and their registry offer)
+        # carry across campaigns instead of dying with the workspace.
+        params["shared_cache_dir"] = os.path.abspath(shared_cache_dir)
     if coding_model:
         params["idea_generation_model"] = coding_model
         params["implementation_model"] = coding_model
@@ -182,6 +187,10 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-final-eval", action="store_true")
     parser.add_argument("--final-eval-only", action="store_true")
+    parser.add_argument("--shared-cache-dir", default=None,
+                        help="Persistent task-level shared cache (artifact "
+                             "registry offers carry across campaigns); "
+                             "default keeps the per-campaign cache")
     parser.add_argument("--task-python", default=sys.executable,
                         help="Python with the task's ML stack (torch/"
                              "transformers) used to run evaluate.py; kapso "
@@ -229,7 +238,8 @@ def main():
         print("WARNING: OPENAI_API_KEY is not set — utility-LLM roles will fail")
 
     config_path = build_runtime_config(args.mode, args.coding_model, task_dir,
-                                       session_timeouts)
+                                       session_timeouts,
+                                       shared_cache_dir=args.shared_cache_dir)
 
     print(f"root={root}")
     print(f"budget={budget_minutes} min (guard={guard_minutes} min, "

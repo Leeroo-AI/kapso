@@ -48,16 +48,6 @@ modes:
             model: "claude-fable-5"
             effort: "xhigh"
             lens: "engineering & measurement first — oracle-replica fidelity, real-vs-mock validation, robustness to oracle bit-flips"
-          # GLM 5.2 via Fireworks' Anthropic-compatible endpoint (probe-verified
-          # 2026-07-21: model id + bearer auth + tool loop work; --effort max
-          # measurably deepens GLM's native thinking). Needs FIREWORKS_API_KEY
-          # in the run env.
-          - cli: "oss_claude_code"
-            model: "accounts/fireworks/models/glm-5p2"
-            effort: "max"
-            base_url: "https://api.fireworks.ai/inference"
-            auth_token_env: "FIREWORKS_API_KEY"
-            lens: "adversarial & held-out-generalization first — where the leading approach breaks on unseen inputs, and which metric levers others under-exploit"
         ideation_selector:
           cli: "claude_code"
           model: "claude-opus-4-8"
