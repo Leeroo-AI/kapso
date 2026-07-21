@@ -11,6 +11,7 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
     CodingAgentCallRunner,
+    CodingAgentWorkspacePolicy,
 )
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import (
@@ -354,6 +355,7 @@ class EvidenceAuthor:
                 model=self.settings.model,
                 prompt=prompt,
                 workspace=workspace,
+                workspace_policy=CodingAgentWorkspacePolicy.read_only(),
                 timeout_seconds=self.settings.timeout_seconds,
                 effort=self.settings.effort,
                 allowed_tools=self.settings.allowed_tools,

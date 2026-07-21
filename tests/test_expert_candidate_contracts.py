@@ -162,9 +162,7 @@ def test_source_tree_rejects_file_directory_collision():
             size=len("child-file"),
         ),
     )
-    tree_hash = source_tree_digest(
-        {file.relative_path: (file.digest, file.mode, file.size) for file in files}
-    )
+    tree_hash = digest("intentionally-colliding-source-tree")
 
     with pytest.raises(ContractValidationError, match="file/directory collision"):
         ExpertSourceTreeManifest.mint(tree_hash=tree_hash, files=files)

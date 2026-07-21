@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Mapping
 
+from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
 from kapso.cross_run.canonical import source_tree_digest, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
@@ -206,6 +207,7 @@ class ExpertCandidateValidator:
             or receipt.cli != agent.cli
             or receipt.model != agent.model
             or receipt.effort != agent.effort
+            or receipt.workspace_access is not CodingAgentWorkspaceAccess.EDIT_WORKSPACE
         ):
             raise ExpertCandidateValidationError(
                 "candidate operation lacks configured proposer authority"

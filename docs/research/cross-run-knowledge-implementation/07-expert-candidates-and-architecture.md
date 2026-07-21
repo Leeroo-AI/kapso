@@ -4,9 +4,9 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M1, M2, and M5.
 
-Status: **Trigger/materialization, candidate closure/book, and immutable candidate
-store planes independently approved; isolated workspaces and coding-agent
-proposers remain.**
+Status: **Trigger/materialization, candidate closure/book, immutable candidate
+store, and replayable coding-agent workspace-edit boundary independently approved;
+candidate parent construction and proposers remain.**
 
 ## Objective
 
@@ -36,6 +36,10 @@ src/kapso/cross_run/expert/
   candidates.py
   book.py
   store.py
+
+src/kapso/execution/coding_agents/
+  structured_call.py
+  workspace_delta.py
 
 src/kapso/cross_run/prompts/
   expert_repo_bootstrap.md
@@ -103,7 +107,8 @@ workspace and proposes:
 - [ ] Do not scaffold speculative empty task-family subsystems.
 - [ ] Do not include datasets, weights, experiment memory, logs, hidden evaluation,
       Git history, benchmark answers, or identity-specific defaults.
-- [ ] Preserve complete invocation artifacts and CLI/model/tool provenance.
+- [x] Preserve complete invocation artifacts and CLI/model/tool provenance,
+      including explicit read/edit authority and the exact workspace delta.
 - [ ] Treat output as a quarantined `repository_architecture` candidate, never E0.
 
 ## Later repository restructuring
@@ -124,7 +129,8 @@ workspace and proposes:
 `GeneralizationProposer` receives one trigger, parent release, selected candidate
 ancestors, and a proof-closed knowledge packet.
 
-- [ ] Use the existing coding-agent runner; no direct generative API.
+- [x] Extend the existing coding-agent runner with explicit edit authority; no
+      direct generative API.
 - [ ] Ask for the smallest task-general patch and complete module-contract update.
 - [ ] Preserve known failures, preconditions, exclusions, resource bounds,
       dependencies/licenses, tests, replay refs, and evidence IDs.
@@ -136,6 +142,14 @@ ancestors, and a proof-closed knowledge packet.
 ## Candidate store and manifest
 
 - [ ] Create an isolated candidate workspace from the exact parent tree hash.
+- [x] Serialize edits as a canonical create/modify/delete delta bound to both exact
+      parent and edited tree hashes; validate and replay it without relying on
+      subprocess side effects.
+- [x] Lease a workspace across baseline inspection, CLI execution, and delta
+      sealing so distinct operation IDs cannot race on one tree.
+- [x] Bind cached results to exact invocation, `final.json`, audit, artifact set,
+      and workspace delta; reject partial, public, linked, or substituted
+      artifacts.
 - [ ] Compute patch, full candidate tree hash, module-contract refs, proposed
       repository-map ref, dependencies, lineage, source evidence, sanitation report,
       and coding-agent provenance.
@@ -180,6 +194,9 @@ ancestors, and a proof-closed knowledge packet.
 - Prove concurrent first construction, concurrent identical persistence,
   noncanonical commit records, checksum changes, hardlinks, symlinks, FIFOs, and
   public package modes cannot expose an invalid candidate.
+- Prove editable calls reject wrong parents, symlinks, hardlinks, special files,
+  oversize trees, path collisions, cross-operation workspace races, and tampered
+  cached output/deltas.
 
 ## Definition of done
 

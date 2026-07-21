@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.iteration_evaluator import (
@@ -127,6 +128,8 @@ class PacketRunner:
             output=json.dumps(output),
             duration_seconds=1.5,
             cost_usd=None,
+            final_output_digest=tree_or_blob_digest(json.dumps(output).encode("utf-8")),
+            workspace_delta_digest=None,
             input_tokens=20,
             output_tokens=10,
             artifacts=("/tmp/evidence-author/final.json",),
@@ -395,6 +398,8 @@ def test_evidence_author_telemetry_accumulates_across_same_node_recovery():
         output="{}",
         duration_seconds=1.5,
         cost_usd=0.25,
+        final_output_digest=tree_or_blob_digest(b"{}"),
+        workspace_delta_digest=None,
         input_tokens=20,
         output_tokens=10,
         artifacts=("/tmp/evidence-author/final.json",),

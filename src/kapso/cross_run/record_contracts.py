@@ -16,6 +16,7 @@ from kapso.cross_run.canonical import (
     require_identifier,
     tree_or_blob_digest,
 )
+from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
 from kapso.cross_run.contracts import (
     CodingAgentOperationReceipt,
     ContractValidationError,
@@ -119,6 +120,8 @@ class CatalogAgentOperationRecord(StrictContract):
     def validate_receipt(self, receipt: CodingAgentOperationReceipt) -> None:
         if receipt.operation_receipt_id != self.operation_receipt_id:
             raise CatalogAgentOperationError("operation receipt identity differs")
+        if receipt.workspace_access is not CodingAgentWorkspaceAccess.READ_ONLY:
+            raise CatalogAgentOperationError("catalog agent receipt is not read-only")
         require_identifier(receipt.operation_id, "operation_id")
         if catalog_agent_operation_id(self.operation_preimage) != receipt.operation_id:
             raise CatalogAgentOperationError(

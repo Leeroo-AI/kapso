@@ -5,10 +5,12 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.core.embeddings import EmbeddingRecord, EmbeddingTelemetry
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
+    CodingAgentWorkspacePolicy,
 )
 from kapso.execution.search_strategies.generic.ideation import (
     AnalyzedCandidate,
@@ -69,6 +71,8 @@ def coding_agent_call(output: str = "{}") -> CodingAgentCallResult:
         output=output,
         duration_seconds=1.0,
         cost_usd=0.25,
+        final_output_digest=tree_or_blob_digest(output.encode("utf-8")),
+        workspace_delta_digest=None,
         input_tokens=10,
         output_tokens=5,
     )
@@ -338,6 +342,7 @@ def test_every_record_round_trips_through_its_strict_parser():
             model="gpt-5",
             prompt="Full prompt",
             workspace="/workspace",
+            workspace_policy=CodingAgentWorkspacePolicy.read_only(),
             timeout_seconds=30.0,
             effort="high",
             allowed_tools=("Read",),
@@ -346,6 +351,8 @@ def test_every_record_round_trips_through_its_strict_parser():
             output='{"ideas": []}',
             duration_seconds=2.0,
             cost_usd=None,
+            final_output_digest=tree_or_blob_digest(b'{"ideas": []}'),
+            workspace_delta_digest=None,
             input_tokens=10,
             output_tokens=5,
             artifacts=("result.json",),

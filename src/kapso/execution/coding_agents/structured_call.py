@@ -1,4 +1,4 @@
-"""Durable, fail-loud boundary for structured read-only coding-agent calls."""
+"""Durable, fail-loud boundary for structured coding-agent calls."""
 
 import fcntl
 import json
@@ -17,24 +17,34 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.contracts import CodingAgentWorkspaceDelta
 from kapso.cross_run.knowledge.access import (
     PriorKnowledgeAccess,
     PriorKnowledgeAccessMaterialization,
 )
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES as _ARTIFACT_FILENAMES,
     CODING_AGENT_INPUT_ARTIFACT_FILENAMES as _INPUT_FILENAMES,
-    CODING_AGENT_OUTPUT_ARTIFACT_FILENAMES as _OUTPUT_FILENAMES,
     CODING_AGENT_RESULT_FILENAME as _RESULT_FILENAME,
+    CODING_AGENT_WORKSPACE_DELTA_FILENAME,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
+    coding_agent_output_artifact_filenames,
+    coding_agent_returned_artifact_filenames,
 )
 from kapso.execution.coding_agents.credential_environment import (
     coding_agent_credential_environment,
+)
+from kapso.execution.coding_agents.workspace_delta import (
+    CodingAgentWorkspaceSnapshot,
+    build_coding_agent_workspace_delta,
+    inspect_coding_agent_workspace,
+    validate_coding_agent_workspace_delta,
 )
 
 _OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _EMPTY_MCP_AUDIT_DIGEST = tree_or_blob_digest(b"")
 _CREDENTIAL_ENVIRONMENT_POLICY_VERSION = "kapso.coding_agent_credentials.v1"
-_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_read.v1"
+_FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_workspace.v2"
 _MCP_AUDIT_POLICY_VERSION = "kapso.mcp_audit.v1"
 _SENSITIVE_HOME_PATHS = (
     "~/.aws",
@@ -69,6 +79,12 @@ def _require_optional_string(value: Any, name: str) -> str | None:
 def _require_nonnegative_integer(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{name} must be a non-negative integer")
+    return value
+
+
+def _require_positive_integer(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
     return value
 
 
@@ -144,6 +160,99 @@ def _validate_coding_agent_workspace(value: str) -> Path:
 
 
 @dataclass(frozen=True)
+class CodingAgentWorkspacePolicy:
+    """Required authority and exact-tree limits for one agent workspace."""
+
+    access: CodingAgentWorkspaceAccess
+    expected_tree_hash: str | None
+    maximum_entries: int | None
+    maximum_bytes: int | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.access, CodingAgentWorkspaceAccess):
+            raise ValueError("coding-agent workspace access is invalid")
+        if self.access is CodingAgentWorkspaceAccess.READ_ONLY:
+            if any(
+                value is not None
+                for value in (
+                    self.expected_tree_hash,
+                    self.maximum_entries,
+                    self.maximum_bytes,
+                )
+            ):
+                raise ValueError(
+                    "read-only coding-agent workspace cannot declare edit limits"
+                )
+            return
+        if (
+            not isinstance(self.expected_tree_hash, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.expected_tree_hash) is None
+        ):
+            raise ValueError(
+                "editable coding-agent workspace requires an exact tree hash"
+            )
+        _require_positive_integer(
+            self.maximum_entries,
+            "coding-agent workspace maximum entries",
+        )
+        _require_positive_integer(
+            self.maximum_bytes,
+            "coding-agent workspace maximum bytes",
+        )
+
+    @classmethod
+    def read_only(cls) -> "CodingAgentWorkspacePolicy":
+        return cls(
+            access=CodingAgentWorkspaceAccess.READ_ONLY,
+            expected_tree_hash=None,
+            maximum_entries=None,
+            maximum_bytes=None,
+        )
+
+    @classmethod
+    def edit_workspace(
+        cls,
+        *,
+        expected_tree_hash: str,
+        maximum_entries: int,
+        maximum_bytes: int,
+    ) -> "CodingAgentWorkspacePolicy":
+        return cls(
+            access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
+            expected_tree_hash=expected_tree_hash,
+            maximum_entries=maximum_entries,
+            maximum_bytes=maximum_bytes,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "access": self.access.value,
+            "expected_tree_hash": self.expected_tree_hash,
+            "maximum_entries": self.maximum_entries,
+            "maximum_bytes": self.maximum_bytes,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CodingAgentWorkspacePolicy":
+        values = _require_exact_fields(
+            payload,
+            {
+                "access",
+                "expected_tree_hash",
+                "maximum_entries",
+                "maximum_bytes",
+            },
+            "coding-agent workspace policy",
+        )
+        return cls(
+            access=CodingAgentWorkspaceAccess(values["access"]),
+            expected_tree_hash=values["expected_tree_hash"],
+            maximum_entries=values["maximum_entries"],
+            maximum_bytes=values["maximum_bytes"],
+        )
+
+
+@dataclass(frozen=True)
 class CodingAgentCallRequest:
     """Complete immutable input to one structured coding-agent operation."""
 
@@ -153,6 +262,7 @@ class CodingAgentCallRequest:
     model: str
     prompt: str
     workspace: str
+    workspace_policy: CodingAgentWorkspacePolicy
     timeout_seconds: float
     effort: str | None = None
     allowed_tools: tuple[str, ...] = ()
@@ -172,6 +282,8 @@ class CodingAgentCallRequest:
         _require_nonempty_string(self.model, "coding-agent model")
         _require_nonempty_string(self.prompt, "coding-agent prompt")
         _coding_agent_workspace_path(self.workspace)
+        if not isinstance(self.workspace_policy, CodingAgentWorkspacePolicy):
+            raise ValueError("coding-agent workspace policy is invalid")
         timeout = _require_nonnegative_number(
             self.timeout_seconds,
             "coding-agent timeout",
@@ -201,6 +313,7 @@ class CodingAgentCallRequest:
             "model": self.model,
             "prompt": self.prompt,
             "workspace": self.workspace,
+            "workspace_policy": self.workspace_policy.to_dict(),
             "timeout_seconds": self.timeout_seconds,
             "effort": self.effort,
             "allowed_tools": list(self.allowed_tools),
@@ -220,6 +333,7 @@ class CodingAgentCallRequest:
                 "model",
                 "prompt",
                 "workspace",
+                "workspace_policy",
                 "timeout_seconds",
                 "effort",
                 "allowed_tools",
@@ -234,6 +348,9 @@ class CodingAgentCallRequest:
             model=values["model"],
             prompt=values["prompt"],
             workspace=values["workspace"],
+            workspace_policy=CodingAgentWorkspacePolicy.from_dict(
+                values["workspace_policy"]
+            ),
             timeout_seconds=values["timeout_seconds"],
             effort=values["effort"],
             allowed_tools=values["allowed_tools"],
@@ -254,6 +371,8 @@ class CodingAgentCallResult:
     output: str
     duration_seconds: float
     cost_usd: float | None
+    final_output_digest: str
+    workspace_delta_digest: str | None
     input_tokens: int | None = None
     output_tokens: int | None = None
     artifacts: tuple[str, ...] = ()
@@ -269,6 +388,16 @@ class CodingAgentCallResult:
         )
         if self.cost_usd is not None:
             _require_nonnegative_number(self.cost_usd, "coding-agent cost")
+        if (
+            not isinstance(self.final_output_digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.final_output_digest) is None
+        ):
+            raise ValueError("coding-agent final output digest is invalid")
+        if self.workspace_delta_digest is not None and (
+            not isinstance(self.workspace_delta_digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.workspace_delta_digest) is None
+        ):
+            raise ValueError("coding-agent workspace delta digest is invalid")
         if self.input_tokens is not None:
             _require_nonnegative_integer(
                 self.input_tokens,
@@ -304,6 +433,8 @@ class CodingAgentCallResult:
             "output": self.output,
             "duration_seconds": self.duration_seconds,
             "cost_usd": self.cost_usd,
+            "final_output_digest": self.final_output_digest,
+            "workspace_delta_digest": self.workspace_delta_digest,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "artifacts": list(self.artifacts),
@@ -319,6 +450,8 @@ class CodingAgentCallResult:
                 "output",
                 "duration_seconds",
                 "cost_usd",
+                "final_output_digest",
+                "workspace_delta_digest",
                 "input_tokens",
                 "output_tokens",
                 "artifacts",
@@ -331,6 +464,8 @@ class CodingAgentCallResult:
             output=values["output"],
             duration_seconds=values["duration_seconds"],
             cost_usd=values["cost_usd"],
+            final_output_digest=values["final_output_digest"],
+            workspace_delta_digest=values["workspace_delta_digest"],
             input_tokens=values["input_tokens"],
             output_tokens=values["output_tokens"],
             artifacts=values["artifacts"],
@@ -345,7 +480,7 @@ class CodingAgentCallRunner(Protocol):
         request: CodingAgentCallRequest,
         response_schema: Mapping[str, Any],
     ) -> CodingAgentCallResult:
-        """Run one complete, structured, read-only agent invocation."""
+        """Run one complete structured agent invocation."""
 
 
 @dataclass(frozen=True)
@@ -379,6 +514,60 @@ class CodingAgentRunnerSettings:
             )
 
 
+class _CodingAgentWorkspaceLease:
+    """Exclusive lease for one private editable workspace path."""
+
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+        self.handle = None
+
+    def __enter__(self):
+        parent = self.workspace.parent
+        parent_metadata = parent.stat(follow_symlinks=False)
+        if (
+            parent.is_symlink()
+            or not stat.S_ISDIR(parent_metadata.st_mode)
+            or parent_metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+        ):
+            raise CodingAgentInvocationError(
+                "editable coding-agent workspace parent must be private"
+            )
+        lease_digest = tree_or_blob_digest(str(self.workspace).encode("utf-8"))[7:39]
+        lease_name = f".kapso-workspace-{lease_digest}.lock"
+        with ExitStack() as descriptors:
+            parent_descriptor = os.open(
+                parent,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            descriptors.callback(os.close, parent_descriptor)
+            lease_descriptor = os.open(
+                lease_name,
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=parent_descriptor,
+            )
+        self.handle = os.fdopen(lease_descriptor, "r+b")
+        metadata = os.fstat(self.handle.fileno())
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+        ):
+            self.handle.close()
+            self.handle = None
+            raise CodingAgentInvocationError(
+                "coding-agent workspace lease must be a private independent file"
+            )
+        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, exception_type, exception, traceback):
+        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        self.handle.close()
+        self.handle = None
+        return False
+
+
 class SubprocessCodingAgentCallRunner:
     """Invoke Codex or Claude Code through a locked immutable operation identity."""
 
@@ -403,6 +592,10 @@ class SubprocessCodingAgentCallRunner:
             if request.cli == "codex"
             else {"Read", "Glob", "Grep", "WebSearch"}
         )
+        if request.workspace_policy.access is (
+            CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+        ):
+            supported_tools |= {"Edit", "Write"}
         if not set(request.allowed_tools).issubset(supported_tools):
             raise ValueError("coding-agent request contains an unsupported tool")
         schema_text = (
@@ -418,6 +611,7 @@ class SubprocessCodingAgentCallRunner:
                     "timeout_seconds": request.timeout_seconds,
                     "effort": request.effort,
                     "allowed_tools": list(request.allowed_tools),
+                    "workspace_policy": request.workspace_policy.to_dict(),
                     "credential_environment_policy_version": (
                         _CREDENTIAL_ENVIRONMENT_POLICY_VERSION
                     ),
@@ -445,6 +639,10 @@ class SubprocessCodingAgentCallRunner:
         )
         artifact_root = self._prepare_artifact_root()
         with ExitStack() as descriptors:
+            if request.workspace_policy.access is (
+                CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            ):
+                descriptors.enter_context(_CodingAgentWorkspaceLease(workspace))
             root_descriptor = os.open(
                 artifact_root,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
@@ -457,10 +655,14 @@ class SubprocessCodingAgentCallRunner:
                 dir_fd=root_descriptor,
             )
             lock_status = os.fstat(lock_descriptor)
-            if not stat.S_ISREG(lock_status.st_mode):
+            if (
+                not stat.S_ISREG(lock_status.st_mode)
+                or lock_status.st_nlink != 1
+                or lock_status.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+            ):
                 os.close(lock_descriptor)
                 raise CodingAgentInvocationError(
-                    "coding-agent operation lock must be a regular file"
+                    "coding-agent operation lock must be a private independent file"
                 )
             lock_handle = os.fdopen(lock_descriptor, "r+b")
             descriptors.enter_context(lock_handle)
@@ -485,7 +687,7 @@ class SubprocessCodingAgentCallRunner:
             artifact_root,
             require_complete=False,
         )
-        artifact_root.mkdir(parents=True, exist_ok=True)
+        artifact_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._validate_artifact_root_components(
             artifact_root,
             require_complete=True,
@@ -527,6 +729,12 @@ class SubprocessCodingAgentCallRunner:
                     dir_fd=current_descriptor,
                 )
                 descriptors.callback(os.close, current_descriptor)
+            if require_complete:
+                final_status = os.fstat(current_descriptor)
+                if final_status.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID):
+                    raise CodingAgentInvocationError(
+                        "coding-agent artifact root must be private"
+                    )
 
     @staticmethod
     def _open_operation_directory(
@@ -540,18 +748,27 @@ class SubprocessCodingAgentCallRunner:
                 dir_fd=root_descriptor,
                 follow_symlinks=False,
             )
-            if not stat.S_ISDIR(status.st_mode):
+            if not stat.S_ISDIR(status.st_mode) or status.st_mode & (
+                0o077 | stat.S_ISUID | stat.S_ISGID
+            ):
                 raise CodingAgentInvocationError(
-                    "coding-agent operation path must be a directory"
+                    "coding-agent operation path must be a private directory"
                 )
         else:
             os.mkdir(operation_id, mode=0o700, dir_fd=root_descriptor)
             os.fsync(root_descriptor)
-        return os.open(
+        descriptor = os.open(
             operation_id,
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
             dir_fd=root_descriptor,
         )
+        opened = os.fstat(descriptor)
+        if opened.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID):
+            os.close(descriptor)
+            raise CodingAgentInvocationError(
+                "coding-agent operation path must be a private directory"
+            )
+        return descriptor
 
     def _run_locked(
         self,
@@ -605,7 +822,13 @@ class SubprocessCodingAgentCallRunner:
                 artifact_directory,
                 request,
             )
-        for filename in _OUTPUT_FILENAMES:
+        baseline = self._inspect_editable_workspace(request)
+        recoverable_outputs = {
+            filename
+            for access in CodingAgentWorkspaceAccess
+            for filename in coding_agent_output_artifact_filenames(access)
+        }
+        for filename in recoverable_outputs:
             if filename in set(os.listdir(operation_descriptor)):
                 self._remove_regular_file(operation_descriptor, filename)
         self._write_atomic_text(
@@ -616,6 +839,8 @@ class SubprocessCodingAgentCallRunner:
         schema_path = artifact_directory / "response_schema.json"
         final_path = artifact_directory / "final.json"
         mcp_config_path = artifact_directory / "mcp_config.json"
+        if request.cli == "codex":
+            self._write_atomic_text(operation_descriptor, "final.json", "")
         command = self._command(
             request,
             schema_text,
@@ -666,13 +891,43 @@ class SubprocessCodingAgentCallRunner:
             self._write_atomic_text(
                 operation_descriptor,
                 "final.json",
-                output + "\n",
+                output,
             )
-        artifacts = self._artifact_paths(artifact_directory)
+        workspace_delta_digest = None
+        if baseline is not None:
+            edited = self._inspect_editable_workspace(request, require_baseline=False)
+            if edited is None:
+                raise CodingAgentInvocationError(
+                    "editable coding-agent workspace produced no observation"
+                )
+            delta = build_coding_agent_workspace_delta(baseline, edited)
+            validate_coding_agent_workspace_delta(baseline, delta)
+            delta_payload = delta.to_json_bytes()
+            self._write_atomic_text(
+                operation_descriptor,
+                CODING_AGENT_WORKSPACE_DELTA_FILENAME,
+                delta_payload.decode("utf-8"),
+            )
+            workspace_delta_digest = tree_or_blob_digest(delta_payload)
+        final_output = self._read_regular_text(
+            operation_descriptor,
+            "final.json",
+        )
+        if final_output != output:
+            raise CodingAgentInvocationError(
+                "coding-agent parsed output conflicts with final artifact"
+            )
+        final_output_digest = tree_or_blob_digest(final_output.encode("utf-8"))
+        artifacts = self._artifact_paths(
+            artifact_directory,
+            request.workspace_policy.access,
+        )
         result = CodingAgentCallResult(
             output=output,
             duration_seconds=duration,
             cost_usd=cost_usd,
+            final_output_digest=final_output_digest,
+            workspace_delta_digest=workspace_delta_digest,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             artifacts=artifacts,
@@ -687,9 +942,16 @@ class SubprocessCodingAgentCallRunner:
         return result
 
     @staticmethod
-    def _validate_and_recover_operation_directory(descriptor: int) -> None:
-        allowed = set(_ARTIFACT_FILENAMES)
-        temporary = {f".{filename}.tmp" for filename in _ARTIFACT_FILENAMES}
+    def _validate_and_recover_operation_directory(
+        descriptor: int,
+    ) -> None:
+        artifact_filenames = {
+            filename
+            for access in CodingAgentWorkspaceAccess
+            for filename in coding_agent_artifact_filenames(access)
+        }
+        allowed = set(artifact_filenames)
+        temporary = {f".{filename}.tmp" for filename in artifact_filenames}
         entries = set(os.listdir(descriptor))
         unknown = tuple(sorted(entries - allowed - temporary))
         if unknown:
@@ -703,24 +965,41 @@ class SubprocessCodingAgentCallRunner:
             )
 
     @staticmethod
-    def _require_regular_file(descriptor: int, filename: str) -> None:
+    def _require_regular_file(descriptor: int, filename: str) -> os.stat_result:
         status = os.stat(filename, dir_fd=descriptor, follow_symlinks=False)
-        if not stat.S_ISREG(status.st_mode):
+        if (
+            not stat.S_ISREG(status.st_mode)
+            or status.st_nlink != 1
+            or status.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+        ):
             raise CodingAgentInvocationError(
-                f"coding-agent artifact must be a regular file: {filename}"
+                "coding-agent artifact must be a private independent file: "
+                f"{filename}"
             )
+        return status
 
     @staticmethod
     def _read_regular_text(descriptor: int, filename: str) -> str:
-        SubprocessCodingAgentCallRunner._require_regular_file(descriptor, filename)
+        status = SubprocessCodingAgentCallRunner._require_regular_file(
+            descriptor, filename
+        )
         file_descriptor = os.open(
             filename,
-            os.O_RDONLY | os.O_NOFOLLOW,
+            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
             dir_fd=descriptor,
         )
         with os.fdopen(file_descriptor, "r", encoding="utf-8") as handle:
+            opened = os.fstat(handle.fileno())
+            if (
+                (opened.st_dev, opened.st_ino) != (status.st_dev, status.st_ino)
+                or not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened.st_mode & (0o077 | stat.S_ISUID | stat.S_ISGID)
+            ):
+                raise CodingAgentInvocationError(
+                    f"coding-agent artifact changed during read: {filename}"
+                )
             text = handle.read()
-            os.fsync(handle.fileno())
             return text
 
     @staticmethod
@@ -762,11 +1041,31 @@ class SubprocessCodingAgentCallRunner:
         artifact_directory: Path,
         request: CodingAgentCallRequest,
     ) -> CodingAgentCallResult:
-        for filename in _INPUT_FILENAMES + _OUTPUT_FILENAMES + (_RESULT_FILENAME,):
+        workspace_access = request.workspace_policy.access
+        if set(os.listdir(operation_descriptor)) != set(
+            coding_agent_artifact_filenames(workspace_access)
+        ):
+            raise CodingAgentInvocationError(
+                "completed coding-agent operation has a conflicting artifact set"
+            )
+        for filename in coding_agent_artifact_filenames(workspace_access):
             self._require_regular_file(operation_descriptor, filename)
         result = CodingAgentCallResult.from_dict(
             json.loads(self._read_regular_text(operation_descriptor, _RESULT_FILENAME))
         )
+        final_output = self._read_regular_text(
+            operation_descriptor,
+            "final.json",
+        )
+        final_output_digest = tree_or_blob_digest(final_output.encode("utf-8"))
+        if result.final_output_digest != final_output_digest:
+            raise CodingAgentInvocationError(
+                "cached coding-agent final output conflicts with result"
+            )
+        if result.output != final_output:
+            raise CodingAgentInvocationError(
+                "cached coding-agent parsed output conflicts with final artifact"
+            )
         audit_event_count, audit_digest = self._validate_mcp_audit(
             request,
             self._read_regular_text(operation_descriptor, "mcp_audit.jsonl"),
@@ -778,18 +1077,75 @@ class SubprocessCodingAgentCallRunner:
             raise CodingAgentInvocationError(
                 "cached coding-agent MCP audit conflicts with completed result"
             )
-        if result.artifacts != self._artifact_paths(artifact_directory):
+        if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE:
+            delta_payload = self._read_regular_text(
+                operation_descriptor,
+                CODING_AGENT_WORKSPACE_DELTA_FILENAME,
+            ).encode("utf-8")
+            if result.workspace_delta_digest != tree_or_blob_digest(delta_payload):
+                raise CodingAgentInvocationError(
+                    "cached coding-agent workspace delta conflicts with result"
+                )
+            delta = CodingAgentWorkspaceDelta.from_json_bytes(delta_payload)
+            if delta.to_json_bytes() != delta_payload:
+                raise CodingAgentInvocationError(
+                    "cached coding-agent workspace delta is not canonical"
+                )
+            observed = self._inspect_editable_workspace(
+                request,
+                require_baseline=False,
+            )
+            if observed is None:
+                raise CodingAgentInvocationError(
+                    "editable coding-agent workspace produced no observation"
+                )
+            if delta.baseline_tree_hash != request.workspace_policy.expected_tree_hash:
+                raise CodingAgentInvocationError(
+                    "cached coding-agent workspace delta names another baseline"
+                )
+            validate_coding_agent_workspace_delta(observed, delta)
+        elif result.workspace_delta_digest is not None:
+            raise CodingAgentInvocationError(
+                "read-only coding-agent result names a workspace delta"
+            )
+        if result.artifacts != self._artifact_paths(
+            artifact_directory,
+            workspace_access,
+        ):
             raise CodingAgentInvocationError(
                 "cached coding-agent artifact references are invalid"
             )
         return result
 
     @staticmethod
-    def _artifact_paths(artifact_directory: Path) -> tuple[str, ...]:
+    def _artifact_paths(
+        artifact_directory: Path,
+        workspace_access: CodingAgentWorkspaceAccess,
+    ) -> tuple[str, ...]:
         return tuple(
             str(artifact_directory / filename)
-            for filename in _INPUT_FILENAMES + _OUTPUT_FILENAMES
+            for filename in coding_agent_returned_artifact_filenames(workspace_access)
         )
+
+    @staticmethod
+    def _inspect_editable_workspace(
+        request: CodingAgentCallRequest,
+        *,
+        require_baseline: bool = True,
+    ) -> CodingAgentWorkspaceSnapshot | None:
+        policy = request.workspace_policy
+        if policy.access is CodingAgentWorkspaceAccess.READ_ONLY:
+            return None
+        observed = inspect_coding_agent_workspace(
+            Path(request.workspace),
+            maximum_entries=policy.maximum_entries,
+            maximum_bytes=policy.maximum_bytes,
+        )
+        if require_baseline and observed.tree_hash != policy.expected_tree_hash:
+            raise CodingAgentInvocationError(
+                "editable coding-agent workspace differs from its expected tree"
+            )
+        return observed
 
     @staticmethod
     def _prior_knowledge_text(request: CodingAgentCallRequest) -> str:
@@ -999,7 +1355,9 @@ class SubprocessCodingAgentCallRunner:
                     request.model,
                 ]
             )
-            command.extend(self._codex_permission_profile())
+            command.extend(
+                self._codex_permission_profile(request.workspace_policy.access)
+            )
             if request.effort is not None:
                 command.extend(
                     ["--config", f'model_reasoning_effort="{request.effort}"']
@@ -1036,7 +1394,12 @@ class SubprocessCodingAgentCallRunner:
             "--settings",
             self._claude_security_settings(request, mcp_config_path.parent),
             "--permission-mode",
-            "plan",
+            (
+                "acceptEdits"
+                if request.workspace_policy.access
+                is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+                else "plan"
+            ),
             "--no-session-persistence",
             "--output-format",
             "json",
@@ -1045,7 +1408,12 @@ class SubprocessCodingAgentCallRunner:
             "--model",
             request.model,
             "--disallowedTools",
-            "Bash,Edit,Write,NotebookEdit",
+            (
+                "Bash,NotebookEdit"
+                if request.workspace_policy.access
+                is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+                else "Bash,Edit,Write,NotebookEdit"
+            ),
         ]
         if request.effort is not None:
             command.extend(["--effort", request.effort])
@@ -1065,16 +1433,28 @@ class SubprocessCodingAgentCallRunner:
         command.extend(["--tools", ",".join(effective_tools)])
         return command
 
-    def _codex_permission_profile(self) -> list[str]:
-        profile = "kapso_ideation_read"
+    def _codex_permission_profile(
+        self,
+        workspace_access: CodingAgentWorkspaceAccess,
+    ) -> list[str]:
+        profile = (
+            "kapso_workspace_edit"
+            if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            else "kapso_ideation_read"
+        )
         denied_paths = ("/proc", *_SENSITIVE_HOME_PATHS)
         denied_entries = ",".join(f'{json.dumps(path)}="deny"' for path in denied_paths)
+        workspace_rules = (
+            '"."="write","**/.git"="deny","**/.git/**"="deny",'
+            '"**/.env"="deny","**/.env.*"="deny"'
+            if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            else '"."="read","**/.env"="deny","**/.env.*"="deny"'
+        )
         filesystem = (
             "{"
             f"glob_scan_max_depth={self.settings.sensitive_file_glob_scan_max_depth},"
             '":minimal"="read",'
-            '":workspace_roots"={"."="read","**/.env"="deny",'
-            '"**/.env.*"="deny"},'
+            f'":workspace_roots"={{{workspace_rules}}},'
             f"{denied_entries}"
             "}"
         )
@@ -1095,9 +1475,20 @@ class SubprocessCodingAgentCallRunner:
             "Read(**/.env.*)",
             *(f"Read({path}/**)" for path in _SENSITIVE_HOME_PATHS),
         ]
+        denied_edits = (
+            [
+                "Edit(**/.git)",
+                "Edit(**/.git/**)",
+                "Edit(**/.env)",
+                "Edit(**/.env.*)",
+            ]
+            if request.workspace_policy.access
+            is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            else []
+        )
         return json.dumps(
             {
-                "permissions": {"deny": denied_reads},
+                "permissions": {"deny": denied_reads + denied_edits},
                 "sandbox": {
                     "enabled": True,
                     "failIfUnavailable": True,

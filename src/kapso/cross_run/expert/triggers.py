@@ -15,6 +15,7 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Mapping
 
+from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
@@ -122,6 +123,8 @@ class ExpertTriggerObservation(StrictContract):
         if (
             self.inspection_operation.artifact_checksums["final.json"]
             != final_output_digest
+            or self.inspection_operation.workspace_access
+            is not CodingAgentWorkspaceAccess.READ_ONLY
         ):
             raise ExpertTriggerError(
                 "trigger observation differs from its inspected result artifact"

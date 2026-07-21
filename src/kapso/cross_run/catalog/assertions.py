@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
+from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
 from kapso.cross_run.canonical import canonical_json_bytes, parse_json_bytes
 from kapso.cross_run.record_contracts import CatalogAgentOperationRecord
 from kapso.cross_run.contracts import (
@@ -164,6 +165,7 @@ class ReviewRegistry:
         if (
             receipt.principal_id != assertion.reviewer_id
             or receipt.role != assertion.reviewer_role
+            or receipt.workspace_access is not CodingAgentWorkspaceAccess.READ_ONLY
         ):
             raise IdentityConflictError(
                 "assertion receipt does not match its configured reviewer slot"

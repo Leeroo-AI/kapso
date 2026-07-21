@@ -46,7 +46,8 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES as ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 from test_cross_run_contracts import build_records
 
@@ -334,13 +335,16 @@ def claim(name, support, contradictions=(), *, supersedes=(), evaluated=None):
         cli=settings.claim_proposer.cli,
         model=settings.claim_proposer.model,
         effort=settings.claim_proposer.effort,
+        workspace_access=CodingAgentWorkspaceAccess.READ_ONLY,
         artifact_checksums={
             filename: (
                 tree_or_blob_digest(final_output.encode("utf-8"))
                 if filename == "final.json"
                 else digest(f"claim-{name}-{filename}")
             )
-            for filename in ARTIFACT_FILENAMES
+            for filename in coding_agent_artifact_filenames(
+                CodingAgentWorkspaceAccess.READ_ONLY
+            )
         },
     )
     packet_digest = tree_or_blob_digest(canonical_json_bytes(preimage["packet"]))
@@ -430,13 +434,16 @@ def review_facts(subject, evidence, *, settings_override=None):
             cli=reviewer.agent.cli,
             model=reviewer.agent.model,
             effort=reviewer.agent.effort,
+            workspace_access=CodingAgentWorkspaceAccess.READ_ONLY,
             artifact_checksums={
                 filename: (
                     tree_or_blob_digest(final_output.encode("utf-8"))
                     if filename == "final.json"
                     else digest(f"{subject}-{position}-{filename}")
                 )
-                for filename in ARTIFACT_FILENAMES
+                for filename in coding_agent_artifact_filenames(
+                    CodingAgentWorkspaceAccess.READ_ONLY
+                )
             },
         )
         receipts.append(operation)

@@ -38,6 +38,7 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
     CodingAgentCallRunner,
+    CodingAgentWorkspacePolicy,
 )
 
 _PROMPT_TEMPLATE_PATH = Path(__file__).parents[1] / "prompts" / "claim_proposer.md"
@@ -281,6 +282,7 @@ class ClaimProposer:
                 model=agent.model,
                 prompt=prompt,
                 workspace=str(workspace),
+                workspace_policy=CodingAgentWorkspacePolicy.read_only(),
                 timeout_seconds=agent.timeout_seconds,
                 effort=agent.effort,
                 allowed_tools=agent.allowed_tools,

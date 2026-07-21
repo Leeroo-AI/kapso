@@ -86,7 +86,8 @@ from kapso.cross_run.expert.book import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -109,9 +110,12 @@ def operation_receipt(name):
         cli="codex",
         model="gpt-5.6-sol",
         effort="xhigh",
+        workspace_access=CodingAgentWorkspaceAccess.READ_ONLY,
         artifact_checksums={
             filename: digest(f"{name}-{filename}")
-            for filename in CODING_AGENT_ARTIFACT_FILENAMES
+            for filename in coding_agent_artifact_filenames(
+                CodingAgentWorkspaceAccess.READ_ONLY
+            )
         },
     )
 
@@ -649,13 +653,16 @@ def build_records():
         cli="claude_code",
         model="fable",
         effort="xhigh",
+        workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
         artifact_checksums={
             filename: (
                 tree_or_blob_digest(candidate_final_output.encode("utf-8"))
                 if filename == "final.json"
                 else digest(f"candidate-{filename}")
             )
-            for filename in CODING_AGENT_ARTIFACT_FILENAMES
+            for filename in coding_agent_artifact_filenames(
+                CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            )
         },
     )
     candidate_workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(

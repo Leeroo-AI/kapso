@@ -37,6 +37,7 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
     CodingAgentCallRunner,
+    CodingAgentWorkspacePolicy,
 )
 
 _PROMPT_TEMPLATE_PATH = Path(__file__).parents[1] / "prompts" / "catalog_reviewer.md"
@@ -240,6 +241,7 @@ class CatalogReviewer:
                 model=reviewer.agent.model,
                 prompt=prompt,
                 workspace=str(workspace),
+                workspace_policy=CodingAgentWorkspacePolicy.read_only(),
                 timeout_seconds=reviewer.agent.timeout_seconds,
                 effort=reviewer.agent.effort,
                 allowed_tools=reviewer.agent.allowed_tools,

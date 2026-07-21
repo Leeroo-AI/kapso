@@ -1,5 +1,6 @@
 """Cross-run scientific memory and expert-evolution contracts."""
 
+from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
 from kapso.cross_run.canonical import (
     CANONICALIZER_VERSION,
     HASH_ALGORITHM,
@@ -16,6 +17,8 @@ from kapso.cross_run.contracts import (
     CaptureManifest,
     CatalogEntryState,
     CodingAgentOperationReceipt,
+    CodingAgentWorkspaceChangedFile,
+    CodingAgentWorkspaceDelta,
     CrossRunContractError,
     CrossRunTaskBindingSettings,
     EvaluationFingerprint,
@@ -64,6 +67,9 @@ __all__ = [
     "CaptureManifest",
     "CatalogEntryState",
     "CodingAgentOperationReceipt",
+    "CodingAgentWorkspaceAccess",
+    "CodingAgentWorkspaceChangedFile",
+    "CodingAgentWorkspaceDelta",
     "CrossRunConfigurationError",
     "CrossRunContractError",
     "CrossRunSettings",

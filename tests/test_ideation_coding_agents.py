@@ -1,8 +1,10 @@
 """Behavioral tests for the read-only coding-agent subprocess boundary."""
 
+import base64
 import json
 import os
 import pwd
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -15,18 +17,36 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallResult,
     CodingAgentInvocationError,
     CodingAgentRunnerSettings,
+    CodingAgentWorkspacePolicy,
     SubprocessCodingAgentCallRunner,
+)
+from kapso.execution.coding_agents.workspace_delta import (
+    inspect_coding_agent_workspace,
+    reconstruct_edited_workspace,
+    validate_coding_agent_workspace_delta,
 )
 from kapso.execution.coding_agents.credential_environment import (
     coding_agent_credential_environment,
 )
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.contracts import (
+    CodingAgentWorkspaceChangedFile,
+    CodingAgentWorkspaceDelta,
+    SourceFileDescriptor,
+)
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_WORKSPACE_DELTA_FILENAME,
+    CodingAgentWorkspaceAccess,
+)
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from test_prior_knowledge_gate import access_materialization
 
 SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH = load_config("src/kapso/config.yaml")[
     "ideation_profiles"
 ]["DEFAULT"]["coding_agents"]["sensitive_file_glob_scan_max_depth"]
+EXPERT_CONFIG = load_config("src/kapso/config.yaml")["cross_run"]["expert"]
+WORKSPACE_ENTRY_LIMIT = EXPERT_CONFIG["candidate_entry_limit"]
+WORKSPACE_BYTE_LIMIT = EXPERT_CONFIG["candidate_byte_limit"]
 
 
 def install_executable(directory: Path, name: str, source: str) -> Path:
@@ -44,6 +64,7 @@ def request(workspace: Path, cli: str) -> CodingAgentCallRequest:
         model="test-model",
         prompt="complete prompt\nwith a second line and no truncation",
         workspace=str(workspace),
+        workspace_policy=CodingAgentWorkspacePolicy.read_only(),
         timeout_seconds=10,
         effort="high",
         allowed_tools=("Read", "WebSearch"),
@@ -60,6 +81,68 @@ def runner(tmp_path: Path) -> SubprocessCodingAgentCallRunner:
     )
 
 
+def editable_workspace(tmp_path: Path) -> Path:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    (workspace / "existing.txt").write_text("before", encoding="utf-8")
+    (workspace / "deleted.txt").write_text("remove", encoding="utf-8")
+    return workspace
+
+
+def editable_request(workspace: Path, cli: str) -> CodingAgentCallRequest:
+    baseline = inspect_coding_agent_workspace(
+        workspace,
+        maximum_entries=WORKSPACE_ENTRY_LIMIT,
+        maximum_bytes=WORKSPACE_BYTE_LIMIT,
+    )
+    return replace(
+        request(workspace, cli),
+        allowed_tools=(
+            ("Read",) if cli == "codex" else ("Edit", "Glob", "Grep", "Read", "Write")
+        ),
+        workspace_policy=CodingAgentWorkspacePolicy.edit_workspace(
+            expected_tree_hash=baseline.tree_hash,
+            maximum_entries=WORKSPACE_ENTRY_LIMIT,
+            maximum_bytes=WORKSPACE_BYTE_LIMIT,
+        ),
+    )
+
+
+def install_edit_executable(directory: Path, cli: str) -> None:
+    edit_source = """
+import pathlib
+import sys
+pathlib.Path("existing.txt").write_text("after")
+pathlib.Path("created.py").write_text("print('created')\\n")
+pathlib.Path("deleted.txt").unlink()
+counter = pathlib.Path(__file__).with_name("edit-invocations.txt")
+counter.write_text(counter.read_text() + "x" if counter.exists() else "x")
+arguments = pathlib.Path(__file__).with_name(pathlib.Path(__file__).stem + "-edit-args.json")
+arguments.write_text(__import__("json").dumps(sys.argv[1:]))
+"""
+    if cli == "codex":
+        source = "#!/usr/bin/env python3\nimport json\nimport sys\n" + edit_source + """
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"changed_paths":["created.py","existing.txt"],"deleted_paths":["deleted.txt"]}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}))
+"""
+        install_executable(directory, "codex", source)
+        return
+    source = "#!/usr/bin/env python3\nimport json\n" + edit_source + """
+print(json.dumps({
+  "is_error": False,
+  "structured_output": {
+    "changed_paths": ["created.py", "existing.txt"],
+    "deleted_paths": ["deleted.txt"]
+  },
+  "usage": {"input_tokens": 3, "output_tokens": 2},
+  "total_cost_usd": 0.1
+}))
+"""
+    install_executable(directory, "claude", source)
+
+
 @pytest.mark.parametrize(
     ("workspace", "error"),
     (("relative/workspace", "absolute"),),
@@ -73,7 +156,27 @@ def test_request_rejects_relative_agent_workspace(workspace, error):
             model="test-model",
             prompt="complete prompt",
             workspace=workspace,
+            workspace_policy=CodingAgentWorkspacePolicy.read_only(),
             timeout_seconds=10,
+        )
+
+
+def test_workspace_policy_is_explicit_and_round_trips_exactly():
+    read_only = CodingAgentWorkspacePolicy.read_only()
+    editable = CodingAgentWorkspacePolicy.edit_workspace(
+        expected_tree_hash="sha256:" + "1" * 64,
+        maximum_entries=WORKSPACE_ENTRY_LIMIT,
+        maximum_bytes=WORKSPACE_BYTE_LIMIT,
+    )
+
+    assert CodingAgentWorkspacePolicy.from_dict(read_only.to_dict()) == read_only
+    assert CodingAgentWorkspacePolicy.from_dict(editable.to_dict()) == editable
+    with pytest.raises(ValueError, match="cannot declare edit limits"):
+        CodingAgentWorkspacePolicy(
+            access=CodingAgentWorkspaceAccess.READ_ONLY,
+            expected_tree_hash="sha256:" + "1" * 64,
+            maximum_entries=None,
+            maximum_bytes=None,
         )
 
 
@@ -89,6 +192,7 @@ def test_runner_rejects_broad_agent_workspace(tmp_path, workspace):
         model="test-model",
         prompt="complete prompt",
         workspace=workspace,
+        workspace_policy=CodingAgentWorkspacePolicy.read_only(),
         timeout_seconds=10,
     )
 
@@ -105,6 +209,7 @@ def test_request_rejects_non_normalized_agent_workspace(tmp_path):
             model="test-model",
             prompt="complete prompt",
             workspace=str(tmp_path / "target" / ".." / "target"),
+            workspace_policy=CodingAgentWorkspacePolicy.read_only(),
             timeout_seconds=10,
         )
 
@@ -121,6 +226,7 @@ def test_runner_rejects_symlinked_agent_workspace(tmp_path):
         model="test-model",
         prompt="complete prompt",
         workspace=str(symlink),
+        workspace_policy=CodingAgentWorkspacePolicy.read_only(),
         timeout_seconds=10,
     )
 
@@ -278,6 +384,269 @@ print(json.dumps({
 
 
 @pytest.mark.parametrize("cli", ("codex", "claude_code"))
+def test_edit_workspace_call_seals_exact_replayable_delta(
+    tmp_path,
+    monkeypatch,
+    cli,
+):
+    install_edit_executable(tmp_path, cli)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace = editable_workspace(tmp_path)
+    baseline = inspect_coding_agent_workspace(
+        workspace,
+        maximum_entries=WORKSPACE_ENTRY_LIMIT,
+        maximum_bytes=WORKSPACE_BYTE_LIMIT,
+    )
+    call_request = editable_request(workspace, cli)
+
+    result = runner(tmp_path).run(call_request, {"type": "object"})
+
+    delta_path = next(
+        Path(path)
+        for path in result.artifacts
+        if Path(path).name == CODING_AGENT_WORKSPACE_DELTA_FILENAME
+    )
+    delta_payload = delta_path.read_bytes()
+    delta = CodingAgentWorkspaceDelta.from_json_bytes(delta_payload)
+    edited = inspect_coding_agent_workspace(
+        workspace,
+        maximum_entries=WORKSPACE_ENTRY_LIMIT,
+        maximum_bytes=WORKSPACE_BYTE_LIMIT,
+    )
+    reconstructed = reconstruct_edited_workspace(baseline, delta)
+    assert delta.to_json_bytes() == delta_payload
+    assert delta.changed_paths == ("created.py", "existing.txt")
+    assert delta.deleted_paths == ("deleted.txt",)
+    assert reconstructed == edited
+    assert result.workspace_delta_digest == tree_or_blob_digest(delta_payload)
+    invocation = json.loads(
+        (delta_path.parent / "invocation.json").read_text(encoding="utf-8")
+    )
+    assert invocation["workspace_policy"] == call_request.workspace_policy.to_dict()
+    executable = "codex" if cli == "codex" else "claude"
+    arguments = json.loads(
+        (tmp_path / f"{executable}-edit-args.json").read_text(encoding="utf-8")
+    )
+    if cli == "codex":
+        permission_overrides = [
+            arguments[position + 1]
+            for position, value in enumerate(arguments)
+            if value == "--config"
+        ]
+        assert 'default_permissions="kapso_workspace_edit"' in permission_overrides
+        assert any(
+            '":workspace_roots"={"."="write"' in value for value in permission_overrides
+        )
+        assert any('"**/.git/**"="deny"' in value for value in permission_overrides)
+    else:
+        assert arguments[arguments.index("--permission-mode") + 1] == "acceptEdits"
+        assert arguments[arguments.index("--disallowedTools") + 1] == (
+            "Bash,NotebookEdit"
+        )
+        assert arguments[arguments.index("--tools") + 1] == (
+            "Edit,Glob,Grep,Read,Write"
+        )
+
+
+def test_completed_edit_call_replays_from_fresh_exact_parent(tmp_path, monkeypatch):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    first_workspace = editable_workspace(tmp_path)
+    call_request = editable_request(first_workspace, "codex")
+    call_runner = runner(tmp_path)
+    first = call_runner.run(call_request, {"type": "object"})
+    fresh_root = tmp_path / "fresh"
+    fresh_root.mkdir(mode=0o700)
+    (fresh_root / "existing.txt").write_text("before", encoding="utf-8")
+    (fresh_root / "deleted.txt").write_text("remove", encoding="utf-8")
+
+    replayed = call_runner.run(
+        replace(call_request, workspace=str(fresh_root)),
+        {"type": "object"},
+    )
+
+    assert replayed == first
+    assert (tmp_path / "edit-invocations.txt").read_text(encoding="utf-8") == "x"
+    assert tuple(sorted(path.name for path in fresh_root.iterdir())) == (
+        "deleted.txt",
+        "existing.txt",
+    )
+
+
+def test_distinct_operations_cannot_concurrently_edit_one_workspace(
+    tmp_path,
+    monkeypatch,
+):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace = editable_workspace(tmp_path)
+    first_request = editable_request(workspace, "codex")
+    second_request = replace(
+        first_request,
+        operation_id="agent_call_" + "2" * 32,
+    )
+    call_runner = runner(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (
+            executor.submit(call_runner.run, first_request, {"type": "object"}),
+            executor.submit(call_runner.run, second_request, {"type": "object"}),
+        )
+        outcomes = tuple(
+            future.result() if future.exception() is None else future.exception()
+            for future in futures
+        )
+
+    assert sum(isinstance(value, CodingAgentCallResult) for value in outcomes) == 1
+    errors = tuple(
+        value for value in outcomes if isinstance(value, CodingAgentInvocationError)
+    )
+    assert len(errors) == 1
+    assert "expected tree" in str(errors[0])
+    assert (tmp_path / "edit-invocations.txt").read_text(encoding="utf-8") == "x"
+
+
+def test_incomplete_edit_artifacts_rerun_only_from_exact_parent(tmp_path, monkeypatch):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    first_workspace = editable_workspace(tmp_path)
+    call_request = editable_request(first_workspace, "codex")
+    call_runner = runner(tmp_path)
+    result = call_runner.run(call_request, {"type": "object"})
+    result_path = Path(result.artifacts[0]).parent / "result.json"
+    result_path.unlink()
+
+    with pytest.raises(CodingAgentInvocationError, match="expected tree"):
+        call_runner.run(call_request, {"type": "object"})
+
+    fresh_root = tmp_path / "fresh-after-crash"
+    fresh_root.mkdir(mode=0o700)
+    (fresh_root / "existing.txt").write_text("before", encoding="utf-8")
+    (fresh_root / "deleted.txt").write_text("remove", encoding="utf-8")
+    recovered = call_runner.run(
+        replace(call_request, workspace=str(fresh_root)),
+        {"type": "object"},
+    )
+    assert recovered.workspace_delta_digest is not None
+    assert (tmp_path / "edit-invocations.txt").read_text(encoding="utf-8") == "xx"
+
+
+def test_cached_edit_rejects_workspace_delta_tampering(tmp_path, monkeypatch):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace = editable_workspace(tmp_path)
+    call_request = editable_request(workspace, "codex")
+    call_runner = runner(tmp_path)
+    result = call_runner.run(call_request, {"type": "object"})
+    delta_path = next(
+        Path(path)
+        for path in result.artifacts
+        if Path(path).name == CODING_AGENT_WORKSPACE_DELTA_FILENAME
+    )
+    payload = json.loads(delta_path.read_text(encoding="utf-8"))
+    payload["changed_files"][0]["content_base64"] = "dGFtcGVyZWQ="
+    delta_path.write_bytes(canonical_json_bytes(payload))
+
+    with pytest.raises(CodingAgentInvocationError, match="delta conflicts"):
+        call_runner.run(call_request, {"type": "object"})
+
+
+def test_edit_call_rejects_wrong_parent_before_cli_invocation(tmp_path, monkeypatch):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace = editable_workspace(tmp_path)
+    call_request = replace(
+        editable_request(workspace, "codex"),
+        workspace_policy=CodingAgentWorkspacePolicy.edit_workspace(
+            expected_tree_hash="sha256:" + "0" * 64,
+            maximum_entries=WORKSPACE_ENTRY_LIMIT,
+            maximum_bytes=WORKSPACE_BYTE_LIMIT,
+        ),
+    )
+
+    with pytest.raises(CodingAgentInvocationError, match="expected tree"):
+        runner(tmp_path).run(call_request, {"type": "object"})
+
+    assert not (tmp_path / "edit-invocations.txt").exists()
+
+
+def test_workspace_delta_rejects_file_descendant_collision(tmp_path):
+    workspace = tmp_path / "empty-workspace"
+    workspace.mkdir(mode=0o700)
+    baseline = inspect_coding_agent_workspace(
+        workspace,
+        maximum_entries=WORKSPACE_ENTRY_LIMIT,
+        maximum_bytes=WORKSPACE_BYTE_LIMIT,
+    )
+    content = b"collision"
+    changes = tuple(
+        CodingAgentWorkspaceChangedFile(
+            before=None,
+            after=SourceFileDescriptor(
+                relative_path=path,
+                digest=tree_or_blob_digest(content),
+                mode="100644",
+                size=len(content),
+            ),
+            content_base64=base64.b64encode(content).decode("ascii"),
+        )
+        for path in ("module", "module/child.py")
+    )
+    delta = CodingAgentWorkspaceDelta.mint(
+        baseline_tree_hash=baseline.tree_hash,
+        edited_tree_hash="sha256:" + "1" * 64,
+        changed_files=changes,
+        deleted_files=(),
+    )
+
+    with pytest.raises(ValueError, match="collides with a descendant"):
+        validate_coding_agent_workspace_delta(baseline, delta)
+
+
+@pytest.mark.parametrize(
+    "unsafe_entry",
+    ("symlink", "hardlink", "fifo", "socket", "oversized"),
+)
+def test_edit_call_rejects_unsafe_workspace_without_hanging(
+    tmp_path,
+    monkeypatch,
+    unsafe_entry,
+):
+    install_edit_executable(tmp_path, "codex")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    workspace = editable_workspace(tmp_path)
+    target = workspace / "unsafe"
+    if unsafe_entry == "symlink":
+        target.symlink_to(tmp_path / "outside")
+    elif unsafe_entry == "hardlink":
+        os.link(workspace / "existing.txt", target)
+    elif unsafe_entry == "fifo":
+        os.mkfifo(target, mode=0o600)
+    elif unsafe_entry == "socket":
+        endpoint = socket.socket(socket.AF_UNIX)
+        endpoint.bind(str(target))
+    else:
+        target.write_bytes(b"too large")
+    policy = CodingAgentWorkspacePolicy.edit_workspace(
+        expected_tree_hash="sha256:" + "0" * 64,
+        maximum_entries=WORKSPACE_ENTRY_LIMIT,
+        maximum_bytes=(1 if unsafe_entry == "oversized" else WORKSPACE_BYTE_LIMIT),
+    )
+    call_request = replace(
+        request(workspace, "codex"),
+        allowed_tools=("Read",),
+        workspace_policy=policy,
+    )
+
+    with pytest.raises(ValueError, match="workspace"):
+        runner(tmp_path).run(call_request, {"type": "object"})
+
+    if unsafe_entry == "socket":
+        endpoint.close()
+    assert not (tmp_path / "edit-invocations.txt").exists()
+
+
+@pytest.mark.parametrize("cli", ("codex", "claude_code"))
 def test_prior_packet_mount_is_explicit_auditable_and_credential_isolated(
     tmp_path,
     monkeypatch,
@@ -408,6 +777,17 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     with pytest.raises(CodingAgentInvocationError, match="identity was reused"):
         call_runner.run(changed_model, {"type": "object"})
     assert (tmp_path / "invocations.txt").read_text() == "x"
+
+    changed_access = replace(
+        request(tmp_path, "codex"),
+        workspace_policy=CodingAgentWorkspacePolicy.edit_workspace(
+            expected_tree_hash="sha256:" + "0" * 64,
+            maximum_entries=WORKSPACE_ENTRY_LIMIT,
+            maximum_bytes=WORKSPACE_BYTE_LIMIT,
+        ),
+    )
+    with pytest.raises(CodingAgentInvocationError, match="identity was reused"):
+        call_runner.run(changed_access, {"type": "object"})
 
     changed_security_runner = SubprocessCodingAgentCallRunner(
         replace(
@@ -557,6 +937,63 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_toke
     )
 
     with pytest.raises(CodingAgentInvocationError, match="conflicts with completed"):
+        call_runner.run(call_request, {"type": "object"})
+
+
+def test_cached_result_is_bound_to_exact_final_artifact(tmp_path, monkeypatch):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"original"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+    call_request = request(tmp_path, "codex")
+    result = call_runner.run(call_request, {"type": "object"})
+    final_path = next(
+        Path(path) for path in result.artifacts if Path(path).name == "final.json"
+    )
+    final_path.write_text('{"proposal":"tampered"}', encoding="utf-8")
+
+    with pytest.raises(CodingAgentInvocationError, match="final output conflicts"):
+        call_runner.run(call_request, {"type": "object"})
+
+
+def test_cached_result_output_is_bound_to_exact_final_artifact(tmp_path, monkeypatch):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"original"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+    call_request = request(tmp_path, "codex")
+    result = call_runner.run(call_request, {"type": "object"})
+    result_path = Path(result.artifacts[0]).parent / "result.json"
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["output"] = '{"proposal":"tampered"}'
+    result_path.write_text(
+        json.dumps(payload, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodingAgentInvocationError, match="parsed output conflicts"):
         call_runner.run(call_request, {"type": "object"})
 
 
@@ -773,7 +1210,7 @@ def test_operation_directory_symlink_is_rejected_without_touching_target(
         target_is_directory=True,
     )
 
-    with pytest.raises(CodingAgentInvocationError, match="must be a directory"):
+    with pytest.raises(CodingAgentInvocationError, match="private directory"):
         runner(tmp_path).run(request(tmp_path, "codex"), {"type": "object"})
 
     assert tuple(outside.iterdir()) == ()
@@ -789,10 +1226,46 @@ def test_symlinked_identity_artifact_is_rejected(tmp_path, monkeypatch):
     outside.write_text(request(tmp_path, "codex").prompt)
     (operation_directory / "prompt.txt").symlink_to(outside)
 
-    with pytest.raises(CodingAgentInvocationError, match="regular file"):
+    with pytest.raises(CodingAgentInvocationError, match="independent file"):
         runner(tmp_path).run(request(tmp_path, "codex"), {"type": "object"})
 
     assert outside.read_text() == request(tmp_path, "codex").prompt
+
+
+@pytest.mark.parametrize("corruption", ("public_file", "hardlink", "public_directory"))
+def test_completed_operation_rejects_nonprivate_artifacts(
+    tmp_path,
+    monkeypatch,
+    corruption,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"original"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+    call_request = request(tmp_path, "codex")
+    result = call_runner.run(call_request, {"type": "object"})
+    operation = Path(result.artifacts[0]).parent
+    final_path = operation / "final.json"
+    if corruption == "public_file":
+        final_path.chmod(0o644)
+    elif corruption == "hardlink":
+        os.link(final_path, tmp_path / "linked-final")
+    else:
+        operation.chmod(0o755)
+
+    with pytest.raises(CodingAgentInvocationError, match="private"):
+        call_runner.run(call_request, {"type": "object"})
 
 
 def test_artifact_root_rejects_symlinked_parent_without_creating_target_child(

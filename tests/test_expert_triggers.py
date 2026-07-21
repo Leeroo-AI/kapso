@@ -50,7 +50,8 @@ from kapso.cross_run.github.materializer import (
 )
 from kapso.cross_run.settings import CrossRunSettings, ExpertTriggerSettings
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 from test_cross_run_contracts import build_records
 from test_cross_run_retrieval import (
@@ -115,13 +116,16 @@ def inspection_operation(
         cli="codex",
         model="gpt-5.6-sol",
         effort="xhigh",
+        workspace_access=CodingAgentWorkspaceAccess.READ_ONLY,
         artifact_checksums={
             filename: (
                 final_result_digest
                 if filename == "final.json"
                 else digest(f"inspection-{filename}")
             )
-            for filename in CODING_AGENT_ARTIFACT_FILENAMES
+            for filename in coding_agent_artifact_filenames(
+                CodingAgentWorkspaceAccess.READ_ONLY
+            )
         },
     )
 
@@ -577,6 +581,7 @@ def test_repeated_difficulty_requires_a_typed_closed_observation():
         cli=authorized_operation.cli,
         model=authorized_operation.model,
         effort=authorized_operation.effort,
+        workspace_access=authorized_operation.workspace_access,
         artifact_checksums=authorized_operation.artifact_checksums,
     )
     unauthorized_observation = ExpertTriggerObservation.mint(

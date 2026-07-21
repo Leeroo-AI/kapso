@@ -16,6 +16,7 @@ from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
     CodingAgentCallRunner,
+    CodingAgentWorkspacePolicy,
 )
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
@@ -350,6 +351,7 @@ class CandidateGenerator:
                 model=settings.model,
                 prompt=prompt,
                 workspace=workspace,
+                workspace_policy=CodingAgentWorkspacePolicy.read_only(),
                 timeout_seconds=settings.timeout_seconds,
                 effort=settings.effort,
                 allowed_tools=settings.allowed_tools,

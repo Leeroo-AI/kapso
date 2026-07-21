@@ -62,9 +62,7 @@ def test_source_extraction_receipt_rejects_file_directory_collision():
             size=5,
         ),
     )
-    tree_hash = source_tree_digest(
-        {file.relative_path: (file.digest, file.mode, file.size) for file in files}
-    )
+    tree_hash = tree_or_blob_digest(b"intentionally-colliding-source-tree")
 
     with pytest.raises(MaterializationError, match="file/directory collision"):
         SourceArchiveExtractionReceipt.mint(

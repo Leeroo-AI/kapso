@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
@@ -437,6 +438,7 @@ class AdmissionReducer:
             or receipt.cli != proposer.cli
             or receipt.model != proposer.model
             or receipt.effort != proposer.effort
+            or receipt.workspace_access is not CodingAgentWorkspaceAccess.READ_ONLY
         ):
             raise IdentityConflictError(
                 "claim operation uses a forged proposer receipt"

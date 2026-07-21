@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import math
 import re
 from collections.abc import Mapping as MappingABC
@@ -36,7 +37,8 @@ from kapso.cross_run.canonical import (
     verify_declared_content_id,
 )
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 
 _ContractType = TypeVar("_ContractType", bound="StrictContract")
@@ -1217,6 +1219,92 @@ class PriorIdea(StrictContract):
 
 
 @dataclass(frozen=True)
+class CodingAgentWorkspaceChangedFile(StrictContract):
+    before: "SourceFileDescriptor | None"
+    after: "SourceFileDescriptor"
+    content_base64: str
+
+    def _validate(self) -> None:
+        if self.before is not None and (
+            self.before.relative_path != self.after.relative_path
+            or self.before == self.after
+        ):
+            raise ContractValidationError(
+                "coding-agent workspace change has an invalid preimage"
+            )
+        if not isinstance(self.content_base64, str):
+            raise ContractValidationError(
+                "coding-agent workspace content must be base64 text"
+            )
+        content = base64.b64decode(self.content_base64, validate=True)
+        if base64.b64encode(content).decode("ascii") != self.content_base64:
+            raise ContractValidationError(
+                "coding-agent workspace content must use canonical base64"
+            )
+        if (
+            tree_or_blob_digest(content) != self.after.digest
+            or len(content) != self.after.size
+        ):
+            raise ContractValidationError(
+                "coding-agent workspace content differs from its descriptor"
+            )
+
+    @property
+    def relative_path(self) -> str:
+        return self.after.relative_path
+
+    @property
+    def content(self) -> bytes:
+        return base64.b64decode(self.content_base64, validate=True)
+
+
+@dataclass(frozen=True)
+class CodingAgentWorkspaceDelta(StrictContract):
+    workspace_delta_id: str
+    baseline_tree_hash: str
+    edited_tree_hash: str
+    changed_files: tuple[CodingAgentWorkspaceChangedFile, ...]
+    deleted_files: tuple["SourceFileDescriptor", ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "coding-agent-workspace-delta"
+    IDENTITY_FIELD: ClassVar[str] = "workspace_delta_id"
+
+    def _validate(self) -> None:
+        _require_digest(self.baseline_tree_hash, "workspace baseline_tree_hash")
+        _require_digest(self.edited_tree_hash, "workspace edited_tree_hash")
+        if self.baseline_tree_hash == self.edited_tree_hash:
+            raise ContractValidationError(
+                "coding-agent workspace delta must change the tree"
+            )
+        changed_paths = tuple(change.relative_path for change in self.changed_files)
+        deleted_paths = tuple(file.relative_path for file in self.deleted_files)
+        for paths, name in (
+            (changed_paths, "changed files"),
+            (deleted_paths, "deleted files"),
+        ):
+            if paths != tuple(sorted(set(paths))):
+                raise ContractValidationError(
+                    f"coding-agent workspace {name} must be sorted and unique"
+                )
+        if not changed_paths and not deleted_paths:
+            raise ContractValidationError(
+                "coding-agent workspace delta contains no change"
+            )
+        if set(changed_paths) & set(deleted_paths):
+            raise ContractValidationError(
+                "coding-agent workspace changed and deleted files overlap"
+            )
+
+    @property
+    def changed_paths(self) -> tuple[str, ...]:
+        return tuple(change.relative_path for change in self.changed_files)
+
+    @property
+    def deleted_paths(self) -> tuple[str, ...]:
+        return tuple(file.relative_path for file in self.deleted_files)
+
+
+@dataclass(frozen=True)
 class CodingAgentOperationReceipt(StrictContract):
     operation_receipt_id: str
     operation_id: str
@@ -1225,6 +1313,7 @@ class CodingAgentOperationReceipt(StrictContract):
     cli: str
     model: str
     effort: str
+    workspace_access: CodingAgentWorkspaceAccess
     artifact_checksums: Mapping[str, str]
 
     CONTENT_NAMESPACE: ClassVar[str] = "coding-agent-operation-receipt"
@@ -1241,12 +1330,16 @@ class CodingAgentOperationReceipt(StrictContract):
             require_identifier(value, name)
         if self.cli not in {"codex", "claude_code"}:
             raise ContractValidationError("invalid coding-agent CLI")
+        if not isinstance(self.workspace_access, CodingAgentWorkspaceAccess):
+            raise ContractValidationError("invalid coding-agent access mode")
         _require_text(self.model, "coding-agent model")
         _require_checksum_mapping(
             self.artifact_checksums,
             "coding-agent artifact_checksums",
         )
-        if set(self.artifact_checksums) != set(CODING_AGENT_ARTIFACT_FILENAMES):
+        if set(self.artifact_checksums) != set(
+            coding_agent_artifact_filenames(self.workspace_access)
+        ):
             raise MissingReferenceError(
                 "coding-agent receipt requires the complete artifact set"
             )

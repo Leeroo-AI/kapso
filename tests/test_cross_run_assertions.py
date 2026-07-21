@@ -17,7 +17,8 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES as ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -76,13 +77,16 @@ def review_facts(
         cli=reviewer.agent.cli,
         model=reviewer.agent.model,
         effort=reviewer.agent.effort,
+        workspace_access=CodingAgentWorkspaceAccess.READ_ONLY,
         artifact_checksums={
             filename: (
                 tree_or_blob_digest(final_output.encode("utf-8"))
                 if filename == "final.json"
                 else digest(f"{name}-{filename}")
             )
-            for filename in ARTIFACT_FILENAMES
+            for filename in coding_agent_artifact_filenames(
+                CodingAgentWorkspaceAccess.READ_ONLY
+            )
         },
     )
     review_assertion = ReviewAssertion.mint(

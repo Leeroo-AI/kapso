@@ -21,8 +21,10 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_RETURNED_ARTIFACT_FILENAMES as ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_returned_artifact_filenames,
 )
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from test_cross_run_contracts import build_records, fixture_id
 
@@ -37,6 +39,9 @@ class ArtifactFakeRunner:
         self.schemas = []
 
     def run(self, request, response_schema):
+        artifact_filenames = coding_agent_returned_artifact_filenames(
+            CodingAgentWorkspaceAccess.READ_ONLY
+        )
         self.requests.append(request)
         self.schemas.append(response_schema)
         operation = self.artifact_root / request.operation_id
@@ -53,15 +58,17 @@ class ArtifactFakeRunner:
             "final.json": output_text,
             "mcp_audit.jsonl": "",
         }
-        for filename in ARTIFACT_FILENAMES:
+        for filename in artifact_filenames:
             (operation / filename).write_text(contents[filename], encoding="utf-8")
         result = CodingAgentCallResult(
             output=output_text,
             duration_seconds=1.0,
             cost_usd=None,
+            final_output_digest=tree_or_blob_digest(output_text.encode("utf-8")),
+            workspace_delta_digest=None,
             input_tokens=100,
             output_tokens=50,
-            artifacts=tuple(str(operation / name) for name in ARTIFACT_FILENAMES),
+            artifacts=tuple(str(operation / name) for name in artifact_filenames),
         )
         (operation / "result.json").write_text(
             json.dumps(result.to_dict(), sort_keys=True) + "\n",
@@ -239,13 +246,14 @@ def test_claim_proposer_uses_complete_packet_and_framework_owned_identity(tmp_pa
         "proposal_ordinal",
     }
     assert set(result.operation_receipt.artifact_checksums) == {
-        *ARTIFACT_FILENAMES,
+        *coding_agent_returned_artifact_filenames(CodingAgentWorkspaceAccess.READ_ONLY),
         "result.json",
     }
     request = runner.requests[0]
     assert request.cli == "codex"
     assert request.model == "gpt-5.6-sol"
     assert request.allowed_tools == ()
+    assert request.workspace_policy.access is CodingAgentWorkspaceAccess.READ_ONLY
     assert proposal_packet.episodes[0].proposal in request.prompt
     assert proposal_packet.prior_ideas[0].proposal in request.prompt
     assert tuple(workspace.iterdir()) == ()

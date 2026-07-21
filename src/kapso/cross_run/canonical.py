@@ -217,6 +217,7 @@ def source_tree_digest(files: Mapping[str, tuple[str, str, int]]) -> str:
     if not files:
         raise CanonicalizationError("source tree descriptor must not be empty")
     descriptor = []
+    normalized_paths: set[PurePosixPath] = set()
     for path in sorted(files):
         normalized = PurePosixPath(path)
         if (
@@ -228,6 +229,11 @@ def source_tree_digest(files: Mapping[str, tuple[str, str, int]]) -> str:
             raise CanonicalizationError(
                 "source tree path must be normalized and relative"
             )
+        if any(parent in normalized_paths for parent in normalized.parents):
+            raise CanonicalizationError(
+                "source tree file path collides with a descendant"
+            )
+        normalized_paths.add(normalized)
         digest, mode, size = files[path]
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
             raise CanonicalizationError("source tree file digest is invalid")

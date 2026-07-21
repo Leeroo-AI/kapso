@@ -48,7 +48,8 @@ from kapso.cross_run.expert.book import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
-    CODING_AGENT_ARTIFACT_FILENAMES,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 from test_expert_triggers import trigger_packet, trigger_settings
 
@@ -99,6 +100,9 @@ def bootstrap_candidate_closure(
     incomplete_patch: bool = False,
     foreign_trigger: bool = False,
     forged_workspace_tree: bool = False,
+    workspace_access: CodingAgentWorkspaceAccess = (
+        CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+    ),
 ) -> ExpertCandidateClosure:
     settings = trigger_settings()
     packet = trigger_packet(settings=settings, bootstrap=True)
@@ -218,13 +222,14 @@ def bootstrap_candidate_closure(
         cli=configured.architect.cli,
         model=configured.architect.model,
         effort=configured.architect.effort,
+        workspace_access=workspace_access,
         artifact_checksums={
             filename: (
                 tree_or_blob_digest(final_output.encode("utf-8"))
                 if filename == "final.json"
                 else digest(f"bootstrap-{filename}")
             )
-            for filename in CODING_AGENT_ARTIFACT_FILENAMES
+            for filename in coding_agent_artifact_filenames(workspace_access)
         },
     )
     workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(
@@ -412,6 +417,20 @@ def test_candidate_recomputes_trigger_decision_authority():
     ):
         ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
             replace(closure, trigger_decision=forged_decision)
+        )
+
+
+def test_candidate_proposer_requires_edit_workspace_authority():
+    closure = bootstrap_candidate_closure(
+        workspace_access=CodingAgentWorkspaceAccess.READ_ONLY
+    )
+
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="configured proposer authority",
+    ):
+        ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
+            closure
         )
 
 

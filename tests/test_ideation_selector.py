@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.generator import (
     GenerationMemberSettings,
@@ -39,6 +40,10 @@ class FakeRunner:
             output=json.dumps(self.output),
             duration_seconds=1,
             cost_usd=None,
+            final_output_digest=tree_or_blob_digest(
+                json.dumps(self.output).encode("utf-8")
+            ),
+            workspace_delta_digest=None,
             input_tokens=10,
             output_tokens=8,
             artifacts=("/tmp/selector.json",),
