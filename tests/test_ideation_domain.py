@@ -5,6 +5,10 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentCallRequest,
+    CodingAgentCallResult,
+)
 from kapso.execution.search_strategies.generic.ideation import (
     AnalyzedCandidate,
     BatchStatus,
@@ -14,8 +18,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateDisposition,
     CandidateDispositionKind,
     ClaimKind,
-    CodingAgentCallRequest,
-    CodingAgentCallResult,
     DiagnosisAudit,
     EmbeddingRecord,
     EmbeddingTelemetry,

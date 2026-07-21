@@ -18,12 +18,6 @@ from kapso.execution.search_strategies.generic.ideation.analyzer import (
     CandidateAnalyzer,
     DiversityRepairRequest,
 )
-from kapso.execution.search_strategies.generic.ideation.coding_agents import (
-    CodingAgentCallRunner,
-    CodingAgentInvocationError,
-    CodingAgentRunnerSettings,
-    SubprocessCodingAgentCallRunner,
-)
 from kapso.execution.search_strategies.generic.ideation.embeddings import (
     EmbeddingBatch,
     EmbeddingProvider,
@@ -63,8 +57,6 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     CandidateDisposition,
     CandidateDispositionKind,
     ClaimKind,
-    CodingAgentCallRequest,
-    CodingAgentCallResult,
     DiagnosisAudit,
     EmbeddingRecord,
     EmbeddingTelemetry,
@@ -160,11 +152,6 @@ __all__ = [
     "CandidateGeneratorSettings",
     "CandidateSelector",
     "ClaimKind",
-    "CodingAgentCallRequest",
-    "CodingAgentCallResult",
-    "CodingAgentCallRunner",
-    "CodingAgentInvocationError",
-    "CodingAgentRunnerSettings",
     "DiagnosisAudit",
     "EmbeddingRecord",
     "EmbeddingBatch",
@@ -222,7 +209,6 @@ __all__ = [
     "SelectionDecision",
     "SelectionResult",
     "SimilarityMatch",
-    "SubprocessCodingAgentCallRunner",
     "CANDIDATE_RESPONSE_SCHEMA",
     "SELECTOR_RESPONSE_SCHEMA",
     "DiversityRepairRequest",

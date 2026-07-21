@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Tuple
 
-from kapso.execution.search_strategies.generic.ideation.coding_agents import (
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentCallRequest,
+    CodingAgentCallResult,
     CodingAgentCallRunner,
 )
 from kapso.execution.search_strategies.generic.ideation.generator import (
@@ -17,8 +19,6 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     CandidateAnalysis,
     CandidateDisposition,
     CandidateDispositionKind,
-    CodingAgentCallRequest,
-    CodingAgentCallResult,
     DiagnosisAudit,
     EvidenceStatus,
     IdeaRecord,

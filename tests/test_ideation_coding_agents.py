@@ -2,18 +2,18 @@
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from kapso.execution.search_strategies.generic.ideation.coding_agents import (
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentCallRequest,
+    CodingAgentCallResult,
     CodingAgentInvocationError,
     CodingAgentRunnerSettings,
     SubprocessCodingAgentCallRunner,
-)
-from kapso.execution.search_strategies.generic.ideation.types import (
-    CodingAgentCallRequest,
 )
 
 
@@ -196,7 +196,9 @@ def test_failed_empty_and_malformed_agent_results_propagate(
     with pytest.raises(expected_exception):
         runner(tmp_path).run(request(tmp_path, cli), {"type": "object"})
 
-    artifact_directories = tuple((tmp_path / "artifacts").iterdir())
+    artifact_directories = tuple(
+        path for path in (tmp_path / "artifacts").iterdir() if path.is_dir()
+    )
     assert len(artifact_directories) == 1
     assert (artifact_directories[0] / "prompt.txt").is_file()
     assert (artifact_directories[0] / "stdout.txt").is_file()
@@ -209,3 +211,219 @@ def test_runner_rejects_non_absolute_artifact_root():
             artifact_root="relative/artifacts",
             termination_grace_seconds=1,
         )
+
+
+def test_interrupted_operation_retries_with_exact_persisted_identity(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+marker = pathlib.Path("first_attempt_failed")
+if not marker.exists():
+    marker.write_text("failed")
+    print("first attempt", file=sys.stderr)
+    sys.exit(9)
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"recovered"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":2}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+
+    with pytest.raises(CodingAgentInvocationError, match="status 9"):
+        call_runner.run(request(tmp_path, "codex"), {"type": "object"})
+
+    operation_directory = (
+        tmp_path / "artifacts" / request(tmp_path, "codex").operation_id
+    )
+    prompt_before_retry = (operation_directory / "prompt.txt").read_bytes()
+    result = call_runner.run(
+        request(tmp_path, "codex"),
+        {"type": "object"},
+    )
+
+    assert json.loads(result.output) == {"proposal": "recovered"}
+    assert (operation_directory / "prompt.txt").read_bytes() == prompt_before_retry
+    assert (operation_directory / "stderr.txt").read_text() == ""
+    assert (operation_directory / "result.json").is_file()
+
+
+def test_retry_recovers_atomic_input_temporary_file_left_by_crash(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"recovered"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":2}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    artifact_root = tmp_path / "artifacts"
+    operation_directory = artifact_root / request(tmp_path, "codex").operation_id
+    operation_directory.mkdir(parents=True)
+    (operation_directory / "prompt.txt").write_text(request(tmp_path, "codex").prompt)
+    temporary_schema = operation_directory / ".response_schema.json.tmp"
+    temporary_schema.write_text("partial schema from terminated process")
+
+    result = runner(tmp_path).run(
+        request(tmp_path, "codex"),
+        {"type": "object"},
+    )
+
+    assert json.loads(result.output) == {"proposal": "recovered"}
+    assert not temporary_schema.exists()
+    assert json.loads((operation_directory / "response_schema.json").read_text()) == {
+        "type": "object"
+    }
+    assert (operation_directory / "invocation.json").is_file()
+
+
+def test_concurrent_identical_operation_invokes_cli_once(tmp_path, monkeypatch):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+import time
+counter = pathlib.Path("invocations.txt")
+counter.write_text(counter.read_text() + "x" if counter.exists() else "x")
+time.sleep(0.2)
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"one-call"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":6,"output_tokens":3}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+    call_request = request(tmp_path, "codex")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = tuple(
+            pool.submit(call_runner.run, call_request, {"type": "object"})
+            for _ in range(2)
+        )
+        results = tuple(future.result() for future in futures)
+
+    assert results[0] == results[1]
+    assert (tmp_path / "invocations.txt").read_text() == "x"
+
+
+def test_concurrent_conflicting_operation_allows_one_identity(tmp_path, monkeypatch):
+    install_executable(
+        tmp_path,
+        "codex",
+        """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+import time
+counter = pathlib.Path("invocations.txt")
+counter.write_text(counter.read_text() + "x" if counter.exists() else "x")
+time.sleep(0.2)
+args = sys.argv[1:]
+final_path = pathlib.Path(args[args.index("--output-last-message") + 1])
+final_path.write_text('{"proposal":"winner"}')
+print(json.dumps({"type":"turn.completed","usage":{"input_tokens":6,"output_tokens":3}}))
+""",
+    )
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    call_runner = runner(tmp_path)
+    first_request = request(tmp_path, "codex")
+    second_request = replace(first_request, model="conflicting-model")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (
+            pool.submit(call_runner.run, first_request, {"type": "object"}),
+            pool.submit(call_runner.run, second_request, {"type": "object"}),
+        )
+        outcomes = tuple(
+            future.result() if future.exception() is None else future.exception()
+            for future in futures
+        )
+
+    assert sum(isinstance(value, CodingAgentCallResult) for value in outcomes) == 1
+    errors = tuple(
+        value for value in outcomes if isinstance(value, CodingAgentInvocationError)
+    )
+    assert len(errors) == 1
+    assert "identity was reused" in str(errors[0])
+    assert (tmp_path / "invocations.txt").read_text() == "x"
+
+
+def test_operation_directory_symlink_is_rejected_without_touching_target(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(tmp_path, "codex", "#!/bin/sh\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    artifact_root = tmp_path / "artifacts"
+    artifact_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (artifact_root / request(tmp_path, "codex").operation_id).symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(CodingAgentInvocationError, match="must be a directory"):
+        runner(tmp_path).run(request(tmp_path, "codex"), {"type": "object"})
+
+    assert tuple(outside.iterdir()) == ()
+
+
+def test_symlinked_identity_artifact_is_rejected(tmp_path, monkeypatch):
+    install_executable(tmp_path, "codex", "#!/bin/sh\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    artifact_root = tmp_path / "artifacts"
+    operation_directory = artifact_root / request(tmp_path, "codex").operation_id
+    operation_directory.mkdir(parents=True)
+    outside = tmp_path / "outside-prompt.txt"
+    outside.write_text(request(tmp_path, "codex").prompt)
+    (operation_directory / "prompt.txt").symlink_to(outside)
+
+    with pytest.raises(CodingAgentInvocationError, match="regular file"):
+        runner(tmp_path).run(request(tmp_path, "codex"), {"type": "object"})
+
+    assert outside.read_text() == request(tmp_path, "codex").prompt
+
+
+def test_artifact_root_rejects_symlinked_parent_without_creating_target_child(
+    tmp_path,
+    monkeypatch,
+):
+    install_executable(tmp_path, "codex", "#!/bin/sh\nexit 0\n")
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    outside = tmp_path / "outside-root"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    linked_root.symlink_to(outside, target_is_directory=True)
+    call_runner = SubprocessCodingAgentCallRunner(
+        CodingAgentRunnerSettings(
+            artifact_root=str(linked_root / "agent-calls"),
+            termination_grace_seconds=1,
+        )
+    )
+
+    with pytest.raises(CodingAgentInvocationError, match="must not traverse"):
+        call_runner.run(request(tmp_path, "codex"), {"type": "object"})
+
+    assert not (outside / "agent-calls").exists()

@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.generator import (
     GenerationMemberSettings,
 )
@@ -15,7 +16,6 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     CandidateAnalysis,
     CandidateDispositionKind,
     ClaimKind,
-    CodingAgentCallResult,
     EvidenceClaim,
     EvidenceStatus,
     new_identifier,

@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
 from kapso.execution.search_strategies.generic.ideation.evidence import (
     CampaignEvidenceBuilder,
@@ -17,7 +18,6 @@ from kapso.execution.search_strategies.generic.ideation.generator import (
     GenerationMemberSettings,
 )
 from kapso.execution.search_strategies.generic.ideation.types import (
-    CodingAgentCallResult,
     IdeaDescriptor,
     OperatorBrief,
     OperatorKind,

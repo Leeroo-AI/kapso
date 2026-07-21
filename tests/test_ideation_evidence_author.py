@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.iteration_evaluator import (
     IterationEvaluationError,
@@ -18,7 +19,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     EVIDENCE_AUTHOR_METADATA_KEY,
     EVIDENCE_AUTHOR_RESPONSE_SCHEMA,
     EVALUATOR_EVIDENCE_KEY,
-    CodingAgentCallResult,
     EvidenceAuthor,
     GenerationMemberSettings,
     IdeaArchive,

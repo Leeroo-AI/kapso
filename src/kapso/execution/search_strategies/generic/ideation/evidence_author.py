@@ -7,12 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Tuple
 
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentCallRequest,
+    CodingAgentCallResult,
+    CodingAgentCallRunner,
+)
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
-)
-from kapso.execution.search_strategies.generic.ideation.coding_agents import (
-    CodingAgentCallRunner,
 )
 from kapso.execution.search_strategies.generic.ideation.evaluator_evidence import (
     EVALUATOR_EVIDENCE_KEY,
@@ -22,8 +24,6 @@ from kapso.execution.search_strategies.generic.ideation.generator import (
     GenerationMemberSettings,
 )
 from kapso.execution.search_strategies.generic.ideation.types import (
-    CodingAgentCallRequest,
-    CodingAgentCallResult,
     IdeaRecord,
     content_identifier,
 )

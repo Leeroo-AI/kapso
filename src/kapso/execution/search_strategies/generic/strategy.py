@@ -15,6 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentRunnerSettings,
+    SubprocessCodingAgentCallRunner,
+)
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
@@ -59,7 +63,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateGenerator,
     CandidateGeneratorSettings,
     CandidateSelector,
-    CodingAgentRunnerSettings,
     EmbeddingSettings,
     EvidenceAuthor,
     EvaluationAttemptInput,
@@ -79,7 +82,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     ParentPlan,
     ParentPlanKind,
     ResolvedParentSnapshot,
-    SubprocessCodingAgentCallRunner,
     build_idea_outcome,
     content_identifier,
     new_identifier,

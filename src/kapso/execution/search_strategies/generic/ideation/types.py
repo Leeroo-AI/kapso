@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional, Tuple, Type, TypeVar
 
+from kapso.execution.coding_agents import structured_call
+
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*_[0-9a-f]{32}$")
 _EnumType = TypeVar("_EnumType", bound=Enum)
 
@@ -377,103 +379,6 @@ def require_idea_transition(current: IdeaStatus, target: IdeaStatus) -> None:
 def require_gap_transition(current: GapState, target: GapState) -> None:
     if target not in GAP_TRANSITIONS[current]:
         raise ValueError(f"illegal gap transition: {current.value} -> {target.value}")
-
-
-@dataclass(frozen=True)
-class CodingAgentCallRequest(JsonRecord):
-    operation_id: str
-    role: str
-    cli: str
-    model: str
-    prompt: str
-    workspace: str
-    timeout_seconds: float
-    effort: Optional[str] = None
-    allowed_tools: Tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        _require_typed_identifier(
-            self.operation_id,
-            "coding-agent operation id",
-            "agent_call",
-        )
-        _require_nonempty_string(self.role, "coding-agent role")
-        if self.cli not in {"codex", "claude_code"}:
-            raise ValueError("coding-agent cli must be codex or claude_code")
-        _require_nonempty_string(self.model, "coding-agent model")
-        _require_nonempty_string(self.prompt, "coding-agent prompt")
-        _require_nonempty_string(self.workspace, "coding-agent workspace")
-        timeout = _require_number(
-            self.timeout_seconds,
-            "coding-agent timeout",
-            0.0,
-        )
-        if timeout == 0.0:
-            raise ValueError("coding-agent timeout must be greater than zero")
-        _require_optional_string(self.effort, "coding-agent effort")
-        object.__setattr__(
-            self,
-            "allowed_tools",
-            _require_strings(self.allowed_tools, "coding-agent allowed tools"),
-        )
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CodingAgentCallRequest":
-        _require_exact_keys(
-            data,
-            {
-                "operation_id",
-                "role",
-                "cli",
-                "model",
-                "prompt",
-                "workspace",
-                "timeout_seconds",
-                "effort",
-                "allowed_tools",
-            },
-            "coding-agent request",
-        )
-        return cls(**data)
-
-
-@dataclass(frozen=True)
-class CodingAgentCallResult(JsonRecord):
-    output: str
-    duration_seconds: float
-    cost_usd: Optional[float]
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
-    artifacts: Tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.output, str):
-            raise ValueError("coding-agent output must be a string")
-        _require_number(self.duration_seconds, "coding-agent duration", 0.0)
-        _require_optional_number(self.cost_usd, "coding-agent cost", 0.0)
-        _require_optional_integer(self.input_tokens, "coding-agent input tokens")
-        _require_optional_integer(self.output_tokens, "coding-agent output tokens")
-        object.__setattr__(
-            self,
-            "artifacts",
-            _require_strings(self.artifacts, "coding-agent artifacts"),
-        )
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CodingAgentCallResult":
-        _require_exact_keys(
-            data,
-            {
-                "output",
-                "duration_seconds",
-                "cost_usd",
-                "input_tokens",
-                "output_tokens",
-                "artifacts",
-            },
-            "coding-agent result",
-        )
-        return cls(**data)
 
 
 @dataclass(frozen=True)
@@ -1778,13 +1683,13 @@ class IdeaBatch(JsonRecord):
     updated_at: str
     status: BatchStatus = BatchStatus.PLANNED
     generated_idea_ids: Tuple[str, ...] = ()
-    generation_calls: Tuple[CodingAgentCallResult, ...] = ()
+    generation_calls: Tuple[structured_call.CodingAgentCallResult, ...] = ()
     resurfaced_ideas: Tuple[ResurfacedIdea, ...] = ()
     considered_idea_ids: Tuple[str, ...] = ()
     analyses: Tuple[CandidateAnalysis, ...] = ()
     embedding_telemetry: Optional[EmbeddingTelemetry] = None
     selection: Optional[SelectionDecision] = None
-    selection_call: Optional[CodingAgentCallResult] = None
+    selection_call: Optional[structured_call.CodingAgentCallResult] = None
     abandoned_reason: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -1832,7 +1737,8 @@ class IdeaBatch(JsonRecord):
             ),
         )
         if not isinstance(self.generation_calls, (list, tuple)) or not all(
-            isinstance(call, CodingAgentCallResult) for call in self.generation_calls
+            isinstance(call, structured_call.CodingAgentCallResult)
+            for call in self.generation_calls
         ):
             raise ValueError("batch generation calls are invalid")
         object.__setattr__(self, "generation_calls", tuple(self.generation_calls))
@@ -1889,7 +1795,7 @@ class IdeaBatch(JsonRecord):
         ):
             raise ValueError("batch selection is invalid")
         if self.selection_call is not None and not isinstance(
-            self.selection_call, CodingAgentCallResult
+            self.selection_call, structured_call.CodingAgentCallResult
         ):
             raise ValueError("batch selection call is invalid")
         if (self.selection is None) != (self.selection_call is None):
@@ -2045,7 +1951,7 @@ class IdeaBatch(JsonRecord):
             status=_parse_enum(BatchStatus, data["status"], "batch status"),
             generated_idea_ids=data["generated_idea_ids"],
             generation_calls=tuple(
-                CodingAgentCallResult.from_dict(call)
+                structured_call.CodingAgentCallResult.from_dict(call)
                 for call in data["generation_calls"]
             ),
             resurfaced_ideas=tuple(
@@ -2069,7 +1975,9 @@ class IdeaBatch(JsonRecord):
             selection_call=(
                 None
                 if data["selection_call"] is None
-                else CodingAgentCallResult.from_dict(data["selection_call"])
+                else structured_call.CodingAgentCallResult.from_dict(
+                    data["selection_call"]
+                )
             ),
             abandoned_reason=data["abandoned_reason"],
         )

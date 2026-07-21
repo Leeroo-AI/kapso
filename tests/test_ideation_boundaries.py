@@ -31,6 +31,9 @@ ROOT = Path(__file__).parents[1]
 IDEATION = (
     ROOT / "src" / "kapso" / "execution" / "search_strategies" / "generic" / "ideation"
 )
+STRUCTURED_CALL = (
+    ROOT / "src" / "kapso" / "execution" / "coding_agents" / "structured_call.py"
+)
 
 
 def test_shipped_candidate_pipeline_configuration_is_strict_and_shared():
@@ -54,6 +57,10 @@ def test_shipped_candidate_pipeline_configuration_is_strict_and_shared():
 def test_superseded_generic_ideation_files_and_symbols_are_absent():
     generic = IDEATION.parent
     assert not (generic / "codex_ideation.py").exists()
+    assert not (IDEATION / "coding_agents.py").exists()
+    types_source = (IDEATION / "types.py").read_text(encoding="utf-8")
+    assert "class CodingAgentCallRequest" not in types_source
+    assert "class CodingAgentCallResult" not in types_source
     for name in (
         "ideation_claude_code.md",
         "ideation_ensemble_addendum.md",
@@ -147,7 +154,7 @@ def test_only_embedding_boundary_imports_the_openai_sdk():
 
 def test_ideation_source_has_no_exception_swallowing_or_environment_reads():
     violations = []
-    for path in IDEATION.glob("*.py"):
+    for path in (*IDEATION.glob("*.py"), STRUCTURED_CALL):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Try):
@@ -165,13 +172,17 @@ def test_candidate_reasoning_has_no_direct_model_api_or_prompt_truncation():
         path.name: path.read_text(encoding="utf-8") for path in IDEATION.glob("*.py")
     }
     reasoning_sources = "\n".join(
-        sources[name]
-        for name in (
-            "coding_agents.py",
-            "generator.py",
-            "analyzer.py",
-            "selector.py",
-            "evidence_author.py",
+        (
+            STRUCTURED_CALL.read_text(encoding="utf-8"),
+            *(
+                sources[name]
+                for name in (
+                    "generator.py",
+                    "analyzer.py",
+                    "selector.py",
+                    "evidence_author.py",
+                )
+            ),
         )
     )
     for banned in (

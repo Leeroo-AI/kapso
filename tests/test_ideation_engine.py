@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation import (
     AnalyzerSettings,
     CampaignAction,
@@ -16,7 +17,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateGenerator,
     CandidateGeneratorSettings,
     CandidateSelector,
-    CodingAgentCallResult,
     EmbeddingBatch,
     EmbeddingRecord,
     EmbeddingSettings,
