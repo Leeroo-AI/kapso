@@ -1,6 +1,6 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
-Status: **M1–M3 complete; M4–M10 planned**
+Status: **M1–M3 complete; M4 implemented with live Codex validation pending; M5–M10 planned**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -568,7 +568,7 @@ The implementation is complete only when:
 | M1 Contracts and Config | Complete | `kapso.cross_run.{canonical,contracts,settings}`, `kapso.core.config`, canonical `cross_run` config | 63 focused + 89 affected integration tests; installed-package/config/GitHub/import-boundary production checks; four `fable` max-reasoning reviews | — |
 | M2 GitHub Control Plane | Complete | `kapso.cross_run.git_refs`, `kapso.cross_run.github`, strict GitHub/cache config | 203 focused + 4 affected tests; Black, diff, and standalone `gpt-5.6-sol` xhigh approval | — |
 | M3 Run Capture and Bundles | Complete | `kapso.cross_run.capture`, `kapso.cross_run.git_command`, journal-integrated `ExperimentHistoryStore`, checkpoint/archive/orchestrator capture seams | 415 affected integration tests plus 131 final focused tests; compile/diff gates; standalone `gpt-5.6-sol` xhigh approval | M9 composes and activates the pinned runtime context |
-| M4 Catalog, Episodes, Claims | Planned | — | — | M3 |
+| M4 Catalog, Episodes, Claims | Implemented; live CLI pending | `kapso.cross_run.catalog` | 175 focused M4 tests; 377 complete cross-run tests; adversarial provenance, successor projection, configuration rotation, deterministic store, and service integration coverage; standalone `gpt-5.6-sol` xhigh approval | Authenticated Codex account usage limit; typed isolation evidence intentionally absent |
 | M5 Snapshots, Search, Reader | Planned | — | — | M2, M4 |
 | M6 Ideation and Memory Bridge | Planned | — | — | M5 |
 | M7 Expert Candidates and Architecture | Planned | — | — | M2, M5 |

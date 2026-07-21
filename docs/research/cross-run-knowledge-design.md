@@ -507,6 +507,23 @@ Configured adjudication derives the active state. Unresolved disagreement yields
 `disputed` or `inconclusive`, blocking exploit anchoring and expert promotion.
 Reviewer identity is assigned by the configured reviewer slot and bound to an
 immutable operation receipt; a model-returned `reviewer_id` is never trusted.
+The framework additionally persists a `CatalogAgentOperationRecord` binding the
+exact packet/template/schema/agent preimage, exact final output bytes, receipt,
+and minted assertion ID. The reducer reparses the authenticated bytes, so a valid
+receipt cannot be replayed to manufacture a different judgment or rationale.
+It reconstructs the typed packet and compares every nested subject/evidence record
+with the content-addressed catalog fact; a real ID paired with foreign bytes is
+rejected. The operation embeds the full secret-free catalog configuration, whose
+fingerprint must equal the immutable input delta that first published the record.
+Historical model, effort, and rubric settings therefore remain verifiable after a
+configuration rotation, while only current-rubric heads count toward quorum.
+Independence is checked against the proposer principal recorded on each claim, so
+a later role rotation cannot let that historical proposer review its own output.
+At first publication, the reducer requires the operation's template and schema to
+equal the running implementation and its packet to name the exact parent catalog
+generation, parent facts, and active entry states. Later generations validate the
+stored historical bytes and their original delta-bound configuration without
+reinterpreting them through a newer prompt or schema implementation.
 Attestations are stored as separate envelopes keyed to immutable payload identity,
 so rotation cannot create byte-distinct objects under one content ID.
 
@@ -537,6 +554,25 @@ by the pinned `ExpertScopeContract`; core code contains no LLM- or tabular-speci
 predicate names.
 Updating evidence creates a new immutable claim revision. `claim_id`
 names the lineage; `revision_id` names the exact object pinned by a snapshot.
+Every revision has one `ClaimEvidenceClosure` containing the complete evaluated
+episode universe, each support/contradiction/not-applicable classification and its
+rationale, packet digest, and proposer receipt. A claim-proposal
+`CatalogAgentOperationRecord` authenticates that closure and the claim revisions
+minted from the same exact output. Reviewers receive the full closure, including
+episodes the proposer marked not applicable.
+
+The production projector currently emits `undetermined` intervention structure:
+capture has no typed authority that can prove an ablation. Because admission
+requires isolated support, real projected episodes remain useful evidence and
+retrieval inputs but cannot admit causal mechanism claims yet. This is a safe
+evidence-source boundary, not a heuristic gap; isolation may change only when a
+future typed, independently validated identification fact is added.
+
+Successor capture manifests may reference the same immutable historical journal
+event as their predecessors. Each manifest must still have an exact local
+derivation closure, every stored event must be referenced, and unreferenced events
+are rejected; global reference uniqueness is neither required nor scientifically
+correct.
 
 ### 4.8 `CatalogEntryState`
 
