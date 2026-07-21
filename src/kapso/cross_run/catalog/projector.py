@@ -14,8 +14,9 @@ from kapso.cross_run.canonical import (
     to_json_value,
     tree_or_blob_digest,
 )
-from kapso.cross_run.capture.evaluation_evidence import evaluation_scores_match
+from kapso.cross_run.capture.branch_evidence import validate_branch_evidence
 from kapso.cross_run.capture.bundle import RunBundleReader
+from kapso.cross_run.capture.evaluation_evidence import evaluation_scores_match
 from kapso.cross_run.capture.exporter import BranchSnapshot, CaptureDescriptor
 from kapso.cross_run.contracts import (
     ArtifactCompleteness,
@@ -343,6 +344,7 @@ class RunBundleProjector:
             history_identity,
             events,
             branch_snapshots,
+            payloads,
         )
         return _BundleAuthorities(
             descriptor=descriptor,
@@ -364,6 +366,7 @@ class RunBundleProjector:
         history_identity: tuple[str, str, str, bool],
         events: tuple[ExecutionRevisionEvent, ...],
         branch_snapshots: tuple[BranchSnapshot, ...],
+        payloads: Mapping[str, bytes],
     ) -> None:
         descriptor_fields = (
             "scope_contract_id",
@@ -514,6 +517,7 @@ class RunBundleProjector:
         }
         if len(branches_by_revision) != len(branch_snapshots):
             raise BundleProjectionError("branch snapshot revisions are not unique")
+        source_payload_refs: set[str] = set()
         for event in events:
             branch_key = f"branch:{event.node_id}:{event.execution_revision}"
             branch = branches_by_revision.get((event.node_id, event.execution_revision))
@@ -528,25 +532,32 @@ class RunBundleProjector:
             if completeness is not ArtifactCompleteness.PRESENT:
                 raise BundleProjectionError("present branch is not declared present")
             record = ExperimentRecord.from_dict(to_json_value(event.projection))
-            if (
-                descriptor.artifact_refs[branch_key] not in bundle.branch_snapshot_refs
-                or branch.branch_name != record.branch_name
-                or branch.parent_branch_name
-                != event.artifact_refs.get("parent_branch", "")
-                or branch.commit_sha != event.artifact_refs.get("candidate_commit")
-                or branch.implementation_base_ref
-                != event.artifact_refs.get("implementation_base", "")
-                or branch.diff_base_ref != event.artifact_refs.get("diff_base", "")
-                or branch.feedback_base_ref
-                != event.artifact_refs.get("feedback_base", "")
-                or branch.evaluated_commit_shas
-                != tuple(
-                    sorted(
-                        {attempt.commit_sha for attempt in record.evaluation_attempts}
-                    )
+            if descriptor.artifact_refs[branch_key] not in bundle.branch_snapshot_refs:
+                raise BundleProjectionError(
+                    "branch logical ref does not name its manifest"
                 )
-            ):
-                raise BundleProjectionError("branch snapshot identity changed")
+            source_payload_refs.update(
+                validate_branch_evidence(
+                    read_ref=payloads.__getitem__,
+                    descriptor=descriptor,
+                    record=record,
+                    event=event,
+                    branch=branch,
+                    error_type=BundleProjectionError,
+                )
+            )
+        structural_refs = {
+            descriptor.artifact_refs["capture_descriptor"],
+            descriptor.artifact_refs["checkpoint"],
+            descriptor.artifact_refs["execution_event_journal"],
+            descriptor.artifact_refs["idea_archive"],
+            descriptor.artifact_refs["experiment_history"],
+            *descriptor.branch_snapshot_refs,
+            *descriptor.run_log_refs,
+        }
+        unexplained_refs = set(descriptor.artifact_refs.values()) - structural_refs
+        if unexplained_refs != source_payload_refs:
+            raise BundleProjectionError("source payload closure is not exact")
         expected_watermarks = {
             "branch_snapshot_count": len(bundle.branch_snapshot_refs),
             "checkpoint_completed_iterations": checkpoint.completed_iterations,

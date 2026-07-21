@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -11,12 +10,11 @@ from typing import Any
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
-    source_tree_digest,
     to_json_value,
     tree_or_blob_digest,
 )
+from kapso.cross_run.capture.branch_evidence import validate_branch_evidence
 from kapso.cross_run.capture.exporter import (
-    BRANCH_SNAPSHOT_SCHEMA,
     CAPTURE_DESCRIPTOR_REF,
     CAPTURE_MANIFEST_FILENAME,
     BranchSnapshot,
@@ -26,18 +24,12 @@ from kapso.cross_run.capture.evaluation_evidence import (
     validate_evaluation_fingerprints,
 )
 from kapso.cross_run.record_contracts import ExecutionRevisionEvent
-from kapso.cross_run.capture.git_evidence import (
-    has_ancestry_path,
-    parse_commit_object,
-    reconstruct_root_tree_sha,
-)
 from kapso.cross_run.capture.provenance import validate_execution_provenance
 from kapso.cross_run.contracts import (
     ArtifactCompleteness,
     CaptureManifest,
     CompletionState,
 )
-from kapso.cross_run.git_refs import git_object_sha
 from kapso.execution.memories.experiment_memory.store import (
     ExperimentHistoryStore,
     ExperimentRecord,
@@ -471,7 +463,14 @@ class CaptureValidator:
                     "branch logical ref does not name its manifest"
                 )
             source_payload_refs.update(
-                self._validate_branch(root, descriptor, revision_record, event, branch)
+                validate_branch_evidence(
+                    read_ref=lambda relative_path: (root / relative_path).read_bytes(),
+                    descriptor=descriptor,
+                    record=revision_record,
+                    event=event,
+                    branch=branch,
+                    error_type=CaptureValidationError,
+                )
             )
         if set(node_links) != set(range(len(records))):
             raise CaptureValidationError(
@@ -489,181 +488,3 @@ class CaptureValidator:
         unexplained_refs = set(descriptor.artifact_refs.values()) - structural_refs
         if unexplained_refs != source_payload_refs:
             raise CaptureValidationError("source payload closure is not exact")
-
-    @staticmethod
-    def _validate_branch(
-        root: Path,
-        descriptor: CaptureDescriptor,
-        record: ExperimentRecord,
-        event: ExecutionRevisionEvent,
-        branch: BranchSnapshot,
-    ) -> set[str]:
-        expected_revision_ref = (
-            f"refs/kapso/execution-revisions/{event.run_id}/"
-            f"node-{event.node_id}/revision-{event.execution_revision}"
-        )
-        if (
-            branch.schema != BRANCH_SNAPSHOT_SCHEMA
-            or branch.branch_name != record.branch_name
-            or branch.parent_branch_name != event.artifact_refs.get("parent_branch", "")
-            or branch.revision_ref != expected_revision_ref
-            or branch.revision_ref != event.artifact_refs.get("candidate_ref")
-            or branch.commit_sha != event.artifact_refs.get("candidate_commit")
-            or branch.implementation_base_ref
-            != event.artifact_refs.get("implementation_base", "")
-            or branch.diff_base_ref != event.artifact_refs.get("diff_base", "")
-            or branch.feedback_base_ref != event.artifact_refs.get("feedback_base", "")
-            or dict(branch.base_commit_shas)
-            != {
-                name: event.artifact_refs[f"{name}_base_commit"]
-                for name in ("implementation", "diff", "feedback")
-                if f"{name}_base_commit" in event.artifact_refs
-            }
-        ):
-            raise CaptureValidationError("branch snapshot identity changed")
-        expected_event_refs = {
-            name: value
-            for name, value in {
-                "branch": record.branch_name,
-                "parent_branch": branch.parent_branch_name,
-                "implementation_base": branch.implementation_base_ref,
-                "diff_base": branch.diff_base_ref,
-                "feedback_base": branch.feedback_base_ref,
-                "candidate_commit": branch.commit_sha,
-                "candidate_ref": branch.revision_ref,
-            }.items()
-            if value
-        }
-        for position, attempt in enumerate(record.evaluation_attempts):
-            expected_event_refs[f"evaluation_commit_{position}"] = attempt.commit_sha
-        for name, commit in branch.base_commit_shas.items():
-            expected_event_refs[f"{name}_base_commit"] = commit
-        if dict(event.artifact_refs) != expected_event_refs:
-            raise CaptureValidationError("journal branch provenance closure changed")
-        evaluated = tuple(
-            sorted({item.commit_sha for item in record.evaluation_attempts})
-        )
-        if branch.evaluated_commit_shas != evaluated:
-            raise CaptureValidationError("branch evaluation commit closure changed")
-        commit_graph: dict[str, tuple[str, ...]] = {}
-        commit_tree_shas: dict[str, str] = {}
-        evidence_refs: set[str] = set()
-        for item in branch.commit_objects:
-            payload_ref = item["payload_ref"]
-            if (
-                payload_ref in evidence_refs
-                or payload_ref not in descriptor.artifact_refs.values()
-            ):
-                raise CaptureValidationError("Git commit payload ref is invalid")
-            payload = (root / payload_ref).read_bytes()
-            commit_sha = item["commit_sha"]
-            if git_object_sha("commit", payload) != commit_sha:
-                raise CaptureValidationError("Git commit payload identity changed")
-            parsed = parse_commit_object(payload)
-            commit_graph[commit_sha] = parsed.parent_shas
-            commit_tree_shas[commit_sha] = parsed.tree_sha
-            evidence_refs.add(payload_ref)
-        if (
-            branch.commit_sha not in commit_graph
-            or commit_tree_shas[branch.commit_sha] != branch.root_tree_sha
-        ):
-            raise CaptureValidationError("candidate commit/tree proof changed")
-        for base_sha in branch.base_commit_shas.values():
-            if base_sha not in commit_graph or not has_ancestry_path(
-                commit_graph, branch.commit_sha, base_sha
-            ):
-                raise CaptureValidationError("branch base ancestry is not proven")
-        for proof_sha in commit_graph:
-            belongs_to_proof = proof_sha == branch.commit_sha or any(
-                has_ancestry_path(commit_graph, branch.commit_sha, proof_sha)
-                and has_ancestry_path(commit_graph, proof_sha, base_sha)
-                for base_sha in branch.base_commit_shas.values()
-            )
-            if not belongs_to_proof:
-                raise CaptureValidationError("Git ancestry proof has unrelated commits")
-        tree: dict[str, tuple[str, str, int]] = {}
-        git_tree_entries: dict[str, tuple[str, str]] = {}
-        seen_refs: set[str] = set()
-        for item in branch.source_files:
-            required = {
-                "git_blob_sha",
-                "mode",
-                "payload_ref",
-                "sha256",
-                "size",
-                "source_path",
-            }
-            if set(item) != required:
-                raise CaptureValidationError("branch source descriptor is invalid")
-            payload_ref = item["payload_ref"]
-            if item["mode"] not in {"100644", "100755"}:
-                raise CaptureValidationError("branch source mode is not a regular file")
-            if (
-                payload_ref in seen_refs
-                or payload_ref not in descriptor.artifact_refs.values()
-            ):
-                raise CaptureValidationError("branch source payload ref is invalid")
-            payload = (root / payload_ref).read_bytes()
-            if (
-                len(payload) != item["size"]
-                or tree_or_blob_digest(payload) != item["sha256"]
-                or git_object_sha("blob", payload) != item["git_blob_sha"]
-            ):
-                raise CaptureValidationError("branch source payload identity changed")
-            source_path = item["source_path"]
-            if source_path in tree:
-                raise CaptureValidationError("branch source path is duplicated")
-            tree[source_path] = (item["sha256"], item["mode"], item["size"])
-            git_tree_entries[source_path] = (item["mode"], item["git_blob_sha"])
-            seen_refs.add(payload_ref)
-            evidence_refs.add(payload_ref)
-        exclusion_fields = {
-            "git_object_sha",
-            "mode",
-            "object_type",
-            "path",
-            "reason",
-            "size",
-        }
-        valid_exclusion_reasons = {
-            "artifact_class",
-            "denied_path",
-            "file_too_large",
-            "non_regular_file",
-            "unknown_size",
-        }
-        for item in branch.excluded_files:
-            if set(item) != exclusion_fields:
-                raise CaptureValidationError("branch exclusion descriptor is invalid")
-            mode = item["mode"]
-            object_type = item["object_type"]
-            size = item["size"]
-            if (
-                item["reason"] not in valid_exclusion_reasons
-                or re.fullmatch(r"[0-9a-f]{40}", item["git_object_sha"]) is None
-                or (mode, object_type)
-                not in {
-                    ("100644", "blob"),
-                    ("100755", "blob"),
-                    ("120000", "blob"),
-                    ("160000", "commit"),
-                }
-                or (
-                    (object_type == "blob" and (type(size) is not int or size < 0))
-                    or (object_type == "commit" and size is not None)
-                )
-            ):
-                raise CaptureValidationError("branch exclusion identity is invalid")
-            git_tree_entries[item["path"]] = (mode, item["git_object_sha"])
-        if len(git_tree_entries) != len(branch.source_files) + len(
-            branch.excluded_files
-        ):
-            raise CaptureValidationError("branch Git tree paths are not unique")
-        if reconstruct_root_tree_sha(git_tree_entries) != branch.root_tree_sha:
-            raise CaptureValidationError("branch Git root tree proof changed")
-        expected_tree_digest = (
-            source_tree_digest(tree) if tree else tree_or_blob_digest(b"[]")
-        )
-        if expected_tree_digest != branch.source_tree_digest:
-            raise CaptureValidationError("branch source tree digest changed")
-        return evidence_refs

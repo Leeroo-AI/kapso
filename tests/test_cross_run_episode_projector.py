@@ -6,6 +6,8 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.capture.exporter import BranchSnapshot
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
 from kapso.cross_run.catalog.projector import RunBundleProjector
 from kapso.cross_run.catalog.service import CrossRunCatalog
@@ -19,9 +21,10 @@ from kapso.cross_run.contracts import (
     ExecutionStatus,
     InterventionStructure,
     ObjectiveDirection,
+    RunBundle,
     TaskContextBinding,
 )
-from kapso.cross_run.record_contracts import BundleProjectionError
+from kapso.cross_run.record_contracts import BundleProjectionError, SanitationReport
 from kapso.execution.search_strategies.generic.ideation import new_identifier
 from test_cross_run_contracts import build_records, digest
 from cross_run_capture_fixtures import make_capture_fixture
@@ -636,6 +639,46 @@ def test_projector_rechecks_every_sanitized_object_checksum(tmp_path):
 
     with pytest.raises(BundleProjectionError, match="checksum mismatch"):
         _projector(fixture).project(CorruptReader())
+
+
+def test_projector_recomputes_raw_git_commit_identity_after_consistent_remint(
+    tmp_path,
+):
+    fixture = make_capture_fixture(tmp_path)
+    _, stored = _publish_bundle(fixture)
+    payloads = {path: stored.read_ref(path) for path in stored.manifest.checksums}
+    branch = BranchSnapshot.from_json_bytes(
+        payloads[stored.manifest.branch_snapshot_refs[0]]
+    )
+    commit_ref = branch.commit_objects[0]["payload_ref"]
+    payloads[commit_ref] += b"tampered\n"
+    checksums = dict(stored.manifest.checksums)
+    checksums[commit_ref] = tree_or_blob_digest(payloads[commit_ref])
+
+    report_ref = stored.manifest.sanitation_report_ref
+    report = SanitationReport.from_json_bytes(payloads[report_ref])
+    report_values = report.to_dict()
+    report_values.pop("report_id")
+    report_values["admitted_refs"] = {
+        path: digest for path, digest in checksums.items() if path != report_ref
+    }
+    forged_report = SanitationReport.mint(**report_values)
+    payloads[report_ref] = forged_report.to_json_bytes()
+    checksums[report_ref] = tree_or_blob_digest(payloads[report_ref])
+    bundle_values = stored.manifest.to_dict()
+    bundle_values.pop("bundle_id")
+    bundle_values["checksums"] = checksums
+    forged_manifest = RunBundle.mint(**bundle_values)
+
+    class ConsistentlyRemintedReader:
+        manifest = forged_manifest
+
+        @staticmethod
+        def read_ref(relative_path):
+            return payloads[relative_path]
+
+    with pytest.raises(BundleProjectionError, match="commit payload identity"):
+        _projector(fixture).project(ConsistentlyRemintedReader())
 
 
 def test_projection_rejects_missing_or_wrong_supersession_frontier(tmp_path):
