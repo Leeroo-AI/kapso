@@ -679,6 +679,53 @@ the same paths. Kapso then regenerates repository-map/module controls and the bo
 recomputes the full patch, and deterministically rescans the exact candidate bytes;
 none of those authority records is agent-authored.
 
+The output contract is role-specific. Bootstrap/restructure returns a complete
+semantic topology and all complete module semantics, omitting framework-owned
+IDs, references, edges, hashes, and controls. Dependency edges are derived from
+module dependency IDs. Generalization returns only complete replacements for
+changed module contracts; Kapso reconstructs the parent topology with new module
+references, so the agent cannot smuggle a structural change through a capability
+proposal. Candidate validation reparses `final.json` and rederives the stored map,
+modules, and lineage. It also reproduces the fixed mode prompt/schema and the
+proof-closed prior-knowledge binding, preventing a self-consistent but
+unauthorized artifact closure from substituting proposal semantics.
+
+Preserved capability semantics are monotonic by contract, not by prompt, in both
+generalization and restructuring. A changed module may add
+problem signals, interfaces, safety conditions, evidence, tests, and replay
+references, and advances a positive integer `vN` version, but it cannot remove
+accumulated facts. Its purpose, dependency and
+incompatibility graph, and resource envelope remain exact; existing dependency-
+license entries cannot be removed or rewritten. A later design that needs to
+relax one of these fields must introduce a typed, evidence-backed authorization
+rather than silently weakening the module. Restructuring may replace path-bound
+entrypoint/test/replay references for a preserved capability, but it must change
+the repository structure or path interfaces. Semantic replacement instead uses a
+new capability ID with explicit lineage.
+Each removed entrypoint/test/replay reference must name an actually deleted path
+and receive at least one same-kind replacement among actually changed paths, so
+path movement cannot erase validation or replay provenance.
+
+The proposal operation identity includes the configured principal as well as the
+role-specific prompt, schema, MCP authority, trigger, ancestors, and parent tree.
+The manifest's `source_dependency_ids` contains the prior selection artifact,
+source knowledge snapshot, selected record IDs, and proof record IDs in addition
+to trigger dependencies. Therefore principal rotation cannot reuse another
+principal's cached operation, and later taint/revocation can reach every record
+that was visible to the proposer. The complete proposer authority is pinned in
+the immutable operation, so principal rotation governs new proposals without
+making historical candidates unreadable.
+
+`ancestor_candidate_ids` resolve only through the immutable local candidate
+store. Each selected ancestor is persisted with the child as a content-identified
+input containing its manifest, scope contract, patch, exact source tree and bytes,
+repository map, module contracts, workspace delta, and sanitation report. This is
+the reusable proposal input. Because admitted expert trees are valid UTF-8, exact
+source is encoded as model-readable text and round-trips to the verified bytes;
+the manifest ID alone remains lineage metadata. M8's
+candidate state supplies non-revocation, validation, and diversity eligibility
+before selection.
+
 ### 4.11 `TaskAdapterManifest`
 
 ```text
@@ -961,8 +1008,9 @@ occur only on run branches and cannot flow back through this escape hatch.
 `ExpertRepoArchitect` owns topology as a proposal role.
 
 When a scope has no expert release, bootstrap mode receives the attested scope
-contract, current task-family bindings, runtime constraints, and representative
-public task contracts. Through the configured coding-agent CLI it proposes the
+contract, current task-family/adapter binding identities, repository constraints,
+exact workspace limits, and persisted trigger evidence. Raw task repositories are
+not proposal authority. Through the configured coding-agent CLI it proposes the
 smallest useful initial repository:
 
 1. capability boundaries and IDs;
@@ -971,6 +1019,12 @@ smallest useful initial repository:
 4. adapter boundary and fresh-task smoke harness;
 5. enough validated metadata for the release publisher to generate the first
    semantic book.
+
+The architect defines only the expert side of the adapter interface from the
+scope contract. M8's fresh-task gates check it against the pinned public adapter
+contract before promotion, and M9 binds the exact `TaskAdapterManifest` at launch.
+Thus an interface mismatch rejects a quarantined bootstrap candidate; the
+architect never certifies its own assumptions or reads task-local source.
 
 It must not create speculative empty subsystems merely because a future task family
 might need them. The proposal enters quarantine as a
@@ -1363,6 +1417,15 @@ automated independent review and the evaluator cascade run to completion. Once
 eligible, `AutonomousGitHubPublisher` commits the exact validated tree directly to
 the default branch, regenerates `EXPERT_REPO.md`, and publishes `E+1` without a
 human gate.
+
+Candidate proposal itself is transactional: recompute the trigger; validate the
+optional knowledge packet and stored ancestor inputs; lease the exact
+parent-minus-generated-controls tree; derive the coding-agent operation identity
+from prompt, schema, MCP authority, trigger, parent, and ancestors; execute through
+the lease's pinned descriptor; seal and replay the source delta; derive semantic
+controls; sanitize and validate the full detached closure; successfully close and
+validate the lease; then persist the quarantined candidate. Any mismatch produces no candidate and
+never mutates release `E`.
 
 Post-run learning reads pinned snapshot `S` plus newly sanitized bundles. The
 coding agent emits proposed claim revisions into durable local staging.

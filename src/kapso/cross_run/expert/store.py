@@ -44,6 +44,7 @@ from kapso.cross_run.expert.candidates import (
     ExpertCandidateClosure,
     ExpertCandidateValidator,
 )
+from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
     ExpertTriggerEvidencePacket,
@@ -235,7 +236,7 @@ class ExpertCandidateStore:
             raise ExpertCandidateStoreError(
                 "candidate directory names another manifest"
             )
-        self.validator.validate(closure)
+        self.validator.validate_persisted(closure)
         return StoredExpertCandidate(
             root=candidate_root,
             closure=closure,
@@ -258,7 +259,7 @@ class ExpertCandidateStore:
             _WORKSPACE_DELTA_PATH: closure.workspace_delta.to_json_bytes(),
             _SANITATION_PATH: closure.sanitation_report.to_json_bytes(),
             _ANCESTORS_PATH: ExpertCandidateStore._contract_tuple_bytes(
-                closure.ancestor_candidates
+                closure.ancestor_inputs
             ),
         }
         for module in closure.module_contracts:
@@ -296,8 +297,8 @@ class ExpertCandidateStore:
         )
         ancestors = ExpertCandidateStore._parse_contract_tuple(
             payloads[_ANCESTORS_PATH],
-            ExpertCandidateManifest,
-            "ancestor candidates",
+            ExpertCandidateAncestorInput,
+            "ancestor inputs",
         )
         closure = ExpertCandidateClosure(
             manifest=manifest,
@@ -330,7 +331,7 @@ class ExpertCandidateStore:
                     CodingAgentWorkspaceAccess.EDIT_WORKSPACE
                 )
             },
-            ancestor_candidates=ancestors,
+            ancestor_inputs=ancestors,
         )
         expected_payloads = ExpertCandidateStore._package_files(closure)
         if dict(payloads) != expected_payloads:

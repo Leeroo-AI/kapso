@@ -47,6 +47,7 @@ from kapso.cross_run.contracts import (
     ExpertCapabilityNode,
     ExpertDependencyEdge,
     ExpertModuleContract,
+    ExpertProposerAuthority,
     ExpertRepositoryMap,
     ExpertScopeContract,
     ExpertSourceTreeManifest,
@@ -627,6 +628,19 @@ def build_records():
     )
     trigger_decision_id = fixture_id("expert-trigger-decision")
     trigger_packet_id = fixture_id("expert-trigger-packet")
+    candidate_proposer_authority = ExpertProposerAuthority.mint(
+        principal_id="expert-architect",
+        role="expert_architect",
+        cli="claude_code",
+        model="fable",
+        effort="xhigh",
+        timeout_seconds=600,
+        allowed_tools=("Edit", "Read"),
+        workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
+        workspace_maximum_entries=1000,
+        workspace_maximum_bytes=1_000_000,
+        sensitive_file_glob_scan_max_depth=4,
+    )
     candidate_operation_preimage = {
         "ancestor_candidate_ids": (),
         "configuration_fingerprint": digest("expert-validation-config"),
@@ -642,6 +656,10 @@ def build_records():
         "mcp_configuration_fingerprint": digest("candidate-mcp-configuration"),
         "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
         "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+        "principal_id": "expert-architect",
+        "proposer_authority_id": candidate_proposer_authority.authority_id,
+        "proposal_contract_version": "kapso.expert_proposal.v1",
+        "proposal_packet_digest": digest("candidate-proposal-packet"),
         "trigger_decision_id": trigger_decision_id,
         "trigger_evidence_packet_id": trigger_packet_id,
     }
@@ -714,6 +732,7 @@ def build_records():
         parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         ancestor_candidate_ids=(),
         configuration_fingerprint=digest("expert-validation-config"),
+        proposer_authority=candidate_proposer_authority,
         operation_preimage=candidate_operation_preimage,
         operation_receipt=candidate_operation_receipt,
         workspace_receipt=candidate_workspace_receipt,

@@ -47,6 +47,7 @@ _GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$"
 )
 _CODING_AGENT_OPERATION_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
+_EXPERT_MODULE_VERSION_PATTERN = re.compile(r"^v[1-9][0-9]*$")
 EMPTY_EXPERT_TREE_DIGEST = tree_or_blob_digest(canonical_json_bytes(()))
 
 
@@ -1796,7 +1797,13 @@ class ExpertModuleContract(StrictContract):
 
     def _validate(self) -> None:
         require_identifier(self.module_id, "module_id")
-        require_identifier(self.version, "version")
+        if (
+            not isinstance(self.version, str)
+            or _EXPERT_MODULE_VERSION_PATTERN.fullmatch(self.version) is None
+        ):
+            raise ContractValidationError(
+                "expert module version must be a positive v-prefixed integer"
+            )
         _require_text(self.purpose, "purpose")
         required_text = {"problem_signals", "outputs"}
         for name in (
@@ -2132,6 +2139,59 @@ class ExpertCandidateWorkspaceReceipt(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertProposerAuthority(StrictContract):
+    authority_id: str
+    principal_id: str
+    role: str
+    cli: str
+    model: str
+    effort: str
+    timeout_seconds: int
+    allowed_tools: tuple[str, ...]
+    workspace_access: CodingAgentWorkspaceAccess
+    workspace_maximum_entries: int
+    workspace_maximum_bytes: int
+    sensitive_file_glob_scan_max_depth: int
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-proposer-authority"
+    IDENTITY_FIELD: ClassVar[str] = "authority_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.principal_id, "expert proposer principal_id"),
+            (self.role, "expert proposer role"),
+            (self.effort, "expert proposer effort"),
+        ):
+            require_identifier(value, name)
+        if self.cli not in {"codex", "claude_code"}:
+            raise ContractValidationError("invalid expert proposer CLI")
+        _require_text(self.model, "expert proposer model")
+        if self.allowed_tools != tuple(sorted(set(self.allowed_tools))):
+            raise ContractValidationError(
+                "expert proposer tools must be sorted and unique"
+            )
+        for value, name in (
+            (self.timeout_seconds, "expert proposer timeout_seconds"),
+            (self.workspace_maximum_entries, "expert proposer maximum entries"),
+            (self.workspace_maximum_bytes, "expert proposer maximum bytes"),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ContractValidationError(f"{name} must be positive")
+        if (
+            not isinstance(self.sensitive_file_glob_scan_max_depth, int)
+            or isinstance(self.sensitive_file_glob_scan_max_depth, bool)
+            or self.sensitive_file_glob_scan_max_depth < 0
+        ):
+            raise ContractValidationError(
+                "expert proposer sensitive scan depth must be non-negative"
+            )
+        if self.workspace_access is not CodingAgentWorkspaceAccess.EDIT_WORKSPACE:
+            raise ContractValidationError(
+                "expert proposer authority requires editable workspace access"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertCandidateOperationRecord(StrictContract):
     operation_record_id: str
     operation_kind: ExpertCandidateOperationKind
@@ -2140,6 +2200,7 @@ class ExpertCandidateOperationRecord(StrictContract):
     parent_tree_hash: str
     ancestor_candidate_ids: tuple[str, ...]
     configuration_fingerprint: str
+    proposer_authority: ExpertProposerAuthority
     operation_preimage: Mapping[str, Any]
     operation_receipt: CodingAgentOperationReceipt
     workspace_receipt: ExpertCandidateWorkspaceReceipt
@@ -2170,6 +2231,24 @@ class ExpertCandidateOperationRecord(StrictContract):
                 require_content_id(candidate_id, "operation ancestor_candidate_ids")
         if not self.operation_preimage:
             raise ContractValidationError("candidate operation preimage is empty")
+        expected_preimage_fields = {
+            "ancestor_candidate_ids",
+            "configuration_fingerprint",
+            "input_artifact_checksums",
+            "mcp_configuration_fingerprint",
+            "operation_kind",
+            "parent_tree_hash",
+            "principal_id",
+            "proposer_authority_id",
+            "proposal_contract_version",
+            "proposal_packet_digest",
+            "trigger_decision_id",
+            "trigger_evidence_packet_id",
+        }
+        if set(self.operation_preimage) != expected_preimage_fields:
+            raise ContractValidationError(
+                "candidate operation preimage fields are invalid"
+            )
         input_checksums = self.operation_preimage.get("input_artifact_checksums")
         if not isinstance(input_checksums, MappingABC) or set(input_checksums) != {
             "invocation.json",
@@ -2187,6 +2266,22 @@ class ExpertCandidateOperationRecord(StrictContract):
         _require_digest(
             self.operation_preimage.get("mcp_configuration_fingerprint"),
             "candidate operation MCP configuration fingerprint",
+        )
+        require_identifier(
+            self.operation_preimage.get("proposal_contract_version"),
+            "candidate proposal contract version",
+        )
+        require_identifier(
+            self.operation_preimage.get("principal_id"),
+            "candidate proposal principal ID",
+        )
+        require_content_id(
+            self.operation_preimage.get("proposer_authority_id"),
+            "candidate proposer authority ID",
+        )
+        _require_digest(
+            self.operation_preimage.get("proposal_packet_digest"),
+            "candidate proposal packet digest",
         )
         expected_preimage_binding = {
             "ancestor_candidate_ids": self.ancestor_candidate_ids,
@@ -2212,6 +2307,17 @@ class ExpertCandidateOperationRecord(StrictContract):
         if self.operation_receipt.operation_id != expected_operation_id:
             raise ContractValidationError(
                 "candidate operation preimage differs from its receipt"
+            )
+        if (
+            self.operation_preimage["principal_id"]
+            != self.operation_receipt.principal_id
+            or self.operation_preimage["principal_id"]
+            != self.proposer_authority.principal_id
+            or self.operation_preimage["proposer_authority_id"]
+            != self.proposer_authority.authority_id
+        ):
+            raise ContractValidationError(
+                "candidate operation principal differs from its preimage"
             )
         if (
             self.workspace_receipt.operation_receipt_id

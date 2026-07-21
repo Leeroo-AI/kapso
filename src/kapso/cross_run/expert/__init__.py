@@ -6,12 +6,22 @@ from kapso.cross_run.expert.book import (
     compile_expert_semantic_book,
     expert_semantic_book_digest,
 )
+from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
 from kapso.cross_run.expert.candidates import (
     ExpertCandidateClosure,
     ExpertCandidateValidationError,
     ExpertCandidateValidator,
 )
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
+from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
+from kapso.cross_run.expert.proposal import (
+    ExpertCandidateProposalEngine,
+    ExpertCandidateProposalResult,
+)
+from kapso.cross_run.expert.proposal_contract import (
+    ExpertCandidateAncestorInput,
+    ExpertProposalContractError,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -40,8 +50,12 @@ __all__ = [
     "EMPTY_EXPERT_TREE_DIGEST",
     "ExpertEvolutionTriggerDecision",
     "ExpertCandidateClosure",
+    "ExpertCandidateAncestorInput",
+    "ExpertCandidateProposalEngine",
+    "ExpertCandidateProposalResult",
     "ExpertCandidateValidationError",
     "ExpertCandidateValidator",
+    "ExpertCapabilityGeneralizer",
     "ExpertCandidateWorkspaceError",
     "ExpertCandidateWorkspaceLease",
     "ExpertCandidateWorkspaceManager",
@@ -49,6 +63,8 @@ __all__ = [
     "ExpertCandidateStore",
     "ExpertCandidateStoreError",
     "ExpertParentTreeReceipt",
+    "ExpertProposalContractError",
+    "ExpertRepositoryArchitect",
     "ExpertTriggerDecisionStore",
     "ExpertTriggerEvidencePacket",
     "ExpertTriggerEvidencePacketBuilder",

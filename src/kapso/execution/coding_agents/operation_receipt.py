@@ -58,6 +58,7 @@ class VerifiedCodingAgentArtifactClosure:
     workspace_delta: CodingAgentWorkspaceDelta | None
     invocation: Mapping[str, Any]
     mcp_configuration_fingerprint: str
+    prior_knowledge: PriorKnowledgeAccessMaterialization | None
 
 
 def seal_coding_agent_operation(
@@ -301,6 +302,7 @@ def verify_coding_agent_operation_artifacts(
         workspace_delta=workspace_delta,
         invocation=MappingProxyType(invocation),
         mcp_configuration_fingerprint=mcp_configuration_fingerprint,
+        prior_knowledge=prior_knowledge,
     )
 
 

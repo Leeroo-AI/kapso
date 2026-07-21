@@ -4,10 +4,8 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M1, M2, and M5.
 
-Status: **Trigger/materialization, candidate closure/book, immutable candidate
-store, replayable coding-agent workspace edits, and self-contained operation
-provenance plus exact private candidate-parent workspaces independently approved;
-architect/generalizer proposers remain.**
+Status: **Complete; architect/generalizer proposal, deterministic candidate
+sealing, exact ancestor inputs, and independent correctness review approved.**
 
 ## Objective
 
@@ -34,6 +32,8 @@ src/kapso/cross_run/expert/
   triggers.py
   architect.py
   generalizer.py
+  proposal.py
+  proposal_contract.py
   candidates.py
   book.py
   store.py
@@ -78,7 +78,8 @@ Architecture candidates require:
 - [x] Count independent lineages, not cloned descendants.
 - [x] Treat highest score, file-copy frequency, agent preference, or aesthetic
       rearrangement as insufficient.
-- [ ] Classify task-specific improvements as knowledge/task-adapter work, never
+- [ ] Add M8's independent semantic classification of task-specific improvements;
+      prompts already direct them to knowledge/task-adapter work, never
       expert core.
 - [x] Persist trigger decision and exact evidence packet even when no candidate is
       proposed.
@@ -89,12 +90,19 @@ When no eligible release exists for a scope, `ExpertRepoArchitect` receives:
 
 ```text
 attested ExpertScopeContract
-task-family/adapter contracts
-runtime and repository constraints
-representative public task contracts
+active task-family/adapter binding identities
+repository constraints and exact workspace limits
+persisted trigger evidence and optional proof-closed prior knowledge
 explicit empty parent release state
 strict candidate/map/module schemas
 ```
+
+The proposer does not receive raw task repositories or invent facts about an
+adapter implementation. It proposes the expert-side interface from the attested
+scope constraints. M8's fresh-task gates validate that interface against the
+pinned public adapter contract; M9 later makes the `TaskAdapterManifest` an exact
+launch input. A bootstrap proposal can therefore be quarantined before adapter
+validation, but cannot certify its own harness or become E0.
 
 Through the configured Codex or Claude Code CLI it edits a clean local candidate
 workspace and proposes:
@@ -106,25 +114,25 @@ workspace and proposes:
 - fresh-task smoke harness; and
 - machine-readable `ExpertRepositoryMap` sufficient for book generation.
 
-- [ ] Do not scaffold speculative empty task-family subsystems.
-- [ ] Do not include datasets, weights, experiment memory, logs, hidden evaluation,
+- [x] Do not scaffold speculative empty task-family subsystems.
+- [x] Do not include datasets, weights, experiment memory, logs, hidden evaluation,
       Git history, benchmark answers, or identity-specific defaults.
 - [x] Preserve complete invocation artifacts and CLI/model/tool provenance,
       including explicit read/edit authority and the exact workspace delta.
-- [ ] Treat output as a quarantined `repository_architecture` candidate, never E0.
+- [x] Treat output as a quarantined `repository_architecture` candidate, never E0.
 
 ## Later repository restructuring
 
 - [x] Materialize the exact parent expert release and verification receipt.
-- [ ] Provide the architect only the persisted trigger evidence packet and
+- [x] Provide the architect only the persisted trigger evidence packet and
       scope/task-family contracts.
-- [ ] Require one atomic full-tree candidate covering every move/split/merge/rename/
+- [x] Require one atomic full-tree candidate covering every move/split/merge/rename/
       deletion plus updated tests, entrypoints, module contracts, dependency edges,
       and repository map.
-- [ ] Keep capability IDs stable across path-only moves.
-- [ ] Mint new IDs plus explicit old-to-new lineage for semantic split/merge.
-- [ ] Record lineage for historical evidence interpretation, not runtime shims.
-- [ ] Require measured structural benefit or admitted scope accommodation.
+- [x] Keep capability IDs stable across path-only moves.
+- [x] Mint new IDs plus explicit old-to-new lineage for semantic split/merge.
+- [x] Record lineage for historical evidence interpretation, not runtime shims.
+- [x] Require measured structural benefit or admitted scope accommodation.
 
 ## Capability generalization
 
@@ -133,13 +141,20 @@ ancestors, and a proof-closed knowledge packet.
 
 - [x] Extend the existing coding-agent runner with explicit edit authority; no
       direct generative API.
-- [ ] Ask for the smallest task-general patch and complete module-contract update.
-- [ ] Preserve known failures, preconditions, exclusions, resource bounds,
+- [x] Ask for the smallest task-general patch and complete module-contract update.
+- [x] Preserve known failures, preconditions, exclusions, resource bounds,
       dependencies/licenses, tests, replay refs, and evidence IDs.
-- [ ] Keep benchmark/model/task identity out of generic defaults.
-- [ ] Permit reuse of non-revoked candidate ancestors selected by evidence and
+- [x] Enforce monotonic accumulated safety/provenance fields and exact fixed
+      safety envelopes when deriving changed module contracts; prompt guidance
+      alone is not authority. Module versions are positive integer `vN` values
+      and must increase.
+- [x] Keep benchmark/model/task identity out of generic defaults.
+- [ ] Bind M8 admission/revocation and diversity selection state to persisted
+      candidate ancestors selected by evidence and
       lineage diversity, not simply latest/highest score.
-- [ ] Preserve failed/non-dominated candidates as immutable future inputs.
+- [x] Preserve failed/non-dominated candidates as immutable future inputs.
+- [x] Require every changed capability to own an edited/deleted non-control path
+      and keep observation-triggered changes within the named capabilities.
 
 ## Candidate store and manifest
 
@@ -161,7 +176,12 @@ ancestors, and a proof-closed knowledge packet.
 - [x] Package the complete coding-agent artifact closure with every candidate,
       replay prior-knowledge audit truth on reopen, require recognized security
       policies, and bind normalized MCP authority into operation identity.
-- [ ] Compute patch, full candidate tree hash, module-contract refs, proposed
+- [x] Bind the configured proposer principal into operation identity and include
+      every model-visible prior selection/snapshot/record/proof ID in the
+      manifest's taint/revocation dependency closure.
+- [x] Pin the complete proposer authority in each operation so future principal
+      rotation changes new identities without corrupting historical candidates.
+- [x] Compute patch, full candidate tree hash, module-contract refs, proposed
       repository-map ref, dependencies, lineage, source evidence, sanitation report,
       and coding-agent provenance.
 - [x] Reject candidate changes outside allowed source/test/contract roots and
@@ -186,6 +206,52 @@ ancestors, and a proof-closed knowledge packet.
       and evidence reference against the candidate tree/knowledge packet.
 - [x] Produce deterministic bytes/digest under input ordering changes.
 - [x] Reject manual edits or a manifest/book digest mismatch.
+
+## Implemented proposal boundary
+
+`ExpertRepositoryArchitect` accepts only deterministic `BOOTSTRAP` or
+`RESTRUCTURE` decisions. Its coding agent edits ordinary source/tests and returns
+the complete desired topology plus complete semantic module contracts.
+`ExpertCapabilityGeneralizer` accepts only `GENERALIZE`; it returns complete
+replacements for changed module contracts while Kapso preserves the parent
+topology exactly.
+
+Both delegate to one `ExpertCandidateProposalEngine`. The engine recomputes the
+trigger, validates an optional proof-closed prior-knowledge materialization, reads
+ancestor IDs only through the immutable candidate store, leases the exact
+parent-minus-controls workspace, derives the operation ID from the full prompt,
+schema, principal, MCP authority, ancestors, and trigger, and invokes the
+configured coding agent with pinned descriptor authority. It then seals the durable workspace
+delta, rejects generated-control edits or path declaration drift, reconstructs
+the edited bytes, mints all framework identities, regenerates controls/book,
+scans and validates the whole detached closure, successfully closes the lease,
+and only then persists it.
+
+Every selected ancestor is embedded as a content-identified
+`ExpertCandidateAncestorInput`: manifest, scope, patch, exact tree and bytes,
+repository map, module contracts, workspace delta, and sanitation report. The
+exact admitted UTF-8 source is represented as readable text as well as verified
+descriptors, so the coding agent can inspect implementations rather than opaque
+base64. The proposal prompt and candidate package therefore remain reconstructible
+without the original workspace. M8 will add validation/revocation eligibility state; M7
+already refuses caller-injected closures and accepts only IDs that reopen from the
+local immutable store.
+
+The packaged operation must reproduce the fixed mode-specific prompt and JSON
+schema under `kapso.expert_proposal.v1`. Reopen reparses `final.json`, rederives
+the map/module/lineage result, revalidates the prior-knowledge closure, and rejects
+any semantic substitution even when lower-level artifact checksums are internally
+consistent.
+
+The derived manifest dependency closure includes the exact prior-knowledge
+selection artifact, its source snapshot, and every selected/proof record ID. A
+candidate cannot reopen if those causal edges are removed. Generalization also
+rejects removal of accumulated safety/provenance fields, changes to the fixed
+resource/dependency envelope, or rewrites of existing license declarations.
+Restructuring must make a real structural/path-interface change and applies the
+same protections to every preserved semantic capability; path-reference
+replacement remains legal only when removed refs are observed deletions and have
+same-kind replacements among observed changed paths.
 
 ## Tests
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -30,6 +31,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateWorkspaceReceipt,
     ExpertCapabilityNode,
     ExpertModuleContract,
+    ExpertProposerAuthority,
     ExpertRepositoryMap,
     ExpertSourceTreeManifest,
     ExpertTaskAdapterBoundary,
@@ -49,6 +51,13 @@ from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
     EXPERT_REPOSITORY_MAP_PATH,
     expert_module_contract_path,
+)
+from kapso.cross_run.expert.proposal_contract import (
+    EXPERT_PROPOSAL_CONTRACT_VERSION,
+    build_expert_proposal_packet,
+    build_expert_proposal_prompt,
+    expert_proposal_packet_digest,
+    expert_proposal_response_schema,
 )
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
@@ -204,11 +213,34 @@ def bootstrap_candidate_closure(
         ),
     )
     configured = expert_settings()
+    module_proposal = module.to_dict()
+    del module_proposal["module_contract_id"]
     final_output = (
         json.dumps(
             {
+                "capability_lineage": (),
                 "changed_paths": tuple(sorted(editable_contents)),
                 "deleted_paths": (),
+                "module_contracts": (module_proposal,),
+                "repository_topology": {
+                    "architecture_invariants": (
+                        "No task identity appears in generic defaults.",
+                    ),
+                    "capability_nodes": (
+                        {
+                            "capability_id": module.module_id,
+                            "owned_paths": (
+                                "src/execution.py",
+                                "tests/test_execution.py",
+                            ),
+                            "task_family_bindings": ("language_model_post_training",),
+                        },
+                    ),
+                    "task_adapter_boundary": (
+                        repository_map.task_adapter_boundary.to_dict()
+                    ),
+                    "validation_entrypoints": ("tests/test_execution.py",),
+                },
                 "summary": "Bootstrapped the smallest shared execution capability.",
             },
             indent=2,
@@ -242,19 +274,34 @@ def bootstrap_candidate_closure(
         if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
         else CodingAgentWorkspacePolicy.read_only()
     )
+    proposal_packet = build_expert_proposal_packet(
+        packet=packet,
+        decision=decision,
+        operation_kind=ExpertCandidateOperationKind.BOOTSTRAP,
+        editable_parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        maximum_entries=configured.candidate_entry_limit,
+        maximum_bytes=configured.candidate_byte_limit,
+        ancestor_inputs=(),
+    )
+    prompt = build_expert_proposal_prompt(
+        ExpertCandidateOperationKind.BOOTSTRAP,
+        proposal_packet,
+    )
     provisional_request = CodingAgentCallRequest(
         operation_id="agent_call_" + "0" * 32,
         role=configured.architect_role,
         cli=configured.architect.cli,
         model=configured.architect.model,
-        prompt="complete candidate proposal prompt",
+        prompt=prompt,
         workspace="/tmp/kapso-candidate-fixture",
         workspace_policy=workspace_policy,
         timeout_seconds=configured.architect.timeout_seconds,
         effort=configured.architect.effort,
         allowed_tools=configured.architect.allowed_tools,
     )
-    response_schema = {"type": "object"}
+    response_schema = expert_proposal_response_schema(
+        ExpertCandidateOperationKind.BOOTSTRAP
+    )
     input_artifacts = {
         "invocation.json": coding_agent_invocation_bytes(
             provisional_request,
@@ -266,6 +313,21 @@ def bootstrap_candidate_closure(
         "prompt.txt": provisional_request.prompt.encode("utf-8"),
         "response_schema.json": coding_agent_response_schema_bytes(response_schema),
     }
+    proposer_authority = ExpertProposerAuthority.mint(
+        principal_id=configured.architect_id,
+        role=configured.architect_role,
+        cli=configured.architect.cli,
+        model=configured.architect.model,
+        effort=configured.architect.effort,
+        timeout_seconds=configured.architect.timeout_seconds,
+        allowed_tools=configured.architect.allowed_tools,
+        workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
+        workspace_maximum_entries=configured.candidate_entry_limit,
+        workspace_maximum_bytes=configured.candidate_byte_limit,
+        sensitive_file_glob_scan_max_depth=(
+            configured.sensitive_file_glob_scan_max_depth
+        ),
+    )
     operation_preimage = {
         "ancestor_candidate_ids": (),
         "configuration_fingerprint": packet.configuration_fingerprint,
@@ -278,6 +340,10 @@ def bootstrap_candidate_closure(
         ),
         "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
         "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+        "principal_id": configured.architect_id,
+        "proposer_authority_id": proposer_authority.authority_id,
+        "proposal_contract_version": EXPERT_PROPOSAL_CONTRACT_VERSION,
+        "proposal_packet_digest": expert_proposal_packet_digest(proposal_packet),
         "trigger_decision_id": decision.trigger_decision_id,
         "trigger_evidence_packet_id": packet.evidence_packet_id,
     }
@@ -354,6 +420,7 @@ def bootstrap_candidate_closure(
         parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
         ancestor_candidate_ids=(),
         configuration_fingerprint=packet.configuration_fingerprint,
+        proposer_authority=proposer_authority,
         operation_preimage=operation_preimage,
         operation_receipt=operation_receipt,
         workspace_receipt=workspace_receipt,
@@ -500,7 +567,7 @@ def test_candidate_rejects_duplicate_semantic_module_ids():
 
     with pytest.raises(
         ExpertCandidateValidationError,
-        match="semantic module IDs must be sorted and unique",
+        match="semantic topology differs from the agent proposal",
     ):
         ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
             duplicate_closure
@@ -648,3 +715,139 @@ def test_candidate_aggregate_rejects_inconsistent_closures(updates, message):
         ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
             closure
         )
+
+
+def two_capability_boundary_fixture(*, changed_ids, edited_capability_id):
+    closure = bootstrap_candidate_closure()
+    parent_first = closure.module_contracts[0]
+    second_payload = parent_first.to_dict()
+    del second_payload["module_contract_id"]
+    second_payload.update(
+        {
+            "module_id": "shared.other",
+            "purpose": "Provide another independent capability.",
+            "entrypoint_refs": ("src/other.py",),
+            "test_refs": ("src/other_test.py",),
+            "replay_refs": (),
+        }
+    )
+    parent_second = ExpertModuleContract.mint(**second_payload)
+    parent_modules = (parent_first, parent_second)
+    current_modules = []
+    for module in parent_modules:
+        if module.module_id not in changed_ids:
+            current_modules.append(module)
+            continue
+        payload = module.to_dict()
+        del payload["module_contract_id"]
+        payload["version"] = "v2"
+        payload["problem_signals"] = tuple(
+            sorted((*payload["problem_signals"], "A newly observed difficulty."))
+        )
+        current_modules.append(ExpertModuleContract.mint(**payload))
+    current_modules = tuple(current_modules)
+    parent_nodes = (
+        ExpertCapabilityNode(
+            capability_id=parent_first.module_id,
+            module_contract_ref=parent_first.module_contract_id,
+            owned_paths=("src/execution.py", "tests/test_execution.py"),
+            task_family_bindings=("language_model_post_training",),
+        ),
+        ExpertCapabilityNode(
+            capability_id=parent_second.module_id,
+            module_contract_ref=parent_second.module_contract_id,
+            owned_paths=("src/other.py", "src/other_test.py"),
+            task_family_bindings=("language_model_post_training",),
+        ),
+    )
+    current_by_id = {module.module_id: module for module in current_modules}
+    current_nodes = tuple(
+        replace(
+            node,
+            module_contract_ref=current_by_id[node.capability_id].module_contract_id,
+        )
+        for node in parent_nodes
+    )
+    map_fields = {
+        "scope_contract_id": closure.repository_map.scope_contract_id,
+        "dependency_edges": (),
+        "task_adapter_boundary": closure.repository_map.task_adapter_boundary,
+        "validation_entrypoints": closure.repository_map.validation_entrypoints,
+        "architecture_invariants": closure.repository_map.architecture_invariants,
+    }
+    parent_map = ExpertRepositoryMap.mint(
+        capability_nodes=parent_nodes,
+        **map_fields,
+    )
+    current_map = ExpertRepositoryMap.mint(
+        capability_nodes=current_nodes,
+        **map_fields,
+    )
+    edited_path = (
+        "src/execution.py"
+        if edited_capability_id == parent_first.module_id
+        else "src/other.py"
+    )
+    before = SourceFileDescriptor(
+        relative_path=edited_path,
+        digest=digest("before"),
+        mode="100644",
+        size=6,
+    )
+    after = replace(before, digest=digest("after"), size=5)
+    patch = ExpertCandidatePatch.mint(
+        parent_tree_hash=digest("parent-two-capability-tree"),
+        candidate_tree_hash=digest("candidate-two-capability-tree"),
+        changes=(
+            ExpertCandidatePatchChange(
+                relative_path=edited_path,
+                before=before,
+                after=after,
+            ),
+        ),
+    )
+    return SimpleNamespace(
+        trigger_packet=SimpleNamespace(
+            repository_map=parent_map,
+            module_contracts=parent_modules,
+            trigger_observations=(),
+        ),
+        trigger_decision=SimpleNamespace(trigger_evidence_ids=()),
+        repository_map=current_map,
+        module_contracts=current_modules,
+        manifest=SimpleNamespace(capability_lineage=()),
+        patch=patch,
+    )
+
+
+def test_capability_change_requires_an_owned_edit_for_every_changed_contract():
+    closure = two_capability_boundary_fixture(
+        changed_ids={"shared.execution", "shared.other"},
+        edited_capability_id="shared.execution",
+    )
+
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="must own an edited or deleted source path",
+    ):
+        ExpertCandidateValidator._validate_capability_change_boundary(closure)
+
+
+def test_capability_change_stays_within_triggering_observation_scope():
+    closure = two_capability_boundary_fixture(
+        changed_ids={"shared.other"},
+        edited_capability_id="shared.other",
+    )
+    closure.trigger_packet.trigger_observations = (
+        SimpleNamespace(
+            observation_id="selected-observation",
+            affected_capability_ids=("shared.execution",),
+        ),
+    )
+    closure.trigger_decision.trigger_evidence_ids = ("selected-observation",)
+
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="leaves the triggering observation scope",
+    ):
+        ExpertCandidateValidator._validate_capability_change_boundary(closure)
