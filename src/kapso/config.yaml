@@ -43,9 +43,9 @@ cross_run:
     command_timeout_seconds: 120
     release_asset_size_bytes: &cross_run_asset_size_bytes 1073741824
     release_asset_count_limit: 16
-    materialized_asset_size_bytes: 4294967296
-    archive_entry_limit: 100000
-    zstd_window_size_bytes: 134217728
+    materialized_asset_size_bytes: &cross_run_materialized_asset_size_bytes 4294967296
+    archive_entry_limit: &cross_run_archive_entry_limit 100000
+    zstd_window_size_bytes: &cross_run_zstd_window_size_bytes 134217728
     source_tree_size_bytes: 8388608
     source_entry_limit: 512
     git_tree_request_size_bytes: 33554432
@@ -179,6 +179,18 @@ cross_run:
       minimum_success_contexts: 2
       minimum_duplicate_files: 2
       maximum_ancestor_candidates: 4
+    task_adapters:
+      state_path: ".kapso/cross_run/task_adapters"
+      active_authority:
+        authority_id: "kapso_task_adapter_authority"
+        authority_version: "kapso.task_adapter_authority.v1"
+      trusted_authorities:
+        - authority_id: "kapso_task_adapter_authority"
+          authority_version: "kapso.task_adapter_authority.v1"
+      package_entry_limit: *cross_run_archive_entry_limit
+      package_byte_limit: *cross_run_asset_size_bytes
+      source_byte_limit: *cross_run_materialized_asset_size_bytes
+      zstd_window_size_bytes: *cross_run_zstd_window_size_bytes
     validation:
       state_path: ".kapso/cross_run/expert_validation"
       policy:

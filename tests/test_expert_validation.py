@@ -6,7 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.core.config import load_config
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    content_id,
+    source_tree_digest,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
     ContractValidationError,
     CrossRunTaskBindingSettings,
@@ -21,6 +26,8 @@ from kapso.cross_run.contracts import (
     ExpertValidationAttempt,
     ExpertValidationStage,
     ExpertValidationTrack,
+    SourceFileDescriptor,
+    TaskAdapterPackagePin,
     TaskAdapterManifest,
 )
 from kapso.cross_run.expert.validation import (
@@ -29,11 +36,15 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationError,
     ExpertValidationPredecessor,
     ExpertValidationReducer,
-    VerifiedTaskAdapter,
 )
 from kapso.cross_run.settings import (
     CrossRunConfigurationError,
     CrossRunSettings,
+)
+from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
+from kapso.cross_run.task_adapters import (
+    TaskAdapterVerificationReceipt,
+    VerifiedTaskAdapter,
 )
 from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
@@ -63,18 +74,30 @@ class _AttestationVerifier:
 
 class _TaskAdapterProvider:
     def __init__(self, *adapters):
-        self.adapters = {
-            adapter.task_adapter_manifest_id: VerifiedTaskAdapter(
-                manifest=adapter,
-                source_verification_receipt_id=_content_id(
-                    f"adapter-source-verification-{adapter.task_adapter_id}"
-                ),
-            )
-            for adapter in adapters
+        verified_adapters = tuple(_verified_adapter(adapter) for adapter in adapters)
+        self.active_adapters = {
+            (
+                adapter.manifest.scope_contract_id,
+                adapter.manifest.task_family_id,
+                adapter.manifest.task_adapter_id,
+            ): adapter
+            for adapter in verified_adapters
+        }
+        self.exact_adapters = {
+            (
+                adapter.manifest.task_adapter_manifest_id,
+                adapter.verification_receipt.verification_receipt_id,
+            ): adapter
+            for adapter in verified_adapters
         }
 
-    def resolve(self, manifest_id):
-        return self.adapters[manifest_id]
+    def resolve_active(self, *, scope_contract_id, task_family_id, task_adapter_id):
+        return self.active_adapters[
+            (scope_contract_id, task_family_id, task_adapter_id)
+        ]
+
+    def resolve_exact(self, *, task_adapter_manifest_id, verification_receipt_id):
+        return self.exact_adapters[(task_adapter_manifest_id, verification_receipt_id)]
 
 
 class _CurrentReleaseProvider:
@@ -122,6 +145,7 @@ def _validation_reducer(
 
 def _task_adapter(closure, position=0) -> TaskAdapterManifest:
     binding = closure.trigger_packet.active_task_bindings[position]
+    _, _, tree_hash = _adapter_source(binding.task_adapter_id)
     return TaskAdapterManifest.mint(
         task_adapter_id=binding.task_adapter_id,
         scope_contract_id=closure.manifest.scope_contract_id,
@@ -130,10 +154,81 @@ def _task_adapter(closure, position=0) -> TaskAdapterManifest:
         task_evaluator_binding={"evaluator": "public"},
         context_dimension_binding={"dataset_family": "synthetic"},
         source_tree_ref="task-adapter.tar.zst",
-        tree_hash=_digest(f"task-adapter-tree-{binding.task_adapter_id}"),
+        tree_hash=tree_hash,
         dependency_runtime_contract={"python": ">=3.10"},
         sanitation_report_id=_content_id("task-adapter-sanitation"),
         validation_refs=("validation.adapter_smoke",),
+    )
+
+
+def _adapter_source(
+    task_adapter_id: str,
+) -> tuple[dict[str, bytes], tuple[SourceFileDescriptor, ...], str]:
+    source_contents = {
+        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8")
+    }
+    source_files = tuple(
+        SourceFileDescriptor(
+            relative_path=path,
+            digest=tree_or_blob_digest(payload),
+            mode="100644",
+            size=len(payload),
+        )
+        for path, payload in sorted(source_contents.items())
+    )
+    tree_hash = source_tree_digest(
+        {
+            item.relative_path: (item.digest, item.mode, item.size)
+            for item in source_files
+        }
+    )
+    return source_contents, source_files, tree_hash
+
+
+def _verified_adapter(adapter: TaskAdapterManifest) -> VerifiedTaskAdapter:
+    proof_refs = {adapter.sanitation_report_id, *adapter.validation_refs}
+    proof_objects = {
+        proof_ref: f"proof:{proof_ref}".encode("utf-8") for proof_ref in proof_refs
+    }
+    source_contents, source_files, _ = _adapter_source(adapter.task_adapter_id)
+    source_archive = f"archive:{adapter.task_adapter_id}".encode("utf-8")
+    publisher_verification = f"publisher-verification:{adapter.task_adapter_id}".encode(
+        "utf-8"
+    )
+    extraction_receipt = SourceArchiveExtractionReceipt.mint(
+        artifact_id=adapter.task_adapter_manifest_id,
+        source_archive_ref=adapter.source_tree_ref,
+        source_archive_digest=tree_or_blob_digest(source_archive),
+        source_tree_hash=adapter.tree_hash,
+        source_tree_files=source_files,
+        extractor_version="kapso.source_archive_extractor.v1",
+    )
+    receipt = TaskAdapterVerificationReceipt.mint(
+        task_adapter_manifest_id=adapter.task_adapter_manifest_id,
+        full_manifest_digest=tree_or_blob_digest(adapter.to_json_bytes()),
+        publisher_attestation_digest=tree_or_blob_digest(
+            canonical_json_bytes(adapter.publisher_attestation)
+        ),
+        source_extraction_receipt_id=extraction_receipt.extraction_receipt_id,
+        source_archive_ref=adapter.source_tree_ref,
+        source_archive_digest=tree_or_blob_digest(source_archive),
+        source_tree_hash=adapter.tree_hash,
+        proof_object_digests={
+            proof_ref: tree_or_blob_digest(payload)
+            for proof_ref, payload in proof_objects.items()
+        },
+        publisher_verification_digest=tree_or_blob_digest(publisher_verification),
+        verifier_id="test_task_adapter_verifier",
+        verifier_version="test.task_adapter_verifier.v1",
+    )
+    return VerifiedTaskAdapter(
+        manifest=adapter,
+        verification_receipt=receipt,
+        source_extraction_receipt=extraction_receipt,
+        source_archive=source_archive,
+        source_contents=source_contents,
+        proof_objects=proof_objects,
+        publisher_verification=publisher_verification,
     )
 
 
@@ -143,12 +238,14 @@ def _eligibility_decision(
 ) -> ExpertCandidateEligibilityDecision:
     settings = _validation_settings()
     policy = settings.policy.validation_policy()
-    adapter_bindings = {
-        content_id(
+    adapter_pin = TaskAdapterPackagePin(
+        adapter_binding_id=content_id(
             "task-adapter-binding",
             {"task_family_id": "family", "task_adapter_id": "adapter"},
-        ): _content_id("adapter")
-    }
+        ),
+        task_adapter_manifest_id=_content_id("adapter"),
+        verification_receipt_id=_content_id("adapter-verification"),
+    )
     stages = settings.policy.required_stages(
         track,
         ("family",),
@@ -166,13 +263,14 @@ def _eligibility_decision(
         validation_track=track,
         required_stages=stages,
         configured_task_family_ids=("family",),
-        task_adapter_manifest_ids=adapter_bindings,
+        task_adapter_pins=(adapter_pin,),
         exact_dependency_ids=tuple(
             sorted(
                 {
                     _content_id("candidate-commit"),
                     _content_id("candidate"),
                     _content_id("adapter"),
+                    _content_id("adapter-verification"),
                     _content_id("scope"),
                     _content_id("parent-release"),
                     policy.validation_policy_id,
@@ -200,7 +298,7 @@ def _attempt(
         predecessor_attempt_id=None,
         required_stages=decision.required_stages,
         configured_task_family_ids=decision.configured_task_family_ids,
-        task_adapter_manifest_ids=decision.task_adapter_manifest_ids,
+        task_adapter_pins=decision.task_adapter_pins,
         eligibility_dependency_ids=tuple(
             sorted(
                 {
@@ -289,7 +387,7 @@ def test_validation_attempt_binds_eligibility_policy_tree_and_adapters():
     assert attempt.eligibility_decision_id == decision.eligibility_decision_id
     assert attempt.validation_policy_id == decision.validation_policy_id
     assert attempt.candidate_tree_hash == decision.candidate_tree_hash
-    assert attempt.task_adapter_manifest_ids == decision.task_adapter_manifest_ids
+    assert attempt.task_adapter_pins == decision.task_adapter_pins
     assert attempt.required_stages[0] is ExpertValidationStage.CONTRACT_SCHEMA
 
 
@@ -309,7 +407,11 @@ def test_evaluator_run_carries_exact_outputs_and_signature_is_a_separate_envelop
             sorted(
                 {
                     attempt.validation_attempt_id,
-                    *attempt.task_adapter_manifest_ids.values(),
+                    *(
+                        pin.task_adapter_manifest_id
+                        for pin in attempt.task_adapter_pins
+                    ),
+                    *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
                 }
             )
         ),
@@ -487,7 +589,6 @@ def test_bootstrap_enrollment_derives_architecture_track_and_exact_stage_plan(
     settings = _validation_settings()
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     started = _validation_reducer(settings, adapter).start(
         stored_candidate=stored,
@@ -504,7 +605,7 @@ def test_bootstrap_enrollment_derives_architecture_track_and_exact_stage_plan(
     )
     assert started.attempt is not None
     assert started.attempt.required_stages == eligibility.decision.required_stages
-    assert _content_id("adapter-source-verification-posttrain") in (
+    assert set(_verified_adapter(adapter).dependency_ids).issubset(
         started.attempt.eligibility_dependency_ids
     )
     assert started.state.next_stage is ExpertValidationStage.CONTRACT_SCHEMA
@@ -532,14 +633,8 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
     expanded_stored = SimpleNamespace(closure=expanded_closure)
     first_adapter = _task_adapter(expanded_closure)
     second_adapter = _task_adapter(expanded_closure, position=1)
-    verified_first = VerifiedTaskAdapter(
-        manifest=first_adapter,
-        source_verification_receipt_id=_content_id("first-source-verification"),
-    )
-    verified_second = VerifiedTaskAdapter(
-        manifest=second_adapter,
-        source_verification_receipt_id=_content_id("second-source-verification"),
-    )
+    verified_first = _verified_adapter(first_adapter)
+    verified_second = _verified_adapter(second_adapter)
 
     with pytest.raises(ExpertValidationError, match="trigger bindings"):
         ExpertCandidateEligibilityEvaluator._adapter_bindings(
@@ -547,13 +642,13 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
             (verified_first,),
         )
 
-    bindings, verification_ids, task_family_ids = (
+    pins, verification_ids, task_family_ids = (
         ExpertCandidateEligibilityEvaluator._adapter_bindings(
             expanded_stored,
             (verified_first, verified_second),
         )
     )
-    assert bindings == {
+    assert {pin.adapter_binding_id: pin.task_adapter_manifest_id for pin in pins} == {
         content_id(
             "task-adapter-binding",
             {
@@ -569,18 +664,220 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
             },
         ): second_adapter.task_adapter_manifest_id,
     }
-    assert len(bindings) == 2
+    assert len(pins) == 2
     assert verification_ids == tuple(
-        sorted(
-            (
-                verified_first.source_verification_receipt_id,
-                verified_second.source_verification_receipt_id,
-            )
-        )
+        sorted({*verified_first.dependency_ids, *verified_second.dependency_ids})
     )
     assert task_family_ids == tuple(
         sorted((first_binding.task_family_id, second_binding.task_family_id))
     )
+
+
+def test_adapter_receipt_pins_attestation_without_changing_scientific_identity(
+    tmp_path,
+):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    rotated_adapter = replace(
+        adapter,
+        publisher_attestation={"issuer": "rotated", "signature": "new"},
+    )
+
+    original = _verified_adapter(adapter)
+    rotated = _verified_adapter(rotated_adapter)
+
+    assert (
+        original.manifest.task_adapter_manifest_id
+        == rotated.manifest.task_adapter_manifest_id
+    )
+    assert (
+        original.verification_receipt.verification_receipt_id
+        != rotated.verification_receipt.verification_receipt_id
+    )
+    assert (
+        original.verification_receipt.publisher_attestation_digest
+        != rotated.verification_receipt.publisher_attestation_digest
+    )
+    assert (
+        original.verification_receipt.full_manifest_digest
+        != rotated.verification_receipt.full_manifest_digest
+    )
+
+
+def test_reducer_replays_exact_adapter_pin_after_active_attestation_rotation(
+    tmp_path,
+):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    rotated_adapter = replace(
+        adapter,
+        publisher_attestation={"issuer": "rotated", "signature": "new"},
+    )
+    original = _verified_adapter(adapter)
+    rotated = _verified_adapter(rotated_adapter)
+
+    class _RotatingProvider:
+        def __init__(self):
+            self.active = original
+            self.exact = {
+                (
+                    package.manifest.task_adapter_manifest_id,
+                    package.verification_receipt.verification_receipt_id,
+                ): package
+                for package in (original, rotated)
+            }
+
+        def resolve_active(
+            self,
+            *,
+            scope_contract_id,
+            task_family_id,
+            task_adapter_id,
+        ):
+            assert (
+                scope_contract_id,
+                task_family_id,
+                task_adapter_id,
+            ) == (
+                adapter.scope_contract_id,
+                adapter.task_family_id,
+                adapter.task_adapter_id,
+            )
+            return self.active
+
+        def resolve_exact(
+            self,
+            *,
+            task_adapter_manifest_id,
+            verification_receipt_id,
+        ):
+            return self.exact[(task_adapter_manifest_id, verification_receipt_id)]
+
+    provider = _RotatingProvider()
+    settings = _validation_settings()
+    eligibility = ExpertCandidateEligibilityEvaluator(
+        settings,
+        store,
+        provider,
+        _CurrentReleaseProvider(None),
+    ).decide(candidate_id=stored.closure.manifest.candidate_id)
+    original_receipt_id = original.verification_receipt.verification_receipt_id
+    assert eligibility.decision.task_adapter_pins[0].verification_receipt_id == (
+        original_receipt_id
+    )
+
+    provider.active = rotated
+    started = ExpertValidationReducer(
+        settings,
+        _AttestationVerifier(),
+        provider,
+        _CurrentReleaseProvider(None),
+        _ValidationStateProvider(),
+    ).start(stored_candidate=stored, eligibility=eligibility)
+
+    assert started.attempt is not None
+    assert started.attempt.task_adapter_pins == eligibility.decision.task_adapter_pins
+    assert original_receipt_id in started.attempt.eligibility_dependency_ids
+
+
+def test_adapter_receipt_must_match_the_full_manifest_and_proof_closure(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    verified = _verified_adapter(adapter)
+    receipt_fields = {
+        key: value
+        for key, value in verified.verification_receipt.to_dict().items()
+        if key != "verification_receipt_id"
+    }
+
+    with pytest.raises(ContractValidationError, match="differs from its manifest"):
+        replace(
+            verified,
+            verification_receipt=TaskAdapterVerificationReceipt.mint(
+                **{
+                    **receipt_fields,
+                    "full_manifest_digest": _digest("substituted-manifest"),
+                }
+            ),
+        )
+    with pytest.raises(ContractValidationError, match="normalized tar archive"):
+        TaskAdapterVerificationReceipt.mint(
+            **{
+                **receipt_fields,
+                "source_archive_ref": "../substituted.tar",
+            }
+        )
+    with pytest.raises(ContractValidationError, match="differs from its manifest"):
+        replace(
+            verified,
+            verification_receipt=TaskAdapterVerificationReceipt.mint(
+                **{
+                    **receipt_fields,
+                    "proof_object_digests": {
+                        adapter.sanitation_report_id: _digest("sanitation-only")
+                    },
+                }
+            ),
+        )
+
+
+def test_active_adapter_resolution_cannot_redirect_a_trigger_binding(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    expected_adapter = _task_adapter(stored.closure)
+    _, _, redirected_tree_hash = _adapter_source("redirected_adapter")
+    redirected_adapter = TaskAdapterManifest.mint(
+        task_adapter_id="redirected_adapter",
+        scope_contract_id=expected_adapter.scope_contract_id,
+        task_family_id=expected_adapter.task_family_id,
+        publisher_attestation=expected_adapter.publisher_attestation,
+        task_evaluator_binding=expected_adapter.task_evaluator_binding,
+        context_dimension_binding=expected_adapter.context_dimension_binding,
+        source_tree_ref=expected_adapter.source_tree_ref,
+        tree_hash=redirected_tree_hash,
+        dependency_runtime_contract=expected_adapter.dependency_runtime_contract,
+        sanitation_report_id=expected_adapter.sanitation_report_id,
+        validation_refs=expected_adapter.validation_refs,
+    )
+
+    class _RedirectingProvider:
+        def resolve_active(
+            self,
+            *,
+            scope_contract_id,
+            task_family_id,
+            task_adapter_id,
+        ):
+            assert (
+                scope_contract_id,
+                task_family_id,
+                task_adapter_id,
+            ) == (
+                expected_adapter.scope_contract_id,
+                expected_adapter.task_family_id,
+                expected_adapter.task_adapter_id,
+            )
+            return _verified_adapter(redirected_adapter)
+
+        def resolve_exact(
+            self,
+            *,
+            task_adapter_manifest_id,
+            verification_receipt_id,
+        ):
+            raise AssertionError("exact replay resolution is not enrollment")
+
+    evaluator = ExpertCandidateEligibilityEvaluator(
+        _validation_settings(),
+        store,
+        _RedirectingProvider(),
+        _CurrentReleaseProvider(None),
+    )
+    with pytest.raises(ExpertValidationError, match="trigger bindings"):
+        evaluator.decide(candidate_id=stored.closure.manifest.candidate_id)
 
 
 def test_stale_bootstrap_and_forged_track_are_ineligible_or_rejected(tmp_path):
@@ -596,7 +893,6 @@ def test_stale_bootstrap_and_forged_track_are_ineligible_or_rejected(tmp_path):
     )
     stale = evaluator.decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
 
     assert stale.decision.eligible is False
@@ -605,7 +901,6 @@ def test_stale_bootstrap_and_forged_track_are_ineligible_or_rejected(tmp_path):
 
     valid = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     forged_decision = ExpertCandidateEligibilityDecision.mint(
         **{
@@ -631,7 +926,6 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
     settings = _validation_settings()
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     started = _validation_reducer(settings, adapter).start(
         stored_candidate=stored,
@@ -732,7 +1026,6 @@ def test_failed_stage_is_terminal_and_a_retry_requires_a_new_attempt(tmp_path):
     settings = _validation_settings()
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     reducer = _validation_reducer(settings, adapter)
     started = reducer.start(
@@ -793,7 +1086,6 @@ def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
     settings = _validation_settings()
     eligible = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     initial = _validation_reducer(settings, adapter).start(
         stored_candidate=stored,
@@ -829,7 +1121,6 @@ def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
         current_release_id,
     ).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     ineligible = _validation_reducer(
         settings,
@@ -869,7 +1160,6 @@ def test_evaluator_output_limits_are_enforced_before_result_identity(tmp_path):
     )
     eligibility = _eligibility_evaluator(limited, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     started = _validation_reducer(limited, adapter).start(
         stored_candidate=stored,

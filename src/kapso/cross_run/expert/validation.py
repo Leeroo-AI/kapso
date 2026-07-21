@@ -24,13 +24,17 @@ from kapso.cross_run.contracts import (
     ExpertValidationAttempt,
     ExpertValidationStage,
     ExpertValidationTrack,
-    TaskAdapterManifest,
+    TaskAdapterPackagePin,
 )
 from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.settings import (
     ExpertEvaluatorSettings,
     ExpertValidationPolicy,
     ExpertValidationSettings,
+)
+from kapso.cross_run.task_adapters import (
+    VerifiedTaskAdapter,
+    VerifiedTaskAdapterProvider,
 )
 
 
@@ -66,24 +70,6 @@ class ExpertCandidateReader(Protocol):
     """Reopen one exact immutable M7 candidate package."""
 
     def read(self, candidate_id: str) -> StoredExpertCandidate: ...
-
-
-@dataclass(frozen=True)
-class VerifiedTaskAdapter:
-    manifest: TaskAdapterManifest
-    source_verification_receipt_id: str
-
-    def __post_init__(self) -> None:
-        require_content_id(
-            self.source_verification_receipt_id,
-            "source_verification_receipt_id",
-        )
-
-
-class VerifiedTaskAdapterProvider(Protocol):
-    """Resolve one manifest to its exact verified adapter source."""
-
-    def resolve(self, manifest_id: str) -> VerifiedTaskAdapter: ...
 
 
 class ExpertCurrentReleaseProvider(Protocol):
@@ -146,27 +132,41 @@ class ExpertCandidateEligibilityEvaluator:
         self,
         *,
         candidate_id: str,
-        task_adapter_manifest_ids: tuple[str, ...],
     ) -> ExpertEligibilityResult:
         require_content_id(candidate_id, "candidate_id")
-        for manifest_id in task_adapter_manifest_ids:
-            require_content_id(manifest_id, "task_adapter_manifest_ids")
-        if not task_adapter_manifest_ids or task_adapter_manifest_ids != tuple(
-            sorted(set(task_adapter_manifest_ids))
-        ):
-            raise ExpertValidationError(
-                "task adapter manifest IDs must be non-empty, sorted, and unique"
-            )
-        task_adapters = tuple(
-            self.task_adapter_provider.resolve(manifest_id)
-            for manifest_id in task_adapter_manifest_ids
-        )
-        for requested_id, adapter in zip(task_adapter_manifest_ids, task_adapters):
-            if adapter.manifest.task_adapter_manifest_id != requested_id:
-                raise ExpertValidationError(
-                    "task adapter provider returned another manifest"
-                )
         stored = self.candidate_store.read(candidate_id)
+        task_adapters = tuple(
+            self.task_adapter_provider.resolve_active(
+                scope_contract_id=stored.closure.manifest.scope_contract_id,
+                task_family_id=binding.task_family_id,
+                task_adapter_id=binding.task_adapter_id,
+            )
+            for binding in stored.closure.trigger_packet.active_task_bindings
+        )
+        return self._decide(stored, task_adapters)
+
+    def replay(
+        self,
+        *,
+        candidate_id: str,
+        task_adapter_pins: tuple[TaskAdapterPackagePin, ...],
+    ) -> ExpertEligibilityResult:
+        require_content_id(candidate_id, "candidate_id")
+        stored = self.candidate_store.read(candidate_id)
+        task_adapters = tuple(
+            self.task_adapter_provider.resolve_exact(
+                task_adapter_manifest_id=pin.task_adapter_manifest_id,
+                verification_receipt_id=pin.verification_receipt_id,
+            )
+            for pin in task_adapter_pins
+        )
+        return self._decide(stored, task_adapters)
+
+    def _decide(
+        self,
+        stored: StoredExpertCandidate,
+        task_adapters: tuple[VerifiedTaskAdapter, ...],
+    ) -> ExpertEligibilityResult:
         current_parent_release_id = self.current_release_provider.current_release_id(
             stored.closure.trigger_packet.scope_contract.scope_id
         )
@@ -176,7 +176,7 @@ class ExpertCandidateEligibilityEvaluator:
                 "current_parent_release_id",
             )
         (
-            adapter_bindings,
+            adapter_pins,
             adapter_verification_ids,
             configured_task_family_ids,
         ) = self._adapter_bindings(
@@ -214,7 +214,8 @@ class ExpertCandidateEligibilityEvaluator:
             manifest.trigger_decision_id,
             manifest.trigger_evidence_packet_id,
             manifest.sanitation_report_id,
-            *adapter_bindings.values(),
+            *(pin.task_adapter_manifest_id for pin in adapter_pins),
+            *(pin.verification_receipt_id for pin in adapter_pins),
             *adapter_verification_ids,
         }
         if manifest.parent_release_id is not None:
@@ -231,7 +232,7 @@ class ExpertCandidateEligibilityEvaluator:
             validation_track=validation_track,
             required_stages=stage_plan if eligible else (),
             configured_task_family_ids=configured_task_family_ids,
-            task_adapter_manifest_ids=adapter_bindings,
+            task_adapter_pins=adapter_pins,
             exact_dependency_ids=tuple(sorted(dependencies)),
             reason_code=reason_code,
         )
@@ -252,7 +253,11 @@ class ExpertCandidateEligibilityEvaluator:
     def _adapter_bindings(
         stored: StoredExpertCandidate,
         task_adapters: tuple[VerifiedTaskAdapter, ...],
-    ) -> tuple[dict[str, str], tuple[str, ...], tuple[str, ...]]:
+    ) -> tuple[
+        tuple[TaskAdapterPackagePin, ...],
+        tuple[str, ...],
+        tuple[str, ...],
+    ]:
         ordering = tuple(
             (adapter.manifest.task_family_id, adapter.manifest.task_adapter_id)
             for adapter in task_adapters
@@ -268,7 +273,7 @@ class ExpertCandidateEligibilityEvaluator:
             raise ExpertValidationError(
                 "task adapters differ from the candidate trigger bindings"
             )
-        bindings: dict[str, str] = {}
+        pins: list[TaskAdapterPackagePin] = []
         for verified_adapter in task_adapters:
             adapter = verified_adapter.manifest
             if (
@@ -286,15 +291,29 @@ class ExpertCandidateEligibilityEvaluator:
                     "task_adapter_id": adapter.task_adapter_id,
                 },
             )
-            bindings[binding_id] = adapter.task_adapter_manifest_id
+            pins.append(
+                TaskAdapterPackagePin(
+                    adapter_binding_id=binding_id,
+                    task_adapter_manifest_id=adapter.task_adapter_manifest_id,
+                    verification_receipt_id=(
+                        verified_adapter.verification_receipt.verification_receipt_id
+                    ),
+                )
+            )
         verification_ids = tuple(
-            sorted(adapter.source_verification_receipt_id for adapter in task_adapters)
+            sorted(
+                {
+                    dependency_id
+                    for adapter in task_adapters
+                    for dependency_id in adapter.dependency_ids
+                }
+            )
         )
         configured_task_family_ids = tuple(
             sorted({task_family_id for task_family_id, _ in expected_bindings})
         )
         return (
-            dict(sorted(bindings.items())),
+            tuple(sorted(pins, key=lambda pin: pin.adapter_binding_id)),
             verification_ids,
             configured_task_family_ids,
         )
@@ -357,7 +376,8 @@ class ExpertEvaluatorRunBuilder:
             attempt.scope_contract_id,
             attempt.eligibility_decision_id,
             attempt.validation_policy_id,
-            *attempt.task_adapter_manifest_ids.values(),
+            *(pin.task_adapter_manifest_id for pin in attempt.task_adapter_pins),
+            *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
             *attempt.eligibility_dependency_ids,
             *exact_additional_input_ids,
         }
@@ -479,11 +499,9 @@ class ExpertValidationReducer:
             _PinnedCandidateStore(stored_candidate),
             self.task_adapter_provider,
             self.current_release_provider,
-        ).decide(
+        ).replay(
             candidate_id=stored_candidate.closure.manifest.candidate_id,
-            task_adapter_manifest_ids=tuple(
-                sorted(eligibility.decision.task_adapter_manifest_ids.values())
-            ),
+            task_adapter_pins=eligibility.decision.task_adapter_pins,
         )
         if expected != eligibility:
             raise ExpertValidationError(
@@ -542,7 +560,7 @@ class ExpertValidationReducer:
             configured_task_family_ids=(
                 eligibility.decision.configured_task_family_ids
             ),
-            task_adapter_manifest_ids=(eligibility.decision.task_adapter_manifest_ids),
+            task_adapter_pins=eligibility.decision.task_adapter_pins,
             eligibility_dependency_ids=tuple(
                 sorted(
                     {
@@ -675,7 +693,8 @@ class ExpertValidationReducer:
             attempt.scope_contract_id,
             attempt.eligibility_decision_id,
             attempt.validation_policy_id,
-            *attempt.task_adapter_manifest_ids.values(),
+            *(pin.task_adapter_manifest_id for pin in attempt.task_adapter_pins),
+            *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
             *attempt.eligibility_dependency_ids,
         }
         if attempt.parent_release_id is not None:

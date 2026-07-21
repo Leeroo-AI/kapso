@@ -52,9 +52,10 @@ def test_catalog_agents_and_admission_policy_are_fully_typed():
 
 
 def test_expert_proposers_and_trigger_policy_are_fully_typed():
-    settings = CrossRunSettings.from_dict(
+    cross_run_settings = CrossRunSettings.from_dict(
         load_config(CANONICAL_CONFIG_PATH)["cross_run"]
-    ).expert
+    )
+    settings = cross_run_settings.expert
 
     assert settings.architect.cli == "claude_code"
     assert settings.architect.model == "fable"
@@ -65,6 +66,13 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert settings.triggers.inspector_id == "expert_trigger_inspector"
     assert settings.triggers.inspection_policy_version == "kapso.expert_inspection.v1"
     assert settings.triggers.minimum_success_contexts == 2
+    assert (
+        settings.task_adapters.active_authority.authority_id
+        == "kapso_task_adapter_authority"
+    )
+    assert settings.task_adapters.zstd_window_size_bytes == (
+        cross_run_settings.github.zstd_window_size_bytes
+    )
 
 
 @pytest.mark.parametrize(
@@ -74,9 +82,12 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
         lambda expert: expert.__setitem__(
             "workspace_path", expert["agent_artifact_path"] + "/nested"
         ),
+        lambda expert: expert["task_adapters"].__setitem__(
+            "state_path", expert["validation"]["state_path"]
+        ),
     ),
 )
-def test_expert_workspace_path_must_be_disjoint(mutate):
+def test_expert_state_paths_must_be_disjoint(mutate):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
     mutate(raw["expert"])
 
@@ -322,6 +333,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("knowledge", "retrieval", "lexical_weight"), 1.1),
         (("knowledge", "embeddings", "dimensions"), True),
         (("expert", "validation", "reviewer_count"), 0),
+        (("expert", "task_adapters", "zstd_window_size_bytes"), 0),
         (("launch", "cache_path"), "../escape"),
     ],
 )

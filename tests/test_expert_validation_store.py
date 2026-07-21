@@ -50,7 +50,6 @@ def _candidate_and_eligibility(tmp_path, current_release_id=None):
         current_release_id,
     ).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     return stored, adapter, settings, eligibility
 
@@ -175,7 +174,6 @@ def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
         current_release_id,
     ).decide(
         candidate_id=stored.closure.manifest.candidate_id,
-        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
     )
     stale_store = _validation_store(
         tmp_path,

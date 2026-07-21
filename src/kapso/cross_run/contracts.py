@@ -2591,6 +2591,21 @@ class ExpertCandidateManifest(StrictContract):
 
 
 @dataclass(frozen=True)
+class TaskAdapterPackagePin(StrictContract):
+    adapter_binding_id: str
+    task_adapter_manifest_id: str
+    verification_receipt_id: str
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.adapter_binding_id, "adapter_binding_id"),
+            (self.task_adapter_manifest_id, "task_adapter_manifest_id"),
+            (self.verification_receipt_id, "verification_receipt_id"),
+        ):
+            require_content_id(value, name)
+
+
+@dataclass(frozen=True)
 class ExpertCandidateEligibilityDecision(StrictContract):
     eligibility_decision_id: str
     candidate_id: str
@@ -2604,7 +2619,7 @@ class ExpertCandidateEligibilityDecision(StrictContract):
     validation_track: ExpertValidationTrack
     required_stages: tuple[ExpertValidationStage, ...]
     configured_task_family_ids: tuple[str, ...]
-    task_adapter_manifest_ids: Mapping[str, str]
+    task_adapter_pins: tuple[TaskAdapterPackagePin, ...]
     exact_dependency_ids: tuple[str, ...]
     reason_code: str
 
@@ -2635,18 +2650,22 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             )
         for task_family_id in self.configured_task_family_ids:
             require_identifier(task_family_id, "configured_task_family_ids")
-        if not self.task_adapter_manifest_ids:
+        pin_keys = tuple(pin.adapter_binding_id for pin in self.task_adapter_pins)
+        if not pin_keys or pin_keys != tuple(sorted(set(pin_keys))):
             raise ContractValidationError(
-                "task adapter manifest bindings must not be empty"
+                "task adapter package pins must be non-empty, sorted, and unique"
             )
-        for adapter_binding_id, manifest_id in self.task_adapter_manifest_ids.items():
-            require_content_id(adapter_binding_id, "task_adapter_manifest_ids key")
-            require_content_id(manifest_id, "task_adapter_manifest_ids value")
-        if len(self.task_adapter_manifest_ids) != len(
-            set(self.task_adapter_manifest_ids.values())
+        manifest_ids = tuple(
+            pin.task_adapter_manifest_id for pin in self.task_adapter_pins
+        )
+        receipt_ids = tuple(
+            pin.verification_receipt_id for pin in self.task_adapter_pins
+        )
+        if len(manifest_ids) != len(set(manifest_ids)) or len(receipt_ids) != len(
+            set(receipt_ids)
         ):
             raise ContractValidationError(
-                "task adapter manifest bindings must reference unique manifests"
+                "task adapter package pins must reference unique packages"
             )
         _require_sorted_unique(self.exact_dependency_ids, "exact_dependency_ids")
         for value in self.exact_dependency_ids:
@@ -2656,7 +2675,8 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             self.candidate_commit_record_id,
             self.scope_contract_id,
             self.validation_policy_id,
-            *self.task_adapter_manifest_ids.values(),
+            *manifest_ids,
+            *receipt_ids,
         }
         if self.parent_release_id is not None:
             required_dependencies.add(self.parent_release_id)
@@ -2698,7 +2718,7 @@ class ExpertValidationAttempt(StrictContract):
     predecessor_attempt_id: str | None
     required_stages: tuple[ExpertValidationStage, ...]
     configured_task_family_ids: tuple[str, ...]
-    task_adapter_manifest_ids: Mapping[str, str]
+    task_adapter_pins: tuple[TaskAdapterPackagePin, ...]
     eligibility_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-attempt"
@@ -2743,18 +2763,22 @@ class ExpertValidationAttempt(StrictContract):
             raise ContractValidationError(
                 "required_stages must follow the canonical evaluator order"
             )
-        if not self.task_adapter_manifest_ids:
+        pin_keys = tuple(pin.adapter_binding_id for pin in self.task_adapter_pins)
+        if not pin_keys or pin_keys != tuple(sorted(set(pin_keys))):
             raise ContractValidationError(
-                "task adapter manifest bindings must not be empty"
+                "task adapter package pins must be non-empty, sorted, and unique"
             )
-        for adapter_binding_id, manifest_id in self.task_adapter_manifest_ids.items():
-            require_content_id(adapter_binding_id, "task_adapter_manifest_ids key")
-            require_content_id(manifest_id, "task_adapter_manifest_ids value")
-        if len(self.task_adapter_manifest_ids) != len(
-            set(self.task_adapter_manifest_ids.values())
+        manifest_ids = tuple(
+            pin.task_adapter_manifest_id for pin in self.task_adapter_pins
+        )
+        receipt_ids = tuple(
+            pin.verification_receipt_id for pin in self.task_adapter_pins
+        )
+        if len(manifest_ids) != len(set(manifest_ids)) or len(receipt_ids) != len(
+            set(receipt_ids)
         ):
             raise ContractValidationError(
-                "task adapter manifest bindings must reference unique manifests"
+                "task adapter package pins must reference unique packages"
             )
         if not self.configured_task_family_ids or self.configured_task_family_ids != (
             tuple(sorted(set(self.configured_task_family_ids)))
@@ -2776,7 +2800,8 @@ class ExpertValidationAttempt(StrictContract):
             self.scope_contract_id,
             self.eligibility_decision_id,
             self.validation_policy_id,
-            *self.task_adapter_manifest_ids.values(),
+            *manifest_ids,
+            *receipt_ids,
         }
         if self.parent_release_id is not None:
             required_dependencies.add(self.parent_release_id)

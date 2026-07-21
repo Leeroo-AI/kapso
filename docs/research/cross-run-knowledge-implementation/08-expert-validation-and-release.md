@@ -32,6 +32,11 @@ src/kapso/cross_run/expert/
   release.py
   publisher.py
 
+src/kapso/cross_run/
+  source_archives.py
+  task_adapters.py
+  task_adapter_store.py
+
 src/kapso/cross_run/launch/
   revocation.py
 
@@ -78,10 +83,13 @@ Implemented validation substrate:
 
 - enrollment reopens the exact M7 candidate, resolves the current release through
   a GitHub reader that verifies repository policy and the observed immutable
-  release identity, and resolves every adapter through a verified-source provider;
+  release identity, and resolves every trigger binding through the provider's
+  trusted active adapter index rather than accepting caller-selected manifests;
 - validation track and stage plan are recomputed from trusted candidate records;
 - every exact trigger adapter binding is enrolled under an unambiguous canonical
-  identity, while configured task families remain explicit stage-policy inputs;
+  identity and an exact `TaskAdapterPackagePin`, while configured task families
+  remain explicit stage-policy inputs; reducer replay resolves those immutable
+  pins even if the active publisher attestation rotates;
 - attempts retain the complete eligibility, adapter, and verification dependency
   closure;
 - executable-stage results are bounded before identity, signature-verified through
@@ -100,11 +108,19 @@ The automated-review, promotion-decision, composition, and release paths remain
 separate later slices; the executable reducer and store cannot synthesize their
 authority.
 
-The task-adapter reader remains intentionally unimplemented until a typed package
-and verification receipt bind the full manifest bytes (including its excluded
-publisher attestation), exact source archive/tree, sanitation, validation, and
-publisher-verification proofs. A generic content ID is not accepted as production
-verification.
+The shared adapter trust boundary now separates stable scientific manifest
+identity from exact verified package identity. A typed verification receipt binds
+the full manifest bytes (including its excluded publisher attestation), exact
+source archive/tree, extraction receipt, sanitation and validation proof closure,
+and verifier identity. Eligibility records that receipt closure transitively. The
+receipt-keyed immutable package store re-extracts the hardened canonical tar/zstd
+archive and re-verifies exact source/proof/publisher bytes and configured authority
+on publication and read. Signed activation records move one logical binding under
+compare-and-swap while historical pins remain replayable. A generic content ID is
+not accepted as production verification. The configured trust registry selects
+one active authority for new records, retains explicit historical verifier
+versions for replay, and treats removal as revocation; deployment supplies those
+authority implementations behind the typed fail-closed protocol.
 
 ## Evaluator cascade
 

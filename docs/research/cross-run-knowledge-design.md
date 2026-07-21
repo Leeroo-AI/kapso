@@ -746,6 +746,21 @@ The benchmark or an explicitly authorized publisher supplies this read-only,
 pinned adapter. Kapso may change a local copy in experiment branches, but cannot
 silently update the shared adapter or use it to bypass expert-release gates.
 
+The manifest is the stable scientific identity and deliberately excludes the
+rotatable publisher attestation from its content preimage. A separate
+`TaskAdapterVerificationReceipt` names the exact trusted package instance and
+binds the full manifest bytes, publisher evidence, archive digest, deterministic
+extraction receipt, exact source tree, sanitation/validation proof bytes, and
+configured verifier identity. Packages are stored by receipt, never by manifest.
+A signed `TaskAdapterActivationRecord` is the only mutable logical
+scope/family/adapter pointer. Fresh work resolves that active record; eligibility,
+validation, launch, and resume persist a `TaskAdapterPackagePin` containing both
+manifest and receipt identity, so attestation rotation cannot change replay.
+Verifier rotation is explicit: one configured authority version signs new package
+and activation records, historical versions remain in the trust registry while
+their pins are valid, and removing a version is an auditable revocation that makes
+its packages fail closed.
+
 ### 4.12 `KnowledgeSnapshotManifest`
 
 ```text

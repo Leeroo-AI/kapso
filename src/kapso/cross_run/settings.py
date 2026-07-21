@@ -972,6 +972,54 @@ class ExpertValidationSettings(StrictContract):
 
 
 @dataclass(frozen=True)
+class TaskAdapterAuthorityTrustSettings(StrictContract):
+    authority_id: str
+    authority_version: str
+
+    def _validate(self) -> None:
+        require_identifier(self.authority_id, "task adapter authority_id")
+        require_identifier(self.authority_version, "task adapter authority_version")
+
+    @property
+    def identity(self) -> tuple[str, str]:
+        return self.authority_id, self.authority_version
+
+
+@dataclass(frozen=True)
+class TaskAdapterStoreSettings(StrictContract):
+    state_path: str
+    active_authority: TaskAdapterAuthorityTrustSettings
+    trusted_authorities: tuple[TaskAdapterAuthorityTrustSettings, ...]
+    package_entry_limit: int
+    package_byte_limit: int
+    source_byte_limit: int
+    zstd_window_size_bytes: int
+
+    def _validate(self) -> None:
+        _require_relative_path(self.state_path, "expert.task_adapters.state_path")
+        authority_identities = tuple(
+            authority.identity for authority in self.trusted_authorities
+        )
+        if not authority_identities or authority_identities != tuple(
+            sorted(set(authority_identities))
+        ):
+            raise CrossRunConfigurationError(
+                "trusted task adapter authorities must be non-empty, sorted, and unique"
+            )
+        if self.active_authority.identity not in authority_identities:
+            raise CrossRunConfigurationError(
+                "active task adapter authority must be trusted"
+            )
+        for value, name in (
+            (self.package_entry_limit, "package_entry_limit"),
+            (self.package_byte_limit, "package_byte_limit"),
+            (self.source_byte_limit, "source_byte_limit"),
+            (self.zstd_window_size_bytes, "zstd_window_size_bytes"),
+        ):
+            _require_positive(value, f"expert.task_adapters.{name}")
+
+
+@dataclass(frozen=True)
 class ExpertSettings(StrictContract):
     workspace_path: str
     candidate_path: str
@@ -988,6 +1036,7 @@ class ExpertSettings(StrictContract):
     generalizer_role: str
     generalizer: CodingAgentSettings
     triggers: ExpertTriggerSettings
+    task_adapters: TaskAdapterStoreSettings
     validation: ExpertValidationSettings
 
     def _validate(self) -> None:
@@ -1007,11 +1056,16 @@ class ExpertSettings(StrictContract):
             self.validation.state_path,
             "expert.validation.state_path",
         )
+        task_adapter_path = _require_relative_path(
+            self.task_adapters.state_path,
+            "expert.task_adapters.state_path",
+        )
         paths = {
             "workspaces": workspace_path,
             "candidates": candidate_path,
             "agent artifacts": artifact_path,
             "validation": validation_path,
+            "task adapters": task_adapter_path,
         }
         for name, path in paths.items():
             for other_name, other_path in paths.items():

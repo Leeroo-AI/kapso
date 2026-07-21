@@ -51,8 +51,6 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationReducer,
     ExpertValidationStart,
     ExpertValidationStateProvider,
-    VerifiedTaskAdapter,
-    VerifiedTaskAdapterProvider,
 )
 from kapso.cross_run.expert.validation_store import (
     ExpertEvaluatorResultRecord,
@@ -71,6 +69,10 @@ from kapso.cross_run.expert.workspace import (
     ExpertCandidateWorkspaceLease,
     ExpertCandidateWorkspaceManager,
     PreparedExpertCandidateWorkspace,
+)
+from kapso.cross_run.task_adapters import (
+    VerifiedTaskAdapter,
+    VerifiedTaskAdapterProvider,
 )
 
 __all__ = [
