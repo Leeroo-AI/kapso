@@ -386,6 +386,51 @@ class ExpertCandidateSanitationStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class ExpertValidationTrack(str, Enum):
+    MECHANICAL_GENERAL_FIX = "mechanical_general_fix"
+    BEHAVIORAL_CAPABILITY = "behavioral_capability"
+    REPOSITORY_ARCHITECTURE = "repository_architecture"
+
+
+class ExpertReviewDisposition(str, Enum):
+    CORE_ELIGIBLE = "core_eligible"
+    TASK_SPECIFIC = "task_specific"
+    CONFOUNDED_OR_NOISY = "confounded_or_noisy"
+    UNSAFE_OR_SPECIALIZED = "unsafe_or_specialized"
+
+
+class ExpertPromotionState(str, Enum):
+    INELIGIBLE = "ineligible"
+    VALIDATING = "validating"
+    FAILED = "failed"
+    DISPUTED = "disputed"
+    PARETO_RETAINED = "pareto_retained"
+    APPROVED = "approved"
+    RELEASED = "released"
+    REVOKED = "revoked"
+
+
+class ExpertValidationStage(str, Enum):
+    CONTRACT_SCHEMA = "contract_schema"
+    IDENTITY_SECRETS_LICENSE_DEPENDENCY = "identity_secrets_license_dependency"
+    STATIC_UNIT_SECURITY_RESOURCE = "static_unit_security_resource"
+    SYNTHETIC_FRESH_TASK = "synthetic_fresh_task"
+    SOURCE_RUN_REPLAY = "source_run_replay"
+    DEVELOPMENT_ANCHORS = "development_anchors"
+    CROSS_FAMILY_TRANSFER = "cross_family_transfer"
+    SEALED_CANARY = "sealed_canary"
+    AUTOMATED_REVIEW = "automated_review"
+    RELEASE_MATRIX = "release_matrix"
+    PUBLICATION_ELIGIBILITY = "publication_eligibility"
+
+
+class ExpertEvaluatorOutcome(str, Enum):
+    PASSED = "passed"
+    CANDIDATE_FAILED = "candidate_failed"
+    INFRASTRUCTURE_FAILED = "infrastructure_failed"
+    INCONCLUSIVE = "inconclusive"
+
+
 class ExpertSanitationSeverity(str, Enum):
     INFORMATIONAL = "informational"
     WARNING = "warning"
@@ -2542,6 +2587,439 @@ class ExpertCandidateManifest(StrictContract):
         if lineage_keys != tuple(sorted(set(lineage_keys))):
             raise ContractValidationError(
                 "capability lineage must be sorted and unique"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateEligibilityDecision(StrictContract):
+    eligibility_decision_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    candidate_commit_record_id: str
+    scope_contract_id: str
+    parent_release_id: str | None
+    validation_policy_id: str
+    configuration_fingerprint: str
+    eligible: bool
+    validation_track: ExpertValidationTrack
+    required_stages: tuple[ExpertValidationStage, ...]
+    task_adapter_manifest_ids: Mapping[str, str]
+    exact_dependency_ids: tuple[str, ...]
+    reason_code: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-eligibility"
+    IDENTITY_FIELD: ClassVar[str] = "eligibility_decision_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.candidate_id, "candidate_id"),
+            (self.candidate_commit_record_id, "candidate_commit_record_id"),
+            (self.scope_contract_id, "scope_contract_id"),
+            (self.validation_policy_id, "validation_policy_id"),
+        ):
+            require_content_id(value, name)
+        if self.parent_release_id is not None:
+            require_content_id(self.parent_release_id, "parent_release_id")
+        _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
+        _require_digest(
+            self.configuration_fingerprint,
+            "configuration_fingerprint",
+        )
+        require_identifier(self.reason_code, "eligibility reason_code")
+        if not self.task_adapter_manifest_ids:
+            raise ContractValidationError(
+                "task adapter manifest bindings must not be empty"
+            )
+        for task_family_id, manifest_id in self.task_adapter_manifest_ids.items():
+            require_identifier(task_family_id, "task_adapter_manifest_ids key")
+            require_content_id(manifest_id, "task_adapter_manifest_ids value")
+        _require_sorted_unique(self.exact_dependency_ids, "exact_dependency_ids")
+        for value in self.exact_dependency_ids:
+            require_content_id(value, "exact_dependency_ids")
+        required_dependencies = {
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.scope_contract_id,
+            self.validation_policy_id,
+            *self.task_adapter_manifest_ids.values(),
+        }
+        if self.parent_release_id is not None:
+            required_dependencies.add(self.parent_release_id)
+        if not required_dependencies.issubset(self.exact_dependency_ids):
+            raise MissingReferenceError(
+                "eligibility decision dependency closure is incomplete"
+            )
+        if self.eligible != bool(self.required_stages):
+            raise ContractValidationError(
+                "only an eligible candidate may have a required stage plan"
+            )
+        if self.required_stages:
+            stage_order = tuple(ExpertValidationStage)
+            expected_order = tuple(
+                stage for stage in stage_order if stage in self.required_stages
+            )
+            if (
+                len(self.required_stages) != len(set(self.required_stages))
+                or self.required_stages != expected_order
+            ):
+                raise ContractValidationError(
+                    "required_stages must be unique and canonically ordered"
+                )
+
+
+@dataclass(frozen=True)
+class ExpertValidationAttempt(StrictContract):
+    validation_attempt_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    candidate_commit_record_id: str
+    scope_contract_id: str
+    parent_release_id: str | None
+    eligibility_decision_id: str
+    validation_policy_id: str
+    configuration_fingerprint: str
+    validation_track: ExpertValidationTrack
+    attempt_number: int
+    predecessor_attempt_id: str | None
+    required_stages: tuple[ExpertValidationStage, ...]
+    task_adapter_manifest_ids: Mapping[str, str]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-attempt"
+    IDENTITY_FIELD: ClassVar[str] = "validation_attempt_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.candidate_id, "candidate_id"),
+            (self.candidate_commit_record_id, "candidate_commit_record_id"),
+            (self.scope_contract_id, "scope_contract_id"),
+            (self.eligibility_decision_id, "eligibility_decision_id"),
+            (self.validation_policy_id, "validation_policy_id"),
+        ):
+            require_content_id(value, name)
+        if self.parent_release_id is not None:
+            require_content_id(self.parent_release_id, "parent_release_id")
+        _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
+        _require_digest(
+            self.configuration_fingerprint,
+            "configuration_fingerprint",
+        )
+        if self.attempt_number <= 0:
+            raise ContractValidationError("attempt_number must be positive")
+        if (self.attempt_number == 1) != (self.predecessor_attempt_id is None):
+            raise ContractValidationError(
+                "only the first validation attempt may omit its predecessor"
+            )
+        if self.predecessor_attempt_id is not None:
+            require_content_id(
+                self.predecessor_attempt_id,
+                "predecessor_attempt_id",
+            )
+        if not self.required_stages:
+            raise ContractValidationError("required_stages must not be empty")
+        if len(self.required_stages) != len(set(self.required_stages)):
+            raise ContractValidationError("required_stages must be unique")
+        stage_order = tuple(ExpertValidationStage)
+        expected_order = tuple(
+            stage for stage in stage_order if stage in self.required_stages
+        )
+        if self.required_stages != expected_order:
+            raise ContractValidationError(
+                "required_stages must follow the canonical evaluator order"
+            )
+        if not self.task_adapter_manifest_ids:
+            raise ContractValidationError(
+                "task adapter manifest bindings must not be empty"
+            )
+        for task_family_id, manifest_id in self.task_adapter_manifest_ids.items():
+            require_identifier(task_family_id, "task_adapter_manifest_ids key")
+            require_content_id(manifest_id, "task_adapter_manifest_ids value")
+
+
+@dataclass(frozen=True)
+class ExpertSealedCanaryAggregate(StrictContract):
+    candidate_id: str
+    candidate_tree_hash: str
+    evaluator_version: str
+    evaluated_case_count: int
+    aggregate_measurements: Mapping[str, float]
+
+    def _validate(self) -> None:
+        require_content_id(self.candidate_id, "sealed aggregate candidate_id")
+        _require_digest(
+            self.candidate_tree_hash,
+            "sealed aggregate candidate_tree_hash",
+        )
+        require_identifier(
+            self.evaluator_version,
+            "sealed aggregate evaluator_version",
+        )
+        if self.evaluated_case_count <= 0:
+            raise ContractValidationError(
+                "sealed aggregate evaluated_case_count must be positive"
+            )
+        if not self.aggregate_measurements:
+            raise ContractValidationError(
+                "sealed aggregate measurements must not be empty"
+            )
+        for key, value in self.aggregate_measurements.items():
+            require_identifier(key, "sealed aggregate measurement key")
+            if not math.isfinite(value):
+                raise ContractValidationError(
+                    f"sealed aggregate measurement {key} must be finite"
+                )
+
+
+@dataclass(frozen=True)
+class ExpertEvaluatorRun(StrictContract):
+    evaluator_run_id: str
+    validation_attempt_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    stage: ExpertValidationStage
+    evaluator_id: str
+    evaluator_role: str
+    evaluator_version: str
+    exact_input_ids: tuple[str, ...]
+    output_payloads_base64: Mapping[str, str]
+    output_checksums: Mapping[str, str]
+    measurements: Mapping[str, float]
+    costs: Mapping[str, float]
+    duration_seconds: float
+    outcome: ExpertEvaluatorOutcome
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-evaluator-run"
+    IDENTITY_FIELD: ClassVar[str] = "evaluator_run_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.validation_attempt_id, "validation_attempt_id"),
+            (self.candidate_id, "candidate_id"),
+        ):
+            require_content_id(value, name)
+        _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
+        for value, name in (
+            (self.evaluator_id, "evaluator_id"),
+            (self.evaluator_role, "evaluator_role"),
+            (self.evaluator_version, "evaluator_version"),
+        ):
+            require_identifier(value, name)
+        _require_sorted_unique(self.exact_input_ids, "exact_input_ids")
+        for value in self.exact_input_ids:
+            require_content_id(value, "exact_input_ids")
+        _require_checksum_mapping(self.output_checksums, "output_checksums")
+        if set(self.output_payloads_base64) != set(self.output_checksums):
+            raise MissingReferenceError(
+                "evaluator output payloads and checksums must name the same files"
+            )
+        for path, payload_base64 in self.output_payloads_base64.items():
+            _require_relative_path(path, "output_payloads_base64 key")
+            if not isinstance(payload_base64, str):
+                raise ContractValidationError(
+                    "evaluator output payload must be base64 text"
+                )
+            payload = base64.b64decode(payload_base64, validate=True)
+            if tree_or_blob_digest(payload) != self.output_checksums[path]:
+                raise ContractValidationError(
+                    f"evaluator output checksum differs: {path}"
+                )
+        if self.duration_seconds < 0.0:
+            raise ContractValidationError("duration_seconds must be non-negative")
+        for key, value in self.measurements.items():
+            require_identifier(key, "measurements key")
+            if not math.isfinite(value):
+                raise ContractValidationError(f"measurements[{key}] must be finite")
+        for key, value in self.costs.items():
+            require_identifier(key, "costs key")
+            if not math.isfinite(value) or value < 0.0:
+                raise ContractValidationError(
+                    f"costs[{key}] must be finite and non-negative"
+                )
+        if self.stage is ExpertValidationStage.SEALED_CANARY:
+            if set(self.output_payloads_base64) != {"aggregate.json"}:
+                raise ContractValidationError(
+                    "sealed canary output must contain only aggregate.json"
+                )
+            aggregate = ExpertSealedCanaryAggregate.from_json_bytes(
+                base64.b64decode(
+                    self.output_payloads_base64["aggregate.json"],
+                    validate=True,
+                )
+            )
+            if (
+                aggregate.candidate_id != self.candidate_id
+                or aggregate.candidate_tree_hash != self.candidate_tree_hash
+                or aggregate.evaluator_version != self.evaluator_version
+                or aggregate.aggregate_measurements != self.measurements
+            ):
+                raise ContractValidationError(
+                    "sealed canary aggregate differs from evaluator run"
+                )
+
+
+@dataclass(frozen=True)
+class ExpertEvaluatorAttestation(StrictContract):
+    evaluator_attestation_id: str
+    evaluator_run_id: str
+    issuer_id: str
+    trust_root_id: str | None
+    predicate_digest: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-evaluator-attestation"
+    IDENTITY_FIELD: ClassVar[str] = "evaluator_attestation_id"
+
+    def _validate(self) -> None:
+        require_content_id(self.evaluator_run_id, "evaluator_run_id")
+        require_identifier(self.issuer_id, "attestation issuer_id")
+        if self.trust_root_id is not None:
+            require_identifier(self.trust_root_id, "attestation trust_root_id")
+        _require_digest(self.predicate_digest, "attestation predicate_digest")
+
+
+@dataclass(frozen=True)
+class ExpertEvaluatorAttestationEnvelope(StrictContract):
+    attestation: ExpertEvaluatorAttestation
+    signature: str
+
+    def _validate(self) -> None:
+        _require_text(self.signature, "attestation signature")
+
+
+@dataclass(frozen=True)
+class ExpertEvaluatorEvidenceRef(StrictContract):
+    evaluator_run_id: str
+    evaluator_attestation_id: str
+
+    def _validate(self) -> None:
+        require_content_id(self.evaluator_run_id, "evaluator_run_id")
+        require_content_id(
+            self.evaluator_attestation_id,
+            "evaluator_attestation_id",
+        )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateValidationState(StrictContract):
+    validation_state_id: str
+    validation_attempt_id: str | None
+    candidate_id: str
+    candidate_tree_hash: str
+    predecessor_state_id: str | None
+    promotion_state: ExpertPromotionState
+    accepted_evaluator_evidence: tuple[ExpertEvaluatorEvidenceRef, ...]
+    next_stage: ExpertValidationStage | None
+    review_assertion_ids: tuple[str, ...]
+    terminal_evidence_ids: tuple[str, ...]
+    transition_evidence_id: str
+    reason: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-validation-state"
+    IDENTITY_FIELD: ClassVar[str] = "validation_state_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.candidate_id, "candidate_id"),
+            (self.transition_evidence_id, "transition_evidence_id"),
+        ):
+            require_content_id(value, name)
+        if self.validation_attempt_id is not None:
+            require_content_id(self.validation_attempt_id, "validation_attempt_id")
+        _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
+        if self.predecessor_state_id is not None:
+            require_content_id(self.predecessor_state_id, "predecessor_state_id")
+            if self.predecessor_state_id == self.validation_state_id:
+                raise ContractValidationError("validation state cannot parent itself")
+        run_ids = tuple(
+            evidence.evaluator_run_id for evidence in self.accepted_evaluator_evidence
+        )
+        attestation_ids = tuple(
+            evidence.evaluator_attestation_id
+            for evidence in self.accepted_evaluator_evidence
+        )
+        if len(run_ids) != len(set(run_ids)) or len(attestation_ids) != len(
+            set(attestation_ids)
+        ):
+            raise ContractValidationError(
+                "accepted evaluator runs and attestations must be unique"
+            )
+        for values, name in (
+            (self.review_assertion_ids, "review_assertion_ids"),
+            (self.terminal_evidence_ids, "terminal_evidence_ids"),
+        ):
+            if values:
+                _require_sorted_unique(values, name)
+                for value in values:
+                    require_content_id(value, name)
+        _require_text(self.reason, "reason")
+        active = self.promotion_state is ExpertPromotionState.VALIDATING
+        if active != (self.next_stage is not None):
+            raise ContractValidationError(
+                "only validating state may name a next evaluator stage"
+            )
+        if self.validation_attempt_id is None and self.promotion_state not in {
+            ExpertPromotionState.INELIGIBLE,
+            ExpertPromotionState.REVOKED,
+        }:
+            raise ContractValidationError(
+                "only ineligible or revoked state may omit a validation attempt"
+            )
+        if self.promotion_state is ExpertPromotionState.INELIGIBLE and (
+            self.validation_attempt_id is not None
+            or self.accepted_evaluator_evidence
+            or self.review_assertion_ids
+            or not self.terminal_evidence_ids
+        ):
+            raise ContractValidationError(
+                "ineligible state must contain only terminal eligibility evidence"
+            )
+        if active and self.terminal_evidence_ids:
+            raise ContractValidationError(
+                "validating state cannot contain terminal evidence"
+            )
+        terminal = self.promotion_state in {
+            ExpertPromotionState.FAILED,
+            ExpertPromotionState.DISPUTED,
+            ExpertPromotionState.PARETO_RETAINED,
+            ExpertPromotionState.APPROVED,
+            ExpertPromotionState.RELEASED,
+            ExpertPromotionState.REVOKED,
+        }
+        if terminal and not self.terminal_evidence_ids:
+            raise ContractValidationError(
+                "terminal validation state requires terminal evidence"
+            )
+        if self.promotion_state in {
+            ExpertPromotionState.APPROVED,
+            ExpertPromotionState.RELEASED,
+        } and (
+            not self.accepted_evaluator_evidence
+            or not self.review_assertion_ids
+            or self.predecessor_state_id is None
+        ):
+            raise ContractValidationError(
+                "approved or released state requires evaluated reviewed lineage"
+            )
+        if self.promotion_state is ExpertPromotionState.DISPUTED and (
+            not self.accepted_evaluator_evidence
+            or len(self.review_assertion_ids) < 2
+            or self.predecessor_state_id is None
+        ):
+            raise ContractValidationError(
+                "disputed state requires evaluated conflicting review lineage"
+            )
+        if self.promotion_state is ExpertPromotionState.PARETO_RETAINED and (
+            not self.accepted_evaluator_evidence
+            or not self.review_assertion_ids
+            or self.predecessor_state_id is None
+        ):
+            raise ContractValidationError(
+                "Pareto-retained state requires evaluated reviewed lineage"
+            )
+        if (
+            self.promotion_state is ExpertPromotionState.FAILED
+            and self.predecessor_state_id is None
+        ):
+            raise ContractValidationError(
+                "failed state requires a validation predecessor"
             )
 
 

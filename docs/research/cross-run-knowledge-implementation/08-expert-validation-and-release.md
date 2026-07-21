@@ -2,7 +2,8 @@
 
 Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
-Depends on: M2 and M7.
+Depends on: M2, M3, and M7. M8 consumes a shared verified task-adapter provider
+that M9 also uses; M9 does not own the provider implementation.
 
 ## Objective
 
@@ -26,6 +27,9 @@ release. No proposer, score, or single task can grant promotion authority.
 ```text
 src/kapso/cross_run/expert/
   validation.py
+  validation_store.py
+  composition.py
+  release.py
   publisher.py
 
 src/kapso/cross_run/launch/
@@ -43,6 +47,32 @@ Target expert repositories may also receive generated workflow definitions for
 validation and release publication. The autonomous agent may change them directly;
 their exact content is included in the candidate identity and must pass the same
 automated evaluator cascade before activation.
+
+The validation substrate is separate from catalog admission. It uses
+`ExpertValidationTrack`, `ExpertCandidateEligibilityDecision`,
+`ExpertValidationAttempt`, `ExpertEvaluatorRun`,
+`ExpertEvaluatorAttestation`, its rotatable signature envelope, and
+`ExpertCandidateValidationState`. Sealed-canary runs persist only a strict
+aggregate result; hidden case details cannot enter the validation or reviewer
+closure. The exact,
+typed validation policy excludes the local state-store path from scientific
+identity while the runtime configuration fingerprint retains it for audit.
+
+The validation track is derived from trusted M7 records, never accepted from a
+caller or proposer: repository changes are architecture, the exact
+`mechanically_general_fix` trigger is mechanical, and other capability changes
+are behavioral. Task-specific, confounded/noisy, and unsafe/specialized are
+review dispositions, not proposer-selected tracks.
+
+Evaluator execution requires two injected, read-only verified providers:
+
+- a bundle reader that resolves the complete sanitized M3 `RunBundle` artifact
+  closure needed for faithful replay; and
+- a task-adapter reader that resolves a `TaskAdapterManifest`, exact source tree,
+  and verification receipt.
+
+Episode summaries and manifest hashes are not substitutes for either byte
+closure. Missing bytes fail loud and make the attempt ineligible.
 
 ## Evaluator cascade
 
@@ -77,6 +107,15 @@ contract/schema
       quality, robustness, cost, portability, reproducibility, and security.
 - [ ] Treat noise-floor gains as inconclusive until configured repeat evidence
       exists.
+
+Stage applicability is deterministic. Bootstrap omits replay, anchors, transfer,
+and canary because no parent evidence exists. Mechanical fixes use deterministic
+gates, fresh-task smoke, source replay when a parent exists, review, release
+matrix, and publication. Behavioral changes additionally require development
+anchors, cross-family transfer when more than one family is bound, and a sealed
+canary. Architecture changes use the release-wide path and require a canary only
+when the typed policy says so. An unavailable required canary makes the candidate
+ineligible; it is never treated as a skipped or passed stage.
 
 ## Automated review and decision
 

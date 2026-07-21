@@ -18,7 +18,10 @@ from kapso.cross_run.contracts import (
     ContractValidationError,
     CrossRunTaskBindingSettings,
     ExpertScopeContract,
+    ExpertValidationStage,
+    ExpertValidationTrack,
     IdentityConflictError,
+    ObjectiveDirection,
     ScopeRepositorySettings,
     StrictContract,
 )
@@ -704,26 +707,268 @@ class ExpertTriggerSettings(StrictContract):
 
 
 @dataclass(frozen=True)
-class ExpertValidationSettings(StrictContract):
-    reviewer_cli: str
-    reviewer_count: int
-    sealed_canary_enabled: bool
-    maximum_regression_ratio: float
-    minimum_independent_contexts: int
+class ExpertEvaluatorSettings(StrictContract):
+    stage: ExpertValidationStage
+    evaluator_id: str
+    evaluator_role: str
+    evaluator_version: str
     timeout_seconds: int
 
     def _validate(self) -> None:
-        _require_cli(self.reviewer_cli, "expert.validation.reviewer_cli")
-        _require_positive(self.reviewer_count, "expert.validation.reviewer_count")
+        for value, name in (
+            (self.evaluator_id, "expert evaluator_id"),
+            (self.evaluator_role, "expert evaluator_role"),
+            (self.evaluator_version, "expert evaluator_version"),
+        ):
+            require_identifier(value, name)
+        _require_positive(
+            self.timeout_seconds,
+            f"expert evaluator {self.stage.value} timeout_seconds",
+        )
+
+
+@dataclass(frozen=True)
+class ExpertReviewerSettings(StrictContract):
+    reviewer_id: str
+    reviewer_role: str
+    rubric_version: str
+    agent: CodingAgentSettings
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.reviewer_id, "expert reviewer_id"),
+            (self.reviewer_role, "expert reviewer_role"),
+            (self.rubric_version, "expert reviewer rubric_version"),
+        ):
+            require_identifier(value, name)
+        if self.agent.allowed_tools:
+            raise CrossRunConfigurationError("expert reviewers must not receive tools")
+
+
+@dataclass(frozen=True)
+class ExpertParetoDimensionSettings(StrictContract):
+    dimension_id: str
+    direction: ObjectiveDirection
+    hard_regression_ratio: float
+    noise_floor_ratio: float
+
+    def _validate(self) -> None:
+        require_identifier(self.dimension_id, "expert Pareto dimension_id")
         _require_ratio(
-            self.maximum_regression_ratio,
-            "expert.validation.maximum_regression_ratio",
+            self.hard_regression_ratio,
+            f"expert Pareto {self.dimension_id} hard_regression_ratio",
+        )
+        _require_ratio(
+            self.noise_floor_ratio,
+            f"expert Pareto {self.dimension_id} noise_floor_ratio",
+        )
+
+
+@dataclass(frozen=True)
+class ExpertPromotionPolicySettings(StrictContract):
+    policy_version: str
+    approval_judgment: str
+    rejection_judgment: str
+    required_approvals: int
+    required_rejections: int
+    minimum_independent_contexts: int
+    minimum_repeat_evaluations: int
+    pareto_dimensions: tuple[ExpertParetoDimensionSettings, ...]
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.policy_version, "expert promotion policy_version"),
+            (self.approval_judgment, "expert promotion approval_judgment"),
+            (self.rejection_judgment, "expert promotion rejection_judgment"),
+        ):
+            require_identifier(value, name)
+        if self.approval_judgment == self.rejection_judgment:
+            raise CrossRunConfigurationError(
+                "expert approval and rejection judgments must differ"
+            )
+        for value, name in (
+            (self.required_approvals, "required_approvals"),
+            (self.required_rejections, "required_rejections"),
+            (self.minimum_independent_contexts, "minimum_independent_contexts"),
+            (self.minimum_repeat_evaluations, "minimum_repeat_evaluations"),
+        ):
+            _require_positive(value, f"expert.validation.promotion.{name}")
+        if not self.pareto_dimensions:
+            raise CrossRunConfigurationError(
+                "expert Pareto dimensions must not be empty"
+            )
+        dimension_ids = tuple(
+            dimension.dimension_id for dimension in self.pareto_dimensions
+        )
+        if dimension_ids != tuple(sorted(set(dimension_ids))):
+            raise CrossRunConfigurationError(
+                "expert Pareto dimensions must be sorted and unique"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertValidationPolicySettings(StrictContract):
+    sealed_canary_trust_root: str | None
+    architecture_requires_sealed_canary: bool
+    artifact_entry_limit: int
+    artifact_byte_limit: int
+    evaluators: tuple[ExpertEvaluatorSettings, ...]
+    reviewers: tuple[ExpertReviewerSettings, ...]
+    promotion: ExpertPromotionPolicySettings
+
+    def _validate(self) -> None:
+        _require_positive(
+            self.artifact_entry_limit,
+            "expert.validation.policy.artifact_entry_limit",
         )
         _require_positive(
-            self.minimum_independent_contexts,
-            "expert.validation.minimum_independent_contexts",
+            self.artifact_byte_limit,
+            "expert.validation.policy.artifact_byte_limit",
         )
-        _require_positive(self.timeout_seconds, "expert.validation.timeout_seconds")
+        if self.sealed_canary_trust_root is not None:
+            require_identifier(
+                self.sealed_canary_trust_root,
+                "expert.validation.sealed_canary_trust_root",
+            )
+        configurable_stages = tuple(
+            stage
+            for stage in ExpertValidationStage
+            if stage
+            not in {
+                ExpertValidationStage.AUTOMATED_REVIEW,
+                ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+            }
+        )
+        evaluator_stages = tuple(evaluator.stage for evaluator in self.evaluators)
+        if evaluator_stages != configurable_stages:
+            raise CrossRunConfigurationError(
+                "expert evaluators must cover every executable stage in order"
+            )
+        evaluator_ids = tuple(evaluator.evaluator_id for evaluator in self.evaluators)
+        if len(evaluator_ids) != len(set(evaluator_ids)):
+            raise CrossRunConfigurationError(
+                "expert evaluator identities must be unique"
+            )
+        if not self.reviewers:
+            raise CrossRunConfigurationError("expert reviewers must not be empty")
+        reviewer_ids = tuple(reviewer.reviewer_id for reviewer in self.reviewers)
+        if reviewer_ids != tuple(sorted(set(reviewer_ids))):
+            raise CrossRunConfigurationError(
+                "expert reviewers must be sorted and uniquely identified"
+            )
+        if set(reviewer_ids) & set(evaluator_ids):
+            raise CrossRunConfigurationError(
+                "expert evaluators and reviewers must have distinct identities"
+            )
+        evaluator_roles = {evaluator.evaluator_role for evaluator in self.evaluators}
+        reviewer_roles = {reviewer.reviewer_role for reviewer in self.reviewers}
+        if evaluator_roles & reviewer_roles:
+            raise CrossRunConfigurationError(
+                "expert evaluator and reviewer roles must be disjoint"
+            )
+        if self.promotion.required_approvals > len(self.reviewers):
+            raise CrossRunConfigurationError(
+                "expert approval quorum exceeds configured reviewers"
+            )
+        if self.promotion.required_rejections > len(self.reviewers):
+            raise CrossRunConfigurationError(
+                "expert rejection quorum exceeds configured reviewers"
+            )
+
+    def required_stages(
+        self,
+        validation_track: ExpertValidationTrack,
+        configured_task_family_ids: tuple[str, ...],
+        *,
+        has_parent_release: bool,
+    ) -> tuple[ExpertValidationStage, ...]:
+        if not configured_task_family_ids or configured_task_family_ids != tuple(
+            sorted(set(configured_task_family_ids))
+        ):
+            raise CrossRunConfigurationError(
+                "configured task families must be non-empty, sorted, and unique"
+            )
+        if (
+            not has_parent_release
+            and validation_track is not ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+        ):
+            raise CrossRunConfigurationError(
+                "only repository architecture may validate without a parent release"
+            )
+        mechanical_stages = {
+            ExpertValidationStage.CONTRACT_SCHEMA,
+            ExpertValidationStage.IDENTITY_SECRETS_LICENSE_DEPENDENCY,
+            ExpertValidationStage.STATIC_UNIT_SECURITY_RESOURCE,
+            ExpertValidationStage.SYNTHETIC_FRESH_TASK,
+            ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.RELEASE_MATRIX,
+            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+        }
+        if has_parent_release:
+            mechanical_stages.add(ExpertValidationStage.SOURCE_RUN_REPLAY)
+        if validation_track is ExpertValidationTrack.MECHANICAL_GENERAL_FIX:
+            selected = mechanical_stages
+        elif not has_parent_release:
+            selected = mechanical_stages
+        else:
+            selected = set(mechanical_stages)
+            selected.add(ExpertValidationStage.DEVELOPMENT_ANCHORS)
+            if (
+                validation_track is ExpertValidationTrack.BEHAVIORAL_CAPABILITY
+                or self.architecture_requires_sealed_canary
+            ):
+                selected.add(ExpertValidationStage.SEALED_CANARY)
+            if len(configured_task_family_ids) > 1:
+                selected.add(ExpertValidationStage.CROSS_FAMILY_TRANSFER)
+        return tuple(stage for stage in ExpertValidationStage if stage in selected)
+
+    def can_validate(
+        self,
+        validation_track: ExpertValidationTrack,
+        configured_task_family_ids: tuple[str, ...],
+        *,
+        has_parent_release: bool,
+    ) -> bool:
+        required_stages = self.required_stages(
+            validation_track,
+            configured_task_family_ids,
+            has_parent_release=has_parent_release,
+        )
+        return (
+            ExpertValidationStage.SEALED_CANARY not in required_stages
+            or self.sealed_canary_trust_root is not None
+        )
+
+    @property
+    def policy_fingerprint(self) -> str:
+        return tree_or_blob_digest(canonical_json_bytes(self.to_dict()))
+
+    def validation_policy(self) -> ExpertValidationPolicy:
+        return ExpertValidationPolicy.mint(
+            policy=self,
+        )
+
+
+@dataclass(frozen=True)
+class ExpertValidationPolicy(StrictContract):
+    validation_policy_id: str
+    policy: ExpertValidationPolicySettings
+
+    CONTENT_NAMESPACE = "expert-validation-policy"
+    IDENTITY_FIELD = "validation_policy_id"
+
+
+@dataclass(frozen=True)
+class ExpertValidationSettings(StrictContract):
+    state_path: str
+    policy: ExpertValidationPolicySettings
+
+    def _validate(self) -> None:
+        _require_relative_path(self.state_path, "expert.validation.state_path")
+
+    @property
+    def configuration_fingerprint(self) -> str:
+        return tree_or_blob_digest(canonical_json_bytes(self.to_dict()))
 
 
 @dataclass(frozen=True)
@@ -758,10 +1003,15 @@ class ExpertSettings(StrictContract):
             self.agent_artifact_path,
             "expert.agent_artifact_path",
         )
+        validation_path = _require_relative_path(
+            self.validation.state_path,
+            "expert.validation.state_path",
+        )
         paths = {
             "workspaces": workspace_path,
             "candidates": candidate_path,
             "agent artifacts": artifact_path,
+            "validation": validation_path,
         }
         for name, path in paths.items():
             for other_name, other_path in paths.items():
@@ -803,6 +1053,38 @@ class ExpertSettings(StrictContract):
         if self.architect_id == self.generalizer_id:
             raise CrossRunConfigurationError(
                 "expert architect and generalizer identities must differ"
+            )
+        proposal_authorities = {
+            self.architect_id,
+            self.generalizer_id,
+            self.triggers.inspector_id,
+        }
+        validation_authorities = {
+            *(
+                evaluator.evaluator_id
+                for evaluator in self.validation.policy.evaluators
+            ),
+            *(reviewer.reviewer_id for reviewer in self.validation.policy.reviewers),
+        }
+        if proposal_authorities & validation_authorities:
+            raise CrossRunConfigurationError(
+                "expert proposal and validation authorities must be disjoint"
+            )
+        proposal_roles = {
+            self.architect_role,
+            self.generalizer_role,
+            self.triggers.inspector_role,
+        }
+        validation_roles = {
+            *(
+                evaluator.evaluator_role
+                for evaluator in self.validation.policy.evaluators
+            ),
+            *(reviewer.reviewer_role for reviewer in self.validation.policy.reviewers),
+        }
+        if proposal_roles & validation_roles:
+            raise CrossRunConfigurationError(
+                "expert proposal and validation roles must be disjoint"
             )
         self._validate_candidate_editor(self.architect, "architect")
         self._validate_candidate_editor(self.generalizer, "generalizer")
