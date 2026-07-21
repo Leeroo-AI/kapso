@@ -296,6 +296,7 @@ class CaptureSettings(StrictContract):
     journal_filename: str
     bundle_asset_size_bytes: int
     bundle_entry_limit: int
+    bundle_lineage_limit: int
     source_entry_limit: int
     git_command_timeout_seconds: int
     git_command_output_bytes: int
@@ -343,6 +344,7 @@ class CaptureSettings(StrictContract):
             self.bundle_asset_size_bytes, "capture.bundle_asset_size_bytes"
         )
         _require_positive(self.bundle_entry_limit, "capture.bundle_entry_limit")
+        _require_positive(self.bundle_lineage_limit, "capture.bundle_lineage_limit")
         _require_positive(self.source_entry_limit, "capture.source_entry_limit")
         _require_positive(
             self.git_command_timeout_seconds,

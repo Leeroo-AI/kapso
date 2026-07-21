@@ -324,6 +324,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("github", "zstd_window_size_bytes"), 1023),
         (("capture", "git_command_timeout_seconds"), 0),
         (("capture", "git_command_output_bytes"), 1),
+        (("capture", "bundle_lineage_limit"), 0),
         (("capture", "score_comparison_tolerance"), 0.0),
         (("capture", "state_path"), "/tmp/absolute-capture"),
         (("capture", "quarantine_path"), "/tmp/absolute-quarantine"),

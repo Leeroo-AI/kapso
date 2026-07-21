@@ -63,6 +63,7 @@ cross_run:
     journal_filename: "execution_events.jsonl"
     bundle_asset_size_bytes: *cross_run_asset_size_bytes
     bundle_entry_limit: *cross_run_archive_entry_limit
+    bundle_lineage_limit: 1000
     source_entry_limit: 10000
     git_command_timeout_seconds: 120
     git_command_output_bytes: 67108864

@@ -16,6 +16,10 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.capture.branch_evidence import validate_branch_evidence
 from kapso.cross_run.capture.bundle import RunBundleReader
+from kapso.cross_run.capture.bundle_lineage import (
+    validate_run_bundle_root,
+    validate_run_bundle_successor,
+)
 from kapso.cross_run.capture.evaluation_evidence import evaluation_scores_match
 from kapso.cross_run.capture.exporter import BranchSnapshot, CaptureDescriptor
 from kapso.cross_run.contracts import (
@@ -629,42 +633,10 @@ class RunBundleProjector:
         previous: ProjectionResult | None,
     ) -> None:
         if previous is None:
-            if bundle.supersedes_bundle_id is not None:
-                raise BundleProjectionError(
-                    "successor bundle requires its prior frontier"
-                )
+            validate_run_bundle_root(bundle, BundleProjectionError)
             return
         prior = previous.source_bundle
-        if bundle.supersedes_bundle_id != prior.bundle_id:
-            raise BundleProjectionError(
-                "bundle does not supersede the supplied frontier"
-            )
-        stable_fields = (
-            "scope_contract_id",
-            "scope_id",
-            "run_id",
-            "campaign_id",
-            "started_at",
-            "kapso_commit",
-            "launch_manifest_id",
-            "knowledge_snapshot_id",
-            "expert_base_release_id",
-            "task_context_binding",
-            "artifact_environment",
-        )
-        if any(getattr(bundle, name) != getattr(prior, name) for name in stable_fields):
-            raise BundleProjectionError(
-                "bundle supersession changed stable run identity"
-            )
-        if bundle.capture_generation != prior.capture_generation + 1:
-            raise BundleProjectionError("bundle capture generation is not contiguous")
-        if bundle.checkpoint_frontier < prior.checkpoint_frontier:
-            raise BundleProjectionError("bundle checkpoint frontier moved backwards")
-        if set(bundle.capture_watermarks) != set(prior.capture_watermarks) or any(
-            bundle.capture_watermarks[name] < prior.capture_watermarks[name]
-            for name in prior.capture_watermarks
-        ):
-            raise BundleProjectionError("bundle capture watermarks moved backwards")
+        validate_run_bundle_successor(prior, bundle, BundleProjectionError)
 
     @staticmethod
     def _events_by_node(

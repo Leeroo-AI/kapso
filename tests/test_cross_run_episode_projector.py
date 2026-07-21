@@ -692,7 +692,7 @@ def test_projection_rejects_missing_or_wrong_supersession_frontier(tmp_path):
     )
     assert successor_bundle is not None
 
-    with pytest.raises(BundleProjectionError, match="prior frontier"):
+    with pytest.raises(BundleProjectionError, match="root is not generation zero"):
         _projector(fixture).project(successor_bundle)
     other_root = tmp_path / "other-run"
     other_root.mkdir()
@@ -703,5 +703,5 @@ def test_projection_rejects_missing_or_wrong_supersession_frontier(tmp_path):
     )
     _, wrong_bundle = _publish_bundle(wrong_fixture)
     wrong_previous = _projector(wrong_fixture).project(wrong_bundle)
-    with pytest.raises(BundleProjectionError, match="does not supersede"):
+    with pytest.raises(BundleProjectionError, match="predecessor identity changed"):
         _projector(fixture).project(successor_bundle, previous=wrong_previous)

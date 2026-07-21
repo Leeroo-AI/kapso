@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from kapso.cross_run.canonical import canonical_json_bytes
+from kapso.cross_run.capture.bundle_lineage import (
+    validate_run_bundle_root,
+    validate_run_bundle_successor,
+)
 from kapso.cross_run.catalog.admission import AdmissionReducer
 from kapso.cross_run.catalog.claims import ClaimProposalPacket, ClaimProposer
 from kapso.cross_run.catalog.reviews import CatalogReviewer, CatalogReviewPacket
@@ -644,6 +648,7 @@ class CatalogGenerationReducer:
         roots = tuple(bundle for bundle in group if bundle.supersedes_bundle_id is None)
         if len(roots) != 1:
             raise CatalogFactError("bundle lineage must have exactly one root")
+        validate_run_bundle_root(roots[0], CatalogFactError)
         children: dict[str, list[RunBundle]] = defaultdict(list)
         for bundle in group:
             if bundle.supersedes_bundle_id is not None:
@@ -656,40 +661,15 @@ class CatalogGenerationReducer:
             if len(successors) != 1:
                 raise CatalogFactError("bundle supersession lineage forked")
             successor = successors[0]
-            CatalogGenerationReducer._validate_adjacent_bundles(chain[-1], successor)
+            validate_run_bundle_successor(
+                chain[-1],
+                successor,
+                CatalogFactError,
+            )
             chain.append(successor)
         if len(chain) != len(group):
             raise CatalogFactError("bundle supersession lineage is disconnected")
         return tuple(chain)
-
-    @staticmethod
-    def _validate_adjacent_bundles(parent: RunBundle, child: RunBundle) -> None:
-        stable_fields = (
-            "scope_contract_id",
-            "scope_id",
-            "run_id",
-            "campaign_id",
-            "started_at",
-            "kapso_commit",
-            "launch_manifest_id",
-            "knowledge_snapshot_id",
-            "expert_base_release_id",
-            "task_context_binding",
-            "artifact_environment",
-        )
-        if child.supersedes_bundle_id != parent.bundle_id:
-            raise CatalogFactError("bundle predecessor identity changed")
-        if child.capture_generation != parent.capture_generation + 1:
-            raise CatalogFactError("bundle capture generations are not contiguous")
-        if child.checkpoint_frontier < parent.checkpoint_frontier:
-            raise CatalogFactError("bundle checkpoint frontier moved backwards")
-        if set(child.capture_watermarks) != set(parent.capture_watermarks) or any(
-            child.capture_watermarks[name] < parent.capture_watermarks[name]
-            for name in parent.capture_watermarks
-        ):
-            raise CatalogFactError("bundle capture watermarks moved backwards")
-        if any(getattr(child, name) != getattr(parent, name) for name in stable_fields):
-            raise CatalogFactError("bundle supersession changed stable run identity")
 
     @staticmethod
     def _validate_projection_supersession(
