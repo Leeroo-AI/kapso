@@ -19,6 +19,11 @@ their best parts — and output it.
 
 - Time-fit: can it plausibly train AND evaluate inside the session budget the
   GOAL describes? Prefer plans that state their sizing arithmetic.
+- Time-to-first-strong-score: prefer candidates STAGED as a minimal scoring
+  core first with hardening layered on afterwards — at equal expected score,
+  a staged plan beats a monolithic one whose value only lands after the full
+  build. Judge WHEN a candidate first banks a competitive score, not only
+  whether it fits the budget.
 - Rule-safety: reject anything that touches benchmark test data, disallowed
   models, or third-party LLM APIs for task artifacts.
 - Groundedness: consistent with the actual repository state and evaluation

@@ -66,6 +66,15 @@ implementing anything:
    slice aggregates (count and score per coverage-axis stratum) alongside
    the headline number — a single number cannot tell the next iteration
    WHERE the losses live.
+6. **Identify the critical path, then pre-commit your time.** Name the
+   artifact that BOUNDS the final score — the thing that, at freeze time,
+   limits the score no matter how good everything else is — and MEASURE its
+   achievable growth rate on this hardware. Schedule to maximize that rate
+   FIRST; build its consumers second. Then write a 3-line TIME ALLOCATION at
+   the top of PLAN.md: (a) critical-path artifact + target rate, (b) planned
+   confirmation points, (c) freeze time. The campaign's feedback grades
+   adherence to this plan — revising it deliberately (with a stated reason)
+   is fine; drifting from it is not.
 
 ## Implementation Requirements
 

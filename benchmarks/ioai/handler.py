@@ -24,6 +24,7 @@ class AnimalDeductionHandler(ProblemHandler):
         statement: str,
         deadline_ts: float,
         session_caps: dict,
+        contest_economics: dict,
     ):
         super().__init__(additional_context="")
         if not isinstance(session_caps, dict) or not {
@@ -34,10 +35,19 @@ class AnimalDeductionHandler(ProblemHandler):
                 "session_caps must be the runner's shaped session timeouts "
                 "(ideation_timeout/implementation_timeout, seconds)"
             )
+        if not isinstance(contest_economics, dict) or not {
+            "insurance_minutes",
+            "confirm_gain_ratio",
+        } <= contest_economics.keys():
+            raise ValueError(
+                "contest_economics must carry the config's reward-policy "
+                "knobs (insurance_minutes/confirm_gain_ratio)"
+            )
         self.task_dir = os.path.abspath(task_dir)
         self.statement = statement.strip()
         self.deadline_ts = deadline_ts
         self.session_caps = session_caps
+        self.contest_economics = contest_economics
         self.dataset_dir = os.path.join(self.task_dir, "dataset")
         self.artifacts_dir = os.path.join(self.task_dir, "artifacts")
         self.submission_dir = os.path.join(self.task_dir, "submission")
@@ -85,9 +95,9 @@ invocation works against dev.csv from a scratch directory.
 Update procedure when a candidate beats the current best dev score: write to
 `submission.tmp/`, verify it loads and solves a few rows, then atomically
 swap into {self.submission_dir}, and append `<dev_score> <iso-time>
-<experiment-name>` to {self.task_dir}/best_score.log. A mediocre working
-submission beats an empty directory — install your first working solution
-immediately.
+<experiment-name>` to {self.task_dir}/best_score.log. Install ONE minimal
+working submission immediately as insurance (see Reward & time economics);
+after that, spend nothing further on intermediate stability.
 
 ## Evaluation discipline
 - Iterate with: `python {self.dataset_dir}/evaluate.py --csv {self.dataset_dir}/dev.csv \\
@@ -135,15 +145,29 @@ inside <score></score> tags AND write kapso_evaluation/result.json in your
 workspace: {{"score": <float>, "notes": "<rows evaluated, solved_rate,
 mean_queries>"}}. Never fabricate a score; a failed run is reported as such.
 
-## Budget strategy
-Budget progress: ~{budget_progress:.0f}%. Rough guide: first minutes —
-baseline solution installed in submission/ (even the fixed-questions
-reference beats an empty dir), measure oracle throughput; core — precompute
-the answer table in batches while iterating on the adaptive
-information-gain solver (they parallelize badly on one GPU: table first,
-then solver work is CPU-only); last 15% — freeze, full-dev confirm, verify
-the scratch-directory invocation. Use the whole budget; do not stop while
-another improve+confirm cycle fits.
+## Reward & time economics (contest mode)
+Budget progress: ~{budget_progress:.0f}%.
+- REWARD: you are rewarded ONLY for the final frozen submission's held-out
+  score. Stability, tidiness, and intermediate verified progress earn
+  NOTHING beyond the single insurance point below. A failed ambitious
+  attempt (with insurance in place) costs the same as never trying — so
+  attempt the strongest design you can execute. Bold-and-correct beats
+  safe-and-mediocre.
+- INSURANCE: install ONE minimal working submission within your first
+  ~{self.contest_economics['insurance_minutes']} minutes. That is the only
+  permitted safety spend; never invest further in intermediate stability.
+- CONFIRMATIONS are expensive: a full-dev real-oracle eval costs GPU
+  minutes the critical path loses. Run one ONLY at freeze, or mid-run when
+  a change projects a gain over
+  {self.contest_economics['confirm_gain_ratio']:g}× what the confirmation
+  costs. Otherwise iterate on the cheap tiers (mock, small real subset) —
+  but NEVER promote to submission/ on mock evidence alone.
+- FREEZE: reserve the final ~15% to freeze: full-dev confirm, verify the
+  scratch-directory invocation, atomic swap. The freeze confirmation is
+  mandatory and sits OUTSIDE these economics — never skip it.
+- NOT negotiable for speed: fidelity gates, the benchmark rules, and the
+  freeze confirm. Boldness applies to allocation, never to measurement.
+Use the whole budget; do not stop while another improve+confirm cycle fits.
 """
 
     def stop_condition(self) -> bool:

@@ -86,6 +86,13 @@ modes:
       # work before any external kill.
       guard_minutes: 5
 
+    # Contest-mode reward economics, rendered verbatim into the handler's
+    # Reward & time economics section (single ≤N-min insurance submission;
+    # mid-run full confirms only when projected gain exceeds ratio × cost).
+    contest_economics:
+      insurance_minutes: 5
+      confirm_gain_ratio: 2.0
+
     # Iteration admission floor: a useful improve+confirm cycle on this task
     # (tweak solver + subset eval) fits in ~15 minutes.
     budget:
