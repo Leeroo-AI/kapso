@@ -72,6 +72,11 @@ class ValidatedCapture:
 class CaptureValidator:
     """Validate hashes, watermarks, joins, measurements, and Git provenance."""
 
+    def __init__(self, score_comparison_tolerance: float):
+        if score_comparison_tolerance <= 0.0:
+            raise CaptureValidationError("score comparison tolerance must be positive")
+        self.score_comparison_tolerance = score_comparison_tolerance
+
     def validate(self, capture_path: str | Path) -> ValidatedCapture:
         root = Path(capture_path)
         if not root.is_dir() or root.is_symlink():
@@ -328,6 +333,7 @@ class CaptureValidator:
         referenced_evaluation_fingerprints = validate_evaluation_fingerprints(
             revision_records,
             descriptor.evaluation_fingerprints,
+            self.score_comparison_tolerance,
             CaptureValidationError,
         )
         if referenced_evaluation_fingerprints != descriptor.evaluation_fingerprints:

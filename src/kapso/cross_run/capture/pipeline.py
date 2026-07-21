@@ -43,7 +43,7 @@ class RunCapturePipeline:
         self.context = context
         self.settings = settings
         self.exporter = RunCaptureExporter(settings.capture, settings.sanitation)
-        self.validator = CaptureValidator()
+        self.validator = CaptureValidator(settings.capture.score_comparison_tolerance)
         self.sanitation_gate = SanitationGate(
             settings.capture,
             settings.sanitation,

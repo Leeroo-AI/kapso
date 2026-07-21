@@ -99,7 +99,6 @@ def operation_receipt(name):
                 "stdout.txt",
             )
         },
-        completed_at="2026-07-20T12:00:00Z",
     )
 
 
@@ -112,7 +111,6 @@ def assertion(subject_id, name, receipt):
         judgment="approve",
         rationale="The exact evidence satisfies the configured rubric.",
         exact_evidence_refs=(fixture_id(f"{name}-evidence"),),
-        created_at="2026-07-20T12:00:00Z",
         supersedes_assertion_id=None,
         review_operation_ref=receipt.operation_receipt_id,
     )
@@ -374,8 +372,8 @@ def build_records():
         objective_direction=ObjectiveDirection.MAXIMIZE,
         candidate_value=0.8,
         source_parent_value=0.7,
-        raw_delta=0.1,
-        normalized_delta=0.1,
+        raw_delta=0.8 - 0.7,
+        normalized_delta=0.8 - 0.7,
         uncertainty=None,
         uncertainty_method=EffectUncertaintyMethod.UNAVAILABLE,
     )
@@ -661,15 +659,15 @@ def test_nested_contract_has_stable_golden_bytes_and_identity():
         b'"source_parent_effect":{"candidate_value":0.8,'
         b'"evaluation_fingerprint_id":"evaluation-fingerprint:sha256:'
         b'746d9917d4b68f1398a01b3c41cd97f367b9e69c0a170654de99375abbfec5de",'
-        b'"metric_name":"quality","normalized_delta":0.1,'
-        b'"objective_direction":"maximize","raw_delta":0.1,'
+        b'"metric_name":"quality","normalized_delta":0.10000000000000009,'
+        b'"objective_direction":"maximize","raw_delta":0.10000000000000009,'
         b'"source_parent_value":0.7,"uncertainty":null,'
         b'"uncertainty_method":"unavailable"},'
         b'"technical_difficulties":[]}'
     )
     assert content_id("transfer-attempt-fixture", attempt) == (
         "transfer-attempt-fixture:sha256:"
-        "0a9ebdf2a5e37ab72c8883744c1e3f12c55839367999773133bcc388a8ffd6e6"
+        "021c65bc04cbc3abf2132aa51dcddeb3a9f9691ddb86c6840794df5232855040"
     )
 
 

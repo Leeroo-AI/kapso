@@ -45,7 +45,9 @@ def test_validator_proves_full_cross_artifact_frontier(tmp_path):
         fixture.settings.sanitation,
     ).export(fixture.request)
 
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
 
     assert (
         validated.history.experiments[0].idea_id == validated.archive.ideas[0].idea_id
@@ -65,7 +67,9 @@ def test_validator_rejects_any_payload_tampering(tmp_path):
     history_path.write_bytes(history_path.read_bytes() + b" ")
 
     with pytest.raises(CaptureValidationError, match="checksum mismatch"):
-        CaptureValidator().validate(exported.path)
+        CaptureValidator(fixture.settings.capture.score_comparison_tolerance).validate(
+            exported.path
+        )
 
 
 def test_validator_rejects_unknown_checkpoint_fields_after_valid_remint(tmp_path):
@@ -80,7 +84,9 @@ def test_validator_rejects_unknown_checkpoint_fields_after_valid_remint(tmp_path
     replace_payload_and_remint_manifest(exported, checkpoint_ref, checkpoint)
 
     with pytest.raises(CaptureValidationError, match="checkpoint schema is not exact"):
-        CaptureValidator().validate(exported.path)
+        CaptureValidator(fixture.settings.capture.score_comparison_tolerance).validate(
+            exported.path
+        )
 
 
 def test_validator_rejects_defaulted_checkpoint_node_fields(tmp_path):
@@ -95,7 +101,9 @@ def test_validator_rejects_defaulted_checkpoint_node_fields(tmp_path):
     replace_payload_and_remint_manifest(exported, checkpoint_ref, checkpoint)
 
     with pytest.raises(CaptureValidationError, match="node schema is not exact"):
-        CaptureValidator().validate(exported.path)
+        CaptureValidator(fixture.settings.capture.score_comparison_tolerance).validate(
+            exported.path
+        )
 
 
 def test_validator_recomputes_raw_git_commit_identity(tmp_path):
@@ -112,7 +120,9 @@ def test_validator_recomputes_raw_git_commit_identity(tmp_path):
     replace_bytes_and_remint_manifest(exported, commit_ref, payload)
 
     with pytest.raises(CaptureValidationError, match="commit payload identity"):
-        CaptureValidator().validate(exported.path)
+        CaptureValidator(fixture.settings.capture.score_comparison_tolerance).validate(
+            exported.path
+        )
 
 
 def test_validator_requires_complete_excluded_git_tree_partition(tmp_path):
@@ -127,7 +137,9 @@ def test_validator_requires_complete_excluded_git_tree_partition(tmp_path):
     replace_payload_and_remint_manifest(exported, branch_ref, branch)
 
     with pytest.raises(CaptureValidationError, match="root tree proof"):
-        CaptureValidator().validate(exported.path)
+        CaptureValidator(fixture.settings.capture.score_comparison_tolerance).validate(
+            exported.path
+        )
 
 
 def test_validator_rejects_archive_parent_ref_forged_to_evaluated_commit(tmp_path):
@@ -155,4 +167,6 @@ def test_validator_rejects_archive_parent_ref_forged_to_evaluated_commit(tmp_pat
         CaptureValidationError,
         match="artifact provenance is not exact",
     ):
-        CaptureValidator().validate(exported.path)
+        CaptureValidator(fixture.settings.capture.score_comparison_tolerance).validate(
+            exported.path
+        )

@@ -718,6 +718,7 @@ class RunCaptureExporter:
         evaluation_fingerprints = validate_evaluation_fingerprints(
             revision_records,
             request.evaluation_fingerprints,
+            self.capture_settings.score_comparison_tolerance,
             CaptureExportError,
         )
         validate_execution_provenance(

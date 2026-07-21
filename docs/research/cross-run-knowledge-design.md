@@ -498,7 +498,6 @@ ReviewAssertion
   judgment
   rationale
   exact_evidence_refs
-  created_at
   supersedes_assertion_id
   review_operation_ref          # immutable registered coding-agent receipt
 ```

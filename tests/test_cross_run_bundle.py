@@ -27,7 +27,9 @@ def pipeline(fixture, publisher):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     sanitized = SanitationGate(
         fixture.settings.capture, fixture.settings.sanitation
     ).sanitize(
@@ -154,7 +156,9 @@ def test_rejected_generation_preserves_sequence_for_corrected_supersession(tmp_p
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(request_with_log)
-    rejected_capture = CaptureValidator().validate(rejected_export.path)
+    rejected_capture = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(rejected_export.path)
 
     with pytest.raises(SanitationRejectedError):
         SanitationGate(
@@ -172,7 +176,9 @@ def test_rejected_generation_preserves_sequence_for_corrected_supersession(tmp_p
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(request_with_log)
-    corrected_capture = CaptureValidator().validate(corrected_export.path)
+    corrected_capture = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(corrected_export.path)
     corrected_sanitized = SanitationGate(
         fixture.settings.capture,
         fixture.settings.sanitation,
@@ -192,7 +198,9 @@ def test_publisher_rejects_incomplete_or_extra_sanitized_closure(tmp_path):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     sanitized = SanitationGate(
         fixture.settings.capture, fixture.settings.sanitation
     ).sanitize(
@@ -231,7 +239,9 @@ def test_publisher_binds_in_memory_report_to_persisted_report_bytes(tmp_path):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     sanitized = SanitationGate(
         fixture.settings.capture, fixture.settings.sanitation
     ).sanitize(
@@ -267,7 +277,9 @@ def test_publisher_binds_report_to_every_effective_sanitation_setting(tmp_path):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     sanitized = SanitationGate(
         fixture.settings.capture, fixture.settings.sanitation
     ).sanitize(
@@ -298,7 +310,9 @@ def test_publisher_rejects_replaced_sanitized_staging_without_deleting_victim(
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     sanitized = SanitationGate(
         fixture.settings.capture, fixture.settings.sanitation
     ).sanitize(
@@ -408,7 +422,9 @@ def test_publish_rejects_forged_cleanup_roots_without_deleting_them(tmp_path):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     sanitized = SanitationGate(
         fixture.settings.capture, fixture.settings.sanitation
     ).sanitize(

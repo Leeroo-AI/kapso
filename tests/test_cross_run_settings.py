@@ -42,6 +42,7 @@ def test_catalog_agents_and_admission_policy_are_fully_typed():
 
     assert settings.claim_proposer.cli == "codex"
     assert settings.claim_proposer.model == "gpt-5.6-sol"
+    assert settings.claim_proposer_id == "catalog_claim_proposer"
     assert tuple(reviewer.agent.effort for reviewer in settings.reviewers) == (
         "xhigh",
         "xhigh",
@@ -68,6 +69,9 @@ def test_catalog_agents_and_admission_policy_are_fully_typed():
         ),
         lambda catalog: catalog["admission"].__setitem__(
             "rejection_judgment", catalog["admission"]["approval_judgment"]
+        ),
+        lambda catalog: catalog.__setitem__(
+            "claim_proposer_id", catalog["reviewers"][0]["reviewer_id"]
         ),
     ],
 )
@@ -276,6 +280,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("github", "zstd_window_size_bytes"), 1023),
         (("capture", "git_command_timeout_seconds"), 0),
         (("capture", "git_command_output_bytes"), 1),
+        (("capture", "score_comparison_tolerance"), 0.0),
         (("capture", "state_path"), "/tmp/absolute-capture"),
         (("capture", "quarantine_path"), "/tmp/absolute-quarantine"),
         (("capture", "checkpoint_path"), "/tmp/run-state.json"),

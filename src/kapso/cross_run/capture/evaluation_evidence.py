@@ -9,9 +9,20 @@ from kapso.cross_run.contracts import EvaluationFingerprint
 from kapso.execution.memories.experiment_memory.store import ExperimentRecord
 
 
+def evaluation_scores_match(
+    score: float,
+    aggregate: float,
+    tolerance: float,
+) -> bool:
+    """Use the one configured predicate at capture and projection boundaries."""
+
+    return abs(score - aggregate) <= tolerance
+
+
 def validate_evaluation_fingerprints(
     records: tuple[ExperimentRecord, ...],
     fingerprints: tuple[EvaluationFingerprint, ...],
+    score_comparison_tolerance: float,
     error_type: type[Exception],
 ) -> tuple[EvaluationFingerprint, ...]:
     registry = {
@@ -63,7 +74,14 @@ def validate_evaluation_fingerprints(
         if record.evaluation_valid and record.raw_score is not None:
             if (
                 not grouped
-                or sum(abs(record.raw_score - mean) <= 1e-12 for mean in group_means)
+                or sum(
+                    evaluation_scores_match(
+                        record.raw_score,
+                        mean,
+                        score_comparison_tolerance,
+                    )
+                    for mean in group_means
+                )
                 != 1
             ):
                 raise error_type("raw score is not one unambiguous evaluator aggregate")

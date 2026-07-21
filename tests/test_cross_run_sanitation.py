@@ -20,7 +20,9 @@ def sanitize_fixture(fixture, output_root=None):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     return SanitationGate(
         fixture.settings.capture,
         fixture.settings.sanitation,
@@ -59,7 +61,9 @@ def test_recorded_rejection_keeps_current_generation_and_marker_for_resume(tmp_p
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(fixture.request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
     current_marker = exported.path.parent / "current.json"
 
     with pytest.raises(SanitationRejectedError) as rejected:

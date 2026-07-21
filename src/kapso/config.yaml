@@ -65,6 +65,7 @@ cross_run:
     source_entry_limit: 10000
     git_command_timeout_seconds: 120
     git_command_output_bytes: 67108864
+    score_comparison_tolerance: 1.0e-12
     capture_interval_seconds: 300
     quarantine_retention_generations: 1
   sanitation:
@@ -79,6 +80,9 @@ cross_run:
     agent_artifact_path: ".kapso/cross_run/catalog_agent_calls"
     termination_grace_seconds: 5
     claim_packet_record_limit: 32
+    review_packet_record_limit: 32
+    claim_proposer_id: "catalog_claim_proposer"
+    claim_proposer_role: "scientific_claim_proposer"
     claim_proposer:
       cli: "codex"
       model: "gpt-5.6-sol"

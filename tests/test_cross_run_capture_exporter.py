@@ -341,7 +341,11 @@ def test_each_recovery_revision_keeps_its_immutable_git_commit(tmp_path):
 
     commits = {
         branch.execution_revision: branch.commit_sha
-        for branch in CaptureValidator().validate(exported.path).branch_snapshots
+        for branch in CaptureValidator(
+            fixture.settings.capture.score_comparison_tolerance
+        )
+        .validate(exported.path)
+        .branch_snapshots
     }
     assert commits == {0: original_commit, 1: recovered_commit}
 
@@ -392,7 +396,9 @@ def test_recovery_retains_every_historical_evaluation_fingerprint(tmp_path):
         fixture.settings.capture,
         fixture.settings.sanitation,
     ).export(request)
-    validated = CaptureValidator().validate(exported.path)
+    validated = CaptureValidator(
+        fixture.settings.capture.score_comparison_tolerance
+    ).validate(exported.path)
 
     assert {
         fingerprint.evaluation_fingerprint_id

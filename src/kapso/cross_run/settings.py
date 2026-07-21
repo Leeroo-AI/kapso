@@ -295,6 +295,7 @@ class CaptureSettings(StrictContract):
     source_entry_limit: int
     git_command_timeout_seconds: int
     git_command_output_bytes: int
+    score_comparison_tolerance: float
     capture_interval_seconds: int
     quarantine_retention_generations: int
 
@@ -326,9 +327,7 @@ class CaptureSettings(StrictContract):
                 "capture state and quarantine paths must be disjoint"
             )
         if checkpoint_path == experiment_history_path:
-            raise CrossRunConfigurationError(
-                "capture authority paths must be distinct"
-            )
+            raise CrossRunConfigurationError("capture authority paths must be distinct")
         if any(
             path == quarantine_path or quarantine_path in path.parents
             for path in (checkpoint_path, experiment_history_path)
@@ -347,6 +346,10 @@ class CaptureSettings(StrictContract):
         _require_positive(
             self.git_command_output_bytes,
             "capture.git_command_output_bytes",
+        )
+        _require_positive(
+            self.score_comparison_tolerance,
+            "capture.score_comparison_tolerance",
         )
         _require_positive(
             self.capture_interval_seconds, "capture.capture_interval_seconds"
@@ -497,6 +500,9 @@ class CatalogSettings(StrictContract):
     agent_artifact_path: str
     termination_grace_seconds: int
     claim_packet_record_limit: int
+    review_packet_record_limit: int
+    claim_proposer_id: str
+    claim_proposer_role: str
     claim_proposer: CatalogAgentSettings
     reviewers: tuple[CatalogReviewerSettings, ...]
     admission: CatalogAdmissionSettings
@@ -524,12 +530,22 @@ class CatalogSettings(StrictContract):
             self.claim_packet_record_limit,
             "catalog.claim_packet_record_limit",
         )
+        _require_positive(
+            self.review_packet_record_limit,
+            "catalog.review_packet_record_limit",
+        )
+        require_identifier(self.claim_proposer_id, "catalog.claim_proposer_id")
+        require_identifier(self.claim_proposer_role, "catalog.claim_proposer_role")
         if not self.reviewers:
             raise CrossRunConfigurationError("catalog reviewers must not be empty")
         reviewer_ids = tuple(reviewer.reviewer_id for reviewer in self.reviewers)
         if reviewer_ids != tuple(sorted(set(reviewer_ids))):
             raise CrossRunConfigurationError(
                 "catalog reviewers must be sorted and uniquely identified"
+            )
+        if self.claim_proposer_id in reviewer_ids:
+            raise CrossRunConfigurationError(
+                "catalog claim proposer cannot be a reviewer"
             )
         if self.admission.required_approvals > len(self.reviewers):
             raise CrossRunConfigurationError(

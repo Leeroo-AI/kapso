@@ -909,12 +909,12 @@ class RelativeEffect(StrictContract):
         )
         require_identifier(self.metric_name, "relative effect metric_name")
         expected_raw = self.candidate_value - self.source_parent_value
-        if abs(self.raw_delta - expected_raw) > 1e-12:
+        if self.raw_delta != expected_raw:
             raise ContractValidationError("relative effect raw delta is inconsistent")
         direction = (
             1.0 if self.objective_direction is ObjectiveDirection.MAXIMIZE else -1.0
         )
-        if abs(self.normalized_delta - direction * self.raw_delta) > 1e-12:
+        if self.normalized_delta != direction * self.raw_delta:
             raise ContractValidationError(
                 "relative effect normalized delta is inconsistent"
             )
@@ -1204,7 +1204,6 @@ class CodingAgentOperationReceipt(StrictContract):
     model: str
     effort: str
     artifact_checksums: Mapping[str, str]
-    completed_at: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "coding-agent-operation-receipt"
     IDENTITY_FIELD: ClassVar[str] = "operation_receipt_id"
@@ -1229,7 +1228,6 @@ class CodingAgentOperationReceipt(StrictContract):
             raise MissingReferenceError(
                 "coding-agent receipt requires the complete artifact set"
             )
-        normalize_utc_timestamp(self.completed_at, "completed_at")
 
 
 @dataclass(frozen=True)
@@ -1242,7 +1240,6 @@ class ReviewAssertion(StrictContract):
     judgment: str
     rationale: str
     exact_evidence_refs: tuple[str, ...]
-    created_at: str
     supersedes_assertion_id: str | None
     review_operation_ref: str
 
@@ -1255,7 +1252,6 @@ class ReviewAssertion(StrictContract):
             require_identifier(getattr(self, name), name)
         _require_text(self.rationale, "rationale")
         _require_sorted_unique(self.exact_evidence_refs, "exact_evidence_refs")
-        normalize_utc_timestamp(self.created_at, "created_at")
         if self.supersedes_assertion_id is not None:
             require_content_id(self.supersedes_assertion_id, "supersedes_assertion_id")
         require_content_id(self.review_operation_ref, "review_operation_ref")
