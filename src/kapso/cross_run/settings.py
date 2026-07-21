@@ -730,6 +730,8 @@ class ExpertValidationSettings(StrictContract):
 class ExpertSettings(StrictContract):
     candidate_path: str
     agent_artifact_path: str
+    candidate_entry_limit: int
+    candidate_byte_limit: int
     termination_grace_seconds: int
     sensitive_file_glob_scan_max_depth: int
     architect_id: str
@@ -758,6 +760,14 @@ class ExpertSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "expert candidates and agent artifacts must be disjoint"
             )
+        _require_positive(
+            self.candidate_entry_limit,
+            "expert.candidate_entry_limit",
+        )
+        _require_positive(
+            self.candidate_byte_limit,
+            "expert.candidate_byte_limit",
+        )
         _require_positive(
             self.termination_grace_seconds,
             "expert.termination_grace_seconds",

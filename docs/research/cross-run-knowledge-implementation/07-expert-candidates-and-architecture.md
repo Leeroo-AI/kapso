@@ -4,8 +4,9 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M1, M2, and M5.
 
-Status: **Trigger/materialization and candidate closure/book planes independently
-approved; isolated store and coding-agent proposers remain.**
+Status: **Trigger/materialization, candidate closure/book, and immutable candidate
+store planes independently approved; isolated workspaces and coding-agent
+proposers remain.**
 
 ## Objective
 
@@ -34,6 +35,7 @@ src/kapso/cross_run/expert/
   generalizer.py
   candidates.py
   book.py
+  store.py
 
 src/kapso/cross_run/prompts/
   expert_repo_bootstrap.md
@@ -137,12 +139,13 @@ ancestors, and a proof-closed knowledge packet.
 - [ ] Compute patch, full candidate tree hash, module-contract refs, proposed
       repository-map ref, dependencies, lineage, source evidence, sanitation report,
       and coding-agent provenance.
-- [ ] Reject candidate changes outside allowed source/test/contract roots.
+- [x] Reject candidate changes outside allowed source/test/contract roots and
+      configured aggregate entry/byte limits.
 - [x] Preserve validation attempts as later immutable attachments; do not mutate
       candidate proposal identity.
-- [ ] Identical candidate replay is idempotent; conflicting content under one ID
+- [x] Identical candidate replay is idempotent; conflicting content under one ID
       fails.
-- [ ] Hand only locally schema/sanitation-valid candidates to M8's automated
+- [x] Hand only locally schema/sanitation-valid candidates to M8's automated
       validation state machine.
 
 ## Semantic book compiler
@@ -174,6 +177,9 @@ ancestors, and a proof-closed knowledge packet.
 - Break each path/link/dependency/test/evidence ref and require rejection.
 - Prove proposer output alone cannot activate E0/E+1 and manual book edits fail
   deterministic validation.
+- Prove concurrent first construction, concurrent identical persistence,
+  noncanonical commit records, checksum changes, hardlinks, symlinks, FIFOs, and
+  public package modes cannot expose an invalid candidate.
 
 ## Definition of done
 

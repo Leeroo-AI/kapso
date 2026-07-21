@@ -211,8 +211,8 @@ class ExpertCandidateValidator:
                 "candidate operation lacks configured proposer authority"
             )
 
-    @staticmethod
     def _validate_candidate_tree(
+        self,
         closure: ExpertCandidateClosure,
     ) -> dict[str, SourceFileDescriptor]:
         manifest = closure.manifest
@@ -225,6 +225,14 @@ class ExpertCandidateValidator:
                 "candidate manifest references another source tree"
             )
         files = {file.relative_path: file for file in tree.files}
+        if (
+            len(files) > self.settings.candidate_entry_limit
+            or sum(file.size for file in tree.files)
+            > self.settings.candidate_byte_limit
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate tree exceeds configured aggregate limits"
+            )
         if set(closure.candidate_contents) != set(files):
             raise ExpertCandidateValidationError(
                 "candidate bytes differ from the exact tree path closure"

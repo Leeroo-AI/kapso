@@ -146,6 +146,8 @@ cross_run:
   expert:
     candidate_path: ".kapso/cross_run/expert_candidates"
     agent_artifact_path: ".kapso/cross_run/expert_agent_calls"
+    candidate_entry_limit: 10000
+    candidate_byte_limit: *cross_run_asset_size_bytes
     termination_grace_seconds: 5
     sensitive_file_glob_scan_max_depth: 8
     architect_id: "expert_repository_architect"

@@ -430,6 +430,25 @@ def test_candidate_requires_scope_sanitation_policy_resolution():
 
 
 @pytest.mark.parametrize(
+    "limited_settings",
+    (
+        replace(expert_settings(), candidate_entry_limit=1),
+        replace(expert_settings(), candidate_byte_limit=1),
+    ),
+)
+def test_candidate_enforces_aggregate_tree_limits(limited_settings):
+    closure = bootstrap_candidate_closure()
+
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="aggregate limits",
+    ):
+        ExpertCandidateValidator(limited_settings, sanitation_settings()).validate(
+            closure
+        )
+
+
+@pytest.mark.parametrize(
     ("updates", "message"),
     (
         ({"forged_patch_tree_hash": True}, "patch identity or tree binding"),
