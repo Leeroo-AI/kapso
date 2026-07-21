@@ -74,6 +74,26 @@ Evaluator execution requires two injected, read-only verified providers:
 Episode summaries and manifest hashes are not substitutes for either byte
 closure. Missing bytes fail loud and make the attempt ineligible.
 
+Implemented validation substrate:
+
+- enrollment reopens the exact M7 candidate, resolves the current release through
+  a read-only provider, and resolves every adapter through a verified-source
+  provider;
+- validation track and stage plan are recomputed from trusted candidate records;
+- every exact trigger adapter binding is enrolled under an unambiguous canonical
+  identity, while configured task families remain explicit stage-policy inputs;
+- attempts retain the complete eligibility, adapter, and verification dependency
+  closure;
+- executable-stage results are bounded before identity, signature-verified through
+  an injected fail-closed verifier, and accepted only in exact prefix order; and
+- retry lineage preserves both the current state and latest historical attempt,
+  and restarts at stage one. An intervening ineligible state cannot reset attempt
+  identity; approved, released, validating, and revoked states cannot be retried.
+
+The automated-review, promotion-decision, persistence, composition, and release
+paths remain separate later slices; the executable reducer cannot synthesize
+their authority.
+
 ## Evaluator cascade
 
 Implement one durable state machine:

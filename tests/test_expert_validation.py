@@ -1,5 +1,7 @@
 import base64
 import copy
+from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,6 +9,7 @@ from kapso.core.config import load_config
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ContractValidationError,
+    CrossRunTaskBindingSettings,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
     ExpertEvaluatorAttestation,
@@ -18,11 +21,22 @@ from kapso.cross_run.contracts import (
     ExpertValidationAttempt,
     ExpertValidationStage,
     ExpertValidationTrack,
+    TaskAdapterManifest,
+)
+from kapso.cross_run.expert.validation import (
+    ExpertCandidateEligibilityEvaluator,
+    ExpertEvaluatorRunBuilder,
+    ExpertValidationError,
+    ExpertValidationPredecessor,
+    ExpertValidationReducer,
+    VerifiedTaskAdapter,
 )
 from kapso.cross_run.settings import (
     CrossRunConfigurationError,
     CrossRunSettings,
 )
+from test_expert_candidate_store import candidate_store
+from test_expert_candidates import bootstrap_candidate_closure
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -41,16 +55,103 @@ def _validation_settings():
     ).expert.validation
 
 
+class _AttestationVerifier:
+    def verify(self, envelope):
+        if envelope.signature != "test-signature":
+            raise ExpertValidationError("invalid test signature")
+
+
+class _TaskAdapterProvider:
+    def __init__(self, *adapters):
+        self.adapters = {
+            adapter.task_adapter_manifest_id: VerifiedTaskAdapter(
+                manifest=adapter,
+                source_verification_receipt_id=_content_id(
+                    f"adapter-source-verification-{adapter.task_adapter_id}"
+                ),
+            )
+            for adapter in adapters
+        }
+
+    def resolve(self, manifest_id):
+        return self.adapters[manifest_id]
+
+
+class _CurrentReleaseProvider:
+    def __init__(self, release_id):
+        self.release_id = release_id
+
+    def current_release_id(self, scope_id):
+        assert scope_id == "ml_ai"
+        return self.release_id
+
+
+class _ValidationStateProvider:
+    def __init__(self, predecessor=None):
+        self.predecessor = predecessor
+
+    def current(self, candidate_id):
+        if self.predecessor is not None:
+            assert self.predecessor.state.candidate_id == candidate_id
+        return self.predecessor
+
+
+def _eligibility_evaluator(settings, store, adapter, current_release_id=None):
+    return ExpertCandidateEligibilityEvaluator(
+        settings,
+        store,
+        _TaskAdapterProvider(adapter),
+        _CurrentReleaseProvider(current_release_id),
+    )
+
+
+def _validation_reducer(
+    settings,
+    adapter,
+    current_release_id=None,
+    predecessor=None,
+):
+    return ExpertValidationReducer(
+        settings,
+        _AttestationVerifier(),
+        _TaskAdapterProvider(adapter),
+        _CurrentReleaseProvider(current_release_id),
+        _ValidationStateProvider(predecessor),
+    )
+
+
+def _task_adapter(closure, position=0) -> TaskAdapterManifest:
+    binding = closure.trigger_packet.active_task_bindings[position]
+    return TaskAdapterManifest.mint(
+        task_adapter_id=binding.task_adapter_id,
+        scope_contract_id=closure.manifest.scope_contract_id,
+        task_family_id=binding.task_family_id,
+        publisher_attestation={"issuer": "test", "signature": "test"},
+        task_evaluator_binding={"evaluator": "public"},
+        context_dimension_binding={"dataset_family": "synthetic"},
+        source_tree_ref="task-adapter.tar.zst",
+        tree_hash=_digest(f"task-adapter-tree-{binding.task_adapter_id}"),
+        dependency_runtime_contract={"python": ">=3.10"},
+        sanitation_report_id=_content_id("task-adapter-sanitation"),
+        validation_refs=("validation.adapter_smoke",),
+    )
+
+
 def _eligibility_decision(
     *,
     track: ExpertValidationTrack = ExpertValidationTrack.MECHANICAL_GENERAL_FIX,
 ) -> ExpertCandidateEligibilityDecision:
     settings = _validation_settings()
     policy = settings.policy.validation_policy()
-    adapter_bindings = {"family": _content_id("adapter")}
+    adapter_bindings = {
+        content_id(
+            "task-adapter-binding",
+            {"task_family_id": "family", "task_adapter_id": "adapter"},
+        ): _content_id("adapter")
+    }
     stages = settings.policy.required_stages(
         track,
-        tuple(adapter_bindings),
+        ("family",),
         has_parent_release=True,
     )
     return ExpertCandidateEligibilityDecision.mint(
@@ -64,6 +165,7 @@ def _eligibility_decision(
         eligible=True,
         validation_track=track,
         required_stages=stages,
+        configured_task_family_ids=("family",),
         task_adapter_manifest_ids=adapter_bindings,
         exact_dependency_ids=tuple(
             sorted(
@@ -97,7 +199,16 @@ def _attempt(
         attempt_number=1,
         predecessor_attempt_id=None,
         required_stages=decision.required_stages,
+        configured_task_family_ids=decision.configured_task_family_ids,
         task_adapter_manifest_ids=decision.task_adapter_manifest_ids,
+        eligibility_dependency_ids=tuple(
+            sorted(
+                {
+                    decision.eligibility_decision_id,
+                    *decision.exact_dependency_ids,
+                }
+            )
+        ),
     )
 
 
@@ -365,3 +476,416 @@ def test_proposal_and_validation_authorities_must_be_disjoint():
     ]
     with pytest.raises(CrossRunConfigurationError, match="roles must be disjoint"):
         CrossRunSettings.from_dict(internal_role_overlap)
+
+
+def test_bootstrap_enrollment_derives_architecture_track_and_exact_stage_plan(
+    tmp_path,
+):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    eligibility = _eligibility_evaluator(settings, store, adapter).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    started = _validation_reducer(settings, adapter).start(
+        stored_candidate=stored,
+        eligibility=eligibility,
+    )
+
+    assert eligibility.decision.eligible is True
+    assert (
+        eligibility.decision.validation_track
+        is ExpertValidationTrack.REPOSITORY_ARCHITECTURE
+    )
+    assert ExpertValidationStage.SOURCE_RUN_REPLAY not in (
+        eligibility.decision.required_stages
+    )
+    assert started.attempt is not None
+    assert started.attempt.required_stages == eligibility.decision.required_stages
+    assert _content_id("adapter-source-verification-posttrain") in (
+        started.attempt.eligibility_dependency_ids
+    )
+    assert started.state.next_stage is ExpertValidationStage.CONTRACT_SCHEMA
+
+
+def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    first_binding = CrossRunTaskBindingSettings(
+        scope_id="ml_ai",
+        task_family_id="family/branch",
+        task_adapter_id="adapter",
+    )
+    second_binding = CrossRunTaskBindingSettings(
+        scope_id="ml_ai",
+        task_family_id="family",
+        task_adapter_id="branch/adapter",
+    )
+    expanded_closure = SimpleNamespace(
+        manifest=stored.closure.manifest,
+        trigger_packet=SimpleNamespace(
+            active_task_bindings=(first_binding, second_binding)
+        ),
+    )
+    expanded_stored = SimpleNamespace(closure=expanded_closure)
+    first_adapter = _task_adapter(expanded_closure)
+    second_adapter = _task_adapter(expanded_closure, position=1)
+    verified_first = VerifiedTaskAdapter(
+        manifest=first_adapter,
+        source_verification_receipt_id=_content_id("first-source-verification"),
+    )
+    verified_second = VerifiedTaskAdapter(
+        manifest=second_adapter,
+        source_verification_receipt_id=_content_id("second-source-verification"),
+    )
+
+    with pytest.raises(ExpertValidationError, match="trigger bindings"):
+        ExpertCandidateEligibilityEvaluator._adapter_bindings(
+            expanded_stored,
+            (verified_first,),
+        )
+
+    bindings, verification_ids, task_family_ids = (
+        ExpertCandidateEligibilityEvaluator._adapter_bindings(
+            expanded_stored,
+            (verified_first, verified_second),
+        )
+    )
+    assert bindings == {
+        content_id(
+            "task-adapter-binding",
+            {
+                "task_family_id": first_binding.task_family_id,
+                "task_adapter_id": first_binding.task_adapter_id,
+            },
+        ): first_adapter.task_adapter_manifest_id,
+        content_id(
+            "task-adapter-binding",
+            {
+                "task_family_id": second_binding.task_family_id,
+                "task_adapter_id": second_binding.task_adapter_id,
+            },
+        ): second_adapter.task_adapter_manifest_id,
+    }
+    assert len(bindings) == 2
+    assert verification_ids == tuple(
+        sorted(
+            (
+                verified_first.source_verification_receipt_id,
+                verified_second.source_verification_receipt_id,
+            )
+        )
+    )
+    assert task_family_ids == tuple(
+        sorted((first_binding.task_family_id, second_binding.task_family_id))
+    )
+
+
+def test_stale_bootstrap_and_forged_track_are_ineligible_or_rejected(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    evaluator = _eligibility_evaluator(
+        settings,
+        store,
+        adapter,
+        _content_id("already-released"),
+    )
+    stale = evaluator.decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+
+    assert stale.decision.eligible is False
+    assert stale.decision.reason_code == "stale_parent_release"
+    assert stale.decision.required_stages == ()
+
+    valid = _eligibility_evaluator(settings, store, adapter).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    forged_decision = ExpertCandidateEligibilityDecision.mint(
+        **{
+            **{
+                key: value
+                for key, value in valid.decision.to_dict().items()
+                if key not in {"eligibility_decision_id", "validation_track"}
+            },
+            "validation_track": ExpertValidationTrack.MECHANICAL_GENERAL_FIX,
+        }
+    )
+    with pytest.raises(ExpertValidationError, match="deterministic"):
+        _validation_reducer(settings, adapter).start(
+            stored_candidate=stored,
+            eligibility=replace(valid, decision=forged_decision),
+        )
+
+
+def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    eligibility = _eligibility_evaluator(settings, store, adapter).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    started = _validation_reducer(settings, adapter).start(
+        stored_candidate=stored,
+        eligibility=eligibility,
+    )
+    assert started.attempt is not None
+    builder = ExpertEvaluatorRunBuilder(settings)
+    result = builder.build(
+        attempt=started.attempt,
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        exact_additional_input_ids=(),
+        output_payloads={"result.json": b'{"passed":true}'},
+        measurements={},
+        costs={"compute_seconds": 1.0},
+        duration_seconds=1.0,
+        outcome=ExpertEvaluatorOutcome.PASSED,
+        signature="test-signature",
+    )
+
+    advanced = _validation_reducer(settings, adapter).advance(
+        state=started.state,
+        attempt=started.attempt,
+        accepted_results=(),
+        result=result,
+    )
+
+    assert len(advanced.accepted_evaluator_evidence) == 1
+    assert (
+        advanced.next_stage is ExpertValidationStage.IDENTITY_SECRETS_LICENSE_DEPENDENCY
+    )
+    second_result = builder.build(
+        attempt=started.attempt,
+        stage=ExpertValidationStage.IDENTITY_SECRETS_LICENSE_DEPENDENCY,
+        exact_additional_input_ids=(),
+        output_payloads={"result.json": b'{"passed":true}'},
+        measurements={},
+        costs={},
+        duration_seconds=1.0,
+        outcome=ExpertEvaluatorOutcome.PASSED,
+        signature="test-signature",
+    )
+    with pytest.raises(ExpertValidationError, match="history is incomplete"):
+        _validation_reducer(settings, adapter).advance(
+            state=advanced,
+            attempt=started.attempt,
+            accepted_results=(),
+            result=second_result,
+        )
+    twice_advanced = _validation_reducer(settings, adapter).advance(
+        state=advanced,
+        attempt=started.attempt,
+        accepted_results=(result,),
+        result=second_result,
+    )
+    assert (
+        twice_advanced.next_stage is ExpertValidationStage.STATIC_UNIT_SECURITY_RESOURCE
+    )
+
+    invalid_signature = replace(
+        result,
+        attestation_envelope=replace(
+            result.attestation_envelope,
+            signature="invalid",
+        ),
+    )
+    with pytest.raises(ExpertValidationError, match="invalid test signature"):
+        _validation_reducer(settings, adapter).advance(
+            state=started.state,
+            attempt=started.attempt,
+            accepted_results=(),
+            result=invalid_signature,
+        )
+
+    out_of_order = builder.build(
+        attempt=started.attempt,
+        stage=ExpertValidationStage.STATIC_UNIT_SECURITY_RESOURCE,
+        exact_additional_input_ids=(),
+        output_payloads={"result.json": b'{"passed":true}'},
+        measurements={},
+        costs={},
+        duration_seconds=1.0,
+        outcome=ExpertEvaluatorOutcome.PASSED,
+        signature="test-signature",
+    )
+    with pytest.raises(ExpertValidationError, match="out of order"):
+        _validation_reducer(settings, adapter).advance(
+            state=started.state,
+            attempt=started.attempt,
+            accepted_results=(),
+            result=out_of_order,
+        )
+
+
+def test_failed_stage_is_terminal_and_a_retry_requires_a_new_attempt(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    eligibility = _eligibility_evaluator(settings, store, adapter).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    reducer = _validation_reducer(settings, adapter)
+    started = reducer.start(
+        stored_candidate=stored,
+        eligibility=eligibility,
+    )
+    assert started.attempt is not None
+    failed_result = ExpertEvaluatorRunBuilder(settings).build(
+        attempt=started.attempt,
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        exact_additional_input_ids=(),
+        output_payloads={"result.json": b'{"passed":false}'},
+        measurements={},
+        costs={},
+        duration_seconds=1.0,
+        outcome=ExpertEvaluatorOutcome.CANDIDATE_FAILED,
+        signature="test-signature",
+    )
+    failed = reducer.advance(
+        state=started.state,
+        attempt=started.attempt,
+        accepted_results=(),
+        result=failed_result,
+    )
+
+    assert failed.promotion_state is ExpertPromotionState.FAILED
+    assert failed.next_stage is None
+    with pytest.raises(ExpertValidationError, match="active attempt"):
+        reducer.advance(
+            state=failed,
+            attempt=started.attempt,
+            accepted_results=(),
+            result=failed_result,
+        )
+
+    retry_reducer = _validation_reducer(
+        settings,
+        adapter,
+        predecessor=ExpertValidationPredecessor(
+            latest_attempt=started.attempt,
+            state=failed,
+        ),
+    )
+    retry = retry_reducer.start(
+        stored_candidate=stored,
+        eligibility=eligibility,
+    )
+    assert retry.attempt is not None
+    assert retry.attempt.attempt_number == 2
+    assert retry.attempt.predecessor_attempt_id == started.attempt.validation_attempt_id
+    assert retry.state.next_stage is ExpertValidationStage.CONTRACT_SCHEMA
+
+
+def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    eligible = _eligibility_evaluator(settings, store, adapter).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    initial = _validation_reducer(settings, adapter).start(
+        stored_candidate=stored,
+        eligibility=eligible,
+    )
+    assert initial.attempt is not None
+    failed_result = ExpertEvaluatorRunBuilder(settings).build(
+        attempt=initial.attempt,
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        exact_additional_input_ids=(),
+        output_payloads={"result.json": b'{"passed":false}'},
+        measurements={},
+        costs={},
+        duration_seconds=1.0,
+        outcome=ExpertEvaluatorOutcome.CANDIDATE_FAILED,
+        signature="test-signature",
+    )
+    failed = _validation_reducer(settings, adapter).advance(
+        state=initial.state,
+        attempt=initial.attempt,
+        accepted_results=(),
+        result=failed_result,
+    )
+    historical_attempt = ExpertValidationPredecessor(
+        latest_attempt=initial.attempt,
+        state=failed,
+    )
+    current_release_id = _content_id("temporarily-current-release")
+    stale = _eligibility_evaluator(
+        settings,
+        store,
+        adapter,
+        current_release_id,
+    ).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    ineligible = _validation_reducer(
+        settings,
+        adapter,
+        current_release_id=current_release_id,
+        predecessor=historical_attempt,
+    ).start(
+        stored_candidate=stored,
+        eligibility=stale,
+    )
+    assert ineligible.attempt is None
+
+    retry = _validation_reducer(
+        settings,
+        adapter,
+        predecessor=ExpertValidationPredecessor(
+            latest_attempt=initial.attempt,
+            state=ineligible.state,
+        ),
+    ).start(
+        stored_candidate=stored,
+        eligibility=eligible,
+    )
+    assert retry.attempt is not None
+    assert retry.attempt.attempt_number == 2
+    assert retry.attempt.predecessor_attempt_id == initial.attempt.validation_attempt_id
+
+
+def test_evaluator_output_limits_are_enforced_before_result_identity(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    settings = _validation_settings()
+    limited = replace(
+        settings,
+        policy=replace(settings.policy, artifact_byte_limit=1),
+    )
+    eligibility = _eligibility_evaluator(limited, store, adapter).decide(
+        candidate_id=stored.closure.manifest.candidate_id,
+        task_adapter_manifest_ids=(adapter.task_adapter_manifest_id,),
+    )
+    started = _validation_reducer(limited, adapter).start(
+        stored_candidate=stored,
+        eligibility=eligibility,
+    )
+    assert started.attempt is not None
+
+    with pytest.raises(ExpertValidationError, match="byte limit"):
+        ExpertEvaluatorRunBuilder(limited).build(
+            attempt=started.attempt,
+            stage=ExpertValidationStage.CONTRACT_SCHEMA,
+            exact_additional_input_ids=(),
+            output_payloads={"result.json": b"too large"},
+            measurements={},
+            costs={},
+            duration_seconds=1.0,
+            outcome=ExpertEvaluatorOutcome.PASSED,
+            signature="test-signature",
+        )

@@ -2603,6 +2603,7 @@ class ExpertCandidateEligibilityDecision(StrictContract):
     eligible: bool
     validation_track: ExpertValidationTrack
     required_stages: tuple[ExpertValidationStage, ...]
+    configured_task_family_ids: tuple[str, ...]
     task_adapter_manifest_ids: Mapping[str, str]
     exact_dependency_ids: tuple[str, ...]
     reason_code: str
@@ -2626,13 +2627,27 @@ class ExpertCandidateEligibilityDecision(StrictContract):
             "configuration_fingerprint",
         )
         require_identifier(self.reason_code, "eligibility reason_code")
+        if not self.configured_task_family_ids or self.configured_task_family_ids != (
+            tuple(sorted(set(self.configured_task_family_ids)))
+        ):
+            raise ContractValidationError(
+                "configured task families must be non-empty, sorted, and unique"
+            )
+        for task_family_id in self.configured_task_family_ids:
+            require_identifier(task_family_id, "configured_task_family_ids")
         if not self.task_adapter_manifest_ids:
             raise ContractValidationError(
                 "task adapter manifest bindings must not be empty"
             )
-        for task_family_id, manifest_id in self.task_adapter_manifest_ids.items():
-            require_identifier(task_family_id, "task_adapter_manifest_ids key")
+        for adapter_binding_id, manifest_id in self.task_adapter_manifest_ids.items():
+            require_content_id(adapter_binding_id, "task_adapter_manifest_ids key")
             require_content_id(manifest_id, "task_adapter_manifest_ids value")
+        if len(self.task_adapter_manifest_ids) != len(
+            set(self.task_adapter_manifest_ids.values())
+        ):
+            raise ContractValidationError(
+                "task adapter manifest bindings must reference unique manifests"
+            )
         _require_sorted_unique(self.exact_dependency_ids, "exact_dependency_ids")
         for value in self.exact_dependency_ids:
             require_content_id(value, "exact_dependency_ids")
@@ -2682,7 +2697,9 @@ class ExpertValidationAttempt(StrictContract):
     attempt_number: int
     predecessor_attempt_id: str | None
     required_stages: tuple[ExpertValidationStage, ...]
+    configured_task_family_ids: tuple[str, ...]
     task_adapter_manifest_ids: Mapping[str, str]
+    eligibility_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-attempt"
     IDENTITY_FIELD: ClassVar[str] = "validation_attempt_id"
@@ -2730,9 +2747,43 @@ class ExpertValidationAttempt(StrictContract):
             raise ContractValidationError(
                 "task adapter manifest bindings must not be empty"
             )
-        for task_family_id, manifest_id in self.task_adapter_manifest_ids.items():
-            require_identifier(task_family_id, "task_adapter_manifest_ids key")
+        for adapter_binding_id, manifest_id in self.task_adapter_manifest_ids.items():
+            require_content_id(adapter_binding_id, "task_adapter_manifest_ids key")
             require_content_id(manifest_id, "task_adapter_manifest_ids value")
+        if len(self.task_adapter_manifest_ids) != len(
+            set(self.task_adapter_manifest_ids.values())
+        ):
+            raise ContractValidationError(
+                "task adapter manifest bindings must reference unique manifests"
+            )
+        if not self.configured_task_family_ids or self.configured_task_family_ids != (
+            tuple(sorted(set(self.configured_task_family_ids)))
+        ):
+            raise ContractValidationError(
+                "configured task families must be non-empty, sorted, and unique"
+            )
+        for task_family_id in self.configured_task_family_ids:
+            require_identifier(task_family_id, "configured_task_family_ids")
+        _require_sorted_unique(
+            self.eligibility_dependency_ids,
+            "eligibility_dependency_ids",
+        )
+        for dependency_id in self.eligibility_dependency_ids:
+            require_content_id(dependency_id, "eligibility_dependency_ids")
+        required_dependencies = {
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.scope_contract_id,
+            self.eligibility_decision_id,
+            self.validation_policy_id,
+            *self.task_adapter_manifest_ids.values(),
+        }
+        if self.parent_release_id is not None:
+            required_dependencies.add(self.parent_release_id)
+        if not required_dependencies.issubset(self.eligibility_dependency_ids):
+            raise MissingReferenceError(
+                "validation attempt eligibility dependency closure is incomplete"
+            )
 
 
 @dataclass(frozen=True)
