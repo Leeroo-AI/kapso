@@ -38,10 +38,12 @@ class AnimalDeductionHandler(ProblemHandler):
         if not isinstance(contest_economics, dict) or not {
             "insurance_minutes",
             "confirm_gain_ratio",
+            "insured_freeze_minutes",
         } <= contest_economics.keys():
             raise ValueError(
                 "contest_economics must carry the config's reward-policy "
-                "knobs (insurance_minutes/confirm_gain_ratio)"
+                "knobs (insurance_minutes/confirm_gain_ratio/"
+                "insured_freeze_minutes)"
             )
         self.task_dir = os.path.abspath(task_dir)
         self.statement = statement.strip()
@@ -165,10 +167,36 @@ Budget progress: ~{budget_progress:.0f}%.
 - FREEZE: reserve the final ~15% to freeze: full-dev confirm, verify the
   scratch-directory invocation, atomic swap. The freeze confirmation is
   mandatory and sits OUTSIDE these economics — never skip it.
+- Once a confirmed (>0) score is banked with a valid submission, the
+  campaign automatically shrinks its endgame reserve to
+  ~{self.contest_economics['insured_freeze_minutes']} minutes and lowers
+  the iteration-admission floor — late, short, bold iterations stay
+  available. Banking one real score early literally buys you more search
+  time at the end.
 - NOT negotiable for speed: fidelity gates, the benchmark rules, and the
   freeze confirm. Boldness applies to allocation, never to measurement.
 Use the whole budget; do not stop while another improve+confirm cycle fits.
 """
+
+    def deliverable_ready_reserve_seconds(self):
+        """Insured once a >0-scored, confirmed submission is banked.
+
+        The insurance placeholder banks 0.0 and does not count; any later
+        best_score.log line carries a full-dev-confirmed score (promotion
+        requires real-oracle evidence), so its presence plus solution.py
+        means the endgame needs only the freeze residual.
+        """
+        if not os.path.isfile(os.path.join(self.submission_dir, "solution.py")):
+            return None
+        score_log = os.path.join(self.task_dir, "best_score.log")
+        if not os.path.isfile(score_log):
+            return None
+        with open(score_log, encoding="utf-8") as f:
+            lines = [line for line in f.read().splitlines() if line.strip()]
+        for line in lines:
+            if float(line.split()[0]) > 0:
+                return self.contest_economics["insured_freeze_minutes"] * 60.0
+        return None
 
     def stop_condition(self) -> bool:
         return False

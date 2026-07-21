@@ -1120,6 +1120,7 @@ class OrchestratorAgent:
         # current registry head before any selection happens.
         self._reconcile_evaluator_state()
         reserve_run_pending = False
+        insured_logged = False
 
         stopped_reason = "max_iterations"  # default
         stop_detail: Optional[str] = None
@@ -1149,6 +1150,26 @@ class OrchestratorAgent:
                     and budget_spec.time_budget_seconds is not None
                     else budget_spec.finalization_reserve_seconds
                 )
+                # Handler-level insurance: a confirmed deliverable on disk
+                # means the endgame risk is already covered — the reserve
+                # shrinks to what freeze still costs (same principle as the
+                # fidelity champion-shrink) and the insured admission floor
+                # applies, keeping late iterations available.
+                insured_reserve_seconds = (
+                    self.problem_handler.deliverable_ready_reserve_seconds()
+                )
+                if insured_reserve_seconds is not None:
+                    shrunk = min(
+                        effective_reserve_seconds, insured_reserve_seconds
+                    )
+                    if shrunk < effective_reserve_seconds and not insured_logged:
+                        print(
+                            "[Orchestrator] Deliverable insured — reserve "
+                            f"{effective_reserve_seconds:.0f}s -> {shrunk:.0f}s, "
+                            "insured admission floor active"
+                        )
+                        insured_logged = True
+                    effective_reserve_seconds = shrunk
                 # Build the per-iteration budget view from the durable clock,
                 # so a resumed campaign continues its budget instead of
                 # resetting it. Strategies get the snapshot read-only.
@@ -1195,7 +1216,9 @@ class OrchestratorAgent:
                 if (
                     remaining_after_reserve is not None
                     and remaining_after_reserve
-                    <= budget_spec.min_iteration_seconds
+                    <= budget_spec.effective_min_iteration_seconds(
+                        insured=insured_reserve_seconds is not None
+                    )
                 ):
                     champion = (
                         fidelity_policy.full_champion(

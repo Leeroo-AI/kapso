@@ -11,7 +11,7 @@ The FeedbackGenerator handles stop decisions.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -64,8 +64,21 @@ class ProblemHandler(ABC):
     def final_evaluate(self, file_path: str, **kwargs) -> Dict[str, Any]:
         """
         Final evaluation on private/held-out test set.
-        
+
         Override this for benchmarks that have a separate test set.
         Default implementation returns empty dict.
         """
         return {}
+
+    def deliverable_ready_reserve_seconds(self) -> Optional[float]:
+        """Reserve still needed once a CONFIRMED deliverable exists on disk.
+
+        None (default) means no confirmed deliverable — the campaign keeps
+        its full finalization reserve and admission floor. A float means the
+        deliverable is banked and verified, so the endgame insurance is
+        already paid: the orchestrator shrinks the reserve to this many
+        seconds (what freeze still costs) and applies the insured admission
+        floor, keeping late iterations available. Override in handlers whose
+        benchmark maintains a verified best-so-far submission.
+        """
+        return None

@@ -21,7 +21,9 @@ modes:
         auth_mode: "oauth"
         gate_failure_policy: "skip"
         parent_policy: "best"
-        effort: "xhigh"
+        # max for implementation sessions (the critical-path decision lives
+        # there); ensemble members/selector pin their own efforts below.
+        effort: "max"
         # Ceilings; the runner's session_budget shaping shrinks these for a
         # 2h run (ideation ~18 min, implementation ~90 min).
         ideation_timeout: 1500
@@ -92,11 +94,16 @@ modes:
     contest_economics:
       insurance_minutes: 5
       confirm_gain_ratio: 2.0
+      # Reserve residual once a confirmed submission is banked (the freeze
+      # cost: scratch-invocation verify + atomic swap).
+      insured_freeze_minutes: 4
 
     # Iteration admission floor: a useful improve+confirm cycle on this task
-    # (tweak solver + subset eval) fits in ~15 minutes.
+    # (tweak solver + subset eval) fits in ~15 minutes; once a confirmed
+    # submission is banked (insured), a 5-minute solver tweak still pays.
     budget:
       min_iteration_seconds: 900
+      min_iteration_seconds_insured: 300
 
     # Held-out scoring after the campaign: 500 test1 rows + 150 dev rows of
     # sequential 3B-model oracle calls — generous ceiling.

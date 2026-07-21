@@ -66,6 +66,9 @@ class FakeProblemHandler:
     def get_problem_context(self) -> str:
         return "Solve the support problem"
 
+    def deliverable_ready_reserve_seconds(self):
+        return None
+
 
 class FakeKnowledgeSearch:
     def close(self) -> None:
