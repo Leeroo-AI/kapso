@@ -7,6 +7,7 @@ from kapso.cross_run.canonical import (
     CanonicalizationError,
     canonical_json_bytes,
     content_id,
+    source_tree_digest,
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
@@ -29,14 +30,24 @@ from kapso.cross_run.contracts import (
     EpisodeEvaluationStatus,
     EvaluationFingerprint,
     EffectUncertaintyMethod,
+    EMPTY_EXPERT_TREE_DIGEST,
     ExecutionStatus,
     ExpertBaseReleaseManifest,
+    ExpertCandidateOperationKind,
+    ExpertCandidateOperationRecord,
     ExpertCandidateManifest,
+    ExpertCandidatePatch,
+    ExpertCandidatePatchChange,
+    ExpertCandidateSanitationReport,
+    ExpertCandidateSanitationStatus,
+    ExpertCandidateWorkspaceReceipt,
     ExpertCapabilityNode,
     ExpertDependencyEdge,
     ExpertModuleContract,
     ExpertRepositoryMap,
     ExpertScopeContract,
+    ExpertSourceTreeManifest,
+    ExpertTaskAdapterBoundary,
     GitHubPublicationRecord,
     GitHubReleaseAsset,
     IdentityConflictError,
@@ -57,6 +68,7 @@ from kapso.cross_run.contracts import (
     RelativeEffect,
     RunBundle,
     ScopeRepositorySettings,
+    SourceFileDescriptor,
     TaskAdapterBinding,
     TaskAdapterManifest,
     TaskContextBinding,
@@ -65,7 +77,17 @@ from kapso.cross_run.contracts import (
     TransferCompatibility,
     TransferEpisode,
 )
+from kapso.cross_run.expert.book import (
+    EXPERT_BOOK_PATH,
+    EXPERT_REPOSITORY_MAP_PATH,
+    compile_expert_semantic_book,
+    expert_module_contract_path,
+    expert_semantic_book_digest,
+)
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES,
+)
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -89,15 +111,7 @@ def operation_receipt(name):
         effort="xhigh",
         artifact_checksums={
             filename: digest(f"{name}-{filename}")
-            for filename in (
-                "final.json",
-                "invocation.json",
-                "prompt.txt",
-                "response_schema.json",
-                "result.json",
-                "stderr.txt",
-                "stdout.txt",
-            )
+            for filename in CODING_AGENT_ARTIFACT_FILENAMES
         },
     )
 
@@ -216,21 +230,25 @@ def build_records():
         module_id="shared.reproducible_execution",
         version="v1",
         purpose="Produce provenance-bound resumable execution.",
+        problem_signals=("Interrupted work loses reproducibility.",),
         inputs=("run contract",),
         outputs=("resumable artifact",),
         preconditions=("writable workspace",),
         incompatibilities=("untracked mutable input",),
+        dependency_capability_ids=(),
+        incompatible_capability_ids=(),
         resource_bounds={"maximum_workers": 1},
         dependency_license_manifest={"license": "MIT"},
         supporting_episode_ids=(),
         known_failure_episode_ids=(),
+        entrypoint_refs=("src/reproducible_execution/__init__.py",),
         test_refs=("tests/test_resume.py",),
         replay_refs=("tests/replay_resume.py",),
     )
     capability_node = ExpertCapabilityNode(
         capability_id="shared.reproducible_execution",
         module_contract_ref=module.module_contract_id,
-        owned_paths=("src/reproducible_execution",),
+        owned_paths=("src/reproducible_execution", "tests"),
         task_family_bindings=(
             "language_model_post_training",
             "relational_tabular_prediction",
@@ -240,7 +258,13 @@ def build_records():
         scope_contract_id=scope.scope_contract_id,
         capability_nodes=(capability_node,),
         dependency_edges=(),
-        task_adapter_boundary={"mode": "read_only"},
+        task_adapter_boundary=ExpertTaskAdapterBoundary(
+            adapter_mount_path=".kapso/task-adapter",
+            interface_entrypoint_refs=("src/reproducible_execution/__init__.py",),
+            inputs=("task contract",),
+            outputs=("validated artifact",),
+            invariants=("The adapter remains external and read-only.",),
+        ),
         validation_entrypoints=("tests/test_resume.py",),
         architecture_invariants=("No task identity defaults.",),
     )
@@ -539,24 +563,155 @@ def build_records():
         prompt_budget_policy={"maximum_records": 24},
         records_digest=tree_or_blob_digest(canonical_json_bytes(selected_records)),
     )
+    candidate_source = b"def resume():\n    return 'reproducible'\n"
+    candidate_test = b"def test_resume():\n    assert True\n"
+    candidate_replay = b"def replay():\n    return 'replayed'\n"
+    candidate_book = compile_expert_semantic_book(scope, repository_map, (module,))
+    candidate_contents = {
+        "src/reproducible_execution/__init__.py": candidate_source,
+        "tests/replay_resume.py": candidate_replay,
+        "tests/test_resume.py": candidate_test,
+        EXPERT_BOOK_PATH: candidate_book,
+        EXPERT_REPOSITORY_MAP_PATH: repository_map.to_json_bytes(),
+        expert_module_contract_path(module.module_contract_id): module.to_json_bytes(),
+    }
+    candidate_files = tuple(
+        SourceFileDescriptor(
+            relative_path=path,
+            digest=tree_or_blob_digest(candidate_contents[path]),
+            mode="100644",
+            size=len(candidate_contents[path]),
+        )
+        for path in sorted(candidate_contents)
+    )
+    candidate_tree_hash = source_tree_digest(
+        {
+            file.relative_path: (file.digest, file.mode, file.size)
+            for file in candidate_files
+        }
+    )
+    candidate_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=candidate_tree_hash,
+        files=candidate_files,
+    )
+    candidate_declared_paths = (
+        "src/reproducible_execution/__init__.py",
+        "tests/replay_resume.py",
+        "tests/test_resume.py",
+    )
+    candidate_editable_tree_hash = source_tree_digest(
+        {
+            file.relative_path: (file.digest, file.mode, file.size)
+            for file in candidate_files
+            if file.relative_path in set(candidate_declared_paths)
+        }
+    )
+    candidate_patch = ExpertCandidatePatch.mint(
+        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        candidate_tree_hash=candidate_tree_hash,
+        changes=tuple(
+            ExpertCandidatePatchChange(
+                relative_path=file.relative_path,
+                before=None,
+                after=file,
+            )
+            for file in candidate_files
+        ),
+    )
+    trigger_decision_id = fixture_id("expert-trigger-decision")
+    trigger_packet_id = fixture_id("expert-trigger-packet")
+    candidate_operation_preimage = {
+        "ancestor_candidate_ids": (),
+        "configuration_fingerprint": digest("expert-validation-config"),
+        "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
+        "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
+        "trigger_decision_id": trigger_decision_id,
+        "trigger_evidence_packet_id": trigger_packet_id,
+    }
+    candidate_final_output = (
+        canonical_json_bytes(
+            {
+                "changed_paths": candidate_declared_paths,
+                "deleted_paths": (),
+                "summary": "Added reproducible resume support.",
+            }
+        ).decode("utf-8")
+        + "\n"
+    )
+    candidate_operation_id = (
+        "agent_call_"
+        + tree_or_blob_digest(canonical_json_bytes(candidate_operation_preimage))[7:39]
+    )
+    candidate_operation_receipt = CodingAgentOperationReceipt.mint(
+        operation_id=candidate_operation_id,
+        principal_id="expert-architect",
+        role="expert_architect",
+        cli="claude_code",
+        model="fable",
+        effort="xhigh",
+        artifact_checksums={
+            filename: (
+                tree_or_blob_digest(candidate_final_output.encode("utf-8"))
+                if filename == "final.json"
+                else digest(f"candidate-{filename}")
+            )
+            for filename in CODING_AGENT_ARTIFACT_FILENAMES
+        },
+    )
+    candidate_workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(
+        operation_receipt_id=candidate_operation_receipt.operation_receipt_id,
+        operation_id=candidate_operation_id,
+        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        editable_parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        edited_tree_hash=candidate_editable_tree_hash,
+        changed_paths=candidate_declared_paths,
+        deleted_paths=(),
+    )
+    candidate_operation = ExpertCandidateOperationRecord.mint(
+        operation_kind=ExpertCandidateOperationKind.BOOTSTRAP,
+        trigger_decision_id=trigger_decision_id,
+        trigger_evidence_packet_id=trigger_packet_id,
+        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        ancestor_candidate_ids=(),
+        configuration_fingerprint=digest("expert-validation-config"),
+        operation_preimage=candidate_operation_preimage,
+        operation_receipt=candidate_operation_receipt,
+        workspace_receipt=candidate_workspace_receipt,
+        final_output=candidate_final_output,
+    )
+    candidate_sanitation = ExpertCandidateSanitationReport.mint(
+        scope_contract_id=scope.scope_contract_id,
+        candidate_tree_hash=candidate_tree_hash,
+        policy_version="kapso.expert_candidate_sanitation.v1",
+        policy_fingerprint=digest("candidate-sanitation-policy"),
+        scanner_version="kapso.expert_candidate_scanner.v1",
+        status=ExpertCandidateSanitationStatus.ADMITTED,
+        scanned_files=candidate_files,
+        findings=(),
+    )
     candidate = ExpertCandidateManifest.mint(
         scope_contract_id=scope.scope_contract_id,
-        change_kind=CandidateChangeKind.CAPABILITY,
-        parent_release_id=expert_release.release_id,
-        parent_tree_hash=digest("parent-tree"),
-        trigger="Repeated representation drift across independent contexts.",
-        trigger_evidence_ids=(episode.episode_id,),
-        patch_ref="candidates/template-parity.patch",
-        candidate_tree_hash=digest("candidate-tree"),
+        change_kind=CandidateChangeKind.REPOSITORY_ARCHITECTURE,
+        parent_release_id=None,
+        parent_repository_map_ref=None,
+        parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        trigger_decision_id=trigger_decision_id,
+        trigger_evidence_packet_id=trigger_packet_id,
+        patch_ref=candidate_patch.patch_id,
+        patch_digest=tree_or_blob_digest(candidate_patch.to_json_bytes()),
+        candidate_tree_ref=candidate_tree.source_tree_manifest_id,
+        candidate_tree_hash=candidate_tree_hash,
         configuration_fingerprint=digest("expert-validation-config"),
         module_contract_refs=(module.module_contract_id,),
         proposed_repository_map_ref=repository_map.repository_map_id,
-        proposer_operation={"cli": "codex", "model": "configured"},
-        source_dependency_ids=(claim.revision_id,),
+        semantic_book_digest=expert_semantic_book_digest(candidate_book),
+        proposer_operation_record_id=candidate_operation.operation_record_id,
+        source_dependency_ids=tuple(
+            sorted((claim.revision_id, trigger_decision_id, trigger_packet_id))
+        ),
         ancestor_candidate_ids=(),
         capability_lineage=(),
-        validation_attempt_refs=("validation/candidate-1",),
-        sanitation_report_id=fixture_id("candidate-sanitation"),
+        sanitation_report_id=candidate_sanitation.sanitation_report_id,
     )
     publication_asset = GitHubReleaseAsset(
         asset_id="asset-1",
@@ -631,6 +786,11 @@ def build_records():
         sidecar,
         snapshot,
         prior_snapshot,
+        candidate_tree,
+        candidate_patch,
+        candidate_workspace_receipt,
+        candidate_operation,
+        candidate_sanitation,
         candidate,
         publication_asset,
         publication,
@@ -644,6 +804,22 @@ def test_every_contract_round_trips_through_canonical_json():
         restored = type(record).from_json_bytes(record.to_json_bytes())
         assert restored == record, type(record).__name__
         assert restored.to_json_bytes() == record.to_json_bytes()
+
+
+def test_scope_requires_named_policy_authorities():
+    scope = next(
+        record for record in build_records() if isinstance(record, ExpertScopeContract)
+    )
+
+    with pytest.raises(CanonicalizationError, match="sanitation_policy_ref"):
+        ExpertScopeContract.mint(
+            **{
+                key: value
+                for key, value in scope.to_dict().items()
+                if key not in {"scope_contract_id", "sanitation_policy_ref"}
+            },
+            sanitation_policy_ref="",
+        )
 
 
 def test_nested_contract_has_stable_golden_bytes_and_identity():

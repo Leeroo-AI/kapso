@@ -4,6 +4,9 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 
 Depends on: M1, M2, and M5.
 
+Status: **Trigger/materialization and candidate closure/book planes independently
+approved; isolated store and coding-agent proposers remain.**
+
 ## Objective
 
 Produce isolated, evidence-linked expert candidates without mutating a stable
@@ -135,7 +138,7 @@ ancestors, and a proof-closed knowledge packet.
       repository-map ref, dependencies, lineage, source evidence, sanitation report,
       and coding-agent provenance.
 - [ ] Reject candidate changes outside allowed source/test/contract roots.
-- [ ] Preserve validation attempts as later immutable attachments; do not mutate
+- [x] Preserve validation attempts as later immutable attachments; do not mutate
       candidate proposal identity.
 - [ ] Identical candidate replay is idempotent; conflicting content under one ID
       fails.
@@ -146,15 +149,15 @@ ancestors, and a proof-closed knowledge packet.
 
 `EXPERT_REPO.md` is generated, never agent-authored.
 
-- [ ] Render from the exact `ExpertRepositoryMap` and `ExpertModuleContract`s.
-- [ ] Include purpose/invariants, one-screen architecture/stage flow, capability
+- [x] Render from the exact `ExpertRepositoryMap` and `ExpertModuleContract`s.
+- [x] Include purpose/invariants, one-screen architecture/stage flow, capability
       index, inputs/outputs, preconditions/incompatibilities, entrypoints/tests,
       dependencies/compositions, adapter boundary, validation commands, and
       external evidence/failure IDs.
-- [ ] Validate every path, link, entrypoint, test, dependency edge, incompatibility,
+- [x] Validate every path, link, entrypoint, test, dependency edge, incompatibility,
       and evidence reference against the candidate tree/knowledge packet.
-- [ ] Produce deterministic bytes/digest under input ordering changes.
-- [ ] Reject manual edits or a manifest/book digest mismatch.
+- [x] Produce deterministic bytes/digest under input ordering changes.
+- [x] Reject manual edits or a manifest/book digest mismatch.
 
 ## Tests
 

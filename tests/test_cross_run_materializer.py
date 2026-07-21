@@ -24,12 +24,14 @@ from kapso.cross_run.contracts import (
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
     ScopeRepositorySettings,
+    SourceFileDescriptor,
 )
 from kapso.cross_run.expert import ExpertParentTreeReceipt
 from kapso.cross_run.github.materializer import (
     CacheCorruptionError,
     GitHubArtifactMaterializer,
     MaterializationError,
+    SourceArchiveExtractionReceipt,
 )
 from kapso.cross_run.github.publisher import ReleaseAssetInput
 from kapso.cross_run.github.resolver import (
@@ -43,6 +45,36 @@ from tests.cross_run_github_fixtures import release_attestation
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 REPOSITORY = "Leeroo-AI/kapso-knowledge"
+
+
+def test_source_extraction_receipt_rejects_file_directory_collision():
+    files = (
+        SourceFileDescriptor(
+            relative_path="src/node",
+            digest=tree_or_blob_digest(b"node"),
+            mode="100644",
+            size=4,
+        ),
+        SourceFileDescriptor(
+            relative_path="src/node/child.py",
+            digest=tree_or_blob_digest(b"child"),
+            mode="100644",
+            size=5,
+        ),
+    )
+    tree_hash = source_tree_digest(
+        {file.relative_path: (file.digest, file.mode, file.size) for file in files}
+    )
+
+    with pytest.raises(MaterializationError, match="file/directory collision"):
+        SourceArchiveExtractionReceipt.mint(
+            artifact_id=content_id("fixture", {"artifact": "release"}),
+            source_archive_ref="expert-source.tar.zst",
+            source_archive_digest=tree_or_blob_digest(b"archive"),
+            source_tree_hash=tree_hash,
+            source_tree_files=files,
+            extractor_version="kapso-source-extractor-v1",
+        )
 
 
 def github_settings():

@@ -25,6 +25,7 @@ from kapso.cross_run.contracts import (
     LineageEdge,
     LineageRelation,
     PublicationArtifactKind,
+    SourceFileDescriptor,
     TaskAdapterBinding,
     TaskContextBinding,
     TaskFamilyDefinition,
@@ -46,9 +47,11 @@ from kapso.cross_run.github.materializer import (
     SOURCE_ARCHIVE_EXTRACTOR_VERSION,
     CacheVerificationReceipt,
     SourceArchiveExtractionReceipt,
-    SourceArchiveTreeFile,
 )
 from kapso.cross_run.settings import CrossRunSettings, ExpertTriggerSettings
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES,
+)
 from test_cross_run_contracts import build_records
 from test_cross_run_retrieval import (
     analogical_context,
@@ -76,9 +79,9 @@ def configuration_fingerprint(settings: ExpertTriggerSettings) -> str:
     return tree_or_blob_digest(canonical_json_bytes(settings.to_dict()))
 
 
-def parent_tree_file() -> SourceArchiveTreeFile:
+def parent_tree_file() -> SourceFileDescriptor:
     content = b"verified parent source"
-    return SourceArchiveTreeFile(
+    return SourceFileDescriptor(
         relative_path="src/expert.py",
         digest=tree_or_blob_digest(content),
         mode="100644",
@@ -118,15 +121,7 @@ def inspection_operation(
                 if filename == "final.json"
                 else digest(f"inspection-{filename}")
             )
-            for filename in (
-                "final.json",
-                "invocation.json",
-                "prompt.txt",
-                "response_schema.json",
-                "result.json",
-                "stderr.txt",
-                "stdout.txt",
-            )
+            for filename in CODING_AGENT_ARTIFACT_FILENAMES
         },
     )
 
@@ -334,7 +329,7 @@ def test_bootstrap_requires_the_canonical_empty_tree_and_no_parent_topology():
     with pytest.raises(ExpertTriggerError, match="released parent"):
         replace(released, parent_tree_hash=EMPTY_EXPERT_TREE_DIGEST)
     different_content = b"different verified parent source"
-    different_file = SourceArchiveTreeFile(
+    different_file = SourceFileDescriptor(
         relative_path="src/expert.py",
         digest=tree_or_blob_digest(different_content),
         mode="100644",

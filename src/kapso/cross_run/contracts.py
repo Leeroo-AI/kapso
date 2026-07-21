@@ -30,9 +30,13 @@ from kapso.cross_run.canonical import (
     parse_utc_timestamp,
     require_content_id,
     require_identifier,
+    source_tree_digest,
     to_json_value,
     tree_or_blob_digest,
     verify_declared_content_id,
+)
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES,
 )
 
 _ContractType = TypeVar("_ContractType", bound="StrictContract")
@@ -41,15 +45,7 @@ _GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$"
 )
 _CODING_AGENT_OPERATION_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
-_CODING_AGENT_ARTIFACT_FILENAMES = {
-    "final.json",
-    "invocation.json",
-    "prompt.txt",
-    "response_schema.json",
-    "result.json",
-    "stderr.txt",
-    "stdout.txt",
-}
+EMPTY_EXPERT_TREE_DIGEST = tree_or_blob_digest(canonical_json_bytes(()))
 
 
 class CrossRunContractError(ValueError):
@@ -369,6 +365,30 @@ class CandidateChangeKind(str, Enum):
     REPOSITORY_ARCHITECTURE = "repository_architecture"
 
 
+class ExpertCapabilityLineageRelation(str, Enum):
+    RENAME = "rename"
+    SPLIT = "split"
+    MERGE = "merge"
+    RETIRE = "retire"
+
+
+class ExpertCandidateOperationKind(str, Enum):
+    BOOTSTRAP = "bootstrap"
+    RESTRUCTURE = "restructure"
+    GENERALIZE = "generalize"
+
+
+class ExpertCandidateSanitationStatus(str, Enum):
+    ADMITTED = "admitted"
+    REJECTED = "rejected"
+
+
+class ExpertSanitationSeverity(str, Enum):
+    INFORMATIONAL = "informational"
+    WARNING = "warning"
+    BLOCKING = "blocking"
+
+
 class PublicationArtifactKind(str, Enum):
     KNOWLEDGE_SNAPSHOT = "knowledge_snapshot"
     EXPERT_BASE_RELEASE = "expert_base_release"
@@ -513,6 +533,8 @@ class ExpertScopeContract(StrictContract):
             "repository_architecture_constraints",
             required=True,
         )
+        require_identifier(self.sanitation_policy_ref, "sanitation_policy_ref")
+        require_identifier(self.validation_policy_ref, "validation_policy_ref")
         _require_sorted_unique(self.artifact_classes, "artifact_classes")
         family_ids = tuple(item.task_family_id for item in self.task_family_ontology)
         dimension_ids = tuple(
@@ -1224,7 +1246,7 @@ class CodingAgentOperationReceipt(StrictContract):
             self.artifact_checksums,
             "coding-agent artifact_checksums",
         )
-        if set(self.artifact_checksums) != _CODING_AGENT_ARTIFACT_FILENAMES:
+        if set(self.artifact_checksums) != set(CODING_AGENT_ARTIFACT_FILENAMES):
             raise MissingReferenceError(
                 "coding-agent receipt requires the complete artifact set"
             )
@@ -1600,19 +1622,79 @@ class PriorKnowledgeSnapshot(StrictContract):
 
 
 @dataclass(frozen=True)
+class SourceFileDescriptor(StrictContract):
+    """One exact regular file in a content-addressed source tree."""
+
+    relative_path: str
+    digest: str
+    mode: str
+    size: int
+
+    def _validate(self) -> None:
+        _require_relative_path(self.relative_path, "source file path")
+        if self.relative_path == ".":
+            raise ContractValidationError("source file path cannot be the root")
+        _require_digest(self.digest, "source file digest")
+        if self.mode not in {"100644", "100755"}:
+            raise ContractValidationError("source file mode is invalid")
+        if type(self.size) is not int or self.size < 0:
+            raise ContractValidationError("source file size is invalid")
+
+
+@dataclass(frozen=True)
+class ExpertSourceTreeManifest(StrictContract):
+    source_tree_manifest_id: str
+    tree_hash: str
+    files: tuple[SourceFileDescriptor, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-tree"
+    IDENTITY_FIELD: ClassVar[str] = "source_tree_manifest_id"
+
+    def _validate(self) -> None:
+        paths = tuple(file.relative_path for file in self.files)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise ContractValidationError(
+                "expert source files must be non-empty, sorted, and unique"
+            )
+        source_paths = tuple(PurePosixPath(path) for path in paths)
+        if any(
+            source_path in other_path.parents
+            for position, source_path in enumerate(source_paths)
+            for other_path in source_paths[position + 1 :]
+        ):
+            raise ContractValidationError(
+                "expert source files contain a file/directory collision"
+            )
+        expected_tree_hash = source_tree_digest(
+            {
+                file.relative_path: (file.digest, file.mode, file.size)
+                for file in self.files
+            }
+        )
+        if self.tree_hash != expected_tree_hash:
+            raise ContractValidationError(
+                "expert source tree hash differs from its file descriptor"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertModuleContract(StrictContract):
     module_contract_id: str
     module_id: str
     version: str
     purpose: str
+    problem_signals: tuple[str, ...]
     inputs: tuple[str, ...]
     outputs: tuple[str, ...]
     preconditions: tuple[str, ...]
     incompatibilities: tuple[str, ...]
+    dependency_capability_ids: tuple[str, ...]
+    incompatible_capability_ids: tuple[str, ...]
     resource_bounds: Mapping[str, Any]
     dependency_license_manifest: Mapping[str, Any]
     supporting_episode_ids: tuple[str, ...]
     known_failure_episode_ids: tuple[str, ...]
+    entrypoint_refs: tuple[str, ...]
     test_refs: tuple[str, ...]
     replay_refs: tuple[str, ...]
 
@@ -1623,10 +1705,33 @@ class ExpertModuleContract(StrictContract):
         require_identifier(self.module_id, "module_id")
         require_identifier(self.version, "version")
         _require_text(self.purpose, "purpose")
-        for name in ("inputs", "outputs", "preconditions", "incompatibilities"):
+        required_text = {"problem_signals", "outputs"}
+        for name in (
+            "problem_signals",
+            "inputs",
+            "outputs",
+            "preconditions",
+            "incompatibilities",
+        ):
             values = getattr(self, name)
-            _require_text_tuple(values, name, required=True)
-            _require_unique(values, name)
+            _require_text_tuple(values, name, required=name in required_text)
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
+        for name in (
+            "dependency_capability_ids",
+            "incompatible_capability_ids",
+        ):
+            values = getattr(self, name)
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
+            for value in values:
+                require_identifier(value, name)
+            if self.module_id in values:
+                raise ContractValidationError(f"{name} cannot reference the module")
+        if set(self.dependency_capability_ids) & set(self.incompatible_capability_ids):
+            raise ContractValidationError(
+                "a capability cannot be both required and incompatible"
+            )
         if not self.resource_bounds or not self.dependency_license_manifest:
             raise ContractValidationError(
                 "resource and dependency/license manifests must not be empty"
@@ -1637,10 +1742,16 @@ class ExpertModuleContract(StrictContract):
                 _require_sorted_unique(values, name)
                 for value in values:
                     require_content_id(value, name)
-        for name in ("test_refs", "replay_refs"):
+        if set(self.supporting_episode_ids) & set(self.known_failure_episode_ids):
+            raise ContractValidationError(
+                "supporting and failure evidence must be disjoint"
+            )
+        for name in ("entrypoint_refs", "test_refs", "replay_refs"):
             values = getattr(self, name)
-            if not values:
+            if name != "replay_refs" and not values:
                 raise ContractValidationError(f"{name} must not be empty")
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
             for value in values:
                 _require_relative_path(value, name)
 
@@ -1657,9 +1768,18 @@ class ExpertCapabilityNode(StrictContract):
         require_content_id(self.module_contract_ref, "module_contract_ref")
         if not self.owned_paths:
             raise ContractValidationError("owned_paths must not be empty")
+        if self.owned_paths != tuple(sorted(set(self.owned_paths))):
+            raise ContractValidationError("owned_paths must be sorted and unique")
         for path in self.owned_paths:
             _require_relative_path(path, "owned_paths")
-        _require_sorted_unique(self.task_family_bindings, "task_family_bindings")
+            if path == ".":
+                raise ContractValidationError("a capability cannot own the root")
+        if self.task_family_bindings != tuple(sorted(set(self.task_family_bindings))):
+            raise ContractValidationError(
+                "task_family_bindings must be sorted and unique"
+            )
+        for task_family_id in self.task_family_bindings:
+            require_identifier(task_family_id, "task_family_bindings")
 
 
 @dataclass(frozen=True)
@@ -1675,12 +1795,42 @@ class ExpertDependencyEdge(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertTaskAdapterBoundary(StrictContract):
+    adapter_mount_path: str
+    interface_entrypoint_refs: tuple[str, ...]
+    inputs: tuple[str, ...]
+    outputs: tuple[str, ...]
+    invariants: tuple[str, ...]
+
+    def _validate(self) -> None:
+        _require_relative_path(self.adapter_mount_path, "adapter_mount_path")
+        if self.adapter_mount_path == ".":
+            raise ContractValidationError("adapter mount path cannot be the root")
+        for name in (
+            "interface_entrypoint_refs",
+            "inputs",
+            "outputs",
+            "invariants",
+        ):
+            values = getattr(self, name)
+            if not values:
+                raise ContractValidationError(f"{name} must not be empty")
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
+            if name == "interface_entrypoint_refs":
+                for value in values:
+                    _require_relative_path(value, name)
+            else:
+                _require_text_tuple(values, name, required=True)
+
+
+@dataclass(frozen=True)
 class ExpertRepositoryMap(StrictContract):
     repository_map_id: str
     scope_contract_id: str
     capability_nodes: tuple[ExpertCapabilityNode, ...]
     dependency_edges: tuple[ExpertDependencyEdge, ...]
-    task_adapter_boundary: Mapping[str, Any]
+    task_adapter_boundary: ExpertTaskAdapterBoundary
     validation_entrypoints: tuple[str, ...]
     architecture_invariants: tuple[str, ...]
 
@@ -1695,28 +1845,34 @@ class ExpertRepositoryMap(StrictContract):
         if capability_ids != tuple(sorted(set(capability_ids))):
             raise ContractValidationError("capability nodes must be sorted and unique")
         owned_paths = tuple(
-            path for node in self.capability_nodes for path in node.owned_paths
+            PurePosixPath(path)
+            for node in self.capability_nodes
+            for path in node.owned_paths
         )
-        if len(owned_paths) != len(set(owned_paths)):
-            raise IdentityConflictError(
-                "one path cannot have multiple capability owners"
-            )
+        for position, owned_path in enumerate(owned_paths):
+            for other_path in owned_paths[position + 1 :]:
+                if (
+                    owned_path == other_path
+                    or owned_path in other_path.parents
+                    or other_path in owned_path.parents
+                ):
+                    raise IdentityConflictError(
+                        "capability owned paths must be prefix-disjoint"
+                    )
+        edge_pairs = tuple(
+            (edge.source_capability_id, edge.target_capability_id)
+            for edge in self.dependency_edges
+        )
+        if edge_pairs != tuple(sorted(set(edge_pairs))):
+            raise ContractValidationError("dependency edges must be sorted and unique")
         known = set(capability_ids)
-        edge_pairs: set[tuple[str, str]] = set()
         graph: dict[str, set[str]] = {capability_id: set() for capability_id in known}
-        for edge in self.dependency_edges:
-            if (
-                edge.source_capability_id not in known
-                or edge.target_capability_id not in known
-            ):
+        for source_capability_id, target_capability_id in edge_pairs:
+            if source_capability_id not in known or target_capability_id not in known:
                 raise MissingReferenceError(
                     "dependency edge references unknown capability"
                 )
-            pair = (edge.source_capability_id, edge.target_capability_id)
-            if pair in edge_pairs:
-                raise IdentityConflictError("duplicate dependency edge")
-            edge_pairs.add(pair)
-            graph[edge.source_capability_id].add(edge.target_capability_id)
+            graph[source_capability_id].add(target_capability_id)
         visited: set[str] = set()
         active: set[str] = set()
 
@@ -1733,17 +1889,336 @@ class ExpertRepositoryMap(StrictContract):
 
         for capability_id in sorted(known):
             visit(capability_id)
-        if not self.task_adapter_boundary:
-            raise ContractValidationError("task_adapter_boundary must not be empty")
-        if not self.validation_entrypoints or not self.architecture_invariants:
+        for name in ("validation_entrypoints", "architecture_invariants"):
+            values = getattr(self, name)
+            if not values or values != tuple(sorted(set(values))):
+                raise ContractValidationError(
+                    f"{name} must be non-empty, sorted, and unique"
+                )
+            if name == "validation_entrypoints":
+                for path in values:
+                    _require_relative_path(path, name)
+            else:
+                _require_text_tuple(values, name, required=True)
+
+
+@dataclass(frozen=True)
+class ExpertCapabilityLineage(StrictContract):
+    source_capability_ids: tuple[str, ...]
+    target_capability_ids: tuple[str, ...]
+    relation: ExpertCapabilityLineageRelation
+    evidence_ids: tuple[str, ...]
+
+    def _validate(self) -> None:
+        for name in ("source_capability_ids", "target_capability_ids"):
+            values = getattr(self, name)
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
+            for value in values:
+                require_identifier(value, name)
+        if not self.source_capability_ids:
+            raise ContractValidationError("capability lineage needs a source")
+        if set(self.source_capability_ids) & set(self.target_capability_ids):
             raise ContractValidationError(
-                "validation entrypoints and architecture invariants are required"
+                "capability lineage source and target overlap"
             )
-        for path in self.validation_entrypoints:
-            _require_relative_path(path, "validation_entrypoints")
-        _require_text_tuple(
-            self.architecture_invariants, "architecture_invariants", required=True
+        cardinality = {
+            ExpertCapabilityLineageRelation.RENAME: (
+                len(self.source_capability_ids) == 1
+                and len(self.target_capability_ids) == 1
+            ),
+            ExpertCapabilityLineageRelation.SPLIT: (
+                len(self.source_capability_ids) == 1
+                and len(self.target_capability_ids) > 1
+            ),
+            ExpertCapabilityLineageRelation.MERGE: (
+                len(self.source_capability_ids) > 1
+                and len(self.target_capability_ids) == 1
+            ),
+            ExpertCapabilityLineageRelation.RETIRE: (
+                len(self.source_capability_ids) == 1 and not self.target_capability_ids
+            ),
+        }
+        if not cardinality[self.relation]:
+            raise ContractValidationError(
+                f"invalid {self.relation.value} capability lineage cardinality"
+            )
+        _require_sorted_unique(self.evidence_ids, "capability lineage evidence_ids")
+        for evidence_id in self.evidence_ids:
+            require_content_id(evidence_id, "capability lineage evidence_ids")
+
+
+@dataclass(frozen=True)
+class ExpertCandidatePatchChange(StrictContract):
+    relative_path: str
+    before: SourceFileDescriptor | None
+    after: SourceFileDescriptor | None
+
+    def _validate(self) -> None:
+        _require_relative_path(self.relative_path, "candidate patch path")
+        if self.relative_path == "." or (self.before is None and self.after is None):
+            raise ContractValidationError("candidate patch change is empty")
+        for descriptor in (self.before, self.after):
+            if (
+                descriptor is not None
+                and descriptor.relative_path != self.relative_path
+            ):
+                raise ContractValidationError(
+                    "candidate patch descriptor uses another path"
+                )
+        if self.before == self.after:
+            raise ContractValidationError("candidate patch change has no effect")
+
+
+@dataclass(frozen=True)
+class ExpertCandidatePatch(StrictContract):
+    patch_id: str
+    parent_tree_hash: str
+    candidate_tree_hash: str
+    changes: tuple[ExpertCandidatePatchChange, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-patch"
+    IDENTITY_FIELD: ClassVar[str] = "patch_id"
+
+    def _validate(self) -> None:
+        _require_digest(self.parent_tree_hash, "candidate patch parent_tree_hash")
+        _require_digest(self.candidate_tree_hash, "candidate patch candidate_tree_hash")
+        if self.parent_tree_hash == self.candidate_tree_hash:
+            raise ContractValidationError("candidate patch must change the tree")
+        paths = tuple(change.relative_path for change in self.changes)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise ContractValidationError(
+                "candidate patch changes must be non-empty, sorted, and unique"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateWorkspaceReceipt(StrictContract):
+    """Kapso observation of one coding-agent workspace transformation."""
+
+    workspace_receipt_id: str
+    operation_receipt_id: str
+    operation_id: str
+    parent_tree_hash: str
+    editable_parent_tree_hash: str
+    edited_tree_hash: str
+    changed_paths: tuple[str, ...]
+    deleted_paths: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-workspace"
+    IDENTITY_FIELD: ClassVar[str] = "workspace_receipt_id"
+
+    def _validate(self) -> None:
+        require_content_id(self.operation_receipt_id, "operation_receipt_id")
+        if _CODING_AGENT_OPERATION_PATTERN.fullmatch(self.operation_id) is None:
+            raise ContractValidationError("invalid workspace operation ID")
+        for value, name in (
+            (self.parent_tree_hash, "workspace parent_tree_hash"),
+            (self.editable_parent_tree_hash, "workspace editable_parent_tree_hash"),
+            (self.edited_tree_hash, "workspace edited_tree_hash"),
+        ):
+            _require_digest(value, name)
+        for name in ("changed_paths", "deleted_paths"):
+            values = getattr(self, name)
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(
+                    f"workspace {name} must be sorted and unique"
+                )
+            for path in values:
+                _require_relative_path(path, f"workspace {name}")
+                if path == ".":
+                    raise ContractValidationError(
+                        f"workspace {name} cannot name the root"
+                    )
+        if not self.changed_paths and not self.deleted_paths:
+            raise ContractValidationError("workspace receipt observes no source change")
+        if set(self.changed_paths) & set(self.deleted_paths):
+            raise ContractValidationError(
+                "workspace changed and deleted paths must be disjoint"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateOperationRecord(StrictContract):
+    operation_record_id: str
+    operation_kind: ExpertCandidateOperationKind
+    trigger_decision_id: str
+    trigger_evidence_packet_id: str
+    parent_tree_hash: str
+    ancestor_candidate_ids: tuple[str, ...]
+    configuration_fingerprint: str
+    operation_preimage: Mapping[str, Any]
+    operation_receipt: CodingAgentOperationReceipt
+    workspace_receipt: ExpertCandidateWorkspaceReceipt
+    final_output: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-operation"
+    IDENTITY_FIELD: ClassVar[str] = "operation_record_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.trigger_decision_id, "trigger_decision_id"),
+            (self.trigger_evidence_packet_id, "trigger_evidence_packet_id"),
+        ):
+            require_content_id(value, name)
+        _require_digest(self.parent_tree_hash, "operation parent_tree_hash")
+        _require_digest(
+            self.configuration_fingerprint,
+            "operation configuration_fingerprint",
         )
+        if self.ancestor_candidate_ids:
+            _require_sorted_unique(
+                self.ancestor_candidate_ids,
+                "operation ancestor_candidate_ids",
+            )
+            for candidate_id in self.ancestor_candidate_ids:
+                require_content_id(candidate_id, "operation ancestor_candidate_ids")
+        if not self.operation_preimage:
+            raise ContractValidationError("candidate operation preimage is empty")
+        expected_preimage_binding = {
+            "ancestor_candidate_ids": self.ancestor_candidate_ids,
+            "configuration_fingerprint": self.configuration_fingerprint,
+            "operation_kind": self.operation_kind.value,
+            "parent_tree_hash": self.parent_tree_hash,
+            "trigger_decision_id": self.trigger_decision_id,
+            "trigger_evidence_packet_id": self.trigger_evidence_packet_id,
+        }
+        observed_preimage_binding = {
+            key: self.operation_preimage.get(key) for key in expected_preimage_binding
+        }
+        if canonical_json_bytes(observed_preimage_binding) != canonical_json_bytes(
+            expected_preimage_binding
+        ):
+            raise ContractValidationError(
+                "candidate operation preimage differs from its declared binding"
+            )
+        expected_operation_id = (
+            "agent_call_"
+            + tree_or_blob_digest(canonical_json_bytes(self.operation_preimage))[7:39]
+        )
+        if self.operation_receipt.operation_id != expected_operation_id:
+            raise ContractValidationError(
+                "candidate operation preimage differs from its receipt"
+            )
+        if (
+            self.workspace_receipt.operation_receipt_id
+            != self.operation_receipt.operation_receipt_id
+            or self.workspace_receipt.operation_id
+            != self.operation_receipt.operation_id
+            or self.workspace_receipt.parent_tree_hash != self.parent_tree_hash
+        ):
+            raise ContractValidationError(
+                "candidate workspace receipt differs from its operation"
+            )
+        if not isinstance(self.final_output, str) or not self.final_output.strip():
+            raise ContractValidationError("candidate operation final output is empty")
+        observed_final = parse_json_bytes(self.final_output.encode("utf-8"))
+        if tree_or_blob_digest(self.final_output.encode("utf-8")) != (
+            self.operation_receipt.artifact_checksums["final.json"]
+        ):
+            raise ContractValidationError(
+                "candidate operation final output differs from its receipt"
+            )
+        if not isinstance(observed_final, MappingABC):
+            raise ContractValidationError(
+                "candidate operation final output must be an object"
+            )
+        expected_declarations = {
+            "changed_paths": self.workspace_receipt.changed_paths,
+            "deleted_paths": self.workspace_receipt.deleted_paths,
+        }
+        observed_declarations = {
+            key: observed_final.get(key) for key in expected_declarations
+        }
+        if canonical_json_bytes(observed_declarations) != canonical_json_bytes(
+            expected_declarations
+        ):
+            raise ContractValidationError(
+                "candidate final output differs from the observed workspace delta"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateSanitationFinding(StrictContract):
+    code: str
+    relative_path: str
+    evidence_digest: str
+    severity: ExpertSanitationSeverity
+
+    def _validate(self) -> None:
+        require_identifier(self.code, "candidate sanitation finding code")
+        _require_relative_path(
+            self.relative_path,
+            "candidate sanitation finding path",
+        )
+        _require_digest(
+            self.evidence_digest,
+            "candidate sanitation finding evidence_digest",
+        )
+
+
+@dataclass(frozen=True)
+class ExpertCandidateSanitationReport(StrictContract):
+    sanitation_report_id: str
+    scope_contract_id: str
+    candidate_tree_hash: str
+    policy_version: str
+    policy_fingerprint: str
+    scanner_version: str
+    status: ExpertCandidateSanitationStatus
+    scanned_files: tuple[SourceFileDescriptor, ...]
+    findings: tuple[ExpertCandidateSanitationFinding, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-sanitation"
+    IDENTITY_FIELD: ClassVar[str] = "sanitation_report_id"
+
+    def _validate(self) -> None:
+        require_content_id(self.scope_contract_id, "sanitation scope_contract_id")
+        for value, name in (
+            (self.policy_version, "candidate sanitation policy_version"),
+            (self.scanner_version, "candidate sanitation scanner_version"),
+        ):
+            require_identifier(value, name)
+        _require_digest(
+            self.policy_fingerprint,
+            "candidate sanitation policy_fingerprint",
+        )
+        paths = tuple(file.relative_path for file in self.scanned_files)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise ContractValidationError(
+                "candidate sanitation files must be non-empty, sorted, and unique"
+            )
+        if self.candidate_tree_hash != source_tree_digest(
+            {
+                file.relative_path: (file.digest, file.mode, file.size)
+                for file in self.scanned_files
+            }
+        ):
+            raise ContractValidationError(
+                "candidate sanitation report scans another tree"
+            )
+        finding_keys = tuple(
+            (finding.relative_path, finding.code, finding.evidence_digest)
+            for finding in self.findings
+        )
+        if finding_keys != tuple(sorted(set(finding_keys))):
+            raise ContractValidationError(
+                "candidate sanitation findings must be sorted and unique"
+            )
+        if any(finding.relative_path not in paths for finding in self.findings):
+            raise ContractValidationError(
+                "candidate sanitation finding references an unscanned file"
+            )
+        has_blocking_finding = any(
+            finding.severity is ExpertSanitationSeverity.BLOCKING
+            for finding in self.findings
+        )
+        if has_blocking_finding != (
+            self.status is ExpertCandidateSanitationStatus.REJECTED
+        ):
+            raise ContractValidationError(
+                "candidate sanitation status differs from blocking findings"
+            )
 
 
 @dataclass(frozen=True)
@@ -1751,53 +2226,95 @@ class ExpertCandidateManifest(StrictContract):
     candidate_id: str
     scope_contract_id: str
     change_kind: CandidateChangeKind
-    parent_release_id: str
+    parent_release_id: str | None
+    parent_repository_map_ref: str | None
     parent_tree_hash: str
-    trigger: str
-    trigger_evidence_ids: tuple[str, ...]
+    trigger_decision_id: str
+    trigger_evidence_packet_id: str
     patch_ref: str
+    patch_digest: str
+    candidate_tree_ref: str
     candidate_tree_hash: str
     configuration_fingerprint: str
     module_contract_refs: tuple[str, ...]
     proposed_repository_map_ref: str
-    proposer_operation: Mapping[str, Any]
+    semantic_book_digest: str
+    proposer_operation_record_id: str
     source_dependency_ids: tuple[str, ...]
     ancestor_candidate_ids: tuple[str, ...]
-    capability_lineage: tuple[LineageEdge, ...]
-    validation_attempt_refs: tuple[str, ...]
+    capability_lineage: tuple[ExpertCapabilityLineage, ...]
     sanitation_report_id: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate"
     IDENTITY_FIELD: ClassVar[str] = "candidate_id"
 
     def _validate(self) -> None:
-        for name in ("scope_contract_id", "parent_release_id"):
-            require_content_id(getattr(self, name), name)
+        require_content_id(self.scope_contract_id, "scope_contract_id")
+        if (self.parent_release_id is None) != (self.parent_repository_map_ref is None):
+            raise ContractValidationError(
+                "candidate parent release and repository map must appear together"
+            )
+        if self.parent_release_id is None:
+            if (
+                self.change_kind is not CandidateChangeKind.REPOSITORY_ARCHITECTURE
+                or self.parent_tree_hash != EMPTY_EXPERT_TREE_DIGEST
+            ):
+                raise ContractValidationError(
+                    "parentless candidate must bootstrap the canonical empty tree"
+                )
+        elif self.parent_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
+            raise ContractValidationError(
+                "released parent candidate cannot use the canonical empty tree"
+            )
+        for value, name in (
+            (self.parent_release_id, "parent_release_id"),
+            (self.parent_repository_map_ref, "parent_repository_map_ref"),
+        ):
+            if value is not None:
+                require_content_id(value, name)
         _require_digest(self.parent_tree_hash, "parent_tree_hash")
-        _require_text(self.trigger, "trigger")
-        _require_sorted_unique(self.trigger_evidence_ids, "trigger_evidence_ids")
-        for value in self.trigger_evidence_ids:
-            require_content_id(value, "trigger_evidence_ids")
-        _require_text(self.patch_ref, "patch_ref")
-        _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
-        _require_digest(self.configuration_fingerprint, "configuration_fingerprint")
+        for value, name in (
+            (self.trigger_decision_id, "trigger_decision_id"),
+            (self.trigger_evidence_packet_id, "trigger_evidence_packet_id"),
+            (self.patch_ref, "patch_ref"),
+            (self.candidate_tree_ref, "candidate_tree_ref"),
+            (self.proposed_repository_map_ref, "proposed_repository_map_ref"),
+            (self.proposer_operation_record_id, "proposer_operation_record_id"),
+            (self.sanitation_report_id, "sanitation_report_id"),
+        ):
+            require_content_id(value, name)
+        for value, name in (
+            (self.patch_digest, "patch_digest"),
+            (self.candidate_tree_hash, "candidate_tree_hash"),
+            (self.configuration_fingerprint, "configuration_fingerprint"),
+            (self.semantic_book_digest, "semantic_book_digest"),
+        ):
+            _require_digest(value, name)
         _require_sorted_unique(self.module_contract_refs, "module_contract_refs")
         for value in self.module_contract_refs:
             require_content_id(value, "module_contract_refs")
-        require_content_id(
-            self.proposed_repository_map_ref, "proposed_repository_map_ref"
+        _require_sorted_unique(self.source_dependency_ids, "source_dependency_ids")
+        for value in self.source_dependency_ids:
+            require_content_id(value, "source_dependency_ids")
+        if self.ancestor_candidate_ids:
+            _require_sorted_unique(
+                self.ancestor_candidate_ids,
+                "ancestor_candidate_ids",
+            )
+            for value in self.ancestor_candidate_ids:
+                require_content_id(value, "ancestor_candidate_ids")
+        lineage_keys = tuple(
+            (
+                lineage.relation.value,
+                lineage.source_capability_ids,
+                lineage.target_capability_ids,
+            )
+            for lineage in self.capability_lineage
         )
-        if not self.proposer_operation:
-            raise ContractValidationError("proposer_operation must not be empty")
-        for name in ("source_dependency_ids", "ancestor_candidate_ids"):
-            values = getattr(self, name)
-            if values:
-                _require_sorted_unique(values, name)
-                for value in values:
-                    require_content_id(value, name)
-        if not self.validation_attempt_refs:
-            raise ContractValidationError("validation_attempt_refs must not be empty")
-        require_content_id(self.sanitation_report_id, "sanitation_report_id")
+        if lineage_keys != tuple(sorted(set(lineage_keys))):
+            raise ContractValidationError(
+                "capability lineage must be sorted and unique"
+            )
 
 
 @dataclass(frozen=True)

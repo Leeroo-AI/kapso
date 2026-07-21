@@ -29,6 +29,7 @@ from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
+    SourceFileDescriptor,
     StrictContract,
 )
 from kapso.cross_run.github.command import GitHubCommandClient
@@ -91,33 +92,6 @@ class CacheVerificationReceipt(StrictContract):
 
 
 @dataclass(frozen=True)
-class SourceArchiveTreeFile(StrictContract):
-    """One exact regular file extracted from a verified release asset."""
-
-    relative_path: str
-    digest: str
-    mode: str
-    size: int
-
-    def _validate(self) -> None:
-        path = PurePosixPath(self.relative_path)
-        if (
-            not self.relative_path
-            or path.is_absolute()
-            or ".." in path.parts
-            or path == PurePosixPath(".")
-            or path.as_posix() != self.relative_path
-        ):
-            raise MaterializationError("source archive file path is invalid")
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.digest) is None:
-            raise MaterializationError("source archive file digest is invalid")
-        if self.mode not in {"100644", "100755"}:
-            raise MaterializationError("source archive file mode is invalid")
-        if type(self.size) is not int or self.size < 0:
-            raise MaterializationError("source archive file size is invalid")
-
-
-@dataclass(frozen=True)
 class SourceArchiveExtractionReceipt(StrictContract):
     """Exact source tree deterministically extracted from one verified asset."""
 
@@ -126,7 +100,7 @@ class SourceArchiveExtractionReceipt(StrictContract):
     source_archive_ref: str
     source_archive_digest: str
     source_tree_hash: str
-    source_tree_files: tuple[SourceArchiveTreeFile, ...]
+    source_tree_files: tuple[SourceFileDescriptor, ...]
     extractor_version: str
 
     CONTENT_NAMESPACE = "source-archive-extraction-receipt"
@@ -153,6 +127,15 @@ class SourceArchiveExtractionReceipt(StrictContract):
         if not paths or paths != tuple(sorted(set(paths))):
             raise MaterializationError(
                 "source tree files must be non-empty, sorted, and unique"
+            )
+        source_paths = tuple(PurePosixPath(path) for path in paths)
+        if any(
+            source_path in other_path.parents
+            for position, source_path in enumerate(source_paths)
+            for other_path in source_paths[position + 1 :]
+        ):
+            raise MaterializationError(
+                "source tree files contain a file/directory collision"
             )
         expected_tree_hash = source_tree_digest(
             {
@@ -395,7 +378,7 @@ class GitHubArtifactMaterializer:
                     self.settings.archive_entry_limit,
                 )
                 source_files = tuple(
-                    SourceArchiveTreeFile(
+                    SourceFileDescriptor(
                         relative_path=path.relative_to(source_tree).as_posix(),
                         digest=self._file_digest(path),
                         mode="100755" if path.stat().st_mode & 0o111 else "100644",

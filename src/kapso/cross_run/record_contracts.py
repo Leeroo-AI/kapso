@@ -24,11 +24,10 @@ from kapso.cross_run.contracts import (
     MissingReferenceError,
     StrictContract,
 )
+from kapso.cross_run.sanitation_rules import SANITATION_SCANNER_VERSION
 
 EXECUTION_REVISION_EVENT_SCHEMA = "kapso.execution_revision_event.v1"
 SANITATION_REPORT_SCHEMA = "kapso.sanitation_report.v1"
-SANITATION_SCANNER_VERSION = "kapso.deterministic_text_scanner.v1"
-
 _FINDING_CODES = frozenset(
     {
         "assigned_secret",

@@ -29,6 +29,7 @@ from kapso.cross_run.contracts import (
     CrossRunTaskBindingSettings,
     EpisodeEvaluationStatus,
     ExecutionStatus,
+    EMPTY_EXPERT_TREE_DIGEST,
     ExpertBaseReleaseManifest,
     ExpertModuleContract,
     ExpertRepositoryMap,
@@ -48,7 +49,6 @@ from kapso.cross_run.knowledge.package import KnowledgeSnapshotPackage
 from kapso.cross_run.record_registry import parse_knowledge_record_payload
 from kapso.cross_run.settings import ExpertTriggerSettings
 
-EMPTY_EXPERT_TREE_DIGEST = tree_or_blob_digest(canonical_json_bytes(()))
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ARCHITECTURE_OBSERVATION_KINDS = {
     "adapter_leakage",

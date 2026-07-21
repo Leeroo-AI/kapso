@@ -45,18 +45,12 @@ from kapso.cross_run.contracts import (
     TransferEpisode,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES as ARTIFACT_FILENAMES,
+)
 from test_cross_run_contracts import build_records
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
-ARTIFACT_FILENAMES = (
-    "final.json",
-    "invocation.json",
-    "prompt.txt",
-    "response_schema.json",
-    "result.json",
-    "stderr.txt",
-    "stdout.txt",
-)
 
 
 def fixture_id(name):

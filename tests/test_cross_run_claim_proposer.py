@@ -20,18 +20,13 @@ from kapso.cross_run.contracts import (
     TransferEpisode,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_RETURNED_ARTIFACT_FILENAMES as ARTIFACT_FILENAMES,
+)
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from test_cross_run_contracts import build_records, fixture_id
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
-ARTIFACT_FILENAMES = (
-    "prompt.txt",
-    "response_schema.json",
-    "invocation.json",
-    "stdout.txt",
-    "stderr.txt",
-    "final.json",
-)
 
 
 class ArtifactFakeRunner:
@@ -51,9 +46,12 @@ class ArtifactFakeRunner:
             "prompt.txt": request.prompt,
             "response_schema.json": json.dumps(response_schema, sort_keys=True),
             "invocation.json": json.dumps(request.to_dict(), sort_keys=True),
+            "prior_knowledge.json": "null\n",
+            "mcp_config.json": "{}\n",
             "stdout.txt": "structured event stream\n",
             "stderr.txt": "",
             "final.json": output_text,
+            "mcp_audit.jsonl": "",
         }
         for filename in ARTIFACT_FILENAMES:
             (operation / filename).write_text(contents[filename], encoding="utf-8")

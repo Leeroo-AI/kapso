@@ -649,21 +649,35 @@ ExpertCandidateManifest
   candidate_id
   scope_contract_id
   change_kind                  # capability | repository_architecture
-  parent_release_id + parent_tree_hash
-  trigger + trigger_evidence_ids
-  patch_ref + candidate_tree_hash
+  parent_release_id? + parent_repository_map_ref? + parent_tree_hash
+  trigger_decision_id + trigger_evidence_packet_id
+  patch_ref + patch_digest
+  candidate_tree_ref + candidate_tree_hash
+  configuration_fingerprint
   module_contract_refs
   proposed_repository_map_ref
-  proposer_operation + model/CLI provenance
+  semantic_book_digest
+  proposer_operation_record_id
   source_dependency_ids
   ancestor_candidate_ids
   capability_lineage           # preserve evidence provenance across move/split/merge
-  validation_attempt_refs       # full dev results; opaque sealed attestations
   sanitation_report_id
 ```
 
-Failed and non-dominated candidates remain immutable, auditable inputs to future
-generalization. Their active eligibility lives in `CatalogEntryState`.
+The referenced exact source-tree, canonical patch, sanitation report, and coding-
+agent operation are separately content-addressed. Bootstrap alone has no parent
+release/map and uses the canonical empty parent tree. Validation attempts are M8
+attachments and never mutate candidate identity. Failed and non-dominated
+candidates remain immutable, auditable inputs to future generalization; their
+active eligibility lives in `CatalogEntryState`.
+
+The coding-agent operation retains the runner-native artifact closure, including
+its native `result.json`. A separate Kapso-minted workspace receipt binds that
+operation receipt to the verified parent tree, editable pre-tree, edited tree, and
+exact changed/deleted paths. The agent's schema-validated `final.json` must declare
+the same paths. Kapso then regenerates repository-map/module controls and the book,
+recomputes the full patch, and deterministically rescans the exact candidate bytes;
+none of those authority records is agent-authored.
 
 ### 4.11 `TaskAdapterManifest`
 

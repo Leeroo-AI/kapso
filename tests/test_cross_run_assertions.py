@@ -16,17 +16,11 @@ from kapso.cross_run.contracts import (
     ReviewAssertion,
 )
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES as ARTIFACT_FILENAMES,
+)
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
-ARTIFACT_FILENAMES = (
-    "final.json",
-    "invocation.json",
-    "prompt.txt",
-    "response_schema.json",
-    "result.json",
-    "stderr.txt",
-    "stdout.txt",
-)
 
 
 def fixture_id(name):

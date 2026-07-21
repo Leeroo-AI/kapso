@@ -21,26 +21,17 @@ from kapso.cross_run.knowledge.access import (
     PriorKnowledgeAccess,
     PriorKnowledgeAccessMaterialization,
 )
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES as _ARTIFACT_FILENAMES,
+    CODING_AGENT_INPUT_ARTIFACT_FILENAMES as _INPUT_FILENAMES,
+    CODING_AGENT_OUTPUT_ARTIFACT_FILENAMES as _OUTPUT_FILENAMES,
+    CODING_AGENT_RESULT_FILENAME as _RESULT_FILENAME,
+)
 from kapso.execution.coding_agents.credential_environment import (
     coding_agent_credential_environment,
 )
 
 _OPERATION_IDENTIFIER_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
-_INPUT_FILENAMES = (
-    "prompt.txt",
-    "response_schema.json",
-    "invocation.json",
-    "prior_knowledge.json",
-    "mcp_config.json",
-)
-_OUTPUT_FILENAMES = (
-    "stdout.txt",
-    "stderr.txt",
-    "final.json",
-    "mcp_audit.jsonl",
-)
-_RESULT_FILENAME = "result.json"
-_ARTIFACT_FILENAMES = _INPUT_FILENAMES + _OUTPUT_FILENAMES + (_RESULT_FILENAME,)
 _EMPTY_MCP_AUDIT_DIGEST = tree_or_blob_digest(b"")
 _CREDENTIAL_ENVIRONMENT_POLICY_VERSION = "kapso.coding_agent_credentials.v1"
 _FILESYSTEM_POLICY_VERSION = "kapso.coding_agent_read.v1"

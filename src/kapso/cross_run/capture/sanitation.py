@@ -18,7 +18,6 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.capture.safety import (
-    path_matches_denied_pattern,
     read_restricted_regular_file,
     remove_restricted_directory,
     restricted_directory_identity,
@@ -27,8 +26,12 @@ from kapso.cross_run.capture.validator import ValidatedCapture
 from kapso.cross_run.record_contracts import (
     ExecutionRevisionEvent,
     SANITATION_REPORT_SCHEMA,
-    SANITATION_SCANNER_VERSION,
     SanitationReport,
+)
+from kapso.cross_run.sanitation_rules import (
+    SANITATION_SCANNER_VERSION,
+    sanitation_policy_fingerprint,
+    scan_text_artifact,
 )
 from kapso.cross_run.settings import CaptureSettings, SanitationSettings
 from kapso.execution.memories.experiment_memory.store import EXPERIMENT_HISTORY_SCHEMA
@@ -57,21 +60,6 @@ _REDACTED_NODE_FIELDS = {
     "technical_difficulties": "",
     "workspace_dir": "",
 }
-_SPDX_PATTERN = re.compile(r"SPDX-License-Identifier:\s*([^\s*]+)")
-_SECRET_PATTERNS = (
-    ("private_key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
-    ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
-    ("github_token", re.compile(r"\bgh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}\b")),
-    ("openai_key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b")),
-    (
-        "assigned_secret",
-        re.compile(
-            r"(?im)^\s*(?:api[_-]?key|access[_-]?token|auth[_-]?token|password|secret)"
-            r"\s*[:=]\s*['\"]?[^\s'\"${}]{8,}"
-        ),
-    ),
-    ("credential_url", re.compile(r"https?://[^\s/:]+:[^\s/@]+@")),
-)
 
 
 class SanitationRejectedError(ValueError):
@@ -90,21 +78,6 @@ class SanitizedCapture:
     report: SanitationReport
     artifact_refs: Mapping[str, str]
     checksums: Mapping[str, str]
-
-
-def sanitation_policy_fingerprint(settings: SanitationSettings) -> str:
-    """Bind a report to every effective deterministic sanitation setting."""
-
-    return tree_or_blob_digest(canonical_json_bytes(settings.to_dict()))
-
-
-def _finding(code: str, path: str, payload: bytes, severity: str) -> dict[str, str]:
-    return {
-        "code": code,
-        "evidence_digest": tree_or_blob_digest(payload),
-        "path": path,
-        "severity": severity,
-    }
 
 
 def _open_or_create_output_root(
@@ -348,54 +321,21 @@ class SanitationGate:
 
         for relative_path in sorted(admitted_refs):
             payload = projected_payloads.get(relative_path, raw_payloads[relative_path])
-            path = PurePosixPath(relative_path)
-            source_name = path.name
-            suffix = path.suffix.casefold()
-            if path_matches_denied_pattern(
-                relative_path, self.settings.denied_path_patterns
+            for finding in scan_text_artifact(
+                self.settings,
+                relative_path,
+                payload,
             ):
                 findings.append(
-                    _finding("denied_path", relative_path, payload, "reject")
+                    {
+                        "code": finding.code,
+                        "evidence_digest": finding.evidence_digest,
+                        "path": finding.relative_path,
+                        "severity": finding.severity,
+                    }
                 )
-            if (
-                suffix not in self.settings.allowed_suffixes
-                and source_name not in self.settings.allowed_filenames
-            ):
-                findings.append(
-                    _finding(
-                        "forbidden_artifact_class", relative_path, payload, "reject"
-                    )
-                )
-            if len(payload) > self.settings.max_file_bytes:
-                findings.append(
-                    _finding("file_too_large", relative_path, payload, "reject")
-                )
-            text = payload.decode("utf-8", errors="surrogateescape")
-            if any(0xDC80 <= ord(character) <= 0xDCFF for character in text):
-                findings.append(
-                    _finding("invalid_utf8", relative_path, payload, "reject")
-                )
-            if "\x00" in text:
-                findings.append(_finding("nul_byte", relative_path, payload, "reject"))
-            for code, pattern in _SECRET_PATTERNS:
-                if pattern.search(text) is not None:
-                    findings.append(_finding(code, relative_path, payload, "reject"))
-            spdx_licenses = tuple(sorted(set(_SPDX_PATTERN.findall(text))))
-            for license_id in spdx_licenses:
-                if license_id not in self.settings.allowed_spdx_licenses:
-                    findings.append(
-                        _finding(
-                            "unapproved_spdx_license",
-                            relative_path,
-                            payload,
-                            "reject",
-                        )
-                    )
-            if source_name == "LICENSE" and not spdx_licenses:
-                findings.append(
-                    _finding("unclassified_license", relative_path, payload, "notice")
-                )
-                taints.add("unclassified_license")
+                if finding.code == "unclassified_license":
+                    taints.add("unclassified_license")
             admitted[relative_path] = tree_or_blob_digest(payload)
 
         sorted_findings = tuple(

@@ -13,17 +13,11 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import CodingAgentOperationReceipt
 from kapso.cross_run.record_contracts import CatalogAgentOperationError
 from kapso.cross_run.settings import CodingAgentSettings
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_ARTIFACT_FILENAMES,
+    CODING_AGENT_RETURNED_ARTIFACT_FILENAMES,
+)
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
-
-_RECEIPT_ARTIFACT_FILENAMES = {
-    "final.json",
-    "invocation.json",
-    "prompt.txt",
-    "response_schema.json",
-    "result.json",
-    "stderr.txt",
-    "stdout.txt",
-}
 
 
 def validate_catalog_agent_workspace(workspace: Path) -> None:
@@ -50,7 +44,7 @@ def build_catalog_agent_operation_receipt(
         raise CatalogAgentOperationError("catalog agent returned no artifacts")
     directories = {path.parent for path in artifact_paths}
     names = {path.name for path in artifact_paths}
-    if len(directories) != 1 or names != _RECEIPT_ARTIFACT_FILENAMES - {"result.json"}:
+    if len(directories) != 1 or names != set(CODING_AGENT_RETURNED_ARTIFACT_FILENAMES):
         raise CatalogAgentOperationError("catalog agent artifact set is invalid")
     artifact_directory = next(iter(directories))
     complete_paths = artifact_paths + (artifact_directory / "result.json",)
@@ -62,6 +56,8 @@ def build_catalog_agent_operation_receipt(
                 "catalog agent artifact must be a regular file"
             )
         checksums[path.name] = tree_or_blob_digest(path.read_bytes())
+    if set(checksums) != set(CODING_AGENT_ARTIFACT_FILENAMES):
+        raise CatalogAgentOperationError("catalog receipt artifact set is invalid")
     final_output = (artifact_directory / "final.json").read_text(encoding="utf-8")
     final_payload = parse_json_bytes(final_output.encode("utf-8"))
     result_payload = parse_json_bytes(result.output)
