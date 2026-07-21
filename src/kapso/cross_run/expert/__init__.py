@@ -22,6 +22,7 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertCandidateAncestorInput,
     ExpertProposalContractError,
 )
+from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -64,6 +65,7 @@ __all__ = [
     "EXPERT_BOOK_PATH",
     "EMPTY_EXPERT_TREE_DIGEST",
     "ExpertEvolutionTriggerDecision",
+    "GitHubExpertCurrentReleaseProvider",
     "ExpertAttestationVerifier",
     "ExpertCandidateEligibilityEvaluator",
     "ExpertCurrentReleaseProvider",

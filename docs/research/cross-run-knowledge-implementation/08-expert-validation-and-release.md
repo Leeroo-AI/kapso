@@ -77,8 +77,8 @@ closure. Missing bytes fail loud and make the attempt ineligible.
 Implemented validation substrate:
 
 - enrollment reopens the exact M7 candidate, resolves the current release through
-  a read-only provider, and resolves every adapter through a verified-source
-  provider;
+  a GitHub reader that verifies repository policy and the observed immutable
+  release identity, and resolves every adapter through a verified-source provider;
 - validation track and stage plan are recomputed from trusted candidate records;
 - every exact trigger adapter binding is enrolled under an unambiguous canonical
   identity, while configured task families remain explicit stage-policy inputs;
@@ -93,6 +93,12 @@ Implemented validation substrate:
 The automated-review, promotion-decision, persistence, composition, and release
 paths remain separate later slices; the executable reducer cannot synthesize
 their authority.
+
+The task-adapter reader remains intentionally unimplemented until a typed package
+and verification receipt bind the full manifest bytes (including its excluded
+publisher attestation), exact source archive/tree, sanitation, validation, and
+publisher-verification proofs. A generic content ID is not accepted as production
+verification.
 
 ## Evaluator cascade
 
