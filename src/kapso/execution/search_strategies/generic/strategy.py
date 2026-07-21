@@ -103,6 +103,79 @@ def is_degenerate_ensemble_candidate(text: str) -> bool:
     content = re.sub(r"\s+", "", content)
     return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
 
+DEFAULT_MEMBER_LENS = "no specific lens — judge freely"
+
+_LENS_PLANNER_KEYS = frozenset({"cli", "model", "effort", "timeout"})
+LENS_PLAN_FILENAME = "lens_plan.json"
+
+
+def normalize_ideation_lens_planner(value: Any) -> Optional[Dict[str, Any]]:
+    """Validate the optional task-aware lens planner config block."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("ideation_lens_planner must be a mapping")
+    unknown = sorted(set(value) - _LENS_PLANNER_KEYS)
+    if unknown:
+        raise ValueError(
+            f"ideation_lens_planner has unknown keys: {', '.join(unknown)}"
+        )
+    if value.get("cli") != "claude_code":
+        raise ValueError(
+            "ideation_lens_planner.cli must be claude_code (the planner "
+            "needs the CLI's native WebSearch/WebFetch tools)"
+        )
+    model = value.get("model")
+    if not isinstance(model, str) or not model.strip():
+        raise ValueError("ideation_lens_planner.model must be a non-empty string")
+    timeout = value.get("timeout")
+    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+        raise ValueError("ideation_lens_planner.timeout must be a positive number")
+    return dict(value)
+
+
+def validate_lens_planner_against_ensemble(
+    planner: Optional[Dict[str, Any]],
+    ensemble: Optional[List[Dict[str, str]]],
+) -> None:
+    """The planner owns every lens: static member lenses are forbidden with it."""
+    if planner is None:
+        return
+    if not ensemble:
+        raise ValueError(
+            "ideation_lens_planner requires ideation_ensemble (there are no "
+            "members to design lenses for)"
+        )
+    lensed = [i for i, member in enumerate(ensemble) if "lens" in member]
+    if lensed:
+        raise ValueError(
+            "ideation_ensemble members "
+            f"{', '.join(str(i) for i in lensed)} carry static lens keys — "
+            "remove them (the lens planner designs every lens) or disable "
+            "ideation_lens_planner"
+        )
+
+
+def parse_lens_plan(output: str, expected_count: int) -> Dict[str, Any]:
+    """Extract <lens_N> tags (member order) + <sources> from planner output."""
+    lenses = []
+    for i in range(1, expected_count + 1):
+        match = re.search(
+            rf"<lens_{i}>(.*?)</lens_{i}>", output, re.DOTALL
+        )
+        if not match or not match.group(1).strip():
+            raise ValueError(
+                f"lens planner output missing a non-empty <lens_{i}> tag "
+                f"(expected {expected_count} lenses)"
+            )
+        lenses.append(" ".join(match.group(1).split()))
+    sources_match = re.search(r"<sources>(.*?)</sources>", output, re.DOTALL)
+    return {
+        "lenses": lenses,
+        "sources": sources_match.group(1).strip() if sources_match else "",
+    }
+
+
 ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex", "oss_claude_code"})
 _ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
 # oss_claude_code members additionally carry their endpoint wiring; the
@@ -294,6 +367,16 @@ class GenericSearch(SearchStrategy):
                 "ideation_selector.cli must be claude_code (the selector "
                 "reads the worktree to verify candidates)"
             )
+        # Optional task-aware lens planning: a web-enabled Claude session
+        # designs the member lenses for THIS task (once per campaign,
+        # persisted to .kapso/lens_plan.json). Static member lenses are
+        # forbidden while it is enabled.
+        self.ideation_lens_planner = normalize_ideation_lens_planner(
+            self.params.get("ideation_lens_planner")
+        )
+        validate_lens_planner_against_ensemble(
+            self.ideation_lens_planner, self.ideation_ensemble
+        )
         # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
         self.ideation_gates = self.params.get("ideation_gates", ["research", "experiment_history", "repo_memory", "leeroopedia"])
         
@@ -649,6 +732,96 @@ class GenericSearch(SearchStrategy):
             finally:
                 agent.cleanup()
     
+    def _resolve_member_lenses(
+        self, problem: str, ideation_dir: str
+    ) -> Optional[List[str]]:
+        """Task-aware lenses from the planner; None keeps static config lenses.
+
+        Planned ONCE per campaign: the plan persists to .kapso/lens_plan.json
+        and later iterations (and resumes) reuse it. A missing planner block
+        disables the feature; a failing planner session raises — it runs at
+        iteration 1 only, when a restart is cheap.
+        """
+        if not self.ideation_lens_planner:
+            return None
+        expected = len(self.ideation_ensemble)
+        plan_path = os.path.join(
+            self.workspace_dir, ".kapso", LENS_PLAN_FILENAME
+        )
+        if os.path.isfile(plan_path):
+            with open(plan_path, encoding="utf-8") as f:
+                plan = json.load(f)
+            lenses = plan["lenses"]
+            if len(lenses) != expected:
+                raise ValueError(
+                    f"{plan_path} holds {len(lenses)} lenses for "
+                    f"{expected} ensemble members — delete it to replan"
+                )
+            return lenses
+
+        planner = self.ideation_lens_planner
+        roster = "\n".join(
+            f"- member {i + 1}: cli={m['cli']}, model={m['model']}"
+            + (
+                " (has native web search during ideation)"
+                if m["cli"] == "codex"
+                else ""
+            )
+            for i, m in enumerate(self.ideation_ensemble)
+        )
+        prompt = render_prompt(
+            load_prompt(
+                "execution/search_strategies/generic/prompts/ideation_lens_planner.md"
+            ),
+            {
+                "problem": problem,
+                "member_roster": roster,
+                "lens_count": str(expected),
+                "shared_artifacts_brief": self.shared_artifacts_brief,
+            },
+        )
+
+        from kapso.execution.coding_agents.base import CodingAgentConfig
+        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+
+        print(
+            f"[GenericSearch] Lens planner starting: "
+            f"{planner['model']} (web-enabled)"
+        )
+        config = CodingAgentConfig(
+            agent_type="claude_code",
+            model=planner["model"],
+            debug_model=planner["model"],
+            agent_specific={
+                **self._claude_auth_settings,
+                "env_strip": self.env_strip,
+                "env_defaults": self.env_defaults,
+                "aws_region": self.aws_region,
+                "allowed_tools": ["Read", "WebSearch", "WebFetch"],
+                "timeout": planner.get("timeout", 600),
+                "streaming": True,
+                "planning_mode": False,
+                "effort": planner.get("effort", self.session_effort),
+            },
+        )
+        agent = ClaudeCodeCodingAgent(config)
+        agent.initialize(ideation_dir)
+        result = agent.generate_code(prompt)
+        agent.cleanup()
+        if not result.success:
+            raise RuntimeError(
+                f"lens planner session failed: {result.error}"
+            )
+        plan = parse_lens_plan(result.output, expected)
+        plan["planner_model"] = planner["model"]
+        plan["created_iteration"] = self.iteration_count
+        os.makedirs(os.path.dirname(plan_path), exist_ok=True)
+        with open(plan_path, "w", encoding="utf-8") as f:
+            json.dump(plan, f, indent=2)
+        for i, lens in enumerate(plan["lenses"], 1):
+            print(f"[GenericSearch] Lens {i}: {lens}")
+        return plan["lenses"]
+
     def _generate_solution_ensemble(
         self,
         problem: str,
@@ -678,11 +851,13 @@ class GenericSearch(SearchStrategy):
             "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
         )
 
-        def run_member(member: Dict[str, str]) -> Dict[str, Any]:
+        member_lenses = self._resolve_member_lenses(problem, ideation_dir)
+
+        def run_member(member: Dict[str, str], lens: str) -> Dict[str, Any]:
             prompt = base_prompt + "\n\n" + render_prompt(
                 addendum_template,
                 {
-                    "lens": member.get("lens", "no specific lens — judge freely"),
+                    "lens": lens,
                     "candidate_count": str(ENSEMBLE_CANDIDATES_PER_MEMBER),
                 },
             )
@@ -811,8 +986,15 @@ class GenericSearch(SearchStrategy):
             }
 
         members = self.ideation_ensemble
+        resolved_lenses = (
+            member_lenses
+            if member_lenses is not None
+            else [m.get("lens", DEFAULT_MEMBER_LENS) for m in members]
+        )
         with ThreadPoolExecutor(max_workers=len(members)) as executor:
-            member_results = list(executor.map(run_member, members))
+            member_results = list(
+                executor.map(run_member, members, resolved_lenses)
+            )
 
         pool: List[Dict[str, str]] = []
         sections: List[str] = []

@@ -43,11 +43,18 @@ modes:
           - cli: "codex"
             model: "gpt-5.6-sol"
             effort: "xhigh"
-            lens: "information-theoretic & algorithmic first — the optimal ask/guess decision policy and question-selection math"
           - cli: "claude_code"
             model: "claude-fable-5"
             effort: "xhigh"
-            lens: "engineering & measurement first — oracle-replica fidelity, real-vs-mock validation, robustness to oracle bit-flips"
+        # Task-aware lens planning: a web-enabled Fable session surveys how
+        # this task's problem family is attacked and designs one lens per
+        # member (once per campaign, persisted to .kapso/lens_plan.json).
+        # Static member lens keys are forbidden while this is enabled.
+        ideation_lens_planner:
+          cli: "claude_code"
+          model: "claude-fable-5"
+          effort: "max"
+          timeout: 600
         ideation_selector:
           cli: "claude_code"
           model: "claude-opus-4-8"
