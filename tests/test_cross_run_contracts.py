@@ -1,3 +1,4 @@
+import base64
 from dataclasses import replace
 
 import pytest
@@ -20,6 +21,8 @@ from kapso.cross_run.contracts import (
     CaptureManifest,
     CatalogEntryState,
     CodingAgentOperationReceipt,
+    CodingAgentWorkspaceChangedFile,
+    CodingAgentWorkspaceDelta,
     ComparisonStatus,
     CompletionState,
     ContextDimensionSchema,
@@ -627,6 +630,16 @@ def build_records():
     candidate_operation_preimage = {
         "ancestor_candidate_ids": (),
         "configuration_fingerprint": digest("expert-validation-config"),
+        "input_artifact_checksums": {
+            name: digest(f"candidate-{name}")
+            for name in (
+                "invocation.json",
+                "prior_knowledge.json",
+                "prompt.txt",
+                "response_schema.json",
+            )
+        },
+        "mcp_configuration_fingerprint": digest("candidate-mcp-configuration"),
         "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
         "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
         "trigger_decision_id": trigger_decision_id,
@@ -646,6 +659,22 @@ def build_records():
         "agent_call_"
         + tree_or_blob_digest(canonical_json_bytes(candidate_operation_preimage))[7:39]
     )
+    candidate_workspace_delta = CodingAgentWorkspaceDelta.mint(
+        baseline_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        edited_tree_hash=candidate_editable_tree_hash,
+        changed_files=tuple(
+            CodingAgentWorkspaceChangedFile(
+                before=None,
+                after=file,
+                content_base64=base64.b64encode(
+                    candidate_contents[file.relative_path]
+                ).decode("ascii"),
+            )
+            for file in candidate_files
+            if file.relative_path in set(candidate_declared_paths)
+        ),
+        deleted_files=(),
+    )
     candidate_operation_receipt = CodingAgentOperationReceipt.mint(
         operation_id=candidate_operation_id,
         principal_id="expert-architect",
@@ -658,7 +687,11 @@ def build_records():
             filename: (
                 tree_or_blob_digest(candidate_final_output.encode("utf-8"))
                 if filename == "final.json"
-                else digest(f"candidate-{filename}")
+                else (
+                    tree_or_blob_digest(candidate_workspace_delta.to_json_bytes())
+                    if filename == "workspace-delta.json"
+                    else digest(f"candidate-{filename}")
+                )
             )
             for filename in coding_agent_artifact_filenames(
                 CodingAgentWorkspaceAccess.EDIT_WORKSPACE
@@ -684,6 +717,10 @@ def build_records():
         operation_preimage=candidate_operation_preimage,
         operation_receipt=candidate_operation_receipt,
         workspace_receipt=candidate_workspace_receipt,
+        workspace_delta_ref=candidate_workspace_delta.workspace_delta_id,
+        workspace_delta_digest=tree_or_blob_digest(
+            candidate_workspace_delta.to_json_bytes()
+        ),
         final_output=candidate_final_output,
     )
     candidate_sanitation = ExpertCandidateSanitationReport.mint(

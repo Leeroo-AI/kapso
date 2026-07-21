@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Mapping
 
-from kapso.cross_run.agent_artifacts import CodingAgentWorkspaceAccess
+from kapso.cross_run.agent_artifacts import (
+    CODING_AGENT_WORKSPACE_DELTA_FILENAME,
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
+)
 from kapso.cross_run.canonical import source_tree_digest, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     CandidateChangeKind,
+    CodingAgentWorkspaceChangedFile,
+    CodingAgentWorkspaceDelta,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
@@ -42,6 +49,9 @@ from kapso.cross_run.settings import (
     ExpertSettings,
     SanitationSettings,
 )
+from kapso.execution.coding_agents.operation_receipt import (
+    verify_coding_agent_operation_artifacts,
+)
 
 
 class ExpertCandidateValidationError(ValueError):
@@ -61,6 +71,8 @@ class ExpertCandidateClosure:
     operation: ExpertCandidateOperationRecord
     sanitation_report: ExpertCandidateSanitationReport
     candidate_contents: Mapping[str, bytes]
+    workspace_delta: CodingAgentWorkspaceDelta
+    operation_artifacts: Mapping[str, bytes]
     ancestor_candidates: tuple[ExpertCandidateManifest, ...] = ()
 
 
@@ -77,9 +89,9 @@ class ExpertCandidateValidator:
 
     def validate(self, closure: ExpertCandidateClosure) -> bytes:
         self._validate_trigger_and_parent(closure)
-        self._validate_operation(closure)
         candidate_files = self._validate_candidate_tree(closure)
         parent_files = self._validate_parent_tree(closure)
+        self._validate_operation(closure)
         self._validate_operation_tree_delta(closure, parent_files, candidate_files)
         self._validate_patch(closure, parent_files, candidate_files)
         self._validate_sanitation(closure)
@@ -191,6 +203,101 @@ class ExpertCandidateValidator:
                 self.settings.architect_id,
                 self.settings.architect_role,
                 self.settings.architect,
+            )
+        self._validate_operation_artifacts(closure)
+
+    def _validate_operation_artifacts(
+        self,
+        closure: ExpertCandidateClosure,
+    ) -> None:
+        operation = closure.operation
+        receipt = operation.operation_receipt
+        expected_names = set(
+            coding_agent_artifact_filenames(CodingAgentWorkspaceAccess.EDIT_WORKSPACE)
+        )
+        if set(closure.operation_artifacts) != expected_names:
+            raise ExpertCandidateValidationError(
+                "candidate operation artifact closure is incomplete"
+            )
+        if sum(len(payload) for payload in closure.operation_artifacts.values()) > (
+            self.settings.agent_artifact_byte_limit
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate operation artifacts exceed the configured limit"
+            )
+        for name, payload in closure.operation_artifacts.items():
+            if not isinstance(payload, bytes):
+                raise ExpertCandidateValidationError(
+                    "candidate operation artifact values must be bytes"
+                )
+            if receipt.artifact_checksums.get(name) != tree_or_blob_digest(payload):
+                raise ExpertCandidateValidationError(
+                    f"candidate operation artifact checksum differs: {name}"
+                )
+        input_checksums = operation.operation_preimage["input_artifact_checksums"]
+        if any(
+            input_checksums[name]
+            != tree_or_blob_digest(closure.operation_artifacts[name])
+            for name in input_checksums
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate operation preimage differs from its input artifacts"
+            )
+        verified = verify_coding_agent_operation_artifacts(
+            operation_id=receipt.operation_id,
+            workspace_access=receipt.workspace_access,
+            artifact_bytes=closure.operation_artifacts,
+        )
+        if operation.operation_preimage["mcp_configuration_fingerprint"] != (
+            verified.mcp_configuration_fingerprint
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate operation preimage differs from its MCP configuration"
+            )
+        invocation = verified.invocation
+        expected_agent = (
+            self.settings.generalizer
+            if operation.operation_kind is ExpertCandidateOperationKind.GENERALIZE
+            else self.settings.architect
+        )
+        workspace_policy = invocation["workspace_policy"]
+        if (
+            invocation["role"] != receipt.role
+            or invocation["cli"] != receipt.cli
+            or invocation["model"] != receipt.model
+            or invocation["effort"] != receipt.effort
+            or invocation["timeout_seconds"] != expected_agent.timeout_seconds
+            or tuple(invocation["allowed_tools"]) != expected_agent.allowed_tools
+            or invocation["sensitive_file_glob_scan_max_depth"]
+            != self.settings.sensitive_file_glob_scan_max_depth
+            or workspace_policy["access"]
+            != CodingAgentWorkspaceAccess.EDIT_WORKSPACE.value
+            or workspace_policy["maximum_entries"]
+            != self.settings.candidate_entry_limit
+            or workspace_policy["maximum_bytes"] != self.settings.candidate_byte_limit
+            or workspace_policy["expected_tree_hash"]
+            != closure.workspace_delta.baseline_tree_hash
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate invocation differs from configured proposer authority"
+            )
+        delta_payload = closure.operation_artifacts[
+            CODING_AGENT_WORKSPACE_DELTA_FILENAME
+        ]
+        if (
+            operation.workspace_delta_ref != closure.workspace_delta.workspace_delta_id
+            or operation.workspace_delta_digest != tree_or_blob_digest(delta_payload)
+            or delta_payload != closure.workspace_delta.to_json_bytes()
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate workspace delta differs from its durable artifact"
+            )
+        if (
+            verified.workspace_delta != closure.workspace_delta
+            or verified.final_output != operation.final_output
+        ):
+            raise ExpertCandidateValidationError(
+                "candidate result differs from its durable output or delta"
             )
 
     @staticmethod
@@ -349,9 +456,8 @@ class ExpertCandidateValidator:
         )
         changed_paths = tuple(
             path
-            for path in sorted(set(editable_parent) | set(editable_candidate))
-            if editable_candidate.get(path) is not None
-            and editable_parent.get(path) != editable_candidate.get(path)
+            for path in sorted(editable_candidate)
+            if editable_parent.get(path) != editable_candidate[path]
         )
         deleted_paths = tuple(
             path for path in sorted(editable_parent) if path not in editable_candidate
@@ -368,8 +474,24 @@ class ExpertCandidateValidator:
                 }
             )
         )
+        expected_delta = CodingAgentWorkspaceDelta.mint(
+            baseline_tree_hash=editable_parent_tree_hash,
+            edited_tree_hash=edited_tree_hash,
+            changed_files=tuple(
+                CodingAgentWorkspaceChangedFile(
+                    before=editable_parent.get(path),
+                    after=editable_candidate[path],
+                    content_base64=base64.b64encode(
+                        closure.candidate_contents[path]
+                    ).decode("ascii"),
+                )
+                for path in changed_paths
+            ),
+            deleted_files=tuple(editable_parent[path] for path in deleted_paths),
+        )
         if (
-            workspace_receipt.editable_parent_tree_hash != editable_parent_tree_hash
+            closure.workspace_delta != expected_delta
+            or workspace_receipt.editable_parent_tree_hash != editable_parent_tree_hash
             or workspace_receipt.edited_tree_hash != edited_tree_hash
             or workspace_receipt.changed_paths != changed_paths
             or workspace_receipt.deleted_paths != deleted_paths

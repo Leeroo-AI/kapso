@@ -12,6 +12,12 @@ from pathlib import Path
 import pytest
 
 from kapso.core.config import load_config
+from kapso.cross_run.settings import CodingAgentSettings
+from kapso.execution.coding_agents.operation_receipt import (
+    CodingAgentOperationReceiptError,
+    seal_coding_agent_operation,
+    verify_coding_agent_operation_artifacts,
+)
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
@@ -37,6 +43,7 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.agent_artifacts import (
     CODING_AGENT_WORKSPACE_DELTA_FILENAME,
     CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
 )
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccess
 from test_prior_knowledge_gate import access_materialization
@@ -400,6 +407,20 @@ def test_edit_workspace_call_seals_exact_replayable_delta(
     call_request = editable_request(workspace, cli)
 
     result = runner(tmp_path).run(call_request, {"type": "object"})
+    sealed = seal_coding_agent_operation(
+        request=call_request,
+        response_schema={"type": "object"},
+        principal_id="candidate_proposer",
+        agent=CodingAgentSettings(
+            cli=call_request.cli,
+            model=call_request.model,
+            timeout_seconds=call_request.timeout_seconds,
+            effort=call_request.effort,
+            allowed_tools=tuple(sorted(call_request.allowed_tools)),
+        ),
+        sensitive_file_glob_scan_max_depth=(SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH),
+        result=result,
+    )
 
     delta_path = next(
         Path(path)
@@ -415,6 +436,30 @@ def test_edit_workspace_call_seals_exact_replayable_delta(
     )
     reconstructed = reconstruct_edited_workspace(baseline, delta)
     assert delta.to_json_bytes() == delta_payload
+    assert sealed.workspace_delta == delta
+    assert sealed.final_output == result.output
+    assert dict(sealed.artifact_bytes)["workspace-delta.json"] == delta_payload
+    with pytest.raises(
+        CodingAgentOperationReceiptError,
+        match="directory names another operation",
+    ):
+        seal_coding_agent_operation(
+            request=replace(
+                call_request,
+                operation_id="agent_call_" + "f" * 32,
+            ),
+            response_schema={"type": "object"},
+            principal_id="candidate_proposer",
+            agent=CodingAgentSettings(
+                cli=call_request.cli,
+                model=call_request.model,
+                timeout_seconds=call_request.timeout_seconds,
+                effort=call_request.effort,
+                allowed_tools=tuple(sorted(call_request.allowed_tools)),
+            ),
+            sensitive_file_glob_scan_max_depth=(SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH),
+            result=result,
+        )
     assert delta.changed_paths == ("created.py", "existing.txt")
     assert delta.deleted_paths == ("deleted.txt",)
     assert reconstructed == edited
@@ -445,6 +490,33 @@ def test_edit_workspace_call_seals_exact_replayable_delta(
         )
         assert arguments[arguments.index("--tools") + 1] == (
             "Edit,Glob,Grep,Read,Write"
+        )
+    (delta_path.parent / "mcp_config.json").write_text(
+        json.dumps(
+            {"mcpServers": {"undeclared": {}}},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        CodingAgentOperationReceiptError,
+        match="enables undeclared access",
+    ):
+        seal_coding_agent_operation(
+            request=call_request,
+            response_schema={"type": "object"},
+            principal_id="candidate_proposer",
+            agent=CodingAgentSettings(
+                cli=call_request.cli,
+                model=call_request.model,
+                timeout_seconds=call_request.timeout_seconds,
+                effort=call_request.effort,
+                allowed_tools=tuple(sorted(call_request.allowed_tools)),
+            ),
+            sensitive_file_glob_scan_max_depth=(SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH),
+            result=result,
         )
 
 
@@ -743,6 +815,46 @@ print(json.dumps({
         tools = agent_arguments[agent_arguments.index("--tools") + 1].split(",")
         assert "mcp__prior_knowledge__list_prior_knowledge" in tools
         assert "mcp__prior_knowledge__get_prior_knowledge_record" in tools
+    sealed = seal_coding_agent_operation(
+        request=call_request,
+        response_schema={"type": "object"},
+        principal_id="candidate_proposer",
+        agent=CodingAgentSettings(
+            cli=call_request.cli,
+            model=call_request.model,
+            timeout_seconds=call_request.timeout_seconds,
+            effort=call_request.effort,
+            allowed_tools=tuple(sorted(call_request.allowed_tools)),
+        ),
+        sensitive_file_glob_scan_max_depth=SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH,
+        result=result,
+    )
+    assert sealed.receipt.operation_id == call_request.operation_id
+    server["command"] = "/tmp/untrusted/env"
+    server["args"][1] = "PYTHONPATH=/tmp/untrusted-package"
+    server["args"][2] = "/tmp/untrusted-python"
+    artifact_by_name["mcp_config.json"].write_text(
+        json.dumps(mcp_config, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        CodingAgentOperationReceiptError,
+        match="MCP configuration artifact differs from request",
+    ):
+        seal_coding_agent_operation(
+            request=call_request,
+            response_schema={"type": "object"},
+            principal_id="candidate_proposer",
+            agent=CodingAgentSettings(
+                cli=call_request.cli,
+                model=call_request.model,
+                timeout_seconds=call_request.timeout_seconds,
+                effort=call_request.effort,
+                allowed_tools=tuple(sorted(call_request.allowed_tools)),
+            ),
+            sensitive_file_glob_scan_max_depth=SENSITIVE_FILE_GLOB_SCAN_MAX_DEPTH,
+            result=result,
+        )
 
 
 def test_completed_operation_is_reused_without_invoking_the_cli_again(
@@ -845,6 +957,18 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
         json.dumps(corrupt_event, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+    with pytest.raises(CodingAgentInvocationError, match="get audit arguments"):
+        verify_coding_agent_operation_artifacts(
+            operation_id=call_request.operation_id,
+            workspace_access=CodingAgentWorkspaceAccess.READ_ONLY,
+            artifact_bytes={
+                name: (artifacts["mcp_audit.jsonl"].parent / name).read_bytes()
+                for name in coding_agent_artifact_filenames(
+                    CodingAgentWorkspaceAccess.READ_ONLY
+                )
+            },
+        )
 
     with pytest.raises(CodingAgentInvocationError, match="get audit arguments"):
         call_runner.run(call_request, {"type": "object"})

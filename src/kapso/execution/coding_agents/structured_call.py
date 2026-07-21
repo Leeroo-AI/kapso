@@ -60,6 +60,244 @@ _SENSITIVE_HOME_PATHS = (
 )
 
 
+def coding_agent_response_schema_bytes(
+    response_schema: Mapping[str, Any],
+) -> bytes:
+    if not isinstance(response_schema, Mapping):
+        raise ValueError("coding-agent response schema must be an object")
+    return (
+        json.dumps(response_schema, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode("utf-8")
+
+
+def coding_agent_invocation_bytes(
+    request: "CodingAgentCallRequest",
+    *,
+    sensitive_file_glob_scan_max_depth: int,
+) -> bytes:
+    _require_positive_integer(
+        sensitive_file_glob_scan_max_depth,
+        "coding-agent sensitive-file glob scan depth",
+    )
+    return (
+        json.dumps(
+            {
+                "role": request.role,
+                "cli": request.cli,
+                "model": request.model,
+                "timeout_seconds": request.timeout_seconds,
+                "effort": request.effort,
+                "allowed_tools": list(request.allowed_tools),
+                "workspace_policy": request.workspace_policy.to_dict(),
+                "credential_environment_policy_version": (
+                    _CREDENTIAL_ENVIRONMENT_POLICY_VERSION
+                ),
+                "filesystem_policy_version": _FILESYSTEM_POLICY_VERSION,
+                "mcp_audit_policy_version": _MCP_AUDIT_POLICY_VERSION,
+                "sensitive_file_glob_scan_max_depth": (
+                    sensitive_file_glob_scan_max_depth
+                ),
+                "prior_knowledge_snapshot_id": (
+                    None
+                    if request.prior_knowledge is None
+                    else request.prior_knowledge.prior_knowledge_snapshot.prior_knowledge_snapshot_id
+                ),
+                "prior_knowledge_materialization_digest": (
+                    None
+                    if request.prior_knowledge is None
+                    else request.prior_knowledge.materialization_digest
+                ),
+            },
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def coding_agent_policy_versions() -> Mapping[str, str]:
+    return {
+        "credential_environment_policy_version": (
+            _CREDENTIAL_ENVIRONMENT_POLICY_VERSION
+        ),
+        "filesystem_policy_version": _FILESYSTEM_POLICY_VERSION,
+        "mcp_audit_policy_version": _MCP_AUDIT_POLICY_VERSION,
+    }
+
+
+def coding_agent_mcp_configuration_fingerprint(
+    prior_knowledge: PriorKnowledgeAccessMaterialization | None,
+) -> str:
+    semantic_configuration = {
+        "enabled": prior_knowledge is not None,
+        "enabled_gates": (() if prior_knowledge is None else ("prior_knowledge",)),
+        "gate_failure_policy": None if prior_knowledge is None else "error",
+        "module": (None if prior_knowledge is None else "kapso.gated_mcp.server"),
+        "prior_knowledge_materialization_digest": (
+            None if prior_knowledge is None else prior_knowledge.materialization_digest
+        ),
+        "prior_knowledge_maximum_bytes": (
+            None if prior_knowledge is None else len(prior_knowledge.to_json_bytes())
+        ),
+    }
+    return tree_or_blob_digest(canonical_json_bytes(semantic_configuration))
+
+
+def coding_agent_mcp_configuration_bytes(
+    request: "CodingAgentCallRequest",
+    artifact_directory: Path,
+) -> bytes:
+    servers = {}
+    if request.prior_knowledge is not None:
+        servers["prior_knowledge"] = coding_agent_mcp_server_configuration(
+            request,
+            artifact_directory,
+        )
+    return (
+        json.dumps(
+            {"mcpServers": servers},
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def coding_agent_mcp_server_configuration(
+    request: "CodingAgentCallRequest",
+    artifact_directory: Path,
+) -> dict[str, Any]:
+    if request.prior_knowledge is None:
+        raise ValueError("prior-knowledge MCP requires a materialization")
+    python_path = Path(__file__).resolve().parents[3]
+    if not (python_path / "kapso" / "gated_mcp").is_dir():
+        raise ValueError("Kapso package root is missing for prior-knowledge MCP")
+    environment_executable = shutil.which("env")
+    if environment_executable is None:
+        raise ValueError("env executable is required for MCP isolation")
+    return {
+        "command": environment_executable,
+        "args": [
+            "-i",
+            f"PYTHONPATH={python_path}",
+            str(Path(sys.executable).resolve()),
+            "-m",
+            "kapso.gated_mcp.server",
+            "--enabled-gates",
+            "prior_knowledge",
+            "--gate-failure-policy",
+            "error",
+            "--prior-knowledge-path",
+            str(artifact_directory / "prior_knowledge.json"),
+            "--prior-knowledge-maximum-bytes",
+            str(len(request.prior_knowledge.to_json_bytes())),
+            "--prior-knowledge-audit-path",
+            str(artifact_directory / "mcp_audit.jsonl"),
+            "--operation-id",
+            request.operation_id,
+        ],
+    }
+
+
+def validate_coding_agent_mcp_audit(
+    *,
+    operation_id: str,
+    prior_knowledge: PriorKnowledgeAccessMaterialization | None,
+    audit_text: str,
+) -> tuple[int, str]:
+    if not audit_text:
+        return 0, _EMPTY_MCP_AUDIT_DIGEST
+    if prior_knowledge is None:
+        raise CodingAgentInvocationError(
+            "coding-agent call without prior knowledge produced an MCP audit"
+        )
+    if not audit_text.endswith("\n"):
+        raise CodingAgentInvocationError(
+            "prior-knowledge MCP audit has an incomplete final event"
+        )
+    lines = audit_text.splitlines()
+    if any(not line.strip() for line in lines):
+        raise CodingAgentInvocationError("prior-knowledge MCP audit has a blank line")
+    access = PriorKnowledgeAccess(prior_knowledge)
+    packet = access.packet
+    member_ids = set(packet.selected_record_ids) | set(packet.proof_reference_ids)
+    expected_fields = {
+        "arguments",
+        "operation_id",
+        "prior_knowledge_snapshot_id",
+        "response_digest",
+        "returned_ids",
+        "tool_name",
+    }
+    allowed_tools = {
+        "list_prior_knowledge",
+        "get_prior_knowledge_record",
+    }
+    for line in lines:
+        event = json.loads(line, object_pairs_hook=_strict_json_object)
+        if not isinstance(event, dict) or set(event) != expected_fields:
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit fields are invalid"
+            )
+        if event["operation_id"] != operation_id:
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit operation identity changed"
+            )
+        if event["prior_knowledge_snapshot_id"] != (packet.prior_knowledge_snapshot_id):
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit packet identity changed"
+            )
+        if event["tool_name"] not in allowed_tools:
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit names an unknown tool"
+            )
+        arguments = event["arguments"]
+        if not isinstance(arguments, dict):
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit arguments are invalid"
+            )
+        returned_ids = event["returned_ids"]
+        if (
+            not isinstance(returned_ids, list)
+            or len(returned_ids) != len(set(returned_ids))
+            or not set(returned_ids).issubset(member_ids)
+        ):
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit returned IDs are invalid"
+            )
+        if event["tool_name"] == "list_prior_knowledge":
+            if arguments or returned_ids != sorted(member_ids):
+                raise CodingAgentInvocationError(
+                    "prior-knowledge list audit is inconsistent"
+                )
+            response_payload = access.list_response_payload()
+        else:
+            if set(arguments) != {"record_id"}:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge get audit arguments are invalid"
+                )
+            record_id = arguments["record_id"]
+            if record_id not in member_ids or returned_ids != [record_id]:
+                raise CodingAgentInvocationError(
+                    "prior-knowledge get audit is inconsistent"
+                )
+            response_payload = access.record_response_payload(record_id)
+        expected_response_digest = tree_or_blob_digest(
+            canonical_json_bytes(response_payload)
+        )
+        if event["response_digest"] != expected_response_digest:
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit response digest is inconsistent"
+            )
+        if canonical_json_bytes(event).decode("utf-8") != line:
+            raise CodingAgentInvocationError(
+                "prior-knowledge MCP audit event is not canonical JSON"
+            )
+    return len(lines), tree_or_blob_digest(audit_text.encode("utf-8"))
+
+
 class CodingAgentInvocationError(RuntimeError):
     """A coding-agent operation is corrupt, conflicting, or unsuccessful."""
 
@@ -442,6 +680,11 @@ class CodingAgentCallResult:
             "mcp_audit_event_count": self.mcp_audit_event_count,
         }
 
+    def to_json_bytes(self) -> bytes:
+        return (
+            json.dumps(self.to_dict(), sort_keys=True, allow_nan=False) + "\n"
+        ).encode("utf-8")
+
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CodingAgentCallResult":
         values = _require_exact_fields(
@@ -472,6 +715,12 @@ class CodingAgentCallResult:
             mcp_audit_digest=values["mcp_audit_digest"],
             mcp_audit_event_count=values["mcp_audit_event_count"],
         )
+
+    @classmethod
+    def from_json_bytes(cls, payload: bytes) -> "CodingAgentCallResult":
+        if not isinstance(payload, bytes):
+            raise ValueError("coding-agent result JSON must be bytes")
+        return cls.from_dict(json.loads(payload))
 
 
 class CodingAgentCallRunner(Protocol):
@@ -585,8 +834,7 @@ class SubprocessCodingAgentCallRunner:
         executable = "codex" if request.cli == "codex" else "claude"
         if shutil.which(executable) is None:
             raise RuntimeError(f"coding-agent CLI is not installed: {executable}")
-        if not isinstance(response_schema, Mapping):
-            raise ValueError("coding-agent response schema must be an object")
+        schema_bytes = coding_agent_response_schema_bytes(response_schema)
         supported_tools = (
             {"Read", "WebSearch"}
             if request.cli == "codex"
@@ -598,45 +846,13 @@ class SubprocessCodingAgentCallRunner:
             supported_tools |= {"Edit", "Write"}
         if not set(request.allowed_tools).issubset(supported_tools):
             raise ValueError("coding-agent request contains an unsupported tool")
-        schema_text = (
-            json.dumps(response_schema, indent=2, sort_keys=True, allow_nan=False)
-            + "\n"
-        )
-        invocation_text = (
-            json.dumps(
-                {
-                    "role": request.role,
-                    "cli": request.cli,
-                    "model": request.model,
-                    "timeout_seconds": request.timeout_seconds,
-                    "effort": request.effort,
-                    "allowed_tools": list(request.allowed_tools),
-                    "workspace_policy": request.workspace_policy.to_dict(),
-                    "credential_environment_policy_version": (
-                        _CREDENTIAL_ENVIRONMENT_POLICY_VERSION
-                    ),
-                    "filesystem_policy_version": _FILESYSTEM_POLICY_VERSION,
-                    "mcp_audit_policy_version": _MCP_AUDIT_POLICY_VERSION,
-                    "sensitive_file_glob_scan_max_depth": (
-                        self.settings.sensitive_file_glob_scan_max_depth
-                    ),
-                    "prior_knowledge_snapshot_id": (
-                        None
-                        if request.prior_knowledge is None
-                        else request.prior_knowledge.prior_knowledge_snapshot.prior_knowledge_snapshot_id
-                    ),
-                    "prior_knowledge_materialization_digest": (
-                        None
-                        if request.prior_knowledge is None
-                        else request.prior_knowledge.materialization_digest
-                    ),
-                },
-                indent=2,
-                sort_keys=True,
-                allow_nan=False,
-            )
-            + "\n"
-        )
+        schema_text = schema_bytes.decode("utf-8")
+        invocation_text = coding_agent_invocation_bytes(
+            request,
+            sensitive_file_glob_scan_max_depth=(
+                self.settings.sensitive_file_glob_scan_max_depth
+            ),
+        ).decode("utf-8")
         artifact_root = self._prepare_artifact_root()
         with ExitStack() as descriptors:
             if request.workspace_policy.access is (
@@ -937,7 +1153,7 @@ class SubprocessCodingAgentCallRunner:
         self._write_atomic_text(
             operation_descriptor,
             _RESULT_FILENAME,
-            json.dumps(result.to_dict(), sort_keys=True, allow_nan=False) + "\n",
+            result.to_json_bytes().decode("utf-8"),
         )
         return result
 
@@ -1153,165 +1369,26 @@ class SubprocessCodingAgentCallRunner:
             return "null\n"
         return request.prior_knowledge.to_json_bytes().decode("utf-8")
 
-    @staticmethod
-    def _mcp_server_config(
-        request: CodingAgentCallRequest,
-        artifact_directory: Path,
-    ) -> dict[str, Any]:
-        if request.prior_knowledge is None:
-            raise ValueError("prior-knowledge MCP requires a materialization")
-        python_path = Path(__file__).resolve().parents[3]
-        if not (python_path / "kapso" / "gated_mcp").is_dir():
-            raise ValueError("Kapso package root is missing for prior-knowledge MCP")
-        materialization_path = artifact_directory / "prior_knowledge.json"
-        audit_path = artifact_directory / "mcp_audit.jsonl"
-        maximum_bytes = len(request.prior_knowledge.to_json_bytes())
-        environment_executable = shutil.which("env")
-        if environment_executable is None:
-            raise ValueError("env executable is required for MCP isolation")
-        return {
-            "command": environment_executable,
-            "args": [
-                "-i",
-                f"PYTHONPATH={python_path}",
-                str(Path(sys.executable).resolve()),
-                "-m",
-                "kapso.gated_mcp.server",
-                "--enabled-gates",
-                "prior_knowledge",
-                "--gate-failure-policy",
-                "error",
-                "--prior-knowledge-path",
-                str(materialization_path),
-                "--prior-knowledge-maximum-bytes",
-                str(maximum_bytes),
-                "--prior-knowledge-audit-path",
-                str(audit_path),
-                "--operation-id",
-                request.operation_id,
-            ],
-        }
-
     def _mcp_config_text(
         self,
         request: CodingAgentCallRequest,
         artifact_directory: Path,
     ) -> str:
-        servers = {}
-        if request.prior_knowledge is not None:
-            servers["prior_knowledge"] = self._mcp_server_config(
-                request,
-                artifact_directory,
-            )
-        return (
-            json.dumps(
-                {"mcpServers": servers},
-                indent=2,
-                sort_keys=True,
-                allow_nan=False,
-            )
-            + "\n"
-        )
+        return coding_agent_mcp_configuration_bytes(
+            request,
+            artifact_directory,
+        ).decode("utf-8")
 
     @staticmethod
     def _validate_mcp_audit(
         request: CodingAgentCallRequest,
         audit_text: str,
     ) -> tuple[int, str]:
-        if not audit_text:
-            return 0, _EMPTY_MCP_AUDIT_DIGEST
-        if request.prior_knowledge is None:
-            raise CodingAgentInvocationError(
-                "coding-agent call without prior knowledge produced an MCP audit"
-            )
-        if not audit_text.endswith("\n"):
-            raise CodingAgentInvocationError(
-                "prior-knowledge MCP audit has an incomplete final event"
-            )
-        lines = audit_text.splitlines()
-        if any(not line.strip() for line in lines):
-            raise CodingAgentInvocationError(
-                "prior-knowledge MCP audit has a blank line"
-            )
-        access = PriorKnowledgeAccess(request.prior_knowledge)
-        packet = access.packet
-        member_ids = set(packet.selected_record_ids) | set(packet.proof_reference_ids)
-        expected_fields = {
-            "arguments",
-            "operation_id",
-            "prior_knowledge_snapshot_id",
-            "response_digest",
-            "returned_ids",
-            "tool_name",
-        }
-        allowed_tools = {
-            "list_prior_knowledge",
-            "get_prior_knowledge_record",
-        }
-        for line in lines:
-            event = json.loads(line, object_pairs_hook=_strict_json_object)
-            if not isinstance(event, dict) or set(event) != expected_fields:
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit fields are invalid"
-                )
-            if event["operation_id"] != request.operation_id:
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit operation identity changed"
-                )
-            if (
-                event["prior_knowledge_snapshot_id"]
-                != packet.prior_knowledge_snapshot_id
-            ):
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit packet identity changed"
-                )
-            if event["tool_name"] not in allowed_tools:
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit names an unknown tool"
-                )
-            arguments = event["arguments"]
-            if not isinstance(arguments, dict):
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit arguments are invalid"
-                )
-            returned_ids = event["returned_ids"]
-            if (
-                not isinstance(returned_ids, list)
-                or len(returned_ids) != len(set(returned_ids))
-                or not set(returned_ids).issubset(member_ids)
-            ):
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit returned IDs are invalid"
-                )
-            if event["tool_name"] == "list_prior_knowledge":
-                if arguments or returned_ids != sorted(member_ids):
-                    raise CodingAgentInvocationError(
-                        "prior-knowledge list audit is inconsistent"
-                    )
-                response_payload = access.list_response_payload()
-            else:
-                if set(arguments) != {"record_id"}:
-                    raise CodingAgentInvocationError(
-                        "prior-knowledge get audit arguments are invalid"
-                    )
-                record_id = arguments["record_id"]
-                if record_id not in member_ids or returned_ids != [record_id]:
-                    raise CodingAgentInvocationError(
-                        "prior-knowledge get audit is inconsistent"
-                    )
-                response_payload = access.record_response_payload(record_id)
-            expected_response_digest = tree_or_blob_digest(
-                canonical_json_bytes(response_payload)
-            )
-            if event["response_digest"] != expected_response_digest:
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit response digest is inconsistent"
-                )
-            if canonical_json_bytes(event).decode("utf-8") != line:
-                raise CodingAgentInvocationError(
-                    "prior-knowledge MCP audit event is not canonical JSON"
-                )
-        return len(lines), tree_or_blob_digest(audit_text.encode("utf-8"))
+        return validate_coding_agent_mcp_audit(
+            operation_id=request.operation_id,
+            prior_knowledge=request.prior_knowledge,
+            audit_text=audit_text,
+        )
 
     def _command(
         self,
@@ -1363,7 +1440,7 @@ class SubprocessCodingAgentCallRunner:
                     ["--config", f'model_reasoning_effort="{request.effort}"']
                 )
             if request.prior_knowledge is not None:
-                mcp_server = self._mcp_server_config(
+                mcp_server = coding_agent_mcp_server_configuration(
                     request,
                     mcp_config_path.parent,
                 )

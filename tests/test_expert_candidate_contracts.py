@@ -138,7 +138,7 @@ def test_exact_tree_patch_and_operation_records_reject_substitution():
         replace(patch, changes=())
     with pytest.raises(ContractValidationError, match="final output differs"):
         replace(operation, final_output=operation.final_output + "\n")
-    with pytest.raises(ContractValidationError, match="preimage differs"):
+    with pytest.raises(ContractValidationError, match="preimage"):
         replace(operation, operation_preimage={"different": "input"})
     with pytest.raises(CanonicalizationError):
         replace(

@@ -14,6 +14,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import ClassVar, Mapping
 
+from kapso.cross_run.agent_artifacts import (
+    CodingAgentWorkspaceAccess,
+    coding_agent_artifact_filenames,
+)
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
@@ -25,6 +29,7 @@ from kapso.cross_run.capture.safety import (
     restricted_directory_identity,
 )
 from kapso.cross_run.contracts import (
+    CodingAgentWorkspaceDelta,
     ExpertCandidateManifest,
     ExpertCandidateOperationRecord,
     ExpertCandidatePatch,
@@ -57,6 +62,8 @@ _SANITATION_PATH = "sanitation.json"
 _ANCESTORS_PATH = "ancestors.json"
 _MODULE_ROOT = "module-contracts"
 _SOURCE_ROOT = "source"
+_AGENT_ARTIFACT_ROOT = "agent-artifacts"
+_WORKSPACE_DELTA_PATH = "workspace-delta.json"
 _RENAME_NOREPLACE = 1
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _STAGING_PATTERN = re.compile(r"^\.candidate-[A-Za-z0-9_-]+$")
@@ -141,6 +148,7 @@ class ExpertCandidateStore:
         snapshot = replace(
             closure,
             candidate_contents=dict(closure.candidate_contents),
+            operation_artifacts=dict(closure.operation_artifacts),
         )
         self.validator.validate(snapshot)
         package_files = self._package_files(snapshot)
@@ -247,6 +255,7 @@ class ExpertCandidateStore:
             ),
             _REPOSITORY_MAP_PATH: closure.repository_map.to_json_bytes(),
             _OPERATION_PATH: closure.operation.to_json_bytes(),
+            _WORKSPACE_DELTA_PATH: closure.workspace_delta.to_json_bytes(),
             _SANITATION_PATH: closure.sanitation_report.to_json_bytes(),
             _ANCESTORS_PATH: ExpertCandidateStore._contract_tuple_bytes(
                 closure.ancestor_candidates
@@ -257,6 +266,8 @@ class ExpertCandidateStore:
             files[f"{_MODULE_ROOT}/{digest}.json"] = module.to_json_bytes()
         for relative_path, payload in closure.candidate_contents.items():
             files[f"{_SOURCE_ROOT}/{relative_path}"] = payload
+        for name, payload in closure.operation_artifacts.items():
+            files[f"{_AGENT_ARTIFACT_ROOT}/{name}"] = payload
         return dict(sorted(files.items()))
 
     @staticmethod
@@ -306,10 +317,19 @@ class ExpertCandidateStore:
             operation=ExpertCandidateOperationRecord.from_json_bytes(
                 payloads[_OPERATION_PATH]
             ),
+            workspace_delta=CodingAgentWorkspaceDelta.from_json_bytes(
+                payloads[_WORKSPACE_DELTA_PATH]
+            ),
             sanitation_report=ExpertCandidateSanitationReport.from_json_bytes(
                 payloads[_SANITATION_PATH]
             ),
             candidate_contents=candidate_contents,
+            operation_artifacts={
+                name: payloads[f"{_AGENT_ARTIFACT_ROOT}/{name}"]
+                for name in coding_agent_artifact_filenames(
+                    CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+                )
+            },
             ancestor_candidates=ancestors,
         )
         expected_payloads = ExpertCandidateStore._package_files(closure)

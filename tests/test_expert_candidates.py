@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import replace
 
@@ -16,6 +17,9 @@ from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     CandidateChangeKind,
     CodingAgentOperationReceipt,
+    CodingAgentWorkspaceChangedFile,
+    CodingAgentWorkspaceDelta,
+    ContractValidationError,
     ExpertCandidateManifest,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
@@ -49,7 +53,18 @@ from kapso.cross_run.expert.book import (
 from kapso.cross_run.settings import CrossRunSettings
 from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
-    coding_agent_artifact_filenames,
+    coding_agent_returned_artifact_filenames,
+)
+from kapso.execution.coding_agents.structured_call import (
+    CodingAgentCallRequest,
+    CodingAgentCallResult,
+    CodingAgentWorkspacePolicy,
+    coding_agent_mcp_configuration_fingerprint,
+    coding_agent_invocation_bytes,
+    coding_agent_response_schema_bytes,
+)
+from kapso.execution.coding_agents.operation_receipt import (
+    verify_coding_agent_operation_artifacts,
 )
 from test_expert_triggers import trigger_packet, trigger_settings
 
@@ -200,9 +215,67 @@ def bootstrap_candidate_closure(
         )
         + "\n"
     )
+    edited_files = file_descriptors(editable_contents)
+    edited_tree_hash = descriptor_tree_hash(edited_files)
+    declared_changed_paths = tuple(sorted(editable_contents))
+    workspace_delta = CodingAgentWorkspaceDelta.mint(
+        baseline_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        edited_tree_hash=edited_tree_hash,
+        changed_files=tuple(
+            CodingAgentWorkspaceChangedFile(
+                before=None,
+                after=file,
+                content_base64=base64.b64encode(
+                    editable_contents[file.relative_path]
+                ).decode("ascii"),
+            )
+            for file in edited_files
+        ),
+        deleted_files=(),
+    )
+    workspace_policy = (
+        CodingAgentWorkspacePolicy.edit_workspace(
+            expected_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+            maximum_entries=configured.candidate_entry_limit,
+            maximum_bytes=configured.candidate_byte_limit,
+        )
+        if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+        else CodingAgentWorkspacePolicy.read_only()
+    )
+    provisional_request = CodingAgentCallRequest(
+        operation_id="agent_call_" + "0" * 32,
+        role=configured.architect_role,
+        cli=configured.architect.cli,
+        model=configured.architect.model,
+        prompt="complete candidate proposal prompt",
+        workspace="/tmp/kapso-candidate-fixture",
+        workspace_policy=workspace_policy,
+        timeout_seconds=configured.architect.timeout_seconds,
+        effort=configured.architect.effort,
+        allowed_tools=configured.architect.allowed_tools,
+    )
+    response_schema = {"type": "object"}
+    input_artifacts = {
+        "invocation.json": coding_agent_invocation_bytes(
+            provisional_request,
+            sensitive_file_glob_scan_max_depth=(
+                configured.sensitive_file_glob_scan_max_depth
+            ),
+        ),
+        "prior_knowledge.json": b"null\n",
+        "prompt.txt": provisional_request.prompt.encode("utf-8"),
+        "response_schema.json": coding_agent_response_schema_bytes(response_schema),
+    }
     operation_preimage = {
         "ancestor_candidate_ids": (),
         "configuration_fingerprint": packet.configuration_fingerprint,
+        "input_artifact_checksums": {
+            name: tree_or_blob_digest(payload)
+            for name, payload in sorted(input_artifacts.items())
+        },
+        "mcp_configuration_fingerprint": (
+            coding_agent_mcp_configuration_fingerprint(None)
+        ),
         "operation_kind": ExpertCandidateOperationKind.BOOTSTRAP.value,
         "parent_tree_hash": EMPTY_EXPERT_TREE_DIGEST,
         "trigger_decision_id": decision.trigger_decision_id,
@@ -212,9 +285,42 @@ def bootstrap_candidate_closure(
         "agent_call_"
         + tree_or_blob_digest(canonical_json_bytes(operation_preimage))[7:39]
     )
-    edited_files = file_descriptors(editable_contents)
-    edited_tree_hash = descriptor_tree_hash(edited_files)
-    declared_changed_paths = tuple(sorted(editable_contents))
+    call_request = replace(provisional_request, operation_id=operation_id)
+    artifact_directory = f"/tmp/kapso-agent-artifacts/{operation_id}"
+    returned_names = coding_agent_returned_artifact_filenames(workspace_access)
+    call_result = CodingAgentCallResult(
+        output=final_output,
+        duration_seconds=1.0,
+        cost_usd=None,
+        final_output_digest=tree_or_blob_digest(final_output.encode("utf-8")),
+        workspace_delta_digest=(
+            tree_or_blob_digest(workspace_delta.to_json_bytes())
+            if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE
+            else None
+        ),
+        input_tokens=1,
+        output_tokens=1,
+        artifacts=tuple(f"{artifact_directory}/{name}" for name in returned_names),
+    )
+    operation_artifacts = {
+        **input_artifacts,
+        "mcp_config.json": (
+            json.dumps({"mcpServers": {}}, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8"),
+        "stdout.txt": b"completed\n",
+        "stderr.txt": b"",
+        "final.json": final_output.encode("utf-8"),
+        "mcp_audit.jsonl": b"",
+        "result.json": call_result.to_json_bytes(),
+    }
+    if workspace_access is CodingAgentWorkspaceAccess.EDIT_WORKSPACE:
+        operation_artifacts["workspace-delta.json"] = workspace_delta.to_json_bytes()
+    assert input_artifacts["invocation.json"] == coding_agent_invocation_bytes(
+        call_request,
+        sensitive_file_glob_scan_max_depth=(
+            configured.sensitive_file_glob_scan_max_depth
+        ),
+    )
     operation_receipt = CodingAgentOperationReceipt.mint(
         operation_id=operation_id,
         principal_id=configured.architect_id,
@@ -224,12 +330,8 @@ def bootstrap_candidate_closure(
         effort=configured.architect.effort,
         workspace_access=workspace_access,
         artifact_checksums={
-            filename: (
-                tree_or_blob_digest(final_output.encode("utf-8"))
-                if filename == "final.json"
-                else digest(f"bootstrap-{filename}")
-            )
-            for filename in coding_agent_artifact_filenames(workspace_access)
+            filename: tree_or_blob_digest(payload)
+            for filename, payload in operation_artifacts.items()
         },
     )
     workspace_receipt = ExpertCandidateWorkspaceReceipt.mint(
@@ -255,6 +357,8 @@ def bootstrap_candidate_closure(
         operation_preimage=operation_preimage,
         operation_receipt=operation_receipt,
         workspace_receipt=workspace_receipt,
+        workspace_delta_ref=workspace_delta.workspace_delta_id,
+        workspace_delta_digest=tree_or_blob_digest(workspace_delta.to_json_bytes()),
         final_output=final_output,
     )
     sanitation = ExpertCandidateSanitizer(sanitation_settings()).scan(
@@ -320,6 +424,8 @@ def bootstrap_candidate_closure(
         operation=operation,
         sanitation_report=sanitation,
         candidate_contents=contents,
+        workspace_delta=workspace_delta,
+        operation_artifacts=operation_artifacts,
     )
 
 
@@ -420,17 +526,13 @@ def test_candidate_recomputes_trigger_decision_authority():
         )
 
 
-def test_candidate_proposer_requires_edit_workspace_authority():
-    closure = bootstrap_candidate_closure(
-        workspace_access=CodingAgentWorkspaceAccess.READ_ONLY
-    )
-
+def test_candidate_operation_requires_edit_workspace_authority():
     with pytest.raises(
-        ExpertCandidateValidationError,
-        match="configured proposer authority",
+        ContractValidationError,
+        match="workspace delta differs from its operation receipt",
     ):
-        ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
-            closure
+        bootstrap_candidate_closure(
+            workspace_access=CodingAgentWorkspaceAccess.READ_ONLY
         )
 
 
@@ -448,19 +550,78 @@ def test_candidate_requires_scope_sanitation_policy_resolution():
         ExpertCandidateValidator(expert_settings(), different_policy).validate(closure)
 
 
+def test_candidate_requires_exact_self_contained_operation_artifacts():
+    closure = bootstrap_candidate_closure()
+    artifacts = dict(closure.operation_artifacts)
+    artifacts["prompt.txt"] += b"tampered"
+
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="artifact checksum differs",
+    ):
+        ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
+            replace(closure, operation_artifacts=artifacts)
+        )
+
+
+def test_candidate_requires_durable_workspace_delta_bytes():
+    closure = bootstrap_candidate_closure()
+    artifacts = dict(closure.operation_artifacts)
+    artifacts["workspace-delta.json"] += b"\n"
+
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="artifact checksum differs",
+    ):
+        ExpertCandidateValidator(expert_settings(), sanitation_settings()).validate(
+            replace(closure, operation_artifacts=artifacts)
+        )
+
+
+def test_embedded_operation_artifact_verifier_rejects_invalid_result_contract():
+    closure = bootstrap_candidate_closure()
+    artifacts = dict(closure.operation_artifacts)
+    artifacts["result.json"] = b"{}\n"
+
+    with pytest.raises(ValueError, match="fields mismatch"):
+        verify_coding_agent_operation_artifacts(
+            operation_id=closure.operation.operation_receipt.operation_id,
+            workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
+            artifact_bytes=artifacts,
+        )
+
+
+def test_embedded_operation_artifact_verifier_rejects_unknown_policy_version():
+    closure = bootstrap_candidate_closure()
+    artifacts = dict(closure.operation_artifacts)
+    invocation = json.loads(artifacts["invocation.json"])
+    invocation["mcp_audit_policy_version"] = "kapso.mcp_audit.unknown"
+    artifacts["invocation.json"] = (
+        json.dumps(invocation, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode("utf-8")
+
+    with pytest.raises(ValueError, match="unrecognized policy version"):
+        verify_coding_agent_operation_artifacts(
+            operation_id=closure.operation.operation_receipt.operation_id,
+            workspace_access=CodingAgentWorkspaceAccess.EDIT_WORKSPACE,
+            artifact_bytes=artifacts,
+        )
+
+
 @pytest.mark.parametrize(
     "limited_settings",
     (
         replace(expert_settings(), candidate_entry_limit=1),
         replace(expert_settings(), candidate_byte_limit=1),
+        replace(expert_settings(), agent_artifact_byte_limit=1),
     ),
 )
-def test_candidate_enforces_aggregate_tree_limits(limited_settings):
+def test_candidate_enforces_aggregate_source_and_artifact_limits(limited_settings):
     closure = bootstrap_candidate_closure()
 
     with pytest.raises(
         ExpertCandidateValidationError,
-        match="aggregate limits",
+        match="aggregate limits|operation artifacts exceed",
     ):
         ExpertCandidateValidator(limited_settings, sanitation_settings()).validate(
             closure

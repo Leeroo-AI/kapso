@@ -2143,6 +2143,8 @@ class ExpertCandidateOperationRecord(StrictContract):
     operation_preimage: Mapping[str, Any]
     operation_receipt: CodingAgentOperationReceipt
     workspace_receipt: ExpertCandidateWorkspaceReceipt
+    workspace_delta_ref: str
+    workspace_delta_digest: str
     final_output: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-operation"
@@ -2168,6 +2170,24 @@ class ExpertCandidateOperationRecord(StrictContract):
                 require_content_id(candidate_id, "operation ancestor_candidate_ids")
         if not self.operation_preimage:
             raise ContractValidationError("candidate operation preimage is empty")
+        input_checksums = self.operation_preimage.get("input_artifact_checksums")
+        if not isinstance(input_checksums, MappingABC) or set(input_checksums) != {
+            "invocation.json",
+            "prior_knowledge.json",
+            "prompt.txt",
+            "response_schema.json",
+        }:
+            raise ContractValidationError(
+                "candidate operation preimage input checksums are invalid"
+            )
+        _require_checksum_mapping(
+            input_checksums,
+            "candidate operation input_artifact_checksums",
+        )
+        _require_digest(
+            self.operation_preimage.get("mcp_configuration_fingerprint"),
+            "candidate operation MCP configuration fingerprint",
+        )
         expected_preimage_binding = {
             "ancestor_candidate_ids": self.ancestor_candidate_ids,
             "configuration_fingerprint": self.configuration_fingerprint,
@@ -2202,6 +2222,15 @@ class ExpertCandidateOperationRecord(StrictContract):
         ):
             raise ContractValidationError(
                 "candidate workspace receipt differs from its operation"
+            )
+        require_content_id(self.workspace_delta_ref, "workspace_delta_ref")
+        _require_digest(self.workspace_delta_digest, "workspace_delta_digest")
+        if (
+            self.operation_receipt.artifact_checksums.get("workspace-delta.json")
+            != self.workspace_delta_digest
+        ):
+            raise ContractValidationError(
+                "candidate workspace delta differs from its operation receipt"
             )
         if not isinstance(self.final_output, str) or not self.final_output.strip():
             raise ContractValidationError("candidate operation final output is empty")

@@ -1,8 +1,9 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
 Status: **M1–M6 implemented; M7 trigger/materialization, closure/book, immutable
-store, and replayable workspace-edit planes independently approved; M4 live Codex
-validation pending; remaining M7–M10 work in sequence**
+store, replayable workspace edits, and self-contained candidate provenance
+independently approved; M4 live Codex validation pending; remaining M7–M10 work
+in sequence**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -580,7 +581,7 @@ The implementation is complete only when:
 | M4 Catalog, Episodes, Claims | Implemented; live CLI pending | `kapso.cross_run.catalog` | 175 focused M4 tests; 377 complete cross-run tests; adversarial provenance, successor projection, configuration rotation, deterministic store, and service integration coverage; standalone `gpt-5.6-sol` xhigh approval | Authenticated Codex account usage limit; typed isolation evidence intentionally absent |
 | M5 Snapshots, Search, Reader | Implemented; independent hardening approved | `kapso.core.embeddings`, `kapso.cross_run.{record_contracts,record_registry,knowledge}`, `kapso.gated_mcp.gates.prior_knowledge_gate` | 499-test broad combined pass; 89 focused reader/gate tests plus 35 affected ideation tests; malformed-schema, typed-proof, index corruption, compatibility, proof-budget, silent MCP import, no-replace materialization, and M2 publication coverage; independent reviewer found no remaining P0–P2 issues | Authenticated Codex usage limit blocks the requested exact `gpt-5.6-sol` xhigh CLI review; live embedding/GitHub production validation remains M10 |
 | M6 Ideation and Memory Bridge | Implemented; independent hardening approved | `generic.ideation` v4 archive, Generic v5 checkpoint, `IdeationCrossRunRuntime`, structured coding-agent packet/MCP boundary | 451 cross-run/knowledge tests; 167 ideation/checkpoint tests (1 unrelated skip); matched empty-memory/negative-prior E2E; real stdio MCP handshake; real Codex policy parse; independent reviewer found no remaining P0–P2 issues | Exact external `gpt-5.6-sol` xhigh replay is quota-blocked; M9 constructs the runtime and M10 provisions `bubblewrap`/`socat` plus authenticated CLI policy probes |
-| M7 Expert Candidates and Architecture | In progress; trigger/materialization, candidate closure/book, immutable candidate store, and replayable coding-agent edit boundary approved | `kapso.cross_run.expert.{triggers,candidates,sanitation,book,store}`, `kapso.execution.coding_agents.{structured_call,workspace_delta}`, exact source/materialization and access-indexed coding-agent receipts | 45 focused runner tests, 177 affected integration tests, and 671 broad cross-run/expert/ideation tests; concurrent workspace leases, exact parent/edit delta replay, artifact privacy/link, output/audit/delta tamper, compile, format, and diff gates; standalone high-reasoning approval | Candidate parent construction and architect/generalizer proposers remain |
+| M7 Expert Candidates and Architecture | In progress; trigger/materialization, candidate closure/book/store, replayable workspace edits, and self-contained candidate provenance approved | `kapso.cross_run.expert.{triggers,candidates,sanitation,book,store}`, `kapso.execution.coding_agents.{structured_call,workspace_delta,operation_receipt}`, exact source/materialization, durable deltas, complete agent artifacts, semantic MCP/audit replay | 109 focused boundary tests and 677 broad cross-run/expert/ideation tests; concurrent workspace leases, exact parent/edit replay, artifact privacy/link, output/audit/delta/MCP/policy tamper, compile, format, diff, and standalone high-reasoning approval | Candidate parent construction and architect/generalizer proposers remain |
 | M8 Expert Validation and Release | Planned | — | — | M7 |
 | M9 Launch, Bootstrap, Resume | Planned | — | — | M5, M8 |
 | M10 Rollout and Production Validation | Planned | — | — | M3–M9 |

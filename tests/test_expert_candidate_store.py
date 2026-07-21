@@ -57,6 +57,9 @@ def test_candidate_store_seals_and_reopens_exact_closure(tmp_path):
     assert reopened.closure == closure
     assert reopened.root.parent == store.object_root
     assert (reopened.root / "COMMITTED.json").is_file()
+    assert (
+        reopened.root / "agent-artifacts/workspace-delta.json"
+    ).read_bytes() == closure.workspace_delta.to_json_bytes()
     assert tuple(store.staging_root.iterdir()) == ()
 
 
@@ -136,6 +139,17 @@ def test_candidate_store_rejects_noncanonical_commit_record(tmp_path):
     commit_path.write_bytes(commit_path.read_bytes() + b"\n")
 
     with pytest.raises(ExpertCandidateStoreError, match="not canonical"):
+        store.read(closure.manifest.candidate_id)
+
+
+def test_candidate_store_rejects_agent_artifact_corruption(tmp_path):
+    store = candidate_store(tmp_path)
+    closure = bootstrap_candidate_closure()
+    stored = store.persist(closure)
+    prompt = stored.root / "agent-artifacts/prompt.txt"
+    prompt.write_bytes(b"substituted prompt")
+
+    with pytest.raises(ExpertCandidateStoreError, match="checksum differs"):
         store.read(closure.manifest.candidate_id)
 
 

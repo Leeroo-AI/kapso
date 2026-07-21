@@ -5,8 +5,9 @@ Parent plan: [`00-orchestrator-plan.md`](00-orchestrator-plan.md)
 Depends on: M1, M2, and M5.
 
 Status: **Trigger/materialization, candidate closure/book, immutable candidate
-store, and replayable coding-agent workspace-edit boundary independently approved;
-candidate parent construction and proposers remain.**
+store, replayable coding-agent workspace edits, and self-contained operation
+provenance independently approved; candidate parent construction and proposers
+remain.**
 
 ## Objective
 
@@ -150,6 +151,9 @@ ancestors, and a proof-closed knowledge packet.
 - [x] Bind cached results to exact invocation, `final.json`, audit, artifact set,
       and workspace delta; reject partial, public, linked, or substituted
       artifacts.
+- [x] Package the complete coding-agent artifact closure with every candidate,
+      replay prior-knowledge audit truth on reopen, require recognized security
+      policies, and bind normalized MCP authority into operation identity.
 - [ ] Compute patch, full candidate tree hash, module-contract refs, proposed
       repository-map ref, dependencies, lineage, source evidence, sanitation report,
       and coding-agent provenance.
