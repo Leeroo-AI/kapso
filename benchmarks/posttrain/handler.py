@@ -165,52 +165,27 @@ put it there — a mediocre model beats an empty directory.
   data, and render your SFT examples with the exact same template.
 
 ## Session discipline & long-running processes
-You operate in bounded SESSIONS inside the overall run. Hard caps, enforced
-by a process-group kill that takes down EVERY process you started (including
-training): implementation sessions ≈ {self.session_caps['implementation_timeout'] // 60}
-minutes, ideation sessions ≈ {self.session_caps['ideation_timeout'] // 60} minutes.
-Only files on disk survive a session kill. `timer.sh` shows the RUN clock;
-your SESSION clock is shorter and is the one that kills you.
+You operate in bounded SESSIONS inside the overall run: implementation
+sessions ≈ {self.session_caps['implementation_timeout'] // 60} minutes,
+ideation sessions ≈ {self.session_caps['ideation_timeout'] // 60} minutes.
+`timer.sh` shows the RUN clock; your SESSION clock is shorter and is the one
+that kills you. The generic session-runtime rules (detached long jobs,
+watcher/alarm/notification discipline, kill-by-PID, no orphaned value,
+incremental persistence) are in your core instructions — what follows is
+benchmark-specific:
 - FIRST actions of every implementation session: run `date -u`, then create
   or refresh PLAN.md at the workspace root with (a) session start time and
   your session deadline (start + the cap above), (b) the run-level time from
   `bash timer.sh`, (c) chosen approach and dataset, (d) the exact next
   command, (e) current status. Update it whenever the plan changes — a
   killed session must leave a consumable plan behind.
-- NEVER run a command expected to exceed 10 minutes in the foreground.
-  Launch it detached (plain nohup — never setsid) and log to a file:
-      nohup python train.py > {self.artifacts_dir}/train_log.txt 2>&1 &
-      echo $! > {self.artifacts_dir}/train.pid
-  then poll in BOUNDED waits, each ≤5 minutes, e.g.
-  `sleep 240 && tail -5 {self.artifacts_dir}/train_log.txt && bash timer.sh`,
-  comparing progress against the session deadline in PLAN.md. Do useful work
-  between polls (prepare the eval command, update PLAN.md). Note: if you do
-  block on a long foreground call, the CLI converts it to a background task
-  after ~2 minutes and hands you its output-file path — poll that file; but
-  prefer explicit nohup so the pattern is under your control.
-- WATCHER DISCIPLINE: at most ONE watcher/timer per awaited artifact.
-  Before spawning a replacement, kill the superseded watcher (by its
-  recorded id/PID). A pile of live watchers floods you with notifications
-  and trains you to ignore the one that matters. Prefer a single
-  until-condition wait over chains of sleep-watchers.
-- TIMERS: the ScheduleWakeup tool is disabled here (its wakeups never fire
-  in this session mode — a prior run idled 3 hours trusting one). For a
-  timed check-back, launch a background task as your alarm clock:
-  `sleep <seconds> && echo ALARM` — its completion notification wakes you.
-- DEAD-MAN'S ALARM: never end a turn whose only pending wake sources are
-  condition-watchers (a watcher with a buggy condition can hang forever).
-  Keep one bounded background alarm task (e.g. `sleep 600 && echo
-  fallback-tick`) alive whenever you are purely waiting, so no wedged
-  watcher can strand you for more than ~10 minutes.
-- A completion notification is EVIDENCE, not noise: before dismissing one
-  as stale, read the file or task output it names. Your belief that you
-  killed a process does not outrank a result file on disk — a prior run
-  shipped an inferior model exactly this way.
-- Every evaluation you launch must end in one of two recorded states:
-  CONSUMED (score read and logged) or ABANDONED (a PLAN.md line saying
-  why). A still-running eval at finalization time must be awaited before
-  you finalize — waiting costs minutes; a discarded result can cost the
-  run.
+- Long training jobs log and record PIDs under {self.artifacts_dir}
+  (e.g. `nohup python train.py > {self.artifacts_dir}/train_log.txt 2>&1 &`,
+  `echo $! > {self.artifacts_dir}/train.pid`); include `bash timer.sh` in
+  every poll. To free the GPU, kill the recorded PIDs, then verify with
+  `nvidia-smi`.
+- A still-running eval at finalization time must be awaited before you
+  finalize — waiting costs minutes; a discarded result can cost the run.
 - SIZE BEFORE YOU COMMIT: before any training run projected to exceed
   15 minutes, measure throughput first (≤50 steps or one logging interval),
   compute total_steps × seconds_per_step, and choose max_steps / dataset
@@ -224,13 +199,6 @@ your SESSION clock is shorter and is the one that kills you.
   accordingly) so a kill never loses more than one interval, and commit
   code early and often so nothing important lives only in your session
   context.
-- KILL DISCIPLINE: terminate processes by specific PID only
-  (`kill $(cat {self.artifacts_dir}/train.pid)`). NEVER use pattern kills
-  (`pkill -f python`, `pkill -f vllm`) or group kills (`kill 0`,
-  `kill -- -PID`): this container also runs YOUR OWN session and its
-  orchestrator, and a pattern/group kill will terminate you mid-work
-  (this has destroyed whole sessions before). To free the GPU, kill the
-  recorded PIDs, then verify with `nvidia-smi`.
 
 ## Rules you must never break (violations get judged and zero the run)
 1. Do not use {self.benchmark_name or 'the target benchmark'} test data for

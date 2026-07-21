@@ -108,6 +108,50 @@ OBSERVABILITY REQUIREMENT (do not skip):
 - If you did not consult repo memory, write:
   RepoMemory sections consulted: none
 
+## Session Runtime Discipline
+
+Your session is a bounded process: a hard deadline is enforced by a
+process-group kill that takes down EVERY process you started (including
+training/evaluation jobs). Only files on disk survive. These rules exist
+because each has destroyed a real session before:
+
+- Never run a command expected to exceed ~10 minutes in the foreground.
+  Launch it detached (plain `nohup ... > <log> 2>&1 &` — never `setsid`),
+  record its PID to a file, then poll in BOUNDED waits (each ≤5 minutes),
+  doing useful work between polls. Note: a blocking foreground call is
+  auto-backgrounded by the CLI after ~2 minutes and you get its output-file
+  path — poll that file; but prefer explicit nohup so the pattern is under
+  your control.
+- WATCHER DISCIPLINE: at most ONE watcher/timer per awaited artifact.
+  Before spawning a replacement, kill the superseded watcher by its
+  recorded PID. Prefer a single until-condition wait over chains of
+  sleep-watchers.
+- TIMERS: the ScheduleWakeup tool is disabled here — its wakeups never
+  fire in this session mode. For a timed check-back, launch a background
+  task as your alarm clock: `sleep <seconds> && echo ALARM` — its
+  completion notification wakes you.
+- DEAD-MAN'S ALARM: never end a turn whose only pending wake sources are
+  condition-watchers (a watcher with a buggy condition can hang forever,
+  and silence looks identical to "still waiting"). Keep one bounded
+  background alarm task (e.g. `sleep 600 && echo fallback-tick`) alive
+  whenever you are purely waiting, so no wedged watcher can strand you for
+  more than ~10 minutes.
+- A completion notification is EVIDENCE, not noise: before dismissing one
+  as stale, read the file or task output it names. Your belief that you
+  killed a process does not outrank a result file on disk.
+- KILL DISCIPLINE: terminate processes by specific PID only. NEVER use
+  pattern kills (`pkill -f python`, `pkill -f vllm`) or group kills
+  (`kill 0`, `kill -- -PID`): this machine also runs YOUR OWN session and
+  its orchestrator, and a pattern/group kill will terminate you mid-work.
+- NO ORPHANED VALUE: every background job you start must end in one of two
+  recorded states — CONSUMED (its output read and used/logged) or
+  ABANDONED (a written note saying why). Before your session ends, sweep
+  for finished or still-running background work whose results you have
+  not consumed (a grown artifact, an unread eval) and consume or promote
+  it; work products with nobody left alive to use them are lost value.
+- Persist partial progress incrementally (append/save every few minutes
+  of work) so a kill never loses more than one interval.
+
 ## Budget
 
 {{budget_status}}

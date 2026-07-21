@@ -117,18 +117,17 @@ immediately.
    transfer.
 
 ## Session discipline
-Hard caps enforced by a process-group kill: implementation sessions ≈
+Session caps: implementation sessions ≈
 {self.session_caps['implementation_timeout'] // 60} min, ideation ≈
-{self.session_caps['ideation_timeout'] // 60} min. Only files on disk survive.
+{self.session_caps['ideation_timeout'] // 60} min. The generic
+session-runtime rules (detached long jobs, watcher/alarm/notification
+discipline, kill-by-PID, no orphaned value, incremental persistence) are in
+your core instructions. Benchmark-specific:
 - Start every implementation session by writing PLAN.md (session start +
   deadline, chosen approach, exact next command, status); keep it current.
-- Any command expected to exceed 10 minutes: run it detached
-  (`nohup ... > {self.artifacts_dir}/log.txt 2>&1 &`, record the PID), poll in
-  bounded waits (≤5 min), and do useful work between polls.
-- Kill processes by recorded PID only — never `pkill -f python` or group
-  kills: your own session and its orchestrator run on this machine too.
-- Persist partial precompute progress incrementally (append/save every few
-  hundred rows) so a session kill never loses the work.
+- Long jobs (precompute, evals) log and record PIDs under
+  {self.artifacts_dir}; persist precompute progress incrementally
+  (append/save every few hundred rows).
 
 ## Reporting (kapso convention)
 At the end of every experiment report the measured DEV mean_score (0..1)
