@@ -1,6 +1,6 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
-Status: **M1–M3 complete; M4 implemented with live Codex validation pending; M5–M10 planned**
+Status: **M1–M5 implemented; M4 live Codex validation pending; M6–M10 planned**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -154,6 +154,8 @@ src/kapso/cross_run/
   __init__.py
   canonical.py
   contracts.py
+  record_contracts.py
+  record_registry.py
   settings.py
   github/
     command.py
@@ -210,7 +212,7 @@ is extracted only when both consumers have demonstrated the same contract.
 | Framework GitHub/`gh`/Git command boundary and local artifact cache | M2 | Other framework modules use this boundary; the fully authorized coding agent may also invoke GitHub directly |
 | `ExperimentHistoryStore` journal additions and capture hooks | M3 | M6 reads local authorities but does not change capture ordering |
 | Cross-run catalog, assertions, claims, admission state | M4 | Snapshot code consumes immutable generations only |
-| Shared embeddings extraction, search package, prior-knowledge MCP gate | M5 | M6 only mounts and persists reader output |
+| Shared embeddings extraction, dependency-pure typed record registry, search package, prior-knowledge MCP gate | M5 | M6 only mounts and persists reader output |
 | `generic/ideation/`, `generic/strategy.py`, `IdeaArchive`, Generic checkpoint projection | M6 | Sole owner of live ideation integration |
 | Expert architect/generalizer prompts, repository map, book compiler | M7 | M8 validates; it does not regenerate proposals |
 | Expert evaluator cascade and release assembly | M8 | Sole owner of stable expert publication policy |
@@ -560,6 +562,8 @@ The implementation is complete only when:
 | D16 | Bind publication twice: pre-release intent, then global artifact identity | A durable intent makes release retries exact; a write-once identity keeps every immutable artifact resolvable after `CURRENT` advances or loses a race |
 | D17 | Describe Git source and materialized packages independently | Snapshot indexes and split expert assets need not be Git files, while both closures must remain exact and verifiable |
 | D18 | Treat immutable publication and `CURRENT` activation as distinct outcomes | A final CAS loser remains auditable and reproducible but must not be reported as the active artifact |
+| D19 | Keep one dependency-pure typed record registry across catalog and knowledge boundaries | Content hashes prove identity, while owning strict parsers additionally prove exact schema and keep MCP startup free of service-side effects |
+| D20 | Publish local snapshot directories with atomic no-replace semantics | A concurrent writer must retain ownership of a destination created during the staging window |
 
 ## Progress ledger
 
@@ -569,7 +573,7 @@ The implementation is complete only when:
 | M2 GitHub Control Plane | Complete | `kapso.cross_run.git_refs`, `kapso.cross_run.github`, strict GitHub/cache config | 203 focused + 4 affected tests; Black, diff, and standalone `gpt-5.6-sol` xhigh approval | — |
 | M3 Run Capture and Bundles | Complete | `kapso.cross_run.capture`, `kapso.cross_run.git_command`, journal-integrated `ExperimentHistoryStore`, checkpoint/archive/orchestrator capture seams | 415 affected integration tests plus 131 final focused tests; compile/diff gates; standalone `gpt-5.6-sol` xhigh approval | M9 composes and activates the pinned runtime context |
 | M4 Catalog, Episodes, Claims | Implemented; live CLI pending | `kapso.cross_run.catalog` | 175 focused M4 tests; 377 complete cross-run tests; adversarial provenance, successor projection, configuration rotation, deterministic store, and service integration coverage; standalone `gpt-5.6-sol` xhigh approval | Authenticated Codex account usage limit; typed isolation evidence intentionally absent |
-| M5 Snapshots, Search, Reader | Planned | — | — | M2, M4 |
+| M5 Snapshots, Search, Reader | Implemented; independent hardening approved | `kapso.core.embeddings`, `kapso.cross_run.{record_contracts,record_registry,knowledge}`, `kapso.gated_mcp.gates.prior_knowledge_gate` | 499-test broad combined pass; 89 focused reader/gate tests plus 35 affected ideation tests; malformed-schema, typed-proof, index corruption, compatibility, proof-budget, silent MCP import, no-replace materialization, and M2 publication coverage; independent reviewer found no remaining P0–P2 issues | Authenticated Codex usage limit blocks the requested exact `gpt-5.6-sol` xhigh CLI review; live embedding/GitHub production validation remains M10 |
 | M6 Ideation and Memory Bridge | Planned | — | — | M5 |
 | M7 Expert Candidates and Architecture | Planned | — | — | M2, M5 |
 | M8 Expert Validation and Release | Planned | — | — | M7 |

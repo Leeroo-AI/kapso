@@ -25,7 +25,7 @@ from kapso.cross_run.capture.exporter import (
 from kapso.cross_run.capture.evaluation_evidence import (
     validate_evaluation_fingerprints,
 )
-from kapso.cross_run.capture.journal import ExecutionRevisionEvent
+from kapso.cross_run.record_contracts import ExecutionRevisionEvent
 from kapso.cross_run.capture.git_evidence import (
     has_ancestry_path,
     parse_commit_object,

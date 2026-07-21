@@ -8,6 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from kapso.core.embeddings import (
+    EmbeddingBatch,
+    EmbeddingRecord,
+    EmbeddingSettings,
+    EmbeddingTelemetry,
+)
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation import (
     AnalyzerSettings,
@@ -17,10 +23,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateGenerator,
     CandidateGeneratorSettings,
     CandidateSelector,
-    EmbeddingBatch,
-    EmbeddingRecord,
-    EmbeddingSettings,
-    EmbeddingTelemetry,
     ExperimentInput,
     GapPrioritySettings,
     GenerationMemberSettings,
@@ -190,10 +192,13 @@ class DeterministicEmbeddingProvider:
     def __init__(self):
         self.settings = EmbeddingSettings(
             enabled=True,
+            provider="openai",
             model="test-embedding-model",
             dimensions=2,
+            batch_size=2,
             timeout_seconds=5,
             max_retries=0,
+            canonicalizer_version="kapso.idea_embedding.v1",
         )
         self.calls = []
 
@@ -206,6 +211,7 @@ class DeterministicEmbeddingProvider:
                     provider="openai",
                     model=self.settings.model,
                     dimensions=2,
+                    canonicalizer_version=self.settings.canonicalizer_version,
                     input_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                     vector=(1.0, 0.0),
                 )
@@ -217,6 +223,7 @@ class DeterministicEmbeddingProvider:
                 call_count=1,
                 input_tokens=23,
                 duration_seconds=0.5,
+                cost_usd=None,
             ),
         )
 

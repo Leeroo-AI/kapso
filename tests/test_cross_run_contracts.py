@@ -523,6 +523,19 @@ def build_records():
         selected_records=selected_records,
         selected_record_ids=(claim.revision_id,),
         proof_reference_ids=(episode.episode_id,),
+        selection_metadata={
+            claim.revision_id: {
+                "compatibility": "exact_context",
+                "evidence_quality": 1,
+                "lexical_score": 1.0,
+                "outcome": "inconclusive",
+                "proof_reference_ids": (episode.episode_id,),
+                "rank": 0,
+                "recency": "",
+                "retrieval_utility": 1.0,
+                "semantic_score": 0.0,
+            }
+        },
         prompt_budget_policy={"maximum_records": 24},
         records_digest=tree_or_blob_digest(canonical_json_bytes(selected_records)),
     )
@@ -1100,6 +1113,25 @@ def test_prior_packet_rejects_ids_only_placeholder_records():
                 )
             ),
         )
+
+
+def test_prior_packet_requires_complete_selection_metadata_for_every_record():
+    prior_snapshot = next(
+        record
+        for record in build_records()
+        if isinstance(record, PriorKnowledgeSnapshot)
+    )
+    fields = {
+        key: value
+        for key, value in prior_snapshot.to_dict().items()
+        if key not in {"prior_knowledge_snapshot_id", "selection_metadata"}
+    }
+
+    with pytest.raises(
+        ContractValidationError,
+        match="keyed by every selected record exactly",
+    ):
+        PriorKnowledgeSnapshot.mint(**fields, selection_metadata={})
 
 
 @pytest.mark.parametrize("evidence_mode", ["overlap", "absent"])

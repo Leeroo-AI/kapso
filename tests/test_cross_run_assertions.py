@@ -4,7 +4,7 @@ import pytest
 
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
-from kapso.cross_run.catalog.agent_operations import (
+from kapso.cross_run.record_contracts import (
     CatalogAgentOperationRecord,
     catalog_agent_operation_id,
 )

@@ -566,12 +566,14 @@ class CatalogSettings(StrictContract):
 
 @dataclass(frozen=True)
 class EmbeddingSettings(StrictContract):
+    enabled: bool
     provider: str
     model: str
     dimensions: int
     batch_size: int
     timeout_seconds: int
     max_retries: int
+    canonicalizer_version: str
 
     def _validate(self) -> None:
         if self.provider != "openai":
@@ -580,6 +582,10 @@ class EmbeddingSettings(StrictContract):
             )
         if not self.model:
             raise CrossRunConfigurationError("embedding model is required")
+        if not self.canonicalizer_version:
+            raise CrossRunConfigurationError(
+                "embedding canonicalizer version is required"
+            )
         _require_positive(self.dimensions, "knowledge.embeddings.dimensions")
         _require_positive(self.batch_size, "knowledge.embeddings.batch_size")
         _require_positive(self.timeout_seconds, "knowledge.embeddings.timeout_seconds")
@@ -592,7 +598,11 @@ class RetrievalSettings(StrictContract):
     max_records: int
     max_records_per_run: int
     max_records_per_family: int
-    prompt_token_budget: int
+    max_records_per_lineage: int
+    max_records_per_outcome: int
+    max_records_per_type: int
+    prompt_byte_budget: int
+    materialization_byte_budget: int
 
     def _validate(self) -> None:
         _require_ratio(self.lexical_weight, "knowledge.retrieval.lexical_weight")
@@ -600,13 +610,28 @@ class RetrievalSettings(StrictContract):
             "max_records",
             "max_records_per_run",
             "max_records_per_family",
-            "prompt_token_budget",
+            "max_records_per_lineage",
+            "max_records_per_outcome",
+            "max_records_per_type",
+            "prompt_byte_budget",
+            "materialization_byte_budget",
         ):
             _require_positive(getattr(self, name), f"knowledge.retrieval.{name}")
-        if self.max_records_per_run > self.max_records:
-            raise CrossRunConfigurationError("per-run cap exceeds total record cap")
-        if self.max_records_per_family > self.max_records:
-            raise CrossRunConfigurationError("per-family cap exceeds total record cap")
+        for name in (
+            "max_records_per_run",
+            "max_records_per_family",
+            "max_records_per_lineage",
+            "max_records_per_outcome",
+            "max_records_per_type",
+        ):
+            if getattr(self, name) > self.max_records:
+                raise CrossRunConfigurationError(
+                    f"knowledge.retrieval.{name} exceeds total record cap"
+                )
+        if self.materialization_byte_budget < self.prompt_byte_budget:
+            raise CrossRunConfigurationError(
+                "knowledge retrieval materialization budget is below prompt budget"
+            )
 
     @property
     def semantic_weight(self) -> float:
@@ -617,12 +642,21 @@ class RetrievalSettings(StrictContract):
 class KnowledgeSettings(StrictContract):
     snapshot_path: str
     index_path: str
+    archive_compression_level: int
     embeddings: EmbeddingSettings
     retrieval: RetrievalSettings
 
     def _validate(self) -> None:
         _require_path(self.snapshot_path, "knowledge.snapshot_path")
         _require_path(self.index_path, "knowledge.index_path")
+        _require_positive(
+            self.archive_compression_level,
+            "knowledge.archive_compression_level",
+        )
+        if self.archive_compression_level > 22:
+            raise CrossRunConfigurationError(
+                "knowledge.archive_compression_level exceeds the zstd maximum"
+            )
 
 
 @dataclass(frozen=True)

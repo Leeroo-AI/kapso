@@ -6,8 +6,8 @@ from kapso.cross_run.canonical import canonical_json_bytes, parse_json_bytes
 
 from kapso.cross_run.capture.exporter import RunCaptureExporter
 from kapso.cross_run.capture.sanitation import SanitationGate, SanitationRejectedError
-from kapso.cross_run.capture.sanitation import SanitationReport
 from kapso.cross_run.capture.validator import CaptureValidator
+from kapso.cross_run.record_contracts import SanitationReport
 from cross_run_capture_fixtures import make_capture_fixture
 
 

@@ -13,12 +13,12 @@ from kapso.cross_run.capture.exporter import RunCaptureExporter
 from kapso.cross_run.capture.sanitation import (
     SanitationGate,
     SanitationRejectedError,
-    SanitationReport,
 )
 from kapso.cross_run.capture.safety import read_restricted_regular_file
 from kapso.cross_run.capture.validator import CaptureValidator
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.contracts import CompletionState, RunBundle
+from kapso.cross_run.record_contracts import SanitationReport
 from cross_run_capture_fixtures import make_capture_fixture
 
 

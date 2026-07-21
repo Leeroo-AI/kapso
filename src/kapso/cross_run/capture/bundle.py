@@ -19,7 +19,6 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.capture.sanitation import (
     SANITATION_REPORT_REF,
     SanitizedCapture,
-    SanitationReport,
     sanitation_policy_fingerprint,
 )
 from kapso.cross_run.capture.safety import (
@@ -29,6 +28,7 @@ from kapso.cross_run.capture.safety import (
 )
 from kapso.cross_run.capture.validator import ValidatedCapture
 from kapso.cross_run.contracts import RunBundle
+from kapso.cross_run.record_contracts import SanitationReport
 from kapso.cross_run.settings import CaptureSettings, SanitationSettings
 
 BUNDLE_MANIFEST_FILENAME = "manifest.json"
@@ -200,9 +200,7 @@ class RunBundlePublisher:
                 expert_base_release_id=descriptor.expert_base_release_id,
                 task_context_binding=descriptor.task_context_binding,
                 artifact_environment=descriptor.artifact_environment,
-                capture_descriptor_ref=descriptor.artifact_refs[
-                    "capture_descriptor"
-                ],
+                capture_descriptor_ref=descriptor.artifact_refs["capture_descriptor"],
                 checkpoint_ref=descriptor.artifact_refs["checkpoint"],
                 execution_event_journal_ref=descriptor.artifact_refs[
                     "execution_event_journal"

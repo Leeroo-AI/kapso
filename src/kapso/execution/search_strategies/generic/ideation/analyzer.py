@@ -6,14 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Tuple
 
+from kapso.core.embeddings import (
+    EmbeddingProvider,
+    EmbeddingRecord,
+    EmbeddingTelemetry,
+    cosine_similarity,
+    embedding_can_be_reused,
+)
 from kapso.execution.search_strategies.generic.ideation.archive import (
     IdeaArchiveState,
-)
-from kapso.execution.search_strategies.generic.ideation.embeddings import (
-    EmbeddingProvider,
-    cosine_similarity,
-    canonical_idea_embedding_text,
-    embedding_can_be_reused,
 )
 from kapso.execution.search_strategies.generic.ideation.evidence import (
     evidence_reference_ids,
@@ -22,8 +23,6 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     AnalyzedCandidate,
     CampaignEvidenceSnapshot,
     CandidateAnalysis,
-    EmbeddingRecord,
-    EmbeddingTelemetry,
     EvidenceStatus,
     IdeaDescriptor,
     IdeaRecord,
@@ -33,6 +32,32 @@ from kapso.execution.search_strategies.generic.ideation.types import (
     SearchDirective,
     SimilarityMatch,
 )
+
+
+def canonical_idea_embedding_text(idea: IdeaRecord) -> str:
+    """Return the complete stable representation used for idea similarity."""
+    return json.dumps(
+        {
+            "proposal": idea.proposal,
+            "descriptor": idea.descriptor.to_dict(),
+            "assumptions": list(idea.assumptions),
+            "evidence_refs": list(idea.evidence_refs),
+            "directive_rationale": idea.directive_rationale,
+            "claim_ids": list(idea.claim_ids),
+            "resolves_claim_ids": list(idea.resolves_claim_ids),
+            "evaluation_method": idea.evaluation_method,
+            "expected_observations": list(idea.expected_observations),
+            "resource_request": idea.resource_request,
+            "claimed_nearest_idea_id": idea.claimed_nearest_idea_id,
+            "claimed_nearest_experiment_node_id": (
+                idea.claimed_nearest_experiment_node_id
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
 
 
 @dataclass(frozen=True)

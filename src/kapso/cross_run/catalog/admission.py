@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, ClassVar, Mapping
+from typing import Any, Mapping
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
     parse_json_bytes,
     require_content_id,
-    require_identifier,
     tree_or_blob_digest,
 )
-from kapso.cross_run.catalog.agent_operations import CatalogAgentOperationRecord
 from kapso.cross_run.catalog.assertions import (
     AssertionAdjudication,
     ReviewRegistry,
 )
-from kapso.cross_run.capture.sanitation import SanitationReport
 from kapso.cross_run.contracts import (
     AdmissionState,
     CatalogEntryState,
@@ -34,177 +30,20 @@ from kapso.cross_run.contracts import (
     MissingReferenceError,
     PriorIdea,
     ReviewAssertion,
-    StrictContract,
     TransferEpisode,
+)
+from kapso.cross_run.record_contracts import (
+    CatalogAgentOperationRecord,
+    CatalogRevocation,
+    CatalogTaint,
+    ClaimEvidenceClosure,
+    SanitationReport,
 )
 from kapso.cross_run.settings import CatalogSettings
 
 
 class AdmissionReductionError(ValueError):
     """Catalog facts cannot be reduced into a valid generation."""
-
-
-def _require_sorted_content_ids(values: tuple[str, ...], name: str) -> None:
-    if not values or values != tuple(sorted(set(values))):
-        raise ContractValidationError(f"{name} must be non-empty, sorted, and unique")
-    for value in values:
-        require_content_id(value, name)
-
-
-@dataclass(frozen=True)
-class ClaimEvidenceClosure(StrictContract):
-    """Exact episode universe classified by one claim-proposal operation."""
-
-    claim_evidence_closure_id: str
-    claim_revision_id: str
-    evaluated_episode_ids: tuple[str, ...]
-    supporting_episode_ids: tuple[str, ...]
-    contradicting_episode_ids: tuple[str, ...]
-    evidence_assessments: tuple[Mapping[str, str], ...]
-    proposer_operation_receipt_id: str
-    packet_digest: str
-
-    CONTENT_NAMESPACE: ClassVar[str] = "claim-evidence-closure"
-    IDENTITY_FIELD: ClassVar[str] = "claim_evidence_closure_id"
-
-    def _validate(self) -> None:
-        require_content_id(self.claim_revision_id, "closure claim_revision_id")
-        require_content_id(
-            self.proposer_operation_receipt_id,
-            "closure proposer_operation_receipt_id",
-        )
-        _require_sorted_content_ids(
-            self.evaluated_episode_ids,
-            "closure evaluated_episode_ids",
-        )
-        for name in ("supporting_episode_ids", "contradicting_episode_ids"):
-            values = getattr(self, name)
-            if values:
-                if values != tuple(sorted(set(values))):
-                    raise ContractValidationError(
-                        f"closure {name} must be sorted and unique"
-                    )
-                for value in values:
-                    require_content_id(value, f"closure {name}")
-        support = set(self.supporting_episode_ids)
-        contradictions = set(self.contradicting_episode_ids)
-        if support & contradictions:
-            raise ContractValidationError(
-                "closure support and contradiction sets must be disjoint"
-            )
-        if not support and not contradictions:
-            raise ContractValidationError(
-                "closure must classify support or contradiction evidence"
-            )
-        if not (support | contradictions).issubset(self.evaluated_episode_ids):
-            raise MissingReferenceError(
-                "closure evidence classifications leave the evaluated universe"
-            )
-        assessment_ids: list[str] = []
-        assessment_relationships: dict[str, str] = {}
-        for assessment in self.evidence_assessments:
-            if set(assessment) != {"episode_id", "rationale", "relationship"}:
-                raise ContractValidationError(
-                    "closure evidence assessment fields are invalid"
-                )
-            if any(
-                not isinstance(value, str) or not value.strip()
-                for value in assessment.values()
-            ):
-                raise ContractValidationError(
-                    "closure evidence assessment values must be non-empty text"
-                )
-            episode_id = assessment["episode_id"]
-            require_content_id(episode_id, "assessment episode_id")
-            relationship = assessment["relationship"]
-            if relationship not in {"support", "contradiction", "not_applicable"}:
-                raise ContractValidationError(
-                    "closure evidence assessment relationship is invalid"
-                )
-            assessment_ids.append(episode_id)
-            assessment_relationships[episode_id] = relationship
-        if tuple(assessment_ids) != tuple(sorted(set(assessment_ids))):
-            raise ContractValidationError(
-                "closure evidence assessments must be sorted and unique"
-            )
-        if tuple(assessment_ids) != self.evaluated_episode_ids:
-            raise MissingReferenceError(
-                "closure must assess every evaluated episode exactly once"
-            )
-        if self.supporting_episode_ids != tuple(
-            episode_id
-            for episode_id in assessment_ids
-            if assessment_relationships[episode_id] == "support"
-        ) or self.contradicting_episode_ids != tuple(
-            episode_id
-            for episode_id in assessment_ids
-            if assessment_relationships[episode_id] == "contradiction"
-        ):
-            raise ContractValidationError(
-                "closure classifications differ from evidence assessments"
-            )
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.packet_digest) is None:
-            raise ContractValidationError("closure packet_digest must be sha256")
-
-    @property
-    def not_applicable_episode_ids(self) -> tuple[str, ...]:
-        classified = set(self.supporting_episode_ids)
-        classified.update(self.contradicting_episode_ids)
-        return tuple(sorted(set(self.evaluated_episode_ids) - classified))
-
-
-@dataclass(frozen=True)
-class CatalogRevocation(StrictContract):
-    """Immutable direct withdrawal of trust from one catalog proof object."""
-
-    revocation_id: str
-    subject_id: str
-    reason_code: str
-    rationale: str
-    exact_evidence_refs: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "catalog-revocation"
-    IDENTITY_FIELD: ClassVar[str] = "revocation_id"
-
-    def _validate(self) -> None:
-        require_content_id(self.subject_id, "revocation subject_id")
-        require_identifier(self.reason_code, "revocation reason_code")
-        if not self.rationale.strip():
-            raise ContractValidationError("revocation rationale must not be empty")
-        _require_sorted_content_ids(
-            self.exact_evidence_refs,
-            "revocation exact_evidence_refs",
-        )
-
-
-@dataclass(frozen=True)
-class CatalogTaint(StrictContract):
-    """Immutable finding that one proof object is contaminated by another."""
-
-    taint_id: str
-    subject_id: str
-    source_subject_id: str
-    reason_code: str
-    rationale: str
-    exact_evidence_refs: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "catalog-taint"
-    IDENTITY_FIELD: ClassVar[str] = "taint_id"
-
-    def _validate(self) -> None:
-        require_content_id(self.subject_id, "taint subject_id")
-        require_content_id(self.source_subject_id, "taint source_subject_id")
-        if self.subject_id == self.source_subject_id:
-            raise ContractValidationError(
-                "taint subject and source must be distinct proof objects"
-            )
-        require_identifier(self.reason_code, "taint reason_code")
-        if not self.rationale.strip():
-            raise ContractValidationError("taint rationale must not be empty")
-        _require_sorted_content_ids(
-            self.exact_evidence_refs,
-            "taint exact_evidence_refs",
-        )
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional, Tuple, Type, TypeVar
 
+from kapso.core.embeddings import EmbeddingRecord, EmbeddingTelemetry
 from kapso.execution.coding_agents import structured_call
 
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9_]*_[0-9a-f]{32}$")
@@ -379,69 +380,6 @@ def require_idea_transition(current: IdeaStatus, target: IdeaStatus) -> None:
 def require_gap_transition(current: GapState, target: GapState) -> None:
     if target not in GAP_TRANSITIONS[current]:
         raise ValueError(f"illegal gap transition: {current.value} -> {target.value}")
-
-
-@dataclass(frozen=True)
-class EmbeddingTelemetry(JsonRecord):
-    provider: str
-    model: str
-    call_count: int
-    input_tokens: Optional[int]
-    duration_seconds: float
-
-    def __post_init__(self) -> None:
-        _require_nonempty_string(self.provider, "embedding telemetry provider")
-        _require_nonempty_string(self.model, "embedding telemetry model")
-        _require_integer(self.call_count, "embedding call count", 1)
-        _require_optional_integer(self.input_tokens, "embedding input tokens")
-        _require_number(self.duration_seconds, "embedding duration", 0.0)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EmbeddingTelemetry":
-        _require_exact_keys(
-            data,
-            {
-                "provider",
-                "model",
-                "call_count",
-                "input_tokens",
-                "duration_seconds",
-            },
-            "embedding telemetry",
-        )
-        return cls(**data)
-
-
-@dataclass(frozen=True)
-class EmbeddingRecord(JsonRecord):
-    provider: str
-    model: str
-    dimensions: int
-    input_hash: str
-    vector: Tuple[float, ...]
-
-    def __post_init__(self) -> None:
-        _require_nonempty_string(self.provider, "embedding provider")
-        _require_nonempty_string(self.model, "embedding model")
-        _require_integer(self.dimensions, "embedding dimensions", 1)
-        _require_sha256(self.input_hash, "embedding input hash")
-        if not isinstance(self.vector, (list, tuple)):
-            raise ValueError("embedding vector must be a list")
-        vector = tuple(
-            _require_number(value, "embedding vector value") for value in self.vector
-        )
-        if len(vector) != self.dimensions:
-            raise ValueError("embedding dimensions must match vector length")
-        object.__setattr__(self, "vector", vector)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EmbeddingRecord":
-        _require_exact_keys(
-            data,
-            {"provider", "model", "dimensions", "input_hash", "vector"},
-            "embedding record",
-        )
-        return cls(**data)
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,6 @@ import pytest
 
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
 from kapso.cross_run.catalog.claims import ClaimProposer
-from kapso.cross_run.catalog.agent_operations import CatalogAgentOperationRecord
 from kapso.cross_run.catalog.projector import RunBundleProjector
 from kapso.cross_run.catalog.reducer import CatalogFactError
 from kapso.cross_run.catalog.reviews import CatalogReviewer
@@ -19,6 +18,7 @@ from kapso.cross_run.contracts import (
     CompletionState,
     ExpertScopeContract,
 )
+from kapso.cross_run.record_contracts import CatalogAgentOperationRecord
 from cross_run_capture_fixtures import make_capture_fixture
 from test_cross_run_catalog_reviewer import reviewer_output
 from test_cross_run_claim_proposer import ArtifactFakeRunner, valid_output

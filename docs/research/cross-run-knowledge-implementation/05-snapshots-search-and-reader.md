@@ -32,6 +32,10 @@ src/kapso/cross_run/knowledge/
   publisher.py
   access.py
 
+src/kapso/cross_run/
+  record_contracts.py
+  record_registry.py
+
 src/kapso/core/
   embeddings.py
 
@@ -53,39 +57,45 @@ tests/
 
 ## Shared embedding boundary
 
-- [ ] Move the current isolated OpenAI embedding implementation to one shared
+- [x] Move the current isolated OpenAI embedding implementation to one shared
       `kapso.core.embeddings` module and update existing ideation callers directly.
-- [ ] Delete the superseded provider implementation; retain no alias/import shim.
-- [ ] Keep the OpenAI import at module top in the feature module and preserve
+- [x] Delete the superseded provider implementation; retain no alias/import shim.
+- [x] Keep the OpenAI import at module top in the feature module and preserve
       provider-SDK default credential discovery.
-- [ ] Ensure coding-agent and MCP subprocess environments receive no embedding
+- [x] Ensure coding-agent and MCP subprocess environments receive no embedding
       credential.
-- [ ] Key every vector by provider, model, dimensions, canonicalizer version, and
+- [x] Key every vector by provider, model, dimensions, canonicalizer version, and
       complete input hash (`EmbeddingSpaceId`).
-- [ ] Batch calls under config-owned limits without truncating canonical source
-      text. Window complete calls if provider limits require it.
-- [ ] Attribute embedding cost/latency separately from coding-agent telemetry.
-- [ ] Propagate missing credentials, provider errors, dimension mismatch, and
+- [x] Batch calls under config-owned count limits without truncating canonical
+      source text; provider size-limit failures propagate rather than clipping an
+      input.
+- [x] Attribute embedding cost/latency separately from coding-agent telemetry.
+- [x] Propagate missing credentials, provider errors, dimension mismatch, and
       malformed responses. Explicit `enabled: false` is the only no-embedding mode.
 
 ## Snapshot package
 
 From one exact catalog generation, `KnowledgeSnapshotPublisher`:
 
-- [ ] Selects admitted, non-revoked objects under the configured scope/retrieval
+- [x] Selects admitted, non-revoked objects under the configured scope/retrieval
       policy.
-- [ ] Includes every claim/relative-effect proof dependency, assertion, active
+- [x] Includes every claim/relative-effect proof dependency, assertion, active
       state, revocation, and sanitation reference required for audit.
-- [ ] Includes complete canonical JSON records; IDs-only placeholders are not
+- [x] Includes complete canonical JSON records; IDs-only placeholders are not
       sufficient for runtime retrieval.
-- [ ] Includes the pinned scope contract and policy identities.
-- [ ] Builds a deterministic file order, archive metadata, checksums, manifest,
+- [x] Parses every envelope through the owning dependency-pure `StrictContract`
+      from one registry shared with catalog reduction; a reminted malformed shape
+      is rejected even when its content hash is internally consistent.
+- [x] Includes the pinned scope contract and policy identities.
+- [x] Builds a deterministic file order, archive metadata, checksums, manifest,
       and snapshot content ID.
-- [ ] Verifies that extraction of the package recreates the declared record and
+- [x] Verifies that extraction of the package recreates the declared record and
       proof closure byte-for-byte.
-- [ ] Packages raw sanitized audit deltas separately; the runtime package contains
+- [x] Materializes the verified directory with an atomic no-replace commit, so a
+      concurrent owner can never be overwritten during the staging window.
+- [x] Keeps raw sanitized audit data outside the runtime package, which contains
       safe normalized knowledge only.
-- [ ] Deterministically shards release assets only at the config-owned size bound.
+- [x] Deterministically shards release assets only at the config-owned size bound.
 
 An explicit `EMPTY` snapshot is built and validated through the same path; missing
 remote state is never interpreted as empty.
@@ -103,17 +113,20 @@ optional ANN index
 index-manifest.json
 ```
 
-- [ ] Index scope/task family, context dimensions, trust/state, outcome,
+- [x] Index scope/task family, context dimensions, trust/state, outcome,
       evaluation identity, lineage, timestamps, mechanism, applicability,
       exclusions, and record type.
-- [ ] Provide exact-term/identifier lexical search alongside semantic vectors.
-- [ ] Use exact cosine over compact vectors as the initial implementation.
-- [ ] Build an ANN sidecar only after the configured corpus/latency threshold; it
+- [x] Provide exact-term/identifier lexical search alongside semantic vectors.
+- [x] Use exact cosine over compact vectors as the initial implementation.
+- [ ] Build an ANN sidecar only after a measured corpus/latency threshold warrants
+      it; the v1 implementation intentionally has no ANN mode. It
       may generate candidates but cannot change canonical filters or final ordering.
-- [ ] Pin sidecars to the exact snapshot record closure and embedding space.
-- [ ] Reject stale/corrupt/mismatched sidecars. Rebuilding creates new assets and a
+- [x] Pin sidecars to the exact catalog generation, record closure, canonical
+      source input, and embedding space. The finalized snapshot binds every
+      sidecar checksum, avoiding a snapshot-ID/index-manifest checksum cycle.
+- [x] Reject stale/corrupt/mismatched sidecars. Rebuilding creates new assets and a
       new snapshot publication, not an in-place mutation.
-- [ ] Do not put indexes or growing databases in Git history.
+- [x] Do not put indexes or growing databases in Git history.
 
 ## Retrieval pipeline
 
@@ -140,15 +153,16 @@ It performs, in order:
 
 Rules:
 
-- [ ] Semantic similarity never determines truth, sign, novelty, or admission.
-- [ ] Exact-context records rank separately from analogies; incompatible records
+- [x] Semantic similarity never determines truth, sign, novelty, or admission.
+- [x] Exact-context records rank separately from analogies; incompatible records
       are absent.
-- [ ] Positive, negative, inconclusive, and frontier slots remain explicit.
-- [ ] A top-level record whose proof closure cannot fit is skipped as a whole.
-- [ ] Deterministic total-order tie breaking ends in content ID.
-- [ ] The resulting `PriorKnowledgeSnapshot` includes query/policy/source identity,
-      exact records, proofs, and digest.
-- [ ] Repeating the same query over the same pin produces byte-identical output.
+- [x] Positive, negative, inconclusive, and frontier slots remain explicit.
+- [x] A top-level record whose proof closure cannot fit is skipped as a whole.
+- [x] Deterministic total-order tie breaking ends in content ID.
+- [x] The resulting `PriorKnowledgeSnapshot` includes query/policy/source identity,
+      exact records, typed proofs, digest, and per-record compatibility/outcome/rank
+      metadata.
+- [x] Repeating the same query over the same pin produces byte-identical output.
 
 ## MCP reader
 
@@ -159,14 +173,23 @@ list_prior_knowledge()
 get_prior_knowledge_record(record_id)
 ```
 
-- [ ] The gate receives an explicit packet/materialization path from the trusted
+- [x] The gate receives an explicit packet/materialization path from the trusted
       launcher; it never resolves GitHub or `CURRENT`.
-- [ ] Validate the packet digest and record/proof membership before serving.
-- [ ] Permit only IDs present in the persisted packet for live ideation v1.
-- [ ] Return complete schema-rendered records, not clipped display summaries.
-- [ ] Treat record prose/code as untrusted data with explicit provenance labels.
-- [ ] Log exact tool call and returned IDs in coding-agent invocation artifacts.
-- [ ] Mount no write, network, raw artifact, or current-run memory authority.
+- [x] Validate canonical bytes, the packet digest, and record/proof membership
+      before serving.
+- [x] Permit only IDs present in the persisted packet for live ideation v1.
+- [x] Return complete schema-rendered records, not clipped display summaries.
+- [x] Treat record prose/code as untrusted data with explicit provenance labels.
+- [ ] Seal the gate's exact tool calls and returned IDs into coding-agent
+      invocation artifacts. M5 emits canonical audit events; M6 owns their durable
+      capture with the consuming `IdeaBatch`.
+- [x] Mount no write, network, raw artifact, or current-run memory authority.
+- [x] Keep reader, gate, and server imports silent so coding-agent initialization
+      cannot corrupt MCP's stdout JSON-RPC transport.
+
+The trusted caller persists the access materialization as one canonical,
+write-once local file with atomic publication and fsync before launching the MCP
+subprocess. The configured materialization byte bound is enforced before parsing.
 
 An interactive full-snapshot `search_prior_knowledge` tool is explicitly deferred.
 It requires a durable access-session schema that seals every query/response into
@@ -175,14 +198,18 @@ shortcut.
 
 ## Knowledge release publication
 
-- [ ] Run automated admission on the exact snapshot manifest/catalog delta.
-- [ ] Rebuild the canonical package and search sidecars from the admitted exact
+- [x] Consume only the exact generation already produced by M4's deterministic
+      automated admission state machine.
+- [x] Rebuild the canonical package and search sidecars from the admitted exact
       catalog generation.
-- [ ] Compare built IDs/digests with the proposed manifest.
-- [ ] Use M2's autonomous transaction to commit directly, publish the immutable
+- [x] Compare built IDs/digests with the proposed manifest.
+- [x] Use M2's autonomous transaction to commit directly, publish the immutable
       knowledge release, then CAS `CURRENT.json`.
-- [ ] On CAS conflict, reload the catalog base, rebuild the deterministic union,
-      rerun checks, and publish a new identity.
+- [x] Require a nonempty snapshot to name exactly the resolved current scientific
+      snapshot as its sole parent; only explicit `EMPTY` has no parent.
+- [x] Let an M2 CAS conflict fail loud without weakening the old `CURRENT`.
+- [ ] Have the M10 operational loop resolve the new base, rebuild and revalidate,
+      then retry as a new publication operation rather than mutating the loser.
 
 ## Tests
 
@@ -194,8 +221,8 @@ shortcut.
 - Test positive/negative/inconclusive/frontier diversity and whole-record budgets.
 - Test embedding-space separation, stale sidecars, corrupt float data, and explicit
   embedding disablement.
-- Compare exact-cosine and ANN candidate modes for identical final policy output on
-  fixed fixtures.
+- Compare exact-cosine and ANN candidate modes only when the measured-scale ANN
+  follow-up is implemented.
 - Test MCP membership, complete rendering, injection-shaped content, and no write
   or GitHub access.
 - Inject publication/rebuild/CAS failures and verify old `CURRENT` remains valid.

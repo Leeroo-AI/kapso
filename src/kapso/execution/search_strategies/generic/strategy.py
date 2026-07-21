@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from kapso.core.embeddings import EmbeddingSettings, OpenAIEmbeddingProvider
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentRunnerSettings,
     SubprocessCodingAgentCallRunner,
@@ -63,7 +64,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateGenerator,
     CandidateGeneratorSettings,
     CandidateSelector,
-    EmbeddingSettings,
     EvidenceAuthor,
     EvaluationAttemptInput,
     ExperimentInput,
@@ -77,7 +77,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     IdeationEngine,
     IdeationEngineTelemetry,
     ObjectiveDirection,
-    OpenAIEmbeddingProvider,
     OperatorSettings,
     ParentPlan,
     ParentPlanKind,

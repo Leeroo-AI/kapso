@@ -1469,6 +1469,7 @@ class PriorKnowledgeSnapshot(StrictContract):
     selected_records: tuple[Mapping[str, Any], ...]
     selected_record_ids: tuple[str, ...]
     proof_reference_ids: tuple[str, ...]
+    selection_metadata: Mapping[str, Mapping[str, Any]]
     prompt_budget_policy: Mapping[str, Any]
     records_digest: str
 
@@ -1510,6 +1511,85 @@ class PriorKnowledgeSnapshot(StrictContract):
             _require_sorted_unique(self.proof_reference_ids, "proof_reference_ids")
             for proof_id in self.proof_reference_ids:
                 require_content_id(proof_id, "proof_reference_ids")
+        if set(self.selection_metadata) != set(self.selected_record_ids):
+            raise ContractValidationError(
+                "selection metadata must be keyed by every selected record exactly"
+            )
+        expected_selection_fields = {
+            "compatibility",
+            "evidence_quality",
+            "lexical_score",
+            "outcome",
+            "proof_reference_ids",
+            "rank",
+            "recency",
+            "retrieval_utility",
+            "semantic_score",
+        }
+        ranks: list[int] = []
+        for record_id in sorted(self.selection_metadata):
+            metadata = self.selection_metadata[record_id]
+            if not isinstance(metadata, MappingABC) or set(metadata) != (
+                expected_selection_fields
+            ):
+                raise ContractValidationError("selection metadata fields are invalid")
+            if metadata["compatibility"] not in {
+                TransferCompatibility.EXACT_CONTEXT.value,
+                TransferCompatibility.ANALOGICAL.value,
+            }:
+                raise ContractValidationError(
+                    "selection compatibility must be exact or analogical"
+                )
+            if metadata["outcome"] not in {
+                "positive",
+                "negative",
+                "inconclusive",
+                "frontier",
+            }:
+                raise ContractValidationError("selection outcome is invalid")
+            rank = metadata["rank"]
+            evidence_quality = metadata["evidence_quality"]
+            score_values = (
+                metadata["lexical_score"],
+                metadata["retrieval_utility"],
+                metadata["semantic_score"],
+            )
+            if isinstance(rank, bool) or not isinstance(rank, int) or rank < 0:
+                raise ContractValidationError("selection rank is invalid")
+            if (
+                isinstance(evidence_quality, bool)
+                or not isinstance(evidence_quality, int)
+                or evidence_quality < 0
+            ):
+                raise ContractValidationError("selection evidence quality is invalid")
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in score_values
+            ):
+                raise ContractValidationError("selection score is invalid")
+            recency = metadata["recency"]
+            if not isinstance(recency, str):
+                raise ContractValidationError("selection recency must be text")
+            if recency:
+                normalize_utc_timestamp(recency, "selection recency")
+            proof_ids = metadata["proof_reference_ids"]
+            if not isinstance(proof_ids, tuple):
+                raise ContractValidationError(
+                    "selection proof references must be a tuple"
+                )
+            if proof_ids:
+                _require_sorted_unique(proof_ids, "selection proof_reference_ids")
+                for proof_id in proof_ids:
+                    require_content_id(proof_id, "selection proof_reference_ids")
+            if not set(proof_ids).issubset(self.proof_reference_ids):
+                raise MissingReferenceError(
+                    "selection proof references leave the packet proof closure"
+                )
+            ranks.append(rank)
+        if tuple(sorted(ranks)) != tuple(range(len(self.selected_record_ids))):
+            raise ContractValidationError("selection ranks must be unique and gap-free")
         if not self.prompt_budget_policy:
             raise ContractValidationError("prompt_budget_policy must not be empty")
         expected_digest = tree_or_blob_digest(

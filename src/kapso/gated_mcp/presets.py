@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GateDefinition:
     """Definition of a gate with its tools and default config.
-    
+
     For internal gates (bundled into gated-knowledge server), server_name and
     command are None. For external gates (e.g., leeroopedia-mcp), set server_name
     to the MCP server name and command to the CLI entry point.
     """
-    
+
     tools: List[str]
     default_params: Dict[str, Any] = field(default_factory=dict)
     # External server fields (None = bundled in gated-knowledge)
@@ -44,9 +44,7 @@ class GateDefinition:
     env_keys: List[str] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
-        self.required_env = list(
-            dict.fromkeys([*self.required_env, *self.env_keys])
-        )
+        self.required_env = list(dict.fromkeys([*self.required_env, *self.env_keys]))
         self.env_keys = list(self.required_env)
 
 
@@ -102,9 +100,7 @@ class GateResolution:
             "requested_gates": list(self.requested_gates),
             "enabled_gates": list(self.enabled_gates),
             "unavailable_gates": list(self.unavailable_gates),
-            "diagnostics": [
-                diagnostic.to_dict() for diagnostic in self.diagnostics
-            ],
+            "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
         }
 
 
@@ -187,6 +183,13 @@ GATES: Dict[str, GateDefinition] = {
         ],
         default_params={},
     ),
+    "prior_knowledge": GateDefinition(
+        tools=[
+            "list_prior_knowledge",
+            "get_prior_knowledge_record",
+        ],
+        default_params={},
+    ),
     # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
     # Runs as a separate process, not bundled in gated-knowledge
     "leeroopedia": GateDefinition(
@@ -230,9 +233,7 @@ def _normalize_gate_names(gates: Sequence[str]) -> Tuple[str, ...]:
     if unknown:
         available = ", ".join(GATES)
         requested = ", ".join(unknown)
-        raise ValueError(
-            f"Unknown gate(s): {requested}. Available gates: {available}"
-        )
+        raise ValueError(f"Unknown gate(s): {requested}. Available gates: {available}")
     return tuple(normalized)
 
 
@@ -272,9 +273,7 @@ def resolve_gates(
             name for name in definition.required_env if not effective_env.get(name)
         )
         missing_commands = tuple(
-            command
-            for command in required_commands
-            if not resolve_command(command)
+            command for command in required_commands if not resolve_command(command)
         )
         diagnostics.append(
             GateDiagnostic(
@@ -298,9 +297,7 @@ def resolve_gates(
 
     return GateResolution(
         requested_gates=requested,
-        enabled_gates=tuple(
-            item.gate_name for item in diagnostics if item.enabled
-        ),
+        enabled_gates=tuple(item.gate_name for item in diagnostics if item.enabled),
         diagnostics=tuple(diagnostics),
     )
 
@@ -312,26 +309,26 @@ def get_allowed_tools_for_gates(
 ) -> List[str]:
     """
     Generate the allowed_tools list for Claude Code based on gate names.
-    
+
     Args:
         gates: List of gate names (e.g., ["idea", "research"])
         mcp_server_name: Name of the MCP server (e.g., "gated-knowledge")
         include_base_tools: Include base tools like Read, Write, Bash (default True)
-        
+
     Returns:
         List of tool names for allowed_tools config
-        
+
     Example:
         >>> get_allowed_tools_for_gates(["idea", "research"], "gated-knowledge")
         ["Read", "Write", "Bash", "mcp__gated-knowledge__wiki_idea_search", ...]
     """
     gate_names = _normalize_gate_names(gates)
     tools: List[str] = []
-    
+
     # Add base tools if requested
     if include_base_tools:
         tools.extend(["Read", "Write", "Bash"])
-    
+
     # Add MCP tools for each gate
     # External gates (with server_name set) use their own server name prefix
     for gate_name in gate_names:
@@ -341,7 +338,7 @@ def get_allowed_tools_for_gates(
             # Format: mcp__<server>__<tool>
             mcp_tool = f"mcp__{effective_server}__{tool_name}"
             tools.append(mcp_tool)
-    
+
     return tools
 
 
@@ -353,18 +350,20 @@ def get_mcp_config(
     experiment_history_path: Optional[str] = None,
     experiment_embedding_model: Optional[str] = None,
     repo_root: Optional[str] = None,
+    prior_knowledge_path: Optional[str] = None,
+    prior_knowledge_maximum_bytes: Optional[int] = None,
     include_base_tools: bool = True,
     gate_failure_policy: str = "warn",
     command_resolver: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
-    
+
     Args:
         gates: List of gate names (e.g., ["idea", "research", "experiment_history"])
         server_name: MCP server name (default: "gated-knowledge")
         project_root: Project root path (defaults to the Kapso checkout root)
-        kg_index_path: Path to .index file. Required if "kg", "idea", or "code" 
+        kg_index_path: Path to .index file. Required if "kg", "idea", or "code"
                        gates are enabled. Falls back to KG_INDEX_PATH env var.
         experiment_history_path: Path to experiment history JSON file. Required if
                                  "experiment_history" gate is enabled.
@@ -373,15 +372,19 @@ def get_mcp_config(
                                     SDK credentials must be able to serve it,
                                     else the tool call fails loud and the
                                     agent falls back to top/recent).
-        repo_root: Path to repo root for repo_memory gate. Falls back to 
+        repo_root: Path to repo root for repo_memory gate. Falls back to
                    REPO_MEMORY_ROOT env var or CWD.
+        prior_knowledge_path: Explicit local access-materialization file for the
+                              prior_knowledge gate.
+        prior_knowledge_maximum_bytes: RetrievalSettings materialization byte
+                                       budget for bounded pre-read validation.
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
         gate_failure_policy: Missing-capability policy: skip, warn, or error.
         command_resolver: Optional command lookup override for testing.
-    
+
     Returns:
         Tuple of (mcp_servers dict, allowed_tools list)
-        
+
     Example:
         >>> mcp_servers, allowed_tools = get_mcp_config(["idea", "research"])
         >>> # Use in Claude Code config:
@@ -410,6 +413,24 @@ def get_mcp_config(
         command_resolver=command_resolver,
     )
     enabled_gates = list(resolution.enabled_gates)
+    if "prior_knowledge" in enabled_gates and not prior_knowledge_path:
+        raise ValueError(
+            "prior_knowledge gate requires an explicit materialization path"
+        )
+    if "prior_knowledge" in enabled_gates:
+        if (
+            isinstance(prior_knowledge_maximum_bytes, bool)
+            or not isinstance(prior_knowledge_maximum_bytes, int)
+            or prior_knowledge_maximum_bytes <= 0
+        ):
+            raise ValueError(
+                "prior_knowledge gate requires a positive materialization byte budget"
+            )
+        prior_path = Path(str(prior_knowledge_path))
+        if not prior_path.is_absolute() or ".." in prior_path.parts:
+            raise ValueError(
+                "prior knowledge materialization path must be absolute and normalized"
+            )
 
     # Resolve project root
     if project_root is None:
@@ -419,14 +440,12 @@ def get_mcp_config(
     python_path = project_root / "src"
     if not python_path.is_dir():
         python_path = project_root
-    
+
     # Split gates into internal (bundled in gated-knowledge) and external (separate servers)
     internal_gates = [
-        gate_name
-        for gate_name in enabled_gates
-        if GATES[gate_name].command is None
+        gate_name for gate_name in enabled_gates if GATES[gate_name].command is None
     ]
-    
+
     # Build environment for MCP server (internal gates only)
     mcp_env: Dict[str, str] = {
         "PYTHONPATH": str(python_path),
@@ -447,17 +466,27 @@ def get_mcp_config(
         ]
     if "repo_memory" in internal_gates and effective_env.get("REPO_MEMORY_ROOT"):
         mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
-    
+
     # Build MCP servers config (gated-knowledge for internal gates)
     mcp_servers: Dict[str, Any] = {}
     if internal_gates:
+        command_args = ["-m", "kapso.gated_mcp.server"]
+        if "prior_knowledge" in internal_gates:
+            command_args.extend(
+                [
+                    "--prior-knowledge-path",
+                    str(prior_knowledge_path),
+                    "--prior-knowledge-maximum-bytes",
+                    str(prior_knowledge_maximum_bytes),
+                ]
+            )
         mcp_servers[server_name] = {
             "command": sys.executable,
-            "args": ["-m", "kapso.gated_mcp.server"],
+            "args": command_args,
             "cwd": str(project_root),
             "env": mcp_env,
         }
-    
+
     # Add external MCP servers (e.g., leeroopedia-mcp)
     for gate_name in enabled_gates:
         gate_def = GATES[gate_name]
@@ -471,12 +500,12 @@ def get_mcp_config(
                 "command": gate_def.command,
                 "env": ext_env,
             }
-    
+
     # Get allowed tools
     allowed_tools = get_allowed_tools_for_gates(
         enabled_gates, server_name, include_base_tools=include_base_tools
     )
-    
+
     return mcp_servers, allowed_tools
 
 
@@ -488,13 +517,13 @@ def list_gates() -> List[str]:
 def get_gate_config(gate_name: str) -> GateDefinition:
     """
     Get a gate definition by name.
-    
+
     Args:
         gate_name: Gate name (kg, idea, code, research)
-        
+
     Returns:
         GateDefinition with tools and default_params
-        
+
     Raises:
         ValueError: If gate name is unknown
     """

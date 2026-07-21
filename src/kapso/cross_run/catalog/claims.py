@@ -8,12 +8,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from kapso.cross_run.catalog.agent_operations import (
-    CatalogAgentOperationRecord,
     build_catalog_agent_operation_receipt,
-    catalog_agent_operation_id,
     validate_catalog_agent_workspace,
 )
-from kapso.cross_run.catalog.admission import ClaimEvidenceClosure
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     content_id,
@@ -30,6 +27,11 @@ from kapso.cross_run.contracts import (
     ReviewAssertion,
     StrictContract,
     TransferEpisode,
+)
+from kapso.cross_run.record_contracts import (
+    CatalogAgentOperationRecord,
+    ClaimEvidenceClosure,
+    catalog_agent_operation_id,
 )
 from kapso.cross_run.settings import CatalogSettings
 from kapso.execution.coding_agents.structured_call import (

@@ -7,10 +7,7 @@ from dataclasses import replace
 import pytest
 
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
-from kapso.cross_run.catalog.projector import (
-    BundleProjectionError,
-    RunBundleProjector,
-)
+from kapso.cross_run.catalog.projector import RunBundleProjector
 from kapso.cross_run.catalog.service import CrossRunCatalog
 from kapso.cross_run.contracts import (
     ArtifactEnvironment,
@@ -24,6 +21,7 @@ from kapso.cross_run.contracts import (
     ObjectiveDirection,
     TaskContextBinding,
 )
+from kapso.cross_run.record_contracts import BundleProjectionError
 from kapso.execution.search_strategies.generic.ideation import new_identifier
 from test_cross_run_contracts import build_records, digest
 from cross_run_capture_fixtures import make_capture_fixture

@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
+from kapso.core.embeddings import EmbeddingTelemetry
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 from kapso.execution.search_strategies.generic.ideation.types import (
     AnalyzedCandidate,
     BatchStatus,
     CandidateDispositionKind,
-    EmbeddingTelemetry,
     EvaluationGap,
     EvidenceClaim,
     EvidenceStatus,

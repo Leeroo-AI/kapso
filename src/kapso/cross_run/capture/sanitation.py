@@ -15,11 +15,8 @@ from typing import Any, BinaryIO, Mapping
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
-    require_content_id,
-    require_identifier,
     tree_or_blob_digest,
 )
-from kapso.cross_run.capture.journal import ExecutionRevisionEvent
 from kapso.cross_run.capture.safety import (
     path_matches_denied_pattern,
     read_restricted_regular_file,
@@ -27,12 +24,15 @@ from kapso.cross_run.capture.safety import (
     restricted_directory_identity,
 )
 from kapso.cross_run.capture.validator import ValidatedCapture
-from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.record_contracts import (
+    ExecutionRevisionEvent,
+    SANITATION_REPORT_SCHEMA,
+    SANITATION_SCANNER_VERSION,
+    SanitationReport,
+)
 from kapso.cross_run.settings import CaptureSettings, SanitationSettings
 from kapso.execution.memories.experiment_memory.store import EXPERIMENT_HISTORY_SCHEMA
 
-SANITATION_REPORT_SCHEMA = "kapso.sanitation_report.v1"
-SANITATION_SCANNER_VERSION = "kapso.deterministic_text_scanner.v1"
 SANITATION_REPORT_REF = "sanitation_report.json"
 CAPTURE_CURRENT_FILENAME = "current.json"
 _REDACTED_RECORD_FIELDS = {
@@ -72,35 +72,6 @@ _SECRET_PATTERNS = (
     ),
     ("credential_url", re.compile(r"https?://[^\s/:]+:[^\s/@]+@")),
 )
-_FINDING_CODES = frozenset(
-    {
-        "assigned_secret",
-        "aws_access_key",
-        "credential_url",
-        "denied_path",
-        "file_too_large",
-        "forbidden_artifact_class",
-        "github_token",
-        "invalid_utf8",
-        "nul_byte",
-        "openai_key",
-        "private_key",
-        "unapproved_spdx_license",
-        "unclassified_license",
-    }
-)
-_EXCLUSION_REASONS = frozenset(
-    {
-        "artifact_class",
-        "denied_path",
-        "file_too_large",
-        "non_regular_file",
-        "unknown_size",
-    }
-)
-_TAINT_SOURCES = frozenset(
-    {"unclassified_license"} | {f"excluded_{reason}" for reason in _EXCLUSION_REASONS}
-)
 
 
 class SanitationRejectedError(ValueError):
@@ -110,122 +81,6 @@ class SanitationRejectedError(ValueError):
         super().__init__(f"capture rejected by sanitation policy: {report.report_id}")
         self.report = report
         self.report_path = report_path
-
-
-@dataclass(frozen=True)
-class SanitationReport(StrictContract):
-    report_id: str
-    schema: str
-    capture_manifest_id: str
-    scope_id: str
-    task_family_id: str
-    policy_version: str
-    policy_fingerprint: str
-    scanner_version: str
-    status: str
-    findings: tuple[Mapping[str, Any], ...]
-    excluded_paths: tuple[Mapping[str, Any], ...]
-    taint_sources: tuple[str, ...]
-    admitted_refs: Mapping[str, str]
-
-    CONTENT_NAMESPACE = "sanitation-report"
-    IDENTITY_FIELD = "report_id"
-
-    def _validate(self) -> None:
-        if self.schema != SANITATION_REPORT_SCHEMA:
-            raise ValueError("sanitation report schema is incompatible")
-        require_content_id(self.capture_manifest_id, "capture_manifest_id")
-        require_identifier(self.scope_id, "scope_id")
-        require_identifier(self.task_family_id, "task_family_id")
-        if self.status not in {"admitted", "rejected"}:
-            raise ValueError("sanitation report status is invalid")
-        if (
-            not self.policy_version
-            or self.scanner_version != SANITATION_SCANNER_VERSION
-        ):
-            raise ValueError("sanitation policy/scanner identity is invalid")
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.policy_fingerprint) is None:
-            raise ValueError("sanitation policy fingerprint is invalid")
-        if self.taint_sources != tuple(sorted(set(self.taint_sources))):
-            raise ValueError("sanitation taint sources must be sorted and unique")
-        for taint_source in self.taint_sources:
-            if taint_source not in _TAINT_SOURCES:
-                raise ValueError("sanitation taint source is invalid")
-        finding_keys = {"code", "evidence_digest", "path", "severity"}
-        for finding in self.findings:
-            if set(finding) != finding_keys or any(
-                not isinstance(value, str) for value in finding.values()
-            ):
-                raise ValueError("sanitation finding shape is invalid")
-            if finding["code"] not in _FINDING_CODES:
-                raise ValueError("sanitation finding code is invalid")
-            if re.fullmatch(r"sha256:[0-9a-f]{64}", finding["evidence_digest"]) is None:
-                raise ValueError("sanitation finding evidence digest is invalid")
-            self._require_relative_path(finding["path"], "sanitation finding path")
-            if finding["severity"] not in {"notice", "reject"}:
-                raise ValueError("sanitation finding severity is invalid")
-        expected_findings = tuple(
-            sorted(
-                self.findings,
-                key=lambda item: (
-                    item["path"],
-                    item["code"],
-                    item["evidence_digest"],
-                    item["severity"],
-                ),
-            )
-        )
-        if self.findings != expected_findings or len(
-            {tuple(sorted(item.items())) for item in self.findings}
-        ) != len(self.findings):
-            raise ValueError("sanitation findings must be sorted and unique")
-        exclusion_keys = {"path", "reason"}
-        for exclusion in self.excluded_paths:
-            if set(exclusion) != exclusion_keys or any(
-                not isinstance(value, str) for value in exclusion.values()
-            ):
-                raise ValueError("sanitation exclusion shape is invalid")
-            self._require_relative_path(exclusion["path"], "sanitation exclusion path")
-            if exclusion["reason"] not in _EXCLUSION_REASONS:
-                raise ValueError("sanitation exclusion reason is invalid")
-        expected_exclusions = tuple(
-            sorted(
-                self.excluded_paths,
-                key=lambda item: (item["path"], item["reason"]),
-            )
-        )
-        if self.excluded_paths != expected_exclusions or len(
-            {tuple(sorted(item.items())) for item in self.excluded_paths}
-        ) != len(self.excluded_paths):
-            raise ValueError("sanitation exclusions must be sorted and unique")
-        if self.status == "admitted" and any(
-            finding["severity"] == "reject" for finding in self.findings
-        ):
-            raise ValueError("admitted sanitation report contains a rejection")
-        if self.status == "rejected" and not any(
-            finding["severity"] == "reject" for finding in self.findings
-        ):
-            raise ValueError("rejected sanitation report lacks a rejection finding")
-        if self.status == "rejected" and self.admitted_refs:
-            raise ValueError("rejected sanitation report contains admitted refs")
-        for path, digest in self.admitted_refs.items():
-            if not isinstance(path, str) or not isinstance(digest, str):
-                raise ValueError("sanitation admitted ref is invalid")
-            self._require_relative_path(path, "sanitation admitted ref")
-            if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
-                raise ValueError("sanitation admitted ref is invalid")
-
-    @staticmethod
-    def _require_relative_path(path: str, name: str) -> None:
-        normalized = PurePosixPath(path)
-        if (
-            not path
-            or normalized == PurePosixPath(".")
-            or normalized.is_absolute()
-            or ".." in normalized.parts
-            or normalized.as_posix() != path
-        ):
-            raise ValueError(f"{name} is invalid")
 
 
 @dataclass(frozen=True)

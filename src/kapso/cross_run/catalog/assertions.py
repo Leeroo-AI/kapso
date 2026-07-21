@@ -7,7 +7,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from kapso.cross_run.canonical import canonical_json_bytes, parse_json_bytes
-from kapso.cross_run.catalog.agent_operations import CatalogAgentOperationRecord
+from kapso.cross_run.record_contracts import CatalogAgentOperationRecord
 from kapso.cross_run.contracts import (
     CodingAgentOperationReceipt,
     ContractValidationError,

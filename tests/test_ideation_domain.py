@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.core.embeddings import EmbeddingRecord, EmbeddingTelemetry
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
     CodingAgentCallResult,
@@ -19,8 +20,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateDispositionKind,
     ClaimKind,
     DiagnosisAudit,
-    EmbeddingRecord,
-    EmbeddingTelemetry,
     EvaluationGap,
     EvaluationStatus,
     EvidenceClaim,
@@ -357,11 +356,13 @@ def test_every_record_round_trips_through_its_strict_parser():
             call_count=1,
             input_tokens=10,
             duration_seconds=0.2,
+            cost_usd=None,
         ),
         EmbeddingRecord(
             provider="openai",
             model="text-embedding-3-small",
             dimensions=2,
+            canonicalizer_version="kapso.idea_embedding.v1",
             input_hash="4" * 64,
             vector=(0.1, 0.2),
         ),

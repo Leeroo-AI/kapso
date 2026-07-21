@@ -1,6 +1,6 @@
 # Cross-run learning and the expert base
 
-Status: M1–M2 implemented; M3–M10 planned. This supersedes the earlier
+Status: M1–M5 implemented; M4 live CLI validation pending; M6–M10 planned. This supersedes the earlier
 merged-store/starter-kit proposal.
 
 Controlling implementation plan:
@@ -775,6 +775,7 @@ release tag, and asset digests; it never resolves `latest` after startup.
 | `ReviewRegistry` | Reviewer assertions | Append-only adjudicated view | Preserve authorship, rubric, conflict, supersession, and audit history |
 | `ClaimProposer` | Selected episodes and contradictions | Proposed/revised claims | Use a coding agent to abstract mechanisms; never admit or certify its own output |
 | `CrossRunCatalog` | Bundles, projections, assertions, claims | Ordered immutable generations | Global identity, lineage, exact assertion/revocation closure, taint, supersession, and auditability |
+| `TypedRecordRegistry` | Canonical record envelope | Owning `StrictContract` instance | Keep one namespace/type registry across catalog reduction, snapshot packaging, and packet access; reject unknown fields, wrong types, noncanonical shape, and identity drift without importing service-heavy modules |
 | `KnowledgeSnapshotPublisher` | Catalog closure and policy | Immutable snapshot + CAS pointer | Deterministic admission, proof closure, revocation, sidecar indexing, attestation, and atomic publication |
 | `GitHubArtifactResolver` | Resolved scope repositories, current pointer or artifact ID, trust roots | Verified local materialization | Resolve mutable heads only before launch or resolve a write-once artifact identity; verify the complete intent, exact Git source, immutable release/package, and attestation; cache by content identity |
 | `CrossRunRetriever` | Pinned snapshot and current query | Bounded prior packet | Hard compatibility before similarity; trust/outcome/diversity balance; no current-run mutation |
@@ -822,6 +823,19 @@ The packet is proof-closed: selecting a claim or relative effect also selects it
 required parent measurement, supporting/contradicting episodes, assertions, and
 active sanitation/trust state. If that closure exceeds budget, the top-level item
 is skipped rather than rendered without the evidence that makes it auditable.
+Snapshot-wide catalog generations and input deltas remain in the immutable
+release audit closure; they are not recursively copied into every query packet.
+Query closure follows an explicit typed proof graph, so membership lists such as
+all facts in a catalog generation, all outputs in a projection, or all outputs of
+one coding-agent operation cannot pull unrelated siblings into the packet.
+Every envelope is also parsed by the owning dependency-pure `StrictContract`, not
+only rehashed. A self-consistent payload with an extra field, wrong field type, or
+another namespace therefore fails both package construction and packet access.
+
+Each selected record is keyed to immutable selection metadata containing its
+exact-versus-analogical compatibility tier, outcome slot, deterministic rank,
+evidence-quality and retrieval-utility inputs, recency, and per-root proof refs.
+The packet identity binds this metadata together with the complete records.
 
 Vectors are sidecars keyed by:
 
@@ -1258,6 +1272,11 @@ failures, network failures, checksum mismatches, and corrupt manifests fail befo
 paid work. An explicit validated `EMPTY` snapshot and validated expert release
 `E0` represent the no-history state.
 
+Knowledge lineage is linear at publication: `EMPTY` names no scientific parent,
+while every nonempty snapshot names exactly the snapshot identity resolved from
+the current pointer before its M2 transaction. The Git expected-parent SHA and
+scientific parent snapshot ID are both checked; neither substitutes for the other.
+
 ### 8.4 Portable hybrid search
 
 The canonical snapshot contains complete JSON records. Its rebuildable search
@@ -1271,14 +1290,19 @@ optional ANN index             # only after configured scale/latency threshold
 index-manifest.json            # canonicalizer, provider, model, dimensions, hashes
 ```
 
-The trusted snapshot publisher computes embeddings through the existing isolated
-OpenAI embeddings boundary. The reader first performs hard scope, context,
+The trusted snapshot publisher computes embeddings through the shared
+`kapso.core.embeddings` OpenAI boundary. Every vector sidecar owns the complete
+canonical record-input digest and one exact `EmbeddingSpaceId`; the snapshot
+manifest binds the sidecar checksums. The index manifest pins the exact catalog
+generation and record closure rather than the snapshot ID, avoiding a cyclic
+snapshot/index identity. The reader first performs hard scope, context,
 evaluation, trust, and revocation filtering; it then combines lexical and semantic
 rank within compatible records, applies evidence-quality and diversity policy,
 and closes the selected records over their proofs. GitHub code search is never a
 knowledge-retrieval dependency. For the expected early corpus, exact cosine over
-the compact vector sidecar is simpler and auditable; a deterministic ANN sidecar
-may replace only the candidate-generation step at the configured scale threshold.
+the compact vector sidecar is simpler and auditable; ANN is deliberately deferred
+until measured corpus latency justifies it, and may then replace only candidate
+generation.
 Canonical records, not vectors or the ANN index, remain truth.
 
 ### 8.5 Coding-agent read access
@@ -1297,7 +1321,13 @@ gate mounted into Codex/Claude exposes only `list_prior_knowledge` and
 `get_prior_knowledge_record` over that persisted packet and its proof closure.
 It does not expose the GitHub repository or an unconstrained search whose results
 would escape batch provenance. Records are returned whole; a record that cannot
-fit the configured packet budget is skipped rather than clipped. A later
+fit the configured proof-closed byte budgets is skipped rather than clipped. The
+access packet is atomically persisted as one canonical write-once file before the
+MCP process starts, and the reader validates its byte bound, digest, and exact
+selected/proof membership before serving. Every selected record carries
+digest-bound compatibility, outcome, rank, and proof metadata so analogical
+evidence cannot be presented as exact-context evidence. M6 seals the gate's
+canonical access events into the consuming coding-agent invocation artifacts. A later
 interactive-search protocol would need an atomic access session whose exact
 queries and returned records are sealed into the batch before selection.
 

@@ -13,7 +13,6 @@ from kapso.cross_run.capture.exporter import (
     CaptureExportError,
     RunCaptureExporter,
 )
-from kapso.cross_run.capture.journal import ExecutionRevisionEvent
 from kapso.cross_run.capture.validator import CaptureValidator
 from kapso.cross_run.contracts import (
     CaptureManifest,
@@ -21,6 +20,7 @@ from kapso.cross_run.contracts import (
     EvaluationFingerprint,
 )
 from kapso.cross_run.github.command import GitHubCommandError
+from kapso.cross_run.record_contracts import ExecutionRevisionEvent
 from cross_run_capture_fixtures import make_capture_fixture
 
 

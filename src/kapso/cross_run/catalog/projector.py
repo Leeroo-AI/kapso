@@ -16,8 +16,6 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.capture.evaluation_evidence import evaluation_scores_match
 from kapso.cross_run.capture.exporter import BranchSnapshot, CaptureDescriptor
-from kapso.cross_run.capture.journal import ExecutionRevisionEvent
-from kapso.cross_run.capture.sanitation import SanitationReport
 from kapso.cross_run.contracts import (
     ArtifactCompleteness,
     BundleArtifactRef,
@@ -36,6 +34,12 @@ from kapso.cross_run.contracts import (
     StrictContract,
     TransferAttempt,
     TransferEpisode,
+)
+from kapso.cross_run.record_contracts import (
+    BundleProjectionError,
+    BundleProjectionManifest,
+    ExecutionRevisionEvent,
+    SanitationReport,
 )
 from kapso.execution.memories.experiment_memory.store import (
     EXPERIMENT_HISTORY_SCHEMA,
@@ -57,10 +61,6 @@ from kapso.execution.search_strategies.generic.ideation.types import (
 )
 
 
-class BundleProjectionError(ValueError):
-    """A sanitized bundle cannot be projected without changing its meaning."""
-
-
 class RunBundleReader(Protocol):
     """Read-only surface implemented by the immutable M3 bundle store."""
 
@@ -68,33 +68,6 @@ class RunBundleReader(Protocol):
 
     def read_ref(self, relative_path: str) -> bytes:
         """Return the exact sanitized bytes for one manifest reference."""
-
-
-@dataclass(frozen=True)
-class BundleProjectionManifest(StrictContract):
-    """Exact stored closure produced by one deterministic bundle projection."""
-
-    projection_manifest_id: str
-    source_bundle_id: str
-    sanitation_report_id: str
-    episode_ids: tuple[str, ...]
-    prior_idea_ids: tuple[str, ...]
-    derivation_object_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE = "bundle-projection-manifest"
-    IDENTITY_FIELD = "projection_manifest_id"
-
-    def _validate(self) -> None:
-        require_content_id(self.source_bundle_id, "source_bundle_id")
-        require_content_id(self.sanitation_report_id, "sanitation_report_id")
-        for name in ("episode_ids", "prior_idea_ids", "derivation_object_ids"):
-            values = getattr(self, name)
-            if values != tuple(sorted(set(values))):
-                raise BundleProjectionError(f"{name} must be sorted and unique")
-            for value in values:
-                require_content_id(value, name)
-        if set(self.episode_ids) & set(self.prior_idea_ids):
-            raise BundleProjectionError("episode and prior-idea identities overlap")
 
 
 @dataclass(frozen=True)

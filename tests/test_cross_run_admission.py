@@ -9,20 +9,16 @@ from kapso.cross_run.canonical import (
     content_id,
     tree_or_blob_digest,
 )
-from kapso.cross_run.catalog.agent_operations import (
+from kapso.cross_run.catalog.admission import AdmissionReducer
+from kapso.cross_run.record_contracts import (
     CatalogAgentOperationRecord,
-    catalog_agent_operation_id,
-)
-from kapso.cross_run.catalog.admission import (
-    AdmissionReducer,
     CatalogRevocation,
     CatalogTaint,
     ClaimEvidenceClosure,
-)
-from kapso.cross_run.capture.sanitation import (
     SANITATION_REPORT_SCHEMA,
     SANITATION_SCANNER_VERSION,
     SanitationReport,
+    catalog_agent_operation_id,
 )
 from kapso.cross_run.contracts import (
     AdmissionState,

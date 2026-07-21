@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import Sequence
 
 from kapso.cross_run.canonical import to_json_value
-from kapso.cross_run.capture.journal import ExecutionRevisionEvent
+from kapso.cross_run.record_contracts import ExecutionRevisionEvent
 from kapso.execution.memories.experiment_memory.store import ExperimentRecord
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchiveState

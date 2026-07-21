@@ -7,12 +7,10 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.core.config import load_config
+from kapso.core.embeddings import EmbeddingSettings
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.search_strategies.generic.ideation.analyzer import (
     AnalyzerSettings,
-)
-from kapso.execution.search_strategies.generic.ideation.embeddings import (
-    EmbeddingSettings,
 )
 from kapso.execution.search_strategies.generic.ideation.evidence_author import (
     EVIDENCE_AUTHOR_RESPONSE_SCHEMA,
@@ -34,6 +32,7 @@ IDEATION = (
 STRUCTURED_CALL = (
     ROOT / "src" / "kapso" / "execution" / "coding_agents" / "structured_call.py"
 )
+CORE_EMBEDDINGS = ROOT / "src" / "kapso" / "core" / "embeddings.py"
 
 
 def test_shipped_candidate_pipeline_configuration_is_strict_and_shared():
@@ -134,7 +133,7 @@ def test_coding_agent_schemas_use_the_shared_cli_supported_subset():
 
 def test_only_embedding_boundary_imports_the_openai_sdk():
     importers = []
-    for path in IDEATION.glob("*.py"):
+    for path in (*IDEATION.glob("*.py"), CORE_EMBEDDINGS):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         if any(
             (
@@ -149,12 +148,12 @@ def test_only_embedding_boundary_imports_the_openai_sdk():
             for node in ast.walk(tree)
         ):
             importers.append(path.name)
-    assert importers == ["embeddings.py"]
+    assert importers == [CORE_EMBEDDINGS.name]
 
 
 def test_ideation_source_has_no_exception_swallowing_or_environment_reads():
     violations = []
-    for path in (*IDEATION.glob("*.py"), STRUCTURED_CALL):
+    for path in (*IDEATION.glob("*.py"), STRUCTURED_CALL, CORE_EMBEDDINGS):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Try):

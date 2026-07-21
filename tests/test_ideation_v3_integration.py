@@ -11,6 +11,12 @@ from types import SimpleNamespace
 
 import git
 
+from kapso.core.embeddings import (
+    EmbeddingBatch,
+    EmbeddingRecord,
+    EmbeddingSettings,
+    EmbeddingTelemetry,
+)
 from kapso.execution.budget import BudgetSnapshot
 from kapso.core.config import load_config
 from kapso.cross_run.settings import CrossRunSettings
@@ -26,10 +32,6 @@ from kapso.execution.search_strategies.generic.ideation import (
     CandidateGenerator,
     CandidateGeneratorSettings,
     CandidateSelector,
-    EmbeddingBatch,
-    EmbeddingRecord,
-    EmbeddingSettings,
-    EmbeddingTelemetry,
     EvidenceAuthor,
     EvidenceSettings,
     GapPrioritySettings,
@@ -69,6 +71,7 @@ class DeterministicEmbeddingProvider:
                     provider="openai",
                     model=self.settings.model,
                     dimensions=self.settings.dimensions,
+                    canonicalizer_version=self.settings.canonicalizer_version,
                     input_hash=hashlib.sha256(value.encode("utf-8")).hexdigest(),
                     vector=tuple(vector),
                 )
@@ -81,6 +84,7 @@ class DeterministicEmbeddingProvider:
                 call_count=1,
                 input_tokens=len(inputs),
                 duration_seconds=0.01,
+                cost_usd=None,
             ),
         )
 

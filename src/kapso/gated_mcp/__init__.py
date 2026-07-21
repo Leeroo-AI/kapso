@@ -6,10 +6,10 @@ tool sets based on gate selection.
 
 Usage:
     from kapso.gated_mcp import get_mcp_config
-    
+
     # Get MCP config and allowed tools in one call
     mcp_servers, allowed_tools = get_mcp_config(["idea", "research"])
-    
+
     # Use in Claude Code config
     config = CodingAgentConfig(agent_specific={
         "mcp_servers": mcp_servers,
@@ -30,7 +30,6 @@ from kapso.gated_mcp.presets import (
     get_gate_config,
     resolve_gates,
 )
-from kapso.gated_mcp.server import create_gated_mcp_server
 
 __all__ = [
     # Gates
@@ -45,6 +44,4 @@ __all__ = [
     "list_gates",
     "get_gate_config",
     "resolve_gates",
-    # Server
-    "create_gated_mcp_server",
 ]

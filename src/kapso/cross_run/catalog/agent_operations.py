@@ -3,22 +3,15 @@
 from __future__ import annotations
 
 import stat
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Mapping
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     parse_json_bytes,
-    require_content_id,
-    require_identifier,
     tree_or_blob_digest,
 )
-from kapso.cross_run.contracts import (
-    CodingAgentOperationReceipt,
-    ContractValidationError,
-    StrictContract,
-)
+from kapso.cross_run.contracts import CodingAgentOperationReceipt
+from kapso.cross_run.record_contracts import CatalogAgentOperationError
 from kapso.cross_run.settings import CatalogAgentSettings
 from kapso.execution.coding_agents.structured_call import CodingAgentCallResult
 
@@ -31,68 +24,6 @@ _RECEIPT_ARTIFACT_FILENAMES = {
     "stderr.txt",
     "stdout.txt",
 }
-
-
-class CatalogAgentOperationError(ValueError):
-    """A catalog agent workspace or operation artifact set is invalid."""
-
-
-@dataclass(frozen=True)
-class CatalogAgentOperationRecord(StrictContract):
-    """Exact model input/output binding behind framework-minted catalog facts."""
-
-    operation_record_id: str
-    operation_kind: str
-    operation_receipt_id: str
-    operation_preimage: Mapping[str, Any]
-    final_output: str
-    produced_object_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "catalog-agent-operation"
-    IDENTITY_FIELD: ClassVar[str] = "operation_record_id"
-
-    def _validate(self) -> None:
-        if self.operation_kind not in {"claim_proposal", "catalog_review"}:
-            raise ContractValidationError("catalog agent operation kind is invalid")
-        require_content_id(self.operation_receipt_id, "operation_receipt_id")
-        if not isinstance(self.operation_preimage, Mapping):
-            raise ContractValidationError("operation preimage must be an object")
-        if not isinstance(self.final_output, str) or not self.final_output.strip():
-            raise ContractValidationError("catalog agent final output is empty")
-        parse_json_bytes(self.final_output.encode("utf-8"))
-        if self.produced_object_ids != tuple(sorted(set(self.produced_object_ids))):
-            raise ContractValidationError(
-                "produced object IDs must be sorted and unique"
-            )
-        for object_id in self.produced_object_ids:
-            require_content_id(object_id, "produced_object_ids")
-
-    @property
-    def packet_payload(self) -> Mapping[str, Any]:
-        packet = self.operation_preimage.get("packet")
-        if not isinstance(packet, Mapping):
-            raise CatalogAgentOperationError("operation preimage packet is absent")
-        return packet
-
-    def validate_receipt(self, receipt: CodingAgentOperationReceipt) -> None:
-        if receipt.operation_receipt_id != self.operation_receipt_id:
-            raise CatalogAgentOperationError("operation receipt identity differs")
-        require_identifier(receipt.operation_id, "operation_id")
-        if catalog_agent_operation_id(self.operation_preimage) != receipt.operation_id:
-            raise CatalogAgentOperationError(
-                "operation preimage does not match the receipt operation"
-            )
-        if tree_or_blob_digest(self.final_output.encode("utf-8")) != (
-            receipt.artifact_checksums["final.json"]
-        ):
-            raise CatalogAgentOperationError(
-                "operation final output does not match its receipt checksum"
-            )
-
-
-def catalog_agent_operation_id(preimage: Mapping[str, Any]) -> str:
-    digest = tree_or_blob_digest(canonical_json_bytes(preimage))[7:]
-    return f"agent_call_{digest[:32]}"
 
 
 def validate_catalog_agent_workspace(workspace: Path) -> None:

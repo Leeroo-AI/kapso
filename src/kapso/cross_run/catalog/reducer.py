@@ -8,15 +8,8 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from kapso.cross_run.canonical import canonical_json_bytes
-from kapso.cross_run.catalog.admission import (
-    AdmissionReducer,
-    CatalogRevocation,
-    CatalogTaint,
-    ClaimEvidenceClosure,
-)
-from kapso.cross_run.catalog.agent_operations import CatalogAgentOperationRecord
+from kapso.cross_run.catalog.admission import AdmissionReducer
 from kapso.cross_run.catalog.claims import ClaimProposalPacket, ClaimProposer
-from kapso.cross_run.catalog.projector import BundleProjectionManifest
 from kapso.cross_run.catalog.reviews import CatalogReviewer, CatalogReviewPacket
 from kapso.cross_run.catalog.store import (
     CatalogInputDelta,
@@ -24,8 +17,6 @@ from kapso.cross_run.catalog.store import (
     CatalogReductionRequest,
     CatalogReducerError,
 )
-from kapso.cross_run.capture.journal import ExecutionRevisionEvent
-from kapso.cross_run.capture.sanitation import SanitationReport
 from kapso.cross_run.contracts import (
     CatalogEntryState,
     CodingAgentOperationReceipt,
@@ -37,31 +28,21 @@ from kapso.cross_run.contracts import (
     StrictContract,
     TransferEpisode,
 )
+from kapso.cross_run.record_registry import CATALOG_FACT_RECORD_TYPES
+from kapso.cross_run.record_contracts import (
+    BundleProjectionManifest,
+    CatalogAgentOperationRecord,
+    CatalogRevocation,
+    CatalogTaint,
+    ClaimEvidenceClosure,
+    ExecutionRevisionEvent,
+    SanitationReport,
+)
 from kapso.cross_run.settings import CatalogSettings
 
 
 class CatalogFactError(CatalogReducerError):
     """The complete catalog fact set is not a valid proof-closed history."""
-
-
-_KNOWN_FACT_TYPES: dict[str, type[StrictContract]] = {
-    record_type.CONTENT_NAMESPACE: record_type
-    for record_type in (
-        BundleProjectionManifest,
-        CatalogRevocation,
-        CatalogTaint,
-        ClaimEvidenceClosure,
-        CatalogAgentOperationRecord,
-        CodingAgentOperationReceipt,
-        ExecutionRevisionEvent,
-        KnowledgeClaim,
-        PriorIdea,
-        ReviewAssertion,
-        RunBundle,
-        SanitationReport,
-        TransferEpisode,
-    )
-}
 
 
 def _object_id(record: StrictContract) -> str:
@@ -136,7 +117,7 @@ class CatalogFactSet:
             field_name: [] for field_name in cls._FIELD_BY_TYPE.values()
         }
         for object_id in fact_object_ids:
-            record_type = _KNOWN_FACT_TYPES.get(_namespace(object_id))
+            record_type = CATALOG_FACT_RECORD_TYPES.get(_namespace(object_id))
             if record_type is None:
                 raise CatalogFactError("catalog contains an unknown fact namespace")
             record = record_type.from_json_bytes(read_object_bytes(object_id))

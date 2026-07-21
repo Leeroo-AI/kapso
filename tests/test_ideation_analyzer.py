@@ -3,21 +3,22 @@
 import hashlib
 from dataclasses import replace
 
+from kapso.core.embeddings import (
+    EmbeddingBatch,
+    EmbeddingRecord,
+    EmbeddingSettings,
+    EmbeddingTelemetry,
+)
 from kapso.execution.search_strategies.generic.ideation.analyzer import (
     AnalyzerSettings,
     CandidateAnalyzer,
+    canonical_idea_embedding_text,
 )
 from kapso.execution.search_strategies.generic.ideation.archive import IdeaArchive
-from kapso.execution.search_strategies.generic.ideation.embeddings import (
-    EmbeddingBatch,
-    EmbeddingSettings,
-)
 from kapso.execution.search_strategies.generic.ideation.evidence import (
     CampaignEvidenceBuilder,
 )
 from kapso.execution.search_strategies.generic.ideation.types import (
-    EmbeddingRecord,
-    EmbeddingTelemetry,
     EvidenceClaim,
     EvidenceStatus,
     ClaimKind,
@@ -116,6 +117,15 @@ def test_valid_candidate_passes_hard_rules_and_records_no_synthetic_novelty(tmp_
     assert result.analysis.hard_failures == ()
     assert result.analysis.semantic_neighbors == ()
     assert result.embedding is None
+
+
+def test_canonical_idea_embedding_text_contains_all_semantic_fields():
+    idea = generated_idea()
+    text = canonical_idea_embedding_text(idea)
+    assert idea.proposal in text
+    assert idea.directive_rationale in text
+    assert idea.evaluation_method in text
+    assert idea.descriptor.mechanism in text
 
 
 def test_descriptor_parent_evidence_artifact_and_capacity_rules_are_hard(tmp_path):
@@ -267,10 +277,13 @@ class UnitVectorProvider:
     def __init__(self):
         self.settings = EmbeddingSettings(
             enabled=True,
+            provider="openai",
             model="semantic-test",
             dimensions=2,
+            batch_size=2,
             timeout_seconds=5,
             max_retries=0,
+            canonicalizer_version="kapso.idea_embedding.v1",
         )
         self.calls = []
 
@@ -283,6 +296,7 @@ class UnitVectorProvider:
                     provider="openai",
                     model=self.settings.model,
                     dimensions=2,
+                    canonicalizer_version=self.settings.canonicalizer_version,
                     input_hash=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                     vector=(1.0, 0.0),
                 )
@@ -294,6 +308,7 @@ class UnitVectorProvider:
                 call_count=1,
                 input_tokens=20,
                 duration_seconds=1,
+                cost_usd=None,
             ),
         )
 
