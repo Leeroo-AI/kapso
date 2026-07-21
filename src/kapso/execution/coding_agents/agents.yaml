@@ -92,6 +92,31 @@ agents:
       streaming: true
 
   # ============================================================================
+  # OSS Claude Code - Claude Code CLI on an Anthropic-compatible OSS endpoint
+  # ============================================================================
+  oss_claude_code:
+    description: "Claude Code CLI driven by an OSS model via an Anthropic-compatible endpoint (e.g. GLM 5.2 on Fireworks)"
+    adapter_class: "OssClaudeCodeCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.oss_claude_code_agent"
+    supports_native_git: false
+    default_model: "accounts/fireworks/models/glm-5p2"
+    default_debug_model: "accounts/fireworks/models/glm-5p2"
+    # The credential var NAME is configured per use via agent_specific.auth_token_env
+    # (e.g. FIREWORKS_API_KEY); no fixed env var requirement here.
+    env_vars: []
+    install_command: "npm install -g @anthropic-ai/claude-code"
+    documentation_url: "https://docs.fireworks.ai/ecosystem/integrations/claude-code"
+    agent_specific:
+      planning_mode: false
+      timeout: 3600
+      allowed_tools:
+        - "Edit"
+        - "Read"
+        - "Write"
+        - "Bash"
+      streaming: true
+
+  # ============================================================================
   # OpenHands - Agent with sandboxed execution
   # ============================================================================
   openhands:

@@ -99,15 +99,18 @@ def is_degenerate_ensemble_candidate(text: str) -> bool:
     content = re.sub(r"\s+", "", content)
     return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
 
-ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex"})
+ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex", "oss_claude_code"})
 _ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
+# oss_claude_code members additionally carry their endpoint wiring; the
+# secret itself stays out of config (auth_token_env is the VAR NAME).
+_OSS_MEMBER_KEYS = frozenset({"base_url", "auth_token_env"})
 
 
 def normalize_ensemble_member(value: Any, role: str) -> Dict[str, str]:
     """Validate one ideation-ensemble member (or selector) config entry."""
     if not isinstance(value, dict):
         raise ValueError(f"{role} must be a mapping, got {type(value).__name__}")
-    unknown = sorted(set(value) - _ENSEMBLE_MEMBER_KEYS)
+    unknown = sorted(set(value) - _ENSEMBLE_MEMBER_KEYS - _OSS_MEMBER_KEYS)
     if unknown:
         raise ValueError(f"{role} has unknown keys: {', '.join(unknown)}")
     cli = value.get("cli")
@@ -117,6 +120,19 @@ def normalize_ensemble_member(value: Any, role: str) -> Dict[str, str]:
     model = value.get("model")
     if not isinstance(model, str) or not model.strip():
         raise ValueError(f"{role}.model must be a non-empty string")
+    oss_keys_present = sorted(_OSS_MEMBER_KEYS & set(value))
+    if cli == "oss_claude_code":
+        for key in sorted(_OSS_MEMBER_KEYS):
+            if not isinstance(value.get(key), str) or not value[key].strip():
+                raise ValueError(
+                    f"{role}.{key} must be a non-empty string for "
+                    "cli=oss_claude_code"
+                )
+    elif oss_keys_present:
+        raise ValueError(
+            f"{role} keys {', '.join(oss_keys_present)} are only valid for "
+            "cli=oss_claude_code"
+        )
     return dict(value)
 
 
@@ -199,8 +215,11 @@ class GenericSearch(SearchStrategy):
         - effort: Optional reasoning effort for both agent sessions
           (low|medium|high|xhigh); None keeps the CLI default
         - ideation_ensemble: Optional list of parallel ideation members,
-          each {cli: claude_code|codex, model, effort?, lens?}; omit for
-          single-session ideation (default)
+          each {cli: claude_code|codex|oss_claude_code, model, effort?,
+          lens?}; oss_claude_code members additionally require base_url +
+          auth_token_env (Anthropic-compatible endpoint + the NAME of the
+          env var holding its key). Omit for single-session ideation
+          (default)
         - ideation_selector: Required with ideation_ensemble — the
           selector-critic session {cli: claude_code, model, effort?}
         - parent_policy: Parent branch selection: best or baseline (default: best).
@@ -721,25 +740,34 @@ class GenericSearch(SearchStrategy):
 
             from kapso.execution.coding_agents.base import CodingAgentConfig
             from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+            from kapso.execution.coding_agents.adapters.oss_claude_code_agent import OssClaudeCodeCodingAgent
 
+            is_oss = member["cli"] == "oss_claude_code"
+            agent_specific = {
+                "env_strip": self.env_strip,
+                "env_defaults": self.env_defaults,
+                "aws_region": self.aws_region,
+                "mcp_servers": mcp_servers,
+                "allowed_tools": ideation_allowed_tools,
+                "timeout": member_deadline,
+                "streaming": True,
+                "planning_mode": False,
+                "effort": member.get("effort", self.session_effort),
+            }
+            if is_oss:
+                # Endpoint wiring replaces first-party auth entirely.
+                agent_specific["base_url"] = member["base_url"]
+                agent_specific["auth_token_env"] = member["auth_token_env"]
+            else:
+                agent_specific.update(self._claude_auth_settings)
             config = CodingAgentConfig(
-                agent_type="claude_code",
+                agent_type=member["cli"],
                 model=member["model"],
                 debug_model=member["model"],
-                agent_specific={
-                    **self._claude_auth_settings,
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "mcp_servers": mcp_servers,
-                    "allowed_tools": ideation_allowed_tools,
-                    "timeout": member_deadline,
-                    "streaming": True,
-                    "planning_mode": False,
-                    "effort": member.get("effort", self.session_effort),
-                },
+                agent_specific=agent_specific,
             )
-            agent = ClaudeCodeCodingAgent(config)
+            agent_class = OssClaudeCodeCodingAgent if is_oss else ClaudeCodeCodingAgent
+            agent = agent_class(config)
             agent.initialize(ideation_dir)
             result = agent.generate_code(prompt)
             cost = agent.get_cumulative_cost()
