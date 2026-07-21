@@ -51,7 +51,7 @@ def _candidate_and_eligibility(tmp_path, current_release_id=None):
     ).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
-    return stored, adapter, settings, eligibility
+    return candidates, stored, adapter, settings, eligibility
 
 
 def _result(settings, attempt, stage, outcome):
@@ -69,20 +69,24 @@ def _result(settings, attempt, stage, outcome):
 
 
 def test_start_round_trip_and_lost_response_replay_are_exact(tmp_path):
-    stored, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
-    reducer = _validation_reducer(settings, adapter)
+    candidates, stored, adapter, settings, eligibility = _candidate_and_eligibility(
+        tmp_path
+    )
+    reducer = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=candidates,
+    )
     store = _validation_store(tmp_path, settings, reducer)
 
     committed = store.publish_start(
         expected_transition_id=None,
-        stored_candidate=stored,
         eligibility=eligibility,
     )
     reopened = _validation_store(tmp_path, settings, reducer)
     current = reopened.current(stored.closure.manifest.candidate_id)
     replay = reopened.publish_start(
         expected_transition_id=None,
-        stored_candidate=stored,
         eligibility=eligibility,
     )
 
@@ -95,12 +99,17 @@ def test_start_round_trip_and_lost_response_replay_are_exact(tmp_path):
 
 
 def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(tmp_path):
-    stored, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
-    reducer = _validation_reducer(settings, adapter)
+    candidates, stored, adapter, settings, eligibility = _candidate_and_eligibility(
+        tmp_path
+    )
+    reducer = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=candidates,
+    )
     store = _validation_store(tmp_path, settings, reducer)
     started = store.publish_start(
         expected_transition_id=None,
-        stored_candidate=stored,
         eligibility=eligibility,
     ).snapshot
     assert started.latest_attempt is not None
@@ -139,15 +148,16 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(tmp_path):
 def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
     tmp_path,
 ):
-    stored, adapter, settings, eligible = _candidate_and_eligibility(tmp_path)
+    candidates, stored, adapter, settings, eligible = _candidate_and_eligibility(
+        tmp_path
+    )
     store = _validation_store(
         tmp_path,
         settings,
-        _validation_reducer(settings, adapter),
+        _validation_reducer(settings, adapter, candidate_store=candidates),
     )
     started = store.publish_start(
         expected_transition_id=None,
-        stored_candidate=stored,
         eligibility=eligible,
     ).snapshot
     assert started.latest_attempt is not None
@@ -181,12 +191,12 @@ def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
         _validation_reducer(
             evolved_settings,
             adapter,
+            candidate_store=candidates,
             current_release_id=current_release_id,
         ),
     )
     ineligible = stale_store.publish_start(
         expected_transition_id=failed.transition.transition_id,
-        stored_candidate=stored,
         eligibility=stale,
     ).snapshot
     assert ineligible.state.promotion_state is ExpertPromotionState.INELIGIBLE
@@ -198,6 +208,7 @@ def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
             _validation_reducer(
                 evolved_settings,
                 adapter,
+                candidate_store=candidates,
                 current_release_id=current_release_id,
             ),
         ).snapshot(ineligible.state.candidate_id)
@@ -207,11 +218,10 @@ def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
     retry_store = _validation_store(
         tmp_path,
         settings,
-        _validation_reducer(settings, adapter),
+        _validation_reducer(settings, adapter, candidate_store=candidates),
     )
     retry = retry_store.publish_start(
         expected_transition_id=ineligible.transition.transition_id,
-        stored_candidate=stored,
         eligibility=eligible,
     ).snapshot
 
@@ -224,15 +234,16 @@ def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
 
 
 def test_stale_result_cannot_fork_or_rewind_the_candidate_head(tmp_path):
-    stored, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
+    candidates, stored, adapter, settings, eligibility = _candidate_and_eligibility(
+        tmp_path
+    )
     store = _validation_store(
         tmp_path,
         settings,
-        _validation_reducer(settings, adapter),
+        _validation_reducer(settings, adapter, candidate_store=candidates),
     )
     started = store.publish_start(
         expected_transition_id=None,
-        stored_candidate=stored,
         eligibility=eligibility,
     ).snapshot
     assert started.latest_attempt is not None
@@ -270,8 +281,14 @@ def test_orphaned_objects_retry_and_missing_referenced_object_fails_loud(
     tmp_path,
     monkeypatch,
 ):
-    stored, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
-    reducer = _validation_reducer(settings, adapter)
+    candidates, stored, adapter, settings, eligibility = _candidate_and_eligibility(
+        tmp_path
+    )
+    reducer = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=candidates,
+    )
     store = _validation_store(tmp_path, settings, reducer)
 
     def interrupt_journal_write(journal):
@@ -281,14 +298,12 @@ def test_orphaned_objects_retry_and_missing_referenced_object_fails_loud(
     with pytest.raises(OSError, match="interruption"):
         store.publish_start(
             expected_transition_id=None,
-            stored_candidate=stored,
             eligibility=eligibility,
         )
 
     recovered = _validation_store(tmp_path, settings, reducer)
     committed = recovered.publish_start(
         expected_transition_id=None,
-        stored_candidate=stored,
         eligibility=eligibility,
     ).snapshot
     state_path = recovered._object_path(
@@ -302,9 +317,14 @@ def test_orphaned_objects_retry_and_missing_referenced_object_fails_loud(
 
 
 def test_result_record_identity_includes_the_selected_signature_envelope(tmp_path):
-    stored, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
-    started = _validation_reducer(settings, adapter).start_from_predecessor(
-        stored_candidate=stored,
+    candidates, stored, adapter, settings, eligibility = _candidate_and_eligibility(
+        tmp_path
+    )
+    started = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=candidates,
+    ).start_from_predecessor(
         eligibility=eligibility,
         predecessor=None,
     )

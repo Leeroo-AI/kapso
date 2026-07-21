@@ -79,6 +79,26 @@ Evaluator execution requires two injected, read-only verified providers:
 Episode summaries and manifest hashes are not substitutes for either byte
 closure. Missing bytes fail loud and make the attempt ineligible.
 
+Source-run replay selection is itself content-addressed. Trigger evidence is
+traversed only through typed episode, observation, contradiction-claim, and
+bundle edges. Evidence attached to changed module contracts may add explicit
+coverage cases, but snapshot membership, parent-episode links, and "all packet
+episodes" are never implicit selection authority. Every selected episode records
+whether it is causal or coverage evidence and why it was included. A replay-required
+candidate with no such episode is ineligible; configured episode and bundle limits
+fail the whole selection rather than clipping it.
+
+Selection is not a caller-facing choice. Enrollment derives it from the exact
+store-validated candidate and the typed validation settings. Its identity binds
+the candidate tree and commit, trigger packet and deterministic decision,
+KnowledgeSnapshot, validation policy, configuration fingerprint, selected
+episodes, reasons, and source bundles. Eligibility and the validation attempt
+embed that exact selection, and reducer replay reopens the validated candidate
+store and re-derives it. A stale parent or unavailable validation facility takes
+precedence and produces no selection. Generic evaluator-result construction and
+reduction reject source replay until the typed executor can prove exact
+episode-and-adapter coverage for every selected case.
+
 Implemented validation substrate:
 
 - enrollment reopens the exact M7 candidate, resolves the current release through
@@ -86,6 +106,10 @@ Implemented validation substrate:
   release identity, and resolves every trigger binding through the provider's
   trusted active adapter index rather than accepting caller-selected manifests;
 - validation track and stage plan are recomputed from trusted candidate records;
+- exact source bundle IDs resolve through a bounded predecessor walk and a
+  root-to-tip projection replay; generation-zero roots, monotonic adjacent
+  frontiers, immutable Git/source proof, and the complete sanitation closure are
+  required without consulting a mutable current pointer;
 - every exact trigger adapter binding is enrolled under an unambiguous canonical
   identity and an exact `TaskAdapterPackagePin`, while configured task families
   remain explicit stage-policy inputs; reducer replay resolves those immutable

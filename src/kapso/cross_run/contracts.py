@@ -2591,6 +2591,167 @@ class ExpertCandidateManifest(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertSourceReplayCase(StrictContract):
+    source_bundle_id: str
+    episode_ids: tuple[str, ...]
+    episode_reason_codes: Mapping[str, tuple[str, ...]]
+
+    def _validate(self) -> None:
+        require_content_id(self.source_bundle_id, "source replay bundle_id")
+        if self.source_bundle_id.split(":sha256:", 1)[0] != "run-bundle":
+            raise ContractValidationError("source replay case must name a RunBundle")
+        _require_sorted_unique(self.episode_ids, "source replay episode_ids")
+        if set(self.episode_reason_codes) != set(self.episode_ids):
+            raise MissingReferenceError(
+                "source replay case must explain every selected episode"
+            )
+        for episode_id in self.episode_ids:
+            require_content_id(episode_id, "source replay episode_id")
+            if episode_id.split(":sha256:", 1)[0] != "transfer-episode":
+                raise ContractValidationError(
+                    "source replay case must name TransferEpisodes"
+                )
+            reasons = self.episode_reason_codes[episode_id]
+            if not reasons or reasons != tuple(sorted(set(reasons))):
+                raise ContractValidationError(
+                    "source replay episode reasons must be non-empty, sorted, and unique"
+                )
+            for reason in reasons:
+                require_identifier(reason, "source replay episode reason")
+
+
+@dataclass(frozen=True)
+class ExpertSourceReplaySelection(StrictContract):
+    source_replay_selection_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    candidate_commit_record_id: str
+    trigger_evidence_packet_id: str
+    trigger_decision_id: str
+    knowledge_snapshot_id: str
+    validation_policy_id: str
+    selection_policy_version: str
+    configuration_fingerprint: str
+    causal_episode_ids: tuple[str, ...]
+    coverage_episode_ids: tuple[str, ...]
+    selection_evidence_ids: tuple[str, ...]
+    cases: tuple[ExpertSourceReplayCase, ...]
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-selection"
+    IDENTITY_FIELD: ClassVar[str] = "source_replay_selection_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.candidate_id,
+                "expert-candidate",
+                "source replay candidate_id",
+            ),
+            (
+                self.candidate_commit_record_id,
+                "expert-candidate-commit",
+                "source replay candidate_commit_record_id",
+            ),
+            (
+                self.trigger_evidence_packet_id,
+                "expert-trigger-evidence-packet",
+                "source replay trigger_evidence_packet_id",
+            ),
+            (
+                self.trigger_decision_id,
+                "expert-trigger-decision",
+                "source replay trigger_decision_id",
+            ),
+            (
+                self.knowledge_snapshot_id,
+                "knowledge-snapshot",
+                "source replay knowledge_snapshot_id",
+            ),
+            (
+                self.validation_policy_id,
+                "expert-validation-policy",
+                "source replay validation_policy_id",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(f"{name} must name a {namespace} record")
+        _require_digest(
+            self.candidate_tree_hash,
+            "source replay candidate_tree_hash",
+        )
+        require_identifier(
+            self.selection_policy_version,
+            "source replay selection_policy_version",
+        )
+        _require_digest(
+            self.configuration_fingerprint,
+            "source replay configuration_fingerprint",
+        )
+        for values, name in (
+            (self.causal_episode_ids, "causal_episode_ids"),
+            (self.coverage_episode_ids, "coverage_episode_ids"),
+        ):
+            if values != tuple(sorted(set(values))):
+                raise ContractValidationError(f"{name} must be sorted and unique")
+            for episode_id in values:
+                require_content_id(episode_id, name)
+        if set(self.causal_episode_ids) & set(self.coverage_episode_ids):
+            raise ContractValidationError(
+                "causal and coverage replay episodes must be disjoint"
+            )
+        selected_episode_ids = {
+            *self.causal_episode_ids,
+            *self.coverage_episode_ids,
+        }
+        if not selected_episode_ids:
+            raise ContractValidationError(
+                "source replay selection must contain an episode"
+            )
+        case_keys = tuple(case.source_bundle_id for case in self.cases)
+        if not case_keys or case_keys != tuple(sorted(set(case_keys))):
+            raise ContractValidationError(
+                "source replay cases must be non-empty, sorted, and unique"
+            )
+        assigned_episode_ids = tuple(
+            episode_id for case in self.cases for episode_id in case.episode_ids
+        )
+        if (
+            len(assigned_episode_ids) != len(set(assigned_episode_ids))
+            or set(assigned_episode_ids) != selected_episode_ids
+        ):
+            raise MissingReferenceError(
+                "source replay cases must assign selected episodes exactly once"
+            )
+        _require_sorted_unique(
+            self.selection_evidence_ids,
+            "source replay selection_evidence_ids",
+        )
+        for evidence_id in self.selection_evidence_ids:
+            require_content_id(evidence_id, "source replay selection_evidence_ids")
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "source replay exact_dependency_ids",
+        )
+        required_dependencies = {
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.trigger_evidence_packet_id,
+            self.trigger_decision_id,
+            self.knowledge_snapshot_id,
+            self.validation_policy_id,
+            *self.selection_evidence_ids,
+            *selected_episode_ids,
+            *case_keys,
+        }
+        if required_dependencies != set(self.exact_dependency_ids):
+            raise MissingReferenceError(
+                "source replay selection dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
 class TaskAdapterPackagePin(StrictContract):
     adapter_binding_id: str
     task_adapter_manifest_id: str
@@ -2620,6 +2781,7 @@ class ExpertCandidateEligibilityDecision(StrictContract):
     required_stages: tuple[ExpertValidationStage, ...]
     configured_task_family_ids: tuple[str, ...]
     task_adapter_pins: tuple[TaskAdapterPackagePin, ...]
+    source_replay_selection: ExpertSourceReplaySelection | None
     exact_dependency_ids: tuple[str, ...]
     reason_code: str
 
@@ -2680,6 +2842,33 @@ class ExpertCandidateEligibilityDecision(StrictContract):
         }
         if self.parent_release_id is not None:
             required_dependencies.add(self.parent_release_id)
+        source_replay_required = (
+            self.eligible
+            and ExpertValidationStage.SOURCE_RUN_REPLAY in self.required_stages
+        )
+        if (self.source_replay_selection is not None) != source_replay_required:
+            raise ContractValidationError(
+                "source replay stages require exactly one replay selection"
+            )
+        if self.source_replay_selection is not None:
+            selection = self.source_replay_selection
+            if (
+                selection.candidate_id != self.candidate_id
+                or selection.candidate_tree_hash != self.candidate_tree_hash
+                or selection.candidate_commit_record_id
+                != self.candidate_commit_record_id
+                or selection.validation_policy_id != self.validation_policy_id
+                or selection.configuration_fingerprint != self.configuration_fingerprint
+            ):
+                raise ContractValidationError(
+                    "eligibility source replay authority differs"
+                )
+            required_dependencies.update(
+                {
+                    selection.source_replay_selection_id,
+                    *selection.exact_dependency_ids,
+                }
+            )
         if not required_dependencies.issubset(self.exact_dependency_ids):
             raise MissingReferenceError(
                 "eligibility decision dependency closure is incomplete"
@@ -2719,6 +2908,7 @@ class ExpertValidationAttempt(StrictContract):
     required_stages: tuple[ExpertValidationStage, ...]
     configured_task_family_ids: tuple[str, ...]
     task_adapter_pins: tuple[TaskAdapterPackagePin, ...]
+    source_replay_selection: ExpertSourceReplaySelection | None
     eligibility_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-attempt"
@@ -2805,6 +2995,32 @@ class ExpertValidationAttempt(StrictContract):
         }
         if self.parent_release_id is not None:
             required_dependencies.add(self.parent_release_id)
+        source_replay_required = (
+            ExpertValidationStage.SOURCE_RUN_REPLAY in self.required_stages
+        )
+        if (self.source_replay_selection is not None) != source_replay_required:
+            raise ContractValidationError(
+                "source replay stages require exactly one replay selection"
+            )
+        if self.source_replay_selection is not None:
+            selection = self.source_replay_selection
+            if (
+                selection.candidate_id != self.candidate_id
+                or selection.candidate_tree_hash != self.candidate_tree_hash
+                or selection.candidate_commit_record_id
+                != self.candidate_commit_record_id
+                or selection.validation_policy_id != self.validation_policy_id
+                or selection.configuration_fingerprint != self.configuration_fingerprint
+            ):
+                raise ContractValidationError(
+                    "validation attempt source replay authority differs"
+                )
+            required_dependencies.update(
+                {
+                    selection.source_replay_selection_id,
+                    *selection.exact_dependency_ids,
+                }
+            )
         if not required_dependencies.issubset(self.eligibility_dependency_ids):
             raise MissingReferenceError(
                 "validation attempt eligibility dependency closure is incomplete"

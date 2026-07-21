@@ -23,6 +23,8 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorRun,
     ExpertPromotionState,
     ExpertSealedCanaryAggregate,
+    ExpertSourceReplayCase,
+    ExpertSourceReplaySelection,
     ExpertValidationAttempt,
     ExpertValidationStage,
     ExpertValidationTrack,
@@ -32,6 +34,7 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
+    ExpertEvaluatorResult,
     ExpertEvaluatorRunBuilder,
     ExpertValidationError,
     ExpertValidationPredecessor,
@@ -109,6 +112,21 @@ class _CurrentReleaseProvider:
         return self.release_id
 
 
+class _UnavailableCandidateReader:
+    def read(self, candidate_id):
+        raise AssertionError(f"unexpected candidate read: {candidate_id}")
+
+
+class _CountingCandidateReader:
+    def __init__(self, reader):
+        self.reader = reader
+        self.candidate_ids = []
+
+    def read(self, candidate_id):
+        self.candidate_ids.append(candidate_id)
+        return self.reader.read(candidate_id)
+
+
 class _ValidationStateProvider:
     def __init__(self, predecessor=None):
         self.predecessor = predecessor
@@ -131,11 +149,13 @@ def _eligibility_evaluator(settings, store, adapter, current_release_id=None):
 def _validation_reducer(
     settings,
     adapter,
+    candidate_store=None,
     current_release_id=None,
     predecessor=None,
 ):
     return ExpertValidationReducer(
         settings,
+        candidate_store or _UnavailableCandidateReader(),
         _AttestationVerifier(),
         _TaskAdapterProvider(adapter),
         _CurrentReleaseProvider(current_release_id),
@@ -251,10 +271,64 @@ def _eligibility_decision(
         ("family",),
         has_parent_release=True,
     )
-    return ExpertCandidateEligibilityDecision.mint(
-        candidate_id=_content_id("candidate"),
+    candidate_id = content_id("expert-candidate", {"label": "candidate"})
+    candidate_commit_record_id = content_id(
+        "expert-candidate-commit",
+        {"label": "candidate-commit"},
+    )
+    episode_id = content_id("transfer-episode", {"label": "episode"})
+    bundle_id = content_id("run-bundle", {"label": "bundle"})
+    trigger_packet_id = content_id(
+        "expert-trigger-evidence-packet",
+        {"label": "trigger-packet"},
+    )
+    trigger_decision_id = content_id(
+        "expert-trigger-decision",
+        {"label": "trigger-decision"},
+    )
+    snapshot_id = content_id("knowledge-snapshot", {"label": "snapshot"})
+    selection_dependencies = tuple(
+        sorted(
+            {
+                candidate_id,
+                candidate_commit_record_id,
+                trigger_packet_id,
+                trigger_decision_id,
+                snapshot_id,
+                policy.validation_policy_id,
+                episode_id,
+                bundle_id,
+            }
+        )
+    )
+    source_replay_selection = ExpertSourceReplaySelection.mint(
+        candidate_id=candidate_id,
         candidate_tree_hash=_digest("candidate-tree"),
-        candidate_commit_record_id=_content_id("candidate-commit"),
+        candidate_commit_record_id=candidate_commit_record_id,
+        trigger_evidence_packet_id=trigger_packet_id,
+        trigger_decision_id=trigger_decision_id,
+        knowledge_snapshot_id=snapshot_id,
+        validation_policy_id=policy.validation_policy_id,
+        selection_policy_version=(
+            settings.policy.source_replay_selection_policy_version
+        ),
+        configuration_fingerprint=settings.configuration_fingerprint,
+        causal_episode_ids=(episode_id,),
+        coverage_episode_ids=(),
+        selection_evidence_ids=(episode_id,),
+        cases=(
+            ExpertSourceReplayCase(
+                source_bundle_id=bundle_id,
+                episode_ids=(episode_id,),
+                episode_reason_codes={episode_id: ("causal_trigger_evidence",)},
+            ),
+        ),
+        exact_dependency_ids=selection_dependencies,
+    )
+    return ExpertCandidateEligibilityDecision.mint(
+        candidate_id=candidate_id,
+        candidate_tree_hash=_digest("candidate-tree"),
+        candidate_commit_record_id=candidate_commit_record_id,
         scope_contract_id=_content_id("scope"),
         parent_release_id=_content_id("parent-release"),
         validation_policy_id=policy.validation_policy_id,
@@ -264,16 +338,19 @@ def _eligibility_decision(
         required_stages=stages,
         configured_task_family_ids=("family",),
         task_adapter_pins=(adapter_pin,),
+        source_replay_selection=source_replay_selection,
         exact_dependency_ids=tuple(
             sorted(
                 {
-                    _content_id("candidate-commit"),
-                    _content_id("candidate"),
+                    candidate_commit_record_id,
+                    candidate_id,
                     _content_id("adapter"),
                     _content_id("adapter-verification"),
                     _content_id("scope"),
                     _content_id("parent-release"),
                     policy.validation_policy_id,
+                    source_replay_selection.source_replay_selection_id,
+                    *source_replay_selection.exact_dependency_ids,
                 }
             )
         ),
@@ -299,6 +376,7 @@ def _attempt(
         required_stages=decision.required_stages,
         configured_task_family_ids=decision.configured_task_family_ids,
         task_adapter_pins=decision.task_adapter_pins,
+        source_replay_selection=decision.source_replay_selection,
         eligibility_dependency_ids=tuple(
             sorted(
                 {
@@ -454,6 +532,72 @@ def test_evaluator_run_carries_exact_outputs_and_signature_is_a_separate_envelop
         )
 
 
+def test_source_replay_execution_fails_closed_without_a_typed_receipt():
+    settings = _validation_settings()
+    attempt = _attempt(_eligibility_decision())
+    selection = attempt.source_replay_selection
+    assert selection is not None
+    bundle_ids = tuple(case.source_bundle_id for case in selection.cases)
+    builder = ExpertEvaluatorRunBuilder(settings)
+    with pytest.raises(ExpertValidationError, match="typed execution receipt"):
+        builder.build(
+            attempt=attempt,
+            stage=ExpertValidationStage.SOURCE_RUN_REPLAY,
+            exact_additional_input_ids=bundle_ids,
+            output_payloads={"result.json": b'{"passed":true}'},
+            measurements={},
+            costs={},
+            duration_seconds=1.0,
+            outcome=ExpertEvaluatorOutcome.PASSED,
+            signature="test-signature",
+        )
+
+    evaluator = next(
+        evaluator
+        for evaluator in settings.policy.evaluators
+        if evaluator.stage is ExpertValidationStage.SOURCE_RUN_REPLAY
+    )
+    payload = b'{"passed":true}'
+    forged_run = ExpertEvaluatorRun.mint(
+        validation_attempt_id=attempt.validation_attempt_id,
+        candidate_id=attempt.candidate_id,
+        candidate_tree_hash=attempt.candidate_tree_hash,
+        stage=ExpertValidationStage.SOURCE_RUN_REPLAY,
+        evaluator_id=evaluator.evaluator_id,
+        evaluator_role=evaluator.evaluator_role,
+        evaluator_version=evaluator.evaluator_version,
+        exact_input_ids=(attempt.validation_attempt_id,),
+        output_payloads_base64={
+            "result.json": base64.b64encode(payload).decode("ascii")
+        },
+        output_checksums={"result.json": tree_or_blob_digest(payload)},
+        measurements={},
+        costs={},
+        duration_seconds=1.0,
+        outcome=ExpertEvaluatorOutcome.PASSED,
+    )
+    forged_attestation = ExpertEvaluatorAttestation.mint(
+        evaluator_run_id=forged_run.evaluator_run_id,
+        issuer_id=forged_run.evaluator_id,
+        trust_root_id=None,
+        predicate_digest=tree_or_blob_digest(forged_run.to_json_bytes()),
+    )
+    forged_result = ExpertEvaluatorResult(
+        evaluator_run=forged_run,
+        attestation_envelope=ExpertEvaluatorAttestationEnvelope(
+            attestation=forged_attestation,
+            signature="test-signature",
+        ),
+    )
+    reducer = SimpleNamespace(settings=settings)
+    with pytest.raises(ExpertValidationError, match="typed execution receipt"):
+        ExpertValidationReducer._validate_result_closure(
+            reducer,
+            attempt,
+            forged_result,
+        )
+
+
 def test_sealed_canary_persists_only_a_typed_aggregate():
     decision = _eligibility_decision(track=ExpertValidationTrack.BEHAVIORAL_CAPABILITY)
     attempt = _attempt(decision)
@@ -590,8 +734,12 @@ def test_bootstrap_enrollment_derives_architecture_track_and_exact_stage_plan(
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
-    started = _validation_reducer(settings, adapter).start(
-        stored_candidate=stored,
+    reducer_candidate_reader = _CountingCandidateReader(store)
+    started = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=reducer_candidate_reader,
+    ).start(
         eligibility=eligibility,
     )
 
@@ -605,6 +753,7 @@ def test_bootstrap_enrollment_derives_architecture_track_and_exact_stage_plan(
     )
     assert started.attempt is not None
     assert started.attempt.required_stages == eligibility.decision.required_stages
+    assert reducer_candidate_reader.candidate_ids == [eligibility.decision.candidate_id]
     assert set(_verified_adapter(adapter).dependency_ids).issubset(
         started.attempt.eligibility_dependency_ids
     )
@@ -771,11 +920,12 @@ def test_reducer_replays_exact_adapter_pin_after_active_attestation_rotation(
     provider.active = rotated
     started = ExpertValidationReducer(
         settings,
+        store,
         _AttestationVerifier(),
         provider,
         _CurrentReleaseProvider(None),
         _ValidationStateProvider(),
-    ).start(stored_candidate=stored, eligibility=eligibility)
+    ).start(eligibility=eligibility)
 
     assert started.attempt is not None
     assert started.attempt.task_adapter_pins == eligibility.decision.task_adapter_pins
@@ -913,8 +1063,11 @@ def test_stale_bootstrap_and_forged_track_are_ineligible_or_rejected(tmp_path):
         }
     )
     with pytest.raises(ExpertValidationError, match="deterministic"):
-        _validation_reducer(settings, adapter).start(
-            stored_candidate=stored,
+        _validation_reducer(
+            settings,
+            adapter,
+            candidate_store=store,
+        ).start(
             eligibility=replace(valid, decision=forged_decision),
         )
 
@@ -927,8 +1080,11 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
-    started = _validation_reducer(settings, adapter).start(
-        stored_candidate=stored,
+    started = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=store,
+    ).start(
         eligibility=eligibility,
     )
     assert started.attempt is not None
@@ -1027,9 +1183,8 @@ def test_failed_stage_is_terminal_and_a_retry_requires_a_new_attempt(tmp_path):
     eligibility = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
-    reducer = _validation_reducer(settings, adapter)
+    reducer = _validation_reducer(settings, adapter, candidate_store=store)
     started = reducer.start(
-        stored_candidate=stored,
         eligibility=eligibility,
     )
     assert started.attempt is not None
@@ -1064,13 +1219,13 @@ def test_failed_stage_is_terminal_and_a_retry_requires_a_new_attempt(tmp_path):
     retry_reducer = _validation_reducer(
         settings,
         adapter,
+        candidate_store=store,
         predecessor=ExpertValidationPredecessor(
             latest_attempt=started.attempt,
             state=failed,
         ),
     )
     retry = retry_reducer.start(
-        stored_candidate=stored,
         eligibility=eligibility,
     )
     assert retry.attempt is not None
@@ -1087,8 +1242,11 @@ def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
     eligible = _eligibility_evaluator(settings, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
-    initial = _validation_reducer(settings, adapter).start(
-        stored_candidate=stored,
+    initial = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=store,
+    ).start(
         eligibility=eligible,
     )
     assert initial.attempt is not None
@@ -1125,10 +1283,10 @@ def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
     ineligible = _validation_reducer(
         settings,
         adapter,
+        candidate_store=store,
         current_release_id=current_release_id,
         predecessor=historical_attempt,
     ).start(
-        stored_candidate=stored,
         eligibility=stale,
     )
     assert ineligible.attempt is None
@@ -1136,12 +1294,12 @@ def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
     retry = _validation_reducer(
         settings,
         adapter,
+        candidate_store=store,
         predecessor=ExpertValidationPredecessor(
             latest_attempt=initial.attempt,
             state=ineligible.state,
         ),
     ).start(
-        stored_candidate=stored,
         eligibility=eligible,
     )
     assert retry.attempt is not None
@@ -1161,8 +1319,11 @@ def test_evaluator_output_limits_are_enforced_before_result_identity(tmp_path):
     eligibility = _eligibility_evaluator(limited, store, adapter).decide(
         candidate_id=stored.closure.manifest.candidate_id,
     )
-    started = _validation_reducer(limited, adapter).start(
-        stored_candidate=stored,
+    started = _validation_reducer(
+        limited,
+        adapter,
+        candidate_store=store,
+    ).start(
         eligibility=eligibility,
     )
     assert started.attempt is not None

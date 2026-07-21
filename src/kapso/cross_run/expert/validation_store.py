@@ -27,7 +27,6 @@ from kapso.cross_run.contracts import (
     ExpertValidationAttempt,
     StrictContract,
 )
-from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.expert.validation import (
     ExpertEligibilityResult,
     ExpertEvaluatorResult,
@@ -271,7 +270,6 @@ class ExpertValidationStore:
         self,
         *,
         expected_transition_id: str | None,
-        stored_candidate: StoredExpertCandidate,
         eligibility: ExpertEligibilityResult,
     ) -> ExpertValidationCommitResult:
         if expected_transition_id is not None:
@@ -292,7 +290,6 @@ class ExpertValidationStore:
             self._require_expected_head(current, expected_transition_id)
             predecessor = None if current is None else current.predecessor
             start = self.reducer.start_from_predecessor(
-                stored_candidate=stored_candidate,
                 eligibility=eligibility,
                 predecessor=predecessor,
             )
@@ -733,6 +730,27 @@ class ExpertValidationStore:
                 latest_attempt is None
                 or latest_attempt.eligibility_decision_id
                 != decision.eligibility_decision_id
+                or latest_attempt.candidate_id != decision.candidate_id
+                or latest_attempt.candidate_tree_hash != decision.candidate_tree_hash
+                or latest_attempt.candidate_commit_record_id
+                != decision.candidate_commit_record_id
+                or latest_attempt.scope_contract_id != decision.scope_contract_id
+                or latest_attempt.parent_release_id != decision.parent_release_id
+                or latest_attempt.validation_policy_id != decision.validation_policy_id
+                or latest_attempt.configuration_fingerprint
+                != decision.configuration_fingerprint
+                or latest_attempt.validation_track != decision.validation_track
+                or latest_attempt.required_stages != decision.required_stages
+                or latest_attempt.configured_task_family_ids
+                != decision.configured_task_family_ids
+                or latest_attempt.task_adapter_pins != decision.task_adapter_pins
+                or latest_attempt.source_replay_selection
+                != decision.source_replay_selection
+                or set(latest_attempt.eligibility_dependency_ids)
+                != {
+                    decision.eligibility_decision_id,
+                    *decision.exact_dependency_ids,
+                }
             ):
                 raise ExpertValidationStoreError(
                     "validation start attempt differs from its eligibility decision"

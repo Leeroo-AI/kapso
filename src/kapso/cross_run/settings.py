@@ -812,6 +812,9 @@ class ExpertPromotionPolicySettings(StrictContract):
 
 @dataclass(frozen=True)
 class ExpertValidationPolicySettings(StrictContract):
+    source_replay_selection_policy_version: str
+    source_replay_episode_limit: int
+    source_replay_bundle_limit: int
     sealed_canary_trust_root: str | None
     architecture_requires_sealed_canary: bool
     artifact_entry_limit: int
@@ -821,6 +824,18 @@ class ExpertValidationPolicySettings(StrictContract):
     promotion: ExpertPromotionPolicySettings
 
     def _validate(self) -> None:
+        require_identifier(
+            self.source_replay_selection_policy_version,
+            "expert.validation.policy.source_replay_selection_policy_version",
+        )
+        _require_positive(
+            self.source_replay_episode_limit,
+            "expert.validation.policy.source_replay_episode_limit",
+        )
+        _require_positive(
+            self.source_replay_bundle_limit,
+            "expert.validation.policy.source_replay_bundle_limit",
+        )
         _require_positive(
             self.artifact_entry_limit,
             "expert.validation.policy.artifact_entry_limit",

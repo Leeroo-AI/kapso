@@ -329,7 +329,7 @@ def _sorted_contract_ids(
     return identities
 
 
-def _episode_lineage_id(
+def episode_lineage_id(
     episode: TransferEpisode,
     episodes_by_id: dict[str, TransferEpisode],
 ) -> str:
@@ -604,7 +604,7 @@ class ExpertTriggerEvidencePacket(StrictContract):
             if binding.scope_contract_id != evidence_scope_contract.scope_contract_id:
                 raise ExpertTriggerError("trigger episode belongs to another scope")
             binding.validate_against(evidence_scope_contract)
-            _episode_lineage_id(episode, episodes_by_id)
+            episode_lineage_id(episode, episodes_by_id)
             required_proof = {
                 episode.source_bundle_id,
                 episode.sanitation_report_id,
@@ -810,7 +810,7 @@ class ExpertTriggerEvidencePacket(StrictContract):
                 expected_lineages = tuple(
                     sorted(
                         {
-                            _episode_lineage_id(episode, episodes_by_id)
+                            episode_lineage_id(episode, episodes_by_id)
                             for episode in evidence_episodes
                         }
                     )
@@ -1289,7 +1289,7 @@ class ExpertTriggerEvaluator:
                 if self._is_positive(episodes_by_id[episode_id])
             )
             lineages = {
-                _episode_lineage_id(episode, episodes_by_id) for episode in successful
+                episode_lineage_id(episode, episodes_by_id) for episode in successful
             }
             context_signatures = {
                 _transfer_context_signature(episode) for episode in successful

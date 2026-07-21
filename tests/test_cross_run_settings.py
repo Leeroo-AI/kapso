@@ -334,6 +334,8 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("knowledge", "retrieval", "lexical_weight"), 1.1),
         (("knowledge", "embeddings", "dimensions"), True),
         (("expert", "validation", "reviewer_count"), 0),
+        (("expert", "validation", "policy", "source_replay_episode_limit"), 0),
+        (("expert", "validation", "policy", "source_replay_bundle_limit"), 0),
         (("expert", "task_adapters", "zstd_window_size_bytes"), 0),
         (("launch", "cache_path"), "../escape"),
     ],

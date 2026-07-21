@@ -27,6 +27,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterPackagePin,
 )
 from kapso.cross_run.expert.store import StoredExpertCandidate
+from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.settings import (
     ExpertEvaluatorSettings,
     ExpertValidationPolicy,
@@ -205,6 +206,16 @@ class ExpertCandidateEligibilityEvaluator:
             reason_code = "required_validation_infrastructure_unavailable"
         else:
             reason_code = "eligible"
+        source_replay_selection = None
+        if eligible and ExpertValidationStage.SOURCE_RUN_REPLAY in stage_plan:
+            replay_result = _derive_expert_source_replay_selection(
+                stored_candidate=stored,
+                settings=self.settings,
+            )
+            source_replay_selection = replay_result.selection
+            if source_replay_selection is None:
+                eligible = False
+                reason_code = replay_result.reason_code
         manifest = stored.closure.manifest
         dependencies = {
             manifest.candidate_id,
@@ -220,6 +231,13 @@ class ExpertCandidateEligibilityEvaluator:
         }
         if manifest.parent_release_id is not None:
             dependencies.add(manifest.parent_release_id)
+        if source_replay_selection is not None:
+            dependencies.update(
+                {
+                    source_replay_selection.source_replay_selection_id,
+                    *source_replay_selection.exact_dependency_ids,
+                }
+            )
         decision = ExpertCandidateEligibilityDecision.mint(
             candidate_id=manifest.candidate_id,
             candidate_tree_hash=manifest.candidate_tree_hash,
@@ -233,6 +251,7 @@ class ExpertCandidateEligibilityEvaluator:
             required_stages=stage_plan if eligible else (),
             configured_task_family_ids=configured_task_family_ids,
             task_adapter_pins=adapter_pins,
+            source_replay_selection=source_replay_selection,
             exact_dependency_ids=tuple(sorted(dependencies)),
             reason_code=reason_code,
         )
@@ -346,6 +365,10 @@ class ExpertEvaluatorRunBuilder:
         ):
             raise ExpertValidationError(
                 "validation attempt differs from evaluator configuration"
+            )
+        if stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
+            raise ExpertValidationError(
+                "source replay requires a typed execution receipt"
             )
         evaluator = self._evaluator(stage)
         self._validate_outputs(output_payloads)
@@ -461,12 +484,14 @@ class ExpertValidationReducer:
     def __init__(
         self,
         settings: ExpertValidationSettings,
+        candidate_store: ExpertCandidateReader,
         attestation_verifier: ExpertAttestationVerifier,
         task_adapter_provider: VerifiedTaskAdapterProvider,
         current_release_provider: ExpertCurrentReleaseProvider,
         validation_state_provider: ExpertValidationStateProvider,
     ) -> None:
         self.settings = settings
+        self.candidate_store = candidate_store
         self.attestation_verifier = attestation_verifier
         self.task_adapter_provider = task_adapter_provider
         self.current_release_provider = current_release_provider
@@ -475,14 +500,12 @@ class ExpertValidationReducer:
     def start(
         self,
         *,
-        stored_candidate: StoredExpertCandidate,
         eligibility: ExpertEligibilityResult,
     ) -> ExpertValidationStart:
         predecessor = self.validation_state_provider.current(
             eligibility.decision.candidate_id
         )
         return self.start_from_predecessor(
-            stored_candidate=stored_candidate,
             eligibility=eligibility,
             predecessor=predecessor,
         )
@@ -490,17 +513,16 @@ class ExpertValidationReducer:
     def start_from_predecessor(
         self,
         *,
-        stored_candidate: StoredExpertCandidate,
         eligibility: ExpertEligibilityResult,
         predecessor: ExpertValidationPredecessor | None,
     ) -> ExpertValidationStart:
         expected = ExpertCandidateEligibilityEvaluator(
             self.settings,
-            _PinnedCandidateStore(stored_candidate),
+            self.candidate_store,
             self.task_adapter_provider,
             self.current_release_provider,
         ).replay(
-            candidate_id=stored_candidate.closure.manifest.candidate_id,
+            candidate_id=eligibility.decision.candidate_id,
             task_adapter_pins=eligibility.decision.task_adapter_pins,
         )
         if expected != eligibility:
@@ -561,6 +583,7 @@ class ExpertValidationReducer:
                 eligibility.decision.configured_task_family_ids
             ),
             task_adapter_pins=eligibility.decision.task_adapter_pins,
+            source_replay_selection=(eligibility.decision.source_replay_selection),
             eligibility_dependency_ids=tuple(
                 sorted(
                     {
@@ -684,6 +707,10 @@ class ExpertValidationReducer:
         result: ExpertEvaluatorResult,
     ) -> None:
         run = result.evaluator_run
+        if run.stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
+            raise ExpertValidationError(
+                "source replay requires a typed execution receipt"
+            )
         envelope = result.attestation_envelope
         attestation = envelope.attestation
         required_inputs = {
@@ -813,15 +840,3 @@ class ExpertValidationReducer:
             raise ExpertValidationError(
                 "new validation attempt requires one matching terminal predecessor"
             )
-
-
-class _PinnedCandidateStore:
-    """Read-only single-candidate view used for deterministic reducer replay."""
-
-    def __init__(self, stored_candidate: StoredExpertCandidate) -> None:
-        self.stored_candidate = stored_candidate
-
-    def read(self, candidate_id: str) -> StoredExpertCandidate:
-        if candidate_id != self.stored_candidate.closure.manifest.candidate_id:
-            raise ExpertValidationError("pinned candidate store identity mismatch")
-        return self.stored_candidate
