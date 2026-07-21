@@ -81,6 +81,7 @@ print(json.dumps({"type":"turn.completed","usage":{"input_tokens":11,"output_tok
     assert (tmp_path / "codex_env.txt").read_text() == "False"
     assert args[args.index("--sandbox") + 1] == "read-only"
     assert "--ephemeral" in args
+    assert "--skip-git-repo-check" in args
     assert "--ignore-user-config" in args
     assert "--search" in args
     assert args[-1] == "-"

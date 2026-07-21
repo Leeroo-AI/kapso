@@ -664,6 +664,7 @@ class SubprocessCodingAgentCallRunner:
                     "--sandbox",
                     "read-only",
                     "--ephemeral",
+                    "--skip-git-repo-check",
                     "--ignore-user-config",
                     "--output-schema",
                     str(schema_path),
