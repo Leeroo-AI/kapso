@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.canonical import tree_or_blob_digest
+from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.capture.exporter import BranchSnapshot
 from kapso.cross_run.capture.pipeline import RunCaptureContext, RunCapturePipeline
 from kapso.cross_run.catalog.projector import RunBundleProjector
@@ -292,7 +292,20 @@ def test_relbench_context_uses_the_same_domain_neutral_projection(tmp_path):
         expert_base_release_id=(
             fixture.request.artifact_environment.expert_base_release_id
         ),
-        task_adapter_hash=digest("relbench-adapter"),
+        task_adapter_manifest_id=content_id(
+            "task-adapter-manifest",
+            {"label": "relbench-adapter"},
+        ),
+        task_adapter_verification_receipt_id=content_id(
+            "task-adapter-verification-receipt",
+            {"label": "relbench-adapter-verification"},
+        ),
+        starting_artifact_content_ids={
+            "artifact/relational-table": content_id(
+                "source-replay-starting-artifact",
+                {"label": "relational-table"},
+            )
+        },
         dependency_lock_hash=(
             fixture.request.artifact_environment.dependency_lock_hash
         ),

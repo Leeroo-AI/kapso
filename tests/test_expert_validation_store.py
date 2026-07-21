@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from kapso.cross_run.expert.validation import ExpertEvaluatorRunBuilder
+from kapso.cross_run.expert.validation import (
+    ExpertCandidateEligibilityEvaluator,
+    ExpertEvaluatorRunBuilder,
+    ExpertValidationError,
+)
 from kapso.cross_run.expert.validation_store import (
     ExpertEvaluatorResultRecord,
     ExpertValidationCompareAndSwapError,
@@ -24,6 +28,8 @@ from test_expert_validation import (
     _validation_reducer,
     _validation_settings,
 )
+from test_expert_source_replay import _CandidateReader
+from test_expert_source_replay_request import _request_fixture
 
 
 def _validation_store(tmp_path, settings, reducer):
@@ -352,3 +358,81 @@ def test_result_record_identity_includes_the_selected_signature_envelope(tmp_pat
         rotated.attestation_envelope.attestation
     )
     assert original.evaluator_result_record_id != rotated.evaluator_result_record_id
+
+
+def test_parent_authority_change_terminates_attempt_and_requires_successor_candidate(
+    tmp_path,
+):
+    fixture = _request_fixture(tmp_path)
+    store = fixture.validation_store
+    started = store.snapshot(fixture.attempt.candidate_id)
+    assert started is not None
+    with pytest.raises(ExpertValidationError, match="has not changed"):
+        store.publish_parent_authority_invalidation(
+            candidate_id=started.state.candidate_id,
+            expected_validation_state_id=started.state.validation_state_id,
+        )
+    fixture.current_release_provider.release_id = _content_id(
+        "successor-parent-release"
+    )
+
+    invalidated_result = store.publish_parent_authority_invalidation(
+        candidate_id=started.state.candidate_id,
+        expected_validation_state_id=started.state.validation_state_id,
+    )
+    invalidated = invalidated_result.snapshot
+    replayed = store.publish_parent_authority_invalidation(
+        candidate_id=started.state.candidate_id,
+        expected_validation_state_id=started.state.validation_state_id,
+    )
+
+    assert invalidated_result.replayed is False
+    assert replayed.replayed is True
+    assert replayed.snapshot == invalidated
+    assert invalidated.state.promotion_state is ExpertPromotionState.FAILED
+    assert invalidated.state.validation_attempt_id == (
+        started.latest_attempt.validation_attempt_id
+    )
+    assert invalidated.transition.transition_authority_invalidation_id == (
+        invalidated.state.transition_evidence_id
+    )
+    stale_eligibility = ExpertCandidateEligibilityEvaluator(
+        fixture.settings,
+        _CandidateReader(fixture.stored),
+        fixture.adapter_provider,
+        fixture.current_release_provider,
+    ).decide(candidate_id=started.state.candidate_id)
+    reenrolled = store.publish_start(
+        expected_transition_id=invalidated.transition.transition_id,
+        eligibility=stale_eligibility,
+    ).snapshot
+    replayed_after_reenrollment = store.publish_parent_authority_invalidation(
+        candidate_id=started.state.candidate_id,
+        expected_validation_state_id=started.state.validation_state_id,
+    )
+
+    assert reenrolled.state.promotion_state is ExpertPromotionState.INELIGIBLE
+    assert reenrolled.latest_attempt == started.latest_attempt
+    assert replayed_after_reenrollment.replayed is True
+    assert replayed_after_reenrollment.snapshot == invalidated
+
+
+def test_store_rejects_a_reducer_with_different_configuration(tmp_path):
+    fixture = _request_fixture(tmp_path)
+    mismatched_settings = replace(
+        fixture.settings,
+        state_path="mismatched-validation-state",
+    )
+    mismatched_root = tmp_path / "mismatched-store"
+    mismatched_root.mkdir(mode=0o700)
+
+    with pytest.raises(
+        ExpertValidationStoreError,
+        match="reducer differs from store configuration",
+    ):
+        ExpertValidationStore(
+            (mismatched_root / "validation").resolve(),
+            mismatched_root.resolve(),
+            mismatched_settings,
+            fixture.validation_store.reducer,
+        )

@@ -813,8 +813,15 @@ class ExpertPromotionPolicySettings(StrictContract):
 @dataclass(frozen=True)
 class ExpertValidationPolicySettings(StrictContract):
     source_replay_selection_policy_version: str
+    source_replay_request_policy_version: str
     source_replay_episode_limit: int
     source_replay_bundle_limit: int
+    source_replay_context_materializer_id: str
+    source_replay_context_materializer_version: str
+    source_replay_materialization_entry_limit: int
+    source_replay_materialization_byte_limit: int
+    source_replay_materialization_timeout_seconds: int
+    source_replay_score_comparison_tolerance: float
     sealed_canary_trust_root: str | None
     architecture_requires_sealed_canary: bool
     artifact_entry_limit: int
@@ -828,6 +835,10 @@ class ExpertValidationPolicySettings(StrictContract):
             self.source_replay_selection_policy_version,
             "expert.validation.policy.source_replay_selection_policy_version",
         )
+        require_identifier(
+            self.source_replay_request_policy_version,
+            "expert.validation.policy.source_replay_request_policy_version",
+        )
         _require_positive(
             self.source_replay_episode_limit,
             "expert.validation.policy.source_replay_episode_limit",
@@ -835,6 +846,33 @@ class ExpertValidationPolicySettings(StrictContract):
         _require_positive(
             self.source_replay_bundle_limit,
             "expert.validation.policy.source_replay_bundle_limit",
+        )
+        for value, name in (
+            (
+                self.source_replay_context_materializer_id,
+                "source_replay_context_materializer_id",
+            ),
+            (
+                self.source_replay_context_materializer_version,
+                "source_replay_context_materializer_version",
+            ),
+        ):
+            require_identifier(value, f"expert.validation.policy.{name}")
+        _require_positive(
+            self.source_replay_materialization_entry_limit,
+            "expert.validation.policy.source_replay_materialization_entry_limit",
+        )
+        _require_positive(
+            self.source_replay_materialization_byte_limit,
+            "expert.validation.policy.source_replay_materialization_byte_limit",
+        )
+        _require_positive(
+            self.source_replay_materialization_timeout_seconds,
+            "expert.validation.policy.source_replay_materialization_timeout_seconds",
+        )
+        _require_positive(
+            self.source_replay_score_comparison_tolerance,
+            "expert.validation.policy.source_replay_score_comparison_tolerance",
         )
         _require_positive(
             self.artifact_entry_limit,
@@ -1226,6 +1264,13 @@ class CrossRunSettings(StrictContract):
         if self.capture.git_command_output_bytes < self.sanitation.max_file_bytes:
             raise CrossRunConfigurationError(
                 "capture Git output limit must admit one allowlisted source file"
+            )
+        if (
+            self.capture.score_comparison_tolerance
+            != self.expert.validation.policy.source_replay_score_comparison_tolerance
+        ):
+            raise CrossRunConfigurationError(
+                "capture and source replay projection tolerances must match"
             )
 
     @classmethod

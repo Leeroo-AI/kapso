@@ -24,6 +24,7 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
     ExpertEvaluatorRun,
     ExpertPromotionState,
+    ExpertValidationAuthorityInvalidation,
     ExpertValidationAttempt,
     StrictContract,
 )
@@ -50,6 +51,7 @@ class ExpertValidationCompareAndSwapError(ExpertValidationStoreError):
 class ExpertValidationOperationKind(str, Enum):
     START = "start"
     EVALUATOR_RESULT = "evaluator_result"
+    AUTHORITY_INVALIDATION = "authority_invalidation"
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,7 @@ class ExpertValidationTransition(StrictContract):
     created_attempt_id: str | None
     accepted_result_record_ids: tuple[str, ...]
     transition_result_record_id: str | None
+    transition_authority_invalidation_id: str | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-transition"
     IDENTITY_FIELD: ClassVar[str] = "transition_id"
@@ -142,6 +145,10 @@ class ExpertValidationTransition(StrictContract):
             (self.eligibility_decision_id, "eligibility_decision_id"),
             (self.created_attempt_id, "created_attempt_id"),
             (self.transition_result_record_id, "transition_result_record_id"),
+            (
+                self.transition_authority_invalidation_id,
+                "transition_authority_invalidation_id",
+            ),
         ):
             if value is not None:
                 require_content_id(value, name)
@@ -163,11 +170,19 @@ class ExpertValidationTransition(StrictContract):
             )
         for result_record_id in self.accepted_result_record_ids:
             require_content_id(result_record_id, "accepted_result_record_ids")
-        start = self.eligibility_decision_id is not None
-        if start == (self.transition_result_record_id is not None):
-            raise ContractValidationError(
-                "transition must contain exactly one start or result request"
+        request_count = sum(
+            value is not None
+            for value in (
+                self.eligibility_decision_id,
+                self.transition_result_record_id,
+                self.transition_authority_invalidation_id,
             )
+        )
+        if request_count != 1:
+            raise ContractValidationError(
+                "transition must contain exactly one start, result, or invalidation request"
+            )
+        start = self.eligibility_decision_id is not None
         if not start and self.created_attempt_id is not None:
             raise ContractValidationError(
                 "only a start transition may create a validation attempt"
@@ -206,7 +221,6 @@ class ExpertValidationJournal(StrictContract):
 
 @dataclass(frozen=True)
 class ExpertValidationSnapshot:
-    journal: ExpertValidationJournal
     transition: ExpertValidationTransition
     state: ExpertCandidateValidationState
     latest_attempt: ExpertValidationAttempt | None
@@ -244,6 +258,10 @@ class ExpertValidationStore:
         ):
             raise ExpertValidationStoreError(
                 "validation store must be a direct normalized child of its state root"
+            )
+        if reducer.settings != settings:
+            raise ExpertValidationStoreError(
+                "validation reducer differs from store configuration"
             )
         self.root = root
         self.state_root = state_root
@@ -302,7 +320,7 @@ class ExpertValidationStore:
             ):
                 updated = self._bind_operation(journal, operation, current.transition)
                 self._write_contract_unlocked(operation)
-                self._write_journal_unlocked(updated)
+                self._publish_journal_unlocked(updated)
                 replay = self._snapshot_at_unlocked(
                     updated,
                     current.transition.transition_id,
@@ -325,7 +343,7 @@ class ExpertValidationStore:
             self._write_contract_unlocked(operation)
             self._write_contract_unlocked(transition)
             updated = self._append_transition(journal, transition)
-            self._write_journal_unlocked(updated)
+            self._publish_journal_unlocked(updated)
             return ExpertValidationCommitResult(
                 snapshot=self._snapshot_at_unlocked(updated, transition.transition_id),
                 replayed=False,
@@ -390,13 +408,95 @@ class ExpertValidationStore:
                 created_attempt_id=None,
                 accepted_result_record_ids=accepted_ids,
                 transition_result_record_id=(result_record.evaluator_result_record_id),
+                transition_authority_invalidation_id=None,
             )
             self._write_contract_unlocked(result_record)
             self._write_contract_unlocked(target_state)
             self._write_contract_unlocked(operation)
             self._write_contract_unlocked(transition)
             updated = self._append_transition(journal, transition)
-            self._write_journal_unlocked(updated)
+            self._publish_journal_unlocked(updated)
+            return ExpertValidationCommitResult(
+                snapshot=self._snapshot_at_unlocked(updated, transition.transition_id),
+                replayed=False,
+            )
+
+    def publish_parent_authority_invalidation(
+        self,
+        *,
+        candidate_id: str,
+        expected_validation_state_id: str,
+    ) -> ExpertValidationCommitResult:
+        require_content_id(candidate_id, "candidate_id")
+        require_content_id(
+            expected_validation_state_id,
+            "expected_validation_state_id",
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(candidate_id)
+            self._validate_journal_unlocked(journal)
+            for transition_id in journal.transition_ids:
+                existing = self._read_contract_unlocked(
+                    transition_id,
+                    ExpertValidationTransition,
+                )
+                if (
+                    existing.predecessor_state_id == expected_validation_state_id
+                    and existing.transition_authority_invalidation_id is not None
+                ):
+                    return ExpertValidationCommitResult(
+                        snapshot=self._snapshot_at_unlocked(journal, transition_id),
+                        replayed=True,
+                    )
+            current = self._current_from_journal_unlocked(journal)
+            if current is None or current.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "authority invalidation requires a current validation attempt"
+                )
+            if current.state.validation_state_id != expected_validation_state_id:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation candidate head changed before publication"
+                )
+            reduced = self.reducer.invalidate_parent_authority(
+                state=current.state,
+                attempt=current.latest_attempt,
+            )
+            invalidation = reduced.invalidation
+            operation = ExpertValidationOperation.mint(
+                operation_kind=(ExpertValidationOperationKind.AUTHORITY_INVALIDATION),
+                candidate_id=candidate_id,
+                expected_transition_id=current.transition.transition_id,
+                request_record_id=invalidation.authority_invalidation_id,
+            )
+            transition = ExpertValidationTransition.mint(
+                candidate_id=candidate_id,
+                candidate_tree_hash=current.state.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=current.transition.transition_id,
+                predecessor_state_id=current.state.validation_state_id,
+                target_state_id=reduced.state.validation_state_id,
+                latest_attempt_id=current.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=current.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    current.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_result_record_ids=(
+                    current.transition.accepted_result_record_ids
+                ),
+                transition_result_record_id=None,
+                transition_authority_invalidation_id=(
+                    invalidation.authority_invalidation_id
+                ),
+            )
+            self._write_contract_unlocked(invalidation)
+            self._write_contract_unlocked(reduced.state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
             return ExpertValidationCommitResult(
                 snapshot=self._snapshot_at_unlocked(updated, transition.transition_id),
                 replayed=False,
@@ -436,6 +536,7 @@ class ExpertValidationStore:
             ),
             accepted_result_record_ids=(),
             transition_result_record_id=None,
+            transition_authority_invalidation_id=None,
         )
 
     def _snapshot_unlocked(
@@ -482,6 +583,7 @@ class ExpertValidationStore:
         active_attempt_transition = (
             transition.created_attempt_id is not None
             or transition.transition_result_record_id is not None
+            or transition.transition_authority_invalidation_id is not None
         )
         if latest_attempt is not None and (
             latest_attempt.candidate_id != transition.candidate_id
@@ -507,7 +609,6 @@ class ExpertValidationStore:
             for result_record_id in transition.accepted_result_record_ids
         )
         return ExpertValidationSnapshot(
-            journal=journal,
             transition=transition,
             state=state,
             latest_attempt=latest_attempt,
@@ -755,7 +856,7 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "validation start attempt differs from its eligibility decision"
                 )
-        else:
+        elif transition.transition_result_record_id is not None:
             result_record = self._read_contract_unlocked(
                 transition.transition_result_record_id,
                 ExpertEvaluatorResultRecord,
@@ -793,6 +894,63 @@ class ExpertValidationStore:
             if transition.accepted_result_record_ids != expected_accepted:
                 raise ExpertValidationStoreError(
                     "validation accepted result prefix is not gap-free"
+                )
+        else:
+            invalidation = self._read_contract_unlocked(
+                transition.transition_authority_invalidation_id,
+                ExpertValidationAuthorityInvalidation,
+            )
+            if transition.predecessor_state_id is None:
+                raise ExpertValidationStoreError(
+                    "authority invalidation requires a predecessor state"
+                )
+            predecessor_state = self._read_contract_unlocked(
+                transition.predecessor_state_id,
+                ExpertCandidateValidationState,
+            )
+            previous_accepted = (
+                ()
+                if previous_transition is None
+                else previous_transition.accepted_result_record_ids
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.AUTHORITY_INVALIDATION
+                or operation.request_record_id != invalidation.authority_invalidation_id
+                or operation.expected_transition_id
+                != transition.predecessor_transition_id
+                or latest_attempt is None
+                or predecessor_state.promotion_state
+                is not ExpertPromotionState.VALIDATING
+                or predecessor_state.validation_attempt_id
+                != latest_attempt.validation_attempt_id
+                or invalidation.validation_attempt_id
+                != latest_attempt.validation_attempt_id
+                or invalidation.authorization_state_id
+                != predecessor_state.validation_state_id
+                or invalidation.candidate_id != latest_attempt.candidate_id
+                or invalidation.candidate_tree_hash
+                != latest_attempt.candidate_tree_hash
+                or invalidation.scope_contract_id != latest_attempt.scope_contract_id
+                or invalidation.expected_parent_release_id
+                != latest_attempt.parent_release_id
+                or transition.validation_policy_id
+                != latest_attempt.validation_policy_id
+                or transition.configuration_fingerprint
+                != latest_attempt.configuration_fingerprint
+                or state.promotion_state is not ExpertPromotionState.FAILED
+                or state.accepted_evaluator_evidence
+                != predecessor_state.accepted_evaluator_evidence
+                or state.review_assertion_ids != predecessor_state.review_assertion_ids
+                or state.terminal_evidence_ids
+                != (invalidation.authority_invalidation_id,)
+                or state.transition_evidence_id
+                != invalidation.authority_invalidation_id
+                or state.reason != "validation_parent_release_changed"
+                or transition.accepted_result_record_ids != previous_accepted
+            ):
+                raise ExpertValidationStoreError(
+                    "validation authority invalidation closure is inconsistent"
                 )
 
     def _resolved_operation_unlocked(
@@ -883,6 +1041,10 @@ class ExpertValidationStore:
             self._journal_path(journal.candidate_id, create_namespace=True),
             journal.to_json_bytes(),
         )
+
+    def _publish_journal_unlocked(self, journal: ExpertValidationJournal) -> None:
+        self._validate_journal_unlocked(journal)
+        self._write_journal_unlocked(journal)
 
     def _write_configuration_unlocked(self) -> None:
         payload = self.settings.to_json_bytes()

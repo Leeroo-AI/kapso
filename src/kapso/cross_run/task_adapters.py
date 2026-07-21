@@ -10,6 +10,7 @@ from typing import ClassVar, Mapping, Protocol
 
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
+    content_id,
     require_content_id,
     require_identifier,
     tree_or_blob_digest,
@@ -20,6 +21,51 @@ from kapso.cross_run.contracts import (
     TaskAdapterManifest,
 )
 from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
+
+
+def task_adapter_binding_id(task_family_id: str, task_adapter_id: str) -> str:
+    """Return the canonical identity shared by enrollment and execution."""
+
+    require_identifier(task_family_id, "task_family_id")
+    require_identifier(task_adapter_id, "task_adapter_id")
+    return content_id(
+        "task-adapter-binding",
+        {
+            "task_family_id": task_family_id,
+            "task_adapter_id": task_adapter_id,
+        },
+    )
+
+
+def task_adapter_materialization_usage(
+    *,
+    source_file_sizes: tuple[int, ...],
+    source_archive_sizes: tuple[int, ...],
+    proof_object_sizes: tuple[int, ...],
+    publisher_verification_sizes: tuple[int, ...],
+) -> tuple[int, int]:
+    """Count the exact adapter payload closure acquired for replay."""
+
+    size_groups = (
+        source_file_sizes,
+        source_archive_sizes,
+        proof_object_sizes,
+        publisher_verification_sizes,
+    )
+    if (
+        len(source_archive_sizes) != 1
+        or len(publisher_verification_sizes) != 1
+        or any(
+            type(size) is not int or size < 0 for sizes in size_groups for size in sizes
+        )
+    ):
+        raise ContractValidationError(
+            "task adapter materialization payload sizes are invalid"
+        )
+    return (
+        sum(len(sizes) for sizes in size_groups),
+        sum(size for sizes in size_groups for size in sizes),
+    )
 
 
 @dataclass(frozen=True)

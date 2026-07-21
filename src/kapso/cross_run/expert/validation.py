@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol
 
 from kapso.cross_run.canonical import (
-    content_id,
     require_content_id,
     tree_or_blob_digest,
 )
@@ -21,6 +20,9 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
     ExpertEvaluatorRun,
     ExpertPromotionState,
+    ExpertSourceReplaySelection,
+    ExpertValidationAuthorityInvalidation,
+    ExpertValidationAuthorityInvalidationKind,
     ExpertValidationAttempt,
     ExpertValidationStage,
     ExpertValidationTrack,
@@ -36,6 +38,7 @@ from kapso.cross_run.settings import (
 from kapso.cross_run.task_adapters import (
     VerifiedTaskAdapter,
     VerifiedTaskAdapterProvider,
+    task_adapter_binding_id,
 )
 
 
@@ -58,6 +61,12 @@ class ExpertEvaluatorResult:
 @dataclass(frozen=True)
 class ExpertValidationStart:
     attempt: ExpertValidationAttempt | None
+    state: ExpertCandidateValidationState
+
+
+@dataclass(frozen=True)
+class ExpertValidationAuthorityInvalidationResult:
+    invalidation: ExpertValidationAuthorityInvalidation
     state: ExpertCandidateValidationState
 
 
@@ -207,6 +216,7 @@ class ExpertCandidateEligibilityEvaluator:
         else:
             reason_code = "eligible"
         source_replay_selection = None
+        source_adapter_dependency_ids: tuple[str, ...] = ()
         if eligible and ExpertValidationStage.SOURCE_RUN_REPLAY in stage_plan:
             replay_result = _derive_expert_source_replay_selection(
                 stored_candidate=stored,
@@ -216,6 +226,10 @@ class ExpertCandidateEligibilityEvaluator:
             if source_replay_selection is None:
                 eligible = False
                 reason_code = replay_result.reason_code
+            else:
+                source_adapter_dependency_ids = self._verify_source_replay_adapters(
+                    source_replay_selection
+                )
         manifest = stored.closure.manifest
         dependencies = {
             manifest.candidate_id,
@@ -228,6 +242,7 @@ class ExpertCandidateEligibilityEvaluator:
             *(pin.task_adapter_manifest_id for pin in adapter_pins),
             *(pin.verification_receipt_id for pin in adapter_pins),
             *adapter_verification_ids,
+            *source_adapter_dependency_ids,
         }
         if manifest.parent_release_id is not None:
             dependencies.add(manifest.parent_release_id)
@@ -257,6 +272,35 @@ class ExpertCandidateEligibilityEvaluator:
         )
         return ExpertEligibilityResult(decision=decision, policy=policy)
 
+    def _verify_source_replay_adapters(
+        self,
+        selection: ExpertSourceReplaySelection,
+    ) -> tuple[str, ...]:
+        dependency_ids: set[str] = set()
+        for pin in selection.source_adapter_pins:
+            adapter = self.task_adapter_provider.resolve_exact(
+                task_adapter_manifest_id=pin.task_adapter_manifest_id,
+                verification_receipt_id=pin.verification_receipt_id,
+            )
+            if not isinstance(adapter, VerifiedTaskAdapter):
+                raise ExpertValidationError(
+                    "historical source replay adapter is not a verified package"
+                )
+            manifest = adapter.manifest
+            if (
+                manifest.scope_contract_id != pin.scope_contract_id
+                or manifest.task_family_id != pin.task_family_id
+                or manifest.task_adapter_id != pin.task_adapter_id
+                or manifest.task_adapter_manifest_id != pin.task_adapter_manifest_id
+                or adapter.verification_receipt.verification_receipt_id
+                != pin.verification_receipt_id
+            ):
+                raise ExpertValidationError(
+                    "historical source replay adapter differs from its exact pin"
+                )
+            dependency_ids.update(adapter.dependency_ids)
+        return tuple(sorted(dependency_ids))
+
     @staticmethod
     def _validation_track(
         stored: StoredExpertCandidate,
@@ -277,11 +321,17 @@ class ExpertCandidateEligibilityEvaluator:
         tuple[str, ...],
         tuple[str, ...],
     ]:
+        if not task_adapters or any(
+            not isinstance(adapter, VerifiedTaskAdapter) for adapter in task_adapters
+        ):
+            raise ExpertValidationError(
+                "task adapter provider returned an unverified package"
+            )
         ordering = tuple(
             (adapter.manifest.task_family_id, adapter.manifest.task_adapter_id)
             for adapter in task_adapters
         )
-        if not task_adapters or len(ordering) != len(set(ordering)):
+        if len(ordering) != len(set(ordering)):
             raise ExpertValidationError("task adapters must be non-empty and unique")
         manifest = stored.closure.manifest
         expected_bindings = {
@@ -303,12 +353,9 @@ class ExpertCandidateEligibilityEvaluator:
                 raise ExpertValidationError(
                     "task adapter does not match candidate scope and trigger"
                 )
-            binding_id = content_id(
-                "task-adapter-binding",
-                {
-                    "task_family_id": adapter.task_family_id,
-                    "task_adapter_id": adapter.task_adapter_id,
-                },
+            binding_id = task_adapter_binding_id(
+                adapter.task_family_id,
+                adapter.task_adapter_id,
             )
             pins.append(
                 TaskAdapterPackagePin(
@@ -607,6 +654,96 @@ class ExpertValidationReducer:
             reason="validation_attempt_started",
         )
         return ExpertValidationStart(attempt=attempt, state=state)
+
+    def invalidate_parent_authority(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+    ) -> ExpertValidationAuthorityInvalidationResult:
+        if (
+            state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+            or attempt.parent_release_id is None
+        ):
+            raise ExpertValidationError(
+                "only an active parent-bound attempt may be invalidated"
+            )
+        policy = self.settings.policy.validation_policy()
+        if (
+            attempt.validation_policy_id != policy.validation_policy_id
+            or attempt.configuration_fingerprint
+            != self.settings.configuration_fingerprint
+        ):
+            raise ExpertValidationError(
+                "active attempt differs from reducer configuration"
+            )
+        stored = self.candidate_store.read(attempt.candidate_id)
+        manifest = stored.closure.manifest
+        packet = stored.closure.trigger_packet
+        if (
+            manifest.candidate_id != attempt.candidate_id
+            or manifest.candidate_tree_hash != attempt.candidate_tree_hash
+            or stored.commit_record.commit_record_id
+            != attempt.candidate_commit_record_id
+            or manifest.scope_contract_id != attempt.scope_contract_id
+            or manifest.parent_release_id != attempt.parent_release_id
+            or packet.scope_contract.scope_contract_id != attempt.scope_contract_id
+        ):
+            raise ExpertValidationError(
+                "active attempt differs from its immutable candidate closure"
+            )
+        observed_parent_release_id = self.current_release_provider.current_release_id(
+            packet.scope_contract.scope_id
+        )
+        if observed_parent_release_id is not None:
+            require_content_id(
+                observed_parent_release_id,
+                "observed_parent_release_id",
+            )
+        if observed_parent_release_id == attempt.parent_release_id:
+            raise ExpertValidationError(
+                "parent authority has not changed for the active attempt"
+            )
+        dependencies = {
+            attempt.validation_attempt_id,
+            state.validation_state_id,
+            attempt.candidate_id,
+            attempt.scope_contract_id,
+            attempt.parent_release_id,
+        }
+        if observed_parent_release_id is not None:
+            dependencies.add(observed_parent_release_id)
+        invalidation = ExpertValidationAuthorityInvalidation.mint(
+            kind=(ExpertValidationAuthorityInvalidationKind.PARENT_RELEASE_CHANGED),
+            validation_attempt_id=attempt.validation_attempt_id,
+            authorization_state_id=state.validation_state_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            scope_contract_id=attempt.scope_contract_id,
+            expected_parent_release_id=attempt.parent_release_id,
+            observed_parent_release_id=observed_parent_release_id,
+            exact_dependency_ids=tuple(sorted(dependencies)),
+        )
+        target_state = ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.FAILED,
+            accepted_evaluator_evidence=state.accepted_evaluator_evidence,
+            next_stage=None,
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=(invalidation.authority_invalidation_id,),
+            transition_evidence_id=invalidation.authority_invalidation_id,
+            reason="validation_parent_release_changed",
+        )
+        return ExpertValidationAuthorityInvalidationResult(
+            invalidation=invalidation,
+            state=target_state,
+        )
 
     def advance(
         self,

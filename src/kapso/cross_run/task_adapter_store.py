@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import fcntl
+import io
 import os
 import shutil
 import stat
 import tempfile
+import time
 from contextlib import AbstractContextManager
 from pathlib import Path, PurePosixPath
 from typing import Mapping
@@ -30,6 +32,7 @@ from kapso.cross_run.task_adapters import (
     TaskAdapterPackage,
     TaskAdapterVerificationReceipt,
     VerifiedTaskAdapter,
+    task_adapter_materialization_usage,
 )
 
 _MANIFEST_NAME = "manifest.json"
@@ -150,6 +153,48 @@ class TaskAdapterPackageStore:
     ) -> VerifiedTaskAdapter:
         require_content_id(task_adapter_manifest_id, "task_adapter_manifest_id")
         package = self.read(verification_receipt_id)
+        if package.manifest.task_adapter_manifest_id != task_adapter_manifest_id:
+            raise TaskAdapterStoreError(
+                "task adapter exact pin names another scientific manifest"
+            )
+        return package
+
+    def resolve_exact_bounded(
+        self,
+        *,
+        task_adapter_manifest_id: str,
+        verification_receipt_id: str,
+        maximum_entries: int,
+        maximum_bytes: int,
+        timeout_seconds: int,
+    ) -> VerifiedTaskAdapter:
+        require_content_id(task_adapter_manifest_id, "task_adapter_manifest_id")
+        require_content_id(verification_receipt_id, "verification_receipt_id")
+        if (
+            type(maximum_entries) is not int
+            or maximum_entries <= 0
+            or type(maximum_bytes) is not int
+            or maximum_bytes <= 0
+            or type(timeout_seconds) is not int
+            or timeout_seconds <= 0
+        ):
+            raise TaskAdapterStoreError(
+                "bounded task adapter limits must be positive integers"
+            )
+        deadline = time.monotonic() + timeout_seconds
+        with self._lease():
+            self._require_materialization_deadline(deadline)
+            self._prepare_locked()
+            self._require_materialization_deadline(deadline)
+            package_path = self._package_path(verification_receipt_id)
+            self._validate_materialization_bounds(
+                package_path,
+                maximum_entries,
+                maximum_bytes,
+                deadline,
+            )
+            package = self._read_package(package_path, deadline=deadline)
+            self._require_materialization_deadline(deadline)
         if package.manifest.task_adapter_manifest_id != task_adapter_manifest_id:
             raise TaskAdapterStoreError(
                 "task adapter exact pin names another scientific manifest"
@@ -409,7 +454,13 @@ class TaskAdapterPackageStore:
             publisher_verification=package.publisher_verification,
         )
 
-    def _read_package(self, package_path: Path) -> VerifiedTaskAdapter:
+    def _read_package(
+        self,
+        package_path: Path,
+        *,
+        deadline: float | None = None,
+    ) -> VerifiedTaskAdapter:
+        self._require_materialization_deadline(deadline)
         if package_path.is_symlink() or not package_path.is_dir():
             raise TaskAdapterStoreError("task adapter package is missing or unsafe")
         self._validate_committed_permissions(package_path)
@@ -426,12 +477,18 @@ class TaskAdapterPackageStore:
                 "source",
             },
         )
-        manifest = self._read_manifest(package_path / _MANIFEST_NAME)
+        manifest = self._read_manifest(
+            package_path / _MANIFEST_NAME,
+            deadline=deadline,
+        )
         receipt = TaskAdapterVerificationReceipt.from_json_bytes(
-            self._read_bounded(package_path / _COMMIT_NAME)
+            self._read_bounded(package_path / _COMMIT_NAME, deadline=deadline)
         )
         extraction_receipt = SourceArchiveExtractionReceipt.from_json_bytes(
-            self._read_bounded(package_path / _EXTRACTION_RECEIPT_NAME)
+            self._read_bounded(
+                package_path / _EXTRACTION_RECEIPT_NAME,
+                deadline=deadline,
+            )
         )
         if self._package_path(receipt.verification_receipt_id) != package_path:
             raise TaskAdapterStoreError(
@@ -446,6 +503,7 @@ class TaskAdapterPackageStore:
         source_archive = self._read_bounded(
             archive_directory / manifest.source_tree_ref,
             byte_limit=self.settings.package_byte_limit,
+            deadline=deadline,
         )
         proof_directory = package_path / "proofs"
         expected_proof_names = {
@@ -453,14 +511,20 @@ class TaskAdapterPackageStore:
         }
         self._require_exact_children(proof_directory, expected_proof_names)
         proof_objects = {
-            proof_ref: self._read_bounded(proof_directory / f"{digest[7:]}.bin")
+            proof_ref: self._read_bounded(
+                proof_directory / f"{digest[7:]}.bin",
+                deadline=deadline,
+            )
             for proof_ref, digest in receipt.proof_object_digests.items()
         }
         publisher_verification = self._read_bounded(
-            package_path / _PUBLISHER_VERIFICATION_NAME
+            package_path / _PUBLISHER_VERIFICATION_NAME,
+            deadline=deadline,
         )
         source_directory = package_path / "source"
+        self._require_materialization_deadline(deadline)
         observed_source_files = self.extractor.source_tree_files(source_directory)
+        self._require_materialization_deadline(deadline)
         if observed_source_files != extraction_receipt.source_tree_files:
             raise TaskAdapterStoreError(
                 "stored task adapter source differs from extraction receipt"
@@ -473,6 +537,7 @@ class TaskAdapterPackageStore:
             validation_source.mkdir()
             validation_archive = Path(validation_name) / manifest.source_tree_ref
             validation_archive.write_bytes(source_archive)
+            self._require_materialization_deadline(deadline)
             self.extractor.extract(
                 archive=validation_archive,
                 destination=validation_source,
@@ -480,6 +545,7 @@ class TaskAdapterPackageStore:
                 maximum_bytes=self.settings.source_byte_limit,
                 maximum_entries=self.settings.package_entry_limit,
             )
+            self._require_materialization_deadline(deadline)
             if (
                 self.extractor.source_tree_files(validation_source)
                 != extraction_receipt.source_tree_files
@@ -487,12 +553,14 @@ class TaskAdapterPackageStore:
                 raise TaskAdapterStoreError(
                     "task adapter archive no longer reproduces its source tree"
                 )
+        self._require_materialization_deadline(deadline)
         package_authority.verify_package(
             manifest=manifest,
             source_extraction_receipt=extraction_receipt,
             proof_objects=proof_objects,
             publisher_verification=publisher_verification,
         )
+        self._require_materialization_deadline(deadline)
         return self._verified_from_parts(
             manifest=manifest,
             receipt=receipt,
@@ -501,6 +569,7 @@ class TaskAdapterPackageStore:
             source_directory=source_directory,
             proof_objects=proof_objects,
             publisher_verification=publisher_verification,
+            deadline=deadline,
         )
 
     def _verified_from_parts(
@@ -513,14 +582,17 @@ class TaskAdapterPackageStore:
         source_directory: Path,
         proof_objects: Mapping[str, bytes],
         publisher_verification: bytes,
+        deadline: float | None = None,
     ) -> VerifiedTaskAdapter:
         source_contents = {
             descriptor.relative_path: self._read_bounded(
                 source_directory / descriptor.relative_path,
                 byte_limit=self.settings.source_byte_limit,
+                deadline=deadline,
             )
             for descriptor in extraction_receipt.source_tree_files
         }
+        self._require_materialization_deadline(deadline)
         return VerifiedTaskAdapter(
             manifest=manifest,
             verification_receipt=receipt,
@@ -609,8 +681,15 @@ class TaskAdapterPackageStore:
         os.replace(temporary_path, pointer_path)
         self._fsync_directory(pointer_path.parent)
 
-    def _read_manifest(self, path: Path) -> TaskAdapterManifest:
-        return TaskAdapterManifest.from_json_bytes(self._read_bounded(path))
+    def _read_manifest(
+        self,
+        path: Path,
+        *,
+        deadline: float | None = None,
+    ) -> TaskAdapterManifest:
+        return TaskAdapterManifest.from_json_bytes(
+            self._read_bounded(path, deadline=deadline)
+        )
 
     def _validate_package_bounds(self, package: TaskAdapterPackage) -> None:
         entry_count = 2 + len(package.proof_objects)
@@ -647,7 +726,81 @@ class TaskAdapterPackageStore:
         if source_bytes > self.settings.source_byte_limit:
             raise TaskAdapterStoreError("task adapter source byte limit exceeded")
 
-    def _read_bounded(self, path: Path, *, byte_limit: int | None = None) -> bytes:
+    @staticmethod
+    def _validate_materialization_bounds(
+        package_path: Path,
+        maximum_entries: int,
+        maximum_bytes: int,
+        deadline: float,
+    ) -> None:
+        if package_path.is_symlink() or not package_path.is_dir():
+            raise TaskAdapterStoreError("task adapter package is missing or unsafe")
+        paths = tuple(package_path.rglob("*"))
+        if any(
+            path.is_symlink() or (not path.is_file() and not path.is_dir())
+            for path in paths
+        ):
+            raise TaskAdapterStoreError("task adapter package entry is unsafe")
+        control_paths = {
+            package_path / _MANIFEST_NAME,
+            package_path / _EXTRACTION_RECEIPT_NAME,
+            package_path / _COMMIT_NAME,
+        }
+        source_root = package_path / "source"
+        archive_root = package_path / "archive"
+        proof_root = package_path / "proofs"
+        publisher_path = package_path / _PUBLISHER_VERIFICATION_NAME
+        source_file_sizes = []
+        source_archive_sizes = []
+        proof_object_sizes = []
+        publisher_verification_sizes = []
+        for path in (item for item in paths if item.is_file()):
+            TaskAdapterPackageStore._require_materialization_deadline(deadline)
+            if path in control_paths:
+                continue
+            size = path.stat(follow_symlinks=False).st_size
+            if source_root in path.parents:
+                source_file_sizes.append(size)
+            elif archive_root in path.parents:
+                source_archive_sizes.append(size)
+            elif proof_root in path.parents:
+                proof_object_sizes.append(size)
+            elif path == publisher_path:
+                publisher_verification_sizes.append(size)
+            else:
+                raise TaskAdapterStoreError(
+                    "task adapter materialization closure is not exact"
+                )
+        if len(source_archive_sizes) != 1 or len(publisher_verification_sizes) != 1:
+            raise TaskAdapterStoreError(
+                "task adapter materialization closure is not exact"
+            )
+        entries, materialized_bytes = task_adapter_materialization_usage(
+            source_file_sizes=tuple(source_file_sizes),
+            source_archive_sizes=tuple(source_archive_sizes),
+            proof_object_sizes=tuple(proof_object_sizes),
+            publisher_verification_sizes=tuple(publisher_verification_sizes),
+        )
+        if entries > maximum_entries or materialized_bytes > maximum_bytes:
+            raise TaskAdapterStoreError(
+                "task adapter package exceeds remaining replay materialization budget"
+            )
+
+    @staticmethod
+    def _require_materialization_deadline(deadline: float | None) -> None:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TaskAdapterStoreError(
+                "task adapter replay materialization deadline expired"
+            )
+
+    def _read_bounded(
+        self,
+        path: Path,
+        *,
+        byte_limit: int | None = None,
+        deadline: float | None = None,
+    ) -> bytes:
+        self._require_materialization_deadline(deadline)
         limit = self.settings.package_byte_limit if byte_limit is None else byte_limit
         if path.is_symlink() or not path.is_file():
             raise TaskAdapterStoreError("task adapter package file is unsafe")
@@ -656,8 +809,18 @@ class TaskAdapterPackageStore:
             raise TaskAdapterStoreError(
                 "task adapter package file must be an independent regular file"
             )
+        payload_parts = []
+        remaining = limit + 1
         with path.open("rb") as file_handle:
-            payload = file_handle.read(limit + 1)
+            while remaining > 0:
+                self._require_materialization_deadline(deadline)
+                payload_part = file_handle.read(min(remaining, io.DEFAULT_BUFFER_SIZE))
+                if not payload_part:
+                    break
+                payload_parts.append(payload_part)
+                remaining -= len(payload_part)
+        self._require_materialization_deadline(deadline)
+        payload = b"".join(payload_parts)
         if len(payload) > limit:
             raise TaskAdapterStoreError("task adapter package file exceeds bound")
         return payload

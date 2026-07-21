@@ -23,6 +23,7 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorRun,
     ExpertPromotionState,
     ExpertSealedCanaryAggregate,
+    ExpertSourceReplayAdapterPackagePin,
     ExpertSourceReplayCase,
     ExpertSourceReplaySelection,
     ExpertValidationAttempt,
@@ -287,6 +288,25 @@ def _eligibility_decision(
         {"label": "trigger-decision"},
     )
     snapshot_id = content_id("knowledge-snapshot", {"label": "snapshot"})
+    source_adapter_manifest_id = content_id(
+        "task-adapter-manifest",
+        {"label": "source-adapter"},
+    )
+    source_adapter_receipt_id = content_id(
+        "task-adapter-verification-receipt",
+        {"label": "source-adapter-verification"},
+    )
+    source_adapter_pin = ExpertSourceReplayAdapterPackagePin.mint(
+        scope_contract_id=content_id(
+            "expert-scope-contract",
+            {"label": "source-scope"},
+        ),
+        task_family_id="family",
+        task_adapter_id="adapter",
+        task_adapter_manifest_id=source_adapter_manifest_id,
+        verification_receipt_id=source_adapter_receipt_id,
+        episode_ids=(episode_id,),
+    )
     selection_dependencies = tuple(
         sorted(
             {
@@ -298,6 +318,9 @@ def _eligibility_decision(
                 policy.validation_policy_id,
                 episode_id,
                 bundle_id,
+                source_adapter_pin.source_adapter_pin_id,
+                source_adapter_manifest_id,
+                source_adapter_receipt_id,
             }
         )
     )
@@ -323,6 +346,7 @@ def _eligibility_decision(
                 episode_reason_codes={episode_id: ("causal_trigger_evidence",)},
             ),
         ),
+        source_adapter_pins=(source_adapter_pin,),
         exact_dependency_ids=selection_dependencies,
     )
     return ExpertCandidateEligibilityDecision.mint(
@@ -785,6 +809,11 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
     verified_first = _verified_adapter(first_adapter)
     verified_second = _verified_adapter(second_adapter)
 
+    with pytest.raises(ExpertValidationError, match="unverified package"):
+        ExpertCandidateEligibilityEvaluator._adapter_bindings(
+            expanded_stored,
+            (SimpleNamespace(manifest=first_adapter),),
+        )
     with pytest.raises(ExpertValidationError, match="trigger bindings"):
         ExpertCandidateEligibilityEvaluator._adapter_bindings(
             expanded_stored,

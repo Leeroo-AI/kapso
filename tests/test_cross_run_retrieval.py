@@ -6,11 +6,16 @@ import pytest
 
 from kapso.core.config import load_config
 from kapso.core.embeddings import EmbeddingRecord, complete_input_hash
-from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
-from kapso.cross_run.record_contracts import BundleProjectionManifest
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    content_id,
+    tree_or_blob_digest,
+)
+from kapso.cross_run.record_contracts import BundleProjectionManifest, SanitationReport
 from kapso.cross_run.catalog.store import CatalogGenerationManifest, CatalogInputDelta
 from kapso.cross_run.contracts import (
     AdmissionState,
+    ArtifactEnvironment,
     CatalogEntryState,
     ComparisonStatus,
     ContractValidationError,
@@ -173,7 +178,10 @@ def episode_with_context(
         source_bundle_id=episode.source_bundle_id,
         supersedes_projection_id=None,
         task_context_binding=context,
-        artifact_environment=episode.artifact_environment,
+        artifact_environment=environment_for_context(
+            episode.artifact_environment,
+            context,
+        ),
         proposal=f"Evaluate the {name} compatibility intervention.",
         parent_episode_ref=None,
         attempts=episode.attempts,
@@ -212,6 +220,7 @@ def episode_with_attempt(
     task_context: TaskContextBinding | None = None,
     proposal: str | None = None,
 ) -> TransferEpisode:
+    selected_context = task_context or episode.task_context_binding
     return TransferEpisode.mint(
         source={
             **episode.source,
@@ -220,8 +229,11 @@ def episode_with_attempt(
         },
         source_bundle_id=episode.source_bundle_id,
         supersedes_projection_id=None,
-        task_context_binding=task_context or episode.task_context_binding,
-        artifact_environment=episode.artifact_environment,
+        task_context_binding=selected_context,
+        artifact_environment=environment_for_context(
+            episode.artifact_environment,
+            selected_context,
+        ),
         proposal=proposal or f"Evaluate the {name} outcome intervention.",
         parent_episode_ref=None,
         attempts=(attempt,),
@@ -230,6 +242,26 @@ def episode_with_attempt(
         sanitation_report_id=episode.sanitation_report_id,
         derivation_refs=episode.derivation_refs,
     )
+
+
+def environment_for_context(
+    environment: ArtifactEnvironment,
+    context: TaskContextBinding,
+) -> ArtifactEnvironment:
+    if set(environment.starting_artifact_content_ids) == set(
+        context.starting_artifact_refs
+    ):
+        return environment
+    values = environment.to_dict()
+    values.pop("artifact_environment_id")
+    values["starting_artifact_content_ids"] = {
+        reference: content_id(
+            "source-replay-starting-artifact",
+            {"reference": reference},
+        )
+        for reference in context.starting_artifact_refs
+    }
+    return ArtifactEnvironment.mint(**values)
 
 
 def outcome_episodes(episode: TransferEpisode) -> tuple[TransferEpisode, ...]:
@@ -317,8 +349,18 @@ def snapshot_and_index(
     settings: RetrievalSettings | None = None,
     extra_facts: tuple[StrictContract, ...] = (),
     projection_derivation_ids: tuple[str, ...] = (),
+    source_bundle: RunBundle | None = None,
+    source_sanitation_report: SanitationReport | None = None,
 ):
-    scope, _, _, _, _, bundle, report = source_fixture()
+    scope, _, _, _, _, fixture_bundle, fixture_report = source_fixture()
+    if (source_bundle is None) != (source_sanitation_report is None):
+        raise ValueError(
+            "source bundle and sanitation report must be supplied together"
+        )
+    bundle = fixture_bundle if source_bundle is None else source_bundle
+    report = (
+        fixture_report if source_sanitation_report is None else source_sanitation_report
+    )
     configuration_fingerprint = digest("retrieval-catalog-config")
     states = tuple(
         CatalogEntryState.mint(

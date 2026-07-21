@@ -10,11 +10,19 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.core.config import load_config
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    content_id,
+    source_tree_digest,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
+    ExpertCandidateManifest,
     ExpertModuleContract,
+    ExpertSourceTreeManifest,
     KnowledgeClaim,
     MissingReferenceError,
+    SourceFileDescriptor,
+    TaskAdapterManifest,
 )
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.store import (
@@ -33,6 +41,7 @@ from test_cross_run_retrieval import (
     outcome_episodes,
     source_fixture,
 )
+from test_cross_run_contracts import build_records, verified_test_task_adapter
 from test_expert_triggers import (
     clone_episode,
     configuration_fingerprint,
@@ -79,13 +88,28 @@ def _derive(
 
 
 def _stored_candidate(candidate_id, packet, decision, candidate_modules):
-    commit_record = ExpertCandidateCommitRecord.mint(
-        candidate_id=candidate_id,
-        file_checksums={"candidate.json": tree_or_blob_digest(b"candidate")},
+    candidate_content = b"verified candidate source"
+    candidate_file = SourceFileDescriptor(
+        relative_path="src/expert.py",
+        digest=tree_or_blob_digest(candidate_content),
+        mode="100644",
+        size=len(candidate_content),
     )
-    manifest = SimpleNamespace(
-        candidate_id=candidate_id,
-        candidate_tree_hash=tree_or_blob_digest(b"candidate-tree"),
+    candidate_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=source_tree_digest(
+            {
+                candidate_file.relative_path: (
+                    candidate_file.digest,
+                    candidate_file.mode,
+                    candidate_file.size,
+                )
+            }
+        ),
+        files=(candidate_file,),
+    )
+    manifest = ExpertCandidateManifest.mint(
+        candidate_tree_hash=candidate_tree.tree_hash,
+        candidate_tree_ref=candidate_tree.source_tree_manifest_id,
         configuration_fingerprint=packet.configuration_fingerprint,
         trigger_evidence_packet_id=packet.evidence_packet_id,
         trigger_decision_id=decision.trigger_decision_id,
@@ -94,11 +118,30 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
         ),
         scope_contract_id=packet.scope_contract.scope_contract_id,
         parent_release_id=packet.parent_release_id,
+        parent_repository_map_ref=packet.repository_map.repository_map_id,
+        parent_tree_hash=packet.parent_tree_hash,
         change_kind=decision.change_kind,
+        patch_ref=content_id("expert-candidate-patch", {"seed": candidate_id}),
+        patch_digest=tree_or_blob_digest(f"patch:{candidate_id}".encode()),
+        proposed_repository_map_ref=packet.repository_map.repository_map_id,
+        semantic_book_digest=tree_or_blob_digest(b"candidate-semantic-book"),
+        proposer_operation_record_id=content_id(
+            "expert-candidate-operation",
+            {"seed": candidate_id},
+        ),
+        source_dependency_ids=tuple(
+            sorted((packet.evidence_packet_id, decision.trigger_decision_id))
+        ),
+        ancestor_candidate_ids=(),
+        capability_lineage=(),
         sanitation_report_id=content_id(
             "expert-candidate-sanitation",
-            {"candidate_id": candidate_id},
+            {"seed": candidate_id},
         ),
+    )
+    commit_record = ExpertCandidateCommitRecord.mint(
+        candidate_id=manifest.candidate_id,
+        file_checksums={"candidate.json": tree_or_blob_digest(b"candidate")},
     )
     return StoredExpertCandidate(
         root=Path("/test-candidate"),
@@ -107,6 +150,13 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
             trigger_packet=packet,
             trigger_decision=decision,
             module_contracts=candidate_modules,
+            candidate_tree=candidate_tree,
+            candidate_contents={candidate_file.relative_path: candidate_content},
+            parent_files=(
+                ()
+                if packet.parent_tree_receipt is None
+                else packet.parent_tree_receipt.source_extraction_receipt.source_tree_files
+            ),
         ),
         commit_record=commit_record,
     )
@@ -122,41 +172,101 @@ class _CandidateReader:
 
 
 class _AdapterProvider:
-    def __init__(self, packet):
+    def __init__(self, packet, *, rotate_active=False):
         binding = packet.active_task_bindings[0]
-        manifest = SimpleNamespace(
-            scope_contract_id=packet.scope_contract.scope_contract_id,
-            task_family_id=binding.task_family_id,
-            task_adapter_id=binding.task_adapter_id,
-            task_adapter_manifest_id=content_id(
-                "task-adapter-manifest",
-                {"adapter": binding.task_adapter_id},
-            ),
+        source_manifest_ids = {
+            episode.artifact_environment.task_adapter_manifest_id
+            for episode in packet.episodes
+        }
+        source_receipt_ids = {
+            episode.artifact_environment.task_adapter_verification_receipt_id
+            for episode in packet.episodes
+        }
+        assert len(source_manifest_ids) <= 1
+        assert len(source_receipt_ids) <= 1
+        source_manifest = next(
+            record
+            for record in build_records()
+            if isinstance(record, TaskAdapterManifest)
+            and record.scope_contract_id == packet.scope_contract.scope_contract_id
+            and record.task_family_id == binding.task_family_id
+            and record.task_adapter_id == binding.task_adapter_id
         )
-        receipt = SimpleNamespace(
-            verification_receipt_id=content_id(
-                "task-adapter-verification",
-                {"adapter": binding.task_adapter_id},
-            )
-        )
-        self.adapter = SimpleNamespace(
-            manifest=manifest,
-            verification_receipt=receipt,
-            dependency_ids=tuple(
+        source_adapter = verified_test_task_adapter(source_manifest)
+        assert not source_manifest_ids or source_manifest_ids == {
+            source_adapter.manifest.task_adapter_manifest_id
+        }
+        assert not source_receipt_ids or source_receipt_ids == {
+            source_adapter.verification_receipt.verification_receipt_id
+        }
+        self.exact_adapters = {
+            (
+                source_adapter.manifest.task_adapter_manifest_id,
+                source_adapter.verification_receipt.verification_receipt_id,
+            ): source_adapter
+        }
+        if rotate_active:
+            active_values = source_manifest.to_dict()
+            active_values.pop("task_adapter_manifest_id")
+            active_values["validation_refs"] = tuple(
                 sorted(
-                    (
-                        manifest.task_adapter_manifest_id,
-                        receipt.verification_receipt_id,
-                    )
+                    {
+                        *source_manifest.validation_refs,
+                        "validation.rotated_adapter",
+                    }
                 )
-            ),
-        )
+            )
+            self.adapter = verified_test_task_adapter(
+                TaskAdapterManifest.mint(**active_values)
+            )
+            self.exact_adapters[
+                (
+                    self.adapter.manifest.task_adapter_manifest_id,
+                    self.adapter.verification_receipt.verification_receipt_id,
+                )
+            ] = self.adapter
+        else:
+            self.adapter = source_adapter
+        self.timeouts_seen = []
 
     def resolve_active(self, **_binding):
         return self.adapter
 
-    def resolve_exact(self, **_pin):
-        return self.adapter
+    def resolve_exact(self, *, task_adapter_manifest_id, verification_receipt_id):
+        return self.exact_adapters[(task_adapter_manifest_id, verification_receipt_id)]
+
+    def resolve_exact_bounded(
+        self,
+        *,
+        task_adapter_manifest_id,
+        verification_receipt_id,
+        maximum_entries,
+        maximum_bytes,
+        timeout_seconds,
+    ):
+        assert timeout_seconds > 0
+        self.timeouts_seen.append(timeout_seconds)
+        adapter = self.resolve_exact(
+            task_adapter_manifest_id=task_adapter_manifest_id,
+            verification_receipt_id=verification_receipt_id,
+        )
+        entry_count = (
+            len(adapter.source_extraction_receipt.source_tree_files)
+            + len(adapter.proof_objects)
+            + 2
+        )
+        byte_count = (
+            sum(
+                descriptor.size
+                for descriptor in adapter.source_extraction_receipt.source_tree_files
+            )
+            + len(adapter.source_archive)
+            + sum(len(payload) for payload in adapter.proof_objects.values())
+            + len(adapter.publisher_verification)
+        )
+        assert entry_count <= maximum_entries
+        assert byte_count <= maximum_bytes
+        return adapter
 
 
 class _CurrentReleaseProvider:

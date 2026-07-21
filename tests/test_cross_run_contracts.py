@@ -50,6 +50,7 @@ from kapso.cross_run.contracts import (
     ExpertProposerAuthority,
     ExpertRepositoryMap,
     ExpertScopeContract,
+    ExpertSourceReplayStartingArtifact,
     ExpertSourceTreeManifest,
     ExpertTaskAdapterBoundary,
     GitHubPublicationRecord,
@@ -88,7 +89,12 @@ from kapso.cross_run.expert.book import (
     expert_module_contract_path,
     expert_semantic_book_digest,
 )
+from kapso.cross_run.github.materializer import SourceArchiveExtractionReceipt
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.task_adapters import (
+    TaskAdapterVerificationReceipt,
+    VerifiedTaskAdapter,
+)
 from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
     coding_agent_artifact_filenames,
@@ -103,6 +109,75 @@ def fixture_id(name):
 
 def digest(name):
     return tree_or_blob_digest(name.encode("utf-8"))
+
+
+def task_adapter_source(task_adapter_id):
+    source_contents = {
+        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8")
+    }
+    source_files = tuple(
+        SourceFileDescriptor(
+            relative_path=path,
+            digest=tree_or_blob_digest(payload),
+            mode="100644",
+            size=len(payload),
+        )
+        for path, payload in sorted(source_contents.items())
+    )
+    tree_hash = source_tree_digest(
+        {
+            item.relative_path: (item.digest, item.mode, item.size)
+            for item in source_files
+        }
+    )
+    return source_contents, source_files, tree_hash
+
+
+def verified_test_task_adapter(adapter):
+    proof_refs = {adapter.sanitation_report_id, *adapter.validation_refs}
+    proof_objects = {
+        proof_ref: f"proof:{proof_ref}".encode("utf-8") for proof_ref in proof_refs
+    }
+    source_contents, source_files, _ = task_adapter_source(adapter.task_adapter_id)
+    source_archive = f"archive:{adapter.task_adapter_id}".encode("utf-8")
+    publisher_verification = f"publisher-verification:{adapter.task_adapter_id}".encode(
+        "utf-8"
+    )
+    extraction_receipt = SourceArchiveExtractionReceipt.mint(
+        artifact_id=adapter.task_adapter_manifest_id,
+        source_archive_ref=adapter.source_tree_ref,
+        source_archive_digest=tree_or_blob_digest(source_archive),
+        source_tree_hash=adapter.tree_hash,
+        source_tree_files=source_files,
+        extractor_version="kapso.source_archive_extractor.v1",
+    )
+    verification_receipt = TaskAdapterVerificationReceipt.mint(
+        task_adapter_manifest_id=adapter.task_adapter_manifest_id,
+        full_manifest_digest=tree_or_blob_digest(adapter.to_json_bytes()),
+        publisher_attestation_digest=tree_or_blob_digest(
+            canonical_json_bytes(adapter.publisher_attestation)
+        ),
+        source_extraction_receipt_id=extraction_receipt.extraction_receipt_id,
+        source_archive_ref=adapter.source_tree_ref,
+        source_archive_digest=tree_or_blob_digest(source_archive),
+        source_tree_hash=adapter.tree_hash,
+        proof_object_digests={
+            proof_ref: tree_or_blob_digest(payload)
+            for proof_ref, payload in proof_objects.items()
+        },
+        publisher_verification_digest=tree_or_blob_digest(publisher_verification),
+        verifier_id="test_task_adapter_verifier",
+        verifier_version="test.task_adapter_verifier.v1",
+    )
+    return VerifiedTaskAdapter(
+        manifest=adapter,
+        verification_receipt=verification_receipt,
+        source_extraction_receipt=extraction_receipt,
+        source_archive=source_archive,
+        source_contents=source_contents,
+        proof_objects=proof_objects,
+        publisher_verification=publisher_verification,
+    )
 
 
 def operation_receipt(name):
@@ -296,12 +371,7 @@ def build_records():
         compatibility_envelope={"python": ">=3.10"},
         publisher_attestation={"issuer": "test-publisher", "signature": "expert"},
     )
-    artifact_environment = ArtifactEnvironment.mint(
-        kapso_commit="0" * 40,
-        expert_base_release_id=expert_release.release_id,
-        task_adapter_hash=digest("adapter"),
-        dependency_lock_hash=digest("lock"),
-    )
+    _, _, task_adapter_tree_hash = task_adapter_source("posttrain")
     task_adapter = TaskAdapterManifest.mint(
         task_adapter_id="posttrain",
         scope_contract_id=scope.scope_contract_id,
@@ -313,10 +383,44 @@ def build_records():
             "runtime_family": "pytorch",
         },
         source_tree_ref="task-adapter.tar.zst",
-        tree_hash=digest("adapter-tree"),
+        tree_hash=task_adapter_tree_hash,
         dependency_runtime_contract={"python": ">=3.10"},
         sanitation_report_id=fixture_id("adapter-sanitation"),
         validation_refs=("validation/adapter-smoke",),
+    )
+    verified_adapter = verified_test_task_adapter(task_adapter)
+    starting_artifact_payload = b"starting artifact:artifact/base"
+    starting_artifact_file = SourceFileDescriptor(
+        relative_path="artifact.bin",
+        digest=tree_or_blob_digest(starting_artifact_payload),
+        mode="100644",
+        size=len(starting_artifact_payload),
+    )
+    starting_artifact = ExpertSourceReplayStartingArtifact.mint(
+        starting_artifact_ref="artifact/base",
+        mount_path="inputs/base",
+        materialized_tree_hash=source_tree_digest(
+            {
+                starting_artifact_file.relative_path: (
+                    starting_artifact_file.digest,
+                    starting_artifact_file.mode,
+                    starting_artifact_file.size,
+                )
+            }
+        ),
+        source_files=(starting_artifact_file,),
+    )
+    artifact_environment = ArtifactEnvironment.mint(
+        kapso_commit="0" * 40,
+        expert_base_release_id=expert_release.release_id,
+        task_adapter_manifest_id=task_adapter.task_adapter_manifest_id,
+        task_adapter_verification_receipt_id=(
+            verified_adapter.verification_receipt.verification_receipt_id
+        ),
+        starting_artifact_content_ids={
+            "artifact/base": starting_artifact.starting_artifact_content_id
+        },
+        dependency_lock_hash=digest("lock"),
     )
     initial_snapshot_id = fixture_id("empty-snapshot")
     launch = LaunchManifest.mint(

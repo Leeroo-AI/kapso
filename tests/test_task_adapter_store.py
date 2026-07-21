@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import zstandard
 
+import kapso.cross_run.task_adapter_store as task_adapter_storage
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
@@ -28,7 +29,10 @@ from kapso.cross_run.task_adapter_store import (
     TaskAdapterPackageStore,
     TaskAdapterStoreError,
 )
-from kapso.cross_run.task_adapters import TaskAdapterPackage
+from kapso.cross_run.task_adapters import (
+    TaskAdapterPackage,
+    task_adapter_materialization_usage,
+)
 from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
 from test_expert_validation import _CurrentReleaseProvider
@@ -299,6 +303,83 @@ def test_real_archive_round_trip_and_identical_publication_replay(tmp_path):
     assert exact == published
     assert exact.source_contents == {"adapter.py": source}
     assert len(tuple((store.state_path / "packages").iterdir())) == 1
+
+
+def test_exact_replay_rejects_an_exhausted_materialization_budget_before_read(
+    tmp_path,
+    monkeypatch,
+):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    manifest = _manifest(source)
+    store = _store(tmp_path)
+    published = store.publish(_package(tmp_path, manifest))
+
+    def unexpected_read(_package_path):
+        raise AssertionError("bounded resolution read an over-budget package")
+
+    monkeypatch.setattr(store, "_read_package", unexpected_read)
+    with pytest.raises(TaskAdapterStoreError, match="remaining replay"):
+        store.resolve_exact_bounded(
+            task_adapter_manifest_id=manifest.task_adapter_manifest_id,
+            verification_receipt_id=(
+                published.verification_receipt.verification_receipt_id
+            ),
+            maximum_entries=1,
+            maximum_bytes=1,
+            timeout_seconds=1,
+        )
+
+
+def test_exact_replay_accepts_the_canonical_materialization_usage_bound(tmp_path):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    manifest = _manifest(source)
+    store = _store(tmp_path)
+    published = store.publish(_package(tmp_path, manifest))
+    entry_count, byte_count = task_adapter_materialization_usage(
+        source_file_sizes=tuple(
+            descriptor.size
+            for descriptor in published.source_extraction_receipt.source_tree_files
+        ),
+        source_archive_sizes=(len(published.source_archive),),
+        proof_object_sizes=tuple(
+            len(payload) for payload in published.proof_objects.values()
+        ),
+        publisher_verification_sizes=(len(published.publisher_verification),),
+    )
+
+    resolved = store.resolve_exact_bounded(
+        task_adapter_manifest_id=manifest.task_adapter_manifest_id,
+        verification_receipt_id=(
+            published.verification_receipt.verification_receipt_id
+        ),
+        maximum_entries=entry_count,
+        maximum_bytes=byte_count,
+        timeout_seconds=1,
+    )
+
+    assert resolved == published
+
+
+def test_bounded_package_reads_enforce_the_materialization_deadline(
+    tmp_path,
+    monkeypatch,
+):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    manifest = _manifest(source)
+    store = _store(tmp_path)
+    published = store.publish(_package(tmp_path, manifest))
+    manifest_path = (
+        store._package_path(published.verification_receipt.verification_receipt_id)
+        / "manifest.json"
+    )
+    clock = iter((0.0, 2.0))
+    monkeypatch.setattr(task_adapter_storage.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(TaskAdapterStoreError, match="deadline expired"):
+        store._read_bounded(
+            manifest_path,
+            deadline=1.0,
+        )
 
 
 def test_executable_source_mode_survives_immutable_publication(tmp_path):

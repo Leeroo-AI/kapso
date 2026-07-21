@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import fcntl
+import math
 import os
 import re
 import stat
+import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -400,7 +402,13 @@ class RunBundleStore:
                 bundles=_descriptor_identity(bundles_descriptor),
             )
 
-    def read_exact(self, bundle_id: str) -> StoredRunBundle | None:
+    def read_manifest_exact(
+        self,
+        bundle_id: str,
+        *,
+        deadline: float | None = None,
+    ) -> RunBundle | None:
+        self._validate_deadline(deadline)
         with ExitStack() as descriptors:
             root_descriptor = _open_absolute_directory(
                 self.root,
@@ -408,49 +416,88 @@ class RunBundleStore:
                 required_mode=_STORE_DIRECTORY_MODE,
             )
             _require_descriptor_identity(root_descriptor, self.identity.root)
-            bundles_descriptor = _open_child_directory(
+            manifest = self._read_manifest_at(
                 root_descriptor,
-                "bundles",
                 descriptors,
-                mode=_STORE_DIRECTORY_MODE,
-                create=False,
+                bundle_id,
+                deadline,
             )
-            _require_descriptor_identity(
-                bundles_descriptor,
-                self.identity.bundles,
+        self._require_deadline(deadline)
+        return manifest
+
+    def read_exact(self, bundle_id: str) -> StoredRunBundle | None:
+        return self._read_exact(
+            bundle_id,
+            maximum_entries=self.settings.bundle_entry_limit,
+            maximum_bytes=self.settings.bundle_asset_size_bytes,
+            deadline=None,
+            replay_bounded=False,
+        )
+
+    def read_exact_bounded(
+        self,
+        bundle_id: str,
+        *,
+        maximum_entries: int,
+        maximum_bytes: int,
+        deadline: float,
+    ) -> StoredRunBundle | None:
+        if (
+            type(maximum_entries) is not int
+            or maximum_entries <= 0
+            or type(maximum_bytes) is not int
+            or maximum_bytes <= 0
+        ):
+            raise RunBundlePublicationError(
+                "bounded bundle limits must be positive integers"
             )
-            bundle_key = _bundle_key(bundle_id)
-            if not os.access(
-                bundle_key,
-                os.F_OK,
-                dir_fd=bundles_descriptor,
-                follow_symlinks=False,
-            ):
+        self._validate_deadline(deadline)
+        return self._read_exact(
+            bundle_id,
+            maximum_entries=min(
+                maximum_entries,
+                self.settings.bundle_entry_limit,
+            ),
+            maximum_bytes=min(
+                maximum_bytes,
+                self.settings.bundle_asset_size_bytes,
+            ),
+            deadline=deadline,
+            replay_bounded=True,
+        )
+
+    def _read_exact(
+        self,
+        bundle_id: str,
+        *,
+        maximum_entries: int,
+        maximum_bytes: int,
+        deadline: float | None,
+        replay_bounded: bool,
+    ) -> StoredRunBundle | None:
+        self._require_deadline(deadline)
+        with ExitStack() as descriptors:
+            root_descriptor = _open_absolute_directory(
+                self.root,
+                descriptors,
+                required_mode=_STORE_DIRECTORY_MODE,
+            )
+            _require_descriptor_identity(root_descriptor, self.identity.root)
+            manifest = self._read_manifest_at(
+                root_descriptor,
+                descriptors,
+                bundle_id,
+                deadline,
+            )
+            if manifest is None:
                 return None
-            bundle_descriptor = _open_child_directory(
-                bundles_descriptor,
-                bundle_key,
-                descriptors,
-                mode=_IMMUTABLE_DIRECTORY_MODE,
-                create=False,
-            )
-            if _directory_names(bundle_descriptor, 2, "bundle control closure") != (
-                BUNDLE_MANIFEST_FILENAME,
-            ):
-                raise RunBundlePublicationError("bundle control closure is not exact")
-            manifest_payload = _read_regular_file_at(
-                bundle_descriptor,
-                BUNDLE_MANIFEST_FILENAME,
-                maximum_bytes=self.sanitation_settings.max_file_bytes,
-                required_mode=_IMMUTABLE_FILE_MODE,
-            )
-            manifest = RunBundle.from_json_bytes(manifest_payload)
-            if manifest.to_json_bytes() != manifest_payload:
-                raise RunBundlePublicationError("bundle manifest is not canonical")
-            if manifest.bundle_id != bundle_id:
-                raise RunBundlePublicationError("bundle directory identity changed")
-            if len(manifest.checksums) > self.settings.bundle_entry_limit:
-                raise RunBundlePublicationError("bundle artifact entry limit exceeded")
+            if len(manifest.checksums) > maximum_entries:
+                message = (
+                    "bundle exceeds remaining replay materialization budget"
+                    if replay_bounded
+                    else "bundle artifact entry limit exceeded"
+                )
+                raise RunBundlePublicationError(message)
             objects_descriptor = _open_child_directory(
                 root_descriptor,
                 "objects",
@@ -473,9 +520,17 @@ class RunBundleStore:
                 object_payload_descriptor,
                 self.identity.object_payloads,
             )
+            expected_bytes = self._preflight_object_closure(
+                object_payload_descriptor,
+                manifest,
+                maximum_bytes,
+                deadline,
+                replay_bounded,
+            )
             artifacts: dict[str, bytes] = {}
             total_bytes = 0
             for relative_path, digest in sorted(manifest.checksums.items()):
+                self._require_deadline(deadline)
                 payload = _read_regular_file_at(
                     object_payload_descriptor,
                     digest[7:],
@@ -483,13 +538,21 @@ class RunBundleStore:
                     required_mode=_IMMUTABLE_FILE_MODE,
                 )
                 total_bytes += len(payload)
-                if total_bytes > self.settings.bundle_asset_size_bytes:
-                    raise RunBundlePublicationError(
-                        "bundle artifact byte limit exceeded"
+                if total_bytes > maximum_bytes:
+                    message = (
+                        "bundle exceeds remaining replay materialization budget"
+                        if replay_bounded
+                        else "bundle artifact byte limit exceeded"
                     )
+                    raise RunBundlePublicationError(message)
                 if tree_or_blob_digest(payload) != digest:
                     raise RunBundlePublicationError("bundle object digest changed")
                 artifacts[relative_path] = payload
+            if total_bytes != expected_bytes:
+                raise RunBundlePublicationError(
+                    "bundle object sizes changed during bounded acquisition"
+                )
+        self._require_deadline(deadline)
         report = SanitationReport.from_json_bytes(
             artifacts[manifest.sanitation_report_ref]
         )
@@ -504,7 +567,113 @@ class RunBundleStore:
             raise RunBundlePublicationError(
                 "sanitation report does not bind the bundle"
             )
+        self._require_deadline(deadline)
         return StoredRunBundle(manifest=manifest, artifacts=artifacts)
+
+    def _read_manifest_at(
+        self,
+        root_descriptor: int,
+        descriptors: ExitStack,
+        bundle_id: str,
+        deadline: float | None,
+    ) -> RunBundle | None:
+        self._require_deadline(deadline)
+        bundles_descriptor = _open_child_directory(
+            root_descriptor,
+            "bundles",
+            descriptors,
+            mode=_STORE_DIRECTORY_MODE,
+            create=False,
+        )
+        _require_descriptor_identity(
+            bundles_descriptor,
+            self.identity.bundles,
+        )
+        bundle_key = _bundle_key(bundle_id)
+        if not os.access(
+            bundle_key,
+            os.F_OK,
+            dir_fd=bundles_descriptor,
+            follow_symlinks=False,
+        ):
+            return None
+        bundle_descriptor = _open_child_directory(
+            bundles_descriptor,
+            bundle_key,
+            descriptors,
+            mode=_IMMUTABLE_DIRECTORY_MODE,
+            create=False,
+        )
+        if _directory_names(bundle_descriptor, 2, "bundle control closure") != (
+            BUNDLE_MANIFEST_FILENAME,
+        ):
+            raise RunBundlePublicationError("bundle control closure is not exact")
+        self._require_deadline(deadline)
+        manifest_payload = _read_regular_file_at(
+            bundle_descriptor,
+            BUNDLE_MANIFEST_FILENAME,
+            maximum_bytes=self.sanitation_settings.max_file_bytes,
+            required_mode=_IMMUTABLE_FILE_MODE,
+        )
+        self._require_deadline(deadline)
+        manifest = RunBundle.from_json_bytes(manifest_payload)
+        if manifest.to_json_bytes() != manifest_payload:
+            raise RunBundlePublicationError("bundle manifest is not canonical")
+        if manifest.bundle_id != bundle_id:
+            raise RunBundlePublicationError("bundle directory identity changed")
+        if len(manifest.checksums) > self.settings.bundle_entry_limit:
+            raise RunBundlePublicationError("bundle artifact entry limit exceeded")
+        return manifest
+
+    def _preflight_object_closure(
+        self,
+        object_payload_descriptor: int,
+        manifest: RunBundle,
+        maximum_bytes: int,
+        deadline: float | None,
+        replay_bounded: bool,
+    ) -> int:
+        total_bytes = 0
+        for digest in manifest.checksums.values():
+            self._require_deadline(deadline)
+            metadata = os.stat(
+                digest[7:],
+                dir_fd=object_payload_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or stat.S_IMODE(metadata.st_mode) != _IMMUTABLE_FILE_MODE
+            ):
+                raise RunBundlePublicationError("bundle store file identity is invalid")
+            total_bytes += metadata.st_size
+            if total_bytes > maximum_bytes:
+                message = (
+                    "bundle exceeds remaining replay materialization budget"
+                    if replay_bounded
+                    else "bundle artifact byte limit exceeded"
+                )
+                raise RunBundlePublicationError(message)
+        return total_bytes
+
+    @staticmethod
+    def _validate_deadline(deadline: float | None) -> None:
+        if deadline is not None and (
+            isinstance(deadline, bool)
+            or not isinstance(deadline, (int, float))
+            or not math.isfinite(float(deadline))
+        ):
+            raise RunBundlePublicationError(
+                "bundle acquisition deadline must be finite"
+            )
+
+    @staticmethod
+    def _require_deadline(deadline: float | None) -> None:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RunBundlePublicationError(
+                "bundle replay materialization deadline expired"
+            )
 
     def require_exact(self, bundle_id: str) -> StoredRunBundle:
         stored = self.read_exact(bundle_id)

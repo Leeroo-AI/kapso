@@ -336,6 +336,42 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("expert", "validation", "reviewer_count"), 0),
         (("expert", "validation", "policy", "source_replay_episode_limit"), 0),
         (("expert", "validation", "policy", "source_replay_bundle_limit"), 0),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_materialization_entry_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_score_comparison_tolerance",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_materialization_byte_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_materialization_timeout_seconds",
+            ),
+            0,
+        ),
         (("expert", "task_adapters", "zstd_window_size_bytes"), 0),
         (("launch", "cache_path"), "../escape"),
     ],
@@ -358,6 +394,19 @@ def test_zstd_window_configuration_uses_decoder_byte_units():
     settings = CrossRunSettings.from_dict(raw)
 
     assert settings.github.zstd_window_size_bytes == 1024
+
+
+def test_source_replay_must_use_the_capture_projection_tolerance():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["policy"][
+        "source_replay_score_comparison_tolerance"
+    ] *= 2
+
+    with pytest.raises(
+        CrossRunConfigurationError,
+        match="projection tolerances must match",
+    ):
+        CrossRunSettings.from_dict(raw)
 
 
 @pytest.mark.parametrize(

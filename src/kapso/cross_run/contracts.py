@@ -424,11 +424,20 @@ class ExpertValidationStage(str, Enum):
     PUBLICATION_ELIGIBILITY = "publication_eligibility"
 
 
+class ExpertSourceReplayExecutionLegKind(str, Enum):
+    CONTROL_PARENT = "control_parent"
+    CANDIDATE = "candidate"
+
+
 class ExpertEvaluatorOutcome(str, Enum):
     PASSED = "passed"
     CANDIDATE_FAILED = "candidate_failed"
     INFRASTRUCTURE_FAILED = "infrastructure_failed"
     INCONCLUSIVE = "inconclusive"
+
+
+class ExpertValidationAuthorityInvalidationKind(str, Enum):
+    PARENT_RELEASE_CHANGED = "parent_release_changed"
 
 
 class ExpertSanitationSeverity(str, Enum):
@@ -769,7 +778,9 @@ class ArtifactEnvironment(StrictContract):
     artifact_environment_id: str
     kapso_commit: str
     expert_base_release_id: str
-    task_adapter_hash: str
+    task_adapter_manifest_id: str
+    task_adapter_verification_receipt_id: str
+    starting_artifact_content_ids: Mapping[str, str]
     dependency_lock_hash: str
 
     CONTENT_NAMESPACE: ClassVar[str] = "artifact-environment"
@@ -778,7 +789,48 @@ class ArtifactEnvironment(StrictContract):
     def _validate(self) -> None:
         _require_text(self.kapso_commit, "kapso_commit")
         require_content_id(self.expert_base_release_id, "expert_base_release_id")
-        _require_digest(self.task_adapter_hash, "task_adapter_hash")
+        require_content_id(
+            self.task_adapter_manifest_id,
+            "task_adapter_manifest_id",
+        )
+        if self.task_adapter_manifest_id.split(":sha256:", 1)[0] != (
+            "task-adapter-manifest"
+        ):
+            raise ContractValidationError(
+                "task_adapter_manifest_id must name a TaskAdapterManifest"
+            )
+        require_content_id(
+            self.task_adapter_verification_receipt_id,
+            "task_adapter_verification_receipt_id",
+        )
+        if self.task_adapter_verification_receipt_id.split(":sha256:", 1)[0] != (
+            "task-adapter-verification-receipt"
+        ):
+            raise ContractValidationError(
+                "task_adapter_verification_receipt_id must name a "
+                "TaskAdapterVerificationReceipt"
+            )
+        for (
+            artifact_ref,
+            artifact_content_id,
+        ) in self.starting_artifact_content_ids.items():
+            _require_text(artifact_ref, "starting_artifact_content_ids key")
+            require_content_id(
+                artifact_content_id,
+                "starting_artifact_content_ids value",
+            )
+            if artifact_content_id.split(":sha256:", 1)[0] != (
+                "source-replay-starting-artifact"
+            ):
+                raise ContractValidationError(
+                    "starting artifact content IDs must name source replay artifacts"
+                )
+        if len(self.starting_artifact_content_ids) != len(
+            set(self.starting_artifact_content_ids.values())
+        ):
+            raise ContractValidationError(
+                "starting artifact refs must name distinct content records"
+            )
         _require_digest(self.dependency_lock_hash, "dependency_lock_hash")
 
 
@@ -905,6 +957,12 @@ class RunBundle(StrictContract):
             )
         if self.task_context_binding.scope_id != self.scope_id:
             raise IncompatibleArtifactError("bundle context uses another scope")
+        if set(self.artifact_environment.starting_artifact_content_ids) != set(
+            self.task_context_binding.starting_artifact_refs
+        ):
+            raise IncompatibleArtifactError(
+                "bundle environment does not pin every starting artifact"
+            )
         if (
             self.artifact_environment.expert_base_release_id
             != self.expert_base_release_id
@@ -1163,6 +1221,12 @@ class TransferEpisode(StrictContract):
             require_identifier(value, f"source.{key}")
         if self.source["scope_id"] != self.task_context_binding.scope_id:
             raise IncompatibleArtifactError("episode source uses another scope")
+        if set(self.artifact_environment.starting_artifact_content_ids) != set(
+            self.task_context_binding.starting_artifact_refs
+        ):
+            raise IncompatibleArtifactError(
+                "episode environment does not pin every starting artifact"
+            )
         require_content_id(self.source_bundle_id, "source_bundle_id")
         if self.supersedes_projection_id is not None:
             require_content_id(
@@ -2621,6 +2685,55 @@ class ExpertSourceReplayCase(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertSourceReplayAdapterPackagePin(StrictContract):
+    source_adapter_pin_id: str
+    scope_contract_id: str
+    task_family_id: str
+    task_adapter_id: str
+    task_adapter_manifest_id: str
+    verification_receipt_id: str
+    episode_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-adapter-pin"
+    IDENTITY_FIELD: ClassVar[str] = "source_adapter_pin_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.scope_contract_id,
+                "expert-scope-contract",
+                "source adapter scope_contract_id",
+            ),
+            (
+                self.task_adapter_manifest_id,
+                "task-adapter-manifest",
+                "source adapter task_adapter_manifest_id",
+            ),
+            (
+                self.verification_receipt_id,
+                "task-adapter-verification-receipt",
+                "source adapter verification_receipt_id",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(f"{name} must name a {namespace} record")
+        require_identifier(self.task_family_id, "source adapter task_family_id")
+        require_identifier(self.task_adapter_id, "source adapter task_adapter_id")
+        _require_sorted_unique(self.episode_ids, "source adapter episode_ids")
+        if not self.episode_ids:
+            raise ContractValidationError(
+                "source adapter pin must own at least one episode"
+            )
+        for episode_id in self.episode_ids:
+            require_content_id(episode_id, "source adapter episode_id")
+            if episode_id.split(":sha256:", 1)[0] != "transfer-episode":
+                raise ContractValidationError(
+                    "source adapter pin must name TransferEpisodes"
+                )
+
+
+@dataclass(frozen=True)
 class ExpertSourceReplaySelection(StrictContract):
     source_replay_selection_id: str
     candidate_id: str
@@ -2636,6 +2749,7 @@ class ExpertSourceReplaySelection(StrictContract):
     coverage_episode_ids: tuple[str, ...]
     selection_evidence_ids: tuple[str, ...]
     cases: tuple[ExpertSourceReplayCase, ...]
+    source_adapter_pins: tuple[ExpertSourceReplayAdapterPackagePin, ...]
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-selection"
@@ -2724,6 +2838,27 @@ class ExpertSourceReplaySelection(StrictContract):
             raise MissingReferenceError(
                 "source replay cases must assign selected episodes exactly once"
             )
+        adapter_pin_ids = tuple(
+            pin.source_adapter_pin_id for pin in self.source_adapter_pins
+        )
+        if not adapter_pin_ids or adapter_pin_ids != tuple(
+            sorted(set(adapter_pin_ids))
+        ):
+            raise ContractValidationError(
+                "source adapter pins must be non-empty, sorted, and unique"
+            )
+        adapter_episode_ids = tuple(
+            episode_id
+            for pin in self.source_adapter_pins
+            for episode_id in pin.episode_ids
+        )
+        if (
+            len(adapter_episode_ids) != len(set(adapter_episode_ids))
+            or set(adapter_episode_ids) != selected_episode_ids
+        ):
+            raise MissingReferenceError(
+                "source adapter pins must assign selected episodes exactly once"
+            )
         _require_sorted_unique(
             self.selection_evidence_ids,
             "source replay selection_evidence_ids",
@@ -2744,10 +2879,584 @@ class ExpertSourceReplaySelection(StrictContract):
             *self.selection_evidence_ids,
             *selected_episode_ids,
             *case_keys,
+            *adapter_pin_ids,
+            *(pin.task_adapter_manifest_id for pin in self.source_adapter_pins),
+            *(pin.verification_receipt_id for pin in self.source_adapter_pins),
         }
         if required_dependencies != set(self.exact_dependency_ids):
             raise MissingReferenceError(
                 "source replay selection dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertSourceReplayStartingArtifact(StrictContract):
+    starting_artifact_content_id: str
+    starting_artifact_ref: str
+    mount_path: str
+    materialized_tree_hash: str
+    source_files: tuple[SourceFileDescriptor, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-starting-artifact"
+    IDENTITY_FIELD: ClassVar[str] = "starting_artifact_content_id"
+
+    def _validate(self) -> None:
+        _require_text(self.starting_artifact_ref, "starting_artifact_ref")
+        mount_path = PurePosixPath(self.mount_path)
+        if (
+            not self.mount_path
+            or mount_path.is_absolute()
+            or ".." in mount_path.parts
+            or mount_path == PurePosixPath(".")
+            or mount_path.as_posix() != self.mount_path
+        ):
+            raise ContractValidationError(
+                "source replay artifact mount_path must be normalized and relative"
+            )
+        _require_digest(
+            self.materialized_tree_hash,
+            "source replay artifact materialized_tree_hash",
+        )
+        paths = tuple(descriptor.relative_path for descriptor in self.source_files)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise ContractValidationError(
+                "source replay artifact files must be non-empty, sorted, and unique"
+            )
+        source_paths = tuple(PurePosixPath(path) for path in paths)
+        if any(
+            source_path in other_path.parents
+            for position, source_path in enumerate(source_paths)
+            for other_path in source_paths[position + 1 :]
+        ):
+            raise ContractValidationError(
+                "source replay artifact files contain a file/directory collision"
+            )
+        expected_tree_hash = source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+                for descriptor in self.source_files
+            }
+        )
+        if self.materialized_tree_hash != expected_tree_hash:
+            raise ContractValidationError(
+                "source replay artifact tree hash differs from its files"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertSourceReplayContextMaterializationReceipt(StrictContract):
+    context_materialization_receipt_id: str
+    task_context_binding_id: str
+    input_contract_fingerprint: str
+    target_contract_fingerprint: str
+    starting_artifacts: tuple[ExpertSourceReplayStartingArtifact, ...]
+    materializer_id: str
+    materializer_version: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-context-materialization"
+    IDENTITY_FIELD: ClassVar[str] = "context_materialization_receipt_id"
+
+    def _validate(self) -> None:
+        require_content_id(
+            self.task_context_binding_id,
+            "source replay context task_context_binding_id",
+        )
+        if self.task_context_binding_id.split(":sha256:", 1)[0] != (
+            "task-context-binding"
+        ):
+            raise ContractValidationError(
+                "source replay context receipt must name a TaskContextBinding"
+            )
+        for value, name in (
+            (self.input_contract_fingerprint, "input_contract_fingerprint"),
+            (self.target_contract_fingerprint, "target_contract_fingerprint"),
+        ):
+            _require_digest(value, f"source replay context {name}")
+        artifact_ids = tuple(
+            artifact.starting_artifact_content_id
+            for artifact in self.starting_artifacts
+        )
+        if artifact_ids != tuple(sorted(set(artifact_ids))):
+            raise ContractValidationError(
+                "source replay starting artifacts must be ID-sorted and unique"
+            )
+        artifact_refs = tuple(
+            artifact.starting_artifact_ref for artifact in self.starting_artifacts
+        )
+        mount_paths = tuple(
+            PurePosixPath(artifact.mount_path) for artifact in self.starting_artifacts
+        )
+        if len(artifact_refs) != len(set(artifact_refs)):
+            raise ContractValidationError(
+                "source replay starting artifact refs must be unique"
+            )
+        if len(mount_paths) != len(set(mount_paths)) or any(
+            mount_path in other_path.parents or other_path in mount_path.parents
+            for position, mount_path in enumerate(mount_paths)
+            for other_path in mount_paths[position + 1 :]
+        ):
+            raise ContractValidationError(
+                "source replay starting artifact mounts overlap"
+            )
+        require_identifier(
+            self.materializer_id,
+            "source replay context materializer_id",
+        )
+        require_identifier(
+            self.materializer_version,
+            "source replay context materializer_version",
+        )
+
+
+@dataclass(frozen=True)
+class ExpertSourceReplayExecutionLeg(StrictContract):
+    execution_leg_id: str
+    kind: ExpertSourceReplayExecutionLegKind
+    expert_artifact_id: str
+    expert_source_receipt_id: str
+    expert_tree_hash: str
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-execution-leg"
+    IDENTITY_FIELD: ClassVar[str] = "execution_leg_id"
+
+    def _validate(self) -> None:
+        if self.kind is ExpertSourceReplayExecutionLegKind.CONTROL_PARENT:
+            artifact_namespace = "expert-base-release"
+            receipt_namespace = "expert-parent-tree-receipt"
+        else:
+            artifact_namespace = "expert-candidate"
+            receipt_namespace = "expert-candidate-commit"
+        for value, namespace, name in (
+            (self.expert_artifact_id, artifact_namespace, "expert_artifact_id"),
+            (
+                self.expert_source_receipt_id,
+                receipt_namespace,
+                "expert_source_receipt_id",
+            ),
+        ):
+            require_content_id(value, f"source replay leg {name}")
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(
+                    f"source replay leg {name} must name a {namespace} record"
+                )
+        _require_digest(self.expert_tree_hash, "source replay leg expert_tree_hash")
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "source replay leg exact_dependency_ids",
+        )
+        if set(self.exact_dependency_ids) != {
+            self.expert_artifact_id,
+            self.expert_source_receipt_id,
+        }:
+            raise MissingReferenceError(
+                "source replay leg dependency closure is not exact"
+            )
+
+
+def expert_source_replay_matched_compute_digest(
+    *,
+    bundle_lineage_ids: tuple[str, ...],
+    projection_manifest_id: str,
+    episode_id: str,
+    task_context_binding_id: str,
+    context_materialization_receipt_id: str,
+    task_adapter_manifest_id: str,
+    verification_receipt_id: str,
+) -> str:
+    """Derive the immutable environment shared by both replay legs."""
+
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "bundle_lineage_ids": bundle_lineage_ids,
+                "context_materialization_receipt_id": (
+                    context_materialization_receipt_id
+                ),
+                "episode_id": episode_id,
+                "projection_manifest_id": projection_manifest_id,
+                "task_adapter_manifest_id": task_adapter_manifest_id,
+                "task_context_binding_id": task_context_binding_id,
+                "verification_receipt_id": verification_receipt_id,
+            }
+        )
+    )
+
+
+@dataclass(frozen=True)
+class ExpertSourceReplayExecutionCase(StrictContract):
+    execution_case_id: str
+    source_bundle_id: str
+    bundle_lineage_ids: tuple[str, ...]
+    projection_manifest_id: str
+    episode_id: str
+    source_node_id: str
+    source_execution_revision: int
+    source_evaluation_fingerprint_ids: tuple[str, ...]
+    episode_reason_codes: tuple[str, ...]
+    task_context_binding_id: str
+    source_expert_base_release_id: str
+    context_materialization_receipt_id: str
+    starting_artifact_content_ids: tuple[str, ...]
+    adapter_binding_id: str
+    task_adapter_manifest_id: str
+    verification_receipt_id: str
+    task_adapter_source_tree_hash: str
+    task_evaluator_binding_digest: str
+    task_adapter_dependency_ids: tuple[str, ...]
+    matched_compute_binding_digest: str
+    control_leg: ExpertSourceReplayExecutionLeg
+    candidate_leg: ExpertSourceReplayExecutionLeg
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-execution-case"
+    IDENTITY_FIELD: ClassVar[str] = "execution_case_id"
+
+    def _validate(self) -> None:
+        if not self.bundle_lineage_ids or len(self.bundle_lineage_ids) != len(
+            set(self.bundle_lineage_ids)
+        ):
+            raise ContractValidationError(
+                "source replay bundle lineage must be non-empty and unique"
+            )
+        for bundle_id in self.bundle_lineage_ids:
+            require_content_id(bundle_id, "source replay bundle_lineage_ids")
+            if bundle_id.split(":sha256:", 1)[0] != "run-bundle":
+                raise ContractValidationError(
+                    "source replay bundle lineage must name RunBundles"
+                )
+        if self.bundle_lineage_ids[-1] != self.source_bundle_id:
+            raise ContractValidationError(
+                "source replay execution case must use the lineage tip"
+            )
+        for value, namespace, name in (
+            (
+                self.projection_manifest_id,
+                "bundle-projection-manifest",
+                "source replay projection_manifest_id",
+            ),
+            (self.episode_id, "transfer-episode", "source replay episode_id"),
+            (
+                self.task_context_binding_id,
+                "task-context-binding",
+                "source replay task_context_binding_id",
+            ),
+            (
+                self.source_expert_base_release_id,
+                "expert-base-release",
+                "source replay source_expert_base_release_id",
+            ),
+            (
+                self.context_materialization_receipt_id,
+                "expert-source-replay-context-materialization",
+                "source replay context_materialization_receipt_id",
+            ),
+            (
+                self.adapter_binding_id,
+                "task-adapter-binding",
+                "source replay adapter_binding_id",
+            ),
+            (
+                self.task_adapter_manifest_id,
+                "task-adapter-manifest",
+                "source replay task_adapter_manifest_id",
+            ),
+            (
+                self.verification_receipt_id,
+                "task-adapter-verification-receipt",
+                "source replay verification_receipt_id",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(f"{name} must name a {namespace} record")
+        if not self.episode_reason_codes or self.episode_reason_codes != tuple(
+            sorted(set(self.episode_reason_codes))
+        ):
+            raise ContractValidationError(
+                "source replay execution reasons must be non-empty and unique"
+            )
+        for reason in self.episode_reason_codes:
+            require_identifier(reason, "source replay execution reason")
+        require_identifier(self.source_node_id, "source replay source_node_id")
+        if self.source_execution_revision < 0:
+            raise ContractValidationError(
+                "source replay source_execution_revision must be non-negative"
+            )
+        if self.source_evaluation_fingerprint_ids:
+            _require_sorted_unique(
+                self.source_evaluation_fingerprint_ids,
+                "source replay source_evaluation_fingerprint_ids",
+            )
+            for fingerprint_id in self.source_evaluation_fingerprint_ids:
+                require_content_id(
+                    fingerprint_id,
+                    "source replay source_evaluation_fingerprint_ids",
+                )
+                if fingerprint_id.split(":sha256:", 1)[0] != ("evaluation-fingerprint"):
+                    raise ContractValidationError(
+                        "source replay fingerprints must name EvaluationFingerprints"
+                    )
+        if self.starting_artifact_content_ids:
+            _require_sorted_unique(
+                self.starting_artifact_content_ids,
+                "source replay starting_artifact_content_ids",
+            )
+            for artifact_id in self.starting_artifact_content_ids:
+                require_content_id(
+                    artifact_id,
+                    "source replay starting_artifact_content_ids",
+                )
+                if artifact_id.split(":sha256:", 1)[0] != (
+                    "source-replay-starting-artifact"
+                ):
+                    raise ContractValidationError(
+                        "source replay artifacts must name starting-artifact records"
+                    )
+        _require_digest(
+            self.task_adapter_source_tree_hash,
+            "source replay task_adapter_source_tree_hash",
+        )
+        _require_digest(
+            self.task_evaluator_binding_digest,
+            "source replay task_evaluator_binding_digest",
+        )
+        _require_digest(
+            self.matched_compute_binding_digest,
+            "source replay matched_compute_binding_digest",
+        )
+        if self.matched_compute_binding_digest != (
+            expert_source_replay_matched_compute_digest(
+                bundle_lineage_ids=self.bundle_lineage_ids,
+                projection_manifest_id=self.projection_manifest_id,
+                episode_id=self.episode_id,
+                task_context_binding_id=self.task_context_binding_id,
+                context_materialization_receipt_id=(
+                    self.context_materialization_receipt_id
+                ),
+                task_adapter_manifest_id=self.task_adapter_manifest_id,
+                verification_receipt_id=self.verification_receipt_id,
+            )
+        ):
+            raise ContractValidationError(
+                "source replay matched-compute digest differs from its case"
+            )
+        _require_sorted_unique(
+            self.task_adapter_dependency_ids,
+            "source replay task_adapter_dependency_ids",
+        )
+        for dependency_id in self.task_adapter_dependency_ids:
+            require_content_id(
+                dependency_id,
+                "source replay task_adapter_dependency_ids",
+            )
+        if self.verification_receipt_id not in self.task_adapter_dependency_ids:
+            raise MissingReferenceError(
+                "source replay adapter dependencies omit the verification receipt"
+            )
+        if (
+            self.control_leg.kind
+            is not ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+            or self.candidate_leg.kind
+            is not ExpertSourceReplayExecutionLegKind.CANDIDATE
+            or self.control_leg.expert_artifact_id
+            == self.candidate_leg.expert_artifact_id
+        ):
+            raise ContractValidationError(
+                "source replay case requires distinct parent-control and candidate legs"
+            )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "source replay execution case exact_dependency_ids",
+        )
+        expected_dependencies = {
+            *self.bundle_lineage_ids,
+            self.projection_manifest_id,
+            self.episode_id,
+            *self.source_evaluation_fingerprint_ids,
+            self.task_context_binding_id,
+            self.source_expert_base_release_id,
+            self.context_materialization_receipt_id,
+            *self.starting_artifact_content_ids,
+            self.adapter_binding_id,
+            self.task_adapter_manifest_id,
+            self.verification_receipt_id,
+            *self.task_adapter_dependency_ids,
+            self.control_leg.execution_leg_id,
+            *self.control_leg.exact_dependency_ids,
+            self.candidate_leg.execution_leg_id,
+            *self.candidate_leg.exact_dependency_ids,
+        }
+        if set(self.exact_dependency_ids) != expected_dependencies:
+            raise MissingReferenceError(
+                "source replay execution case dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertSourceReplayExecutionRequest(StrictContract):
+    execution_request_id: str
+    validation_attempt_id: str
+    authorization_state_id: str
+    source_replay_selection_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    candidate_commit_record_id: str
+    candidate_source_tree_manifest_id: str
+    scope_contract_id: str
+    parent_release_id: str
+    parent_tree_receipt_id: str
+    parent_source_extraction_receipt_id: str
+    parent_tree_hash: str
+    validation_policy_id: str
+    configuration_fingerprint: str
+    request_policy_version: str
+    evaluator_id: str
+    evaluator_role: str
+    evaluator_version: str
+    attempt_dependency_ids: tuple[str, ...]
+    cases: tuple[ExpertSourceReplayExecutionCase, ...]
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-execution-request"
+    IDENTITY_FIELD: ClassVar[str] = "execution_request_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.validation_attempt_id,
+                "expert-validation-attempt",
+                "source replay validation_attempt_id",
+            ),
+            (
+                self.authorization_state_id,
+                "expert-candidate-validation-state",
+                "source replay authorization_state_id",
+            ),
+            (
+                self.source_replay_selection_id,
+                "expert-source-replay-selection",
+                "source replay source_replay_selection_id",
+            ),
+            (self.candidate_id, "expert-candidate", "source replay candidate_id"),
+            (
+                self.candidate_commit_record_id,
+                "expert-candidate-commit",
+                "source replay candidate_commit_record_id",
+            ),
+            (
+                self.candidate_source_tree_manifest_id,
+                "expert-source-tree",
+                "source replay candidate_source_tree_manifest_id",
+            ),
+            (
+                self.scope_contract_id,
+                "expert-scope-contract",
+                "source replay scope_contract_id",
+            ),
+            (
+                self.parent_release_id,
+                "expert-base-release",
+                "source replay parent_release_id",
+            ),
+            (
+                self.parent_tree_receipt_id,
+                "expert-parent-tree-receipt",
+                "source replay parent_tree_receipt_id",
+            ),
+            (
+                self.parent_source_extraction_receipt_id,
+                "source-archive-extraction-receipt",
+                "source replay parent_source_extraction_receipt_id",
+            ),
+            (
+                self.validation_policy_id,
+                "expert-validation-policy",
+                "source replay validation_policy_id",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(f"{name} must name a {namespace} record")
+        _require_digest(self.candidate_tree_hash, "source replay candidate_tree_hash")
+        _require_digest(self.parent_tree_hash, "source replay parent_tree_hash")
+        _require_digest(
+            self.configuration_fingerprint,
+            "source replay configuration_fingerprint",
+        )
+        require_identifier(
+            self.request_policy_version,
+            "source replay request_policy_version",
+        )
+        for value, name in (
+            (self.evaluator_id, "source replay evaluator_id"),
+            (self.evaluator_role, "source replay evaluator_role"),
+            (self.evaluator_version, "source replay evaluator_version"),
+        ):
+            require_identifier(value, name)
+        case_episode_ids = tuple(case.episode_id for case in self.cases)
+        if not case_episode_ids or case_episode_ids != tuple(
+            sorted(set(case_episode_ids))
+        ):
+            raise ContractValidationError(
+                "source replay request cases must be episode-sorted and unique"
+            )
+        for case in self.cases:
+            if (
+                case.candidate_leg.expert_artifact_id != self.candidate_id
+                or case.candidate_leg.expert_source_receipt_id
+                != self.candidate_commit_record_id
+                or case.candidate_leg.expert_tree_hash != self.candidate_tree_hash
+                or case.control_leg.expert_artifact_id != self.parent_release_id
+                or case.control_leg.expert_source_receipt_id
+                != self.parent_tree_receipt_id
+                or case.control_leg.expert_tree_hash != self.parent_tree_hash
+            ):
+                raise ContractValidationError(
+                    "source replay request legs differ from aggregate authority"
+                )
+        _require_sorted_unique(
+            self.attempt_dependency_ids,
+            "source replay request attempt_dependency_ids",
+        )
+        for dependency_id in self.attempt_dependency_ids:
+            require_content_id(
+                dependency_id,
+                "source replay request attempt_dependency_ids",
+            )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "source replay request exact_dependency_ids",
+        )
+        expected_dependencies = {
+            self.validation_attempt_id,
+            self.authorization_state_id,
+            self.source_replay_selection_id,
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.candidate_source_tree_manifest_id,
+            self.scope_contract_id,
+            self.parent_release_id,
+            self.parent_tree_receipt_id,
+            self.parent_source_extraction_receipt_id,
+            self.validation_policy_id,
+            *self.attempt_dependency_ids,
+            *(
+                dependency_id
+                for case in self.cases
+                for dependency_id in (
+                    case.execution_case_id,
+                    *case.exact_dependency_ids,
+                )
+            ),
+        }
+        if set(self.exact_dependency_ids) != expected_dependencies:
+            raise MissingReferenceError(
+                "source replay execution request dependency closure is not exact"
             )
 
 
@@ -3187,6 +3896,63 @@ class ExpertEvaluatorEvidenceRef(StrictContract):
             self.evaluator_attestation_id,
             "evaluator_attestation_id",
         )
+
+
+@dataclass(frozen=True)
+class ExpertValidationAuthorityInvalidation(StrictContract):
+    authority_invalidation_id: str
+    kind: ExpertValidationAuthorityInvalidationKind
+    validation_attempt_id: str
+    authorization_state_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    scope_contract_id: str
+    expected_parent_release_id: str
+    observed_parent_release_id: str | None
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-authority-invalidation"
+    IDENTITY_FIELD: ClassVar[str] = "authority_invalidation_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.validation_attempt_id, "validation_attempt_id"),
+            (self.authorization_state_id, "authorization_state_id"),
+            (self.candidate_id, "candidate_id"),
+            (self.scope_contract_id, "scope_contract_id"),
+            (self.expected_parent_release_id, "expected_parent_release_id"),
+        ):
+            require_content_id(value, f"authority invalidation {name}")
+        _require_digest(
+            self.candidate_tree_hash,
+            "authority invalidation candidate_tree_hash",
+        )
+        if self.observed_parent_release_id is not None:
+            require_content_id(
+                self.observed_parent_release_id,
+                "authority invalidation observed_parent_release_id",
+            )
+        if self.observed_parent_release_id == self.expected_parent_release_id:
+            raise ContractValidationError(
+                "authority invalidation must observe a changed parent release"
+            )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "authority invalidation exact_dependency_ids",
+        )
+        required_dependencies = {
+            self.validation_attempt_id,
+            self.authorization_state_id,
+            self.candidate_id,
+            self.scope_contract_id,
+            self.expected_parent_release_id,
+        }
+        if self.observed_parent_release_id is not None:
+            required_dependencies.add(self.observed_parent_release_id)
+        if set(self.exact_dependency_ids) != required_dependencies:
+            raise MissingReferenceError(
+                "authority invalidation dependency closure is not exact"
+            )
 
 
 @dataclass(frozen=True)

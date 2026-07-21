@@ -99,6 +99,52 @@ precedence and produces no selection. Generic evaluator-result construction and
 reduction reject source replay until the typed executor can prove exact
 episode-and-adapter coverage for every selected case.
 
+Captured `ArtifactEnvironment` records name the exact scientific adapter
+manifest and verification receipt, plus the exact content ID for every starting
+artifact. An opaque adapter hash or logical artifact reference is not replay
+authority. Enrollment keeps current adapter pins for fresh validation separate
+from historical adapter-package pins grouped over the selected source episodes;
+multiple versions of one logical adapter may coexist. Missing historical bytes
+fail before an attempt can become eligible.
+
+Once the source stage is current, deterministic preflight reopens the candidate
+and validation state, observes the current parent release, resolves concrete
+verified bundle lineages, materializes the exact parent tree, copies the candidate
+tree into an immutable byte closure, and materializes every captured starting
+artifact. A lineage provider must retain every root-to-tip `RunBundle` byte
+closure; preflight ignores its claimed projection and deterministically rebuilds
+every generation from those bytes. Generation-zero, adjacent supersession, and
+the reprojected tip are checked again when the runtime-only prepared object is
+constructed.
+
+One monotonic deadline and one aggregate entry/byte budget govern the whole
+preflight, not each provider call. Every provider receives only the remaining
+time and capacity; candidate, parent, historical adapter packages, all retained
+bundle generations, and deduplicated contexts debit that same budget. Reused
+content IDs count once, while the same ID with different bytes fails loud. Each
+case is an explicit matched pair: a parent-control leg and candidate leg share
+one historical adapter, context, evaluator binding, and artifact closure. The
+aggregate request, every case, and every leg are content-addressed with exact
+dependency closure. The prepared object rechecks its settings/config identity,
+selection cases, byte-derived lineages, and aggregate limits, and owns all bytes;
+a sandbox may not resolve IDs or mutable pointers.
+
+Preflight re-observes the current parent after materialization, but its request
+is evidence, not an execution lease. Source execution remains fail-closed until
+the executor can atomically reserve the unchanged validation head and, immediately
+before process spawn, recheck the current parent, candidate/release revocation,
+and every historical adapter package's verifier authority, trust, and revocation
+state. It must produce exactly one result for each named leg and publish a typed
+paired-comparison receipt against the same reservation. If `CURRENT` changes
+while an attempt is validating, preflight returns no executable request: it
+publishes a typed authority-invalidation record against the observed validation
+state ID and returns the resulting terminal state. That content-addressed,
+compare-and-swap transition closes the attempt as `FAILED`; the candidate can
+no longer execute or be re-enrolled as valid because its immutable manifest pins
+the stale parent. Evolution must rebase the change into a new successor candidate
+against current authority and enroll that new identity; retrying the old candidate
+deterministically remains ineligible.
+
 Implemented validation substrate:
 
 - enrollment reopens the exact M7 candidate, resolves the current release through
@@ -107,9 +153,10 @@ Implemented validation substrate:
   trusted active adapter index rather than accepting caller-selected manifests;
 - validation track and stage plan are recomputed from trusted candidate records;
 - exact source bundle IDs resolve through a bounded predecessor walk and a
-  root-to-tip projection replay; generation-zero roots, monotonic adjacent
-  frontiers, immutable Git/source proof, and the complete sanitation closure are
-  required without consulting a mutable current pointer;
+  retained root-to-tip byte closure and independent projection replay;
+  generation-zero roots, monotonic adjacent frontiers, immutable Git/source
+  proof, and the complete sanitation closure are required without consulting a
+  mutable current pointer;
 - every exact trigger adapter binding is enrolled under an unambiguous canonical
   identity and an exact `TaskAdapterPackagePin`, while configured task families
   remain explicit stage-policy inputs; reducer replay resolves those immutable
@@ -123,10 +170,13 @@ Implemented validation substrate:
   identity; approved, released, validating, and revoked states cannot be retried.
 - durable validation history stores immutable content-addressed decisions,
   configurations, attempts, signed evaluator-result envelopes, states, operations,
-  and transitions behind one atomic per-candidate journal; and
+  and transitions behind one atomic per-candidate journal;
 - operation-to-transition bindings make lost-response retries exact, while the
   journal head provides compare-and-swap publication with no fork, merge, or
-  rollback behavior.
+  rollback behavior; and
+- parent-authority invalidation is a content-addressed terminal transition that
+  preserves accepted-stage history, proves expected versus observed `CURRENT`,
+  and makes stale attempts recoverable without accepting their remaining work.
 
 The automated-review, promotion-decision, composition, and release paths remain
 separate later slices; the executable reducer and store cannot synthesize their

@@ -391,7 +391,9 @@ TaskContextBinding
 ArtifactEnvironment
   kapso commit
   expert-base release
-  task-adapter hash
+  exact task-adapter manifest id
+  exact task-adapter verification receipt id
+  starting-artifact ref -> content-addressed artifact id
   relevant dependency lock hash
 ```
 
@@ -1591,6 +1593,28 @@ Use periodic no-knowledge and prior-release controls under matched compute. Expe
 promotion compares against the parent release, not against an underfunded
 baseline. If a snapshot or module does not earn its token, latency, and validation
 cost, it should leave the active view while remaining auditable.
+
+Source replay instantiates that matched-compute rule as one immutable common
+case with two named legs: the candidate tree and its current parent-release
+tree. The common case owns the exact historical task-adapter package, complete
+root-to-tip `RunBundle` byte lineage, evaluation fingerprints, and captured
+starting-artifact byte closures. Preparation independently reprojects every
+bundle generation instead of trusting a provider's projection. Neither leg may
+vary those inputs. One monotonic deadline and aggregate entry/byte budget cover
+the candidate, parent, adapters, every retained bundle generation, and contexts;
+duplicate content counts once and conflicting bytes under one identity fail.
+The self-validating prepared closure binds its exact settings and selection and
+contains both expert trees and every input byte; a sandbox may not resolve an ID
+or follow a mutable pointer. Preparation observes `CURRENT` before and after
+materialization, but is evidence rather than a lease. A changed `CURRENT`
+produces no executable request: preflight publishes and returns the terminal
+content-addressed authority-invalidation state through validation-head CAS. The
+stale-parent candidate cannot simply be retried: evolution must create a rebased
+successor candidate with a new identity and enroll it against the current parent.
+The executor must later reserve an unchanged valid head and, immediately before
+process spawn, re-observe `CURRENT`, candidate/release revocation, and every pinned
+adapter package's verifier authority, trust, and revocation state before publishing
+its receipt against that reservation.
 
 ## 12. Final disposition of the earlier proposal
 

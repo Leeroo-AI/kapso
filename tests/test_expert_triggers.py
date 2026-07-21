@@ -25,12 +25,15 @@ from kapso.cross_run.contracts import (
     LineageEdge,
     LineageRelation,
     PublicationArtifactKind,
+    RunBundle,
     SourceFileDescriptor,
+    StrictContract,
     TaskAdapterBinding,
     TaskContextBinding,
     TaskFamilyDefinition,
     TransferEpisode,
 )
+from kapso.cross_run.record_contracts import SanitationReport
 from kapso.cross_run.expert import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExpertEvolutionTriggerDecision,
@@ -56,6 +59,7 @@ from kapso.cross_run.agent_artifacts import (
 from test_cross_run_contracts import build_records
 from test_cross_run_retrieval import (
     analogical_context,
+    environment_for_context,
     outcome_episodes,
     relbench_context,
     snapshot_and_index,
@@ -177,7 +181,10 @@ def clone_episode(
         source_bundle_id=episode.source_bundle_id,
         supersedes_projection_id=None,
         task_context_binding=context,
-        artifact_environment=episode.artifact_environment,
+        artifact_environment=environment_for_context(
+            episode.artifact_environment,
+            context,
+        ),
         proposal=f"Evaluate the {name} mechanism.",
         parent_episode_ref=parent_episode_ref,
         attempts=episode.attempts,
@@ -227,6 +234,10 @@ def trigger_packet(
             task_adapter_id="posttrain",
         ),
     ),
+    knowledge_source_bundle: RunBundle | None = None,
+    knowledge_sanitation_report: SanitationReport | None = None,
+    knowledge_extra_facts: tuple[StrictContract, ...] = (),
+    knowledge_projection_derivation_ids: tuple[str, ...] = (),
 ) -> ExpertTriggerEvidencePacket:
     scope, module, current_map, release = expert_records()
     current_scope = current_scope_contract or scope
@@ -273,7 +284,13 @@ def trigger_packet(
             materializer_version="kapso.expert_materializer.v1",
         )
     )
-    package, _, _ = snapshot_and_index((*episodes, *claims))
+    package, _, _ = snapshot_and_index(
+        (*episodes, *claims),
+        extra_facts=knowledge_extra_facts,
+        projection_derivation_ids=knowledge_projection_derivation_ids,
+        source_bundle=knowledge_source_bundle,
+        source_sanitation_report=knowledge_sanitation_report,
+    )
     proof_ids = set(package.manifest.proof_dependency_closure_ids)
     return ExpertTriggerEvidencePacket.mint(
         knowledge_snapshot_manifest=package.manifest,

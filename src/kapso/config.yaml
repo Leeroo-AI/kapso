@@ -67,7 +67,7 @@ cross_run:
     source_entry_limit: 10000
     git_command_timeout_seconds: 120
     git_command_output_bytes: 67108864
-    score_comparison_tolerance: 1.0e-12
+    score_comparison_tolerance: &cross_run_score_comparison_tolerance 1.0e-12
     capture_interval_seconds: 300
     quarantine_retention_generations: 1
   sanitation:
@@ -197,8 +197,15 @@ cross_run:
       state_path: ".kapso/cross_run/expert_validation"
       policy:
         source_replay_selection_policy_version: "kapso.expert_source_replay_selection.v1"
+        source_replay_request_policy_version: "kapso.expert_source_replay_request.v1"
         source_replay_episode_limit: 32
         source_replay_bundle_limit: 16
+        source_replay_context_materializer_id: "expert_source_replay_context_materializer"
+        source_replay_context_materializer_version: "kapso.expert_source_replay_context_materializer.v1"
+        source_replay_materialization_entry_limit: 10000
+        source_replay_materialization_byte_limit: 10737418240
+        source_replay_materialization_timeout_seconds: &expert_validation_timeout_seconds 21600
+        source_replay_score_comparison_tolerance: *cross_run_score_comparison_tolerance
         sealed_canary_trust_root: null
         architecture_requires_sealed_canary: true
         artifact_entry_limit: 1000
@@ -208,7 +215,7 @@ cross_run:
             evaluator_id: "expert_contract_evaluator"
             evaluator_role: "expert_contract_evaluator"
             evaluator_version: "kapso.expert_contract_evaluator.v1"
-            timeout_seconds: &expert_validation_timeout_seconds 21600
+            timeout_seconds: *expert_validation_timeout_seconds
           - stage: "identity_secrets_license_dependency"
             evaluator_id: "expert_supply_chain_evaluator"
             evaluator_role: "expert_supply_chain_evaluator"

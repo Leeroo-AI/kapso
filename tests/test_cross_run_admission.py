@@ -99,7 +99,15 @@ def environment():
     return ArtifactEnvironment.mint(
         kapso_commit="0" * 40,
         expert_base_release_id=fixture_id("expert-release"),
-        task_adapter_hash=digest("task-adapter"),
+        task_adapter_manifest_id=content_id(
+            "task-adapter-manifest",
+            {"label": "task-adapter"},
+        ),
+        task_adapter_verification_receipt_id=content_id(
+            "task-adapter-verification-receipt",
+            {"label": "task-adapter-verification"},
+        ),
+        starting_artifact_content_ids={},
         dependency_lock_hash=digest("dependency-lock"),
     )
 

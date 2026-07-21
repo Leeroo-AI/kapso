@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from kapso.cross_run.canonical import require_identifier
 from kapso.cross_run.contracts import (
+    ExpertSourceReplayAdapterPackagePin,
     ExpertSourceReplayCase,
     ExpertSourceReplaySelection,
     MissingReferenceError,
@@ -190,6 +191,15 @@ def _derive_expert_source_replay_selection(
             selection=None,
             reason_code="source_replay_evidence_unavailable",
         )
+    if any(
+        episodes_by_id[episode_id].task_context_binding.scope_contract_id
+        != manifest.scope_contract_id
+        for episode_id in selected_episode_ids
+    ):
+        return ExpertSourceReplaySelectionResult(
+            selection=None,
+            reason_code="source_replay_scope_mapping_unavailable",
+        )
     selected_bundle_ids = {
         episodes_by_id[episode_id].source_bundle_id
         for episode_id in selected_episode_ids
@@ -231,6 +241,41 @@ def _derive_expert_source_replay_selection(
     )
     causal_ids = tuple(sorted(causal_episode_ids))
     coverage_ids = tuple(sorted(coverage_episode_ids - causal_episode_ids))
+    adapter_episode_ids: dict[tuple[str, str, str, str, str], list[str]] = {}
+    for episode_id in sorted(selected_episode_ids):
+        episode = episodes_by_id[episode_id]
+        context = episode.task_context_binding
+        environment = episode.artifact_environment
+        key = (
+            context.scope_contract_id,
+            context.task_family_id,
+            context.task_adapter_id,
+            environment.task_adapter_manifest_id,
+            environment.task_adapter_verification_receipt_id,
+        )
+        adapter_episode_ids.setdefault(key, []).append(episode_id)
+    source_adapter_pins = tuple(
+        sorted(
+            (
+                ExpertSourceReplayAdapterPackagePin.mint(
+                    scope_contract_id=scope_contract_id,
+                    task_family_id=task_family_id,
+                    task_adapter_id=task_adapter_id,
+                    task_adapter_manifest_id=task_adapter_manifest_id,
+                    verification_receipt_id=verification_receipt_id,
+                    episode_ids=tuple(episode_ids),
+                )
+                for (
+                    scope_contract_id,
+                    task_family_id,
+                    task_adapter_id,
+                    task_adapter_manifest_id,
+                    verification_receipt_id,
+                ), episode_ids in adapter_episode_ids.items()
+            ),
+            key=lambda pin: pin.source_adapter_pin_id,
+        )
+    )
     dependencies = {
         manifest.candidate_id,
         stored_candidate.commit_record.commit_record_id,
@@ -241,6 +286,9 @@ def _derive_expert_source_replay_selection(
         *selection_evidence_ids,
         *selected_episode_ids,
         *selected_bundle_ids,
+        *(pin.source_adapter_pin_id for pin in source_adapter_pins),
+        *(pin.task_adapter_manifest_id for pin in source_adapter_pins),
+        *(pin.verification_receipt_id for pin in source_adapter_pins),
     }
     selection = ExpertSourceReplaySelection.mint(
         candidate_id=manifest.candidate_id,
@@ -258,6 +306,7 @@ def _derive_expert_source_replay_selection(
         coverage_episode_ids=coverage_ids,
         selection_evidence_ids=tuple(sorted(selection_evidence_ids)),
         cases=cases,
+        source_adapter_pins=source_adapter_pins,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
     return ExpertSourceReplaySelectionResult(
