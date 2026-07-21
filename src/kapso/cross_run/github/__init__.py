@@ -17,6 +17,9 @@ from kapso.cross_run.github.materializer import (
     GitHubArtifactMaterializer,
     MaterializationError,
     MaterializedArtifact,
+    SOURCE_ARCHIVE_EXTRACTOR_VERSION,
+    SourceArchiveExtractionReceipt,
+    SourceArchiveTreeFile,
 )
 from kapso.cross_run.github.publisher import (
     AutonomousGitHubPublisher,
@@ -58,6 +61,9 @@ __all__ = [
     "GitHubResolutionError",
     "MaterializationError",
     "MaterializedArtifact",
+    "SOURCE_ARCHIVE_EXTRACTOR_VERSION",
+    "SourceArchiveExtractionReceipt",
+    "SourceArchiveTreeFile",
     "PublicationEnvelope",
     "PublicationAssetIntent",
     "PublicationSourceFile",

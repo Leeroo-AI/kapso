@@ -1840,6 +1840,16 @@ class ExpertBaseReleaseManifest(StrictContract):
         _require_digest(self.semantic_book_digest, "semantic_book_digest")
         _require_digest(self.configuration_fingerprint, "configuration_fingerprint")
         _require_text(self.source_archive_ref, "source_archive_ref")
+        source_archive_path = PurePosixPath(self.source_archive_ref)
+        if (
+            source_archive_path.is_absolute()
+            or len(source_archive_path.parts) != 1
+            or source_archive_path.as_posix() != self.source_archive_ref
+            or not self.source_archive_ref.endswith((".tar", ".tar.zst"))
+        ):
+            raise ContractValidationError(
+                "source_archive_ref must name one supported release asset"
+            )
         _require_sorted_unique(self.dependency_closure_ids, "dependency_closure_ids")
         for value in self.dependency_closure_ids:
             require_content_id(value, "dependency_closure_ids")

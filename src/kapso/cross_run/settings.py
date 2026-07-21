@@ -674,6 +674,9 @@ class KnowledgeSettings(StrictContract):
 @dataclass(frozen=True)
 class ExpertTriggerSettings(StrictContract):
     policy_version: str
+    inspection_policy_version: str
+    inspector_id: str
+    inspector_role: str
     minimum_failure_lineages: int
     minimum_failure_contexts: int
     minimum_success_lineages: int
@@ -683,6 +686,12 @@ class ExpertTriggerSettings(StrictContract):
 
     def _validate(self) -> None:
         require_identifier(self.policy_version, "expert trigger policy_version")
+        require_identifier(
+            self.inspection_policy_version,
+            "expert trigger inspection_policy_version",
+        )
+        require_identifier(self.inspector_id, "expert trigger inspector_id")
+        require_identifier(self.inspector_role, "expert trigger inspector_role")
         for value, name in (
             (self.minimum_failure_lineages, "minimum_failure_lineages"),
             (self.minimum_failure_contexts, "minimum_failure_contexts"),

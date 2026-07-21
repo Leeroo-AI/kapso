@@ -166,6 +166,9 @@ cross_run:
       allowed_tools: ["Read"]
     triggers:
       policy_version: "kapso.expert_triggers.v1"
+      inspection_policy_version: "kapso.expert_inspection.v1"
+      inspector_id: "expert_trigger_inspector"
+      inspector_role: "expert_trigger_inspector"
       minimum_failure_lineages: 2
       minimum_failure_contexts: 2
       minimum_success_lineages: 2

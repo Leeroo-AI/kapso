@@ -21,6 +21,7 @@ import zstandard
 from kapso.cross_run.canonical import (
     canonical_json_bytes,
     require_content_id,
+    require_identifier,
     source_tree_digest,
     tree_or_blob_digest,
 )
@@ -42,6 +43,7 @@ _TAR_ZERO_BLOCK = b"\0" * _TAR_BLOCK_SIZE
 _CANONICAL_TAR_TYPES = {b"\0", b"0", b"5"}
 _ZSTD_MAX_BLOCK_SIZE = 128 * 1024
 _ZSTD_MAX_FRAME_HEADER_SIZE = 18
+SOURCE_ARCHIVE_EXTRACTOR_VERSION = "kapso.source_archive_extractor.v1"
 
 
 class MaterializationError(RuntimeError):
@@ -86,6 +88,83 @@ class CacheVerificationReceipt(StrictContract):
         for name, digest in self.asset_digests.items():
             if not name or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
                 raise MaterializationError("receipt asset digest is invalid")
+
+
+@dataclass(frozen=True)
+class SourceArchiveTreeFile(StrictContract):
+    """One exact regular file extracted from a verified release asset."""
+
+    relative_path: str
+    digest: str
+    mode: str
+    size: int
+
+    def _validate(self) -> None:
+        path = PurePosixPath(self.relative_path)
+        if (
+            not self.relative_path
+            or path.is_absolute()
+            or ".." in path.parts
+            or path == PurePosixPath(".")
+            or path.as_posix() != self.relative_path
+        ):
+            raise MaterializationError("source archive file path is invalid")
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.digest) is None:
+            raise MaterializationError("source archive file digest is invalid")
+        if self.mode not in {"100644", "100755"}:
+            raise MaterializationError("source archive file mode is invalid")
+        if type(self.size) is not int or self.size < 0:
+            raise MaterializationError("source archive file size is invalid")
+
+
+@dataclass(frozen=True)
+class SourceArchiveExtractionReceipt(StrictContract):
+    """Exact source tree deterministically extracted from one verified asset."""
+
+    extraction_receipt_id: str
+    artifact_id: str
+    source_archive_ref: str
+    source_archive_digest: str
+    source_tree_hash: str
+    source_tree_files: tuple[SourceArchiveTreeFile, ...]
+    extractor_version: str
+
+    CONTENT_NAMESPACE = "source-archive-extraction-receipt"
+    IDENTITY_FIELD = "extraction_receipt_id"
+
+    def _validate(self) -> None:
+        require_content_id(self.artifact_id, "source archive artifact_id")
+        source_ref = PurePosixPath(self.source_archive_ref)
+        if (
+            not self.source_archive_ref
+            or source_ref.is_absolute()
+            or len(source_ref.parts) != 1
+            or source_ref.as_posix() != self.source_archive_ref
+            or not self.source_archive_ref.endswith((".tar", ".tar.zst"))
+        ):
+            raise MaterializationError("source archive reference is invalid")
+        for value, name in (
+            (self.source_archive_digest, "source archive digest"),
+            (self.source_tree_hash, "source tree hash"),
+        ):
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+                raise MaterializationError(f"{name} is invalid")
+        paths = tuple(item.relative_path for item in self.source_tree_files)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise MaterializationError(
+                "source tree files must be non-empty, sorted, and unique"
+            )
+        expected_tree_hash = source_tree_digest(
+            {
+                item.relative_path: (item.digest, item.mode, item.size)
+                for item in self.source_tree_files
+            }
+        )
+        if self.source_tree_hash != expected_tree_hash:
+            raise MaterializationError(
+                "source tree hash differs from its exact file descriptor"
+            )
+        require_identifier(self.extractor_version, "source archive extractor_version")
 
 
 @dataclass(frozen=True)
@@ -252,6 +331,113 @@ class GitHubArtifactMaterializer:
     def materialize(self, resolved: ResolvedGitHubArtifact) -> MaterializedArtifact:
         with self._cache_lease():
             return self._materialize(resolved)
+
+    def inspect_source_archive(
+        self,
+        materialized: MaterializedArtifact,
+        source_archive_ref: str,
+    ) -> SourceArchiveExtractionReceipt:
+        """Re-extract one verified asset and attest its exact source-only tree."""
+        source_ref = PurePosixPath(source_archive_ref)
+        if (
+            not source_archive_ref
+            or source_ref.is_absolute()
+            or len(source_ref.parts) != 1
+            or source_ref.as_posix() != source_archive_ref
+        ):
+            raise MaterializationError("source archive reference is invalid")
+        if not self._is_archive(source_archive_ref):
+            raise MaterializationError("source archive is not a supported archive")
+        with self._cache_lease():
+            expected_root = (
+                self.cache_root
+                / materialized.receipt.artifact_kind.value
+                / materialized.receipt.artifact_id.rsplit(":", 1)[1]
+            )
+            if materialized.root != expected_root:
+                raise CacheCorruptionError(
+                    "materialized artifact is outside the authorized cache"
+                )
+            receipt = self._read_and_verify_receipt(
+                materialized.root,
+                materialized.receipt.artifact_kind,
+            )
+            if (
+                receipt != materialized.receipt
+                or materialized.content != materialized.root / "content"
+                or materialized.assets != materialized.root / "assets"
+            ):
+                raise CacheCorruptionError(
+                    "materialized artifact differs from its verified cache entry"
+                )
+            source_digest = receipt.asset_digests.get(source_archive_ref)
+            if source_digest is None:
+                raise MaterializationError(
+                    "source archive is absent from the verified asset closure"
+                )
+            source_archive = materialized.assets / source_archive_ref
+            if source_archive.is_symlink() or not source_archive.is_file():
+                raise CacheCorruptionError("source archive asset is not regular")
+            if self._file_digest(source_archive) != source_digest:
+                raise CacheCorruptionError("source archive asset digest changed")
+            kind_directory = materialized.root.parent
+            with tempfile.TemporaryDirectory(
+                prefix=".validation-source-",
+                dir=kind_directory,
+            ) as staging_name:
+                source_tree = Path(staging_name) / "source"
+                source_tree.mkdir()
+                self._extract_archive(
+                    source_archive,
+                    source_tree,
+                    {},
+                    self.settings.materialized_asset_size_bytes,
+                    self.settings.archive_entry_limit,
+                )
+                source_files = tuple(
+                    SourceArchiveTreeFile(
+                        relative_path=path.relative_to(source_tree).as_posix(),
+                        digest=self._file_digest(path),
+                        mode="100755" if path.stat().st_mode & 0o111 else "100644",
+                        size=path.stat().st_size,
+                    )
+                    for path in sorted(source_tree.rglob("*"))
+                    if path.is_file() and not path.is_symlink()
+                )
+                if any(
+                    path.is_symlink() or (not path.is_file() and not path.is_dir())
+                    for path in source_tree.rglob("*")
+                ):
+                    raise MaterializationError(
+                        "extracted source tree contains an invalid entry"
+                    )
+                if not source_files:
+                    raise MaterializationError("source archive tree is empty")
+                source_tree_hash = source_tree_digest(
+                    {
+                        item.relative_path: (item.digest, item.mode, item.size)
+                        for item in source_files
+                    }
+                )
+                if (
+                    self._file_digest(source_archive) != source_digest
+                    or self._read_and_verify_receipt(
+                        materialized.root,
+                        materialized.receipt.artifact_kind,
+                    )
+                    != receipt
+                ):
+                    raise CacheCorruptionError(
+                        "verified source archive changed during extraction"
+                    )
+                return SourceArchiveExtractionReceipt.mint(
+                    artifact_id=receipt.artifact_id,
+                    source_archive_ref=source_archive_ref,
+                    source_archive_digest=source_digest,
+                    source_tree_hash=source_tree_hash,
+                    source_tree_files=source_files,
+                    extractor_version=SOURCE_ARCHIVE_EXTRACTOR_VERSION,
+                )
 
     def _materialize(self, resolved: ResolvedGitHubArtifact) -> MaterializedArtifact:
         self._validate_cache_ancestors()

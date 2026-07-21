@@ -252,11 +252,11 @@ def build_records():
         module_versions={module.module_id: module.version},
         semantic_book_digest=digest("book"),
         configuration_fingerprint=digest("expert-config"),
-        source_archive_ref="release-assets/expert.tar.zst",
+        source_archive_ref="expert.tar.zst",
         dependency_closure_ids=tuple(
             sorted((repository_map.repository_map_id, bootstrap_assertion.assertion_id))
         ),
-        checksums={"release-assets/expert.tar.zst": digest("expert-archive")},
+        checksums={"expert.tar.zst": digest("expert-archive")},
         test_matrix_results={"fresh_task": "passed"},
         approval_assertion_ids=(bootstrap_assertion.assertion_id,),
         contamination_scanner_version="scanner-v1",
@@ -722,6 +722,8 @@ def test_content_mutation_is_detected_but_attestation_rotation_preserves_identit
 
     with pytest.raises(CanonicalizationError):
         replace(release, semantic_book_digest=digest("changed-book"))
+    with pytest.raises(ContractValidationError, match="supported release asset"):
+        replace(release, source_archive_ref="nested/expert.tar.zst")
 
 
 def test_scope_validates_both_families_without_domain_conditionals():

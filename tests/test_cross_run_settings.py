@@ -61,6 +61,8 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert settings.architect.effort == "xhigh"
     assert settings.generalizer.cli == "codex"
     assert settings.generalizer.model == "gpt-5.6-sol"
+    assert settings.triggers.inspector_id == "expert_trigger_inspector"
+    assert settings.triggers.inspection_policy_version == "kapso.expert_inspection.v1"
     assert settings.triggers.minimum_success_contexts == 2
 
 

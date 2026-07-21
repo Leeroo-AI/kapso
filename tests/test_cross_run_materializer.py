@@ -25,6 +25,7 @@ from kapso.cross_run.contracts import (
     PublicationArtifactKind,
     ScopeRepositorySettings,
 )
+from kapso.cross_run.expert import ExpertParentTreeReceipt
 from kapso.cross_run.github.materializer import (
     CacheCorruptionError,
     GitHubArtifactMaterializer,
@@ -395,17 +396,55 @@ def test_materializer_accepts_split_expert_source_and_release_assets(tmp_path):
         pointer_commit_sha="9" * 40,
     )
 
-    materialized = GitHubArtifactMaterializer(
+    materializer = GitHubArtifactMaterializer(
         DownloadClient(
             {asset.asset_id: asset_payloads[asset.name] for asset in assets},
             expert_repository,
         ),
         github_settings(),
         tmp_path / "expert-cache",
-    ).materialize(resolved)
+    )
+    materialized = materializer.materialize(resolved)
+    source_receipt = materializer.inspect_source_archive(
+        materialized,
+        manifest.source_archive_ref,
+    )
 
     assert (materialized.content / "main.py").read_bytes() == source_payload
     assert (materialized.assets / "test-summary.json").read_bytes() == test_summary
+    assert source_receipt.source_tree_hash == source_tree_digest(
+        {
+            "main.py": (
+                tree_or_blob_digest(source_payload),
+                "100644",
+                len(source_payload),
+            )
+        }
+    )
+    assert source_receipt.source_tree_hash != (
+        materialized.receipt.materialized_tree_digest
+    )
+    assert (
+        source_receipt.source_archive_digest
+        == manifest.checksums[manifest.source_archive_ref]
+    )
+    assert tuple(file.relative_path for file in source_receipt.source_tree_files) == (
+        "main.py",
+    )
+    with pytest.raises(MaterializationError, match="reference is invalid"):
+        replace(source_receipt, source_archive_ref="source.bin")
+    parent_receipt = ExpertParentTreeReceipt.mint(
+        release_id=manifest.release_id,
+        cache_verification_receipt=materialized.receipt,
+        source_extraction_receipt=source_receipt,
+        parent_tree_hash=source_receipt.source_tree_hash,
+        repository_map_id=repository_map_id,
+        module_contract_ids=(content_id("fixture", {"module": 1}),),
+        materializer_version="kapso.expert_materializer.v1",
+    )
+    assert parent_receipt.parent_tree_hash != (
+        parent_receipt.cache_verification_receipt.materialized_tree_digest
+    )
 
 
 def test_content_cache_reuses_authorized_relocation_of_same_artifact(tmp_path):

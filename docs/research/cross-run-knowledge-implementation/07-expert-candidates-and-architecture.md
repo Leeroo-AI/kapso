@@ -62,14 +62,14 @@ Architecture candidates require:
 - dependency cycles, adapter leakage, or contract/topology mismatch; or
 - semantic-book navigation/composition evidence showing structural failure.
 
-- [ ] Implement trigger calculation deterministically from pinned evidence and
+- [x] Implement trigger calculation deterministically from pinned evidence and
       configured thresholds.
-- [ ] Count independent lineages, not cloned descendants.
-- [ ] Treat highest score, file-copy frequency, agent preference, or aesthetic
+- [x] Count independent lineages, not cloned descendants.
+- [x] Treat highest score, file-copy frequency, agent preference, or aesthetic
       rearrangement as insufficient.
 - [ ] Classify task-specific improvements as knowledge/task-adapter work, never
       expert core.
-- [ ] Persist trigger decision and exact evidence packet even when no candidate is
+- [x] Persist trigger decision and exact evidence packet even when no candidate is
       proposed.
 
 ## Bootstrap architect
@@ -103,7 +103,7 @@ workspace and proposes:
 
 ## Later repository restructuring
 
-- [ ] Materialize the exact parent expert release and verification receipt.
+- [x] Materialize the exact parent expert release and verification receipt.
 - [ ] Provide the architect only the persisted trigger evidence packet and
       scope/task-family contracts.
 - [ ] Require one atomic full-tree candidate covering every move/split/merge/rename/
