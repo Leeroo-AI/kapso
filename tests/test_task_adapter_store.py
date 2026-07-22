@@ -148,6 +148,7 @@ def _manifest(
             operating_system="linux",
             architecture="amd64",
             architecture_variant=None,
+            environment={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"},
         ),
         sanitation_report_id=_content_id("sanitation"),
         validation_refs=("validation.adapter_smoke",),

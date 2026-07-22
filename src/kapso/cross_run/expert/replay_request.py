@@ -169,8 +169,10 @@ def _source_replay_compute_bindings(
                 ),
                 process_limit=policy.source_replay_process_limit,
                 open_file_limit=policy.source_replay_open_file_limit,
-                writable_entry_limit=policy.source_replay_writable_entry_limit,
-                writable_byte_limit=policy.source_replay_writable_byte_limit,
+                writable_inode_limit=policy.source_replay_writable_inode_limit,
+                writable_storage_byte_limit=(
+                    policy.source_replay_writable_storage_byte_limit
+                ),
                 output_entry_limit=policy.artifact_entry_limit,
                 output_byte_limit=policy.artifact_byte_limit,
                 stdout_byte_limit=policy.source_replay_stdout_byte_limit,

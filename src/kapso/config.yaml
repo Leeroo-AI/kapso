@@ -235,8 +235,8 @@ cross_run:
         source_replay_shared_memory_byte_limit: 1073741824
         source_replay_process_limit: 4096
         source_replay_open_file_limit: 4096
-        source_replay_writable_entry_limit: 10000
-        source_replay_writable_byte_limit: *cross_run_materialized_asset_size_bytes
+        source_replay_writable_inode_limit: 10000
+        source_replay_writable_storage_byte_limit: *cross_run_materialized_asset_size_bytes
         source_replay_stdout_byte_limit: 16777216
         source_replay_stderr_byte_limit: 16777216
         source_replay_task_request_byte_limit: 16777216

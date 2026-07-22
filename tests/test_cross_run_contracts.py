@@ -325,6 +325,7 @@ def build_records():
             operating_system="linux",
             architecture="amd64",
             architecture_variant=None,
+            environment={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"},
         ),
         sanitation_report_id=fixture_id("adapter-sanitation"),
         validation_refs=("validation/adapter-smoke",),
@@ -1130,6 +1131,49 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
     assert manifest.runtime.image_reference == (
         f"{manifest.runtime.image_repository}@{manifest.runtime.image_manifest_digest}"
     )
+    assert dict(manifest.runtime.environment) == {
+        "LANG": "C.UTF-8",
+        "PATH": "/usr/bin:/bin",
+    }
+    with pytest.raises(ContractValidationError, match="key-sorted"):
+        replace(
+            manifest,
+            runtime=replace(
+                manifest.runtime,
+                environment={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+            ),
+        )
+    for secret_key in (
+        "API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "DOCKER_AUTH_CONFIG",
+        "GITHUB_PAT",
+        "NETRC",
+    ):
+        with pytest.raises(ContractValidationError, match="non-secret"):
+            replace(
+                manifest,
+                runtime=replace(
+                    manifest.runtime,
+                    environment={secret_key: "forbidden"},
+                ),
+            )
+    for unsafe_value in (
+        "contains\ncontrol",
+        "contains\u0085control",
+        "contains\u202econtrol",
+        "contains\u2028control",
+        "contains\ud800control",
+    ):
+        with pytest.raises(ContractValidationError, match="non-secret"):
+            replace(
+                manifest,
+                runtime=replace(
+                    manifest.runtime,
+                    environment={"LANG": unsafe_value},
+                ),
+            )
     legacy_runtime = manifest.runtime.to_dict()
     legacy_runtime.pop("image_repository")
     legacy_runtime.pop("image_manifest_digest")
@@ -1232,8 +1276,8 @@ def _source_replay_compute_binding():
         shared_memory_byte_limit=1024**3,
         process_limit=4096,
         open_file_limit=4096,
-        writable_entry_limit=10_000,
-        writable_byte_limit=4 * 1024**3,
+        writable_inode_limit=10_000,
+        writable_storage_byte_limit=4 * 1024**3,
         output_entry_limit=1000,
         output_byte_limit=1024**3,
         stdout_byte_limit=16 * 1024**2,
@@ -1263,8 +1307,8 @@ def test_source_replay_compute_binding_is_canonical_and_every_field_is_bound():
         "shared_memory_byte_limit": binding.shared_memory_byte_limit + 1,
         "process_limit": 4097,
         "open_file_limit": 4097,
-        "writable_entry_limit": 10_001,
-        "writable_byte_limit": binding.writable_byte_limit + 1,
+        "writable_inode_limit": 10_001,
+        "writable_storage_byte_limit": binding.writable_storage_byte_limit + 1,
         "output_entry_limit": 1001,
         "output_byte_limit": binding.output_byte_limit + 1,
         "stdout_byte_limit": binding.stdout_byte_limit + 1,

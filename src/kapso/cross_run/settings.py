@@ -840,8 +840,8 @@ class ExpertValidationPolicySettings(StrictContract):
     source_replay_shared_memory_byte_limit: int
     source_replay_process_limit: int
     source_replay_open_file_limit: int
-    source_replay_writable_entry_limit: int
-    source_replay_writable_byte_limit: int
+    source_replay_writable_inode_limit: int
+    source_replay_writable_storage_byte_limit: int
     source_replay_stdout_byte_limit: int
     source_replay_stderr_byte_limit: int
     source_replay_task_request_byte_limit: int
@@ -917,12 +917,12 @@ class ExpertValidationPolicySettings(StrictContract):
                 "source_replay_open_file_limit",
             ),
             (
-                self.source_replay_writable_entry_limit,
-                "source_replay_writable_entry_limit",
+                self.source_replay_writable_inode_limit,
+                "source_replay_writable_inode_limit",
             ),
             (
-                self.source_replay_writable_byte_limit,
-                "source_replay_writable_byte_limit",
+                self.source_replay_writable_storage_byte_limit,
+                "source_replay_writable_storage_byte_limit",
             ),
             (
                 self.source_replay_stdout_byte_limit,
@@ -1011,14 +1011,15 @@ class ExpertValidationPolicySettings(StrictContract):
         if (
             self.source_replay_shared_memory_byte_limit
             > self.source_replay_memory_byte_limit
-            or self.artifact_entry_limit > self.source_replay_writable_entry_limit
-            or self.artifact_byte_limit > self.source_replay_writable_byte_limit
+            or self.artifact_entry_limit >= self.source_replay_writable_inode_limit
+            or self.artifact_byte_limit > self.source_replay_writable_storage_byte_limit
             or self.source_replay_stdout_byte_limit
-            > self.source_replay_writable_byte_limit
+            > self.source_replay_writable_storage_byte_limit
             or self.source_replay_stderr_byte_limit
-            > self.source_replay_writable_byte_limit
+            > self.source_replay_writable_storage_byte_limit
             or self.source_replay_result_byte_limit
-            > self.source_replay_writable_byte_limit
+            > self.source_replay_writable_storage_byte_limit
+            or self.source_replay_result_byte_limit > self.artifact_byte_limit
         ):
             raise CrossRunConfigurationError(
                 "source replay compute limits are internally inconsistent"

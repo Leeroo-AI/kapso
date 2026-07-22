@@ -132,7 +132,8 @@ a sandbox may not resolve IDs or mutable pointers.
 Each case also owns one immutable `ExpertSourceReplayComputeBinding`. It copies
 the configured execution-provider, paired-protocol, and sandbox-policy versions;
 the exact per-leg wall time, termination grace, CPU, memory, shared-memory,
-process, open-file, writable-store, output, stream, and accelerator limits; and a
+process, open-file, writable tmpfs inode/allocated-storage, output, stream, and
+accelerator limits; and a
 deterministically counterbalanced two-leg order. Its content ID is part of the
 case dependency closure and matched-compute digest. Both legs therefore receive
 the same authorized allocation, but their observed duration and consumption may
@@ -141,7 +142,7 @@ the exact evaluation fingerprints: the executor runs each named leg once and may
 not add an observation-dependent retry. The sandbox policy is structural, not a
 set of caller-controlled booleans: its version must dispatch to an implementation
 that guarantees offline direct execution, read-only inputs, fresh private
-writable roots, and a fixed non-secret environment.
+writable roots, and the adapter-declared fixed non-secret environment.
 
 Provider selection is one exact composite dispatch over the paired-execution
 protocol, execution-provider ID, version, and canonical settings digest,
@@ -389,7 +390,8 @@ It contains exactly three domain-neutral contracts:
 - `TaskAdapterRuntimeContract`: runtime protocol, normalized registry-qualified
   image repository, platform-manifest and image-config digests,
   dependency-lock path/digest, operating system, architecture, and optional OCI
-  variant. The derived `repository@manifest-digest` reference is the sole
+  variant, plus the key-sorted non-secret environment that must exactly match
+  the pinned image configuration. The derived `repository@manifest-digest` reference is the sole
   executable image authority; the config digest disambiguates a platform image
   from an OCI index. A bare local image ID or mutable tag is not authority.
 

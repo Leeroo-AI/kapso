@@ -48,6 +48,12 @@ _GITHUB_REPOSITORY_PATTERN = re.compile(
 )
 _CODING_AGENT_OPERATION_PATTERN = re.compile(r"^agent_call_[0-9a-f]{32}$")
 _EXPERT_MODULE_VERSION_PATTERN = re.compile(r"^v[1-9][0-9]*$")
+_RUNTIME_ENVIRONMENT_KEY_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_SECRET_ENVIRONMENT_KEY_PATTERN = re.compile(
+    r"(?:^|_)(?:ACCESS_KEY(?:_ID)?|ACCESS_TOKEN|API_KEY|AUTH_CONFIG|AUTH_TOKEN|"
+    r"CREDENTIALS?|NETRC|OAUTH_TOKEN|PASSWORD|PASSWD|PAT|PRIVATE_KEY|"
+    r"SECRET(?:_ACCESS_KEY)?|SECRETS?|TOKEN)(?:_|$)"
+)
 EMPTY_EXPERT_TREE_DIGEST = tree_or_blob_digest(canonical_json_bytes(()))
 
 
@@ -3092,8 +3098,8 @@ class ExpertSourceReplayComputeBinding(StrictContract):
     shared_memory_byte_limit: int
     process_limit: int
     open_file_limit: int
-    writable_entry_limit: int
-    writable_byte_limit: int
+    writable_inode_limit: int
+    writable_storage_byte_limit: int
     output_entry_limit: int
     output_byte_limit: int
     stdout_byte_limit: int
@@ -3128,8 +3134,11 @@ class ExpertSourceReplayComputeBinding(StrictContract):
             (self.shared_memory_byte_limit, "shared_memory_byte_limit"),
             (self.process_limit, "process_limit"),
             (self.open_file_limit, "open_file_limit"),
-            (self.writable_entry_limit, "writable_entry_limit"),
-            (self.writable_byte_limit, "writable_byte_limit"),
+            (self.writable_inode_limit, "writable_inode_limit"),
+            (
+                self.writable_storage_byte_limit,
+                "writable_storage_byte_limit",
+            ),
             (self.output_entry_limit, "output_entry_limit"),
             (self.output_byte_limit, "output_byte_limit"),
             (self.stdout_byte_limit, "stdout_byte_limit"),
@@ -3142,8 +3151,8 @@ class ExpertSourceReplayComputeBinding(StrictContract):
         if (
             self.termination_grace_seconds > self.leg_wall_time_limit_seconds
             or self.shared_memory_byte_limit > self.memory_byte_limit
-            or self.output_entry_limit > self.writable_entry_limit
-            or self.output_byte_limit > self.writable_byte_limit
+            or self.output_entry_limit >= self.writable_inode_limit
+            or self.output_byte_limit > self.writable_storage_byte_limit
         ):
             raise ContractValidationError(
                 "source replay compute limits are internally inconsistent"
@@ -4459,6 +4468,7 @@ class TaskAdapterRuntimeContract(StrictContract):
     operating_system: str
     architecture: str
     architecture_variant: str | None
+    environment: Mapping[str, str]
 
     def _validate(self) -> None:
         require_identifier(
@@ -4505,6 +4515,20 @@ class TaskAdapterRuntimeContract(StrictContract):
                 self.architecture_variant,
                 "task adapter runtime architecture_variant",
             )
+        environment_keys = tuple(self.environment)
+        if environment_keys != tuple(sorted(set(environment_keys))):
+            raise ContractValidationError(
+                "task adapter runtime environment must be key-sorted and unique"
+            )
+        for key, value in self.environment.items():
+            if (
+                _RUNTIME_ENVIRONMENT_KEY_PATTERN.fullmatch(key) is None
+                or _SECRET_ENVIRONMENT_KEY_PATTERN.search(key) is not None
+                or (value != "" and not value.isprintable())
+            ):
+                raise ContractValidationError(
+                    "task adapter runtime environment must be fixed and non-secret"
+                )
 
     @property
     def image_reference(self) -> str:

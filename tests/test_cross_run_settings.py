@@ -454,7 +454,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_writable_entry_limit",
+                "source_replay_writable_inode_limit",
             ),
             0,
         ),
@@ -463,7 +463,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_writable_byte_limit",
+                "source_replay_writable_storage_byte_limit",
             ),
             0,
         ),
@@ -568,7 +568,11 @@ def test_zstd_window_configuration_uses_decoder_byte_units():
         ),
         lambda policy: policy.__setitem__(
             "artifact_entry_limit",
-            policy["source_replay_writable_entry_limit"] + 1,
+            policy["source_replay_writable_inode_limit"],
+        ),
+        lambda policy: policy.__setitem__(
+            "source_replay_result_byte_limit",
+            policy["artifact_byte_limit"] + 1,
         ),
         lambda policy: policy.__setitem__(
             "source_replay_accelerator_count",
