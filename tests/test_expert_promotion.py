@@ -35,6 +35,7 @@ from kapso.cross_run.task_adapters import (
     TaskAdapterVerificationReceipt,
     task_adapter_binding_id,
 )
+from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 
 def _id(namespace: str, label: str) -> str:
@@ -74,6 +75,7 @@ def _manifest(
             ),
         )
     )
+    evaluator_fingerprint = _digest("release-evaluator")
     return TaskAdapterManifest.mint(
         task_adapter_id="test_adapter",
         scope_contract_id=_id("expert-scope-contract", "scope"),
@@ -82,10 +84,25 @@ def _manifest(
         task_evaluator=TaskEvaluatorBinding(
             protocol_version="kapso.task_evaluator.v1",
             executable_path="adapter.py",
-            supported_evaluator_fingerprints=(_digest("release-evaluator"),),
+            supported_evaluator_fingerprints=(evaluator_fingerprint,),
             metric_comparison_bindings=bindings,
         ),
         context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=_id("expert-scope-contract", "scope"),
+                scope_id="ml_ai",
+                task_family_id="test_family",
+                task_adapter_id="test_adapter",
+                evaluator_fingerprint=evaluator_fingerprint,
+                metric_directions=tuple(
+                    (metric_name, ObjectiveDirection.MAXIMIZE)
+                    for metric_name in metric_names
+                ),
+                transfer_dimensions={},
+                label="promotion-adapter",
+            ),
+        ),
         source_tree_ref="task-adapter.tar.zst",
         tree_hash=_digest("adapter-tree"),
         runtime=TaskAdapterRuntimeContract(

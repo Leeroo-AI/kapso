@@ -444,9 +444,9 @@ class ExpertCandidateEligibilityEvaluator:
         if len(ordering) != len(set(ordering)):
             raise ExpertValidationError("task adapters must be non-empty and unique")
         manifest = stored.closure.manifest
+        scope_contract = stored.closure.trigger_packet.scope_contract
         scope_dimension_ids = {
-            schema.dimension_id
-            for schema in stored.closure.trigger_packet.scope_contract.context_dimension_schemas
+            schema.dimension_id for schema in scope_contract.context_dimension_schemas
         }
         expected_bindings = {
             (binding.task_family_id, binding.task_adapter_id)
@@ -469,6 +469,10 @@ class ExpertCandidateEligibilityEvaluator:
             ):
                 raise ExpertValidationError(
                     "task adapter does not match candidate scope and trigger"
+                )
+            for release_matrix_case in adapter.release_matrix_cases:
+                release_matrix_case.task_context_binding.validate_against(
+                    scope_contract
                 )
             binding_id = task_adapter_binding_id(
                 adapter.task_family_id,

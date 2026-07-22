@@ -4631,6 +4631,155 @@ class TaskAdapterRuntimeContract(StrictContract):
 
 
 @dataclass(frozen=True)
+class TaskAdapterReleaseMatrixIndependenceGroup(StrictContract):
+    independence_group_id: str
+    lineage_root_digests: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "task-adapter-release-matrix-independence-group"
+    IDENTITY_FIELD: ClassVar[str] = "independence_group_id"
+
+    def _validate(self) -> None:
+        if not self.lineage_root_digests or self.lineage_root_digests != tuple(
+            sorted(set(self.lineage_root_digests))
+        ):
+            raise ContractValidationError(
+                "release matrix lineage roots must be non-empty, sorted, and unique"
+            )
+        for digest in self.lineage_root_digests:
+            _require_digest(digest, "release matrix lineage root")
+
+
+@dataclass(frozen=True)
+class TaskAdapterReleaseMatrixStartingArtifact(StrictContract):
+    starting_artifact_content_id: str
+    starting_artifact_ref: str
+    mount_path: str
+    package_source_root: str
+    materialized_tree_hash: str
+    source_files: tuple[SourceFileDescriptor, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "task-adapter-release-matrix-starting-artifact"
+    IDENTITY_FIELD: ClassVar[str] = "starting_artifact_content_id"
+
+    def _validate(self) -> None:
+        _require_text(
+            self.starting_artifact_ref,
+            "release matrix starting_artifact_ref",
+        )
+        _require_relative_path(self.mount_path, "release matrix artifact mount_path")
+        if self.mount_path == ".":
+            raise ContractValidationError(
+                "release matrix artifact mount_path cannot be the workspace root"
+            )
+        _require_relative_path(
+            self.package_source_root,
+            "release matrix artifact package_source_root",
+        )
+        source_root = PurePosixPath(self.package_source_root)
+        if (
+            len(source_root.parts) < 2
+            or source_root.parts[0] != "release_matrix_assets"
+        ):
+            raise ContractValidationError(
+                "release matrix artifact source root must use its reserved subtree"
+            )
+        paths = tuple(descriptor.relative_path for descriptor in self.source_files)
+        if not paths or paths != tuple(sorted(set(paths))):
+            raise ContractValidationError(
+                "release matrix artifact files must be non-empty, sorted, and unique"
+            )
+        source_paths = tuple(PurePosixPath(path) for path in paths)
+        if any(
+            source_path in other_path.parents
+            for position, source_path in enumerate(source_paths)
+            for other_path in source_paths[position + 1 :]
+        ):
+            raise ContractValidationError(
+                "release matrix artifact files contain a path collision"
+            )
+        expected_tree_hash = source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+                for descriptor in self.source_files
+            }
+        )
+        if self.materialized_tree_hash != expected_tree_hash:
+            raise ContractValidationError(
+                "release matrix artifact tree differs from its file closure"
+            )
+
+
+@dataclass(frozen=True)
+class TaskAdapterReleaseMatrixCase(StrictContract):
+    release_matrix_case_id: str
+    task_context_binding: TaskContextBinding
+    independence_group: TaskAdapterReleaseMatrixIndependenceGroup
+    evaluation_fingerprints: tuple[EvaluationFingerprint, ...]
+    starting_artifacts: tuple[TaskAdapterReleaseMatrixStartingArtifact, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "task-adapter-release-matrix-case"
+    IDENTITY_FIELD: ClassVar[str] = "release_matrix_case_id"
+
+    def _validate(self) -> None:
+        fingerprint_ids = tuple(
+            fingerprint.evaluation_fingerprint_id
+            for fingerprint in self.evaluation_fingerprints
+        )
+        if not fingerprint_ids or fingerprint_ids != tuple(
+            sorted(set(fingerprint_ids))
+        ):
+            raise ContractValidationError(
+                "release matrix case fingerprints must be non-empty, sorted, and unique"
+            )
+        artifact_ids = tuple(
+            artifact.starting_artifact_content_id
+            for artifact in self.starting_artifacts
+        )
+        if artifact_ids != tuple(sorted(set(artifact_ids))):
+            raise ContractValidationError(
+                "release matrix case artifacts must be sorted and unique"
+            )
+        artifact_refs = tuple(
+            artifact.starting_artifact_ref for artifact in self.starting_artifacts
+        )
+        if set(artifact_refs) != set(self.task_context_binding.starting_artifact_refs):
+            raise ContractValidationError(
+                "release matrix case artifacts differ from its task context"
+            )
+        if len(artifact_refs) != len(set(artifact_refs)):
+            raise ContractValidationError(
+                "release matrix case artifact refs must be unique"
+            )
+        mount_paths = tuple(
+            PurePosixPath(artifact.mount_path) for artifact in self.starting_artifacts
+        )
+        if len(mount_paths) != len(set(mount_paths)) or any(
+            left in right.parents or right in left.parents
+            for position, left in enumerate(mount_paths)
+            for right in mount_paths[position + 1 :]
+        ):
+            raise ContractValidationError("release matrix case artifact mounts overlap")
+
+    @property
+    def evaluation_fingerprint_ids(self) -> tuple[str, ...]:
+        return tuple(
+            fingerprint.evaluation_fingerprint_id
+            for fingerprint in self.evaluation_fingerprints
+        )
+
+    @property
+    def starting_artifact_ids(self) -> tuple[str, ...]:
+        return tuple(
+            artifact.starting_artifact_content_id
+            for artifact in self.starting_artifacts
+        )
+
+
+@dataclass(frozen=True)
 class TaskAdapterManifest(StrictContract):
     task_adapter_manifest_id: str
     task_adapter_id: str
@@ -4639,6 +4788,7 @@ class TaskAdapterManifest(StrictContract):
     publisher_attestation: Mapping[str, Any]
     task_evaluator: TaskEvaluatorBinding
     context_binding: TaskAdapterContextBinding
+    release_matrix_cases: tuple[TaskAdapterReleaseMatrixCase, ...]
     source_tree_ref: str
     tree_hash: str
     runtime: TaskAdapterRuntimeContract
@@ -4659,6 +4809,113 @@ class TaskAdapterManifest(StrictContract):
             raise ContractValidationError(
                 "task adapter evaluator and dependency lock paths must differ"
             )
+        reserved_asset_root = PurePosixPath("release_matrix_assets")
+        if any(
+            PurePosixPath(path) == reserved_asset_root
+            or reserved_asset_root in PurePosixPath(path).parents
+            for path in (
+                self.task_evaluator.executable_path,
+                self.runtime.dependency_lock_path,
+            )
+        ):
+            raise ContractValidationError(
+                "task adapter runtime files cannot use the release matrix asset subtree"
+            )
+        case_ids = tuple(
+            case.release_matrix_case_id for case in self.release_matrix_cases
+        )
+        if not case_ids or case_ids != tuple(sorted(set(case_ids))):
+            raise ContractValidationError(
+                "task adapter release matrix cases must be non-empty, sorted, and unique"
+            )
+        comparison_bindings = {
+            (
+                binding.evaluator_fingerprint,
+                binding.metric_name,
+            ): binding
+            for binding in self.task_evaluator.metric_comparison_bindings
+        }
+        artifact_roots: dict[str, str] = {}
+        scientific_projection_groups: dict[tuple[object, ...], str] = {}
+        for case in self.release_matrix_cases:
+            context = case.task_context_binding
+            if (
+                context.scope_contract_id != self.scope_contract_id
+                or context.task_family_id != self.task_family_id
+                or context.task_adapter_id != self.task_adapter_id
+                or not set(self.context_binding.consumed_dimension_ids).issubset(
+                    context.transfer_dimensions
+                )
+            ):
+                raise ContractValidationError(
+                    "task adapter release matrix case differs from its manifest binding"
+                )
+            scientific_projection = (
+                context.scope_contract_id,
+                context.scope_id,
+                context.task_family_id,
+                context.task_adapter_id,
+                context.input_contract_fingerprint,
+                context.target_contract_fingerprint,
+                canonical_json_bytes(context.transfer_dimensions),
+                tuple(
+                    sorted(
+                        {
+                            (
+                                fingerprint.benchmark_id,
+                                fingerprint.dataset_version,
+                                fingerprint.split_version,
+                            )
+                            for fingerprint in case.evaluation_fingerprints
+                        }
+                    )
+                ),
+                tuple(
+                    sorted(
+                        artifact.materialized_tree_hash
+                        for artifact in case.starting_artifacts
+                    )
+                ),
+            )
+            prior_group_id = scientific_projection_groups.setdefault(
+                scientific_projection,
+                case.independence_group.independence_group_id,
+            )
+            if prior_group_id != case.independence_group.independence_group_id:
+                raise ContractValidationError(
+                    "identical release matrix cases cannot claim independent groups"
+                )
+            for fingerprint in case.evaluation_fingerprints:
+                binding = comparison_bindings.get(
+                    (
+                        fingerprint.evaluator_fingerprint,
+                        fingerprint.metric_name,
+                    )
+                )
+                if (
+                    binding is None
+                    or binding.objective_direction
+                    is not fingerprint.objective_direction
+                ):
+                    raise ContractValidationError(
+                        "task adapter release matrix fingerprint lacks exact metric authority"
+                    )
+            for artifact in case.starting_artifacts:
+                prior_artifact_id = artifact_roots.setdefault(
+                    artifact.package_source_root,
+                    artifact.starting_artifact_content_id,
+                )
+                if prior_artifact_id != artifact.starting_artifact_content_id:
+                    raise ContractValidationError(
+                        "release matrix asset root names multiple artifacts"
+                    )
+        roots = tuple(PurePosixPath(root) for root in artifact_roots)
+        if any(
+            left in right.parents or right in left.parents
+            for position, left in enumerate(roots)
+            for right in roots[position + 1 :]
+        ):
+            raise ContractValidationError("release matrix asset roots overlap")
         _require_text(self.source_tree_ref, "source_tree_ref")
         _require_digest(self.tree_hash, "tree_hash")
         require_content_id(self.sanitation_report_id, "sanitation_report_id")

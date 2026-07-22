@@ -14,6 +14,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ContractValidationError,
+    CrossRunContractError,
     CrossRunTaskBindingSettings,
     ExpertAcceptedStageResultRef,
     ExpertCandidateEligibilityDecision,
@@ -58,6 +59,7 @@ from kapso.cross_run.task_adapters import (
 )
 from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
+from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 TASK_ADAPTER_RUNTIME_LOCK = b"python==3.11.9\n"
@@ -173,6 +175,8 @@ def _validation_reducer(
 
 def _task_adapter(closure, position=0) -> TaskAdapterManifest:
     binding = closure.trigger_packet.active_task_bindings[position]
+    scope = closure.trigger_packet.scope_contract
+    evaluator_fingerprint = _digest("source-evaluator")
     _, _, tree_hash = _adapter_source(binding.task_adapter_id)
     return TaskAdapterManifest.mint(
         task_adapter_id=binding.task_adapter_id,
@@ -182,10 +186,10 @@ def _task_adapter(closure, position=0) -> TaskAdapterManifest:
         task_evaluator=TaskEvaluatorBinding(
             protocol_version="kapso.task_evaluator.v1",
             executable_path="adapter.py",
-            supported_evaluator_fingerprints=(_digest("source-evaluator"),),
+            supported_evaluator_fingerprints=(evaluator_fingerprint,),
             metric_comparison_bindings=(
                 TaskEvaluatorMetricComparisonBinding(
-                    evaluator_fingerprint=_digest("source-evaluator"),
+                    evaluator_fingerprint=evaluator_fingerprint,
                     metric_name="accuracy",
                     objective_direction=ObjectiveDirection.MAXIMIZE,
                     comparison_dimension_id="quality",
@@ -194,6 +198,21 @@ def _task_adapter(closure, position=0) -> TaskAdapterManifest:
             ),
         ),
         context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=scope.scope_contract_id,
+                scope_id=scope.scope_id,
+                task_family_id=binding.task_family_id,
+                task_adapter_id=binding.task_adapter_id,
+                evaluator_fingerprint=evaluator_fingerprint,
+                metric_directions=(("accuracy", ObjectiveDirection.MAXIMIZE),),
+                transfer_dimensions={
+                    schema.dimension_id: "fixture"
+                    for schema in scope.context_dimension_schemas
+                },
+                label=f"{binding.task_family_id}:{binding.task_adapter_id}",
+            ),
+        ),
         source_tree_ref="task-adapter.tar.zst",
         tree_hash=tree_hash,
         runtime=TaskAdapterRuntimeContract(
@@ -881,11 +900,37 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
         task_family_id="family",
         task_adapter_id="branch/adapter",
     )
+    source_scope = stored.closure.trigger_packet.scope_contract
+    scope_values = source_scope.to_dict()
+    scope_values.pop("scope_contract_id")
+    family_type = type(source_scope.task_family_ontology[0])
+    binding_type = type(source_scope.task_adapter_contract[0])
+    scope_values["task_family_ontology"] = (
+        family_type(
+            task_family_id="family",
+            capability_tags=("test.family",),
+        ),
+        family_type(
+            task_family_id="family/branch",
+            capability_tags=("test.family_branch",),
+        ),
+    )
+    scope_values["task_adapter_contract"] = (
+        binding_type(
+            task_family_id="family",
+            task_adapter_ids=("branch/adapter",),
+        ),
+        binding_type(
+            task_family_id="family/branch",
+            task_adapter_ids=("adapter",),
+        ),
+    )
+    expanded_scope = type(source_scope).mint(**scope_values)
     expanded_closure = SimpleNamespace(
-        manifest=stored.closure.manifest,
+        manifest=SimpleNamespace(scope_contract_id=expanded_scope.scope_contract_id),
         trigger_packet=SimpleNamespace(
             active_task_bindings=(first_binding, second_binding),
-            scope_contract=stored.closure.trigger_packet.scope_contract,
+            scope_contract=expanded_scope,
         ),
     )
     expanded_stored = SimpleNamespace(closure=expanded_closure)
@@ -968,6 +1013,18 @@ def test_adapter_context_allowlist_must_be_declared_by_the_exact_scope(tmp_path)
             "context_binding": TaskAdapterContextBinding(
                 consumed_dimension_ids=("unknown_dimension",)
             ),
+            "release_matrix_cases": (
+                task_adapter_release_matrix_case(
+                    scope_contract_id=adapter.scope_contract_id,
+                    scope_id="ml_ai",
+                    task_family_id=adapter.task_family_id,
+                    task_adapter_id=adapter.task_adapter_id,
+                    evaluator_fingerprint=_digest("source-evaluator"),
+                    metric_directions=(("accuracy", ObjectiveDirection.MAXIMIZE),),
+                    transfer_dimensions={"unknown_dimension": "fixture"},
+                    label="unknown-dimension-adapter",
+                ),
+            ),
         }
     )
     with pytest.raises(ExpertValidationError, match="scope and trigger"):
@@ -975,6 +1032,63 @@ def test_adapter_context_allowlist_must_be_declared_by_the_exact_scope(tmp_path)
             stored,
             (_verified_adapter(unknown_adapter),),
         )
+
+
+def test_adapter_release_matrix_cases_are_validated_against_the_exact_scope(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    base_case = adapter.release_matrix_cases[0]
+
+    def adapter_with_context(**context_changes):
+        context_values = base_case.task_context_binding.to_dict()
+        context_values.pop("task_context_binding_id")
+        context_values.update(context_changes)
+        changed_case = type(base_case).mint(
+            task_context_binding=type(base_case.task_context_binding).mint(
+                **context_values
+            ),
+            independence_group=base_case.independence_group,
+            evaluation_fingerprints=base_case.evaluation_fingerprints,
+            starting_artifacts=base_case.starting_artifacts,
+        )
+        adapter_values = adapter.to_dict()
+        adapter_values.pop("task_adapter_manifest_id")
+        adapter_values["release_matrix_cases"] = (changed_case,)
+        return TaskAdapterManifest.mint(**adapter_values)
+
+    invalid_contexts = (
+        ({"scope_id": "another_scope"}, "different scope"),
+        (
+            {"transfer_dimensions": {"dataset_family": "fixture"}},
+            "missing=",
+        ),
+        (
+            {
+                "transfer_dimensions": {
+                    "dataset_family": "fixture",
+                    "runtime_family": "fixture",
+                    "unknown_dimension": "fixture",
+                }
+            },
+            "unknown=",
+        ),
+        (
+            {
+                "transfer_dimensions": {
+                    "dataset_family": "fixture",
+                    "runtime_family": 1,
+                }
+            },
+            "must be a string",
+        ),
+    )
+    for changes, message in invalid_contexts:
+        with pytest.raises(CrossRunContractError, match=message):
+            ExpertCandidateEligibilityEvaluator._adapter_bindings(
+                stored,
+                (_verified_adapter(adapter_with_context(**changes)),),
+            )
 
 
 def test_adapter_receipt_pins_attestation_without_changing_scientific_identity(
@@ -1141,6 +1255,21 @@ def test_active_adapter_resolution_cannot_redirect_a_trigger_binding(tmp_path):
         publisher_attestation=expected_adapter.publisher_attestation,
         task_evaluator=expected_adapter.task_evaluator,
         context_binding=expected_adapter.context_binding,
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=expected_adapter.scope_contract_id,
+                scope_id=stored.closure.trigger_packet.scope_contract.scope_id,
+                task_family_id=expected_adapter.task_family_id,
+                task_adapter_id="redirected_adapter",
+                evaluator_fingerprint=_digest("source-evaluator"),
+                metric_directions=(("accuracy", ObjectiveDirection.MAXIMIZE),),
+                transfer_dimensions={
+                    schema.dimension_id: "fixture"
+                    for schema in stored.closure.trigger_packet.scope_contract.context_dimension_schemas
+                },
+                label="redirected-adapter",
+            ),
+        ),
         source_tree_ref=expected_adapter.source_tree_ref,
         tree_hash=redirected_tree_hash,
         runtime=expected_adapter.runtime,

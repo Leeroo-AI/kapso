@@ -278,6 +278,48 @@ class VerifiedTaskAdapter:
             raise ContractValidationError(
                 "task adapter source closure lacks its evaluator or runtime lock"
             )
+        declared_asset_descriptors: dict[str, tuple[str, str, int]] = {}
+        for case in self.manifest.release_matrix_cases:
+            for artifact in case.starting_artifacts:
+                for descriptor in artifact.source_files:
+                    package_path = (
+                        PurePosixPath(artifact.package_source_root)
+                        / descriptor.relative_path
+                    ).as_posix()
+                    descriptor_projection = (
+                        descriptor.digest,
+                        descriptor.mode,
+                        descriptor.size,
+                    )
+                    prior_projection = declared_asset_descriptors.setdefault(
+                        package_path,
+                        descriptor_projection,
+                    )
+                    observed_descriptor = source_descriptors.get(package_path)
+                    if (
+                        prior_projection != descriptor_projection
+                        or observed_descriptor is None
+                        or (
+                            observed_descriptor.digest,
+                            observed_descriptor.mode,
+                            observed_descriptor.size,
+                        )
+                        != descriptor_projection
+                    ):
+                        raise ContractValidationError(
+                            "task adapter release matrix asset differs from its manifest"
+                        )
+        reserved_asset_root = PurePosixPath("release_matrix_assets")
+        reserved_source_paths = {
+            path
+            for path in expected_source_paths
+            if PurePosixPath(path) == reserved_asset_root
+            or reserved_asset_root in PurePosixPath(path).parents
+        }
+        if reserved_source_paths != set(declared_asset_descriptors):
+            raise ContractValidationError(
+                "task adapter release matrix asset closure is not exact"
+            )
         for descriptor in extraction.source_tree_files:
             payload = self.source_contents[descriptor.relative_path]
             if (

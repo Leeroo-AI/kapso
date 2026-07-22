@@ -23,6 +23,7 @@ from kapso.cross_run.contracts import (
     SourceFileDescriptor,
     TaskAdapterContextBinding,
     TaskAdapterManifest,
+    TaskAdapterReleaseMatrixStartingArtifact,
     TaskAdapterRuntimeContract,
     TaskEvaluatorBinding,
     TaskEvaluatorMetricComparisonBinding,
@@ -45,6 +46,7 @@ from kapso.cross_run.task_adapters import (
 from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
 from test_expert_validation import _CurrentReleaseProvider
+from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 RUNTIME_LOCK = b"python==3.11.9\n"
@@ -54,12 +56,47 @@ def _content_id(label: str) -> str:
     return content_id("test-task-adapter-store", {"label": label})
 
 
+def _starting_artifact(
+    payload: bytes,
+    *,
+    label: str = "seed",
+    package_source_root: str | None = None,
+) -> TaskAdapterReleaseMatrixStartingArtifact:
+    descriptor = SourceFileDescriptor(
+        relative_path="fixture.json",
+        digest=tree_or_blob_digest(payload),
+        mode="100644",
+        size=len(payload),
+    )
+    return TaskAdapterReleaseMatrixStartingArtifact.mint(
+        starting_artifact_ref=f"artifact/{label}",
+        mount_path=f"inputs/{label}",
+        package_source_root=(
+            f"release_matrix_assets/{label}"
+            if package_source_root is None
+            else package_source_root
+        ),
+        materialized_tree_hash=source_tree_digest(
+            {
+                descriptor.relative_path: (
+                    descriptor.digest,
+                    descriptor.mode,
+                    descriptor.size,
+                )
+            }
+        ),
+        source_files=(descriptor,),
+    )
+
+
 def _source_descriptors(
     source: bytes,
     *,
     executable: bool = True,
+    extra_files: dict[str, bytes] | None = None,
 ) -> tuple[SourceFileDescriptor, ...]:
-    return (
+    selected_extra_files = {} if extra_files is None else extra_files
+    descriptors = (
         SourceFileDescriptor(
             relative_path="adapter.py",
             digest=tree_or_blob_digest(source),
@@ -72,11 +109,30 @@ def _source_descriptors(
             mode="100644",
             size=len(RUNTIME_LOCK),
         ),
+        *(
+            SourceFileDescriptor(
+                relative_path=path,
+                digest=tree_or_blob_digest(payload),
+                mode="100644",
+                size=len(payload),
+            )
+            for path, payload in selected_extra_files.items()
+        ),
     )
+    return tuple(sorted(descriptors, key=lambda descriptor: descriptor.relative_path))
 
 
-def _source_tree_hash(source: bytes, *, executable: bool = True) -> str:
-    descriptors = _source_descriptors(source, executable=executable)
+def _source_tree_hash(
+    source: bytes,
+    *,
+    executable: bool = True,
+    extra_files: dict[str, bytes] | None = None,
+) -> str:
+    descriptors = _source_descriptors(
+        source,
+        executable=executable,
+        extra_files=extra_files,
+    )
     return source_tree_digest(
         {
             descriptor.relative_path: (
@@ -89,7 +145,13 @@ def _source_tree_hash(source: bytes, *, executable: bool = True) -> str:
     )
 
 
-def _archive(tmp_path: Path, source: bytes, *, executable: bool = True) -> bytes:
+def _archive(
+    tmp_path: Path,
+    source: bytes,
+    *,
+    executable: bool = True,
+    extra_files: dict[str, bytes] | None = None,
+) -> bytes:
     tar_path = tmp_path / "adapter.tar"
     with tarfile.open(tar_path, "w", format=tarfile.USTAR_FORMAT) as package:
         member = tarfile.TarInfo("adapter.py")
@@ -106,6 +168,16 @@ def _archive(tmp_path: Path, source: bytes, *, executable: bool = True) -> bytes
         lock_member.gid = 0
         lock_member.mtime = 0
         package.addfile(lock_member, io.BytesIO(RUNTIME_LOCK))
+        for path, payload in sorted(
+            ({} if extra_files is None else extra_files).items()
+        ):
+            extra_member = tarfile.TarInfo(path)
+            extra_member.size = len(payload)
+            extra_member.mode = 0o644
+            extra_member.uid = 0
+            extra_member.gid = 0
+            extra_member.mtime = 0
+            package.addfile(extra_member, io.BytesIO(payload))
     compressor = zstandard.ZstdCompressor(
         level=3,
         write_checksum=True,
@@ -122,23 +194,26 @@ def _manifest(
     task_family_id: str = "posttrain",
     task_adapter_id: str = "posttrain_adapter",
     executable: bool = True,
+    extra_files: dict[str, bytes] | None = None,
+    starting_artifacts: tuple[TaskAdapterReleaseMatrixStartingArtifact, ...] = (),
+    transfer_dimensions: dict[str, object] | None = None,
 ) -> TaskAdapterManifest:
+    selected_scope_contract_id = (
+        _content_id("scope") if scope_contract_id is None else scope_contract_id
+    )
+    evaluator_fingerprint = tree_or_blob_digest(b"source-evaluator")
     return TaskAdapterManifest.mint(
         task_adapter_id=task_adapter_id,
-        scope_contract_id=(
-            _content_id("scope") if scope_contract_id is None else scope_contract_id
-        ),
+        scope_contract_id=selected_scope_contract_id,
         task_family_id=task_family_id,
         publisher_attestation={"publisher": publisher, "signature": "verified"},
         task_evaluator=TaskEvaluatorBinding(
             protocol_version="kapso.task_evaluator.v1",
             executable_path="adapter.py",
-            supported_evaluator_fingerprints=(
-                tree_or_blob_digest(b"source-evaluator"),
-            ),
+            supported_evaluator_fingerprints=(evaluator_fingerprint,),
             metric_comparison_bindings=(
                 TaskEvaluatorMetricComparisonBinding(
-                    evaluator_fingerprint=tree_or_blob_digest(b"source-evaluator"),
+                    evaluator_fingerprint=evaluator_fingerprint,
                     metric_name="accuracy",
                     objective_direction=ObjectiveDirection.MAXIMIZE,
                     comparison_dimension_id="quality",
@@ -147,8 +222,27 @@ def _manifest(
             ),
         ),
         context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=selected_scope_contract_id,
+                scope_id="ml_ai",
+                task_family_id=task_family_id,
+                task_adapter_id=task_adapter_id,
+                evaluator_fingerprint=evaluator_fingerprint,
+                metric_directions=(("accuracy", ObjectiveDirection.MAXIMIZE),),
+                transfer_dimensions=(
+                    {} if transfer_dimensions is None else transfer_dimensions
+                ),
+                label=f"{task_family_id}:{task_adapter_id}",
+                starting_artifacts=starting_artifacts,
+            ),
+        ),
         source_tree_ref="task-adapter.tar.zst",
-        tree_hash=_source_tree_hash(source, executable=executable),
+        tree_hash=_source_tree_hash(
+            source,
+            executable=executable,
+            extra_files=extra_files,
+        ),
         runtime=TaskAdapterRuntimeContract(
             runtime_protocol_version="kapso.task_adapter_runtime.v1",
             image_repository="registry.example/kapso/test-runtime",
@@ -215,10 +309,20 @@ def _package(
     manifest: TaskAdapterManifest,
     *,
     executable: bool = True,
+    extra_files: dict[str, bytes] | None = None,
 ) -> TaskAdapterPackage:
     source = b"def evaluate(value):\n    return value + 1\n"
-    assert manifest.tree_hash == _source_tree_hash(source, executable=executable)
-    source_archive = _archive(tmp_path, source, executable=executable)
+    assert manifest.tree_hash == _source_tree_hash(
+        source,
+        executable=executable,
+        extra_files=extra_files,
+    )
+    source_archive = _archive(
+        tmp_path,
+        source,
+        executable=executable,
+        extra_files=extra_files,
+    )
     proofs = _proof_objects(manifest)
     return TaskAdapterPackage(
         manifest=manifest,
@@ -377,6 +481,100 @@ def test_real_archive_round_trip_and_identical_publication_replay(tmp_path):
         exact.verification_receipt.proof_object_digests
     )
     assert len(tuple((store.state_path / "packages").iterdir())) == 1
+
+
+def test_release_matrix_artifact_bytes_are_part_of_the_verified_package(tmp_path):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    artifact_payload = b'{"rows": [1, 2, 3]}\n'
+    artifact = _starting_artifact(artifact_payload)
+    extra_files = {
+        "release_matrix_assets/seed/fixture.json": artifact_payload,
+    }
+    manifest = _manifest(
+        source,
+        extra_files=extra_files,
+        starting_artifacts=(artifact,),
+    )
+    exact = _store(tmp_path).publish(
+        _package(tmp_path, manifest, extra_files=extra_files)
+    )
+
+    assert exact.manifest.release_matrix_cases[0].starting_artifacts == (artifact,)
+    assert (
+        exact.source_contents["release_matrix_assets/seed/fixture.json"]
+        == artifact_payload
+    )
+
+
+def test_release_matrix_artifact_closure_rejects_hidden_or_substituted_bytes(
+    tmp_path,
+):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    declared_payload = b'{"rows": [1]}\n'
+    artifact = _starting_artifact(declared_payload)
+    hidden_files = {
+        "release_matrix_assets/seed/fixture.json": declared_payload,
+        "release_matrix_assets/seed/hidden.json": b"{}\n",
+    }
+    hidden_manifest = _manifest(
+        source,
+        extra_files=hidden_files,
+        starting_artifacts=(artifact,),
+    )
+    store = _store(tmp_path)
+    with pytest.raises(ContractValidationError, match="closure is not exact"):
+        store.publish(_package(tmp_path, hidden_manifest, extra_files=hidden_files))
+
+    substituted_files = {
+        "release_matrix_assets/seed/fixture.json": b'{"rows": [2]}\n',
+    }
+    substituted_manifest = _manifest(
+        source,
+        publisher="publisher-b",
+        extra_files=substituted_files,
+        starting_artifacts=(artifact,),
+    )
+    with pytest.raises(ContractValidationError, match="differs from its manifest"):
+        store.publish(
+            _package(
+                tmp_path,
+                substituted_manifest,
+                extra_files=substituted_files,
+            )
+        )
+
+
+def test_release_matrix_artifact_roots_cannot_overlap(tmp_path):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    first = _starting_artifact(
+        b"first\n",
+        label="first",
+        package_source_root="release_matrix_assets/shared",
+    )
+    second = _starting_artifact(
+        b"second\n",
+        label="second",
+        package_source_root="release_matrix_assets/shared/nested",
+    )
+
+    with pytest.raises(ContractValidationError, match="asset roots overlap"):
+        _manifest(source, starting_artifacts=(first, second))
+    with pytest.raises(ContractValidationError, match="workspace root"):
+        replace(first, mount_path=".")
+
+
+def test_runtime_files_cannot_alias_release_matrix_assets():
+    source = b"def evaluate(value):\n    return value + 1\n"
+    manifest = _manifest(source)
+
+    with pytest.raises(ContractValidationError, match="asset subtree"):
+        replace(
+            manifest,
+            task_evaluator=replace(
+                manifest.task_evaluator,
+                executable_path="release_matrix_assets/seed/fixture.json",
+            ),
+        )
 
 
 def test_exact_replay_rejects_an_exhausted_materialization_budget_before_read(
@@ -725,6 +923,10 @@ def test_concrete_store_replays_eligibility_pin_after_active_rotation(tmp_path):
         scope_contract_id=stored_candidate.closure.manifest.scope_contract_id,
         task_family_id=binding.task_family_id,
         task_adapter_id=binding.task_adapter_id,
+        transfer_dimensions={
+            schema.dimension_id: "fixture"
+            for schema in stored_candidate.closure.trigger_packet.scope_contract.context_dimension_schemas
+        },
     )
     second_manifest = replace(
         first_manifest,

@@ -107,6 +107,7 @@ from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
     coding_agent_artifact_filenames,
 )
+from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 TASK_ADAPTER_RUNTIME_LOCK = b"python==3.11.9\n"
@@ -334,31 +335,65 @@ def build_records(
         if task_adapter_runtime is None
         else task_adapter_runtime
     )
+    selected_task_evaluator = (
+        TaskEvaluatorBinding(
+            protocol_version="kapso.task_evaluator.v1",
+            executable_path="adapter.py",
+            supported_evaluator_fingerprints=(digest("evaluator"),),
+            metric_comparison_bindings=(
+                TaskEvaluatorMetricComparisonBinding(
+                    evaluator_fingerprint=digest("evaluator"),
+                    metric_name="quality",
+                    objective_direction=ObjectiveDirection.MAXIMIZE,
+                    comparison_dimension_id="quality",
+                    comparison_scale=1.0,
+                ),
+            ),
+        )
+        if task_evaluator is None
+        else task_evaluator
+    )
     task_adapter = TaskAdapterManifest.mint(
         task_adapter_id="posttrain",
         scope_contract_id=scope.scope_contract_id,
         task_family_id="language_model_post_training",
         publisher_attestation={"issuer": "test-publisher", "signature": "adapter"},
-        task_evaluator=(
-            TaskEvaluatorBinding(
-                protocol_version="kapso.task_evaluator.v1",
-                executable_path="adapter.py",
-                supported_evaluator_fingerprints=(digest("evaluator"),),
-                metric_comparison_bindings=(
-                    TaskEvaluatorMetricComparisonBinding(
-                        evaluator_fingerprint=digest("evaluator"),
-                        metric_name="quality",
-                        objective_direction=ObjectiveDirection.MAXIMIZE,
-                        comparison_dimension_id="quality",
-                        comparison_scale=1.0,
-                    ),
-                ),
-            )
-            if task_evaluator is None
-            else task_evaluator
-        ),
+        task_evaluator=selected_task_evaluator,
         context_binding=TaskAdapterContextBinding(
             consumed_dimension_ids=("dataset_family", "runtime_family"),
+        ),
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=scope.scope_contract_id,
+                scope_id="ml_ai",
+                task_family_id="language_model_post_training",
+                task_adapter_id="posttrain",
+                evaluator_fingerprint=(
+                    selected_task_evaluator.metric_comparison_bindings[
+                        0
+                    ].evaluator_fingerprint
+                ),
+                metric_directions=tuple(
+                    (
+                        binding.metric_name,
+                        binding.objective_direction,
+                    )
+                    for binding in selected_task_evaluator.metric_comparison_bindings
+                ),
+                evaluation_bindings=tuple(
+                    (
+                        binding.evaluator_fingerprint,
+                        binding.metric_name,
+                        binding.objective_direction,
+                    )
+                    for binding in selected_task_evaluator.metric_comparison_bindings
+                ),
+                transfer_dimensions={
+                    "dataset_family": "instruction",
+                    "runtime_family": "pytorch",
+                },
+                label="posttrain-release-matrix",
+            ),
         ),
         source_tree_ref="task-adapter.tar.zst",
         tree_hash=task_adapter_tree_hash,
@@ -1135,6 +1170,78 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
     comparison_binding = manifest.task_evaluator.metric_comparison_bindings[0]
     assert comparison_binding.comparison_dimension_id == "quality"
     assert comparison_binding.comparison_scale == 1.0
+    first_case = manifest.release_matrix_cases[0]
+    second_context_values = first_case.task_context_binding.to_dict()
+    second_context_values.pop("task_context_binding_id")
+    second_context_values["budget_hardware_envelope"] = {
+        "accelerator": "H200",
+        "hours": 2,
+    }
+    second_case = type(first_case).mint(
+        task_context_binding=TaskContextBinding.mint(**second_context_values),
+        independence_group=first_case.independence_group,
+        evaluation_fingerprints=first_case.evaluation_fingerprints,
+        starting_artifacts=first_case.starting_artifacts,
+    )
+    assert second_case.release_matrix_case_id != first_case.release_matrix_case_id
+    assert second_case.independence_group == first_case.independence_group
+
+    multi_case_values = manifest.to_dict()
+    multi_case_values.pop("task_adapter_manifest_id")
+    multi_case_values["release_matrix_cases"] = tuple(
+        sorted(
+            (first_case, second_case),
+            key=lambda case: case.release_matrix_case_id,
+        )
+    )
+    multi_case_manifest = TaskAdapterManifest.mint(**multi_case_values)
+    assert len(multi_case_manifest.release_matrix_cases) == 2
+
+    forged_group = type(first_case.independence_group).mint(
+        lineage_root_digests=(digest("forged-independent-lineage"),),
+    )
+    forged_duplicate = type(first_case).mint(
+        task_context_binding=second_case.task_context_binding,
+        independence_group=forged_group,
+        evaluation_fingerprints=second_case.evaluation_fingerprints,
+        starting_artifacts=second_case.starting_artifacts,
+    )
+    forged_values = manifest.to_dict()
+    forged_values.pop("task_adapter_manifest_id")
+    forged_values["release_matrix_cases"] = tuple(
+        sorted(
+            (first_case, forged_duplicate),
+            key=lambda case: case.release_matrix_case_id,
+        )
+    )
+    with pytest.raises(ContractValidationError, match="independent groups"):
+        TaskAdapterManifest.mint(**forged_values)
+
+    fingerprint_values = first_case.evaluation_fingerprints[0].to_dict()
+    fingerprint_values.pop("evaluation_fingerprint_id")
+    fingerprint_values["seed_or_replicate_ids"] = ("seed-2",)
+    seed_variant = type(first_case).mint(
+        task_context_binding=first_case.task_context_binding,
+        independence_group=forged_group,
+        evaluation_fingerprints=(EvaluationFingerprint.mint(**fingerprint_values),),
+        starting_artifacts=first_case.starting_artifacts,
+    )
+    seed_variant_values = manifest.to_dict()
+    seed_variant_values.pop("task_adapter_manifest_id")
+    seed_variant_values["release_matrix_cases"] = tuple(
+        sorted(
+            (first_case, seed_variant),
+            key=lambda case: case.release_matrix_case_id,
+        )
+    )
+    with pytest.raises(ContractValidationError, match="independent groups"):
+        TaskAdapterManifest.mint(**seed_variant_values)
+
+    empty_case_values = manifest.to_dict()
+    empty_case_values.pop("task_adapter_manifest_id")
+    empty_case_values["release_matrix_cases"] = ()
+    with pytest.raises(ContractValidationError, match="must be non-empty"):
+        TaskAdapterManifest.mint(**empty_case_values)
 
     legacy_payload = dict(payload)
     legacy_payload["task_evaluator_binding"] = legacy_payload.pop("task_evaluator")
@@ -1261,6 +1368,18 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
         task_family_id="relational_tabular_prediction",
         context_binding=TaskAdapterContextBinding(
             consumed_dimension_ids=("dataset_family",)
+        ),
+        release_matrix_cases=(
+            task_adapter_release_matrix_case(
+                scope_contract_id=manifest.scope_contract_id,
+                scope_id="ml_ai",
+                task_family_id="relational_tabular_prediction",
+                task_adapter_id="relbench",
+                evaluator_fingerprint=digest("evaluator"),
+                metric_directions=(("quality", ObjectiveDirection.MAXIMIZE),),
+                transfer_dimensions={"dataset_family": "relational_tabular"},
+                label="relbench-release-matrix",
+            ),
         ),
     )
     relbench_manifest = TaskAdapterManifest.mint(**relbench_values)
