@@ -355,6 +355,18 @@ class ExpertValidationStore:
             expected_transition_id=expected_transition_id,
             request_record_id=decision.eligibility_decision_id,
         )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(decision.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertValidationCommitResult(snapshot=replay, replayed=True)
+            observed = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(observed, expected_transition_id)
+            predecessor = None if observed is None else observed.predecessor
+        start = self.reducer.start_from_predecessor(
+            eligibility=eligibility,
+            predecessor=predecessor,
+        )
         with self._lock(exclusive=True):
             journal = self._read_journal_unlocked(decision.candidate_id)
             replay = self._resolved_operation_unlocked(journal, operation)
@@ -362,11 +374,10 @@ class ExpertValidationStore:
                 return ExpertValidationCommitResult(snapshot=replay, replayed=True)
             current = self._current_from_journal_unlocked(journal)
             self._require_expected_head(current, expected_transition_id)
-            predecessor = None if current is None else current.predecessor
-            start = self.reducer.start_from_predecessor(
-                eligibility=eligibility,
-                predecessor=predecessor,
-            )
+            if current != observed:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during enrollment checks"
+                )
             if (
                 current is not None
                 and start.attempt is None
@@ -424,6 +435,23 @@ class ExpertValidationStore:
             expected_transition_id=expected_transition_id,
             request_record_id=result_record.evaluator_result_record_id,
         )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertValidationCommitResult(snapshot=replay, replayed=True)
+            observed = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(observed, expected_transition_id)
+            if observed is None or observed.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "evaluator result requires a current validation attempt"
+                )
+        target_state = self.reducer.advance(
+            state=observed.state,
+            attempt=observed.latest_attempt,
+            accepted_results=observed.accepted_results,
+            result=result,
+        )
         with self._lock(exclusive=True):
             journal = self._read_journal_unlocked(candidate_id)
             replay = self._resolved_operation_unlocked(journal, operation)
@@ -431,16 +459,10 @@ class ExpertValidationStore:
                 return ExpertValidationCommitResult(snapshot=replay, replayed=True)
             current = self._current_from_journal_unlocked(journal)
             self._require_expected_head(current, expected_transition_id)
-            if current is None or current.latest_attempt is None:
-                raise ExpertValidationStoreError(
-                    "evaluator result requires a current validation attempt"
+            if current != observed:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during evaluator checks"
                 )
-            target_state = self.reducer.advance(
-                state=current.state,
-                attempt=current.latest_attempt,
-                accepted_results=current.accepted_results,
-                result=result,
-            )
             accepted_ids = current.transition.accepted_result_record_ids
             if result.evaluator_run.outcome is ExpertEvaluatorOutcome.PASSED:
                 accepted_ids = (
@@ -673,35 +695,47 @@ class ExpertValidationStore:
             expected_validation_state_id,
             "expected_validation_state_id",
         )
-        with self._lock(exclusive=True):
+        with self._lock(exclusive=False):
             journal = self._read_journal_unlocked(candidate_id)
             self._validate_journal_unlocked(journal)
-            for transition_id in journal.transition_ids:
-                existing = self._read_contract_unlocked(
-                    transition_id,
-                    ExpertValidationTransition,
-                )
-                if (
-                    existing.predecessor_state_id == expected_validation_state_id
-                    and existing.transition_authority_invalidation_id is not None
-                ):
-                    return ExpertValidationCommitResult(
-                        snapshot=self._snapshot_at_unlocked(journal, transition_id),
-                        replayed=True,
-                    )
-            current = self._current_from_journal_unlocked(journal)
-            if current is None or current.latest_attempt is None:
+            replayed = self._parent_authority_invalidation_snapshot_unlocked(
+                journal,
+                expected_validation_state_id,
+            )
+            if replayed is not None:
+                return ExpertValidationCommitResult(snapshot=replayed, replayed=True)
+            observed = self._current_from_journal_unlocked(journal)
+            if observed is None or observed.latest_attempt is None:
                 raise ExpertValidationStoreError(
                     "authority invalidation requires a current validation attempt"
                 )
-            if current.state.validation_state_id != expected_validation_state_id:
+            if observed.state.validation_state_id != expected_validation_state_id:
                 raise ExpertValidationCompareAndSwapError(
                     "validation candidate head changed before publication"
                 )
-            reduced = self.reducer.invalidate_parent_authority(
-                state=current.state,
-                attempt=current.latest_attempt,
+        reduced = self.reducer.invalidate_parent_authority(
+            state=observed.state,
+            attempt=observed.latest_attempt,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(candidate_id)
+            self._validate_journal_unlocked(journal)
+            replayed = self._parent_authority_invalidation_snapshot_unlocked(
+                journal,
+                expected_validation_state_id,
             )
+            if replayed is not None:
+                return ExpertValidationCommitResult(snapshot=replayed, replayed=True)
+            current = self._current_from_journal_unlocked(journal)
+            if (
+                current is None
+                or current.latest_attempt is None
+                or current.state.validation_state_id != expected_validation_state_id
+                or current != observed
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "validation candidate head changed during authority checks"
+                )
             invalidation = reduced.invalidation
             operation = ExpertValidationOperation.mint(
                 operation_kind=(ExpertValidationOperationKind.AUTHORITY_INVALIDATION),
@@ -742,6 +776,23 @@ class ExpertValidationStore:
                 snapshot=self._snapshot_at_unlocked(updated, transition.transition_id),
                 replayed=False,
             )
+
+    def _parent_authority_invalidation_snapshot_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        expected_validation_state_id: str,
+    ) -> ExpertValidationSnapshot | None:
+        for transition_id in journal.transition_ids:
+            transition = self._read_contract_unlocked(
+                transition_id,
+                ExpertValidationTransition,
+            )
+            if (
+                transition.predecessor_state_id == expected_validation_state_id
+                and transition.transition_authority_invalidation_id is not None
+            ):
+                return self._snapshot_at_unlocked(journal, transition_id)
+        return None
 
     def _start_transition(
         self,

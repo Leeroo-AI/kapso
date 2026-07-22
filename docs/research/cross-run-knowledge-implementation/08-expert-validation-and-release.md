@@ -234,6 +234,12 @@ outside the validation lock. A second identical reopen after those external
 checks closes validation-head races before the local spawn boundary is written.
 The store lock is global, so it never encloses archive verification, network
 access, an execution-journal lock, a callback, workspace work, or provider start.
+Enrollment, evaluator-result publication, reservation admission, and parent
+invalidation all use the same pattern: shared exact-replay and head observation,
+unlocked reducer/provider/verifier work, then exclusive exact-replay-first and
+unchanged-snapshot compare-and-swap before any write. Identical concurrent
+operations converge on one transition; a different winner makes the stale
+operation fail without publishing its reduced objects into the journal.
 No local lock can make GitHub, a denylist, and process creation transactional;
 safety instead comes from the double reopen, the durable at-most-once marker,
 and a final fresh-authority plus validation-head CAS before accepting receipts.
@@ -305,7 +311,8 @@ Implemented validation substrate:
   and transitions behind one atomic per-candidate journal;
 - operation-to-transition bindings make lost-response retries exact, while the
   journal head provides compare-and-swap publication with no fork, merge, or
-  rollback behavior;
+  rollback behavior; provider and attestation work runs outside that lock and an
+  exact retry returns before repeating external verification;
 - immutable source-replay reservation aliases admit exactly one byte-closed
   prepared execution request without changing the validation head and replay
   exactly across process/store recovery;
