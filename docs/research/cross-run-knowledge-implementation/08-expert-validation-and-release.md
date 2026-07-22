@@ -218,7 +218,13 @@ fixture synthesizes task-adapter, current-release, and denylist authority; it do
 not exercise their production GitHub transports.
 
 The task evaluator is a blinded scientific ABI, not a view of validation
-authority. Protocol v1 writes one canonical request to
+authority. Its request/result contracts, canonical parser, stable aggregation,
+mount paths, and opaque `task_evaluation_invocation_*` namespace now live in the
+domain-neutral `task_evaluator_protocol` module. Source replay retains only its
+source-specific allocation authority above that ABI; adapter-owned matrix cases
+use `TaskEvaluationInvocationAllocation` with exact task reservation/case/leg
+namespaces. There is no replay-named ABI alias or old invocation format. Protocol
+v1 writes one canonical request to
 `/kapso/input/request.json`, mounts the selected expert at
 `/kapso/input/expert`, the verified adapter at `/kapso/input/adapter`, captured
 task artifacts beneath `/kapso/input/task`, and accepts only
@@ -726,7 +732,9 @@ The shared operational authority is single-sourced as
 `validation.task_evaluation_provider` plus `task_evaluation_*` policy fields.
 Execution protocol, provider identity/version/settings digest, sandbox, resource and
 stream ceilings, journal/result bounds, accelerator, and aggregate materialization
-limits are common to source replay and adapter-owned matrix cases. Evaluator identity,
+limits are common to source replay and adapter-owned matrix cases. Aggregate
+recomputation uses the one configured `task_evaluation_aggregate_tolerance`; the
+former source-only name is removed. Evaluator identity,
 role, version, and leg timeout remain stage-specific in `evaluators`; source selection,
 bundle/episode limits, historical context materialization, stage decision, and score
 comparison tolerance remain explicitly source-replay policy. The former generic

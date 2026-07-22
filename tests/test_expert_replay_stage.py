@@ -376,8 +376,8 @@ def test_stage_orchestrator_rejects_mismatched_policy_wiring_before_run(tmp_path
     stage = _stage_fixture(tmp_path)
     changed_policy = replace(
         stage.prepared.settings.policy,
-        source_replay_score_comparison_tolerance=(
-            stage.prepared.settings.policy.source_replay_score_comparison_tolerance / 2
+        task_evaluation_aggregate_tolerance=(
+            stage.prepared.settings.policy.task_evaluation_aggregate_tolerance / 2
         ),
     )
     alternate_execution_store = ExpertSourceReplayExecutionStore(

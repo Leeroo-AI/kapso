@@ -31,8 +31,10 @@ from kapso.cross_run.expert.replay_execution_store import (
     source_replay_execution_schedule,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
+    ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorFingerprintResult,
-    TaskEvaluatorInvocationAllocation,
     TaskEvaluatorResult,
 )
 from kapso.cross_run.process import (
@@ -1498,14 +1500,14 @@ def test_event_ordinal_is_the_create_only_publication_slot(tmp_path):
     original_event = SourceReplayExecutionJournalEvent.from_json_bytes(
         event_path.read_bytes()
     )
-    forked_allocation = TaskEvaluatorInvocationAllocation(
+    forked_allocation = ExpertSourceReplayInvocationAllocation(
         reservation_id=original_event.reservation_id,
         execution_case_id=original_event.execution_case_id,
         execution_leg_id=original_event.execution_leg_id,
         invocation_nonce="f" * 32,
     )
     if forked_allocation == original_event.invocation_allocation:
-        forked_allocation = TaskEvaluatorInvocationAllocation(
+        forked_allocation = ExpertSourceReplayInvocationAllocation(
             reservation_id=original_event.reservation_id,
             execution_case_id=original_event.execution_case_id,
             execution_leg_id=original_event.execution_leg_id,

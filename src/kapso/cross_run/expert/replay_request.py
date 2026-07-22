@@ -441,7 +441,7 @@ class PreparedExpertSourceReplayRequest:
             self.cases
         )
         projector = RunBundleProjector(
-            self.settings.policy.source_replay_score_comparison_tolerance
+            self.settings.policy.task_evaluation_aggregate_tolerance
         )
         if any(
             _replay_bundle_lineage_from_bytes(
@@ -644,7 +644,7 @@ class ExpertSourceReplayPreflightCoordinator:
         self.parent_provider = parent_provider
         self.bundle_provider = bundle_provider
         self.bundle_projector = RunBundleProjector(
-            settings.policy.source_replay_score_comparison_tolerance
+            settings.policy.task_evaluation_aggregate_tolerance
         )
         self.task_adapter_provider = task_adapter_provider
         self.task_context_provider = task_context_provider

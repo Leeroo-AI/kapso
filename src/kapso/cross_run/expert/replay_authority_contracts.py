@@ -16,7 +16,7 @@ from kapso.cross_run.contracts import (
     StrictContract,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
 )
 
 if TYPE_CHECKING:
@@ -239,7 +239,7 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
     scope_id: str
     scope_contract_id: str
     expected_parent_release_id: str
-    invocation_allocation: TaskEvaluatorInvocationAllocation
+    invocation_allocation: ExpertSourceReplayInvocationAllocation
     current_release_observation: SourceReplayCurrentReleaseObservation
     task_adapter_trust_observations: tuple[SourceReplayTaskAdapterTrustObservation, ...]
     security_denylist_observation: SourceReplaySecurityDenylistObservation

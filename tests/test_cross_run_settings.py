@@ -563,7 +563,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_score_comparison_tolerance",
+                "task_evaluation_aggregate_tolerance",
             ),
             0,
         ),
@@ -657,13 +657,11 @@ def test_source_replay_compute_policy_rejects_inconsistent_limits(mutate):
 
 def test_source_replay_must_use_the_capture_projection_tolerance():
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["policy"][
-        "source_replay_score_comparison_tolerance"
-    ] *= 2
+    raw["expert"]["validation"]["policy"]["task_evaluation_aggregate_tolerance"] *= 2
 
     with pytest.raises(
         CrossRunConfigurationError,
-        match="projection tolerances must match",
+        match="aggregate tolerances must match",
     ):
         CrossRunSettings.from_dict(raw)
 

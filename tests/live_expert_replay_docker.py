@@ -106,7 +106,7 @@ opaque_invocation_id="$(printf '%s' "$request" | /bin/busybox sed 's/.*"opaque_i
 evaluation_fingerprint_id="$(printf '%s' "$request" | /bin/busybox sed 's/.*"evaluation_fingerprint_id":"\([^"]*\)".*/\1/')"
 replicate_id="$(printf '%s' "$request" | /bin/busybox sed 's/.*"seed_or_replicate_ids":\["\([^"]*\)"\].*/\1/')"
 
-case "$opaque_invocation_id" in replay_invocation_*) ;; *) exit 25 ;; esac
+case "$opaque_invocation_id" in task_evaluation_invocation_*) ;; *) exit 25 ;; esac
 case "$evaluation_fingerprint_id" in evaluation-fingerprint:sha256:*) ;; *) exit 26 ;; esac
 [ -n "$replicate_id" ] || exit 27
 

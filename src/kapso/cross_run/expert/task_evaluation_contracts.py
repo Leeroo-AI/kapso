@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
-from kapso.cross_run.canonical import require_content_id, require_identifier
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    require_content_id,
+    require_identifier,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import StrictContract
 from kapso.cross_run.expert.promotion_contracts import ExpertReleaseMatrixMode
 
@@ -498,6 +503,57 @@ class TaskEvaluationRequest(StrictContract):
             raise TaskEvaluationContractError(
                 "task evaluation request dependency closure is not exact"
             )
+
+
+@dataclass(frozen=True)
+class TaskEvaluationInvocationAllocation(StrictContract):
+    """Private journal allocation of one unpredictable nonce to one exact leg."""
+
+    reservation_id: str
+    evaluation_case_id: str
+    evaluation_leg_id: str
+    invocation_nonce: str
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.reservation_id,
+                "task-evaluation-reservation",
+                "task evaluation allocation reservation",
+            ),
+            (
+                self.evaluation_case_id,
+                "task-evaluation-case",
+                "task evaluation allocation case",
+            ),
+            (
+                self.evaluation_leg_id,
+                "task-evaluation-leg",
+                "task evaluation allocation leg",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        if (
+            not isinstance(self.invocation_nonce, str)
+            or re.fullmatch(r"[0-9a-f]{32}", self.invocation_nonce) is None
+        ):
+            raise TaskEvaluationContractError(
+                "task evaluation allocation nonce must contain 128 random bits"
+            )
+
+    @property
+    def opaque_invocation_id(self) -> str:
+        digest = tree_or_blob_digest(
+            canonical_json_bytes(
+                {
+                    "evaluation_case_id": self.evaluation_case_id,
+                    "evaluation_leg_id": self.evaluation_leg_id,
+                    "invocation_nonce": self.invocation_nonce,
+                    "reservation_id": self.reservation_id,
+                }
+            )
+        ).removeprefix("sha256:")
+        return f"task_evaluation_invocation_{digest[:32]}"
 
 
 @dataclass(frozen=True)

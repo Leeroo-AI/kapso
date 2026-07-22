@@ -14,7 +14,7 @@ from kapso.cross_run.expert.replay_authority_contracts import (
     source_replay_task_adapter_trust_observations,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
 )
 from kapso.cross_run.expert.replay_execution import (
     ResolvedExpertSourceReplayExecutionCase,
@@ -240,7 +240,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             resolved_case=resolved_case,
             fence=fence,
             aggregate_tolerance=(
-                prepared.settings.policy.source_replay_score_comparison_tolerance
+                prepared.settings.policy.task_evaluation_aggregate_tolerance
             ),
         )
         return self.execution_store._commit_spawn_authorization(
@@ -273,7 +273,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
 
 def _allocated_materialized_case(
     prepared: PreparedExpertSourceReplayRequest,
-    allocation: TaskEvaluatorInvocationAllocation,
+    allocation: ExpertSourceReplayInvocationAllocation,
 ) -> MaterializedExpertSourceReplayCase:
     matches = tuple(
         item

@@ -858,7 +858,7 @@ class ExpertValidationPolicySettings(StrictContract):
     task_evaluation_materialization_entry_limit: int
     task_evaluation_materialization_byte_limit: int
     task_evaluation_materialization_timeout_seconds: int
-    source_replay_score_comparison_tolerance: float
+    task_evaluation_aggregate_tolerance: float
     sealed_canary_trust_root: str | None
     architecture_requires_sealed_canary: bool
     artifact_entry_limit: int
@@ -1002,8 +1002,8 @@ class ExpertValidationPolicySettings(StrictContract):
             "expert.validation.policy.task_evaluation_materialization_timeout_seconds",
         )
         _require_positive(
-            self.source_replay_score_comparison_tolerance,
-            "expert.validation.policy.source_replay_score_comparison_tolerance",
+            self.task_evaluation_aggregate_tolerance,
+            "expert.validation.policy.task_evaluation_aggregate_tolerance",
         )
         _require_positive(
             self.artifact_entry_limit,
@@ -1586,10 +1586,10 @@ class CrossRunSettings(StrictContract):
             )
         if (
             self.capture.score_comparison_tolerance
-            != self.expert.validation.policy.source_replay_score_comparison_tolerance
+            != self.expert.validation.policy.task_evaluation_aggregate_tolerance
         ):
             raise CrossRunConfigurationError(
-                "capture and source replay projection tolerances must match"
+                "capture and task-evaluation aggregate tolerances must match"
             )
         if (
             self.expert.validation.policy.task_evaluation_journal_event_byte_limit

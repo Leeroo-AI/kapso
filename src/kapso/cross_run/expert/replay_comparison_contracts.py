@@ -15,6 +15,8 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayProtocolError,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorFingerprintResult,
     require_finite_float,
     stable_arithmetic_mean,

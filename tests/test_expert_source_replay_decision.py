@@ -26,7 +26,7 @@ from kapso.cross_run.expert.replay_decision_contracts import (
     ExpertSourceReplayDecisionError,
     ExpertSourceReplayStageDecision,
 )
-from kapso.cross_run.expert.replay_protocol_contracts import (
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorFingerprintResult,
 )
 from test_expert_replay_execution_store import _remint

@@ -33,7 +33,10 @@ from kapso.cross_run.expert.replay_execution_store import (
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayProtocolError,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorFingerprintResult,
+    TaskEvaluatorProtocolError,
     TaskEvaluatorResult,
     stable_arithmetic_mean,
 )
@@ -488,7 +491,7 @@ def test_comparison_rejects_nonfinite_derived_values_and_signed_zero(tmp_path):
 
 
 def test_stable_arithmetic_mean_rejects_empty_and_nonfinite_values():
-    with pytest.raises(ExpertSourceReplayProtocolError, match="finite"):
+    with pytest.raises(TaskEvaluatorProtocolError, match="finite"):
         stable_arithmetic_mean(())
-    with pytest.raises(ExpertSourceReplayProtocolError, match="finite"):
+    with pytest.raises(TaskEvaluatorProtocolError, match="finite"):
         stable_arithmetic_mean((float("inf"),))

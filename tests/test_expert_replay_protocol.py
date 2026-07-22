@@ -9,15 +9,18 @@ from kapso.cross_run.canonical import canonical_json_bytes, content_id
 from kapso.cross_run.contracts import EvaluationFingerprint
 from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
 from kapso.cross_run.expert.replay_protocol_contracts import (
+    ExpertSourceReplayInvocationAllocation,
+    ExpertSourceReplayProtocolError,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TASK_EVALUATOR_ADAPTER_ROOT,
     TASK_EVALUATOR_EXPERT_ROOT,
     TASK_EVALUATOR_REQUEST_PATH,
     TASK_EVALUATOR_RESULT_PATH,
     TASK_EVALUATOR_TASK_ROOT,
     TASK_EVALUATOR_WRITABLE_ROOT,
-    ExpertSourceReplayProtocolError,
     TaskEvaluatorFingerprintResult,
-    TaskEvaluatorInvocationAllocation,
+    TaskEvaluatorProtocolError,
     TaskEvaluatorRequest,
     TaskEvaluatorResult,
     TaskEvaluatorStartingArtifactMount,
@@ -25,12 +28,14 @@ from kapso.cross_run.expert.replay_protocol_contracts import (
 )
 from test_expert_source_replay_request import _prepared, _request_fixture
 
-SECOND_OPAQUE_INVOCATION_ID = "replay_invocation_fedcba9876543210fedcba9876543210"
+SECOND_OPAQUE_INVOCATION_ID = (
+    "task_evaluation_invocation_fedcba9876543210fedcba9876543210"
+)
 INVOCATION_NONCE = "0123456789abcdef0123456789abcdef"
 
 
 def _allocation(prepared, execution_leg_id, *, nonce=INVOCATION_NONCE):
-    return TaskEvaluatorInvocationAllocation(
+    return ExpertSourceReplayInvocationAllocation(
         reservation_id=content_id(
             "expert-source-replay-execution-reservation",
             {"fixture": "task-evaluator-protocol"},
@@ -191,7 +196,7 @@ def test_result_parser_accepts_only_the_exact_canonical_measurement_matrix(
     parsed = parse_task_evaluator_result(
         result.to_json_bytes(),
         request,
-        fixture.settings.policy.source_replay_score_comparison_tolerance,
+        fixture.settings.policy.task_evaluation_aggregate_tolerance,
     )
 
     assert parsed == result
@@ -247,7 +252,7 @@ def test_result_rejects_identity_coverage_and_aggregate_substitution(
         parse_task_evaluator_result(
             result.to_json_bytes(),
             request,
-            fixture.settings.policy.source_replay_score_comparison_tolerance,
+            fixture.settings.policy.task_evaluation_aggregate_tolerance,
         )
 
 
@@ -273,7 +278,7 @@ def test_result_aggregate_uses_the_pinned_tolerance(replay_protocol_fixture):
         )
         == drifted
     )
-    with pytest.raises(ExpertSourceReplayProtocolError, match="aggregate"):
+    with pytest.raises(TaskEvaluatorProtocolError, match="aggregate"):
         parse_task_evaluator_result(
             drifted.to_json_bytes(),
             request,
@@ -315,9 +320,9 @@ def test_result_parser_rejects_noncanonical_and_unknown_json(
 ):
     fixture, _, request = replay_protocol_fixture
     result = _result_for(request)
-    tolerance = fixture.settings.policy.source_replay_score_comparison_tolerance
+    tolerance = fixture.settings.policy.task_evaluation_aggregate_tolerance
 
-    with pytest.raises(ExpertSourceReplayProtocolError, match="canonical"):
+    with pytest.raises(TaskEvaluatorProtocolError, match="canonical"):
         parse_task_evaluator_result(
             result.to_json_bytes() + b"\n",
             request,
@@ -354,7 +359,7 @@ def test_request_rejects_unknown_aggregation_before_execution(
     fingerprint_values["aggregation_protocol"] = "task-specific-unknown"
     unsupported = EvaluationFingerprint.mint(**fingerprint_values)
 
-    with pytest.raises(ExpertSourceReplayProtocolError, match="unsupported"):
+    with pytest.raises(TaskEvaluatorProtocolError, match="unsupported"):
         replace(request, evaluation_fingerprints=(unsupported,))
 
 
@@ -407,7 +412,7 @@ def test_result_recomputes_the_mean_without_finite_overflow(
 
 @pytest.mark.parametrize("mount_path", ("a\x00b", "a\nb", "a\rb", "a\x7fb"))
 def test_starting_artifact_mount_rejects_control_characters(mount_path):
-    with pytest.raises(ExpertSourceReplayProtocolError):
+    with pytest.raises(TaskEvaluatorProtocolError):
         TaskEvaluatorStartingArtifactMount(
             starting_artifact_ref="artifact/base",
             mount_path=mount_path,

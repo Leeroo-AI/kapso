@@ -253,7 +253,7 @@ cross_run:
         task_evaluation_materialization_entry_limit: 10000
         task_evaluation_materialization_byte_limit: 10737418240
         task_evaluation_materialization_timeout_seconds: &expert_validation_timeout_seconds 21600
-        source_replay_score_comparison_tolerance: *cross_run_score_comparison_tolerance
+        task_evaluation_aggregate_tolerance: *cross_run_score_comparison_tolerance
         sealed_canary_trust_root: null
         architecture_requires_sealed_canary: true
         artifact_entry_limit: 1000

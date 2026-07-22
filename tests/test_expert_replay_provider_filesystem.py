@@ -24,7 +24,7 @@ from kapso.cross_run.expert.replay_execution import (
 )
 from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
 )
 from kapso.cross_run.expert.replay_provider_filesystem import (
     SourceReplayProviderFilesystemError,
@@ -95,7 +95,7 @@ def prepared_replay_request(tmp_path_factory):
 def _matched_invocation(prepared, leg_name):
     materialized_case = prepared.cases[0]
     leg = getattr(materialized_case.request_case, leg_name)
-    allocation = TaskEvaluatorInvocationAllocation(
+    allocation = ExpertSourceReplayInvocationAllocation(
         reservation_id=content_id(
             "expert-source-replay-execution-reservation",
             {"provider_filesystem_leg": leg_name},

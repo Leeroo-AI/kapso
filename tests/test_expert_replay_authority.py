@@ -20,7 +20,7 @@ from kapso.cross_run.expert.replay_execution import (
     expert_source_replay_execution_provider_key,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStoreError
 from test_expert_source_replay_request import _prepared, _request_fixture
@@ -263,7 +263,7 @@ def test_fresh_spawn_authority_rejects_a_caller_minted_allocation(
         for leg in (request_case.control_leg, request_case.candidate_leg)
         if leg.execution_leg_id != authority.allocation.execution_leg_id
     )
-    caller_allocation = TaskEvaluatorInvocationAllocation(
+    caller_allocation = ExpertSourceReplayInvocationAllocation(
         reservation_id=authority.reservation.reservation_id,
         execution_case_id=authority.allocation.execution_case_id,
         execution_leg_id=other_leg_id,

@@ -41,7 +41,7 @@ def decide_expert_source_replay_stage(
             "source replay request does not pin the supplied validation policy"
         )
     if paired_comparison_receipt.aggregate_recomputation_tolerance != (
-        validation_policy.policy.source_replay_score_comparison_tolerance
+        validation_policy.policy.task_evaluation_aggregate_tolerance
     ):
         raise ExpertSourceReplayDecisionError(
             "source replay receipt tolerance differs from validation policy"

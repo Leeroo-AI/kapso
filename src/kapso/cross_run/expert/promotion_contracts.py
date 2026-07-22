@@ -22,7 +22,7 @@ from kapso.cross_run.contracts import (
     TaskContextBinding,
     TaskEvaluatorMetricComparisonBinding,
 )
-from kapso.cross_run.expert.replay_protocol_contracts import require_finite_float
+from kapso.cross_run.expert.task_evaluator_protocol import require_finite_float
 from kapso.cross_run.task_adapters import (
     TaskAdapterVerificationReceipt,
     task_adapter_binding_id,

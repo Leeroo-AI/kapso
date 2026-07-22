@@ -52,8 +52,15 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     materialize_task_evaluation_starting_artifacts,
 )
 from kapso.cross_run.expert.task_evaluation_contracts import (
+    TaskEvaluationInvocationAllocation,
     TaskEvaluationRequest,
     TaskEvaluationReservation,
+)
+from kapso.cross_run.expert.task_evaluation_protocol import (
+    build_task_evaluation_evaluator_request,
+)
+from kapso.cross_run.expert.task_evaluation_reservation import (
+    ExpertTaskEvaluationReservationSnapshot,
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationAuthorityError,
@@ -140,7 +147,6 @@ from kapso.cross_run.expert.validation_store import (
     ExpertAutomatedReviewStageCommitResult,
     ExpertSourceReplayStageCommitResult,
     ExpertTaskEvaluationReservationCommitResult,
-    ExpertTaskEvaluationReservationSnapshot,
     ExpertValidationCommitResult,
     ExpertValidationCompareAndSwapError,
     ExpertValidationJournal,
@@ -265,6 +271,7 @@ __all__ = [
     "TaskEvaluationCandidateReader",
     "TaskEvaluationCurrentReleaseAuthority",
     "TaskEvaluationCurrentReleaseObservation",
+    "TaskEvaluationInvocationAllocation",
     "TaskEvaluationMaterializationLimits",
     "TaskEvaluationParentProvider",
     "TaskEvaluationPlanReservationAuthority",
@@ -281,6 +288,7 @@ __all__ = [
     "VerifiedSourceReplayStartingArtifact",
     "materialize_task_evaluation_starting_artifacts",
     "task_evaluation_materialization_usage",
+    "build_task_evaluation_evaluator_request",
     "compile_expert_semantic_book",
     "expert_semantic_book_digest",
     "source_replay_publication_security_subject_ids",

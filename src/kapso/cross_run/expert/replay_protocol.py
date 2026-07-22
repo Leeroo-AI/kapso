@@ -1,9 +1,11 @@
 """Projection from verified replay authority into the blinded evaluator ABI."""
 
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TASK_EVALUATOR_PROTOCOL_VERSION,
     ExpertSourceReplayProtocolError,
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
+    TASK_EVALUATOR_PROTOCOL_VERSION,
     TaskEvaluatorRequest,
     TaskEvaluatorStartingArtifactMount,
 )
@@ -12,7 +14,7 @@ from kapso.cross_run.expert.replay_request import MaterializedExpertSourceReplay
 
 def build_task_evaluator_request(
     materialized_case: MaterializedExpertSourceReplayCase,
-    invocation_allocation: TaskEvaluatorInvocationAllocation,
+    invocation_allocation: ExpertSourceReplayInvocationAllocation,
 ) -> TaskEvaluatorRequest:
     """Build the common blinded request for one isolated evaluator spawn."""
 
@@ -20,7 +22,7 @@ def build_task_evaluator_request(
         raise ExpertSourceReplayProtocolError(
             "task evaluator request requires a materialized replay case"
         )
-    if not isinstance(invocation_allocation, TaskEvaluatorInvocationAllocation):
+    if not isinstance(invocation_allocation, ExpertSourceReplayInvocationAllocation):
         raise ExpertSourceReplayProtocolError(
             "task evaluator request requires a journal invocation allocation"
         )

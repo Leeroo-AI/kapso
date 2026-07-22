@@ -26,7 +26,9 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorRequest,
     TaskEvaluatorResult,
     parse_task_evaluator_result,
@@ -124,7 +126,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
     execution_request_id: str
     execution_case_id: str
     execution_leg_id: str
-    invocation_allocation: TaskEvaluatorInvocationAllocation
+    invocation_allocation: ExpertSourceReplayInvocationAllocation
     spawn_authority_fence: SourceReplaySpawnAuthorityFence | None
     execution_provider_key: ExpertSourceReplayExecutionProviderKey | None
     provider_execution_handle: SourceReplayProviderExecutionHandle | None
@@ -350,7 +352,7 @@ class SourceReplayInvocationAllocationPermit:
     def require_current_allocation(
         self,
         execution_store: ExpertSourceReplayExecutionStore,
-    ) -> TaskEvaluatorInvocationAllocation:
+    ) -> ExpertSourceReplayInvocationAllocation:
         self._session._require_live_store_lock(execution_store)
         if (
             self._session._allocation_permit is not self
@@ -743,7 +745,7 @@ class _SourceReplayReservationSession:
                 "source replay execution schedule is complete"
             )
         execution_case_id, execution_leg_id = schedule[schedule_position]
-        allocation = TaskEvaluatorInvocationAllocation(
+        allocation = ExpertSourceReplayInvocationAllocation(
             reservation_id=self.reservation.reservation_id,
             execution_case_id=execution_case_id,
             execution_leg_id=execution_leg_id,
@@ -1331,7 +1333,7 @@ class ExpertSourceReplayExecutionStore:
             or len(task_evaluator_request.to_json_bytes())
             > self.policy_settings.task_evaluation_task_request_byte_limit
             or aggregate_tolerance
-            != self.policy_settings.source_replay_score_comparison_tolerance
+            != self.policy_settings.task_evaluation_aggregate_tolerance
             or not {
                 reservation.reservation_id,
                 *reservation.exact_dependency_ids,
@@ -1568,7 +1570,7 @@ class ExpertSourceReplayExecutionStore:
                     or len(event.task_evaluator_request.to_json_bytes())
                     > self.policy_settings.task_evaluation_task_request_byte_limit
                     or event.aggregate_tolerance
-                    != self.policy_settings.source_replay_score_comparison_tolerance
+                    != self.policy_settings.task_evaluation_aggregate_tolerance
                     or source_replay_spawn_security_subject_ids(
                         prepared_request,
                         reservation,

@@ -15,7 +15,9 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
 from kapso.cross_run.expert.replay_protocol_contracts import (
-    TaskEvaluatorInvocationAllocation,
+    ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorRequest,
 )
 from kapso.cross_run.expert.replay_request import (
@@ -126,7 +128,7 @@ def expert_source_replay_execution_provider_key(
 class SourceReplayProviderExecutionHandle(StrictContract):
     provider_handle_id: str
     dispatch_key: ExpertSourceReplayExecutionProviderKey
-    invocation_allocation: TaskEvaluatorInvocationAllocation
+    invocation_allocation: ExpertSourceReplayInvocationAllocation
 
     CONTENT_NAMESPACE = "source-replay-provider-execution-handle"
     IDENTITY_FIELD = "provider_handle_id"
@@ -134,7 +136,7 @@ class SourceReplayProviderExecutionHandle(StrictContract):
 
 def source_replay_provider_execution_handle(
     dispatch_key: ExpertSourceReplayExecutionProviderKey,
-    invocation_allocation: TaskEvaluatorInvocationAllocation,
+    invocation_allocation: ExpertSourceReplayInvocationAllocation,
 ) -> SourceReplayProviderExecutionHandle:
     return SourceReplayProviderExecutionHandle.mint(
         dispatch_key=dispatch_key,
@@ -146,7 +148,7 @@ def source_replay_provider_execution_handle(
 class ExpertSourceReplayMatchedLegInvocation:
     materialized_case: MaterializedExpertSourceReplayCase
     expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent
-    invocation_allocation: TaskEvaluatorInvocationAllocation
+    invocation_allocation: ExpertSourceReplayInvocationAllocation
     task_evaluator_request: TaskEvaluatorRequest
     provider_handle: SourceReplayProviderExecutionHandle
 
@@ -166,7 +168,7 @@ class ExpertSourceReplayMatchedLegInvocation:
             )
             or not isinstance(
                 self.invocation_allocation,
-                TaskEvaluatorInvocationAllocation,
+                ExpertSourceReplayInvocationAllocation,
             )
             or not isinstance(self.task_evaluator_request, TaskEvaluatorRequest)
             or not isinstance(
@@ -188,12 +190,12 @@ class ExpertSourceReplayMatchedLegInvocation:
 
 def _expert_source_matches_leg(
     materialized_case: MaterializedExpertSourceReplayCase,
-    invocation_allocation: TaskEvaluatorInvocationAllocation,
+    invocation_allocation: ExpertSourceReplayInvocationAllocation,
     expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent,
 ) -> bool:
     if not isinstance(
         invocation_allocation,
-        TaskEvaluatorInvocationAllocation,
+        ExpertSourceReplayInvocationAllocation,
     ):
         return False
     request_case = materialized_case.request_case
@@ -355,7 +357,7 @@ class ResolvedExpertSourceReplayExecutionCase:
 
     def _expert_source_for(
         self,
-        invocation_allocation: TaskEvaluatorInvocationAllocation,
+        invocation_allocation: ExpertSourceReplayInvocationAllocation,
     ) -> VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent:
         request_case = self.materialized_case.request_case
         source = (

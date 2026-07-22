@@ -184,7 +184,7 @@ def build_expert_source_replay_paired_comparison_receipt(
         reservation_id=reservation.reservation_id,
         execution_request_id=request.execution_request_id,
         aggregate_recomputation_tolerance=(
-            prepared_request.settings.policy.source_replay_score_comparison_tolerance
+            prepared_request.settings.policy.task_evaluation_aggregate_tolerance
         ),
         execution_journal_event_ids=event_ids,
         reservation_dependency_ids=reservation.exact_dependency_ids,
