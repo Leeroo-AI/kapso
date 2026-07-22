@@ -1,0 +1,548 @@
+"""Explicit real-Docker source-replay production check.
+
+Run directly; the filename intentionally stays outside normal pytest discovery:
+
+    pytest -q tests/live_expert_replay_docker.py -s
+
+The check serves a deterministic digest-pinned OCI image from a local read-only
+registry, builds the complete replay authority from that runtime, and executes
+both journal-owned scientific legs through the concrete Docker provider. Adapter
+publisher verification remains at the synthetic test-provider boundary.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import tarfile
+from contextlib import ExitStack
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
+from pathlib import Path
+from threading import Lock, Thread
+from urllib.parse import urlsplit
+
+from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
+from kapso.cross_run.contracts import (
+    ExpertSourceReplayExecutionLegKind,
+    TaskAdapterManifest,
+    TaskAdapterRuntimeContract,
+)
+from kapso.cross_run.expert.replay_docker_bootstrap import (
+    build_source_replay_docker_provider_registry,
+)
+from kapso.cross_run.expert.replay_docker_runtime import read_verified_root_executable
+from kapso.cross_run.expert.replay_execution_store import (
+    ExpertSourceReplayExecutionStore,
+    source_replay_execution_schedule,
+)
+from test_cross_run_contracts import (
+    TASK_ADAPTER_RUNTIME_LOCK,
+    build_records,
+    verified_test_task_adapter,
+)
+from test_expert_replay_execution_store import _coordinator
+from test_expert_source_replay import _validation_policy
+from test_expert_source_replay_request import _prepared, _request_fixture
+
+_OCI_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
+_OCI_CONFIG_MEDIA_TYPE = "application/vnd.oci.image.config.v1+json"
+_OCI_LAYER_MEDIA_TYPE = "application/vnd.oci.image.layer.v1.tar"
+_REGISTRY_REPOSITORY_PATH = "kapso/source-replay-e2e"
+_SENSITIVE_REQUEST_HEADERS = (
+    "Authorization",
+    "Cookie",
+    "Proxy-Authorization",
+)
+_ADAPTER_SOURCE = rb"""#!/bin/busybox sh
+set -eu
+
+[ "$(pwd)" = "/kapso/input/adapter" ] || exit 11
+[ "$(/bin/busybox hostname)" = "kapso-source-replay" ] || exit 12
+[ "$(/bin/busybox cat requirements.lock)" = "python==3.11.9" ] || exit 13
+[ "$(/bin/busybox cat /kapso/input/task/inputs/base/artifact.bin)" = "starting artifact:artifact/base" ] || exit 14
+[ "$(/bin/busybox ls /sys/class/net)" = "lo" ] || exit 15
+
+actual_environment="$(/bin/busybox env | /bin/busybox sort)"
+expected_environment='HOME=/kapso/home
+HOSTNAME=kapso-source-replay
+LANG=C
+PATH=/bin
+PWD=/kapso/input/adapter
+SHLVL=1'
+if [ "$actual_environment" != "$expected_environment" ]; then
+    printf '%s\n' "$actual_environment"
+    exit 16
+fi
+
+if /bin/busybox sh -c 'printf changed > /kapso/input/expert/src/expert.py' >/dev/null 2>&1; then
+    exit 21
+fi
+if /bin/busybox sh -c 'printf changed > /kapso/input/adapter/adapter.py' >/dev/null 2>&1; then
+    exit 22
+fi
+if /bin/busybox sh -c 'printf changed > /kapso-unexpected-write' >/dev/null 2>&1; then
+    exit 23
+fi
+
+expert_source="$(/bin/busybox cat /kapso/input/expert/src/expert.py)"
+case "$expert_source" in
+    'verified parent source') score='0.7' ;;
+    'verified candidate source') score='0.8' ;;
+    *) exit 24 ;;
+esac
+
+request="$(/bin/busybox cat /kapso/input/request.json)"
+opaque_invocation_id="$(printf '%s' "$request" | /bin/busybox sed 's/.*"opaque_invocation_id":"\([^"]*\)".*/\1/')"
+evaluation_fingerprint_id="$(printf '%s' "$request" | /bin/busybox sed 's/.*"evaluation_fingerprint_id":"\([^"]*\)".*/\1/')"
+replicate_id="$(printf '%s' "$request" | /bin/busybox sed 's/.*"seed_or_replicate_ids":\["\([^"]*\)"\].*/\1/')"
+
+case "$opaque_invocation_id" in replay_invocation_*) ;; *) exit 25 ;; esac
+case "$evaluation_fingerprint_id" in evaluation-fingerprint:sha256:*) ;; *) exit 26 ;; esac
+[ -n "$replicate_id" ] || exit 27
+
+printf '{"fingerprint_results":[{"aggregate_value":%s,"evaluation_fingerprint_id":"%s","replicate_values":{"%s":%s}}],"opaque_invocation_id":"%s","protocol_version":"kapso.task_evaluator.v1"}' \
+    "$score" "$evaluation_fingerprint_id" "$replicate_id" "$score" "$opaque_invocation_id" \
+    > /kapso/writable/result.json
+"""
+
+
+@dataclass(frozen=True)
+class _RegistryResponse:
+    payload: bytes
+    content_type: str
+    content_digest: str | None
+
+
+class _ReadOnlyRegistryServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, responses: dict[str, _RegistryResponse]) -> None:
+        super().__init__(("127.0.0.1", 0), _ReadOnlyRegistryHandler)
+        self.responses = responses
+        self.observations: list[tuple[str, str]] = []
+        self.violations: list[str] = []
+        self.observation_lock = Lock()
+
+    @property
+    def request_count(self) -> int:
+        with self.observation_lock:
+            return len(self.observations)
+
+    @property
+    def observed_violations(self) -> tuple[str, ...]:
+        with self.observation_lock:
+            return tuple(self.violations)
+
+
+class _ReadOnlyRegistryHandler(BaseHTTPRequestHandler):
+    server: _ReadOnlyRegistryServer
+
+    def do_HEAD(self) -> None:
+        self._serve(include_payload=False)
+
+    def do_GET(self) -> None:
+        self._serve(include_payload=True)
+
+    def _serve(self, *, include_payload: bool) -> None:
+        request_target = urlsplit(self.path)
+        request_path = request_target.path
+        with self.server.observation_lock:
+            self.server.observations.append((self.command, self.path))
+        sensitive_headers = tuple(
+            header for header in _SENSITIVE_REQUEST_HEADERS if header in self.headers
+        )
+        if request_target.query or sensitive_headers:
+            with self.server.observation_lock:
+                self.server.violations.append(
+                    f"unsafe registry request {self.command} {self.path}"
+                )
+            self.send_error(400)
+            return
+        response = self.server.responses.get(request_path)
+        if response is None:
+            with self.server.observation_lock:
+                self.server.violations.append(
+                    f"unsupported registry request {self.command} {self.path}"
+                )
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Docker-Distribution-API-Version", "registry/2.0")
+        self.send_header("Content-Type", response.content_type)
+        self.send_header("Content-Length", str(len(response.payload)))
+        if response.content_digest is not None:
+            self.send_header("Docker-Content-Digest", response.content_digest)
+        self.end_headers()
+        if include_payload:
+            self.wfile.write(response.payload)
+
+    def log_message(self, format_string: str, *arguments: object) -> None:
+        return
+
+
+@dataclass(frozen=True)
+class _LocalOciRegistry:
+    server: _ReadOnlyRegistryServer
+    repository: str
+    manifest_digest: str
+    config_digest: str
+
+    @property
+    def image_reference(self) -> str:
+        return f"{self.repository}@{self.manifest_digest}"
+
+
+def _deterministic_busybox_layer(busybox_bytes: bytes) -> bytes:
+    archive = BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as layer:
+        bin_directory = tarfile.TarInfo("bin")
+        bin_directory.type = tarfile.DIRTYPE
+        bin_directory.mode = 0o755
+        bin_directory.uid = 0
+        bin_directory.gid = 0
+        bin_directory.mtime = 0
+        layer.addfile(bin_directory)
+
+        busybox = tarfile.TarInfo("bin/busybox")
+        busybox.mode = 0o755
+        busybox.uid = 0
+        busybox.gid = 0
+        busybox.mtime = 0
+        busybox.size = len(busybox_bytes)
+        layer.addfile(busybox, BytesIO(busybox_bytes))
+    return archive.getvalue()
+
+
+def _start_local_oci_registry(
+    cleanup: ExitStack,
+    busybox_bytes: bytes,
+) -> _LocalOciRegistry:
+    layer = _deterministic_busybox_layer(busybox_bytes)
+    layer_digest = tree_or_blob_digest(layer)
+    image_config = canonical_json_bytes(
+        {
+            "architecture": "amd64",
+            "config": {"Env": ["LANG=C", "PATH=/bin"]},
+            "os": "linux",
+            "rootfs": {"diff_ids": [layer_digest], "type": "layers"},
+        }
+    )
+    config_digest = tree_or_blob_digest(image_config)
+    manifest = canonical_json_bytes(
+        {
+            "config": {
+                "digest": config_digest,
+                "mediaType": _OCI_CONFIG_MEDIA_TYPE,
+                "size": len(image_config),
+            },
+            "layers": [
+                {
+                    "digest": layer_digest,
+                    "mediaType": _OCI_LAYER_MEDIA_TYPE,
+                    "size": len(layer),
+                }
+            ],
+            "mediaType": _OCI_MANIFEST_MEDIA_TYPE,
+            "schemaVersion": 2,
+        }
+    )
+    manifest_digest = tree_or_blob_digest(manifest)
+    repository_api_path = f"/v2/{_REGISTRY_REPOSITORY_PATH}"
+    server = _ReadOnlyRegistryServer(
+        {
+            "/v2/": _RegistryResponse(
+                payload=b"{}",
+                content_type="application/json",
+                content_digest=None,
+            ),
+            f"{repository_api_path}/manifests/{manifest_digest}": (
+                _RegistryResponse(
+                    payload=manifest,
+                    content_type=_OCI_MANIFEST_MEDIA_TYPE,
+                    content_digest=manifest_digest,
+                )
+            ),
+            f"{repository_api_path}/blobs/{config_digest}": _RegistryResponse(
+                payload=image_config,
+                content_type="application/octet-stream",
+                content_digest=config_digest,
+            ),
+            f"{repository_api_path}/blobs/{layer_digest}": _RegistryResponse(
+                payload=layer,
+                content_type="application/octet-stream",
+                content_digest=layer_digest,
+            ),
+        }
+    )
+    server_thread = Thread(
+        target=server.serve_forever,
+        name="kapso-source-replay-oci-registry",
+    )
+    server_thread.start()
+    cleanup.callback(server.server_close)
+    cleanup.callback(server_thread.join)
+    cleanup.callback(server.shutdown)
+    registry_port = server.server_address[1]
+    return _LocalOciRegistry(
+        server=server,
+        repository=f"127.0.0.1:{registry_port}/{_REGISTRY_REPOSITORY_PATH}",
+        manifest_digest=manifest_digest,
+        config_digest=config_digest,
+    )
+
+
+def _run_setup_docker(settings, docker_config_root: Path, arguments: tuple[str, ...]):
+    return subprocess.run(
+        (
+            settings.runtime_executable_path,
+            "--host",
+            f"unix://{settings.runtime_socket_path}",
+            "--config",
+            str(docker_config_root),
+            *arguments,
+        ),
+        cwd=docker_config_root.parent,
+        env={
+            "DOCKER_API_VERSION": settings.runtime_api_version,
+            "DOCKER_CONFIG": str(docker_config_root),
+            "HOME": str(docker_config_root.parent),
+            "LANG": "C",
+            "LC_ALL": "C",
+        },
+        capture_output=True,
+        timeout=settings.command_timeout_seconds,
+        check=False,
+    )
+
+
+def _require_setup_docker_success(result: subprocess.CompletedProcess) -> None:
+    if result.returncode != 0:
+        raise AssertionError(
+            "real-Docker source-replay setup command failed:\n"
+            f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+        )
+
+
+def _remove_exact_image(
+    settings,
+    docker_config_root: Path,
+    image_reference: str,
+) -> None:
+    result = _run_setup_docker(
+        settings,
+        docker_config_root,
+        ("image", "rm", image_reference),
+    )
+    if result.returncode != 0 and b"No such image" not in result.stderr:
+        _require_setup_docker_success(result)
+
+
+def _assert_no_daemon_resources(
+    settings,
+    docker_config_root: Path,
+    provider_handle_ids: tuple[str, ...],
+) -> None:
+    for provider_handle_id in provider_handle_ids:
+        for resource_kind, command in (
+            (
+                "container",
+                (
+                    "container",
+                    "ls",
+                    "--all",
+                    "--filter",
+                    ("label=io.kapso.source-replay.handle=" f"{provider_handle_id}"),
+                    "--format",
+                    "{{.ID}}",
+                ),
+            ),
+            (
+                "volume",
+                (
+                    "volume",
+                    "ls",
+                    "--filter",
+                    ("label=io.kapso.source-replay.handle=" f"{provider_handle_id}"),
+                    "--format",
+                    "{{.Name}}",
+                ),
+            ),
+        ):
+            result = _run_setup_docker(settings, docker_config_root, command)
+            _require_setup_docker_success(result)
+            assert result.stdout == b"", (
+                f"source replay leaked a handle-owned {resource_kind}: "
+                f"{result.stdout!r}"
+            )
+
+
+def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> None:
+    tmp_path.chmod(0o700)
+    validation_settings = _validation_policy()
+    provider_settings = validation_settings.source_replay_provider
+    busybox_bytes = read_verified_root_executable(
+        Path(provider_settings.helper_executable_path),
+        provider_settings.helper_executable_digest,
+    )
+
+    with ExitStack() as cleanup:
+        local_registry = _start_local_oci_registry(cleanup, busybox_bytes)
+        runtime_contract = TaskAdapterRuntimeContract(
+            runtime_protocol_version="kapso.task_adapter_runtime.v1",
+            image_repository=local_registry.repository,
+            image_manifest_digest=local_registry.manifest_digest,
+            image_config_digest=local_registry.config_digest,
+            dependency_lock_path="requirements.lock",
+            dependency_lock_digest=tree_or_blob_digest(TASK_ADAPTER_RUNTIME_LOCK),
+            operating_system="linux",
+            architecture="amd64",
+            architecture_variant=None,
+            environment={"LANG": "C", "PATH": "/bin"},
+        )
+        source_contents = {
+            "adapter.py": _ADAPTER_SOURCE,
+            "requirements.lock": TASK_ADAPTER_RUNTIME_LOCK,
+        }
+        records = build_records(
+            task_adapter_runtime=runtime_contract,
+            task_adapter_source_contents=source_contents,
+        )
+        adapter_manifest = next(
+            record for record in records if isinstance(record, TaskAdapterManifest)
+        )
+        source_adapter = verified_test_task_adapter(
+            adapter_manifest,
+            source_contents=source_contents,
+        )
+        fixture = _request_fixture(
+            tmp_path,
+            contract_records=records,
+            source_adapter=source_adapter,
+        )
+        prepared_request = _prepared(fixture)
+
+        docker_config_root = tmp_path / "setup-docker-config"
+        docker_config_root.mkdir(mode=0o700)
+        docker_config_path = docker_config_root / "config.json"
+        docker_config_path.write_bytes(b'{"auths":{}}\n')
+        docker_config_path.chmod(0o400)
+        cleanup.callback(
+            _remove_exact_image,
+            provider_settings,
+            docker_config_root,
+            local_registry.image_reference,
+        )
+        pull_result = _run_setup_docker(
+            provider_settings,
+            docker_config_root,
+            (
+                "image",
+                "pull",
+                "--platform",
+                "linux/amd64",
+                local_registry.image_reference,
+            ),
+        )
+        _require_setup_docker_success(pull_result)
+        assert local_registry.server.observed_violations == ()
+        registry_requests_after_pull = local_registry.server.request_count
+
+        provider_registry = build_source_replay_docker_provider_registry(
+            prepared_request=prepared_request,
+            workspace_root=tmp_path.resolve(),
+        )
+        resolved_cases = provider_registry.resolve_all(prepared_request)
+        snapshot = fixture.validation_store.snapshot(
+            prepared_request.request.candidate_id
+        )
+        assert snapshot is not None
+        committed = fixture.validation_store.reserve_source_replay(
+            expected_transition_id=snapshot.transition.transition_id,
+            prepared_request=prepared_request,
+        )
+        execution_store = ExpertSourceReplayExecutionStore(
+            (fixture.validation_store.root / "source-replay-executions").resolve(),
+            fixture.validation_store.root,
+            prepared_request.settings.policy,
+        )
+        schedule = source_replay_execution_schedule(
+            committed.reservation,
+            prepared_request.request,
+        )
+        accepted_scores: dict[ExpertSourceReplayExecutionLegKind, float] = {}
+        provider_handle_ids = []
+        authority_coordinator = _coordinator(
+            fixture,
+            prepared_request,
+            execution_store,
+        )
+
+        with execution_store.reservation_session(
+            reservation=committed.reservation,
+            prepared_request=prepared_request,
+        ) as session:
+            for expected_case_id, expected_leg_id in schedule:
+                allocation_permit = session.allocate_expected_leg()
+                allocation = allocation_permit.require_current_allocation(
+                    execution_store
+                )
+                assert (allocation.execution_case_id, allocation.execution_leg_id) == (
+                    expected_case_id,
+                    expected_leg_id,
+                )
+                resolved_case = next(
+                    case
+                    for case in resolved_cases
+                    if case.materialized_case.request_case.execution_case_id
+                    == allocation.execution_case_id
+                )
+                execution = authority_coordinator.commit_spawn(
+                    prepared_request=prepared_request,
+                    reservation_id=committed.reservation.reservation_id,
+                    invocation_permit=allocation_permit,
+                    resolved_case=resolved_case,
+                )
+                spawn_event = session.events[-1]
+                provider_handle_ids.append(
+                    spawn_event.provider_execution_handle.provider_handle_id
+                )
+                completion = execution.execute()
+                process_result = completion._provider_completion.process_result
+                assert process_result.returncode == 0, (
+                    process_result.outcome,
+                    process_result.stdout,
+                    process_result.stderr,
+                )
+                session.record_result_received(completion)
+                accepted = session.accept_received_result()
+                request_case = resolved_case.materialized_case.request_case
+                leg_kind = (
+                    ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+                    if allocation.execution_leg_id
+                    == request_case.control_leg.execution_leg_id
+                    else ExpertSourceReplayExecutionLegKind.CANDIDATE
+                )
+                assert len(accepted.fingerprint_results) == 1
+                accepted_scores[leg_kind] = accepted.fingerprint_results[
+                    0
+                ].aggregate_value
+
+        assert accepted_scores == {
+            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
+            ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
+        }
+        assert local_registry.server.request_count == registry_requests_after_pull
+        assert local_registry.server.observed_violations == ()
+        _assert_no_daemon_resources(
+            provider_settings,
+            docker_config_root,
+            tuple(provider_handle_ids),
+        )
+        configured_provider_root = (
+            tmp_path / provider_settings.workspace_path
+        ).resolve()
+        assert tuple(configured_provider_root.glob("replay-*")) == ()
+        assert os.geteuid() == provider_settings.container_user_id
+        assert os.getegid() == provider_settings.container_group_id

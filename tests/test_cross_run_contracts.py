@@ -1,5 +1,6 @@
 import base64
 from dataclasses import replace
+from typing import Mapping
 
 import pytest
 
@@ -118,11 +119,15 @@ def digest(name):
     return tree_or_blob_digest(name.encode("utf-8"))
 
 
-def task_adapter_source(task_adapter_id):
-    source_contents = {
-        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8"),
-        "requirements.lock": TASK_ADAPTER_RUNTIME_LOCK,
-    }
+def task_adapter_source(task_adapter_id, *, source_contents=None):
+    selected_source_contents = (
+        {
+            "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8"),
+            "requirements.lock": TASK_ADAPTER_RUNTIME_LOCK,
+        }
+        if source_contents is None
+        else dict(source_contents)
+    )
     source_files = tuple(
         SourceFileDescriptor(
             relative_path=path,
@@ -130,7 +135,7 @@ def task_adapter_source(task_adapter_id):
             mode="100755" if path == "adapter.py" else "100644",
             size=len(payload),
         )
-        for path, payload in sorted(source_contents.items())
+        for path, payload in sorted(selected_source_contents.items())
     )
     tree_hash = source_tree_digest(
         {
@@ -138,15 +143,19 @@ def task_adapter_source(task_adapter_id):
             for item in source_files
         }
     )
-    return source_contents, source_files, tree_hash
+    return selected_source_contents, source_files, tree_hash
 
 
-def verified_test_task_adapter(adapter):
+def verified_test_task_adapter(adapter, *, source_contents=None):
     proof_refs = {adapter.sanitation_report_id, *adapter.validation_refs}
     proof_objects = {
         proof_ref: f"proof:{proof_ref}".encode("utf-8") for proof_ref in proof_refs
     }
-    source_contents, source_files, _ = task_adapter_source(adapter.task_adapter_id)
+    source_contents, source_files, source_tree_hash = task_adapter_source(
+        adapter.task_adapter_id,
+        source_contents=source_contents,
+    )
+    assert source_tree_hash == adapter.tree_hash
     source_archive = f"archive:{adapter.task_adapter_id}".encode("utf-8")
     publisher_verification = f"publisher-verification:{adapter.task_adapter_id}".encode(
         "utf-8"
@@ -221,7 +230,11 @@ def assertion(subject_id, name, receipt):
     )
 
 
-def build_records():
+def build_records(
+    *,
+    task_adapter_runtime: TaskAdapterRuntimeContract | None = None,
+    task_adapter_source_contents: Mapping[str, bytes] | None = None,
+):
     task_families = (
         TaskFamilyDefinition(
             task_family_id="language_model_post_training",
@@ -299,7 +312,26 @@ def build_records():
             "runtime_family": "pytorch",
         },
     )
-    _, _, task_adapter_tree_hash = task_adapter_source("posttrain")
+    selected_source_contents, _, task_adapter_tree_hash = task_adapter_source(
+        "posttrain",
+        source_contents=task_adapter_source_contents,
+    )
+    selected_runtime = (
+        TaskAdapterRuntimeContract(
+            runtime_protocol_version="kapso.task_adapter_runtime.v1",
+            image_repository="registry.example/kapso/task-adapter-runtime",
+            image_manifest_digest=digest("task-adapter-runtime-image"),
+            image_config_digest=digest("task-adapter-runtime-config"),
+            dependency_lock_path="requirements.lock",
+            dependency_lock_digest=tree_or_blob_digest(TASK_ADAPTER_RUNTIME_LOCK),
+            operating_system="linux",
+            architecture="amd64",
+            architecture_variant=None,
+            environment={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+        )
+        if task_adapter_runtime is None
+        else task_adapter_runtime
+    )
     task_adapter = TaskAdapterManifest.mint(
         task_adapter_id="posttrain",
         scope_contract_id=scope.scope_contract_id,
@@ -315,22 +347,14 @@ def build_records():
         ),
         source_tree_ref="task-adapter.tar.zst",
         tree_hash=task_adapter_tree_hash,
-        runtime=TaskAdapterRuntimeContract(
-            runtime_protocol_version="kapso.task_adapter_runtime.v1",
-            image_repository="registry.example/kapso/task-adapter-runtime",
-            image_manifest_digest=digest("task-adapter-runtime-image"),
-            image_config_digest=digest("task-adapter-runtime-config"),
-            dependency_lock_path="requirements.lock",
-            dependency_lock_digest=tree_or_blob_digest(TASK_ADAPTER_RUNTIME_LOCK),
-            operating_system="linux",
-            architecture="amd64",
-            architecture_variant=None,
-            environment={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"},
-        ),
+        runtime=selected_runtime,
         sanitation_report_id=fixture_id("adapter-sanitation"),
         validation_refs=("validation/adapter-smoke",),
     )
-    verified_adapter = verified_test_task_adapter(task_adapter)
+    verified_adapter = verified_test_task_adapter(
+        task_adapter,
+        source_contents=selected_source_contents,
+    )
     evaluation = EvaluationFingerprint.mint(
         benchmark_id="posttrain",
         dataset_version="v1",

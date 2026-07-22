@@ -36,6 +36,7 @@ from kapso.cross_run.expert.triggers import (
 )
 from kapso.cross_run.expert.validation import ExpertCandidateEligibilityEvaluator
 from kapso.cross_run.settings import CrossRunSettings
+from kapso.cross_run.task_adapters import VerifiedTaskAdapter
 from test_cross_run_retrieval import (
     analogical_context,
     outcome_episodes,
@@ -172,7 +173,7 @@ class _CandidateReader:
 
 
 class _AdapterProvider:
-    def __init__(self, packet, *, rotate_active=False):
+    def __init__(self, packet, *, source_adapter=None, rotate_active=False):
         binding = packet.active_task_bindings[0]
         source_manifest_ids = {
             episode.artifact_environment.task_adapter_manifest_id
@@ -184,15 +185,25 @@ class _AdapterProvider:
         }
         assert len(source_manifest_ids) <= 1
         assert len(source_receipt_ids) <= 1
-        source_manifest = next(
-            record
-            for record in build_records()
-            if isinstance(record, TaskAdapterManifest)
-            and record.scope_contract_id == packet.scope_contract.scope_contract_id
-            and record.task_family_id == binding.task_family_id
-            and record.task_adapter_id == binding.task_adapter_id
+        if source_adapter is None:
+            source_manifest = next(
+                record
+                for record in build_records()
+                if isinstance(record, TaskAdapterManifest)
+                and record.scope_contract_id == packet.scope_contract.scope_contract_id
+                and record.task_family_id == binding.task_family_id
+                and record.task_adapter_id == binding.task_adapter_id
+            )
+            source_adapter = verified_test_task_adapter(source_manifest)
+        elif not isinstance(source_adapter, VerifiedTaskAdapter):
+            raise TypeError("source replay fixture adapter must be verified")
+        else:
+            source_manifest = source_adapter.manifest
+        assert (
+            source_manifest.scope_contract_id == packet.scope_contract.scope_contract_id
         )
-        source_adapter = verified_test_task_adapter(source_manifest)
+        assert source_manifest.task_family_id == binding.task_family_id
+        assert source_manifest.task_adapter_id == binding.task_adapter_id
         assert not source_manifest_ids or source_manifest_ids == {
             source_adapter.manifest.task_adapter_manifest_id
         }
@@ -217,7 +228,8 @@ class _AdapterProvider:
                 )
             )
             self.adapter = verified_test_task_adapter(
-                TaskAdapterManifest.mint(**active_values)
+                TaskAdapterManifest.mint(**active_values),
+                source_contents=source_adapter.source_contents,
             )
             self.exact_adapters[
                 (

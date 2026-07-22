@@ -221,7 +221,10 @@ class SourceReplayDockerResourceManager:
             identity.labels_for(observation.role),
             observation.role,
         )
-        if current != observation:
+        if not source_replay_docker_container_observations_match(
+            current,
+            observation,
+        ):
             raise SourceReplayDockerResourceError(
                 "source replay Docker container changed before removal"
             )
@@ -268,7 +271,10 @@ class SourceReplayDockerResourceManager:
             identity.labels_for(_EVALUATOR_ROLE),
             _EVALUATOR_ROLE,
         )
-        if current != observation:
+        if not source_replay_docker_container_observations_match(
+            current,
+            observation,
+        ):
             raise SourceReplayDockerResourceError(
                 "source replay Docker evaluator changed before stop"
             )
@@ -429,6 +435,37 @@ def _writable_volume_options(
         ),
         "type": "tmpfs",
     }
+
+
+def source_replay_docker_container_observations_match(
+    current: SourceReplayDockerContainerObservation | None,
+    expected: SourceReplayDockerContainerObservation,
+) -> bool:
+    if (
+        type(current) is not SourceReplayDockerContainerObservation
+        or current.container_id != expected.container_id
+        or current.name != expected.name
+        or current.role != expected.role
+    ):
+        return False
+    current_mounts = _mounts_by_destination(current.payload.get("Mounts"))
+    expected_mounts = _mounts_by_destination(expected.payload.get("Mounts"))
+    if current_mounts is None or expected_mounts is None:
+        return False
+    return current_mounts == expected_mounts and {
+        key: value for key, value in current.payload.items() if key != "Mounts"
+    } == {key: value for key, value in expected.payload.items() if key != "Mounts"}
+
+
+def _mounts_by_destination(value: Any) -> Mapping[str, Mapping[str, Any]] | None:
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        return None
+    mounts = {item.get("Destination"): item for item in value}
+    if len(mounts) != len(value) or any(
+        not isinstance(destination, str) or not destination for destination in mounts
+    ):
+        return None
+    return MappingProxyType(mounts)
 
 
 def _parse_optional_json_string(payload: bytes) -> str | None:

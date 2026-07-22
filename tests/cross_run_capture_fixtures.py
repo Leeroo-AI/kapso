@@ -55,6 +55,7 @@ class CaptureFixture:
 def make_capture_fixture(
     tmp_path: Path,
     *,
+    contract_records: tuple[object, ...] | None = None,
     completion_state: CompletionState = CompletionState.STOPPED,
     secret_source: bool = False,
     forbidden_artifacts: bool = False,
@@ -178,7 +179,9 @@ def make_capture_fixture(
     node.implementation_base_ref = baseline_commit
     node.diff_base_ref = baseline_commit
     node.feedback_base_ref = baseline_commit
-    records = build_records()
+    records = build_records() if contract_records is None else contract_records
+    if not isinstance(records, tuple):
+        raise TypeError("capture fixture contract records must be a tuple")
     evaluation = next(
         item for item in records if isinstance(item, EvaluationFingerprint)
     )

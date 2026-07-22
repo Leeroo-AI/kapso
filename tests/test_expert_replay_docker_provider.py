@@ -38,6 +38,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
         self.attach_returncode = 0
         self.attach_oom_killed = False
         self.mutate_evaluator = None
+        self.mutate_evaluator_after_attach = None
 
     def run(self, request):
         self.requests.append(request)
@@ -47,6 +48,8 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
         stderr = b""
         if arguments[:3] == ("container", "start", "--attach"):
             container = self._container_by_id(arguments[3])
+            container["HostConfig"]["OomKillDisable"] = None
+            container["NetworkSettings"]["Networks"]["none"]["NetworkID"] = "c" * 64
             outcome = self.attach_outcome
             returncode = self.attach_returncode
             if outcome is BoundedProcessOutcome.COMPLETED:
@@ -78,6 +81,16 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
                             "Status": "running",
                         }
                     )
+            if container["State"]["Status"] == "running":
+                container["NetworkSettings"]["SandboxID"] = "d" * 64
+                container["NetworkSettings"][
+                    "SandboxKey"
+                ] = f"/var/run/docker/netns/{'d' * 12}"
+                container["NetworkSettings"]["Networks"]["none"]["EndpointID"] = (
+                    "e" * 64
+                )
+            if self.mutate_evaluator_after_attach is not None:
+                self.mutate_evaluator_after_attach(container)
             stdout = b"evaluator output\n"
         elif arguments[:2] == ("container", "exec"):
             stdout = _valid_result_snapshot(self.settings.container_user_id)
@@ -117,6 +130,13 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
             return f"{arguments[-1]}\n".encode()
         if arguments[:2] == ("container", "start"):
             container = self._container_by_id(arguments[2])
+            container["HostConfig"]["OomKillDisable"] = None
+            container["NetworkSettings"]["SandboxID"] = "d" * 64
+            container["NetworkSettings"][
+                "SandboxKey"
+            ] = f"/var/run/docker/netns/{'d' * 12}"
+            container["NetworkSettings"]["Networks"]["none"]["NetworkID"] = "c" * 64
+            container["NetworkSettings"]["Networks"]["none"]["EndpointID"] = "e" * 64
             container["State"].update(
                 {
                     "Pid": 1234,
@@ -148,7 +168,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
             * self.settings.cpu_period_microseconds
             // 1000
         )
-        environment = dict(self.adapter_runtime.environment)
+        environment = {}
         for assignment in _flag_values(arguments, "--env"):
             key, value = assignment.split("=", 1)
             environment[key] = value
@@ -218,6 +238,30 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
             "Image": self.adapter_runtime.image_config_digest,
             "Mounts": mounts,
             "Name": f"/{name}",
+            "NetworkSettings": {
+                "SandboxID": "",
+                "SandboxKey": "",
+                "Ports": {},
+                "Networks": {
+                    "none": {
+                        "IPAMConfig": None,
+                        "Links": None,
+                        "Aliases": None,
+                        "DriverOpts": None,
+                        "GwPriority": 0,
+                        "NetworkID": "",
+                        "EndpointID": "",
+                        "Gateway": "",
+                        "IPAddress": "",
+                        "MacAddress": "",
+                        "IPPrefixLen": 0,
+                        "IPv6Gateway": "",
+                        "GlobalIPv6Address": "",
+                        "GlobalIPv6PrefixLen": 0,
+                        "DNSNames": None,
+                    }
+                },
+            },
             "Path": entrypoint,
             "RestartCount": 0,
             "State": {
@@ -391,12 +435,13 @@ def test_provider_runs_exact_isolated_lifecycle_and_cleans_everything(provider):
     assert evaluator_create[evaluator_create.index("--pull") + 1] == "never"
     assert evaluator_create[evaluator_create.index("--network") + 1] == "none"
     assert "--read-only" in evaluator_create
+    assert "--oom-kill-disable=false" in evaluator_create
     assert evaluator_create[evaluator_create.index("--cap-drop") + 1] == "ALL"
     assert _flag_values(evaluator_create, "--env") == (
-        "LANG=C.UTF-8",
-        "PATH=/usr/bin:/bin",
         "HOME=/kapso/home",
         "HOSTNAME=kapso-source-replay",
+        "LANG=C.UTF-8",
+        "PATH=/usr/bin:/bin",
     )
 
 
@@ -467,6 +512,65 @@ def test_provider_rejects_a_weakened_created_container_before_start(provider):
         request.argv[5:8] == ("container", "start", "--attach")
         for request in runner.requests
     )
+
+
+def test_provider_accepts_environment_order_chosen_by_daemon(provider):
+    execution_provider, runner, invocation = provider
+    runner.mutate_evaluator = lambda payload: payload["Config"]["Env"].reverse()
+
+    completion = execution_provider.execute_leg(invocation)
+
+    assert completion.result_payload is not None
+
+
+def test_provider_rejects_duplicate_environment_authority_before_start(provider):
+    execution_provider, runner, invocation = provider
+    runner.mutate_evaluator = lambda payload: payload["Config"]["Env"].append(
+        payload["Config"]["Env"][0]
+    )
+
+    with pytest.raises(SourceReplayDockerProviderError, match="sandbox authority"):
+        execution_provider.execute_leg(invocation)
+
+    assert not any(
+        request.argv[5:8] == ("container", "start", "--attach")
+        for request in runner.requests
+    )
+
+
+def test_provider_rejects_compute_authority_mutated_during_execution(provider):
+    execution_provider, runner, invocation = provider
+    runner.mutate_evaluator_after_attach = lambda payload: payload[
+        "HostConfig"
+    ].__setitem__("Memory", runner.compute.memory_byte_limit + 1)
+
+    with pytest.raises(
+        SourceReplayDockerProviderError,
+        match="owned resources changed",
+    ):
+        execution_provider.execute_leg(invocation)
+
+    assert runner.containers == {}
+    assert runner.volumes == {}
+
+
+def test_provider_rejects_network_attached_during_execution(provider):
+    execution_provider, runner, invocation = provider
+    runner.mutate_evaluator_after_attach = lambda payload: payload["NetworkSettings"][
+        "Networks"
+    ].__setitem__(
+        "bridge",
+        dict(payload["NetworkSettings"]["Networks"]["none"]),
+    )
+
+    with pytest.raises(
+        SourceReplayDockerProviderError,
+        match="owned resources changed",
+    ):
+        execution_provider.execute_leg(invocation)
+
+    assert runner.containers == {}
+    assert runner.volumes == {}
 
 
 def test_interrupted_cleanup_never_starts_or_executes(provider):

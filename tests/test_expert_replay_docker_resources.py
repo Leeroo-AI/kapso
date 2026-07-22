@@ -303,3 +303,66 @@ def test_ambiguous_resource_lookup_fails_loud(resources, replay_invocation):
 
     with pytest.raises(SourceReplayDockerResourceError, match="ambiguous"):
         manager.observe(identity)
+
+
+def test_container_removal_normalizes_only_mount_order(
+    resources,
+    replay_invocation,
+):
+    manager, runner = resources
+    identity = manager.identity(replay_invocation.provider_handle)
+    evaluator_id = "a" * 64
+    runner.containers[identity.evaluator_name] = {
+        **_container(
+            identity.evaluator_name,
+            evaluator_id,
+            identity.labels_for("evaluator"),
+        ),
+        "Mounts": [
+            {
+                "Destination": "/kapso/input",
+                "RW": False,
+                "Type": "bind",
+            },
+            {
+                "Destination": "/kapso/writable",
+                "RW": True,
+                "Type": "volume",
+            },
+        ],
+    }
+    observation = manager.observe(identity)[0]
+    runner.containers[identity.evaluator_name]["Mounts"].reverse()
+
+    manager.remove_container(identity, observation)
+
+    assert identity.evaluator_name not in runner.containers
+
+
+def test_container_removal_rejects_changed_mount_authority(
+    resources,
+    replay_invocation,
+):
+    manager, runner = resources
+    identity = manager.identity(replay_invocation.provider_handle)
+    runner.containers[identity.evaluator_name] = {
+        **_container(
+            identity.evaluator_name,
+            "a" * 64,
+            identity.labels_for("evaluator"),
+        ),
+        "Mounts": [
+            {
+                "Destination": "/kapso/input",
+                "RW": False,
+                "Type": "bind",
+            }
+        ],
+    }
+    observation = manager.observe(identity)[0]
+    runner.containers[identity.evaluator_name]["Mounts"][0]["RW"] = True
+
+    with pytest.raises(SourceReplayDockerResourceError, match="changed"):
+        manager.remove_container(identity, observation)
+
+    assert identity.evaluator_name in runner.containers

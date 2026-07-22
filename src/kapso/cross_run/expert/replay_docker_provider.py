@@ -18,6 +18,7 @@ from kapso.cross_run.expert.replay_docker_resources import (
     SourceReplayDockerResourceIdentity,
     SourceReplayDockerResourceManager,
     SourceReplayDockerVolumeObservation,
+    source_replay_docker_container_observations_match,
 )
 from kapso.cross_run.expert.replay_docker_runtime import (
     SourceReplayDockerRuntime,
@@ -237,7 +238,7 @@ class SourceReplayDockerExecutionProvider:
                 volume,
                 compute,
             )
-            self._start_keeper(
+            keeper = self._start_keeper(
                 identity,
                 keeper,
                 volume,
@@ -387,7 +388,7 @@ class SourceReplayDockerExecutionProvider:
         compute: ExpertSourceReplayComputeBinding,
         adapter_runtime: TaskAdapterRuntimeContract,
         helper_root: Path,
-    ) -> None:
+    ) -> SourceReplayDockerContainerObservation:
         result = self._runtime.run_control(("container", "start", keeper.container_id))
         _require_exact_line(result.stdout, keeper.container_id)
         evaluator, running_keeper, observed_volume = self._resources.observe(identity)
@@ -416,6 +417,7 @@ class SourceReplayDockerExecutionProvider:
             expected_status="running",
             expected_exit_code=0,
         )
+        return running_keeper
 
     def _create_evaluator(
         self,
@@ -487,8 +489,15 @@ class SourceReplayDockerExecutionProvider:
         if (
             evaluator_after is None
             or evaluator_after.container_id != evaluator.container_id
+            or not _container_execution_authority_matches_created(
+                evaluator_after,
+                evaluator,
+            )
             or keeper_after is None
-            or keeper_after.container_id != keeper.container_id
+            or not source_replay_docker_container_observations_match(
+                keeper_after,
+                keeper,
+            )
             or volume_after != volume
         ):
             raise SourceReplayDockerProviderError(
@@ -519,7 +528,10 @@ class SourceReplayDockerExecutionProvider:
         )
         if (
             evaluator_absent is not None
-            or current_keeper != keeper_after
+            or not source_replay_docker_container_observations_match(
+                current_keeper,
+                keeper_after,
+            )
             or current_volume != volume
         ):
             raise SourceReplayDockerProviderError(
@@ -624,6 +636,7 @@ def _container_create_prefix(
         str(compute.memory_byte_limit),
         "--memory-swap",
         str(compute.memory_byte_limit),
+        "--oom-kill-disable=false",
         "--cpu-period",
         str(settings.cpu_period_microseconds),
         "--cpu-quota",
@@ -661,7 +674,7 @@ def _container_environment(
 ) -> tuple[tuple[str, str], ...]:
     environment = dict(runtime.environment)
     environment.update(_PROVIDER_ENVIRONMENT)
-    return tuple(environment.items())
+    return tuple(sorted(environment.items()))
 
 
 def _container_environment_arguments(
@@ -728,13 +741,11 @@ def _require_container_contract(
         if observation.role == _EVALUATOR_ROLE
         else identity.keeper_name
     )
-    expected_environment = [
-        f"{key}={value}" for key, value in _container_environment(runtime)
-    ]
     expected_command = list(command) if command else None
     expected_quota = (
         compute.cpu_millicore_limit * settings.cpu_period_microseconds // 1000
     )
+    expected_oom_kill_disable = False if expected_status == "created" else None
     if (
         observation.name != expected_name
         or payload.get("Image") != runtime.image_config_digest
@@ -745,7 +756,7 @@ def _require_container_contract(
         or config.get("Hostname") != _CONTAINER_HOSTNAME
         or config.get("User")
         != f"{settings.container_user_id}:{settings.container_group_id}"
-        or config.get("Env") != expected_environment
+        or not _container_environment_is_exact(config.get("Env"), runtime)
         or config.get("Entrypoint") != [entrypoint]
         or config.get("Cmd") != expected_command
         or config.get("WorkingDir") != workdir
@@ -773,7 +784,7 @@ def _require_container_contract(
         or host.get("Memory") != compute.memory_byte_limit
         or host.get("MemorySwap") != compute.memory_byte_limit
         or host.get("NetworkMode") != "none"
-        or host.get("OomKillDisable") is not False
+        or host.get("OomKillDisable") is not expected_oom_kill_disable
         or host.get("PidMode") != ""
         or host.get("PidsLimit") != compute.process_limit
         or host.get("PortBindings") != {}
@@ -797,6 +808,10 @@ def _require_container_contract(
             }
         ]
         or tuple(_normalized_mounts(payload)) != expected_mounts
+        or not _container_has_exact_isolated_network(
+            payload.get("NetworkSettings"),
+            expected_status=expected_status,
+        )
         or state.get("Status") != expected_status
         or state.get("Running") is not (expected_status == "running")
         or state.get("Paused") is not False
@@ -811,6 +826,152 @@ def _require_container_contract(
         raise SourceReplayDockerProviderError(
             "source replay Docker container differs from exact sandbox authority"
         )
+
+
+def _container_environment_is_exact(
+    value: Any,
+    runtime: TaskAdapterRuntimeContract,
+) -> bool:
+    if not isinstance(value, list) or any(
+        not isinstance(assignment, str) or "=" not in assignment for assignment in value
+    ):
+        return False
+    environment: dict[str, str] = {}
+    for assignment in value:
+        key, assigned_value = assignment.split("=", 1)
+        if not key or key in environment:
+            return False
+        environment[key] = assigned_value
+    return environment == dict(_container_environment(runtime))
+
+
+def _container_execution_authority_matches_created(
+    current: SourceReplayDockerContainerObservation,
+    created: SourceReplayDockerContainerObservation,
+) -> bool:
+    current_host = current.payload.get("HostConfig")
+    created_host = created.payload.get("HostConfig")
+    current_state = current.payload.get("State")
+    if (
+        not isinstance(current_host, Mapping)
+        or not isinstance(created_host, Mapping)
+        or not isinstance(current_state, Mapping)
+        or current_host.get("OomKillDisable") is not None
+        or created_host.get("OomKillDisable") is not False
+        or not _container_has_exact_isolated_network(
+            current.payload.get("NetworkSettings"),
+            expected_status=current_state.get("Status"),
+        )
+    ):
+        return False
+    normalized_current_host = dict(current_host)
+    normalized_current_host["OomKillDisable"] = False
+    authority_fields = (
+        "Args",
+        "Config",
+        "HostConfig",
+        "Image",
+        "Mounts",
+        "Path",
+        "RestartCount",
+    )
+    normalized_current_payload = {
+        field: current.payload.get(field) for field in authority_fields
+    }
+    normalized_current_payload["HostConfig"] = normalized_current_host
+    created_authority_payload = {
+        field: created.payload.get(field) for field in authority_fields
+    }
+    return source_replay_docker_container_observations_match(
+        SourceReplayDockerContainerObservation(
+            container_id=current.container_id,
+            name=current.name,
+            role=current.role,
+            payload=normalized_current_payload,
+        ),
+        SourceReplayDockerContainerObservation(
+            container_id=created.container_id,
+            name=created.name,
+            role=created.role,
+            payload=created_authority_payload,
+        ),
+    )
+
+
+def _container_has_exact_isolated_network(
+    value: Any,
+    *,
+    expected_status: Any,
+) -> bool:
+    if expected_status not in {"created", "running", "exited"}:
+        return False
+    if not isinstance(value, dict):
+        return False
+    networks = value.get("Networks")
+    if not isinstance(networks, dict) or set(networks) != {"none"}:
+        return False
+    network = networks["none"]
+    if not isinstance(network, dict):
+        return False
+    sandbox_id = value.get("SandboxID")
+    sandbox_key = value.get("SandboxKey")
+    network_id = network.get("NetworkID")
+    endpoint_id = network.get("EndpointID")
+    if expected_status == "created":
+        if (
+            sandbox_id != ""
+            or sandbox_key != ""
+            or network_id != ""
+            or endpoint_id != ""
+        ):
+            return False
+    elif expected_status == "running":
+        if (
+            not _is_docker_identifier(sandbox_id)
+            or sandbox_key != f"/var/run/docker/netns/{sandbox_id[:12]}"
+            or not _is_docker_identifier(network_id)
+            or not _is_docker_identifier(endpoint_id)
+        ):
+            return False
+    elif (
+        sandbox_id != ""
+        or sandbox_key != ""
+        or not _is_docker_identifier(network_id)
+        or endpoint_id != ""
+    ):
+        return False
+    return value == {
+        "SandboxID": sandbox_id,
+        "SandboxKey": sandbox_key,
+        "Ports": {},
+        "Networks": {
+            "none": {
+                "IPAMConfig": None,
+                "Links": None,
+                "Aliases": None,
+                "DriverOpts": None,
+                "GwPriority": 0,
+                "NetworkID": network_id,
+                "EndpointID": endpoint_id,
+                "Gateway": "",
+                "IPAddress": "",
+                "MacAddress": "",
+                "IPPrefixLen": 0,
+                "IPv6Gateway": "",
+                "GlobalIPv6Address": "",
+                "GlobalIPv6PrefixLen": 0,
+                "DNSNames": None,
+            }
+        },
+    }
+
+
+def _is_docker_identifier(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _normalized_mounts(payload: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:

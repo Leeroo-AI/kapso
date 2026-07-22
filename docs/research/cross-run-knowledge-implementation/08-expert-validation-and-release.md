@@ -205,6 +205,16 @@ enter strict result parsing; every other bounded outcome returns no result bytes
 Normal return and failure both reap daemon resources before fd-safe workspace
 deletion.
 
+The explicitly invoked production check is
+`pytest -q tests/live_expert_replay_docker.py -s`. It serves a deterministic,
+digest-addressed scratch image from a loopback-only OCI registry, pulls that
+exact digest once, then runs both counterbalanced legs through the request-bound
+registry, fresh-authority coordinator, journal, and concrete Docker provider. It
+requires zero subsequent registry requests, accepts the exact parent and
+candidate scores, and proves that every handle-owned container, volume, and
+workspace is gone. The fixture synthesizes the task-adapter publisher proof; it
+does not exercise a production publisher or remote GitHub transport.
+
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
 `/kapso/input/request.json`, mounts the selected expert at

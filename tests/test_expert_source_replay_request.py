@@ -191,11 +191,18 @@ def _request_fixture(
     rotate_active_adapter=False,
     bundle_generations=1,
     evaluator_fingerprint=None,
+    contract_records=None,
+    source_adapter=None,
 ):
+    if (contract_records is None) != (source_adapter is None):
+        raise ValueError(
+            "source replay fixture records and adapter must be supplied together"
+        )
     fixture_root = tmp_path / f"request-{next(REQUEST_FIXTURE_SEQUENCE)}"
     fixture_root.mkdir()
     capture_fixture = make_capture_fixture(
         fixture_root,
+        contract_records=contract_records,
         evaluator_fingerprint=evaluator_fingerprint,
     )
     capture_pipeline = RunCapturePipeline(
@@ -287,6 +294,7 @@ def _request_fixture(
     settings = _validation_policy()
     adapter_provider = _AdapterProvider(
         packet,
+        source_adapter=source_adapter,
         rotate_active=rotate_active_adapter,
     )
     current_release_provider = _CurrentReleaseProvider(packet.parent_release_id)
