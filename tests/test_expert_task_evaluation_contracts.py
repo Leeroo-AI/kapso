@@ -13,6 +13,10 @@ from kapso.cross_run.expert.task_evaluation_contracts import (
     TaskEvaluationRequest,
     TaskEvaluationReservation,
 )
+from kapso.cross_run.expert.task_evaluation_compute import (
+    TaskEvaluationComputeError,
+    derive_release_matrix_compute_bindings,
+)
 from kapso.cross_run.expert.task_evaluation_request import (
     PlanJoinedTaskEvaluationRequest,
     TaskEvaluationRequestPreparationError,
@@ -271,7 +275,6 @@ def _request_for_reserved_plan(
     )
     if plan.parent_release_id is None:
         legs = (candidate_leg,)
-        leg_order = (TaskEvaluationLegKind.CANDIDATE,)
     else:
         parent_receipt_id = _id(
             "expert-parent-tree-receipt",
@@ -287,15 +290,21 @@ def _request_for_reserved_plan(
             ),
         )
         legs = tuple(sorted((parent_leg, candidate_leg), key=lambda leg: leg.leg_id))
-        leg_order = (
-            TaskEvaluationLegKind.PARENT_CONTROL,
-            TaskEvaluationLegKind.CANDIDATE,
-        )
-    compute = _compute(leg_order)
+    adapter_provenance_ids = tuple(
+        provenance.provenance_binding_id
+        for provenance in plan.provenance_bindings
+        if provenance.adapter_case is not None
+    )
+    compute_bindings = derive_release_matrix_compute_bindings(
+        settings=settings,
+        mode=plan.mode,
+        provenance_binding_ids=adapter_provenance_ids,
+    )
     cases = []
     for provenance in plan.provenance_bindings:
         if provenance.adapter_case is None:
             continue
+        compute = compute_bindings[provenance.provenance_binding_id]
         planned_cells = tuple(
             cell
             for cell in plan.evaluation_cells
@@ -597,6 +606,46 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
     )
     assert joined.request == request
     assert len(request.cases) == 2
+    provenance_ids = tuple(case.provenance_binding_id for case in request.cases)
+    expected_compute = derive_release_matrix_compute_bindings(
+        settings=validation_store.settings,
+        mode=request.mode,
+        provenance_binding_ids=tuple(reversed(provenance_ids)),
+    )
+    assert {
+        case.provenance_binding_id: case.compute_binding for case in request.cases
+    } == expected_compute
+    assert {case.compute_binding.leg_order for case in request.cases} == {
+        (
+            TaskEvaluationLegKind.PARENT_CONTROL,
+            TaskEvaluationLegKind.CANDIDATE,
+        ),
+        (
+            TaskEvaluationLegKind.CANDIDATE,
+            TaskEvaluationLegKind.PARENT_CONTROL,
+        ),
+    }
+    assert all(
+        binding.execution_provider_settings_digest
+        == tree_or_blob_digest(
+            validation_store.settings.task_evaluation_provider.to_json_bytes()
+        )
+        for binding in expected_compute.values()
+    )
+    bootstrap_compute = derive_release_matrix_compute_bindings(
+        settings=validation_store.settings,
+        mode=ExpertReleaseMatrixMode.BOOTSTRAP,
+        provenance_binding_ids=provenance_ids,
+    )
+    assert {binding.leg_order for binding in bootstrap_compute.values()} == {
+        (TaskEvaluationLegKind.CANDIDATE,)
+    }
+    with pytest.raises(TaskEvaluationComputeError, match="exact matrix mode"):
+        derive_release_matrix_compute_bindings(
+            settings=validation_store.settings,
+            mode="parent_comparison",
+            provenance_binding_ids=provenance_ids,
+        )
 
     incomplete_request = _request_with_cases(request, request.cases[:1])
     with pytest.raises(
@@ -631,6 +680,33 @@ def test_plan_join_requires_exact_adapter_case_projection_and_evaluator_role(
     ):
         PlanJoinedTaskEvaluationRequest(
             request=substituted_case_request,
+            plan_reservation=reserved,
+            settings=validation_store.settings,
+        )
+
+    substituted_compute = _remint(
+        request.cases[0].compute_binding,
+        cpu_millicore_limit=(request.cases[0].compute_binding.cpu_millicore_limit + 1),
+    )
+    compute_substituted_case = _case_with_updates(
+        request.cases[0],
+        compute_binding=substituted_compute.to_dict(),
+    )
+    compute_substituted_request = _request_with_cases(
+        request,
+        tuple(
+            sorted(
+                (compute_substituted_case, *request.cases[1:]),
+                key=lambda case: case.canonical_key,
+            )
+        ),
+    )
+    with pytest.raises(
+        TaskEvaluationRequestPreparationError,
+        match="case differs from its reserved provenance",
+    ):
+        PlanJoinedTaskEvaluationRequest(
+            request=compute_substituted_request,
             plan_reservation=reserved,
             settings=validation_store.settings,
         )

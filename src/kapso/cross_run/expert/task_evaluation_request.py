@@ -11,6 +11,9 @@ from kapso.cross_run.expert.promotion_contracts import (
 from kapso.cross_run.expert.task_evaluation_contracts import (
     TaskEvaluationRequest,
 )
+from kapso.cross_run.expert.task_evaluation_compute import (
+    derive_release_matrix_compute_bindings,
+)
 from kapso.cross_run.expert.validation_store import (
     ExpertReleaseMatrixPlanReservationSnapshot,
 )
@@ -120,6 +123,13 @@ class PlanJoinedTaskEvaluationRequest:
             raise TaskEvaluationRequestPreparationError(
                 "task evaluation request adapter provenance coverage is not exact"
             )
+        compute_bindings = derive_release_matrix_compute_bindings(
+            settings=self.settings,
+            mode=plan.mode,
+            provenance_binding_ids=tuple(
+                provenance.provenance_binding_id for provenance in expected_provenances
+            ),
+        )
         cells_by_provenance_id = {
             provenance.provenance_binding_id: tuple(
                 cell
@@ -155,6 +165,8 @@ class PlanJoinedTaskEvaluationRequest:
                     )
                 )
                 or case.starting_artifact_ids != provenance.starting_artifact_ids
+                or case.compute_binding
+                != compute_bindings[provenance.provenance_binding_id]
             ):
                 raise TaskEvaluationRequestPreparationError(
                     "task evaluation case differs from its reserved provenance"

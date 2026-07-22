@@ -707,9 +707,13 @@ authenticated present/absent parent state before any execution can begin.
 The durable request binds the configured evaluator ID, role, and version. A separate
 runtime closure joins it to the exact reserved plan and rejects omitted, substituted,
 or foreign adapter provenances, cells, fingerprints, cases, contexts, independence
-identities, and artifacts. That plan join is deliberately not a spawn capability:
-materialization must still prove exact package bytes, configured compute, and fresh
-adapter authority.
+identities, artifacts, or compute. Compute is derived only from the release-matrix
+evaluator timeout and the shared configured provider, sandbox, resource, output,
+stream, and accelerator authority. Bootstrap has one candidate leg; parent comparison
+counterbalances candidate-first and parent-first order deterministically across the
+complete adapter-provenance set. That plan join is deliberately not a spawn
+capability: materialization must still prove exact package bytes and fresh adapter
+authority.
 
 The shared operational authority is single-sourced as
 `validation.task_evaluation_provider` plus `task_evaluation_*` policy fields.
