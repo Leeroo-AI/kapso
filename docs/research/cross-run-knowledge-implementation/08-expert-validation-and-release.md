@@ -753,6 +753,17 @@ closures under `/input/task`; source replay continues to expose only its indepen
 materialized historical task context. This prevents one case or source replay from
 reading another signed case's fixtures through the adapter mount.
 
+The byte boundary is now shared without conflating authorization producers.
+`VerifiedTaskEvaluationCandidate` and `VerifiedTaskEvaluationParent` prove exact
+expert-tree bytes for both source replay and matrix execution.
+`VerifiedTaskEvaluationAdapterRuntime` revalidates the manifest, verification
+receipt, extraction receipt, executable, lock, and exact fixture-free runtime
+projection. `materialize_task_evaluation_starting_artifacts` accepts only a case
+embedded in that verified manifest and copies only its declared package paths into
+immutable artifact closures. These objects prove bytes; the later materialized-case
+closure must still join them to the reserved request, adapter authority, signed case,
+and fresh provider observation before they become a spawn capability.
+
 The planner now derives a mixed parent matrix from the complete accepted source
 replay plus every signed case in every immutable attempt-pinned active adapter.
 Historical package versions needed by source evidence remain exact authorities but

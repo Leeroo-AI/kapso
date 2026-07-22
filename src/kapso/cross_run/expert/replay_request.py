@@ -15,7 +15,6 @@ from kapso.cross_run.catalog.projector import ProjectionResult, RunBundleProject
 from kapso.cross_run.capture.bundle import StoredRunBundle
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
-    ExpertCandidateManifest,
     ExpertCandidateValidationState,
     ExpertPromotionState,
     ExpertSourceReplayCase,
@@ -25,10 +24,8 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionLegKind,
     ExpertSourceReplayExecutionRequest,
     ExpertSourceReplaySelection,
-    ExpertSourceTreeManifest,
     ExpertValidationAttempt,
     ExpertValidationStage,
-    SourceFileDescriptor,
     TransferEpisode,
     expert_source_replay_matched_compute_digest,
 )
@@ -39,8 +36,11 @@ from kapso.cross_run.expert.replay_context import (
     VerifiedSourceReplayContext,
 )
 from kapso.cross_run.expert.store import (
-    ExpertCandidateCommitRecord,
     StoredExpertCandidate,
+)
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    VerifiedTaskEvaluationCandidate,
+    VerifiedTaskEvaluationParent,
 )
 from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
 from kapso.cross_run.expert.validation import (
@@ -100,7 +100,7 @@ class ExpertSourceReplayParentProvider(Protocol):
         release_manifest: ExpertBaseReleaseManifest,
         parent_tree_receipt: ExpertParentTreeReceipt,
         limits: SourceReplayMaterializationLimits,
-    ) -> VerifiedExpertSourceReplayParent: ...
+    ) -> VerifiedTaskEvaluationParent: ...
 
 
 class ExpertSourceReplayTaskAdapterProvider(Protocol):
@@ -188,126 +188,6 @@ def _source_replay_compute_bindings(
             for position, episode_id in enumerate(ordered_episode_ids)
         }
     )
-
-
-def _verified_source_contents(
-    descriptors: tuple[SourceFileDescriptor, ...],
-    source_contents: Mapping[str, bytes],
-    label: str,
-) -> Mapping[str, bytes]:
-    expected_paths = {descriptor.relative_path for descriptor in descriptors}
-    if set(source_contents) != expected_paths:
-        raise ExpertSourceReplayRequestError(
-            f"{label} bytes differ from the exact path closure"
-        )
-    for descriptor in descriptors:
-        payload = source_contents[descriptor.relative_path]
-        if (
-            not isinstance(payload, bytes)
-            or len(payload) != descriptor.size
-            or tree_or_blob_digest(payload) != descriptor.digest
-        ):
-            raise ExpertSourceReplayRequestError(
-                f"{label} bytes differ from their descriptor"
-            )
-    return MappingProxyType(dict(source_contents))
-
-
-@dataclass(frozen=True)
-class VerifiedExpertSourceReplayCandidate:
-    manifest: ExpertCandidateManifest
-    commit_record: ExpertCandidateCommitRecord
-    source_tree: ExpertSourceTreeManifest
-    source_contents: Mapping[str, bytes]
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.manifest, ExpertCandidateManifest)
-            or not isinstance(self.commit_record, ExpertCandidateCommitRecord)
-            or not isinstance(self.source_tree, ExpertSourceTreeManifest)
-        ):
-            raise ExpertSourceReplayRequestError(
-                "candidate replay source requires typed immutable authorities"
-            )
-        if (
-            self.commit_record.candidate_id != self.manifest.candidate_id
-            or self.manifest.candidate_tree_ref
-            != self.source_tree.source_tree_manifest_id
-            or self.manifest.candidate_tree_hash != self.source_tree.tree_hash
-        ):
-            raise ExpertSourceReplayRequestError(
-                "candidate replay source differs from its immutable authority"
-            )
-        object.__setattr__(
-            self,
-            "source_contents",
-            _verified_source_contents(
-                self.source_tree.files,
-                self.source_contents,
-                "candidate replay source",
-            ),
-        )
-
-    @property
-    def entry_count(self) -> int:
-        return len(self.source_tree.files)
-
-    @property
-    def byte_count(self) -> int:
-        return sum(descriptor.size for descriptor in self.source_tree.files)
-
-
-@dataclass(frozen=True)
-class VerifiedExpertSourceReplayParent:
-    release_manifest: ExpertBaseReleaseManifest
-    parent_tree_receipt: ExpertParentTreeReceipt
-    source_contents: Mapping[str, bytes]
-
-    def __post_init__(self) -> None:
-        if not isinstance(
-            self.release_manifest, ExpertBaseReleaseManifest
-        ) or not isinstance(self.parent_tree_receipt, ExpertParentTreeReceipt):
-            raise ExpertSourceReplayRequestError(
-                "parent replay source requires typed immutable authorities"
-            )
-        receipt = self.parent_tree_receipt
-        extraction = receipt.source_extraction_receipt
-        archive_ref = self.release_manifest.source_archive_ref
-        archive_digest = self.release_manifest.checksums[archive_ref]
-        if (
-            receipt.release_id != self.release_manifest.release_id
-            or receipt.parent_tree_hash != extraction.source_tree_hash
-            or extraction.artifact_id != self.release_manifest.release_id
-            or extraction.source_archive_ref != archive_ref
-            or extraction.source_archive_digest != archive_digest
-            or receipt.cache_verification_receipt.asset_digests.get(archive_ref)
-            != archive_digest
-        ):
-            raise ExpertSourceReplayRequestError(
-                "parent replay source differs from the exact released archive"
-            )
-        object.__setattr__(
-            self,
-            "source_contents",
-            _verified_source_contents(
-                extraction.source_tree_files,
-                self.source_contents,
-                "parent replay source",
-            ),
-        )
-
-    @property
-    def entry_count(self) -> int:
-        return len(self.parent_tree_receipt.source_extraction_receipt.source_tree_files)
-
-    @property
-    def byte_count(self) -> int:
-        return sum(
-            descriptor.size
-            for descriptor in (
-                self.parent_tree_receipt.source_extraction_receipt.source_tree_files
-            )
-        )
 
 
 @dataclass(frozen=True)
@@ -512,8 +392,8 @@ class PreparedExpertSourceReplayRequest:
     settings: ExpertValidationSettings
     attempt: ExpertValidationAttempt
     selection: ExpertSourceReplaySelection
-    candidate: VerifiedExpertSourceReplayCandidate
-    parent: VerifiedExpertSourceReplayParent
+    candidate: VerifiedTaskEvaluationCandidate
+    parent: VerifiedTaskEvaluationParent
     authorization_state: ExpertCandidateValidationState
     cases: tuple[MaterializedExpertSourceReplayCase, ...]
 
@@ -523,8 +403,8 @@ class PreparedExpertSourceReplayRequest:
             or not isinstance(self.settings, ExpertValidationSettings)
             or not isinstance(self.attempt, ExpertValidationAttempt)
             or not isinstance(self.selection, ExpertSourceReplaySelection)
-            or not isinstance(self.candidate, VerifiedExpertSourceReplayCandidate)
-            or not isinstance(self.parent, VerifiedExpertSourceReplayParent)
+            or not isinstance(self.candidate, VerifiedTaskEvaluationCandidate)
+            or not isinstance(self.parent, VerifiedTaskEvaluationParent)
             or not isinstance(
                 self.authorization_state,
                 ExpertCandidateValidationState,
@@ -784,7 +664,7 @@ class ExpertSourceReplayPreflightCoordinator:
         selection = self._validated_selection(attempt, stored_candidate)
         if not self._parent_is_current(attempt, stored_candidate):
             return self._invalidate_parent_authority(attempt, state)
-        candidate = VerifiedExpertSourceReplayCandidate(
+        candidate = VerifiedTaskEvaluationCandidate(
             manifest=stored_candidate.closure.manifest,
             commit_record=stored_candidate.commit_record,
             source_tree=stored_candidate.closure.candidate_tree,
@@ -1079,7 +959,7 @@ class ExpertSourceReplayPreflightCoordinator:
         self,
         candidate: StoredExpertCandidate,
         limits: SourceReplayMaterializationLimits,
-    ) -> VerifiedExpertSourceReplayParent:
+    ) -> VerifiedTaskEvaluationParent:
         packet = candidate.closure.trigger_packet
         if packet.parent_release is None or packet.parent_tree_receipt is None:
             raise ExpertSourceReplayRequestError(
@@ -1090,7 +970,7 @@ class ExpertSourceReplayPreflightCoordinator:
             packet.parent_tree_receipt,
             limits,
         )
-        if not isinstance(parent, VerifiedExpertSourceReplayParent):
+        if type(parent) is not VerifiedTaskEvaluationParent:
             raise ExpertSourceReplayRequestError(
                 "parent provider returned an unverified source closure"
             )
@@ -1108,8 +988,8 @@ class ExpertSourceReplayPreflightCoordinator:
     def _resolve_source_adapters(
         self,
         selection: ExpertSourceReplaySelection,
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent,
         deadline: float,
     ) -> dict[str, VerifiedTaskAdapter]:
         adapters_by_episode: dict[str, VerifiedTaskAdapter] = {}
@@ -1185,8 +1065,8 @@ class ExpertSourceReplayPreflightCoordinator:
             tuple[str, tuple[tuple[str, str], ...]],
             VerifiedSourceReplayContext,
         ],
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent,
         adapters: tuple[VerifiedTaskAdapter, ...],
         lineages: tuple[VerifiedRunBundleLineage, ...],
         control_leg: ExpertSourceReplayExecutionLeg,
@@ -1414,8 +1294,8 @@ class ExpertSourceReplayPreflightCoordinator:
     def _check_materialization_totals(
         self,
         *,
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent | None,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent | None,
         adapters: tuple[VerifiedTaskAdapter, ...],
         lineages: tuple[VerifiedRunBundleLineage, ...],
         contexts: tuple[VerifiedSourceReplayContext, ...],
@@ -1436,8 +1316,8 @@ class ExpertSourceReplayPreflightCoordinator:
     def _remaining_materialization_limits(
         self,
         *,
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent | None,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent | None,
         adapters: tuple[VerifiedTaskAdapter, ...],
         lineages: tuple[VerifiedRunBundleLineage, ...],
         contexts: tuple[VerifiedSourceReplayContext, ...],
@@ -1473,8 +1353,8 @@ class ExpertSourceReplayPreflightCoordinator:
     @staticmethod
     def _materialization_usage(
         *,
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent | None,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent | None,
         adapters: tuple[VerifiedTaskAdapter, ...],
         lineages: tuple[VerifiedRunBundleLineage, ...],
         contexts: tuple[VerifiedSourceReplayContext, ...],
@@ -1557,8 +1437,8 @@ def _deduplicated_materialized_authorities(
 
 def _source_replay_materialization_usage(
     *,
-    candidate: VerifiedExpertSourceReplayCandidate,
-    parent: VerifiedExpertSourceReplayParent | None,
+    candidate: VerifiedTaskEvaluationCandidate,
+    parent: VerifiedTaskEvaluationParent | None,
     adapters: tuple[VerifiedTaskAdapter, ...],
     lineages: tuple[VerifiedRunBundleLineage, ...],
     contexts: tuple[VerifiedSourceReplayContext, ...],
@@ -1652,7 +1532,7 @@ def _source_replay_evaluator(settings: ExpertValidationSettings):
 
 
 def _control_leg(
-    parent: VerifiedExpertSourceReplayParent,
+    parent: VerifiedTaskEvaluationParent,
 ) -> ExpertSourceReplayExecutionLeg:
     receipt = parent.parent_tree_receipt
     return ExpertSourceReplayExecutionLeg.mint(
@@ -1672,7 +1552,7 @@ def _control_leg(
 
 
 def _candidate_leg(
-    candidate: VerifiedExpertSourceReplayCandidate,
+    candidate: VerifiedTaskEvaluationCandidate,
 ) -> ExpertSourceReplayExecutionLeg:
     return ExpertSourceReplayExecutionLeg.mint(
         kind=ExpertSourceReplayExecutionLegKind.CANDIDATE,

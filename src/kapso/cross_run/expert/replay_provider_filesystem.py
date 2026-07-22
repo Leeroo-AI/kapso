@@ -14,9 +14,9 @@ from kapso.cross_run.contracts import SourceFileDescriptor
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayMatchedLegInvocation,
 )
-from kapso.cross_run.expert.replay_request import (
-    VerifiedExpertSourceReplayCandidate,
-    VerifiedExpertSourceReplayParent,
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    VerifiedTaskEvaluationCandidate,
+    VerifiedTaskEvaluationParent,
 )
 
 _INPUT_DIRECTORY_NAME = "input"
@@ -440,9 +440,9 @@ def _expert_source_closure(
     invocation: ExpertSourceReplayMatchedLegInvocation,
 ) -> tuple[tuple[SourceFileDescriptor, ...], Mapping[str, bytes]]:
     source = invocation.expert_source
-    if type(source) is VerifiedExpertSourceReplayCandidate:
+    if type(source) is VerifiedTaskEvaluationCandidate:
         return source.source_tree.files, source.source_contents
-    if type(source) is VerifiedExpertSourceReplayParent:
+    if type(source) is VerifiedTaskEvaluationParent:
         return (
             source.parent_tree_receipt.source_extraction_receipt.source_tree_files,
             source.source_contents,

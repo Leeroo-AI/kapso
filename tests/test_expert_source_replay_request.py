@@ -40,8 +40,10 @@ from kapso.cross_run.expert.replay_context import (
 from kapso.cross_run.expert.replay_request import (
     ExpertSourceReplayPreflightCoordinator,
     ExpertSourceReplayRequestError,
-    VerifiedExpertSourceReplayParent,
     _source_replay_compute_bindings,
+)
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    VerifiedTaskEvaluationParent,
 )
 from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvaluator,
@@ -179,7 +181,7 @@ class _ParentProvider:
 
     def materialize_exact(self, release, parent_tree_receipt, limits):
         self.materializations.append((release.release_id, limits))
-        return VerifiedExpertSourceReplayParent(
+        return VerifiedTaskEvaluationParent(
             release_manifest=release,
             parent_tree_receipt=parent_tree_receipt,
             source_contents={"src/expert.py": b"verified parent source"},

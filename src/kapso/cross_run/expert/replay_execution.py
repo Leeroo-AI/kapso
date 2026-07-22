@@ -21,8 +21,10 @@ from kapso.cross_run.expert.replay_protocol_contracts import (
 from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,
     PreparedExpertSourceReplayRequest,
-    VerifiedExpertSourceReplayCandidate,
-    VerifiedExpertSourceReplayParent,
+)
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    VerifiedTaskEvaluationCandidate,
+    VerifiedTaskEvaluationParent,
 )
 from kapso.cross_run.process import BoundedProcessResult
 
@@ -143,9 +145,7 @@ def source_replay_provider_execution_handle(
 @dataclass(frozen=True)
 class ExpertSourceReplayMatchedLegInvocation:
     materialized_case: MaterializedExpertSourceReplayCase
-    expert_source: (
-        VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent
-    )
+    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent
     invocation_allocation: TaskEvaluatorInvocationAllocation
     task_evaluator_request: TaskEvaluatorRequest
     provider_handle: SourceReplayProviderExecutionHandle
@@ -189,9 +189,7 @@ class ExpertSourceReplayMatchedLegInvocation:
 def _expert_source_matches_leg(
     materialized_case: MaterializedExpertSourceReplayCase,
     invocation_allocation: TaskEvaluatorInvocationAllocation,
-    expert_source: (
-        VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent
-    ),
+    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent,
 ) -> bool:
     if not isinstance(
         invocation_allocation,
@@ -220,13 +218,11 @@ def _expert_source_matches_leg(
 
 def _expert_source_matches_execution_leg(
     execution_leg: ExpertSourceReplayExecutionLeg,
-    expert_source: (
-        VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent
-    ),
+    expert_source: VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent,
 ) -> bool:
     if (
         execution_leg.kind is ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
-        and type(expert_source) is VerifiedExpertSourceReplayParent
+        and type(expert_source) is VerifiedTaskEvaluationParent
     ):
         return (
             expert_source.release_manifest.release_id
@@ -238,7 +234,7 @@ def _expert_source_matches_execution_leg(
         )
     if (
         execution_leg.kind is ExpertSourceReplayExecutionLegKind.CANDIDATE
-        and type(expert_source) is VerifiedExpertSourceReplayCandidate
+        and type(expert_source) is VerifiedTaskEvaluationCandidate
     ):
         return (
             expert_source.manifest.candidate_id == execution_leg.expert_artifact_id
@@ -276,11 +272,11 @@ class ResolvedExpertSourceReplayExecutionCase:
 
     materialized_case: MaterializedExpertSourceReplayCase
     dispatch_key: ExpertSourceReplayExecutionProviderKey
-    _candidate: VerifiedExpertSourceReplayCandidate = field(
+    _candidate: VerifiedTaskEvaluationCandidate = field(
         repr=False,
         compare=False,
     )
-    _parent: VerifiedExpertSourceReplayParent = field(
+    _parent: VerifiedTaskEvaluationParent = field(
         repr=False,
         compare=False,
     )
@@ -290,8 +286,8 @@ class ResolvedExpertSourceReplayExecutionCase:
         self,
         materialized_case: MaterializedExpertSourceReplayCase,
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent,
         provider: ExpertSourceReplayExecutionProvider,
     ) -> None:
         if not isinstance(materialized_case, MaterializedExpertSourceReplayCase):
@@ -311,8 +307,8 @@ class ResolvedExpertSourceReplayExecutionCase:
                 "resolved source replay provider cannot clean an interrupted leg"
             )
         if (
-            type(candidate) is not VerifiedExpertSourceReplayCandidate
-            or type(parent) is not VerifiedExpertSourceReplayParent
+            type(candidate) is not VerifiedTaskEvaluationCandidate
+            or type(parent) is not VerifiedTaskEvaluationParent
         ):
             raise ExpertSourceReplayExecutionError(
                 "resolved source replay execution requires exact expert sources"
@@ -360,7 +356,7 @@ class ResolvedExpertSourceReplayExecutionCase:
     def _expert_source_for(
         self,
         invocation_allocation: TaskEvaluatorInvocationAllocation,
-    ) -> VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent:
+    ) -> VerifiedTaskEvaluationCandidate | VerifiedTaskEvaluationParent:
         request_case = self.materialized_case.request_case
         source = (
             self._parent
@@ -524,8 +520,8 @@ class ExpertSourceReplayExecutionProviderRegistry:
         self,
         materialized_cases: tuple[MaterializedExpertSourceReplayCase, ...],
         case_keys: tuple[ExpertSourceReplayExecutionProviderKey, ...],
-        candidate: VerifiedExpertSourceReplayCandidate,
-        parent: VerifiedExpertSourceReplayParent,
+        candidate: VerifiedTaskEvaluationCandidate,
+        parent: VerifiedTaskEvaluationParent,
     ) -> tuple[ResolvedExpertSourceReplayExecutionCase, ...]:
         if (
             not isinstance(materialized_cases, tuple)

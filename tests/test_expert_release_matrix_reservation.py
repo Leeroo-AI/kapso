@@ -51,7 +51,9 @@ from kapso.cross_run.expert.replay_publication_contracts import (
 )
 from kapso.cross_run.expert.replay_request import (
     ExpertSourceReplayPreflightCoordinator,
-    VerifiedExpertSourceReplayParent,
+)
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    VerifiedTaskEvaluationParent,
 )
 from kapso.cross_run.expert.replay_stage import ExpertSourceReplayStageOrchestrator
 from kapso.cross_run.expert.review import ExpertAutomatedReviewCoordinator
@@ -119,7 +121,7 @@ class _ReplayParentProvider:
         self.contents = contents
 
     def materialize_exact(self, release, parent_tree_receipt, _limits):
-        return VerifiedExpertSourceReplayParent(
+        return VerifiedTaskEvaluationParent(
             release_manifest=release,
             parent_tree_receipt=parent_tree_receipt,
             source_contents=self.contents,
