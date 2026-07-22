@@ -80,6 +80,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterBinding,
     TaskAdapterContextBinding,
     TaskAdapterManifest,
+    TaskAdapterReleaseMatrixStartingArtifact,
     TaskAdapterRuntimeContract,
     TaskContextBinding,
     TaskEvaluatorBinding,
@@ -237,6 +238,9 @@ def build_records(
     task_adapter_runtime: TaskAdapterRuntimeContract | None = None,
     task_adapter_source_contents: Mapping[str, bytes] | None = None,
     task_evaluator: TaskEvaluatorBinding | None = None,
+    task_adapter_release_matrix_starting_artifacts: tuple[
+        TaskAdapterReleaseMatrixStartingArtifact, ...
+    ] = (),
 ):
     task_families = (
         TaskFamilyDefinition(
@@ -393,6 +397,7 @@ def build_records(
                     "runtime_family": "pytorch",
                 },
                 label="posttrain-release-matrix",
+                starting_artifacts=(task_adapter_release_matrix_starting_artifacts),
             ),
         ),
         source_tree_ref="task-adapter.tar.zst",

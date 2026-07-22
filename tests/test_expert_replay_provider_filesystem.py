@@ -7,8 +7,16 @@ from dataclasses import replace
 import pytest
 
 from kapso.cross_run.expert import replay_provider_filesystem
-from kapso.cross_run.canonical import content_id, tree_or_blob_digest
-from kapso.cross_run.contracts import SourceFileDescriptor
+from kapso.cross_run.canonical import (
+    content_id,
+    source_tree_digest,
+    tree_or_blob_digest,
+)
+from kapso.cross_run.contracts import (
+    SourceFileDescriptor,
+    TaskAdapterManifest,
+    TaskAdapterReleaseMatrixStartingArtifact,
+)
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayMatchedLegInvocation,
     expert_source_replay_execution_provider_key,
@@ -25,6 +33,11 @@ from kapso.cross_run.expert.replay_provider_filesystem import (
     materialize_verified_byte_tree,
     parse_source_replay_result_snapshot,
 )
+from test_cross_run_contracts import (
+    build_records,
+    task_adapter_source,
+    verified_test_task_adapter,
+)
 from test_expert_source_replay_request import _prepared, _request_fixture
 
 _TAR_BLOCK_SIZE = 512
@@ -33,8 +46,49 @@ _RESULT_PAYLOAD = b'{"completed":true}'
 
 @pytest.fixture(scope="module")
 def prepared_replay_request(tmp_path_factory):
+    artifact_payload = b'{"reserved": "matrix-only"}\n'
+    artifact_descriptor = SourceFileDescriptor(
+        relative_path="fixture.json",
+        digest=tree_or_blob_digest(artifact_payload),
+        mode="100644",
+        size=len(artifact_payload),
+    )
+    artifact = TaskAdapterReleaseMatrixStartingArtifact.mint(
+        starting_artifact_ref="artifact/release-matrix-only",
+        mount_path="matrix-only",
+        package_source_root="release_matrix_assets/isolation",
+        materialized_tree_hash=source_tree_digest(
+            {
+                artifact_descriptor.relative_path: (
+                    artifact_descriptor.digest,
+                    artifact_descriptor.mode,
+                    artifact_descriptor.size,
+                )
+            }
+        ),
+        source_files=(artifact_descriptor,),
+    )
+    base_source_contents, _, _ = task_adapter_source("posttrain")
+    source_contents = {
+        **base_source_contents,
+        "release_matrix_assets/isolation/fixture.json": artifact_payload,
+    }
+    records = build_records(
+        task_adapter_source_contents=source_contents,
+        task_adapter_release_matrix_starting_artifacts=(artifact,),
+    )
+    manifest = next(
+        record for record in records if isinstance(record, TaskAdapterManifest)
+    )
     return _prepared(
-        _request_fixture(tmp_path_factory.mktemp("expert-replay-provider-filesystem"))
+        _request_fixture(
+            tmp_path_factory.mktemp("expert-replay-provider-filesystem"),
+            contract_records=records,
+            source_adapter=verified_test_task_adapter(
+                manifest,
+                source_contents=source_contents,
+            ),
+        )
     )
 
 
@@ -396,10 +450,25 @@ def test_matched_leg_inputs_materialize_exact_closures_and_freeze_read_only(
         assert _mode(path) == (0o555 if descriptor.mode == "100755" else 0o444)
 
     adapter = invocation.materialized_case.task_adapter
-    for descriptor in adapter.source_extraction_receipt.source_tree_files:
+    assert any(
+        descriptor.relative_path.startswith("release_matrix_assets/")
+        for descriptor in adapter.source_extraction_receipt.source_tree_files
+    )
+    for descriptor in adapter.evaluation_runtime_source_files:
         path = layout.adapter_root / descriptor.relative_path
-        assert path.read_bytes() == adapter.source_contents[descriptor.relative_path]
+        assert path.read_bytes() == (
+            adapter.evaluation_runtime_source_contents[descriptor.relative_path]
+        )
         assert _mode(path) == (0o555 if descriptor.mode == "100755" else 0o444)
+    assert {
+        path.relative_to(layout.adapter_root).as_posix()
+        for path in layout.adapter_root.rglob("*")
+        if path.is_file()
+    } == {
+        descriptor.relative_path
+        for descriptor in adapter.evaluation_runtime_source_files
+    }
+    assert not (layout.adapter_root / "release_matrix_assets").exists()
 
     for artifact in invocation.materialized_case.task_context.starting_artifacts:
         for descriptor in artifact.artifact.source_files:

@@ -716,6 +716,12 @@ substituted, overlapping, hidden, or executable/runtime-aliased asset bytes. Exa
 scope validation happens at enrollment and again at plan admission. The structural
 anti-inflation rule prevents budget, runtime, metric, fidelity, or replicate changes
 from turning one dataset origin into multiple claimed independence groups.
+Evaluator containers never receive that full package tree: `/input/adapter` is the
+exact verified runtime projection with the entire `release_matrix_assets/` subtree
+removed. A matrix executor may expose only the selected case's declared artifact
+closures under `/input/task`; source replay continues to expose only its independently
+materialized historical task context. This prevents one case or source replay from
+reading another signed case's fixtures through the adapter mount.
 
 The planner now derives a mixed parent matrix from the complete accepted source
 replay plus every signed case in every immutable attempt-pinned active adapter.

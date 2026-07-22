@@ -111,9 +111,10 @@ def materialize_source_replay_provider_inputs(
     _require_direct_child(trusted_root, workspace_root, "provider workspace")
     expert_descriptors, expert_contents = _expert_source_closure(invocation)
     adapter = invocation.materialized_case.task_adapter
-    adapter_descriptors = adapter.source_extraction_receipt.source_tree_files
+    adapter_descriptors = adapter.evaluation_runtime_source_files
+    adapter_contents = adapter.evaluation_runtime_source_contents
     _require_verified_byte_closure(expert_descriptors, expert_contents)
-    _require_verified_byte_closure(adapter_descriptors, adapter.source_contents)
+    _require_verified_byte_closure(adapter_descriptors, adapter_contents)
     for artifact in invocation.materialized_case.task_context.starting_artifacts:
         _require_verified_byte_closure(
             artifact.artifact.source_files,
@@ -155,7 +156,7 @@ def materialize_source_replay_provider_inputs(
         _materialize_verified_byte_tree_at(
             adapter_descriptor,
             adapter_descriptors,
-            adapter.source_contents,
+            adapter_contents,
         )
         _materialize_task_artifacts_at(invocation, task_descriptor)
         _write_new_regular_file_at(

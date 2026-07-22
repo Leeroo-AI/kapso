@@ -17,6 +17,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ContractValidationError,
+    SourceFileDescriptor,
     StrictContract,
     TaskAdapterManifest,
 )
@@ -356,6 +357,31 @@ class VerifiedTaskAdapter:
             self,
             "proof_objects",
             MappingProxyType(dict(self.proof_objects)),
+        )
+
+    @property
+    def evaluation_runtime_source_files(self) -> tuple[SourceFileDescriptor, ...]:
+        """Return verified adapter code/runtime files without matrix fixtures."""
+
+        return tuple(
+            descriptor
+            for descriptor in self.source_extraction_receipt.source_tree_files
+            if PurePosixPath(descriptor.relative_path).parts[0]
+            != "release_matrix_assets"
+        )
+
+    @property
+    def evaluation_runtime_source_contents(self) -> Mapping[str, bytes]:
+        runtime_paths = {
+            descriptor.relative_path
+            for descriptor in self.evaluation_runtime_source_files
+        }
+        return MappingProxyType(
+            {
+                path: payload
+                for path, payload in self.source_contents.items()
+                if path in runtime_paths
+            }
         )
 
     @property
