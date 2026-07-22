@@ -144,6 +144,53 @@ def validate_node_expansion_config(
         )
 
 
+def render_lane_brief(
+    lane_index: int,
+    lane_count: int,
+    lane_env: Optional[Mapping[str, str]],
+) -> str:
+    """Prompt block announcing this lane's env assignment.
+
+    An env pin is a fence the agent cannot see: the session inherits it,
+    but hardware probes (nvidia-smi) ignore it and per-command exports
+    silently override it — the first K=2 flight had a lane discover the
+    "idle" sibling GPU that way. Empty/absent lane env renders nothing.
+    """
+    if not lane_env:
+        return ""
+    pins = "\n".join(f"- `{key}={value}`" for key, value in lane_env.items())
+    if lane_count > 1:
+        return (
+            "## Parallel Lane Assignment (read first)\n\n"
+            f"You are implementation lane {lane_index} of {lane_count} — "
+            f"{lane_count - 1} sibling lane(s) are running CONCURRENTLY on "
+            "this machine, implementing different solutions on their own "
+            "branches.\n\n"
+            "Your session environment carries these lane-exclusive "
+            "overrides:\n"
+            f"{pins}\n\n"
+            "Each sibling lane received DIFFERENT values for the same "
+            "variables — they partition this machine's resources between "
+            "lanes. Treat yours as an exclusive assignment:\n"
+            "- Do NOT override, unset, or widen these variables in your own "
+            "commands; plain commands already inherit them.\n"
+            "- Do NOT claim resources outside your assignment even if they "
+            "look idle — hardware probes (e.g. `nvidia-smi`) list ALL "
+            "physical devices, including your siblings'.\n"
+            "- Task-level shared directories (artifacts, submission) are "
+            "visible to every lane: namespace the files you create and "
+            "follow the task's promotion protocol exactly."
+        )
+    return (
+        "## Session Environment Pins\n\n"
+        "The orchestrator set these run-level environment overrides for "
+        "this session:\n"
+        f"{pins}\n\n"
+        "Do not override or unset them in your commands; plain commands "
+        "already inherit them."
+    )
+
+
 def parse_selected_solutions(output: str, expansion_count: int) -> List[str]:
     """Extract the selector's ranked solutions.
 
@@ -1560,6 +1607,9 @@ Problem: {problem}"""
             repo_memory_brief=repo_memory_brief,
             repo_memory_detail_access_instructions=repo_memory_detail_access_instructions,
             previous_errors="\n".join(str(e) for e in self.previous_errors[-self.recent_error_count:]),
+            lane_brief=render_lane_brief(
+                lane_index, self.node_expansion_value, lane_env
+            ),
         )
         
         # 6. Run Claude Code for implementation
@@ -1667,6 +1717,7 @@ Problem: {problem}"""
         repo_memory_brief: str,
         repo_memory_detail_access_instructions: str,
         previous_errors: str,
+        lane_brief: str = "",
     ) -> str:
         """Build the implementation prompt for Claude Code."""
         template = load_prompt("execution/search_strategies/generic/prompts/implementation_claude_code.md")
@@ -1682,6 +1733,7 @@ Problem: {problem}"""
                 "budget_status": self._render_budget_status(),
                 "evaluation_instructions": self._evaluation_instructions(),
                 "shared_artifacts_brief": self.shared_artifacts_brief,
+                "lane_brief": lane_brief,
             },
         )
 

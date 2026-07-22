@@ -8,6 +8,8 @@ You are a world class developer and programmer. Your task is to implement the pr
 4. **Run Evaluation**: Execute the evaluation and report results.
 5. **Handle Errors**: If evaluation crashes, retry up to 3 times with fixes.
 
+{{lane_brief}}
+
 ## Available Tools
 
 ### Code Editing

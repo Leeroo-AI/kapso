@@ -17,6 +17,7 @@ from kapso.execution.search_strategies.generic.strategy import (
     GenericSearch,
     normalize_node_expansion,
     parse_selected_solutions,
+    render_lane_brief,
     validate_node_expansion_config,
 )
 
@@ -178,3 +179,56 @@ def test_expansion_addendum_template_contract():
     assert "{{expansion_count}}" in addendum
     assert "COMPLEMENTARY" in addendum
     assert "<solution_1>" in addendum
+
+
+def test_lane_brief_empty_env_renders_nothing():
+    assert render_lane_brief(0, 2, None) == ""
+    assert render_lane_brief(0, 2, {}) == ""
+
+
+def test_lane_brief_multi_lane_announces_exclusive_assignment():
+    brief = render_lane_brief(1, 2, {"CUDA_VISIBLE_DEVICES": "1"})
+    # The fence must be visible: identity, the exact pin, the probe trap,
+    # and shared-directory hygiene (first K=2 flight: a lane that probed
+    # with nvidia-smi sharded onto its sibling's GPU and OOM'd it).
+    assert "lane 1 of 2" in brief
+    assert "`CUDA_VISIBLE_DEVICES=1`" in brief
+    assert "nvidia-smi" in brief
+    assert "DIFFERENT values" in brief
+    assert "namespace" in brief
+
+
+def test_lane_brief_single_lane_states_pins_without_sibling_talk():
+    brief = render_lane_brief(0, 1, {"CUDA_VISIBLE_DEVICES": "0"})
+    assert "`CUDA_VISIBLE_DEVICES=0`" in brief
+    assert "sibling" not in brief
+
+
+def test_implementation_prompt_injects_lane_brief(monkeypatch):
+    strategy = GenericSearch.__new__(GenericSearch)
+    strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
+    monkeypatch.setattr(
+        GenericSearch, "_render_budget_status", lambda self: "budget"
+    )
+    monkeypatch.setattr(
+        GenericSearch, "_evaluation_instructions", lambda self: "eval"
+    )
+    kwargs = dict(
+        solution="s",
+        problem="p",
+        branch_name="generic_exp_1",
+        repo_memory_brief="",
+        repo_memory_detail_access_instructions="",
+        previous_errors="",
+    )
+
+    with_brief = strategy._build_implementation_prompt(
+        **kwargs,
+        lane_brief=render_lane_brief(1, 2, {"CUDA_VISIBLE_DEVICES": "1"}),
+    )
+    assert "lane 1 of 2" in with_brief
+    assert "{{lane_brief}}" not in with_brief
+
+    without_brief = strategy._build_implementation_prompt(**kwargs)
+    assert "Parallel Lane Assignment" not in without_brief
+    assert "{{lane_brief}}" not in without_brief
