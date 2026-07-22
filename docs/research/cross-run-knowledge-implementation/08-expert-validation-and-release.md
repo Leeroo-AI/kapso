@@ -212,6 +212,19 @@ one authorization transition admits at most one request. A local execution lock
 may avoid duplicate paid work but is never authority; final receipt publication
 remains fenced by validation-head compare-and-swap.
 
+The execution journal is a private create-only event directory derived from the
+validation-store root. Each reservation has one exclusive lock, one canonical
+hash-chained event prefix, and no mutable head file. The legal leg order is
+derived from the persisted request and each case's counterbalanced `leg_order`;
+the caller cannot select work. The first durable boundary allocates one 128-bit
+CSPRNG nonce to the exact reservation/case/leg and reuses it after restart.
+Publication fsyncs a private staging file, renames it atomically without
+replacement, and fsyncs both directories. Unsafe modes, links, unexpected
+entries, noncanonical bytes, forks, gaps, or identity substitutions fail loud. A
+later spawn event is the at-most-once boundary: an allocation-only tail is
+resumable, while a reopened spawn-marker tail is permanently interrupted and can
+be cleaned up but never executed again.
+
 The executor reopens a reservation through a public read-only store boundary.
 Prepared byte authority is reconstructed before the lock; one short shared-lock
 read then requires the exact journal-bound reservation, stored request, current
@@ -271,7 +284,12 @@ Implemented validation substrate:
   rollback behavior;
 - immutable source-replay reservation aliases admit exactly one byte-closed
   prepared execution request without changing the validation head and replay
-  exactly across process/store recovery; and
+  exactly across process/store recovery;
+- the local source-replay execution journal durably allocates the first exact
+  scheduled invocation once, survives restart, serializes concurrent reservation
+  sessions, and rejects corrupt, forked, substituted, or unsafe journal state;
+  spawn and result events extend the same create-only prefix rather than adding a
+  mutable execution snapshot; and
 - parent-authority invalidation is a content-addressed terminal transition that
   preserves accepted-stage history, proves expected versus observed `CURRENT`,
   and makes stale attempts recoverable without accepting their remaining work.

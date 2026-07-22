@@ -88,7 +88,7 @@ class TaskEvaluatorStartingArtifactMount(StrictContract):
 
 
 @dataclass(frozen=True)
-class TaskEvaluatorInvocationAllocation:
+class TaskEvaluatorInvocationAllocation(StrictContract):
     """Private journal allocation binding one unpredictable nonce to one leg."""
 
     reservation_id: str
@@ -96,7 +96,7 @@ class TaskEvaluatorInvocationAllocation:
     execution_leg_id: str
     invocation_nonce: str
 
-    def __post_init__(self) -> None:
+    def _validate(self) -> None:
         for value, namespace, name in (
             (
                 self.reservation_id,
