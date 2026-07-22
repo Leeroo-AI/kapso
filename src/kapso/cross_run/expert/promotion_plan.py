@@ -168,7 +168,7 @@ def _validate_active_prefix(
         )
 
 
-def _validate_source_joins(
+def validate_expert_release_matrix_source_joins(
     plan: ExpertReleaseMatrixEvaluationPlan,
     source_result: ExpertSourceReplayStageResultRecord,
     request: ExpertSourceReplayExecutionRequest,
@@ -456,7 +456,11 @@ def validate_expert_release_matrix_plan_store_shape(
             raise ExpertReleaseMatrixPlanError(
                 "release matrix source authority differs from its active attempt"
             )
-        _validate_source_joins(plan, result, source_replay_request)
+        validate_expert_release_matrix_source_joins(
+            plan,
+            result,
+            source_replay_request,
+        )
     elif any(
         provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
         for provenance in plan.provenance_bindings

@@ -55,6 +55,8 @@ from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequ
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixEvaluationPlan,
+    ExpertReleaseMatrixMode,
+    ExpertReleaseMatrixProvenanceKind,
 )
 from kapso.cross_run.expert.promotion_plan import (
     PreparedExpertReleaseMatrixPlan,
@@ -393,6 +395,97 @@ class ExpertReleaseMatrixPlanReservationSnapshot:
 class ExpertReleaseMatrixPlanReservationCommitResult:
     reservation: ExpertReleaseMatrixPlanReservationSnapshot
     replayed: bool
+
+
+@dataclass(frozen=True)
+class ExpertReleaseMatrixSourceEvidenceSnapshot:
+    """Accepted source facts reopened under one unchanged matrix-plan head."""
+
+    plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot
+    stage_result: ExpertSourceReplayStageResultRecord
+    reservation: ExpertSourceReplayExecutionReservation
+    request: ExpertSourceReplayExecutionRequest
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.plan_reservation)
+            is not ExpertReleaseMatrixPlanReservationSnapshot
+            or type(self.stage_result) is not ExpertSourceReplayStageResultRecord
+            or not isinstance(
+                self.reservation,
+                ExpertSourceReplayExecutionReservation,
+            )
+            or not isinstance(self.request, ExpertSourceReplayExecutionRequest)
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix source evidence snapshot is not typed"
+            )
+        plan = self.plan_reservation.evaluation_plan
+        attempt = self.plan_reservation.snapshot.latest_attempt
+        accepted_source_results = tuple(
+            result
+            for result in self.plan_reservation.snapshot.accepted_stage_results
+            if type(result) is ExpertSourceReplayStageResultRecord
+        )
+        source_provenances = tuple(
+            provenance
+            for provenance in plan.provenance_bindings
+            if provenance.provenance_kind
+            is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
+        )
+        if (
+            attempt is None
+            or plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
+            or accepted_source_results != (self.stage_result,)
+            or self.stage_result.outcome is not ExpertEvaluatorOutcome.PASSED
+            or not source_provenances
+            or {
+                provenance.source_replay_stage_result_id
+                for provenance in source_provenances
+            }
+            != {self.stage_result.stage_result_record_id}
+            or {
+                provenance.paired_comparison_receipt_id
+                for provenance in source_provenances
+            }
+            != {
+                self.stage_result.paired_comparison_receipt.paired_comparison_receipt_id
+            }
+            or self.stage_result.validation_attempt_id != plan.validation_attempt_id
+            or self.stage_result.candidate_id != plan.candidate_id
+            or self.stage_result.candidate_tree_hash != plan.candidate_tree_hash
+            or self.stage_result.validation_policy_id != plan.validation_policy_id
+            or self.stage_result.configuration_fingerprint
+            != plan.configuration_fingerprint
+            or self.stage_result.reservation_id != self.reservation.reservation_id
+            or self.stage_result.execution_request_id
+            != self.request.execution_request_id
+            or self.stage_result.paired_comparison_receipt.reservation_id
+            != self.reservation.reservation_id
+            or self.stage_result.paired_comparison_receipt.execution_request_id
+            != self.request.execution_request_id
+            or self.reservation.execution_request_id
+            != self.request.execution_request_id
+            or self.reservation.validation_attempt_id
+            != self.request.validation_attempt_id
+            or self.reservation.candidate_id != self.request.candidate_id
+            or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
+            or self.reservation.observed_parent_release_id
+            != self.request.parent_release_id
+            or self.request.validation_attempt_id != plan.validation_attempt_id
+            or self.request.candidate_id != plan.candidate_id
+            or self.request.candidate_tree_hash != plan.candidate_tree_hash
+            or self.request.candidate_commit_record_id
+            != plan.candidate_commit_record_id
+            or self.request.scope_contract_id != plan.scope_contract_id
+            or self.request.parent_release_id != plan.parent_release_id
+            or self.request.parent_tree_hash != plan.parent_tree_hash
+            or self.request.validation_policy_id != plan.validation_policy_id
+            or self.request.configuration_fingerprint != plan.configuration_fingerprint
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix source evidence closure is inconsistent"
+            )
 
 
 _SOURCE_REPLAY_PUBLICATION_PERMIT_SEAL = object()
@@ -1397,6 +1490,77 @@ class ExpertValidationStore:
                 operation=operation,
                 evaluation_plan=stored_plan,
                 snapshot=current,
+            )
+
+    def reopen_release_matrix_source_evidence(
+        self,
+        *,
+        plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot,
+    ) -> ExpertReleaseMatrixSourceEvidenceSnapshot:
+        """Resolve accepted source facts without rerunning source preflight or work."""
+
+        if type(plan_reservation) is not ExpertReleaseMatrixPlanReservationSnapshot:
+            raise ExpertValidationStoreError(
+                "release matrix source evidence requires a plan reservation"
+            )
+        plan = plan_reservation.evaluation_plan
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current is None or current != plan_reservation.snapshot:
+                raise ExpertValidationStoreError(
+                    "release matrix source evidence head changed"
+                )
+            stored = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                current.transition.transition_id,
+            )
+            if stored != (
+                plan_reservation.operation,
+                plan_reservation.evaluation_plan,
+            ):
+                raise ExpertValidationStoreError(
+                    "release matrix source evidence plan reservation changed"
+                )
+            source_results = tuple(
+                result
+                for result in current.accepted_stage_results
+                if type(result) is ExpertSourceReplayStageResultRecord
+            )
+            if len(source_results) != 1:
+                raise ExpertValidationStoreError(
+                    "release matrix source evidence requires one accepted source result"
+                )
+            stage_result = source_results[0]
+            if stage_result.outcome is not ExpertEvaluatorOutcome.PASSED:
+                raise ExpertValidationStoreError(
+                    "release matrix source evidence result did not pass"
+                )
+            reservation = self._read_contract_unlocked(
+                stage_result.reservation_id,
+                ExpertSourceReplayExecutionReservation,
+            )
+            request = self._read_contract_unlocked(
+                stage_result.execution_request_id,
+                ExpertSourceReplayExecutionRequest,
+            )
+            historical_reservation = self._source_replay_reservation_unlocked(
+                journal,
+                stage_result.authorization_transition_id,
+            )
+            if historical_reservation != (reservation, request):
+                raise ExpertValidationStoreError(
+                    "release matrix source evidence reservation closure changed"
+                )
+            return ExpertReleaseMatrixSourceEvidenceSnapshot(
+                plan_reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                    operation=stored[0],
+                    evaluation_plan=stored[1],
+                    snapshot=current,
+                ),
+                stage_result=stage_result,
+                reservation=reservation,
+                request=request,
             )
 
     def existing_source_replay_reservation(

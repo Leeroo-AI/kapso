@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
+import shutil
 import time
 from types import SimpleNamespace
 
@@ -27,6 +28,9 @@ from kapso.cross_run.expert.promotion_plan import (
     PreparedExpertReleaseMatrixPlan,
     _canonical_verified_adapters,
     derive_expert_release_matrix_plan,
+)
+from kapso.cross_run.expert.promotion_evidence import (
+    derive_expert_release_matrix_source_rows,
 )
 from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixMode,
@@ -141,6 +145,7 @@ def _release_matrix_fixture(
     *,
     rotate_active_adapter=False,
     add_active_case=False,
+    include_source_evidence_authority=False,
 ):
     settings = _quality_only_validation_settings()
     source_fixture = _request_fixture(
@@ -408,6 +413,13 @@ def _release_matrix_fixture(
         validation_policy=settings.policy.validation_policy(),
         validation_settings=settings,
     )
+    if include_source_evidence_authority:
+        return (
+            validation_store,
+            snapshot,
+            prepared_plan,
+            execution_store,
+        )
     return validation_store, snapshot, prepared_plan
 
 
@@ -688,6 +700,10 @@ def test_bootstrap_plan_reserves_and_reopens_without_source_replay(
     }
     assert committed.reservation.evaluation_plan == prepared.plan
     assert reopened == committed.reservation
+    with pytest.raises(ValueError, match="one accepted source result"):
+        reopened_store.reopen_release_matrix_source_evidence(
+            plan_reservation=reopened,
+        )
 
 
 def test_bootstrap_reservation_rejects_a_release_appearing_during_admission(
@@ -757,6 +773,113 @@ def test_release_matrix_plan_reservation_is_atomic_reopenable_and_unchanged(
     assert (
         reopened.operation.expected_transition_id == snapshot.transition.transition_id
     )
+
+
+def test_accepted_source_evidence_reopens_after_restart_without_execution_journal(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        validation_store,
+        snapshot,
+        prepared,
+        execution_store,
+    ) = _release_matrix_fixture(
+        tmp_path,
+        monkeypatch,
+        include_source_evidence_authority=True,
+    )
+    committed = validation_store.reserve_release_matrix_plan(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_plan=prepared,
+    )
+    shutil.rmtree(execution_store.root)
+    monkeypatch.setattr(
+        _MatchedLegProvider,
+        "execute_leg",
+        lambda *_args, **_kwargs: pytest.fail(
+            "accepted source evidence must not rerun its provider"
+        ),
+    )
+    reopened_store = ExpertValidationStore(
+        validation_store.root,
+        validation_store.state_root,
+        validation_store.settings,
+        validation_store.reducer,
+    )
+    reopened_plan = reopened_store.reopen_release_matrix_plan_reservation(
+        evaluation_plan_id=prepared.plan.evaluation_plan_id,
+        prepared_plan=prepared,
+    )
+    evidence = reopened_store.reopen_release_matrix_source_evidence(
+        plan_reservation=reopened_plan,
+    )
+    rows = derive_expert_release_matrix_source_rows(
+        validation_store=reopened_store,
+        plan_reservation=reopened_plan,
+    )
+    source_cells = tuple(
+        cell
+        for cell in prepared.plan.evaluation_cells
+        if next(
+            provenance
+            for provenance in prepared.plan.provenance_bindings
+            if provenance.provenance_binding_id == cell.provenance_binding_id
+        ).provenance_kind
+        is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
+    )
+    case_comparisons = {
+        comparison.execution_case_id: comparison
+        for comparison in evidence.stage_result.paired_comparison_receipt.case_comparisons
+    }
+    provenances = {
+        provenance.provenance_binding_id: provenance
+        for provenance in prepared.plan.provenance_bindings
+    }
+
+    assert evidence.plan_reservation == committed.reservation
+    assert tuple(row.evaluation_cell_id for row in rows) == tuple(
+        cell.evaluation_cell_id for cell in source_cells
+    )
+    for cell, row in zip(source_cells, rows, strict=True):
+        comparison = case_comparisons[
+            provenances[cell.provenance_binding_id].source_execution_case_id
+        ]
+        fingerprint_comparison = next(
+            item
+            for item in comparison.fingerprint_comparisons
+            if item.evaluation_fingerprint.evaluation_fingerprint_id
+            == cell.evaluation_fingerprint.evaluation_fingerprint_id
+        )
+        assert row.candidate_observation_event_id == (
+            comparison.candidate_result_accepted_event_id
+        )
+        assert row.parent_observation_event_id == (
+            comparison.control_result_accepted_event_id
+        )
+        assert row.candidate_replicate_values == (
+            fingerprint_comparison.candidate_result.replicate_values
+        )
+        assert row.parent_replicate_values == (
+            fingerprint_comparison.control_result.replicate_values
+        )
+    accepted_object_ids = (
+        evidence.request.execution_request_id,
+        evidence.reservation.reservation_id,
+        evidence.stage_result.stage_result_record_id,
+        evidence.stage_result.paired_comparison_receipt.paired_comparison_receipt_id,
+    )
+    for identity in accepted_object_ids:
+        namespace, digest = identity.split(":sha256:", 1)
+        object_path = reopened_store.object_root / namespace / f"{digest}.json"
+        payload = object_path.read_bytes()
+        object_path.unlink()
+        with pytest.raises(ValueError):
+            reopened_store.reopen_release_matrix_source_evidence(
+                plan_reservation=reopened_plan,
+            )
+        object_path.write_bytes(payload)
+        object_path.chmod(0o600)
 
 
 def test_concurrent_identical_release_matrix_plans_bind_once(tmp_path, monkeypatch):

@@ -735,9 +735,22 @@ Identical concurrent admission replays the same alias, while a different plan, s
 head, changed current authority, corrupt durable join, or foreign adapter case fails
 closed.
 
+Accepted source replay is reused from the validation store, not by reopening its
+local execution workspace. Under one shared lock, the store revalidates the current
+matrix-plan alias, the complete accepted transition history, the historical source
+reservation alias, and the separately persisted request, reservation, receipt, and
+stage-result objects. The source-row reducer then copies only the accepted event IDs
+and exact replicate maps for cells whose case, context, adapter, fingerprint, metric
+binding, candidate, and parent all match the reserved plan. It performs no preflight,
+provider call, freshness lookup, or fallback. Missing or corrupt accepted objects
+fail loud, while loss of the already-published execution journal does not erase or
+rerun accepted scientific evidence.
+
 The report covers reserved cells exactly once and in canonical order, with complete
 candidate and, when parent-backed, control replicate maps. Observation-event
-namespaces must match their provenance channel. Missing/extra dimensions, contexts,
+namespaces must match their provenance channel. Every fingerprint from one case
+shares the case's single candidate/control accepted-event pair; an event cannot be
+reused by another case or leg role. Missing/extra dimensions, contexts,
 fingerprints or replicates; reused lineage authority; nonfinite or signed-zero
 values; metric direction/scale substitution; stale packages; or omitted dependencies
 fail loud. Effects, thresholds, winner labels, and promotion state are absent from
