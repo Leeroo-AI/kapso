@@ -153,6 +153,19 @@ def test_source_replay_cpu_quota_must_be_exact():
         CrossRunSettings.from_dict(raw)
 
 
+def test_source_replay_provider_command_must_contain_graceful_stop():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["source_replay_provider"]["command_timeout_seconds"] = (
+        raw["expert"]["validation"]["policy"]["source_replay_termination_grace_seconds"]
+    )
+    raw["expert"]["validation"]["source_replay_provider"]["cleanup_timeout_seconds"] = (
+        raw["expert"]["validation"]["policy"]["source_replay_termination_grace_seconds"]
+    )
+
+    with pytest.raises(CrossRunConfigurationError, match="contain graceful stop"):
+        CrossRunSettings.from_dict(raw)
+
+
 @pytest.mark.parametrize(
     "mutate",
     [

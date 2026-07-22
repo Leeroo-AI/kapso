@@ -4529,6 +4529,10 @@ class TaskAdapterRuntimeContract(StrictContract):
                 raise ContractValidationError(
                     "task adapter runtime environment must be fixed and non-secret"
                 )
+        if not self.environment.get("PATH"):
+            raise ContractValidationError(
+                "task adapter runtime environment must declare a non-empty PATH"
+            )
 
     @property
     def image_reference(self) -> str:

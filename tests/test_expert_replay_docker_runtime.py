@@ -117,7 +117,7 @@ def _runtime_contract():
         operating_system="linux",
         architecture="amd64",
         architecture_variant=None,
-        environment={"LANG": "C", "PYTHONHASHSEED": "0"},
+        environment={"LANG": "C", "PATH": "/usr/bin:/bin", "PYTHONHASHSEED": "0"},
     )
 
 

@@ -1291,6 +1291,13 @@ class ExpertValidationSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "source replay millicore limit has no exact runtime quota"
             )
+        if (
+            self.policy.source_replay_termination_grace_seconds
+            >= self.source_replay_provider.command_timeout_seconds
+        ):
+            raise CrossRunConfigurationError(
+                "source replay provider command timeout cannot contain graceful stop"
+            )
 
     @property
     def configuration_fingerprint(self) -> str:

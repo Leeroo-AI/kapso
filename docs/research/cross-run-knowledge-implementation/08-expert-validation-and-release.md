@@ -168,7 +168,12 @@ the exact client/server API, host platform, storage and cgroup authorities,
 default runtime, isolation capabilities, security-option set, and required local
 drivers. Local image admission permits no pull: manifest/config/platform and the
 adapter-declared environment must match exactly, while inherited commands,
-volumes, and healthchecks are forbidden. The host kernel, root-owned dynamic
+volumes, and healthchecks are forbidden. The adapter contract must declare a
+non-empty `PATH`. Container creation explicitly passes every declared variable
+and overlays only the provider-owned `HOME=/kapso/home` and
+`HOSTNAME=kapso-source-replay`; exact container inspection therefore proves the
+complete direct-evaluator environment without relying on Docker's implicit Linux
+defaults. The host kernel, root-owned dynamic
 loader/libraries and daemon, and same-UID processes able to mutate the private
 provider root are explicit trusted computing base; evaluator code is not.
 Daemon resource names use the complete unpredictable provider-handle digest and
@@ -177,6 +182,16 @@ volume whose size and inode options are derived from the matched compute binding
 Cleanup validates every extant resource before mutation, removes containers by
 their inspected immutable IDs, rechecks the labelled volume before removal, and
 treats absence as idempotent success without any start or exec operation.
+For a live leg, the provider materializes only the journal-selected expert tree,
+verified adapter, captured task artifacts, and canonical blinded request; captures
+the pinned BusyBox helper into that private workspace; starts a read-only keeper;
+and exact-inspects both keeper and evaluator before use. The evaluator runs by
+direct absolute entrypoint under the matched wall, stream, CPU, memory, shared
+memory, process, open-file, and writable-root limits. It is stopped and removed
+before the keeper emits the bounded tar snapshot. Only a completed zero exit may
+enter strict result parsing; every other bounded outcome returns no result bytes.
+Normal return and failure both reap daemon resources before fd-safe workspace
+deletion.
 
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to

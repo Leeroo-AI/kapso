@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,7 +113,7 @@ class SourceReplayDockerResourceManager:
             raise SourceReplayDockerResourceError(
                 "source replay Docker handle already owns daemon resources"
             )
-        if identity.workspace_root.exists():
+        if os.path.lexists(identity.workspace_root):
             raise SourceReplayDockerResourceError(
                 "source replay Docker handle workspace already exists"
             )
@@ -196,6 +197,101 @@ class SourceReplayDockerResourceManager:
                 "source replay writable volume differs from exact tmpfs authority"
             )
         return observation
+
+    def remove_container(
+        self,
+        identity: SourceReplayDockerResourceIdentity,
+        observation: SourceReplayDockerContainerObservation,
+    ) -> None:
+        if (
+            type(identity) is not SourceReplayDockerResourceIdentity
+            or type(observation) is not SourceReplayDockerContainerObservation
+            or observation.role not in {_EVALUATOR_ROLE, _KEEPER_ROLE}
+        ):
+            raise SourceReplayDockerResourceError(
+                "source replay Docker removal requires an exact container observation"
+            )
+        expected_name = (
+            identity.evaluator_name
+            if observation.role == _EVALUATOR_ROLE
+            else identity.keeper_name
+        )
+        current = self._observe_container(
+            expected_name,
+            identity.labels_for(observation.role),
+            observation.role,
+        )
+        if current != observation:
+            raise SourceReplayDockerResourceError(
+                "source replay Docker container changed before removal"
+            )
+        result = self._runtime.run_control(
+            (
+                "container",
+                "rm",
+                "--force",
+                "--volumes",
+                observation.container_id,
+            )
+        )
+        _require_exact_line(result.stdout, observation.container_id)
+        if (
+            self._observe_container(
+                expected_name,
+                identity.labels_for(observation.role),
+                observation.role,
+            )
+            is not None
+        ):
+            raise SourceReplayDockerResourceError(
+                "source replay Docker container survived removal"
+            )
+
+    def stop_container(
+        self,
+        identity: SourceReplayDockerResourceIdentity,
+        observation: SourceReplayDockerContainerObservation,
+        grace_seconds: int,
+    ) -> SourceReplayDockerContainerObservation:
+        if (
+            type(identity) is not SourceReplayDockerResourceIdentity
+            or type(observation) is not SourceReplayDockerContainerObservation
+            or observation.role != _EVALUATOR_ROLE
+            or type(grace_seconds) is not int
+            or grace_seconds <= 0
+        ):
+            raise SourceReplayDockerResourceError(
+                "source replay Docker stop requires an exact evaluator and grace"
+            )
+        current = self._observe_container(
+            identity.evaluator_name,
+            identity.labels_for(_EVALUATOR_ROLE),
+            _EVALUATOR_ROLE,
+        )
+        if current != observation:
+            raise SourceReplayDockerResourceError(
+                "source replay Docker evaluator changed before stop"
+            )
+        result = self._runtime.run_control(
+            (
+                "container",
+                "stop",
+                "--time",
+                str(grace_seconds),
+                observation.container_id,
+            )
+        )
+        _require_exact_line(result.stdout, observation.container_id)
+        stopped = self._observe_container(
+            identity.evaluator_name,
+            identity.labels_for(_EVALUATOR_ROLE),
+            _EVALUATOR_ROLE,
+        )
+        if stopped is None or stopped.container_id != observation.container_id:
+            raise SourceReplayDockerResourceError(
+                "source replay Docker evaluator disappeared while stopping"
+            )
+        return stopped
 
     def cleanup_daemon_resources(
         self,

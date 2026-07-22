@@ -1135,6 +1135,14 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
         "LANG": "C.UTF-8",
         "PATH": "/usr/bin:/bin",
     }
+    with pytest.raises(ContractValidationError, match="non-empty PATH"):
+        replace(
+            manifest,
+            runtime=replace(
+                manifest.runtime,
+                environment={"LANG": "C.UTF-8"},
+            ),
+        )
     with pytest.raises(ContractValidationError, match="key-sorted"):
         replace(
             manifest,
