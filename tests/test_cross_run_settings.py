@@ -82,6 +82,16 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert settings.task_adapters.zstd_window_size_bytes == (
         cross_run_settings.github.zstd_window_size_bytes
     )
+    replay_provider = settings.validation.source_replay_provider
+    assert replay_provider.runtime_executable_path == "/usr/bin/docker"
+    assert replay_provider.runtime_socket_path == "/run/docker.sock"
+    assert replay_provider.helper_executable_path == "/usr/bin/busybox"
+    assert replay_provider.runtime_server_version == "29.1.3"
+    assert replay_provider.required_security_options == (
+        "name=apparmor",
+        "name=cgroupns",
+        "name=seccomp,profile=builtin",
+    )
 
 
 @pytest.mark.parametrize(
@@ -94,6 +104,9 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
         lambda expert: expert["task_adapters"].__setitem__(
             "state_path", expert["validation"]["state_path"]
         ),
+        lambda expert: expert["validation"]["source_replay_provider"].__setitem__(
+            "workspace_path", expert["validation"]["state_path"]
+        ),
     ),
 )
 def test_expert_state_paths_must_be_disjoint(mutate):
@@ -101,6 +114,42 @@ def test_expert_state_paths_must_be_disjoint(mutate):
     mutate(raw["expert"])
 
     with pytest.raises(CrossRunConfigurationError, match="must be disjoint"):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value", "message"),
+    (
+        ("runtime_executable_path", "usr/bin/docker", "must be absolute"),
+        ("helper_executable_digest", "sha256:wrong", "sha256 digest"),
+        (
+            "required_security_options",
+            ["name=seccomp", "name=apparmor"],
+            "sorted and unique",
+        ),
+        ("cleanup_timeout_seconds", 61, "exceeds"),
+    ),
+)
+def test_source_replay_provider_runtime_authority_is_strict(
+    field_name,
+    invalid_value,
+    message,
+):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["source_replay_provider"][field_name] = invalid_value
+
+    with pytest.raises(CrossRunConfigurationError, match=message):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_source_replay_cpu_quota_must_be_exact():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["source_replay_provider"][
+        "cpu_period_microseconds"
+    ] = 99999
+    raw["expert"]["validation"]["policy"]["source_replay_cpu_millicore_limit"] = 8001
+
+    with pytest.raises(CrossRunConfigurationError, match="exact runtime quota"):
         CrossRunSettings.from_dict(raw)
 
 

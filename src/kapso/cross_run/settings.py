@@ -1167,12 +1167,129 @@ class ExpertValidationPolicy(StrictContract):
 
 
 @dataclass(frozen=True)
+class SourceReplayDockerProviderSettings(StrictContract):
+    workspace_path: str
+    runtime_executable_path: str
+    runtime_executable_digest: str
+    runtime_socket_path: str
+    helper_executable_path: str
+    helper_executable_digest: str
+    runtime_server_version: str
+    runtime_api_version: str
+    runtime_host_operating_system: str
+    runtime_host_architecture: str
+    runtime_storage_driver: str
+    runtime_cgroup_version: str
+    runtime_default_runtime: str
+    required_security_options: tuple[str, ...]
+    container_user_id: int
+    container_group_id: int
+    cpu_period_microseconds: int
+    command_timeout_seconds: int
+    cleanup_timeout_seconds: int
+    command_output_byte_limit: int
+    result_archive_overhead_byte_limit: int
+
+    def _validate(self) -> None:
+        _require_relative_path(
+            self.workspace_path,
+            "expert.validation.source_replay_provider.workspace_path",
+        )
+        for value, name in (
+            (self.runtime_executable_path, "runtime_executable_path"),
+            (self.runtime_socket_path, "runtime_socket_path"),
+            (self.helper_executable_path, "helper_executable_path"),
+        ):
+            _require_path(
+                value,
+                f"expert.validation.source_replay_provider.{name}",
+            )
+            if not PurePosixPath(value).is_absolute():
+                raise CrossRunConfigurationError(
+                    f"expert.validation.source_replay_provider.{name} must be absolute"
+                )
+        for value, name in (
+            (self.runtime_executable_digest, "runtime_executable_digest"),
+            (self.helper_executable_digest, "helper_executable_digest"),
+        ):
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+                raise CrossRunConfigurationError(
+                    f"expert.validation.source_replay_provider.{name} must be a sha256 digest"
+                )
+        for value, name in (
+            (self.runtime_server_version, "runtime_server_version"),
+            (self.runtime_api_version, "runtime_api_version"),
+            (
+                self.runtime_host_operating_system,
+                "runtime_host_operating_system",
+            ),
+            (self.runtime_host_architecture, "runtime_host_architecture"),
+            (self.runtime_storage_driver, "runtime_storage_driver"),
+            (self.runtime_cgroup_version, "runtime_cgroup_version"),
+            (self.runtime_default_runtime, "runtime_default_runtime"),
+        ):
+            require_identifier(
+                value,
+                f"expert.validation.source_replay_provider.{name}",
+            )
+        if (
+            not self.required_security_options
+            or self.required_security_options
+            != tuple(sorted(set(self.required_security_options)))
+            or any(
+                not isinstance(option, str)
+                or re.fullmatch(r"[a-z0-9=,._-]+", option) is None
+                for option in self.required_security_options
+            )
+        ):
+            raise CrossRunConfigurationError(
+                "source replay provider security options must be sorted and unique"
+            )
+        for value, name in (
+            (self.container_user_id, "container_user_id"),
+            (self.container_group_id, "container_group_id"),
+        ):
+            if type(value) is not int or value < 0:
+                raise CrossRunConfigurationError(
+                    f"expert.validation.source_replay_provider.{name} must be a non-negative integer"
+                )
+        for value, name in (
+            (self.cpu_period_microseconds, "cpu_period_microseconds"),
+            (self.command_timeout_seconds, "command_timeout_seconds"),
+            (self.cleanup_timeout_seconds, "cleanup_timeout_seconds"),
+            (self.command_output_byte_limit, "command_output_byte_limit"),
+            (
+                self.result_archive_overhead_byte_limit,
+                "result_archive_overhead_byte_limit",
+            ),
+        ):
+            if type(value) is not int or value <= 0:
+                raise CrossRunConfigurationError(
+                    f"expert.validation.source_replay_provider.{name} must be a positive integer"
+                )
+        if self.cleanup_timeout_seconds > self.command_timeout_seconds:
+            raise CrossRunConfigurationError(
+                "source replay provider cleanup timeout exceeds its command timeout"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertValidationSettings(StrictContract):
     state_path: str
+    source_replay_provider: SourceReplayDockerProviderSettings
     policy: ExpertValidationPolicySettings
 
     def _validate(self) -> None:
         _require_relative_path(self.state_path, "expert.validation.state_path")
+        if (
+            self.policy.source_replay_cpu_millicore_limit
+            * self.source_replay_provider.cpu_period_microseconds
+            % 1000
+            != 0
+        ):
+            raise CrossRunConfigurationError(
+                "source replay millicore limit has no exact runtime quota"
+            )
 
     @property
     def configuration_fingerprint(self) -> str:
@@ -1264,6 +1381,10 @@ class ExpertSettings(StrictContract):
             self.validation.state_path,
             "expert.validation.state_path",
         )
+        source_replay_provider_path = _require_relative_path(
+            self.validation.source_replay_provider.workspace_path,
+            "expert.validation.source_replay_provider.workspace_path",
+        )
         task_adapter_path = _require_relative_path(
             self.task_adapters.state_path,
             "expert.task_adapters.state_path",
@@ -1273,6 +1394,7 @@ class ExpertSettings(StrictContract):
             "candidates": candidate_path,
             "agent artifacts": artifact_path,
             "validation": validation_path,
+            "source replay provider": source_replay_provider_path,
             "task adapters": task_adapter_path,
         }
         for name, path in paths.items():
