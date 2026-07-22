@@ -7,7 +7,8 @@ import pytest
 
 from kapso.cross_run.canonical import canonical_json_bytes, content_id
 from kapso.cross_run.contracts import EvaluationFingerprint
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TASK_EVALUATOR_ADAPTER_ROOT,
     TASK_EVALUATOR_EXPERT_ROOT,
     TASK_EVALUATOR_REQUEST_PATH,
@@ -20,7 +21,6 @@ from kapso.cross_run.expert.replay_protocol import (
     TaskEvaluatorRequest,
     TaskEvaluatorResult,
     TaskEvaluatorStartingArtifactMount,
-    build_task_evaluator_request,
     parse_task_evaluator_result,
 )
 from test_expert_source_replay_request import _prepared, _request_fixture

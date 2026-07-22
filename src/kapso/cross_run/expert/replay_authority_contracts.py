@@ -15,7 +15,9 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionReservation,
     StrictContract,
 )
-from kapso.cross_run.expert.replay_protocol import TaskEvaluatorInvocationAllocation
+from kapso.cross_run.expert.replay_protocol_contracts import (
+    TaskEvaluatorInvocationAllocation,
+)
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")

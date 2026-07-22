@@ -14,9 +14,9 @@ from kapso.cross_run.expert.replay_execution import (
     expert_source_replay_execution_provider_key,
     source_replay_provider_execution_handle,
 )
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorInvocationAllocation,
-    build_task_evaluator_request,
 )
 from kapso.cross_run.expert.replay_provider_filesystem import (
     SourceReplayProviderFilesystemError,

@@ -1720,6 +1720,18 @@ process spawn, re-observe `CURRENT`, candidate/release revocation, and every pin
 adapter package's verifier authority, trust, and revocation state before publishing
 its receipt against that reservation.
 
+Receipt reduction is a separate factual boundary. A live journal session first
+rereads and revalidates the exact complete four-event schedule and mints a detached
+store/process-bound runtime capability; no durable completion marker exists beside
+the create-only event chain. The reducer labels control and candidate from leg
+identity, pairs fingerprints and replicates by exact ID, embeds the adapter's
+verified metric-to-dimension scale authority, and records candidate-minus-control,
+direction-aligned, and scale-normalized aggregate effects. The immutable receipt
+binds every journal event and separately records the reservation and request
+dependency projections so its expanded exact closure is self-validating, but owns
+no threshold, winner, pass/fail, noise estimate, or promotion state. Those remain
+the responsibility of a later policy decision under fresh publication authority.
+
 That reservation is an immutable operation alias bound atomically to the existing
 authorization transition, not a second validation state or expiring lease. The
 unchanged head keeps preflight reconstruction deterministic after a crash. One

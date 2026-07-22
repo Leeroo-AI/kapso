@@ -29,6 +29,9 @@ from kapso.cross_run.contracts import (
     TaskAdapterManifest,
     TaskAdapterRuntimeContract,
 )
+from kapso.cross_run.expert.replay_comparison import (
+    build_expert_source_replay_paired_comparison_receipt,
+)
 from kapso.cross_run.expert.replay_docker_bootstrap import (
     build_source_replay_docker_provider_registry,
 )
@@ -528,11 +531,39 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
                 accepted_scores[leg_kind] = accepted.fingerprint_results[
                     0
                 ].aggregate_value
+            completed_execution = session.completed_execution()
+
+        comparison_receipt = build_expert_source_replay_paired_comparison_receipt(
+            completed_execution=completed_execution,
+            execution_store=execution_store,
+            reservation=committed.reservation,
+            prepared_request=prepared_request,
+        )
+        fingerprint_comparison = comparison_receipt.case_comparisons[
+            0
+        ].fingerprint_comparisons[0]
+        with execution_store.reservation_session(
+            reservation=committed.reservation,
+            prepared_request=prepared_request,
+        ) as reopened:
+            rebuilt_receipt = build_expert_source_replay_paired_comparison_receipt(
+                completed_execution=reopened.completed_execution(),
+                execution_store=execution_store,
+                reservation=committed.reservation,
+                prepared_request=prepared_request,
+            )
 
         assert accepted_scores == {
             ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
             ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
         }
+        assert fingerprint_comparison.control_result.aggregate_value == 0.7
+        assert fingerprint_comparison.candidate_result.aggregate_value == 0.8
+        assert fingerprint_comparison.aggregate_raw_delta == 0.8 - 0.7
+        assert fingerprint_comparison.aggregate_direction_aligned_delta == 0.8 - 0.7
+        assert fingerprint_comparison.aggregate_normalized_effect == 0.8 - 0.7
+        assert rebuilt_receipt == comparison_receipt
+        assert rebuilt_receipt.to_json_bytes() == comparison_receipt.to_json_bytes()
         assert local_registry.server.request_count == registry_requests_after_pull
         assert local_registry.server.observed_violations == ()
         _assert_no_daemon_resources(

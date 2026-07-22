@@ -19,7 +19,7 @@ from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionProviderRegistry,
     expert_source_replay_execution_provider_key,
 )
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorInvocationAllocation,
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStoreError

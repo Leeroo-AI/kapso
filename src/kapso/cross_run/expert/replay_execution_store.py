@@ -24,11 +24,11 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionReservation,
     StrictContract,
 )
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorInvocationAllocation,
     TaskEvaluatorRequest,
     TaskEvaluatorResult,
-    build_task_evaluator_request,
     parse_task_evaluator_result,
 )
 from kapso.cross_run.expert.replay_authority_contracts import (
@@ -329,6 +329,7 @@ def _new_invocation_nonce() -> str:
 
 _SPAWN_AUTHORIZATION_SEAL = object()
 _PROVIDER_COMPLETION_SEAL = object()
+_COMPLETED_EXECUTION_SEAL = object()
 
 
 class SourceReplayInvocationAllocationPermit:
@@ -571,6 +572,58 @@ class SourceReplaySealedLegCompletion:
         return self._provider_completion
 
 
+class CompletedExpertSourceReplayExecution:
+    """Detached runtime proof of one fully verified durable execution journal."""
+
+    __slots__ = (
+        "_execution_store",
+        "_owner_process_id",
+        "reservation",
+        "prepared_request",
+        "events",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        execution_store: ExpertSourceReplayExecutionStore,
+        reservation: ExpertSourceReplayExecutionReservation,
+        prepared_request: PreparedExpertSourceReplayRequest,
+        events: tuple[SourceReplayExecutionJournalEvent, ...],
+    ) -> None:
+        if seal is not _COMPLETED_EXECUTION_SEAL:
+            raise ExpertSourceReplayExecutionStoreError(
+                "completed source replay execution is not journal sealed"
+            )
+        object.__setattr__(self, "_execution_store", execution_store)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "reservation", reservation)
+        object.__setattr__(self, "prepared_request", prepared_request)
+        object.__setattr__(self, "events", events)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertSourceReplayExecutionStoreError(
+            "completed source replay execution is immutable"
+        )
+
+    def require_exact(
+        self,
+        execution_store: ExpertSourceReplayExecutionStore,
+        reservation: ExpertSourceReplayExecutionReservation,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> tuple[SourceReplayExecutionJournalEvent, ...]:
+        if (
+            execution_store is not self._execution_store
+            or os.getpid() != self._owner_process_id
+            or reservation != self.reservation
+            or prepared_request != self.prepared_request
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "completed source replay execution differs from its journal authority"
+            )
+        return self.events
+
+
 class _SourceReplayReservationSession:
     """One exclusively locked reservation execution prefix."""
 
@@ -604,6 +657,33 @@ class _SourceReplayReservationSession:
     def events(self) -> tuple[SourceReplayExecutionJournalEvent, ...]:
         self._require_active()
         return self._events
+
+    def completed_execution(self) -> CompletedExpertSourceReplayExecution:
+        self._require_live_store_lock(self._store)
+        schedule = source_replay_execution_schedule(
+            self.reservation,
+            self.request,
+        )
+        durable_events = self._store._read_events(
+            self.reservation,
+            self.prepared_request,
+        )
+        if (
+            durable_events != self._events
+            or len(durable_events) != 4 * len(schedule)
+            or durable_events[-1].event_kind
+            is not SourceReplayExecutionJournalEventKind.RESULT_ACCEPTED
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay execution journal is incomplete"
+            )
+        return CompletedExpertSourceReplayExecution(
+            _COMPLETED_EXECUTION_SEAL,
+            self._store,
+            self.reservation,
+            self.prepared_request,
+            durable_events,
+        )
 
     def cleanup_interrupted_spawn(
         self,

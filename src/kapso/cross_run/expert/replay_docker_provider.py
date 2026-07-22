@@ -31,7 +31,7 @@ from kapso.cross_run.expert.replay_execution import (
     SourceReplayProviderExecutionHandle,
     expert_source_replay_execution_provider_key,
 )
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION,
     TASK_EVALUATOR_ADAPTER_ROOT,
     TASK_EVALUATOR_PROTOCOL_VERSION,

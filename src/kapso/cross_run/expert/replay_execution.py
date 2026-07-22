@@ -13,10 +13,10 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionLegKind,
     StrictContract,
 )
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorInvocationAllocation,
     TaskEvaluatorRequest,
-    build_task_evaluator_request,
 )
 from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,

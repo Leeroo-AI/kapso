@@ -30,9 +30,9 @@ from kapso.cross_run.expert.replay_execution_store import (
     SourceReplaySealedLegCompletion,
     source_replay_execution_schedule,
 )
-from kapso.cross_run.expert.replay_protocol import TaskEvaluatorInvocationAllocation
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorFingerprintResult,
+    TaskEvaluatorInvocationAllocation,
     TaskEvaluatorResult,
 )
 from kapso.cross_run.process import (

@@ -13,7 +13,7 @@ from kapso.cross_run.expert.replay_authority_contracts import (
     source_replay_spawn_security_subject_ids,
     source_replay_task_adapter_trust_observations,
 )
-from kapso.cross_run.expert.replay_protocol import (
+from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorInvocationAllocation,
 )
 from kapso.cross_run.expert.replay_execution import (

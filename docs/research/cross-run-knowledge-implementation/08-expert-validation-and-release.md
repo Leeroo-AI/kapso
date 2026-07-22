@@ -243,8 +243,9 @@ fingerprints or replicates, unsupported aggregation protocols, and aggregates
 that differ from a trusted recomputation beyond the policy-pinned tolerance.
 Parsing occurs only after a successful bounded process outcome and a trusted
 freeze of the sole regular result file; stdout is never a result channel. The
-future paired reducer, not the adapter, applies metric direction, comparison
-policy, and validation outcome.
+trusted paired reducer, not the adapter, applies metric direction and scale to
+produce factual deltas. A later decision reducer alone applies scientific
+thresholds and chooses a validation outcome.
 
 Scientific comparison authority is nevertheless explicit before execution. Each
 verified task adapter binds every supported evaluator-fingerprint/metric pair to
@@ -254,7 +255,7 @@ finite positive metric scale. Preflight requires every selected
 dimension and direction to exist unchanged in central promotion policy. The
 adapter therefore defines metric semantics and scale, while central policy alone
 defines noise floors, hard-regression ratios, and repeat requirements. The paired
-reducer may divide direction-aligned deltas by the bound scale; it must never
+reducer divides direction-aligned deltas by the bound scale; it must never
 infer that a metric such as accuracy is `quality`, divide by an observed control
 score, or reinterpret aggregate-recomputation tolerance as scientific noise.
 
@@ -300,6 +301,30 @@ runtime capability returned after its directory fsync may start execution.
 immutable raw-result blob whose bytes are committed before the event.
 `RESULT_ACCEPTED` is minted only after those exact bytes are reparsed against the
 persisted request and tolerance. Only an accepted tail advances the schedule.
+
+A complete prefix is converted to reducer authority only through a sealed,
+runtime-only `CompletedExpertSourceReplayExecution`. The live reservation session
+rereads the durable journal, reruns its complete event/blob validation, requires
+exactly four events for every scheduled leg, and compares that disk view with its
+in-memory prefix before minting the capability. The detached capability is bound
+to its store instance and creator process; it is immutable and reconstructable
+after restart, but it is neither serialized nor fresh publication authority.
+This avoids a second durable completion state machine and lets later network
+checks and validation CAS run without holding the execution lock.
+
+The factual reducer accepts only that sealed capability plus the exact
+reservation and prepared request. It identifies control and candidate by their
+leg IDs rather than counterbalanced position, then pairs results by evaluation
+fingerprint and replicate IDs. Each fingerprint row embeds its exact fingerprint,
+adapter-owned metric binding, both accepted result rows, candidate-minus-control
+delta, direction-aligned delta, and scale-normalized effect. Mathematical zero
+is canonicalized to positive zero and every derived value must remain finite.
+The content-addressed receipt preserves case/fingerprint rows without averaging,
+the score-of-record identity, both accepted-event IDs, the chronological complete
+journal chain, the aggregate-recomputation tolerance, and the expanded
+reservation/request dependency projections from which its exact closure is
+rederived on every parse. It records no threshold, pass/fail,
+winner, noise estimate, Pareto decision, retry, or promotion state.
 
 Publication fsyncs a private staging file, renames it atomically without
 replacement, and fsyncs both directories. Event, request, result, staging-entry,
@@ -422,6 +447,11 @@ Implemented validation substrate:
   provider handles support idempotent daemon-resource cleanup without reexecution;
   concurrent sessions serialize; and corrupt, forked, substituted, over-bound, or
   unsafe journal state fails loud without a mutable execution snapshot; and
+- a complete journal can mint only one deterministic store/process-bound completed
+  capability, from which the factual reducer produces a canonical paired receipt
+  with semantic control/candidate assignment, adapter-declared dimension/scale,
+  direction-aligned and normalized effects, accepted-event lineage, and exact
+  expanded dependency closure but no scientific or promotion decision; and
 - fresh spawn authority performs the exact double reopen around rich GitHub
   `CURRENT`, complete historical-adapter trust, transitive denylist, and verifier
   authority observations and returns one invocation-bound typed fence; and
