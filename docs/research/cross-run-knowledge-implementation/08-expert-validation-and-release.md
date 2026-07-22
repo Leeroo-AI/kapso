@@ -695,6 +695,22 @@ control. Fresh provider verification is required at plan admission, before each
 spawn, and before terminal publication; embedded authority exists for durable
 offline revalidation, not as a substitute for freshness.
 
+Adapter-owned execution uses neutral `task-evaluation-*` contracts rather than a
+second source-replay dialect. One content-addressed case binds its adapter/provenance,
+signed case, context, independence identity, complete cell/fingerprint set, artifact
+IDs, compute envelope, and semantic expert legs. Parent requests require exactly one
+candidate and one parent-control leg per case; bootstrap requests require exactly one
+candidate leg and prohibit every parent-shaped field. Each leg is bound to the exact
+candidate or parent artifact, source receipt, and tree. A reservation in turn binds
+the unchanged matrix-plan operation, request, validation head, candidate, and
+authenticated present/absent parent state before any execution can begin.
+The durable request binds the configured evaluator ID, role, and version. A separate
+runtime closure joins it to the exact reserved plan and rejects omitted, substituted,
+or foreign adapter provenances, cells, fingerprints, cases, contexts, independence
+identities, and artifacts. That plan join is deliberately not a spawn capability:
+materialization must still prove exact package bytes, configured compute, and fresh
+adapter authority.
+
 One provenance record represents exactly one declared evaluation case. Source
 provenance names the accepted source-stage result, paired-comparison receipt,
 execution case, selection, episode, complete bundle lineage, materialization receipt,
