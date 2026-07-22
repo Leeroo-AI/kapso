@@ -56,21 +56,9 @@ modes:
       finalization_reserve_max_minutes: 15
       guard_minutes: 5
 
-    # Contest-mode reward economics (rendered into the handler prompt).
-    # Insurance here means a SCORED Kaggle submission: kernel write + push +
-    # run + submit + score poll is a ~20-min round trip, so the window is
-    # wider than a local-eval task's.
+    # Reserve residual once a >0 public score is banked (deliverable insured).
     contest_economics:
-      insurance_minutes: 40
-      confirm_gain_ratio: 2.0
       insured_freeze_minutes: 10
-
-    # Kaggle submission economics: the account-wide daily cap comes from the
-    # competition rules; the run cap is our own budget so one campaign never
-    # exhausts the day's quota.
-    kaggle:
-      daily_submission_cap: 5
-      run_submission_cap: 3
 
     budget:
       min_iteration_seconds: 900

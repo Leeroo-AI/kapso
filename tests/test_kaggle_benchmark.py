@@ -28,16 +28,8 @@ CONFIG_PATH = os.path.join(
 )
 
 SESSION_CAPS = {"ideation_timeout": 1080, "implementation_timeout": 5400}
-ECONOMICS = {
-    "insurance_minutes": 40,
-    "confirm_gain_ratio": 2.0,
-    "insured_freeze_minutes": 10,
-}
-KAGGLE = {
-    "competition": "ioai-2026-ai-models-track-practice-task-1",
-    "daily_submission_cap": 5,
-    "run_submission_cap": 3,
-}
+ECONOMICS = {"insured_freeze_minutes": 10}
+KAGGLE = {"competition": "ioai-2026-ai-models-track-practice-task-1"}
 
 
 def make_handler(tmp_path, **overrides):
@@ -53,29 +45,26 @@ def make_handler(tmp_path, **overrides):
     return KaggleNotebookHandler(**kwargs)
 
 
-def test_handler_renders_submission_economics_from_config_values(tmp_path):
+def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     context = make_handler(tmp_path).get_problem_context()
+    assert context.startswith("statement body")
     assert KAGGLE["competition"] in context
-    assert "run's own cap: 3" in context
-    assert "daily cap: 5" in context
-    assert "~40 minutes" in context
-    assert "flock 9" in context
-    assert "PUBLIC scores only" in context
-    assert "HUMAN OPERATOR APPROVAL" in context
+    assert "operator approval" in context
     assert "kaggle_submit_requests.log" in context
-    assert "train inside the kernel" in context.lower() or (
-        "TRAIN from the provided checkpoint" in context
-    )
+    assert "best_score.log" in context and "public scores only" in context
+    assert "<score>" in context
+    # The protocol/economics sermons must stay gone.
+    for banned in ("SUBMISSION BUDGET", "INSURANCE", "flock",
+                   "Reward & time economics", "push TWICE"):
+        assert banned not in context
+    assert len(context) < 2500
 
 
-def test_handler_rejects_missing_kaggle_keys(tmp_path):
+def test_handler_rejects_missing_kaggle_slug(tmp_path):
     with pytest.raises(ValueError, match="kaggle"):
-        make_handler(tmp_path, kaggle={"competition": "x"})
-    with pytest.raises(ValueError, match="kaggle"):
-        make_handler(
-            tmp_path,
-            kaggle={"daily_submission_cap": 5, "run_submission_cap": 3},
-        )
+        make_handler(tmp_path, kaggle={})
+    with pytest.raises(ValueError, match="insured_freeze_minutes"):
+        make_handler(tmp_path, contest_economics={})
 
 
 def test_insured_predicate_needs_kernel_and_positive_public_score(tmp_path):
@@ -202,11 +191,9 @@ def test_prepare_rejects_incomplete_source(tmp_path):
         prepare(str(tmp_path / "root"), str(source), "c")
 
 
-def test_kaggle_mode_config_carries_submission_caps():
+def test_kaggle_mode_config_minimal_knobs():
     with open(CONFIG_PATH) as f:
         mode = yaml.safe_load(f)["modes"]["KAGGLE"]
-    assert mode["kaggle"] == {"daily_submission_cap": 5,
-                              "run_submission_cap": 3}
-    assert {"insurance_minutes", "confirm_gain_ratio",
-            "insured_freeze_minutes"} <= mode["contest_economics"].keys()
+    assert "kaggle" not in mode  # slug comes from the run root, not config
+    assert mode["contest_economics"] == {"insured_freeze_minutes": 10}
     assert mode["budget"]["min_iteration_seconds_insured"] == 300

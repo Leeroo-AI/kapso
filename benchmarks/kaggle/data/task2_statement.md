@@ -71,16 +71,12 @@ deterministically to success in 400/400 cases).
 
 ## Binding rules (from the competition rules page)
 
-1. **Competition data only** — no external data of any kind.
-2. **No external pretrained models/weights/embeddings** (none is provided
-   for this task either — anything you train starts from scratch, from the
-   provided demos only). Libraries that auto-download weights are banned.
-3. No external AI services/APIs inside the solution.
-4. Notebook-based code competition: the submitted kernel generates
-   `submission.csv` itself and **runs with Internet OFF**; it must be
-   reproducible from competition data + code alone.
-5. **Daily submission cap: 5 per day**; up to 2 final submissions selected.
-6. The written rules restrict *resources* (data/models), not *methods*; the
-   task framing above states the spirit (learning from demos). Weigh both
-   when choosing the approach — and note the reproducibility review reads
-   the submitted kernel.
+1. **Competition data only**; **no external pretrained models/weights**
+   (none is provided for this task — anything you train starts from
+   scratch, from the demos); no external AI services/APIs in the solution.
+2. Code competition: the submitted kernel generates `submission.csv`
+   itself, runs with **Internet OFF**, and must be reproducible from
+   competition data + code alone. Daily submission cap: **5 per day**.
+3. The written rules restrict *resources*, not *methods*; the task framing
+   above states the spirit (learning from demos). Weigh both — the
+   reproducibility review reads the submitted kernel.
