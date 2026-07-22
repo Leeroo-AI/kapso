@@ -28,7 +28,6 @@ from kapso.cross_run.expert.proposal_contract import (
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
 from kapso.cross_run.expert.replay_context import (
     SourceReplayContextProvider,
-    SourceReplayMaterializationLimits,
     VerifiedSourceReplayContext,
     VerifiedSourceReplayStartingArtifact,
 )
@@ -45,15 +44,26 @@ from kapso.cross_run.expert.replay_request import (
     PreparedExpertSourceReplayRequest,
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
     VerifiedTaskEvaluationAdapterRuntime,
     VerifiedTaskEvaluationCandidate,
     VerifiedTaskEvaluationParent,
     VerifiedTaskEvaluationStartingArtifact,
     materialize_task_evaluation_starting_artifacts,
 )
+from kapso.cross_run.expert.task_evaluation_authority_contracts import (
+    TaskEvaluationAuthorityError,
+    TaskEvaluationCurrentReleaseObservation,
+)
 from kapso.cross_run.expert.task_evaluation_preflight import (
     MaterializedTaskEvaluationCase,
     PreparedTaskEvaluationRequest,
+    TaskEvaluationAdapterProvider,
+    TaskEvaluationCandidateReader,
+    TaskEvaluationCurrentReleaseAuthority,
+    TaskEvaluationParentProvider,
+    TaskEvaluationPlanReservationAuthority,
+    TaskEvaluationPreflightCoordinator,
     TaskEvaluationPreflightError,
     task_evaluation_materialization_usage,
 )
@@ -236,7 +246,15 @@ __all__ = [
     "SourceReplayContextProvider",
     "SourceReplayProviderRegistryFactory",
     "SourceReplayDecisionPublicationFence",
-    "SourceReplayMaterializationLimits",
+    "TaskEvaluationAdapterProvider",
+    "TaskEvaluationAuthorityError",
+    "TaskEvaluationCandidateReader",
+    "TaskEvaluationCurrentReleaseAuthority",
+    "TaskEvaluationCurrentReleaseObservation",
+    "TaskEvaluationMaterializationLimits",
+    "TaskEvaluationParentProvider",
+    "TaskEvaluationPlanReservationAuthority",
+    "TaskEvaluationPreflightCoordinator",
     "StoredExpertCandidate",
     "TaskEvaluationPreflightError",
     "VerifiedTaskEvaluationAdapterRuntime",

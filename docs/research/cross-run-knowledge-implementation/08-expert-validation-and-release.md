@@ -777,8 +777,34 @@ authority, derives the fixture-free runtime again, and matches only the signed c
 artifact closures. Historical source-only adapter versions are not executable cases.
 Aggregate accounting includes candidate, optional parent, and each distinct full
 adapter package exactly once; runtime and fixture projections are views of already
-counted package bytes. This prepared object still performs no durable reservation or
-external freshness claim.
+counted package bytes. It also retains the exact typed current-release observation on
+which preflight relied. This prepared object is still neither a durable reservation
+nor an execution capability.
+
+`TaskEvaluationPreflightCoordinator` is the sole producer that turns a reserved plan
+into that byte-closed request. Its order is fixed:
+
+1. reopen the exact plan alias at the unchanged local validation head;
+2. reopen the exact candidate and join its manifest, trigger packet, decision, commit,
+   tree, plan subjects, and configured validation fingerprint before any external read;
+3. authenticate `C0`, which is either the expected parent `CURRENT` or repository-head-
+   bound bootstrap absence;
+4. materialize the exact parent only in parent mode, then derive the request immediately
+   so a substituted parent fails before adapter acquisition;
+5. resolve each distinct adapter-case package by its pinned manifest and receipt under
+   the one configured entry, byte, and monotonic deadline budget; source-only historical
+   packages are evidence and are not reacquired as executable packages;
+6. authenticate `C1` and require the full observation to equal `C0`, including repository
+   identity, default-branch head, pointer digest, publication, and validation closure;
+7. reopen the exact plan alias again and require it to equal the first reopen; and
+8. derive fixture-free runtimes and only the selected signed-case artifacts.
+
+Bootstrap never calls the parent provider. Exact observation equality detects a
+release appearing during bootstrap and a parent restored under a new branch head
+after intermediate movement. No network call occurs under the validation-store lock.
+The next boundary must durably reserve this exact request and observation before any
+cell allocation; every later spawn must still reacquire live package, current-release,
+and denylist authority.
 
 The planner now derives a mixed parent matrix from the complete accepted source
 replay plus every signed case in every immutable attempt-pinned active adapter.

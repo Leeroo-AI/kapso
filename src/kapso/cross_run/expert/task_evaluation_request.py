@@ -193,46 +193,14 @@ def prepare_task_evaluation_request(
 ) -> PlanJoinedTaskEvaluationRequest:
     """Derive the only request admitted by one reserved matrix plan."""
 
-    if (
-        type(plan_reservation) is not ExpertReleaseMatrixPlanReservationSnapshot
-        or type(settings) is not ExpertValidationSettings
-        or type(stored_candidate) is not StoredExpertCandidate
-        or type(candidate) is not VerifiedTaskEvaluationCandidate
-    ):
-        raise TaskEvaluationRequestPreparationError(
-            "task evaluation request derivation requires exact typed authority"
-        )
+    validate_task_evaluation_candidate_authority(
+        plan_reservation=plan_reservation,
+        settings=settings,
+        stored_candidate=stored_candidate,
+        candidate=candidate,
+    )
     plan = plan_reservation.evaluation_plan
-    closure = stored_candidate.closure
-    packet = closure.trigger_packet
-    if (
-        candidate.manifest != closure.manifest
-        or candidate.commit_record != stored_candidate.commit_record
-        or candidate.source_tree != closure.candidate_tree
-        or candidate.source_contents != closure.candidate_contents
-        or candidate.manifest.candidate_id != plan.candidate_id
-        or candidate.manifest.trigger_evidence_packet_id != packet.evidence_packet_id
-        or candidate.manifest.trigger_decision_id
-        != closure.trigger_decision.trigger_decision_id
-        or closure.trigger_decision.evidence_packet_id != packet.evidence_packet_id
-        or candidate.manifest.scope_contract_id
-        != packet.scope_contract.scope_contract_id
-        or candidate.manifest.configuration_fingerprint
-        != packet.configuration_fingerprint
-        or candidate.manifest.parent_release_id != packet.parent_release_id
-        or candidate.manifest.parent_tree_hash != packet.parent_tree_hash
-        or candidate.commit_record.commit_record_id != plan.candidate_commit_record_id
-        or candidate.source_tree.tree_hash != plan.candidate_tree_hash
-        or candidate.manifest.scope_contract_id != plan.scope_contract_id
-        or candidate.manifest.parent_release_id != plan.parent_release_id
-        or (
-            plan.parent_tree_hash is not None
-            and candidate.manifest.parent_tree_hash != plan.parent_tree_hash
-        )
-    ):
-        raise TaskEvaluationRequestPreparationError(
-            "task evaluation candidate differs from reserved plan authority"
-        )
+    packet = stored_candidate.closure.trigger_packet
     if (plan.parent_release_id is None) != (parent is None):
         raise TaskEvaluationRequestPreparationError(
             "task evaluation parent authority differs from matrix mode"
@@ -343,6 +311,58 @@ def prepare_task_evaluation_request(
         plan_reservation=plan_reservation,
         settings=settings,
     )
+
+
+def validate_task_evaluation_candidate_authority(
+    *,
+    plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot,
+    settings: ExpertValidationSettings,
+    stored_candidate: StoredExpertCandidate,
+    candidate: VerifiedTaskEvaluationCandidate,
+) -> None:
+    """Reject a candidate/configuration substitution before external reads."""
+
+    if (
+        type(plan_reservation) is not ExpertReleaseMatrixPlanReservationSnapshot
+        or type(settings) is not ExpertValidationSettings
+        or type(stored_candidate) is not StoredExpertCandidate
+        or type(candidate) is not VerifiedTaskEvaluationCandidate
+    ):
+        raise TaskEvaluationRequestPreparationError(
+            "task evaluation request derivation requires exact typed authority"
+        )
+    plan = plan_reservation.evaluation_plan
+    closure = stored_candidate.closure
+    packet = closure.trigger_packet
+    if (
+        candidate.manifest != closure.manifest
+        or candidate.commit_record != stored_candidate.commit_record
+        or candidate.source_tree != closure.candidate_tree
+        or candidate.source_contents != closure.candidate_contents
+        or candidate.manifest.candidate_id != plan.candidate_id
+        or candidate.manifest.trigger_evidence_packet_id != packet.evidence_packet_id
+        or candidate.manifest.trigger_decision_id
+        != closure.trigger_decision.trigger_decision_id
+        or closure.trigger_decision.evidence_packet_id != packet.evidence_packet_id
+        or candidate.manifest.scope_contract_id
+        != packet.scope_contract.scope_contract_id
+        or candidate.manifest.configuration_fingerprint
+        != packet.configuration_fingerprint
+        or candidate.manifest.parent_release_id != packet.parent_release_id
+        or candidate.manifest.parent_tree_hash != packet.parent_tree_hash
+        or candidate.commit_record.commit_record_id != plan.candidate_commit_record_id
+        or candidate.source_tree.tree_hash != plan.candidate_tree_hash
+        or candidate.manifest.scope_contract_id != plan.scope_contract_id
+        or candidate.manifest.parent_release_id != plan.parent_release_id
+        or plan.configuration_fingerprint != settings.configuration_fingerprint
+        or (
+            plan.parent_tree_hash is not None
+            and candidate.manifest.parent_tree_hash != plan.parent_tree_hash
+        )
+    ):
+        raise TaskEvaluationRequestPreparationError(
+            "task evaluation candidate differs from reserved plan authority"
+        )
 
 
 def _task_evaluation_legs(

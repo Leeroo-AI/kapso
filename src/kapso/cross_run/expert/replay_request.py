@@ -32,13 +32,13 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.replay_context import (
     SourceReplayContextProvider,
-    SourceReplayMaterializationLimits,
     VerifiedSourceReplayContext,
 )
 from kapso.cross_run.expert.store import (
     StoredExpertCandidate,
 )
 from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
     VerifiedTaskEvaluationCandidate,
     VerifiedTaskEvaluationParent,
 )
@@ -99,7 +99,7 @@ class ExpertSourceReplayParentProvider(Protocol):
         self,
         release_manifest: ExpertBaseReleaseManifest,
         parent_tree_receipt: ExpertParentTreeReceipt,
-        limits: SourceReplayMaterializationLimits,
+        limits: TaskEvaluationMaterializationLimits,
     ) -> VerifiedTaskEvaluationParent: ...
 
 
@@ -958,7 +958,7 @@ class ExpertSourceReplayPreflightCoordinator:
     def _materialize_parent(
         self,
         candidate: StoredExpertCandidate,
-        limits: SourceReplayMaterializationLimits,
+        limits: TaskEvaluationMaterializationLimits,
     ) -> VerifiedTaskEvaluationParent:
         packet = candidate.closure.trigger_packet
         if packet.parent_release is None or packet.parent_tree_receipt is None:
@@ -1278,8 +1278,8 @@ class ExpertSourceReplayPreflightCoordinator:
                 "source replay artifact materialization differs from captured authority"
             )
 
-    def _materialization_limits(self) -> SourceReplayMaterializationLimits:
-        return SourceReplayMaterializationLimits(
+    def _materialization_limits(self) -> TaskEvaluationMaterializationLimits:
+        return TaskEvaluationMaterializationLimits(
             maximum_entries=(
                 self.settings.policy.task_evaluation_materialization_entry_limit
             ),
@@ -1322,7 +1322,7 @@ class ExpertSourceReplayPreflightCoordinator:
         lineages: tuple[VerifiedRunBundleLineage, ...],
         contexts: tuple[VerifiedSourceReplayContext, ...],
         deadline: float,
-    ) -> SourceReplayMaterializationLimits:
+    ) -> TaskEvaluationMaterializationLimits:
         limits = self._materialization_limits()
         entry_count, byte_count = self._materialization_usage(
             candidate=candidate,
@@ -1338,7 +1338,7 @@ class ExpertSourceReplayPreflightCoordinator:
             raise ExpertSourceReplayRequestError(
                 "source replay byte closure exhausted materialization budget"
             )
-        return SourceReplayMaterializationLimits(
+        return TaskEvaluationMaterializationLimits(
             maximum_entries=remaining_entries,
             maximum_bytes=remaining_bytes,
             timeout_seconds=remaining_seconds,

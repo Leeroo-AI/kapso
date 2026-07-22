@@ -7,6 +7,9 @@ from kapso.cross_run.contracts import PublicationArtifactKind
 from kapso.cross_run.expert.replay_authority import (
     SourceReplayCurrentReleaseObservation,
 )
+from kapso.cross_run.expert.task_evaluation_authority_contracts import (
+    TaskEvaluationCurrentReleaseObservation,
+)
 from kapso.cross_run.expert.validation import ExpertValidationError
 from kapso.cross_run.github.resolver import GitHubArtifactResolver
 
@@ -63,5 +66,58 @@ class GitHubExpertCurrentReleaseProvider:
             repository_node_id=resolved.policy.repository_node_id,
             current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
             current_pointer_commit_sha=resolved.pointer_commit_sha,
+            validation_closure_ids=pointer.validation_closure_ids,
+        )
+
+    def observe_task_evaluation_current(
+        self,
+        scope_id: str,
+    ) -> TaskEvaluationCurrentReleaseObservation:
+        """Authenticate both CURRENT presence and repository-head absence."""
+
+        artifact_kind = PublicationArtifactKind.EXPERT_BASE_RELEASE
+        policy = self.resolver.diagnose_repository(scope_id, artifact_kind)
+        state = self.resolver.read_current_pointer_state(
+            scope_id,
+            artifact_kind,
+            allow_missing=True,
+        )
+        if state.pointer is None:
+            return TaskEvaluationCurrentReleaseObservation.mint(
+                scope_id=scope_id,
+                release_id=None,
+                publication_id=None,
+                repository_full_name=policy.repository_full_name,
+                repository_node_id=policy.repository_node_id,
+                default_branch_head_commit_sha=state.head_commit_sha,
+                current_pointer_digest=None,
+                validation_closure_ids=(),
+            )
+        resolved = self.resolver.resolve_current(scope_id, artifact_kind)
+        if (
+            resolved.pointer != state.pointer
+            or resolved.pointer_commit_sha != state.head_commit_sha
+            or resolved.policy != policy
+        ):
+            raise ExpertValidationError(
+                "current expert authority changed during task evaluation observation"
+            )
+        pointer = resolved.pointer
+        publication = pointer.publication_record
+        if (
+            pointer.scope_id != scope_id
+            or publication.artifact_kind is not artifact_kind
+        ):
+            raise ExpertValidationError(
+                "resolved task-evaluation CURRENT has another scope or artifact kind"
+            )
+        return TaskEvaluationCurrentReleaseObservation.mint(
+            scope_id=scope_id,
+            release_id=publication.artifact_id,
+            publication_id=publication.publication_id,
+            repository_full_name=policy.repository_full_name,
+            repository_node_id=policy.repository_node_id,
+            default_branch_head_commit_sha=state.head_commit_sha,
+            current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
             validation_closure_ids=pointer.validation_closure_ids,
         )

@@ -1492,6 +1492,42 @@ class ExpertValidationStore:
                 snapshot=current,
             )
 
+    def reopen_release_matrix_plan_reservation_snapshot(
+        self,
+        *,
+        plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot,
+    ) -> ExpertReleaseMatrixPlanReservationSnapshot:
+        """Reopen one exact plan alias at the unchanged current head."""
+
+        if type(plan_reservation) is not ExpertReleaseMatrixPlanReservationSnapshot:
+            raise ExpertValidationStoreError(
+                "release matrix snapshot reopen requires exact reserved authority"
+            )
+        plan = plan_reservation.evaluation_plan
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current is None or current != plan_reservation.snapshot:
+                raise ExpertValidationStoreError(
+                    "release matrix snapshot reopen head changed"
+                )
+            stored = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                current.transition.transition_id,
+            )
+            if stored != (
+                plan_reservation.operation,
+                plan_reservation.evaluation_plan,
+            ):
+                raise ExpertValidationStoreError(
+                    "release matrix snapshot reopen alias changed"
+                )
+            return ExpertReleaseMatrixPlanReservationSnapshot(
+                operation=stored[0],
+                evaluation_plan=stored[1],
+                snapshot=current,
+            )
+
     def reopen_release_matrix_source_evidence(
         self,
         *,

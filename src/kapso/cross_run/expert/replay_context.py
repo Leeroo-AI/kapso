@@ -13,26 +13,9 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayStartingArtifact,
     TaskContextBinding,
 )
-
-
-@dataclass(frozen=True)
-class SourceReplayMaterializationLimits:
-    maximum_entries: int
-    maximum_bytes: int
-    timeout_seconds: int
-
-    def __post_init__(self) -> None:
-        if any(
-            type(value) is not int or value <= 0
-            for value in (
-                self.maximum_entries,
-                self.maximum_bytes,
-                self.timeout_seconds,
-            )
-        ):
-            raise ContractValidationError(
-                "source replay materialization limits must be positive integers"
-            )
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    TaskEvaluationMaterializationLimits,
+)
 
 
 @dataclass(frozen=True)
@@ -115,5 +98,5 @@ class SourceReplayContextProvider(Protocol):
         self,
         task_context_binding: TaskContextBinding,
         expected_artifact_content_ids: Mapping[str, str],
-        limits: SourceReplayMaterializationLimits,
+        limits: TaskEvaluationMaterializationLimits,
     ) -> VerifiedSourceReplayContext: ...

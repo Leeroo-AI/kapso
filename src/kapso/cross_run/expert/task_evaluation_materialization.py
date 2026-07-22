@@ -30,6 +30,26 @@ class TaskEvaluationMaterializationError(ValueError):
     """Task-evaluation bytes differ from their immutable authority."""
 
 
+@dataclass(frozen=True)
+class TaskEvaluationMaterializationLimits:
+    maximum_entries: int
+    maximum_bytes: int
+    timeout_seconds: int
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not int or value <= 0
+            for value in (
+                self.maximum_entries,
+                self.maximum_bytes,
+                self.timeout_seconds,
+            )
+        ):
+            raise TaskEvaluationMaterializationError(
+                "task-evaluation materialization limits must be positive integers"
+            )
+
+
 def _verified_source_contents(
     descriptors: tuple[SourceFileDescriptor, ...],
     source_contents: Mapping[str, bytes],
