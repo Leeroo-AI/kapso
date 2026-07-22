@@ -338,7 +338,28 @@ def repository_for_artifact(
         return repositories.knowledge_repository
     if artifact_kind is PublicationArtifactKind.EXPERT_BASE_RELEASE:
         return repositories.expert_repository
+    if artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST:
+        return repositories.security_repository
     raise GitHubResolutionError(f"unsupported artifact kind: {artifact_kind}")
+
+
+def tag_prefix_for_artifact(
+    settings: GitHubSettings,
+    artifact_kind: PublicationArtifactKind,
+) -> str:
+    if artifact_kind is PublicationArtifactKind.KNOWLEDGE_SNAPSHOT:
+        return settings.knowledge_tag_prefix
+    if artifact_kind is PublicationArtifactKind.EXPERT_BASE_RELEASE:
+        return settings.expert_tag_prefix
+    if artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST:
+        return settings.security_denylist_tag_prefix
+    raise GitHubResolutionError(f"unsupported artifact kind: {artifact_kind}")
+
+
+def security_denylist_tag(settings: GitHubSettings, generation: int) -> str:
+    if type(generation) is not int or generation < 0:
+        raise GitHubResolutionError("security denylist generation must be non-negative")
+    return f"{settings.security_denylist_tag_prefix}D{generation:06d}"
 
 
 def artifact_identity_ref(
@@ -562,6 +583,8 @@ class GitHubArtifactResolver:
                 "artifact publication pointer must be an object"
             )
         pointer = CurrentArtifactPointer.from_dict(parsed)
+        if payload != pointer.to_json_bytes():
+            raise GitHubResolutionError("artifact publication pointer is not canonical")
         record = pointer.publication_record
         if (
             pointer.scope_id != scope_id
@@ -619,6 +642,8 @@ class GitHubArtifactResolver:
         if payload is None:
             raise GitHubResolutionError("artifact publication intent is missing")
         intent = ArtifactPublicationIntent.from_json_bytes(payload)
+        if payload != intent.to_json_bytes():
+            raise GitHubResolutionError("artifact publication intent is not canonical")
         if (
             intent.scope_id != scope_id
             or intent.artifact_kind is not artifact_kind
@@ -672,10 +697,10 @@ class GitHubArtifactResolver:
         parsed = parse_json_bytes(pointer_payload)
         if not isinstance(parsed, Mapping):
             raise GitHubResolutionError("CURRENT.json must contain an object")
-        return CurrentPointerState(
-            pointer=CurrentArtifactPointer.from_dict(parsed),
-            head_commit_sha=head_commit_sha,
-        )
+        pointer = CurrentArtifactPointer.from_dict(parsed)
+        if pointer_payload != pointer.to_json_bytes():
+            raise GitHubResolutionError("CURRENT.json is not canonical")
+        return CurrentPointerState(pointer=pointer, head_commit_sha=head_commit_sha)
 
     def resolve_current(
         self,
@@ -762,11 +787,7 @@ class GitHubArtifactResolver:
             raise GitHubResolutionError("publication repository node mismatch")
         if record.publisher_identity != policy.authenticated_actor:
             raise GitHubResolutionError("publication actor is not authenticated actor")
-        expected_prefix = (
-            self.settings.knowledge_tag_prefix
-            if artifact_kind is PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
-            else self.settings.expert_tag_prefix
-        )
+        expected_prefix = tag_prefix_for_artifact(self.settings, artifact_kind)
         if not record.tag.startswith(expected_prefix):
             raise GitHubResolutionError("publication tag uses another artifact prefix")
         require_git_ref_name(

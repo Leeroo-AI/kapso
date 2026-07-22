@@ -60,7 +60,13 @@ class _DenylistAuthority:
         self.substitute_checked = substitute_checked
         self.checked_subject_ids = None
 
-    def observe_exact(self, checked_subject_ids):
+    def observe_exact(
+        self,
+        *,
+        scope_id,
+        scope_contract_id,
+        checked_subject_ids,
+    ):
         self.calls.append("denylist")
         self.checked_subject_ids = checked_subject_ids
         observed_subjects = (
@@ -68,11 +74,23 @@ class _DenylistAuthority:
         )
         denied_subject_ids = (observed_subjects[0],) if self.denied else ()
         return SourceReplaySecurityDenylistObservation.mint(
+            scope_id=scope_id,
+            scope_contract_id=scope_contract_id,
+            scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),
             snapshot_id=content_id(
                 "security-denylist-snapshot",
                 {"generation": 7},
             ),
             generation=7,
+            publication_id=content_id(
+                "github-publication",
+                {"security_denylist_generation": 7},
+            ),
+            repository_full_name="Leeroo-AI/kapso-security",
+            repository_node_id="security_repo_node",
+            pointer_digest=tree_or_blob_digest(b"security CURRENT"),
+            authority_commit_sha="b" * 40,
+            release_attestation_ref="attestations/security-denylist",
             checked_subject_ids=observed_subjects,
             denied_subject_ids=denied_subject_ids,
         )
@@ -288,8 +306,8 @@ def test_fresh_spawn_authority_propagates_revoked_adapter_trust(authority):
 def test_fresh_spawn_authority_second_reopen_rejects_an_advanced_head(authority):
     original_observe = authority.denylist.observe_exact
 
-    def advance_head(checked_subject_ids):
-        observation = original_observe(checked_subject_ids)
+    def advance_head(**request):
+        observation = original_observe(**request)
         authority.fixture.current_release_provider.release_id = content_id(
             "expert-base-release",
             {"changed_during_spawn_authority": True},

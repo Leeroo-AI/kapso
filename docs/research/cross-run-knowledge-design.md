@@ -142,8 +142,8 @@ There are two loops.
 
 Repository location is deployment configuration, not task-family semantics and
 not part of a scientific artifact's content identity. One canonical
-`ScopeRegistry` maps a stable `scope_id` to exactly one expert/knowledge repository
-pair:
+`ScopeRegistry` maps a stable `scope_id` to exactly one expert, knowledge, and
+security repository triple:
 
 ```yaml
 cross_run:
@@ -152,6 +152,7 @@ cross_run:
       repositories:
         expert: "Leeroo-AI/kapso-expert"
         knowledge: "Leeroo-AI/kapso-knowledge"
+        security: "Leeroo-AI/kapso-security"
 ```
 
 Workloads never receive repository names. Each benchmark mode supplies only a
@@ -171,11 +172,12 @@ cross_run_binding:
   task_adapter_id: "relbench"
 ```
 
-Both task families therefore share the `ml_ai` expert and knowledge lineage while
-remaining distinct task contexts. The registry answers **where** the lineage
-lives; `ExpertScopeContract` answers **what** families and context dimensions it
-admits; the task adapter answers **how** one family executes; and
-`LaunchManifest` freezes **which exact** expert and knowledge versions a run used.
+Both task families therefore share the `ml_ai` expert and knowledge lineage and
+its security authority while remaining distinct task contexts. The registry
+answers **where** those authorities live; `ExpertScopeContract` answers **what**
+families and context dimensions it admits; the task adapter answers **how** one
+family executes; and `LaunchManifest` freezes **which exact** expert, knowledge,
+and denylist identities a run observed.
 
 The repository mapping is single-sourced in the canonical Kapso configuration.
 Benchmark runtime-config builders compose that registry with their own binding;
@@ -190,7 +192,7 @@ Resolution is fail-loud:
 ```text
 CrossRunTaskBinding
 -> ScopeRegistry[scope_id]
--> configured expert + knowledge repositories
+-> configured expert + knowledge + security repositories
 -> pinned ExpertScopeContract validates task_family_id/task_adapter_id
 -> exact CURRENT records and immutable releases
 -> LaunchManifest
@@ -198,10 +200,10 @@ CrossRunTaskBinding
 
 The resolver verifies that the repository records, expert release, knowledge
 snapshot, adapter, and scope contract all name the same scope lineage. A missing
-scope, unknown family, mismatched pair, or duplicate repository assignment fails
+scope, unknown family, mismatched repository, or duplicate assignment fails
 before network-heavy or paid work. Separate trust, license, runtime, or ownership
-boundaries require a new scope and repository pair; they do not create conditional
-routing inside `ml_ai`.
+boundaries require a new scope and repository triple; they do not create
+conditional routing inside `ml_ai`.
 
 ### 3.2 Live run loop
 
@@ -219,7 +221,7 @@ expert_base_release_id
 knowledge/expert GitHub publication refs
 embedding_space_id
 dependency/runtime contract
-security denylist generation
+security denylist snapshot ID + generation
 ```
 
 If the pinned scope has no release, the resolver first completes the
@@ -842,7 +844,8 @@ LaunchManifest
   expert_base_release_id + expert_publication_ref
   embedding_space_id
   dependency/runtime contract
-  sanitation and security-denylist generations
+  sanitation policy generation
+  security denylist snapshot ID + generation
   expected source composition hash
   publisher_attestation
 ```
@@ -897,9 +900,10 @@ release tag, and asset digests; it never resolves `latest` after startup.
 | `ExpertRepoArchitect` | Scope contract, current release/map, task-family bindings, evidence | Architecture candidate with repository map | In bootstrap mode create the minimal initial topology; later propose atomic move/split/merge/refactor changes and capability lineage without mutating a stable release |
 | `GeneralizationProposer` | Trigger, release, episodes/claims, selected candidate ancestors | Isolated expert candidate | Produce the smallest task-general patch and contract; preserve candidate lineage |
 | `ExpertCandidateValidator` | Capability or architecture candidate and evaluator cascade | Promotion evidence | Scope conformance, contract/topology graph integrity, security, leakage, replay, fresh-task, cross-family, cost, and full-release regression checks |
-| `AutonomousGitHubPublisher` | Validated knowledge or expert artifact | Direct commit, immutable release, global identity, CAS pointer | Use the configured Git/`gh` identity, bind complete intent before release work, enforce expected-parent publication, and distinguish publication from activation |
+| `AutonomousGitHubPublisher` | Validated knowledge, expert, or security artifact | Direct commit, immutable release, global identity, CAS pointer | Use the configured Git/`gh` identity, bind complete intent before release work, enforce expected-parent publication, and distinguish publication from activation |
 | `ExpertReleasePublisher` | Approved candidate set | Immutable release + CAS pointer | Rebase/compose, compile and validate the semantic book, rerun the release matrix, publish history-free source, support revocation |
-| `LaunchResolver` | Scope registry, task binding, snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Resolve one configured repository pair; prevent torn combinations; enforce lineage, eligibility, compatibility, freshness, and denylist state |
+| `AuthenticatedSecurityDenylistAuthority` | Scope registry, live authenticated pointer, immutable lineage, local anti-rollback floor, exact subject tuple | Exact denylist observation | Re-resolve on every dangerous boundary; reject rollback, fork, removed revocation, substitution, corruption, or offline authorization |
+| `LaunchResolver` | Scope registry, task binding, snapshot, release, adapter, runtime, trust roots | Attested launch manifest | Resolve one configured repository triple; prevent torn combinations; enforce lineage, eligibility, compatibility, freshness, and denylist state |
 | `StarterWorkspaceBuilder` | Launch manifest and optional bootstrap pin | Atomic live workspace | Verify attestations; on fresh launch stage/fsync/rename, on resume verify the existing tree before workspace construction; never reuse `initial_repo` |
 
 The catalog and expert-base release store are separate. A high-confidence episode
@@ -1239,11 +1243,42 @@ revocations may continue purely from an offline pin. The observed denylist
 generation is checkpointed, and local ideas/artifacts citing newly revoked prior
 references are tainted as derivatives.
 
+The security/contamination denylist is a separate authenticated artifact lineage,
+not a branch file in either scientific repository. `SecurityDenylistSnapshot`
+contains one scope binding, an adjacent predecessor and generation, and the full
+cumulative set of content-addressed revocations. Generation zero is empty. Every
+successor may add revocations but cannot remove or rewrite them. Its exact
+dependency closure includes the scope contract, predecessor, subjects, evidence,
+evidence sources, and revocation identities. The release contains one canonical
+content-addressed evidence bundle; its typed records, bundle identity, source IDs,
+snapshot references, and checksum must form an exact set rather than an extensible
+bag of opaque bytes.
+
+Each dangerous boundary live-resolves the security repository's authenticated
+`CURRENT.json`, verifies the immutable release and complete attestation closure,
+and intersects the internally derived dependency subjects with the snapshot. A
+private local per-scope checkpoint records repository identity, snapshot,
+generation, publication, pointer digest, and authority commit. It deliberately
+does not copy the cumulative revocation payload: the authenticated exact floor
+snapshot plus its validated successor chain is the authority, so checkpoint size
+is independent of denylist growth. A lower generation, equal-generation fork,
+broken or missing predecessor, removed revocation, repository substitution,
+corrupt checkpoint, or unavailable GitHub authority fails closed. A
+multi-generation advance authenticates every immutable predecessor back to the
+local floor; the first observation authenticates back to generation zero.
+Publication and read both enforce the configured finite lineage horizon, so no
+activated generation can be unreadable to a fresh host. Moving beyond that
+horizon requires a reviewed scope-lineage rollover rather than silently weakening
+fresh-host authentication. Checkpoint locking and fsynced atomic replacement make
+concurrent observers converge. The local copy is only an anti-rollback floor and
+audit record: it is never cached authorization and cannot make an offline security
+decision.
+
 ## 8. GitHub publication, concurrency, and retrieval
 
 GitHub is the central control and distribution plane, not the live query engine
-and not a raw-trace data lake. Use two private repositories for each scope lineage
-(or two repositories total for one broad scope):
+and not a raw-trace data lake. Use three private repositories for each scope
+lineage (or three repositories total for one broad scope):
 
 ```text
 <scope>-expert/
@@ -1261,13 +1296,21 @@ and not a raw-trace data lake. Use two private repositories for each scope linea
   snapshots/<snapshot_id>/manifest.json
   CURRENT.json
   .github/workflows/validate-and-publish.yml
+
+<scope>-security/
+  security-denylist.json
+  CURRENT.json
+  .github/workflows/validate-and-publish.yml
 ```
 
-The split is mandatory because executable expert code and scientific-memory
-artifacts have different schemas, validation, retention, and leakage risks even
-though one autonomous identity writes both. Knowledge records and manifests remain
-small and inspectable in Git. Raw quarantine never enters GitHub. Sanitized
-run-bundle audit closure and large materializations are packaged by the snapshot
+The split is mandatory because executable expert code, scientific-memory
+artifacts, and live revocation authority have different schemas, validation,
+retention, and failure semantics even though one autonomous identity writes all
+three. In particular, the publisher replaces an artifact repository's complete
+source tree and owns its root `CURRENT.json`; co-locating an independently moving
+denylist could erase or overwrite another current channel. Knowledge records and
+manifests remain small and inspectable in Git. Raw quarantine never enters
+GitHub. Sanitized run-bundle audit closure and large materializations are packaged by the snapshot
 publisher as release assets, not standalone pre-admission releases or Git objects;
 [GitHub recommends](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
 keeping repositories small and using releases rather than regular Git for large
@@ -1276,8 +1319,8 @@ distribution files.
 ### 8.1 Immutable GitHub release units
 
 Enable [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
-on both repositories. GitHub then locks a published release's tag and assets and
-generates release provenance. Publication first creates a draft, streams every
+on all three repositories. GitHub then locks a published release's tag and assets
+and generates release provenance. Publication first creates a draft, streams every
 asset through the raw upload endpoint with its manifest-bound filename and media
 type, verifies each returned SHA-256 digest, and only then publishes it.
 
@@ -1291,6 +1334,11 @@ knowledge-search-S000025.tar.zst      # rebuildable search sidecars
 catalog-delta-S000025.tar.zst         # new sanitized audit records
 SHA256SUMS
 ```
+
+A security release tag such as `security-denylist/D000025` carries the canonical
+snapshot and its exact dependency/evidence closure. It uses the same write-once
+publication intent, immutable release, attestation, artifact-identity ref, and
+expected-parent `CURRENT.json` compare-and-swap protocol as the other artifacts.
 
 The snapshot package is independently usable for retrieval without historical
 task workspaces or traces. The catalog delta supports audit and future
@@ -1326,8 +1374,8 @@ the result in their `LaunchManifest`.
 
 ### 8.2 Autonomous authority model
 
-One configured GitHub identity has full read/write authority over both private
-repositories. Codex or Claude Code runs under that operating identity and may use
+One configured GitHub identity has full read/write authority over all three
+private repositories. Codex or Claude Code runs under that operating identity and may use
 `git` and `gh` directly; there are no GitHub Apps, candidate PRs, protected refs,
 required reviewers, or human actions between tasks. Authentication is supplied by
 the external Git/`gh` credential store and is never copied into `config.yaml`,
@@ -1342,8 +1390,8 @@ pause for a human, and a proposer still cannot satisfy its own validation rubric
 
 | Principal | Authority |
 |---|---|
-| Autonomous coding-agent/Kapso process | Read, commit, push, tag, release, and update either repository |
-| Launcher/resolver | Read and verify both repositories and release assets using the same configured identity |
+| Autonomous coding-agent/Kapso process | Read, commit, push, tag, release, and update any configured repository |
+| Launcher/resolver | Read and verify all three repositories and release assets using the same configured identity |
 
 `AutonomousGitHubPublisher` is the normal framework path because it preserves
 crash safety and compare-and-swap publication, but GitHub permissions do not
@@ -1355,8 +1403,9 @@ operator-selected trust model.
 `GitHubArtifactResolver` is the framework's canonical read/verification path even
 though the autonomous agent also has direct GitHub authority. For a fresh run it:
 
-1. resolves each default-branch head once and reads both `CURRENT.json` files at
-   those explicit commit SHAs, or resolves an explicit write-once artifact identity;
+1. resolves each scientific default-branch head once and reads its `CURRENT.json`
+   at that explicit commit SHA, or resolves an explicit write-once artifact
+   identity; security boundaries separately live-resolve the security pointer;
 2. verifies the complete publication intent, publisher identity, source parent,
    exact globally bounded non-recursive Git tree closure, and every bounded raw
    blob;
@@ -1369,7 +1418,8 @@ though the autonomous agent also has direct GitHub authority. For a fresh run it
    parent directories to the entry budget; then verifies paths, schemas,
    package/tree digests, and the snapshot's transitive proof closure;
 6. atomically installs content-addressed, read-only local cache entries; and
-7. emits one `LaunchManifest` binding both artifacts and writes `BootstrapPin`.
+7. emits one `LaunchManifest` binding both scientific artifacts and the exact
+   live denylist floor, then writes `BootstrapPin`.
 
 Cache roots and kind directories must be ordinary directories with no symlinked
 ancestor. One advisory cache lease serializes cooperating Kapso materialization,

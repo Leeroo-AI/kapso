@@ -104,8 +104,11 @@ class ScopeRegistrySettings(StrictContract):
             raise IdentityConflictError("scope registry must be sorted and unique")
         repositories: set[str] = set()
         for scope in self.scopes:
-            pair = (scope.expert_repository, scope.knowledge_repository)
-            for repository in pair:
+            for repository in (
+                scope.expert_repository,
+                scope.knowledge_repository,
+                scope.security_repository,
+            ):
                 if repository in repositories:
                     raise IdentityConflictError(
                         f"repository {repository} belongs to more than one scope"
@@ -127,15 +130,17 @@ class ScopeRegistrySettings(StrictContract):
             if not isinstance(repositories, Mapping) or set(repositories) != {
                 "expert",
                 "knowledge",
+                "security",
             }:
                 raise CrossRunConfigurationError(
-                    f"scope {scope_id} repositories must contain expert and knowledge"
+                    f"scope {scope_id} repositories must contain expert, knowledge, and security"
                 )
             scopes.append(
                 ScopeRepositorySettings(
                     scope_id=scope_id,
                     expert_repository=repositories["expert"],
                     knowledge_repository=repositories["knowledge"],
+                    security_repository=repositories["security"],
                 )
             )
         return cls(scopes=tuple(scopes))
@@ -156,6 +161,7 @@ class ScopeRegistrySettings(StrictContract):
                 "repositories": {
                     "expert": scope.expert_repository,
                     "knowledge": scope.knowledge_repository,
+                    "security": scope.security_repository,
                 }
             }
             for scope in self.scopes
@@ -172,6 +178,7 @@ class GitHubSettings(StrictContract):
     commit_author_email: str
     expert_tag_prefix: str
     knowledge_tag_prefix: str
+    security_denylist_tag_prefix: str
     cache_path: str
     command_timeout_seconds: int
     release_asset_size_bytes: int
@@ -206,7 +213,11 @@ class GitHubSettings(StrictContract):
             raise CrossRunConfigurationError("GitHub commit author name is required")
         if not re.fullmatch(r"[^@\s]+@[^@\s]+", self.commit_author_email):
             raise CrossRunConfigurationError("invalid GitHub commit author email")
-        for name in ("expert_tag_prefix", "knowledge_tag_prefix"):
+        for name in (
+            "expert_tag_prefix",
+            "knowledge_tag_prefix",
+            "security_denylist_tag_prefix",
+        ):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.endswith("/"):
                 raise CrossRunConfigurationError(f"invalid {name}")
@@ -216,8 +227,13 @@ class GitHubSettings(StrictContract):
                 qualified=True,
                 error_type=CrossRunConfigurationError,
             )
-        if self.expert_tag_prefix == self.knowledge_tag_prefix:
-            raise CrossRunConfigurationError("expert and knowledge tags must differ")
+        tag_prefixes = {
+            self.expert_tag_prefix,
+            self.knowledge_tag_prefix,
+            self.security_denylist_tag_prefix,
+        }
+        if len(tag_prefixes) != 3:
+            raise CrossRunConfigurationError("publication tag prefixes must differ")
         _require_path(self.cache_path, "github.cache_path")
         _require_positive(
             self.command_timeout_seconds, "github.command_timeout_seconds"
@@ -1333,15 +1349,45 @@ class ExpertSettings(StrictContract):
 class LaunchSettings(StrictContract):
     cache_path: str
     bootstrap_pin_path: str
+    security_denylist_state_path: str
+    security_denylist_checkpoint_size_bytes: int
+    security_denylist_checked_subject_limit: int
+    security_denylist_checked_subject_size_bytes: int
     artifact_ttl_seconds: int
     denylist_refresh_seconds: int
+    security_denylist_revocation_limit: int
+    security_denylist_lineage_limit: int
 
     def _validate(self) -> None:
         _require_path(self.cache_path, "launch.cache_path")
         _require_path(self.bootstrap_pin_path, "launch.bootstrap_pin_path")
+        _require_path(
+            self.security_denylist_state_path,
+            "launch.security_denylist_state_path",
+        )
+        _require_positive(
+            self.security_denylist_checkpoint_size_bytes,
+            "launch.security_denylist_checkpoint_size_bytes",
+        )
+        _require_positive(
+            self.security_denylist_checked_subject_limit,
+            "launch.security_denylist_checked_subject_limit",
+        )
+        _require_positive(
+            self.security_denylist_checked_subject_size_bytes,
+            "launch.security_denylist_checked_subject_size_bytes",
+        )
         _require_positive(self.artifact_ttl_seconds, "launch.artifact_ttl_seconds")
         _require_positive(
             self.denylist_refresh_seconds, "launch.denylist_refresh_seconds"
+        )
+        _require_positive(
+            self.security_denylist_revocation_limit,
+            "launch.security_denylist_revocation_limit",
+        )
+        _require_positive(
+            self.security_denylist_lineage_limit,
+            "launch.security_denylist_lineage_limit",
         )
 
 
@@ -1495,7 +1541,11 @@ def compose_runtime_config(
     repository_coordinates = {
         repository
         for scope in settings.scopes.scopes
-        for repository in (scope.expert_repository, scope.knowledge_repository)
+        for repository in (
+            scope.expert_repository,
+            scope.knowledge_repository,
+            scope.security_repository,
+        )
     }
 
     def reject_repository_copy(value: Any, path: str) -> None:
@@ -1509,6 +1559,7 @@ def compose_runtime_config(
                     "cross_run_registry_fingerprint",
                     "expert_repository",
                     "knowledge_repository",
+                    "security_repository",
                     "repositories",
                 }:
                     raise CrossRunConfigurationError(

@@ -51,13 +51,14 @@ tests/
       unordered/gapped revision lists.
 - [x] Validate `ExpertScopeContract` task-family and context-dimension lineage.
 - [x] Define strict `ScopeRepositorySettings` and `CrossRunTaskBindingSettings`:
-      the former maps one `scope_id` to one expert/knowledge repository pair; the
-      latter carries only `scope_id`, `task_family_id`, and `task_adapter_id`.
+      the former maps one `scope_id` to one expert/knowledge/security repository
+      triple; the latter carries only `scope_id`, `task_family_id`, and
+      `task_adapter_id`.
 - [x] Canonically fingerprint each resolved scope repository entry so
       `LaunchManifest` can record the exact location binding used at startup.
-- [x] Reject missing scopes, duplicate repository pairs, any repository assigned to
-      more than one scope, expert/knowledge self-aliasing, and unknown task-family
-      or adapter bindings.
+- [x] Reject missing scopes, duplicate repository triples, any repository assigned
+      to more than one scope, aliases within a triple, and unknown task-family or
+      adapter bindings.
 - [x] Validate `TaskContextBinding` exclusively against its pinned scope revision;
       do not add model/tokenizer/table/schema names to core code.
 - [x] Keep `EvaluationFingerprint` equivalence separate from transfer
@@ -70,6 +71,9 @@ tests/
 - [x] Require claim applicability, exclusions, support, contradiction, and state.
 - [x] Require knowledge/expert manifests to name complete dependency and checksum
       closures.
+- [x] Define cumulative security-denylist evidence, revocation, snapshot, and
+      evidence-bundle contracts with exact predecessor/proof closure and immutable
+      snapshot identity in launch/bootstrap pins.
 - [x] Define `PriorKnowledgeSnapshot` as complete selected records plus query,
       policy, source snapshot, proof references, and digest.
 - [x] Define `BootstrapPin` independently of `RunCheckpoint` so startup can become
@@ -111,8 +115,8 @@ different IDs.
       embedding model, CLI roles, validation gates, and production-test settings.
 - [x] Make `cross_run.scopes` the sole repository-location registry. For the first
       deployment it contains `ml_ai -> Leeroo-AI/kapso-expert +
-      Leeroo-AI/kapso-knowledge`; no other author-maintained config contains those
-      coordinates.
+      Leeroo-AI/kapso-knowledge + Leeroo-AI/kapso-security`; no other
+      author-maintained config contains those coordinates.
 - [x] Define and validate the typed `cross_run_binding` config shape; M9 owns
       populating and wiring the concrete PostTrainBench and RelBench bindings.
 - [x] Add explicit config composition that copies the canonical scope registry into
@@ -146,10 +150,10 @@ there in code and tests.
 - Prove attestations and GitHub relocation do not change scientific content IDs.
 - Prove registered post-training and relational-prediction context bindings both
   validate without core conditionals.
-- Prove both bindings resolve to the same configured `ml_ai` repository pair while
-  preserving distinct task-family and adapter identities.
+- Prove both bindings resolve to the same configured `ml_ai` repository triple
+  while preserving distinct task-family and adapter identities.
 - Reject unknown scope, unknown family/adapter, duplicated repository ownership,
-  expert/knowledge aliasing, and any benchmark-level repository override.
+  within-scope aliasing, and any benchmark-level repository override.
 - Reject a generated runtime config whose copied registry does not match its
   canonical source fingerprint.
 - Prove repository relocation changes only settings/location records, not scope

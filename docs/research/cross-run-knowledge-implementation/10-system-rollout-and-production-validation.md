@@ -146,8 +146,9 @@ artifact.
 
 Production tests are manually/explicitly enabled and never run in normal CI:
 
-1. **Read-only GitHub smoke:** resolve private expert/knowledge EMPTY/E0 releases,
-   verify attestations/digests, materialize twice, and prove cache reuse.
+1. **Read-only GitHub smoke:** resolve private expert/knowledge EMPTY/E0 releases
+   and the security generation-zero release, verify attestations/digests,
+   materialize twice, and prove cache reuse plus live denylist refresh.
 2. **Knowledge publication smoke:** publish one sanitized synthetic bundle, run
    automated admission, commit directly, publish immutable S1, and resolve it from
    a clean directory.
@@ -171,8 +172,10 @@ Production tests are manually/explicitly enabled and never run in normal CI:
    launch pins E1 while the old run remains on E0.
 7. **Concurrency smoke:** race two knowledge candidates and two expert candidates;
    verify merge/CAS conflict behavior without data loss or force updates.
-8. **Revocation smoke:** revoke the synthetic smoke release, refresh the denylist, and
-   prove new launch/resume blocking under security policy.
+8. **Revocation smoke:** publish security generations zero and one through the
+   focused lineage gate, revoke the synthetic smoke release, prove new
+   launch/resume blocking, then prove rollback/fork rejection from persisted local
+   state.
 9. **Clean-machine smoke:** with only configured provider authentication and task
    input, resolve/materialize/run from immutable releases without historical run
    directories.
@@ -195,9 +198,10 @@ Verified on 2026-07-20:
 - scope registry entry: `ml_ai`;
 - expert repository: `Leeroo-AI/kapso-expert`, private, default branch `main`;
 - knowledge repository: `Leeroo-AI/kapso-knowledge`, private, default branch `main`;
+- security repository: `Leeroo-AI/kapso-security`, private, default branch `main`;
 - autonomous actor: `leeroo-coder`, authenticated through the external SSH/`gh`
   credential stores with repository administrator authority;
-- immutable releases: enabled on both repositories; and
+- immutable releases: must be enabled and revalidated on all three repositories;
 - branch/tag rulesets: none.
 
 No credential value is stored in this repository. M2 preflight must revalidate
@@ -205,14 +209,14 @@ this external state rather than trusting the planning-time observation.
 
 ### Required
 
-- Canonical `cross_run.scopes.ml_ai` mapping to the two provisioned repositories;
+- Canonical `cross_run.scopes.ml_ai` mapping to the three provisioned repositories;
   benchmark configs contain only their scope/family/adapter bindings.
-- GitHub organization/owner and the two private repository names.
-- One authenticated Git/`gh` profile with full read/write authority for both
+- GitHub organization/owner and the three private repository names.
+- One authenticated Git/`gh` profile with full read/write authority for all three
   repositories, including direct commits, tags, releases, assets, and workflows.
 - Direct default-branch writes enabled with no pull-request, reviewer, ruleset, or
   human approval requirement.
-- Immutable releases enabled on both repositories.
+- Immutable releases enabled on all three repositories.
 - An authenticated supported coding-agent CLI: Codex login/profile or Claude Code
   login/provider configuration. Only the CLI selected in `config.yaml` is required.
 - For Claude activation, `bubblewrap` and `socat`, plus a successful authenticated

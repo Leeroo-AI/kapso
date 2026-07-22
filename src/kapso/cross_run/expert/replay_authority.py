@@ -149,8 +149,17 @@ class SourceReplayTaskAdapterTrustObservation(StrictContract):
 @dataclass(frozen=True)
 class SourceReplaySecurityDenylistObservation(StrictContract):
     observation_id: str
+    scope_id: str
+    scope_contract_id: str
+    scope_repository_binding_hash: str
     snapshot_id: str
     generation: int
+    publication_id: str
+    repository_full_name: str
+    repository_node_id: str
+    pointer_digest: str
+    authority_commit_sha: str
+    release_attestation_ref: str
     checked_subject_ids: tuple[str, ...]
     denied_subject_ids: tuple[str, ...]
 
@@ -158,6 +167,15 @@ class SourceReplaySecurityDenylistObservation(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "observation_id"
 
     def _validate(self) -> None:
+        require_identifier(self.scope_id, "source replay denylist scope_id")
+        require_content_id(
+            self.scope_contract_id,
+            "source replay denylist scope_contract_id",
+        )
+        if _SHA256_DIGEST_PATTERN.fullmatch(self.scope_repository_binding_hash) is None:
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay denylist repository binding is invalid"
+            )
         require_content_id(self.snapshot_id, "source replay denylist snapshot_id")
         if self.snapshot_id.split(":sha256:", 1)[0] != "security-denylist-snapshot":
             raise ExpertSourceReplayFreshAuthorityError(
@@ -166,6 +184,34 @@ class SourceReplaySecurityDenylistObservation(StrictContract):
         if type(self.generation) is not int or self.generation < 0:
             raise ExpertSourceReplayFreshAuthorityError(
                 "source replay denylist generation must be non-negative"
+            )
+        require_content_id(
+            self.publication_id,
+            "source replay denylist publication_id",
+        )
+        if self.publication_id.split(":sha256:", 1)[0] != "github-publication":
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay denylist publication uses the wrong namespace"
+            )
+        if _GITHUB_REPOSITORY_PATTERN.fullmatch(self.repository_full_name) is None:
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay denylist repository is invalid"
+            )
+        require_identifier(
+            self.repository_node_id,
+            "source replay denylist repository_node_id",
+        )
+        if _SHA256_DIGEST_PATTERN.fullmatch(self.pointer_digest) is None:
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay denylist pointer digest is invalid"
+            )
+        if re.fullmatch(r"[0-9a-f]{40}", self.authority_commit_sha) is None:
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay denylist authority commit is invalid"
+            )
+        if not self.release_attestation_ref.strip():
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay denylist release attestation is required"
             )
         _require_sorted_content_ids(
             self.checked_subject_ids,
@@ -279,6 +325,14 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
             raise ExpertSourceReplayFreshAuthorityError(
                 "source replay spawn authority contains denied subjects"
             )
+        denylist = self.security_denylist_observation
+        if (
+            denylist.scope_id != self.scope_id
+            or denylist.scope_contract_id != self.scope_contract_id
+        ):
+            raise ExpertSourceReplayFreshAuthorityError(
+                "source replay spawn denylist uses another scope authority"
+            )
         required_security_subjects = {
             self.reservation_id,
             self.execution_request_id,
@@ -334,6 +388,9 @@ class ExpertSourceReplaySecurityDenylistAuthority(Protocol):
 
     def observe_exact(
         self,
+        *,
+        scope_id: str,
+        scope_contract_id: str,
         checked_subject_ids: tuple[str, ...],
     ) -> SourceReplaySecurityDenylistObservation: ...
 
@@ -451,7 +508,9 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             adapter_observations,
         )
         denylist_observation = self.security_denylist_authority.observe_exact(
-            checked_subject_ids
+            scope_id=scope_id,
+            scope_contract_id=request.scope_contract_id,
+            checked_subject_ids=checked_subject_ids,
         )
         if (
             not isinstance(

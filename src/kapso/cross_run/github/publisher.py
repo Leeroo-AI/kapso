@@ -25,6 +25,10 @@ from kapso.cross_run.contracts import (
     GitHubReleaseAsset,
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
+    SECURITY_DENYLIST_EVIDENCE_FILENAME,
+    ScopeRepositorySettings,
+    SecurityDenylistEvidenceBundle,
+    SecurityDenylistSnapshot,
 )
 from kapso.cross_run.github.command import (
     GitHubCommandClient,
@@ -41,6 +45,7 @@ from kapso.cross_run.github.resolver import (
     ARTIFACT_PUBLICATION_INTENT_FILENAME,
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
+    CurrentPointerState,
     GitHubArtifactResolver,
     PublicationAssetIntent,
     PublicationSourceFile,
@@ -49,6 +54,8 @@ from kapso.cross_run.github.resolver import (
     artifact_publication_intent_ref,
     release_attestation_reference,
     repository_for_artifact,
+    security_denylist_tag,
+    tag_prefix_for_artifact,
 )
 from kapso.cross_run.settings import GitHubSettings
 
@@ -121,6 +128,60 @@ class PublicationPackageValidator(Protocol):
         """Verify release assets before any remote publication write."""
 
 
+class _PublicationActivationVerifier(Protocol):
+    """Domain authorization that must remain true through pointer activation."""
+
+    def validate_before_publication(
+        self,
+        *,
+        envelope: PublicationEnvelope,
+        repositories: ScopeRepositorySettings,
+        current_state: CurrentPointerState,
+        manifest: SecurityDenylistSnapshot,
+    ) -> None: ...
+
+    def revalidate_before_activation(
+        self,
+        *,
+        envelope: PublicationEnvelope,
+        repositories: ScopeRepositorySettings,
+        source_commit_sha: str,
+        manifest: SecurityDenylistSnapshot,
+    ) -> None: ...
+
+
+_SECURITY_PUBLICATION_AUTHORIZATION_SEAL = object()
+
+
+class _SecurityPublicationAuthorization:
+    """Owner-bound capability created only by the security transport."""
+
+    __slots__ = ("_owner", "_verifier")
+
+    def __init__(
+        self,
+        seal: object,
+        owner: object,
+        verifier: _PublicationActivationVerifier,
+    ) -> None:
+        if seal is not _SECURITY_PUBLICATION_AUTHORIZATION_SEAL:
+            raise GitHubPublicationError(
+                "security publication authorization is not sealed"
+            )
+        self._owner = owner
+        self._verifier = verifier
+
+    def verifier_for(
+        self,
+        owner: object,
+    ) -> _PublicationActivationVerifier:
+        if self._owner is not owner:
+            raise GitHubPublicationError(
+                "security publication authorization belongs to another publisher"
+            )
+        return self._verifier
+
+
 def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise GitHubPublicationError(f"{name} must be an object")
@@ -147,11 +208,36 @@ class AutonomousGitHubPublisher:
         self.resolver = resolver
         self.package_validator = package_validator
         self.settings = settings
+        self._security_verifier_type: type[object] | None = None
 
-    def publish(self, envelope: PublicationEnvelope) -> PublicationTelemetry:
-        source_files, source_tree_digest, manifest_digest = self._validate_envelope(
-            envelope
+    def publish(
+        self,
+        envelope: PublicationEnvelope,
+        *,
+        security_authorization: _SecurityPublicationAuthorization | None = None,
+    ) -> PublicationTelemetry:
+        repositories = self.resolver.repositories_for_scope(envelope.scope_id)
+        (
+            source_files,
+            source_tree_digest,
+            manifest_digest,
+            manifest,
+        ) = self._validate_envelope(envelope, repositories)
+        is_security_publication = (
+            envelope.artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST
         )
+        if is_security_publication:
+            if type(security_authorization) is not _SecurityPublicationAuthorization:
+                raise GitHubPublicationError(
+                    "security denylist publication requires sealed authorization"
+                )
+            activation_gate = security_authorization.verifier_for(self)
+        elif security_authorization is not None:
+            raise GitHubPublicationError(
+                "security publication authorization cannot guard another artifact"
+            )
+        else:
+            activation_gate = None
         materialized_tree_digest = self.package_validator.validate_local_package(
             artifact_kind=envelope.artifact_kind,
             artifact_id=envelope.artifact_id,
@@ -163,7 +249,6 @@ class AutonomousGitHubPublisher:
                 for source in source_files
             },
         )
-        repositories = self.resolver.repositories_for_scope(envelope.scope_id)
         repository = repository_for_artifact(repositories, envelope.artifact_kind)
         policy = self.resolver.diagnose_repository(
             envelope.scope_id, envelope.artifact_kind
@@ -185,6 +270,17 @@ class AutonomousGitHubPublisher:
         )
         existing = current_state.pointer
         observed_head = current_state.head_commit_sha
+        if activation_gate is not None:
+            if not isinstance(manifest, SecurityDenylistSnapshot):
+                raise GitHubPublicationError(
+                    "security activation gate received another artifact"
+                )
+            activation_gate.validate_before_publication(
+                envelope=envelope,
+                repositories=repositories,
+                current_state=current_state,
+                manifest=manifest,
+            )
         preserved_current = (
             publication_intent.preserved_current
             if publication_intent is not None
@@ -236,6 +332,15 @@ class AutonomousGitHubPublisher:
             if existing == published_identity:
                 pointer_commit_sha = observed_head
             elif observed_head == published_identity.publication_record.commit_sha:
+                if activation_gate is not None:
+                    activation_gate.revalidate_before_activation(
+                        envelope=envelope,
+                        repositories=repositories,
+                        source_commit_sha=(
+                            published_identity.publication_record.commit_sha
+                        ),
+                        manifest=manifest,
+                    )
                 pointer_commit_sha = self._commit_current_pointer(
                     repository,
                     policy.repository_node_id,
@@ -414,6 +519,13 @@ class AutonomousGitHubPublisher:
             pointer,
             envelope.committed_at,
         )
+        if activation_gate is not None:
+            activation_gate.revalidate_before_activation(
+                envelope=envelope,
+                repositories=repositories,
+                source_commit_sha=source_commit_sha,
+                manifest=manifest,
+            )
         pointer_commit_sha = self._commit_current_pointer(
             repository,
             policy.repository_node_id,
@@ -431,9 +543,52 @@ class AutonomousGitHubPublisher:
             idempotent_replay=False,
         )
 
+    def _authorize_security_publication(
+        self,
+        verifier: _PublicationActivationVerifier,
+    ) -> _SecurityPublicationAuthorization:
+        if type(verifier) is not self._security_verifier_type:
+            raise GitHubPublicationError(
+                "security publication requires the registered concrete verifier"
+            )
+        return _SecurityPublicationAuthorization(
+            _SECURITY_PUBLICATION_AUTHORIZATION_SEAL,
+            self,
+            verifier,
+        )
+
+    def _bind_security_publication_verifier(
+        self,
+        verifier_type: type[object],
+    ) -> None:
+        if (
+            verifier_type.__module__ != "kapso.cross_run.security_denylist"
+            or verifier_type.__qualname__ != "SecurityDenylistPublicationGate"
+        ):
+            raise GitHubPublicationError(
+                "security publication verifier type is not the concrete authority"
+            )
+        if (
+            self._security_verifier_type is not None
+            and self._security_verifier_type is not verifier_type
+        ):
+            raise GitHubPublicationError(
+                "security publication verifier authority is already bound"
+            )
+        self._security_verifier_type = verifier_type
+
     def _validate_envelope(
-        self, envelope: PublicationEnvelope
-    ) -> tuple[tuple[_SourceFile, ...], str, str]:
+        self,
+        envelope: PublicationEnvelope,
+        repositories: ScopeRepositorySettings,
+    ) -> tuple[
+        tuple[_SourceFile, ...],
+        str,
+        str,
+        KnowledgeSnapshotManifest
+        | ExpertBaseReleaseManifest
+        | SecurityDenylistSnapshot,
+    ]:
         require_content_id(envelope.artifact_id, "artifact_id")
         _require_sha(envelope.expected_parent_sha, "expected_parent_sha")
         normalize_utc_timestamp(envelope.committed_at, "committed_at")
@@ -447,10 +602,9 @@ class AutonomousGitHubPublisher:
             )
         for reference in envelope.validation_closure_ids:
             require_content_id(reference, "validation_closure_ids")
-        expected_prefix = (
-            self.settings.knowledge_tag_prefix
-            if envelope.artifact_kind is PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
-            else self.settings.expert_tag_prefix
+        expected_prefix = tag_prefix_for_artifact(
+            self.settings,
+            envelope.artifact_kind,
         )
         if (
             not envelope.tag.startswith(expected_prefix)
@@ -489,10 +643,56 @@ class AutonomousGitHubPublisher:
             manifest = KnowledgeSnapshotManifest.from_json_bytes(manifest_bytes)
             manifest_id = manifest.snapshot_id
             manifest_scope = manifest.scope_id
-        else:
+        elif envelope.artifact_kind is PublicationArtifactKind.EXPERT_BASE_RELEASE:
             manifest = ExpertBaseReleaseManifest.from_json_bytes(manifest_bytes)
             manifest_id = manifest.release_id
             manifest_scope = manifest.scope_id
+        elif envelope.artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST:
+            manifest = SecurityDenylistSnapshot.from_json_bytes(manifest_bytes)
+            manifest_id = manifest.snapshot_id
+            manifest_scope = manifest.scope_id
+            if manifest.scope_repository_binding_hash != (
+                repositories.binding_fingerprint
+            ):
+                raise GitHubPublicationError(
+                    "security denylist repository binding mismatch"
+                )
+            if envelope.tag != security_denylist_tag(
+                self.settings,
+                manifest.generation,
+            ):
+                raise GitHubPublicationError(
+                    "security denylist publication tag is not its generation"
+                )
+            evidence_source = file_by_path.get(SECURITY_DENYLIST_EVIDENCE_FILENAME)
+            if evidence_source is None:
+                raise GitHubPublicationError(
+                    "security denylist evidence bundle is absent"
+                )
+            evidence_bundle = SecurityDenylistEvidenceBundle.from_json_bytes(
+                evidence_source.content
+            )
+            if evidence_source.content != evidence_bundle.to_json_bytes():
+                raise GitHubPublicationError(
+                    "security denylist evidence bundle is not canonical"
+                )
+            manifest.validate_evidence_bundle(evidence_bundle)
+            required_validation_closure = tuple(
+                sorted(
+                    {
+                        manifest.snapshot_id,
+                        *manifest.exact_dependency_ids,
+                    }
+                )
+            )
+            if envelope.validation_closure_ids != required_validation_closure:
+                raise GitHubPublicationError(
+                    "security denylist publication dependency closure is not exact"
+                )
+        else:
+            raise GitHubPublicationError("publication artifact kind is unsupported")
+        if manifest_bytes != manifest.to_json_bytes():
+            raise GitHubPublicationError("publication manifest is not canonical")
         if manifest_id != envelope.artifact_id:
             raise GitHubPublicationError("manifest artifact identity mismatch")
         if manifest_scope != envelope.scope_id:
@@ -511,6 +711,7 @@ class AutonomousGitHubPublisher:
                 }
             ),
             tree_or_blob_digest(manifest_bytes),
+            manifest,
         )
 
     def _preserved_current(

@@ -449,6 +449,17 @@ class ExpertSanitationSeverity(str, Enum):
 class PublicationArtifactKind(str, Enum):
     KNOWLEDGE_SNAPSHOT = "knowledge_snapshot"
     EXPERT_BASE_RELEASE = "expert_base_release"
+    SECURITY_DENYLIST = "security_denylist"
+
+
+class SecurityDenylistKind(str, Enum):
+    SECURITY = "security"
+    CONTAMINATION = "contamination"
+
+
+SECURITY_DENYLIST_SCHEMA_VERSION = "kapso.security_denylist.v1"
+SECURITY_DENYLIST_POLICY_VERSION = "kapso.security_revocation.v1"
+SECURITY_DENYLIST_EVIDENCE_FILENAME = "security-denylist-evidence.json"
 
 
 @dataclass(frozen=True)
@@ -456,15 +467,23 @@ class ScopeRepositorySettings(StrictContract):
     scope_id: str
     expert_repository: str
     knowledge_repository: str
+    security_repository: str
 
     def _validate(self) -> None:
         require_identifier(self.scope_id, "scope_id")
-        for name in ("expert_repository", "knowledge_repository"):
+        for name in (
+            "expert_repository",
+            "knowledge_repository",
+            "security_repository",
+        ):
             _require_repository_coordinate(getattr(self, name), name)
-        if self.expert_repository == self.knowledge_repository:
-            raise IdentityConflictError(
-                "expert and knowledge repositories must be distinct"
-            )
+        repositories = {
+            self.expert_repository,
+            self.knowledge_repository,
+            self.security_repository,
+        }
+        if len(repositories) != 3:
+            raise IdentityConflictError("scope repositories must be distinct")
 
     @property
     def binding_fingerprint(self) -> str:
@@ -4523,6 +4542,231 @@ class TaskAdapterManifest(StrictContract):
 
 
 @dataclass(frozen=True)
+class SecurityDenylistEvidence(StrictContract):
+    evidence_id: str
+    evidence_kind: str
+    summary: str
+    source_ids: tuple[str, ...]
+    recorded_at: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "security-denylist-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "evidence_id"
+
+    def _validate(self) -> None:
+        require_identifier(self.evidence_kind, "security denylist evidence_kind")
+        _require_text(self.summary, "security denylist evidence summary")
+        if not self.source_ids:
+            raise ContractValidationError(
+                "security denylist evidence requires source identities"
+            )
+        _require_sorted_unique(self.source_ids, "security denylist evidence sources")
+        for source_id in self.source_ids:
+            require_content_id(source_id, "security denylist evidence source")
+        normalize_utc_timestamp(self.recorded_at, "security denylist evidence time")
+
+
+@dataclass(frozen=True)
+class SecurityDenylistEvidenceBundle(StrictContract):
+    evidence_bundle_id: str
+    evidence: tuple[SecurityDenylistEvidence, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "security-denylist-evidence-bundle"
+    IDENTITY_FIELD: ClassVar[str] = "evidence_bundle_id"
+
+    def _validate(self) -> None:
+        evidence_ids = tuple(item.evidence_id for item in self.evidence)
+        if evidence_ids != tuple(sorted(set(evidence_ids))):
+            raise ContractValidationError(
+                "security denylist evidence must be sorted and unique"
+            )
+
+    @property
+    def evidence_ids(self) -> tuple[str, ...]:
+        return tuple(item.evidence_id for item in self.evidence)
+
+    @property
+    def source_ids(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {source_id for item in self.evidence for source_id in item.source_ids}
+            )
+        )
+
+
+@dataclass(frozen=True)
+class SecurityDenylistRevocation(StrictContract):
+    revocation_id: str
+    subject_id: str
+    kind: SecurityDenylistKind
+    reason_code: str
+    evidence_ids: tuple[str, ...]
+    recorded_at: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "security-denylist-revocation"
+    IDENTITY_FIELD: ClassVar[str] = "revocation_id"
+
+    def _validate(self) -> None:
+        require_content_id(self.subject_id, "security denylist subject_id")
+        require_identifier(self.reason_code, "security denylist reason_code")
+        if not self.evidence_ids:
+            raise ContractValidationError(
+                "security denylist revocation requires evidence"
+            )
+        _require_sorted_unique(
+            self.evidence_ids,
+            "security denylist evidence_ids",
+        )
+        for evidence_id in self.evidence_ids:
+            require_content_id(evidence_id, "security denylist evidence_id")
+        normalize_utc_timestamp(self.recorded_at, "security denylist recorded_at")
+
+
+@dataclass(frozen=True)
+class SecurityDenylistSnapshot(StrictContract):
+    snapshot_id: str
+    schema_version: str
+    policy_version: str
+    scope_id: str
+    scope_contract_id: str
+    scope_repository_binding_hash: str
+    generation: int
+    predecessor_snapshot_id: str | None
+    evidence_bundle_id: str
+    evidence_source_ids: tuple[str, ...]
+    revocations: tuple[SecurityDenylistRevocation, ...]
+    exact_dependency_ids: tuple[str, ...]
+    checksums: Mapping[str, str]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "security-denylist-snapshot"
+    IDENTITY_FIELD: ClassVar[str] = "snapshot_id"
+
+    def _validate(self) -> None:
+        if self.schema_version != SECURITY_DENYLIST_SCHEMA_VERSION:
+            raise ContractValidationError(
+                "security denylist schema version is unsupported"
+            )
+        if self.policy_version != SECURITY_DENYLIST_POLICY_VERSION:
+            raise ContractValidationError(
+                "security denylist policy version is unsupported"
+            )
+        require_identifier(self.scope_id, "security denylist scope_id")
+        require_content_id(
+            self.scope_contract_id,
+            "security denylist scope_contract_id",
+        )
+        _require_digest(
+            self.scope_repository_binding_hash,
+            "security denylist scope_repository_binding_hash",
+        )
+        if type(self.generation) is not int or self.generation < 0:
+            raise ContractValidationError(
+                "security denylist generation must be non-negative"
+            )
+        if (self.predecessor_snapshot_id is None) != (self.generation == 0):
+            raise ContractValidationError(
+                "only security denylist generation zero may omit its predecessor"
+            )
+        if self.generation == 0 and self.revocations:
+            raise ContractValidationError(
+                "security denylist generation zero must be empty"
+            )
+        if self.predecessor_snapshot_id is not None:
+            require_content_id(
+                self.predecessor_snapshot_id,
+                "security denylist predecessor_snapshot_id",
+            )
+            if self.predecessor_snapshot_id.split(":sha256:", 1)[0] != (
+                "security-denylist-snapshot"
+            ):
+                raise ContractValidationError(
+                    "security denylist predecessor uses the wrong namespace"
+                )
+        require_content_id(
+            self.evidence_bundle_id,
+            "security denylist evidence_bundle_id",
+        )
+        if self.evidence_bundle_id.split(":sha256:", 1)[0] != (
+            "security-denylist-evidence-bundle"
+        ):
+            raise ContractValidationError(
+                "security denylist evidence bundle uses the wrong namespace"
+            )
+        if self.evidence_source_ids != tuple(sorted(set(self.evidence_source_ids))):
+            raise ContractValidationError(
+                "security denylist evidence_source_ids must be sorted and unique"
+            )
+        for source_id in self.evidence_source_ids:
+            require_content_id(source_id, "security denylist evidence source")
+        revocation_ids = tuple(
+            revocation.revocation_id for revocation in self.revocations
+        )
+        if revocation_ids != tuple(sorted(set(revocation_ids))):
+            raise ContractValidationError(
+                "security denylist revocations must be sorted and unique"
+            )
+        _require_sorted_unique(
+            self.exact_dependency_ids,
+            "security denylist exact_dependency_ids",
+        )
+        for dependency_id in self.exact_dependency_ids:
+            require_content_id(dependency_id, "security denylist dependency")
+        required_dependencies = {
+            self.scope_contract_id,
+            self.evidence_bundle_id,
+            *self.evidence_source_ids,
+            *(revocation.revocation_id for revocation in self.revocations),
+            *(revocation.subject_id for revocation in self.revocations),
+            *(
+                evidence_id
+                for revocation in self.revocations
+                for evidence_id in revocation.evidence_ids
+            ),
+        }
+        if self.predecessor_snapshot_id is not None:
+            required_dependencies.add(self.predecessor_snapshot_id)
+        if required_dependencies != set(self.exact_dependency_ids):
+            raise MissingReferenceError(
+                "security denylist dependency closure is not exact"
+            )
+        _require_checksum_mapping(self.checksums, "security denylist checksums")
+        if set(self.checksums) != {SECURITY_DENYLIST_EVIDENCE_FILENAME}:
+            raise ContractValidationError(
+                "security denylist checksums must bind only its evidence bundle"
+            )
+
+    def validate_evidence_bundle(
+        self,
+        bundle: SecurityDenylistEvidenceBundle,
+    ) -> None:
+        if bundle.evidence_bundle_id != self.evidence_bundle_id:
+            raise ContractValidationError(
+                "security denylist evidence bundle identity differs"
+            )
+        referenced_evidence_ids = tuple(
+            sorted(
+                {
+                    evidence_id
+                    for revocation in self.revocations
+                    for evidence_id in revocation.evidence_ids
+                }
+            )
+        )
+        if (
+            bundle.evidence_ids != referenced_evidence_ids
+            or bundle.source_ids != self.evidence_source_ids
+            or self.checksums[SECURITY_DENYLIST_EVIDENCE_FILENAME]
+            != tree_or_blob_digest(bundle.to_json_bytes())
+        ):
+            raise ContractValidationError(
+                "security denylist evidence bundle is not its exact closure"
+            )
+
+    @property
+    def denied_subject_ids(self) -> tuple[str, ...]:
+        return tuple(sorted({item.subject_id for item in self.revocations}))
+
+
+@dataclass(frozen=True)
 class GitHubReleaseAsset(StrictContract):
     asset_id: str
     name: str
@@ -4593,6 +4837,7 @@ class LaunchManifest(StrictContract):
     embedding_space_id: str
     dependency_runtime_contract: Mapping[str, Any]
     sanitation_policy_generation: int
+    security_denylist_snapshot_id: str
     security_denylist_generation: int
     expected_source_composition_hash: str
     publisher_attestation: Mapping[str, Any]
@@ -4612,8 +4857,15 @@ class LaunchManifest(StrictContract):
             "expert_base_release_id",
             "expert_publication_ref",
             "embedding_space_id",
+            "security_denylist_snapshot_id",
         ):
             require_content_id(getattr(self, name), name)
+        if self.security_denylist_snapshot_id.split(":sha256:", 1)[0] != (
+            "security-denylist-snapshot"
+        ):
+            raise ContractValidationError(
+                "launch security denylist snapshot uses the wrong namespace"
+            )
         _require_digest(
             self.scope_repository_binding_hash, "scope_repository_binding_hash"
         )
@@ -4647,6 +4899,8 @@ class BootstrapPin(StrictContract):
     knowledge_snapshot_id: str
     expert_base_release_id: str
     task_adapter_manifest_id: str
+    security_denylist_snapshot_id: str
+    security_denylist_generation: int
     workspace_tree_hash: str
     created_at: str
 
@@ -4660,10 +4914,24 @@ class BootstrapPin(StrictContract):
             "knowledge_snapshot_id",
             "expert_base_release_id",
             "task_adapter_manifest_id",
+            "security_denylist_snapshot_id",
         ):
             require_content_id(getattr(self, name), name)
+        if self.security_denylist_snapshot_id.split(":sha256:", 1)[0] != (
+            "security-denylist-snapshot"
+        ):
+            raise ContractValidationError(
+                "bootstrap security denylist snapshot uses the wrong namespace"
+            )
         _require_digest(self.launch_request_hash, "launch_request_hash")
         for name in ("scope_id", "task_family_id", "task_adapter_id"):
             require_identifier(getattr(self, name), name)
+        if (
+            type(self.security_denylist_generation) is not int
+            or self.security_denylist_generation < 0
+        ):
+            raise ContractValidationError(
+                "bootstrap security denylist generation must be non-negative"
+            )
         _require_digest(self.workspace_tree_hash, "workspace_tree_hash")
         normalize_utc_timestamp(self.created_at, "created_at")

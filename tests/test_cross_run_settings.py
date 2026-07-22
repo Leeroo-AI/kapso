@@ -30,6 +30,7 @@ def test_shipped_cross_run_config_is_strict_and_single_sourced():
 
     assert repositories.expert_repository == "Leeroo-AI/kapso-expert"
     assert repositories.knowledge_repository == "Leeroo-AI/kapso-knowledge"
+    assert repositories.security_repository == "Leeroo-AI/kapso-security"
     assert settings.to_dict() == raw["cross_run"]
     assert "api_key" not in str(settings.to_dict()).lower()
     assert "oauth_token" not in str(settings.to_dict()).lower()
@@ -210,7 +211,9 @@ def test_runtime_composition_validates_each_task_binding(binding):
         {"cross_run_registry_fingerprint": "sha256:" + "0" * 64},
         {"repositories": {"expert": "Leeroo-AI/kapso-expert"}},
         {"expert_repository": "Leeroo-AI/kapso-expert"},
+        {"security_repository": "Leeroo-AI/kapso-security"},
         {"some_value": "Leeroo-AI/kapso-knowledge"},
+        {"some_value": "Leeroo-AI/kapso-security"},
     ],
 )
 def test_workload_cannot_override_or_duplicate_repository_routing(override):
@@ -275,6 +278,7 @@ def test_registry_rejects_aliases_duplicate_pairs_and_duplicate_ownership():
         "repositories": {
             "expert": "Leeroo-AI/second-expert",
             "knowledge": "Leeroo-AI/kapso-knowledge",
+            "security": "Leeroo-AI/second-security",
         }
     }
     with pytest.raises(IdentityConflictError):
@@ -473,6 +477,9 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         ),
         (("expert", "task_adapters", "zstd_window_size_bytes"), 0),
         (("launch", "cache_path"), "../escape"),
+        (("launch", "security_denylist_checkpoint_size_bytes"), 0),
+        (("launch", "security_denylist_checked_subject_limit"), 0),
+        (("launch", "security_denylist_checked_subject_size_bytes"), 0),
     ],
 )
 def test_invalid_operational_values_fail_before_external_work(path, value):

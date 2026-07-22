@@ -257,7 +257,8 @@ provider must echo the exact sorted subject set with no denied subject. The
 resulting content-addressed fence persists the exact checked-subject tuple and
 binds an invocation allocation owned by the coordinator's exact execution-store
 instance under its live per-reservation lock, current release, adapter
-observations, denylist snapshot, and generation. Callers cannot mint an
+observations, denylist snapshot/publication/repository/pointer/attestation, and
+generation. Callers cannot mint an
 allocation, omit subjects, or construct a fence from top-level candidate/release
 IDs alone. The execution journal must rederive that subject tuple before it
 accepts a spawn marker; possession of serialized fence bytes is not runtime
@@ -475,6 +476,39 @@ Before release:
 - [ ] CAS conflict requires re-resolution/revalidation, not force push.
 
 ## Revocation
+
+The authenticated security control plane is implemented as one dedicated
+scope-bound repository and three cooperating responsibilities:
+
+1. `SecurityDenylistPublisher` is the only normal security publication entry
+   point. Static validation requires canonical supported-version manifest and
+   evidence-bundle bytes, exact proof closure, exact scope repository binding, and
+   a deterministic generation tag before a remote write. Its activation gate
+   authenticates the active predecessor, requires generation-zero bootstrap or
+   one adjacent cumulative successor, then re-resolves the same predecessor after
+   immutable release/identity publication and immediately before the final
+   expected-parent `CURRENT.json` compare-and-swap. The focused transport seals an
+   owner-bound authorization capability; the generic publisher rejects absent,
+   foreign, or caller-supplied lookalike gates. Publication also rejects a
+   generation at or beyond the configured finite lineage horizon.
+2. `GitHubSecurityDenylistSnapshotProvider` resolves current or exact historical
+   write-once identities through M2, materializes the complete release, and
+   rechecks canonical manifest/evidence bytes, repository binding, tag, artifact
+   identity, attestation reference, and exact validation closure.
+3. `AuthenticatedSecurityDenylistAuthority` makes a live current request for each
+   exact bounded subject tuple, authenticates every predecessor needed to reach a
+   private local floor (or generation zero on first use), rejects rollback/fork or
+   revocation removal, atomically advances the compact checkpoint, and returns the
+   exact denial intersection. Count and byte bounds are enforced before content
+   validation and sorting. Its checkpoint is never offline authorization.
+
+The checkpoint store requires an owner-private trusted root, private real
+directories and lock/checkpoint files, bounded canonical bytes, per-scope locking,
+fsynced staging/replace, and fail-loud corruption handling. A checkpoint stores
+only the authenticated floor identity and authority, never cumulative revocation
+arrays, so every policy-admitted snapshot remains checkpointable. The process UID
+is inside the trust boundary; hostile same-UID code remains outside this
+mechanism's threat model.
 
 - [ ] Append signed performance, security, contamination, or compatibility
       revocation events.

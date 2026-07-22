@@ -80,8 +80,9 @@ budget/fidelity envelope
 
 - [ ] Resolves `scope_id` through M1's canonical `ScopeRegistry`; reject any
       caller-supplied or benchmark-level repository override.
-- [ ] Passes the resolved `ScopeRepositorySettings` to M2 and resolves both
-      discovery pointers once at exact default-branch commits.
+- [ ] Passes the resolved `ScopeRepositorySettings` to M2, resolves the two
+      scientific discovery pointers once at exact default-branch commits, and
+      freshly authenticates the security pointer through M8's denylist authority.
 - [ ] Verifies repository publication records, expert release, knowledge snapshot,
       and task adapter all name the requested scope lineage.
 - [ ] Validates `task_family_id` and `task_adapter_id` against the pinned current
@@ -89,12 +90,12 @@ budget/fidelity envelope
 - [ ] Resolves and verifies the exact task adapter.
 - [ ] Checks release/module preconditions, task-family bindings, context dimensions,
       dependency/runtime/hardware compatibility, expiration/revalidation, and
-      denylist generation.
+      denylist snapshot/generation floor.
 - [ ] Verifies the chosen expert release and knowledge snapshot were tested as an
       eligible combination or under an explicit compatibility policy.
 - [ ] Creates one immutable `LaunchManifest` binding all identities, digests,
-      publications, the scope repository-binding hash, expected source composition
-      hash, and request hash.
+      publications, the security snapshot/generation, the scope
+      repository-binding hash, expected source composition hash, and request hash.
 - [ ] Never exposes independently mutable current pointers to the run.
 
 If no release/snapshot exists, the resolver invokes the explicit bootstrap
@@ -113,7 +114,7 @@ For a fresh launch:
    adapter boundary;
 6. flush and atomically rename the complete workspace;
 7. write/flush `BootstrapPin` containing launch ID, local paths/tree hashes,
-   denylist generation, and verification receipts; and
+   denylist snapshot/generation, and verification receipts; and
 8. only then construct `ExperimentWorkspace`, strategy, and coding agent.
 
 - [ ] Partial workspace construction has no bootstrap marker and is never resumed.
@@ -127,14 +128,14 @@ For a fresh launch:
 
 - [ ] Add explicit config-path plus `scope_id`/`task_family_id`/`task_adapter_id`
       launch inputs to `Kapso.evolve` and `kapso evolve`. Never accept expert or
-      knowledge repository coordinates through the API/CLI.
+      knowledge/security repository coordinates through the API/CLI.
 - [ ] Make benchmark runners obtain those three values from their typed
       `cross_run_binding`; callers normally select a benchmark mode rather than
       repeat the binding on every task.
 - [ ] Bind PostTrainBench to
       `ml_ai/language_model_post_training/posttrain` and RelBench to
       `ml_ai/relational_tabular_prediction/relbench`; neither benchmark file may
-      name the expert or knowledge repository.
+      name any repository.
 - [ ] Replace direct `initial_repo` cloning and starter-repository selection with
       `LaunchResolver`/`StarterWorkspaceBuilder`.
 - [ ] Delete the old active arguments, config keys, selectors, cloning helpers,
@@ -158,7 +159,9 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
       output/promotion eligibility under policy.
 - [ ] If a security/contamination revocation affects the pin or derivatives, fail
       closed before agent execution/evaluation/publication.
-- [ ] Checkpoint the observed denylist generation and every derivative taint.
+- [ ] Require the live authenticated snapshot to equal or descend from both the
+      bootstrap pin and durable local floor; checkpoint its exact identity,
+      generation, publication, pointer, and every derivative taint.
 - [ ] Old checkpoint/bootstrap shapes fail explicitly; no migration.
 
 ## Failure and trust behavior
@@ -169,15 +172,18 @@ M9 owns these high-conflict files until M10 performs final cleanup/activation.
   exact launch is resolved and pinned.
 - Resume still requires configured fresh security-denylist state; performance-only
   state may use the immutable offline pin under policy.
+- The bootstrap/pin floor detects deletion or substitution relative to the run but
+  never authorizes offline; every dangerous boundary still makes a live request.
 - GitHub bytes are untrusted until publisher, attestation, artifact identity, and
   digest verification completes.
 
 ## Tests
 
-- Resolve PostTrainBench and RelBench bindings through `ml_ai` to the same expert
-  and knowledge repositories while retaining distinct family/adapter identities.
+- Resolve PostTrainBench and RelBench bindings through `ml_ai` to the same
+  expert/knowledge/security repository triple while retaining distinct
+  family/adapter identities.
 - Reject unknown scope, unknown family/adapter, repository overrides, a repository
-  pair whose publications name another scope, and an expert/snapshot scope mismatch.
+  triple whose publications name another scope, and an expert/snapshot scope mismatch.
 - Resolve compatible expert/snapshot/adapter tuples and reject every incompatible
   dimension independently.
 - Reject torn pairs, substituted manifests, cross-task launch reuse, stale release,

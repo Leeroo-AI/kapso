@@ -78,6 +78,7 @@ def repositories():
         scope_id="ml_ai",
         expert_repository="Leeroo-AI/kapso-expert",
         knowledge_repository=REPOSITORY,
+        security_repository="Leeroo-AI/kapso-security",
     )
 
 
@@ -226,6 +227,11 @@ class FakeResolverClient:
         )
         self.release = release
         self.attestation = attestation
+        self.noncanonical_control = None
+
+    def _control_text(self, control, payload):
+        prefix = " " if self.noncanonical_control == control else ""
+        return prefix + payload.to_json_bytes().decode("utf-8")
 
     def api_json(self, method, endpoint, body=None):
         assert body is None
@@ -303,7 +309,7 @@ class FakeResolverClient:
                 "data": {
                     "repository": {
                         "object": text_blob(
-                            self.identity_pointer.to_json_bytes().decode("utf-8")
+                            self._control_text("identity", self.identity_pointer)
                         )
                     }
                 }
@@ -313,7 +319,7 @@ class FakeResolverClient:
                 "data": {
                     "repository": {
                         "object": text_blob(
-                            self.publication_intent.to_json_bytes().decode("utf-8")
+                            self._control_text("intent", self.publication_intent)
                         )
                     }
                 }
@@ -322,7 +328,7 @@ class FakeResolverClient:
         blob = (
             None
             if self.pointer is None
-            else text_blob(self.pointer.to_json_bytes().decode("utf-8"))
+            else text_blob(self._control_text("current", self.pointer))
         )
         return {
             "data": {
@@ -368,6 +374,33 @@ def test_resolver_pins_and_verifies_complete_immutable_release():
     assert resolved.policy.repository_node_id == "repository-node"
     assert resolved.policy.authenticated_actor == "leeroo-coder"
     assert resolved.policy.immutable_releases
+
+
+@pytest.mark.parametrize("control", ("current", "identity", "intent"))
+def test_resolver_rejects_noncanonical_control_objects(control):
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    client.noncanonical_control = control
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    with pytest.raises(GitHubResolutionError, match="not canonical"):
+        if control == "current":
+            resolver.resolve_current(
+                "ml_ai",
+                PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            )
+        elif control == "identity":
+            resolver.read_artifact_pointer(
+                "ml_ai",
+                PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+                pointer.publication_record.artifact_id,
+            )
+        else:
+            resolver.read_artifact_intent(
+                "ml_ai",
+                PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+                pointer.publication_record.artifact_id,
+            )
 
 
 def test_attestation_reference_ignores_version_dependent_verifier_metadata():

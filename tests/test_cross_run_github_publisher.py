@@ -56,6 +56,7 @@ def repositories():
         scope_id="ml_ai",
         expert_repository="Leeroo-AI/kapso-expert",
         knowledge_repository=REPOSITORY,
+        security_repository="Leeroo-AI/kapso-security",
     )
 
 
@@ -188,13 +189,16 @@ class FakeResolver:
     intent: ArtifactPublicationIntent | None = None
     release_id: int | None = None
     current_head: str = EXPECTED_PARENT
+    artifact_kind: PublicationArtifactKind = PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
+    repository: str = REPOSITORY
+    repository_node_id: str = "repository-node"
 
     def __post_init__(self):
         self.verified = []
         self.verified_source_intents = []
         self.policy = RepositoryPolicyReport(
-            repository_full_name=REPOSITORY,
-            repository_node_id="repository-node",
+            repository_full_name=self.repository,
+            repository_node_id=self.repository_node_id,
             private=True,
             default_branch="main",
             authenticated_actor="leeroo-coder",
@@ -204,7 +208,7 @@ class FakeResolver:
 
     def diagnose_repository(self, repository_settings, artifact_kind):
         assert repository_settings == "ml_ai"
-        assert artifact_kind is PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
+        assert artifact_kind is self.artifact_kind
         return self.policy
 
     def repositories_for_scope(self, scope_id):
@@ -241,12 +245,12 @@ class FakeResolver:
         self.verified.append(pointer)
 
     def verify_publication_intent_source(self, repository, intent):
-        assert repository == REPOSITORY
+        assert repository == self.repository
         assert intent.repository_full_name == repository
         self.verified_source_intents.append(intent)
 
     def find_release_id(self, repository, tag):
-        assert repository == REPOSITORY
+        assert repository == self.repository
         return self.release_id
 
 
@@ -255,7 +259,17 @@ class InjectedFailure(RuntimeError):
 
 
 class FakePublisherClient:
-    def __init__(self, asset, fail_event=None):
+    def __init__(
+        self,
+        asset,
+        fail_event=None,
+        *,
+        repository=REPOSITORY,
+        repository_node_id="repository-node",
+        artifact_kind=PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        tag="knowledge/S000001",
+        head_observer=None,
+    ):
         self.asset = asset
         self.fail_event = fail_event
         self.events = []
@@ -271,6 +285,11 @@ class FakePublisherClient:
         self.identity_payload = None
         self.tag_target = SOURCE_COMMIT
         self.release_author = "leeroo-coder"
+        self.repository = repository
+        self.repository_node_id = repository_node_id
+        self.artifact_kind = artifact_kind
+        self.tag = tag
+        self.head_observer = head_observer
 
     def _record(self, event):
         self.events.append(event)
@@ -345,7 +364,7 @@ class FakePublisherClient:
             return {
                 "id": 7,
                 "draft": True,
-                "tag_name": "knowledge/S000001",
+                "tag_name": self.tag,
                 "target_commitish": SOURCE_COMMIT,
                 "author": {"login": self.release_author},
                 "assets": [],
@@ -359,9 +378,9 @@ class FakePublisherClient:
             self._record("publish")
             self.release_published = True
             return self._release(draft=False, immutable=True)
-        if endpoint.endswith("/git/ref/tags/knowledge/S000001"):
+        if endpoint.endswith(f"/git/ref/tags/{self.tag}"):
             return {
-                "ref": "refs/tags/knowledge/S000001",
+                "ref": f"refs/tags/{self.tag}",
                 "object": {"type": "commit", "sha": SOURCE_COMMIT},
             }
         raise AssertionError((method, endpoint, body))
@@ -394,7 +413,7 @@ class FakePublisherClient:
             "id": 7,
             "draft": draft,
             "immutable": immutable,
-            "tag_name": "knowledge/S000001",
+            "tag_name": self.tag,
             "target_commitish": SOURCE_COMMIT,
             "published_at": "2026-07-20T15:00:00Z",
             "author": {"login": self.release_author},
@@ -404,7 +423,7 @@ class FakePublisherClient:
     def upload_release_asset(
         self, repository, release_id, path, asset_name, media_type, asset_size
     ):
-        assert repository == REPOSITORY
+        assert repository == self.repository
         assert release_id == 7
         assert path == self.asset.path
         assert asset_name == self.asset.name
@@ -416,13 +435,15 @@ class FakePublisherClient:
         self.uploaded = True
 
     def delete_release_asset(self, repository, asset_id):
-        assert repository == REPOSITORY
+        assert repository == self.repository
         assert asset_id == 11
         assert self.starter_asset
         self._record("delete_starter")
         self.starter_asset = False
 
     def verify_release(self, repository, tag, commit_sha, asset_digests):
+        assert repository == self.repository
+        assert tag == self.tag
         assert self.release_published
         assert commit_sha == SOURCE_COMMIT
         assert asset_digests == {self.asset.name: self.asset.sha256}
@@ -430,8 +451,8 @@ class FakePublisherClient:
         return release_attestation(repository, tag, commit_sha, asset_digests)
 
     def create_ref_if_absent(self, repository, qualified_ref, commit_sha):
-        assert repository == REPOSITORY
-        if qualified_ref == "refs/tags/knowledge/S000001":
+        assert repository == self.repository
+        if qualified_ref == f"refs/tags/{self.tag}":
             assert commit_sha == SOURCE_COMMIT
             if self.tag_target != commit_sha:
                 raise GitHubCompareAndSwapError("tag targets another commit")
@@ -441,7 +462,9 @@ class FakePublisherClient:
             self.intent_payload = self.blob_contents[-1]
             self._record("intent_ref")
         else:
-            assert qualified_ref.startswith("refs/kapso-artifacts/knowledge_snapshot/")
+            assert qualified_ref.startswith(
+                f"refs/kapso-artifacts/{self.artifact_kind.value}/"
+            )
             assert commit_sha == IDENTITY_COMMIT
             self.identity_payload = self.blob_contents[-1]
             self._record("identity_ref")
@@ -450,11 +473,14 @@ class FakePublisherClient:
     def update_ref_compare_and_swap(
         self, repository, repository_node_id, branch, expected_sha, commit_sha
     ):
-        assert repository_node_id == "repository-node"
+        assert repository == self.repository
+        assert repository_node_id == self.repository_node_id
         if self.head != expected_sha:
             raise GitHubCompareAndSwapError("stale")
         event = "source_ref" if commit_sha == SOURCE_COMMIT else "pointer_ref"
         self.head = commit_sha
+        if self.head_observer is not None:
+            self.head_observer(commit_sha)
         self._record(event)
         return {"object": {"sha": commit_sha}}
 

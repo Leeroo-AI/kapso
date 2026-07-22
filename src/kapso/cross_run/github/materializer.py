@@ -27,6 +27,7 @@ from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
+    SecurityDenylistSnapshot,
     SourceFileDescriptor,
     StrictContract,
 )
@@ -271,11 +272,7 @@ class GitHubArtifactMaterializer:
         if tree_or_blob_digest(manifest_bytes) != manifest_digest:
             raise MaterializationError("release package manifest digest mismatch")
         manifest = self._parse_manifest(artifact_kind, manifest_bytes)
-        packaged_artifact_id = (
-            manifest.snapshot_id
-            if isinstance(manifest, KnowledgeSnapshotManifest)
-            else manifest.release_id
-        )
+        packaged_artifact_id = self._manifest_artifact_id(manifest)
         if packaged_artifact_id != artifact_id:
             raise MaterializationError("release package artifact identity mismatch")
         declared_content_paths = self._verify_manifest_checksums(
@@ -772,11 +769,7 @@ class GitHubArtifactMaterializer:
         if tree_or_blob_digest(manifest_bytes) != resolved.pointer.manifest_digest:
             raise MaterializationError("materialized manifest digest mismatch")
         manifest = self._parse_manifest(record.artifact_kind, manifest_bytes)
-        manifest_artifact_id = (
-            manifest.snapshot_id
-            if isinstance(manifest, KnowledgeSnapshotManifest)
-            else manifest.release_id
-        )
+        manifest_artifact_id = self._manifest_artifact_id(manifest)
         if manifest_artifact_id != record.artifact_id:
             raise MaterializationError("materialized manifest identity mismatch")
         declared_content_paths = self._verify_manifest_checksums(
@@ -1322,11 +1315,7 @@ class GitHubArtifactMaterializer:
         if tree_or_blob_digest(manifest_bytes) != receipt.manifest_digest:
             raise CacheCorruptionError("cache manifest digest mismatch")
         manifest = self._parse_manifest(receipt.artifact_kind, manifest_bytes)
-        manifest_artifact_id = (
-            manifest.snapshot_id
-            if isinstance(manifest, KnowledgeSnapshotManifest)
-            else manifest.release_id
-        )
+        manifest_artifact_id = self._manifest_artifact_id(manifest)
         if manifest_artifact_id != receipt.artifact_id:
             raise CacheCorruptionError("cache manifest identity mismatch")
         declared_content_paths = self._verify_manifest_checksums(
@@ -1450,10 +1439,28 @@ class GitHubArtifactMaterializer:
 
     def _parse_manifest(
         self, artifact_kind: PublicationArtifactKind, payload: bytes
-    ) -> KnowledgeSnapshotManifest | ExpertBaseReleaseManifest:
+    ) -> (
+        KnowledgeSnapshotManifest | ExpertBaseReleaseManifest | SecurityDenylistSnapshot
+    ):
         if artifact_kind is PublicationArtifactKind.KNOWLEDGE_SNAPSHOT:
             return KnowledgeSnapshotManifest.from_json_bytes(payload)
-        return ExpertBaseReleaseManifest.from_json_bytes(payload)
+        if artifact_kind is PublicationArtifactKind.EXPERT_BASE_RELEASE:
+            return ExpertBaseReleaseManifest.from_json_bytes(payload)
+        if artifact_kind is PublicationArtifactKind.SECURITY_DENYLIST:
+            return SecurityDenylistSnapshot.from_json_bytes(payload)
+        raise MaterializationError("materialized artifact kind is unsupported")
+
+    @staticmethod
+    def _manifest_artifact_id(
+        manifest: (
+            KnowledgeSnapshotManifest
+            | ExpertBaseReleaseManifest
+            | SecurityDenylistSnapshot
+        ),
+    ) -> str:
+        if isinstance(manifest, ExpertBaseReleaseManifest):
+            return manifest.release_id
+        return manifest.snapshot_id
 
     def _validate_asset_bounds(self, assets: tuple[object, ...]) -> None:
         if not assets or len(assets) > self.settings.release_asset_count_limit:

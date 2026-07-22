@@ -1,7 +1,7 @@
 # Cross-run knowledge and expert evolution — orchestrator plan
 
 Status: **M1–M7 implemented and independently reviewed; M4 live Codex validation
-pending; M8–M10 remain in sequence**
+pending; M8 in progress; M9–M10 remain in sequence**
 
 Design authority:
 [`../cross-run-knowledge-design.md`](../cross-run-knowledge-design.md)
@@ -21,8 +21,10 @@ Every evolve run starts from one attested `LaunchManifest` binding:
 - an immutable `ExpertBaseRelease` from a private GitHub expert repository;
 - an immutable, locally materialized `KnowledgeSnapshot` from a private GitHub
   knowledge repository;
+- a freshly authenticated `SecurityDenylistSnapshot` from a dedicated private
+  security repository, backed by a durable local anti-rollback floor;
 - one task adapter and `ExpertScopeContract`;
-- exact runtime/dependency and security-denylist generations; and
+- exact runtime/dependency state and security-denylist snapshot/generation; and
 - content digests sufficient for offline resume verification.
 
 During the run, prior knowledge is read-only and local experiment/idea memory
@@ -132,6 +134,8 @@ TaskAdapterManifest
 TaskAdapterPackagePin
 TaskAdapterVerificationReceipt
 TaskAdapterActivationRecord
+SecurityDenylistRevocation
+SecurityDenylistSnapshot
 GitHubPublicationRecord
 LaunchManifest
 BootstrapPin
@@ -167,6 +171,7 @@ src/kapso/cross_run/
   record_contracts.py
   record_registry.py
   settings.py
+  security_denylist.py
   github/
     command.py
     publisher.py
@@ -226,7 +231,7 @@ is extracted only when both consumers have demonstrated the same contract.
 | Shared embeddings extraction, dependency-pure typed record registry, search package, prior-knowledge MCP gate | M5 | M6 only mounts and persists reader output |
 | `generic/ideation/`, `generic/strategy.py`, `IdeaArchive`, Generic checkpoint projection | M6 | Sole owner of live ideation integration |
 | Expert architect/generalizer prompts, repository map, book compiler | M7 | M8 validates; it does not regenerate proposals |
-| Expert evaluator cascade and release assembly | M8 | Sole owner of stable expert publication policy |
+| Expert evaluator cascade, fresh spawn authority, authenticated security denylist, and release assembly | M8 | Sole owner of executable validation and stable expert publication policy |
 | `Kapso.evolve`, CLI launch options, benchmark scope bindings/runners, `ExperimentWorkspace`, `RunCheckpoint`, bootstrap pin | M9 | Sole owner until M10 deletes superseded startup code |
 | End-to-end fixtures, workflow templates, operational docs, legacy deletion | M10 | Starts after all live paths are complete |
 
@@ -396,6 +401,8 @@ Deliver M8:
 - immutable expert release publication.
 
 Gate: only an approved exact tree can produce a new immutable expert release.
+Every replay spawn additionally requires a fresh authenticated, non-rollback
+security observation over its complete internally derived dependency closure.
 
 ### Wave 8 — transactional launch
 
@@ -434,10 +441,12 @@ sequenceDiagram
     participant C as Capture Pipeline
     participant K as Knowledge Publisher
     participant X as Expert Evolution
+    participant S as Security Authority
 
     L->>L: resolve task binding through ScopeRegistry
     L->>G: resolve CURRENT files at exact commits
     G-->>L: immutable E and S records/assets
+    L->>S: live-resolve authenticated denylist and advance local floor
     L->>L: verify, materialize, write LaunchManifest/BootstrapPin
     L->>E: expert workspace + read-only snapshot + task adapter
     E->>E: local ideas and experiments only
@@ -453,7 +462,7 @@ sequenceDiagram
 ## Global invariants
 
 1. Tasks provide scope/family/adapter identities, never repository coordinates;
-   one canonical registry resolves the repository pair.
+   one canonical registry resolves the expert/knowledge/security repository triple.
 2. A run consumes one immutable launch identity and never follows `CURRENT`.
 3. Foreign evidence never enters local `node_history`, `IdeaArchive` authorities,
    local parents/incumbents, or `ExperimentHistoryStore`.
@@ -481,7 +490,9 @@ sequenceDiagram
 19. `EXPERT_REPO.md` is generated from the repository map and module contracts.
 20. Resume verifies the original local materialization and refreshes only the
     security/contamination denylist.
-21. Missing, unauthorized, corrupt, stale, or incompatible remote state fails
+21. A denylist checkpoint is an anti-rollback floor, never offline authorization;
+    every dangerous boundary live-resolves and authenticates current state.
+22. Missing, unauthorized, corrupt, stale, or incompatible remote state fails
     before spend; only explicit `EMPTY`/`E0` represents no history.
 
 ## Test strategy
@@ -540,16 +551,17 @@ The implementation is complete only when:
 
 - every module plan's definition of done passes;
 - the progress ledger identifies the exact commits and validation evidence;
-- a clean machine can materialize and use pinned expert/knowledge releases;
+- a clean machine can materialize and use pinned expert/knowledge releases and
+  authenticate the live security lineage;
 - PostTrainBench and RelBench resolve through distinct task bindings to the same
-  configured `ml_ai` repository pair without duplicating repository names;
+  configured `ml_ai` repository triple without duplicating repository names;
 - ideation resume performs no unrecorded cross-run retrieval;
 - a stopped/crashed run can be harvested from its last reconciled frontier;
 - catalog and release races preserve all admitted evidence;
 - coding agents use the configured Git/`gh` identity without copying credentials
   into prompts, artifacts, config, or logs;
-- the expert and knowledge repositories allow autonomous direct publication and
-  enforce immutable releases;
+- all three repositories allow autonomous direct publication and enforce
+  immutable releases;
 - immutable GitHub publication and attestation verification work in production;
 - the old startup and persistence paths are absent; and
 - full tests pass after legacy deletion.
@@ -561,10 +573,10 @@ The implementation is complete only when:
 | D1 | Use ten module plans | Match transaction boundaries and keep high-conflict files singly owned |
 | D2 | Create `kapso.cross_run` | Cross-run behavior spans strategies and must not inherit Generic assumptions |
 | D3 | Keep `kapso.knowledge_base` separate | Wiki/research knowledge is not experiment evidence or scientific truth |
-| D4 | Use two GitHub repositories per scope | Expert code and scientific memory have different artifact structures, validation, retention, and leakage risks |
+| D4 | Use three GitHub repositories per scope | Expert code, scientific memory, and live revocation authority have different structures and failure semantics; each publisher owns one complete tree and one root current pointer |
 | D5 | Keep large packages/indexes in immutable release assets | Avoid unbounded Git history and keep clean-machine materialization simple |
 | D6 | Keep GitHub locations outside content identity | Preserve artifact identity across authorized relocation |
-| D7 | Use one fully authorized external Git/`gh` identity | The operator explicitly trusts autonomous agents to read and write both repositories without human gates |
+| D7 | Use one fully authorized external Git/`gh` identity | The operator explicitly trusts autonomous agents to read and write all configured repositories without human gates |
 | D8 | Semantic search runs locally over a pinned package | Avoid mutable remote queries and make retrieval reproducible |
 | D9 | Prefetch ideation knowledge, then expose packet-only MCP reads | Give CLI agents reader access without unrecorded dynamic retrieval |
 | D10 | Use exact cosine before ANN | Keep the early corpus simple; add deterministic ANN only after measured threshold |
@@ -590,7 +602,7 @@ The implementation is complete only when:
 | M5 Snapshots, Search, Reader | Implemented; independent hardening approved | `kapso.core.embeddings`, `kapso.cross_run.{record_contracts,record_registry,knowledge}`, `kapso.gated_mcp.gates.prior_knowledge_gate` | 499-test broad combined pass; 89 focused reader/gate tests plus 35 affected ideation tests; malformed-schema, typed-proof, index corruption, compatibility, proof-budget, silent MCP import, no-replace materialization, and M2 publication coverage; independent reviewer found no remaining P0–P2 issues | Authenticated Codex usage limit blocks the requested exact `gpt-5.6-sol` xhigh CLI review; live embedding/GitHub production validation remains M10 |
 | M6 Ideation and Memory Bridge | Implemented; independent hardening approved | `generic.ideation` v4 archive, Generic v5 checkpoint, `IdeationCrossRunRuntime`, structured coding-agent packet/MCP boundary | 451 cross-run/knowledge tests; 167 ideation/checkpoint tests (1 unrelated skip); matched empty-memory/negative-prior E2E; real stdio MCP handshake; real Codex policy parse; independent reviewer found no remaining P0–P2 issues | Exact external `gpt-5.6-sol` xhigh replay is quota-blocked; M9 constructs the runtime and M10 provisions `bubblewrap`/`socat` plus authenticated CLI policy probes |
 | M7 Expert Candidates and Architecture | Complete; independent correctness review approved | `kapso.cross_run.expert.{triggers,candidates,sanitation,book,store,workspace,proposal,proposal_contract,architect,generalizer}`, fixed role prompts, `kapso.execution.coding_agents.{structured_call,workspace_delta,operation_receipt}`, exact source/materialization, durable deltas, complete agent artifacts, semantic MCP/audit replay | 152 final focused proposal/closure/store/workspace/contract/book/agent tests plus broad deterministic cross-run/expert/ideation pass; lease-before-persist atomicity, fixed role authority, pinned historical proposer authority, model-readable exact ancestors, monotonic preserved semantics, structural restructure enforcement, prior-record taint closure, compile/format/diff gates; final independent reviewer found no P0–P2 correctness defects | — |
-| M8 Expert Validation and Release | In progress: contracts, policy, enrollment, executable-stage reducer, durable CAS/replay store, verified current-release reader, typed task-adapter trust/store, exact source selection and byte-closed preflight, stale-parent invalidation, immutable source-replay reservation admission, matched-compute envelope, blinded evaluator ABI, exact provider dispatch, reservation reopen, create-only invocation allocation journal, and fresh spawn-authority fencing complete | `kapso.cross_run.{contracts,settings,source_archives,task_adapters,task_adapter_store}`, `kapso.cross_run.expert.{replay,replay_context,replay_request,replay_protocol,replay_execution,replay_execution_store,replay_authority,validation,validation_store,providers}`, canonical expert/task-adapter config | 646 final broad cross-run/expert tests and 164 focused compute/request/reservation tests; 41 focused execution-journal tests and 135 affected tests; 43 fresh-authority/provider/store affected tests; 48 validation reducer/store tests after global-lock isolation; real USTAR+zstd package round trip; typed evaluator compatibility, context allowlist, executable and runtime-lock proof; exact provider/sandbox/resource identity and request-level counterbalanced leg order; restart-stable CSPRNG allocation, 16-way allocation race, strict two-case schedule flattening, FIFO/hardlink/mode/canonical/fork corruption, and lock-release coverage; journal-owned live allocation permits; rich GitHub `CURRENT`; complete adapter re-verification; persisted transitive denylist subjects; synthetic verifier authority; double reopen; changed-parent, denied/substituted closure, and revoked-verifier coverage; shared-observe/unlocked-reduce/exclusive-CAS for enrollment, evaluator results, reservations, and invalidation; callback head-advance races and exact retry-without-reverification; post-training/RelBench contract fixtures; complete bundle-lineage reprojection; aggregate materialization budgets/deadlines; exact active-versus-historical replay; attestation/verifier rotation; proof-closure, CAS alias, concurrent identical operation, crash/orphan recovery, authority change, selection/provenance substitution, tamper, cross-binding splice, config, reducer, and store coverage; compile/format/diff gates; independent filesystem, state-machine, lock-boundary, and fresh-authority security reviews found and verified all P1–P2 fixes with no remaining P0–P2 defects | Concrete authenticated denylist authority; durable spawn/result events; version-dispatched isolated matched-leg execution; paired receipt/comparison/reducer publication; then automated review/promotion |
+| M8 Expert Validation and Release | In progress: contracts, policy, enrollment, executable-stage reducer, durable CAS/replay store, verified current-release reader, typed task-adapter trust/store, exact source selection and byte-closed preflight, stale-parent invalidation, immutable source-replay reservation admission, matched-compute envelope, blinded evaluator ABI, exact provider dispatch, reservation reopen, create-only invocation allocation journal, fresh spawn-authority fencing, and authenticated security-denylist authority/publication complete | `kapso.cross_run.{contracts,settings,source_archives,task_adapters,task_adapter_store,security_denylist}`, `kapso.cross_run.github` security transport, `kapso.cross_run.expert.{replay,replay_context,replay_request,replay_protocol,replay_execution,replay_execution_store,replay_authority,validation,validation_store,providers}`, canonical expert/task-adapter/security config | 646 final broad cross-run/expert tests and 164 focused compute/request/reservation tests; 41 focused execution-journal tests and 135 affected tests; 43 fresh-authority/provider/store affected tests; 48 validation reducer/store tests after global-lock isolation; 289 affected security/config/GitHub/replay tests; real D0 and D0-to-D1 immutable security transactions; canonical typed evidence closure; live exact historical authentication; compact crash-atomic anti-rollback floor; finite generation horizon; owner-bound concrete activation authorization; raw/same-owner/cross-owner no-op rejection; checked-subject resource bounds; rollback/fork/removal/substitution/offline/corruption/concurrency coverage; real USTAR+zstd package round trip; typed evaluator compatibility, context allowlist, executable and runtime-lock proof; exact provider/sandbox/resource identity and request-level counterbalanced leg order; restart-stable CSPRNG allocation, 16-way allocation race, strict two-case schedule flattening, FIFO/hardlink/mode/canonical/fork corruption, and lock-release coverage; journal-owned live allocation permits; rich GitHub `CURRENT`; complete adapter re-verification; persisted transitive denylist subjects; synthetic verifier authority; double reopen; changed-parent, denied/substituted closure, and revoked-verifier coverage; shared-observe/unlocked-reduce/exclusive-CAS for enrollment, evaluator results, reservations, and invalidation; callback head-advance races and exact retry-without-reverification; post-training/RelBench contract fixtures; complete bundle-lineage reprojection; aggregate materialization budgets/deadlines; exact active-versus-historical replay; attestation/verifier rotation; proof-closure, CAS alias, concurrent identical operation, crash/orphan recovery, authority change, selection/provenance substitution, tamper, cross-binding splice, config, reducer, and store coverage; compile/format/diff gates; two independent security reviews approved with no remaining P0–P2 defects | Durable spawn/result events; version-dispatched isolated matched-leg execution; paired receipt/comparison/reducer publication; then automated review/promotion |
 | M9 Launch, Bootstrap, Resume | Planned | — | — | M5, M8 |
 | M10 Rollout and Production Validation | Planned | — | — | M3–M9 |
 

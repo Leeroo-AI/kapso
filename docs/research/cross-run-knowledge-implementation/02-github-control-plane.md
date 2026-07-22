@@ -10,7 +10,7 @@ Depends on: M1.
 
 Implement the Git/GitHub transport used by autonomous coding agents and trusted
 Kapso processes. One externally authenticated GitHub identity has full read/write
-authority over the expert and knowledge repositories. Publication writes directly
+authority over the expert, knowledge, and security repositories. Publication writes directly
 to the default branch and immutable releases without pull requests, rulesets, or
 human approval gates.
 
@@ -20,7 +20,8 @@ human approval gates.
 - Repository/ref/release/asset discovery and strict response validation.
 - Transport over M1-resolved `ScopeRepositorySettings`; no task-supplied repository
   coordinates or repository-name inference.
-- Direct expected-parent commits for validated expert and knowledge artifacts.
+- Direct expected-parent commits for validated expert, knowledge, and security
+  artifacts.
 - Write-once pre-release intents, exact tag refs, and final artifact identity refs.
 - `GitHubPublicationRecord` creation and verification.
 - Draft-upload-verify-publish-CAS release protocol.
@@ -60,7 +61,7 @@ tests/
 - [x] Never read authentication environment variables in Kapso code. `git`, `gh`,
       and their credential stores own credential discovery.
 - [x] Allow configured Codex or Claude Code processes to inherit the same Git/`gh`
-      authentication and modify either repository autonomously.
+      authentication and modify any configured repository autonomously.
 - [x] Keep credentials out of `config.yaml`, prompts, invocation artifacts, logs,
       commits, and release assets.
 
@@ -97,7 +98,7 @@ Tasks:
 - [x] Resolve the configured repository coordinate, then pin and verify its live
       immutable node identity in the intent and publication record.
 - [x] Require the artifact's `scope_id` to match the resolved registry entry and
-      reject expert/knowledge publication to the opposite or an unregistered repo.
+      reject publication to the wrong artifact repository or an unregistered repo.
 - [x] Verify the local tree, manifest, total bytes, symlinks, submodules, and parent
       commit before publication.
 - [x] Build a deterministic commit from the exact validated tree.
@@ -120,7 +121,8 @@ the same autonomous process commits and publishes it.
 
 ## Immutable release transaction
 
-The publisher exposes one artifact-neutral release protocol used by M5 and M8:
+The publisher exposes one artifact-neutral release protocol used by M5 and M8,
+including security-denylist snapshots:
 
 1. copy every declared local asset to private staging, validate and unpack those
    staged bytes, and prove the resulting package recreates the exact Git source
@@ -170,7 +172,7 @@ the same release.
 
 `GitHubArtifactResolver`:
 
-- [x] Accepts only an M1-resolved scope repository pair, never raw repository
+- [x] Accepts only an M1-resolved scope repository triple, never raw repository
       coordinates from a launch request or task adapter.
 - [x] Resolves either the default-branch `CURRENT.json` or one global immutable
       artifact-identity ref; inactive CAS losers remain reproducible by ID.
@@ -243,7 +245,7 @@ default branch, authenticated actor, write access, and immutable-release status.
 - Reject invalid repository/ref names, unexpected artifact shapes, symlinks,
   submodules, oversized publications, and stale parents.
 - Reject unregistered repositories, wrong-scope publication records, swapped
-  expert/knowledge repositories, and task-supplied location overrides.
+  artifact repositories, and task-supplied location overrides.
 - Prove identical replay is idempotent and conflicting replay fails.
 - Inject failure after direct commit, draft creation, each asset upload, release
   publication, and before/after pointer commit.

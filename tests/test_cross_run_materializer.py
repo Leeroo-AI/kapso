@@ -232,6 +232,7 @@ def resolved_fixture(
             scope_id="ml_ai",
             expert_repository="Leeroo-AI/kapso-expert",
             knowledge_repository=REPOSITORY,
+            security_repository="Leeroo-AI/kapso-security",
         ),
         pointer=pointer,
         policy=policy,
@@ -437,6 +438,7 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
             scope_id="ml_ai",
             expert_repository=expert_repository,
             knowledge_repository=REPOSITORY,
+            security_repository="Leeroo-AI/kapso-security",
         ),
         pointer=pointer,
         policy=RepositoryPolicyReport(

@@ -274,6 +274,7 @@ def build_records():
         scope_id="ml_ai",
         expert_repository="Leeroo-AI/kapso-expert",
         knowledge_repository="Leeroo-AI/kapso-knowledge",
+        security_repository="Leeroo-AI/kapso-security",
     )
     task_binding = CrossRunTaskBindingSettings(
         scope_id="ml_ai",
@@ -444,6 +445,10 @@ def build_records():
         dependency_lock_hash=digest("lock"),
     )
     initial_snapshot_id = fixture_id("empty-snapshot")
+    security_denylist_snapshot_id = content_id(
+        "security-denylist-snapshot",
+        {"generation": 1},
+    )
     launch = LaunchManifest.mint(
         launch_request_hash=digest("launch-request"),
         scope_id="ml_ai",
@@ -459,6 +464,7 @@ def build_records():
         embedding_space_id=fixture_id("embedding-space"),
         dependency_runtime_contract={"python": ">=3.10"},
         sanitation_policy_generation=1,
+        security_denylist_snapshot_id=security_denylist_snapshot_id,
         security_denylist_generation=1,
         expected_source_composition_hash=digest("workspace"),
         publisher_attestation={"issuer": "test-publisher", "signature": "launch"},
@@ -931,6 +937,8 @@ def build_records():
         knowledge_snapshot_id=initial_snapshot_id,
         expert_base_release_id=expert_release.release_id,
         task_adapter_manifest_id=task_adapter.task_adapter_manifest_id,
+        security_denylist_snapshot_id=security_denylist_snapshot_id,
+        security_denylist_generation=1,
         workspace_tree_hash=digest("workspace"),
         created_at="2026-07-20T12:00:00Z",
     )
@@ -1667,6 +1675,7 @@ def test_repository_aliasing_and_invalid_lineage_are_rejected():
             scope_id="ml_ai",
             expert_repository="Leeroo-AI/same",
             knowledge_repository="Leeroo-AI/same",
+            security_repository="Leeroo-AI/security",
         )
     with pytest.raises(ContractValidationError):
         LineageEdge(

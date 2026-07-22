@@ -30,6 +30,7 @@ cross_run:
       repositories:
         expert: "Leeroo-AI/kapso-expert"
         knowledge: "Leeroo-AI/kapso-knowledge"
+        security: "Leeroo-AI/kapso-security"
   github:
     api_version: "2026-03-10"
     minimum_cli_version: "2.93.0"
@@ -39,6 +40,7 @@ cross_run:
     commit_author_email: "kapso-publisher@users.noreply.github.com"
     expert_tag_prefix: "expert/"
     knowledge_tag_prefix: "knowledge/"
+    security_denylist_tag_prefix: "security-denylist/"
     cache_path: ".kapso/cross_run/github_cache"
     command_timeout_seconds: 120
     release_asset_size_bytes: &cross_run_asset_size_bytes 1073741824
@@ -327,8 +329,14 @@ cross_run:
   launch:
     cache_path: ".kapso/cross_run/launch_cache"
     bootstrap_pin_path: ".kapso/bootstrap_pin.json"
+    security_denylist_state_path: ".kapso/cross_run/security_denylist"
+    security_denylist_checkpoint_size_bytes: 1048576
+    security_denylist_checked_subject_limit: 100000
+    security_denylist_checked_subject_size_bytes: 16777216
     artifact_ttl_seconds: 604800
     denylist_refresh_seconds: 300
+    security_denylist_revocation_limit: 10000
+    security_denylist_lineage_limit: 1000
   production_validation:
     fixture_path: "tests/fixtures/cross_run"
     github_write_smoke: true
