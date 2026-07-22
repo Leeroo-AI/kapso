@@ -101,6 +101,7 @@ def _manifest(
                 ),
                 transfer_dimensions={},
                 label="promotion-adapter",
+                seed_or_replicate_ids=("repeat_1", "repeat_2"),
             ),
         ),
         source_tree_ref="task-adapter.tar.zst",
@@ -224,13 +225,13 @@ def _provenance(
         )
     )
     if provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
-        case_id = _id("task-adapter-release-matrix-case", label)
+        case = authority.task_adapter_manifest.release_matrix_cases[0]
         return ExpertReleaseMatrixProvenanceBinding.mint(
             provenance_kind=provenance_kind,
             adapter_authority_id=authority.adapter_authority_id,
-            task_context_binding=context,
-            evaluation_fingerprint_ids=evaluation_fingerprint_ids,
-            adapter_case_id=case_id,
+            task_context_binding=case.task_context_binding,
+            evaluation_fingerprint_ids=case.evaluation_fingerprint_ids,
+            adapter_case=case,
             source_replay_stage_result_id=None,
             paired_comparison_receipt_id=None,
             source_execution_case_id=None,
@@ -239,14 +240,16 @@ def _provenance(
             bundle_lineage_ids=(),
             source_episode_id=None,
             context_materialization_receipt_id=None,
-            starting_artifact_ids=(),
+            starting_artifact_ids=case.starting_artifact_ids,
             exact_dependency_ids=tuple(
                 sorted(
                     {
                         authority.adapter_authority_id,
-                        context.task_context_binding_id,
-                        case_id,
-                        *evaluation_fingerprint_ids,
+                        case.task_context_binding.task_context_binding_id,
+                        case.release_matrix_case_id,
+                        case.independence_group.independence_group_id,
+                        *case.evaluation_fingerprint_ids,
+                        *case.starting_artifact_ids,
                     }
                 )
             ),
@@ -268,7 +271,7 @@ def _provenance(
         adapter_authority_id=authority.adapter_authority_id,
         task_context_binding=context,
         evaluation_fingerprint_ids=evaluation_fingerprint_ids,
-        adapter_case_id=None,
+        adapter_case=None,
         source_replay_stage_result_id=stage_result_id,
         paired_comparison_receipt_id=comparison_receipt_id,
         source_execution_case_id=execution_case_id,
@@ -303,16 +306,16 @@ def _fingerprint(
     seeds: tuple[str, ...] = ("repeat_1", "repeat_2"),
 ) -> EvaluationFingerprint:
     return EvaluationFingerprint.mint(
-        benchmark_id="release_benchmark",
-        dataset_version="release_data_v1",
-        split_version="release_split_v1",
+        benchmark_id="test_adapter",
+        dataset_version="v1",
+        split_version="release-matrix-v1",
         evaluator_fingerprint=_digest("release-evaluator"),
         metric_name=metric_name,
         objective_direction=ObjectiveDirection.MAXIMIZE,
         fidelity="full",
         fraction=1.0,
         seed_or_replicate_ids=seeds,
-        aggregation_protocol="paired_replicates",
+        aggregation_protocol="arithmetic-mean",
         judge_version=None,
     )
 
@@ -593,6 +596,11 @@ def test_bootstrap_plan_and_rows_forbid_parent_authority():
     assert report.parent_tree_hash is None
     assert provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
     assert provenance.bundle_lineage_ids == ()
+    assert provenance.adapter_case is not None
+    assert provenance.independence_identity_id == (
+        provenance.adapter_case.independence_group.independence_group_id
+    )
+    assert provenance.independence_identity_id != provenance.provenance_case_id
     assert all(
         row.candidate_observation_event_id.startswith("task-evaluation-journal-event:")
         for row in report.evidence_rows
@@ -779,6 +787,43 @@ def test_provenance_binding_rejects_unknown_sources_and_nonexact_closure():
                 if dependency_id != provenance.source_episode_id
             ),
         )
+
+
+def test_adapter_provenance_requires_the_exact_case_from_its_manifest():
+    authority = _authority()
+    provenance = _provenance(
+        authority,
+        _context(authority),
+        provenance_kind=ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE,
+    )
+    case = provenance.adapter_case
+    assert case is not None
+    foreign_context = _remint(
+        case.task_context_binding,
+        budget_hardware_envelope={"accelerator": "foreign", "hours": 2},
+    )
+    foreign_case = _remint(case, task_context_binding=foreign_context)
+    foreign_dependencies = {
+        authority.adapter_authority_id,
+        foreign_context.task_context_binding_id,
+        foreign_case.release_matrix_case_id,
+        foreign_case.independence_group.independence_group_id,
+        *foreign_case.evaluation_fingerprint_ids,
+        *foreign_case.starting_artifact_ids,
+    }
+    foreign_provenance = _remint(
+        provenance,
+        task_context_binding=foreign_context,
+        adapter_case=foreign_case,
+        exact_dependency_ids=tuple(sorted(foreign_dependencies)),
+    )
+    cells = tuple(
+        _cell(authority, foreign_provenance, metric_name)
+        for metric_name in ("quality_score", "robustness_score")
+    )
+
+    with pytest.raises(ExpertReleaseMatrixContractError, match="manifest authority"):
+        _plan((authority,), (foreign_provenance,), cells)
 
 
 def test_plan_requires_exact_case_fingerprint_coverage_and_retains_repeated_context():

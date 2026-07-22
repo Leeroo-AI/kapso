@@ -104,17 +104,17 @@ def _result_projection(
 
 def _source_result(
     accepted_results: tuple[ExpertReleaseMatrixAcceptedResult, ...],
-) -> ExpertSourceReplayStageResultRecord:
+) -> ExpertSourceReplayStageResultRecord | None:
     results = tuple(
         result
         for result in accepted_results
         if type(result) is ExpertSourceReplayStageResultRecord
     )
-    if len(results) != 1:
+    if len(results) > 1:
         raise ExpertReleaseMatrixPlanError(
-            "release matrix requires one accepted source replay result"
+            "release matrix accepts at most one source replay result"
         )
-    return results[0]
+    return None if not results else results[0]
 
 
 def _validate_active_prefix(
@@ -189,7 +189,6 @@ def _validate_source_joins(
     )
     if (
         plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
-        or len(provenances) != len(plan.provenance_bindings)
         or set(provenance_case_ids) != set(request_cases)
         or len(provenance_case_ids) != len(set(provenance_case_ids))
         or set(comparison_cases) != set(request_cases)
@@ -258,6 +257,108 @@ def _validate_source_joins(
                 )
 
 
+def _validate_adapter_case_joins(
+    plan: ExpertReleaseMatrixEvaluationPlan,
+    attempt: ExpertValidationAttempt,
+) -> None:
+    authorities = {
+        authority.adapter_authority_id: authority
+        for authority in plan.adapter_authorities
+    }
+    active_pins = {
+        (pin.task_adapter_manifest_id, pin.verification_receipt_id): pin
+        for pin in attempt.task_adapter_pins
+    }
+    authority_packages = {
+        (
+            authority.task_adapter_manifest.task_adapter_manifest_id,
+            authority.verification_receipt.verification_receipt_id,
+        ): authority
+        for authority in plan.adapter_authorities
+    }
+    if not set(active_pins).issubset(authority_packages) or any(
+        authority_packages[key].task_adapter_pin != pin
+        for key, pin in active_pins.items()
+    ):
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix active adapter authority coverage is not exact"
+        )
+    expected_cases = {
+        (authority.adapter_authority_id, case.release_matrix_case_id): case
+        for authority in plan.adapter_authorities
+        if (
+            authority.task_adapter_manifest.task_adapter_manifest_id,
+            authority.verification_receipt.verification_receipt_id,
+        )
+        in active_pins
+        for case in authority.task_adapter_manifest.release_matrix_cases
+    }
+    adapter_provenances = tuple(
+        provenance
+        for provenance in plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+    )
+    observed_cases = {
+        (provenance.adapter_authority_id, provenance.provenance_case_id): (
+            provenance.adapter_case
+        )
+        for provenance in adapter_provenances
+    }
+    if (
+        set(observed_cases) != set(expected_cases)
+        or len(observed_cases) != len(adapter_provenances)
+        or any(
+            observed_cases[key] != expected_case
+            for key, expected_case in expected_cases.items()
+        )
+    ):
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix active adapter case coverage is not exact"
+        )
+    for provenance in adapter_provenances:
+        authority = authorities[provenance.adapter_authority_id]
+        case = provenance.adapter_case
+        cells = tuple(
+            cell
+            for cell in plan.evaluation_cells
+            if cell.provenance_binding_id == provenance.provenance_binding_id
+        )
+        if case is None or (
+            provenance.task_context_binding != case.task_context_binding
+            or provenance.evaluation_fingerprint_ids != case.evaluation_fingerprint_ids
+            or provenance.starting_artifact_ids != case.starting_artifact_ids
+            or len(cells) != len(case.evaluation_fingerprints)
+        ):
+            raise ExpertReleaseMatrixPlanError(
+                "release matrix adapter provenance differs from its signed case"
+            )
+        fingerprints = {
+            fingerprint.evaluation_fingerprint_id: fingerprint
+            for fingerprint in case.evaluation_fingerprints
+        }
+        comparison_bindings = {
+            (binding.evaluator_fingerprint, binding.metric_name): binding
+            for binding in authority.task_adapter_manifest.task_evaluator.metric_comparison_bindings
+        }
+        for cell in cells:
+            fingerprint = fingerprints.get(
+                cell.evaluation_fingerprint.evaluation_fingerprint_id
+            )
+            binding = comparison_bindings.get(
+                (
+                    cell.evaluation_fingerprint.evaluator_fingerprint,
+                    cell.evaluation_fingerprint.metric_name,
+                )
+            )
+            if (
+                fingerprint != cell.evaluation_fingerprint
+                or binding != cell.metric_comparison_binding
+            ):
+                raise ExpertReleaseMatrixPlanError(
+                    "release matrix adapter cell differs from its signed case"
+                )
+
+
 def _validate_policy(
     plan: ExpertReleaseMatrixEvaluationPlan,
     policy: ExpertValidationPolicy,
@@ -292,7 +393,7 @@ def validate_expert_release_matrix_plan_store_shape(
     state: ExpertCandidateValidationState,
     attempt: ExpertValidationAttempt,
     accepted_stage_results: tuple[ExpertReleaseMatrixAcceptedResult, ...],
-    source_replay_request: ExpertSourceReplayExecutionRequest,
+    source_replay_request: ExpertSourceReplayExecutionRequest | None,
     validation_policy: ExpertValidationPolicy,
     validation_settings: ExpertValidationSettings,
 ) -> None:
@@ -309,32 +410,61 @@ def validate_expert_release_matrix_plan_store_shape(
         )
     _validate_active_prefix(plan, state, attempt, accepted_stage_results)
     result = _source_result(accepted_stage_results)
-    receipt = result.paired_comparison_receipt
+    expected_mode = (
+        ExpertReleaseMatrixMode.BOOTSTRAP
+        if attempt.parent_release_id is None
+        else ExpertReleaseMatrixMode.PARENT_COMPARISON
+    )
     if (
-        result.outcome is not ExpertEvaluatorOutcome.PASSED
-        or result.validation_attempt_id != attempt.validation_attempt_id
-        or result.candidate_id != attempt.candidate_id
-        or result.candidate_tree_hash != attempt.candidate_tree_hash
-        or result.execution_request_id != source_replay_request.execution_request_id
-        or result.validation_policy_id != attempt.validation_policy_id
-        or result.configuration_fingerprint != attempt.configuration_fingerprint
-        or receipt.execution_request_id != source_replay_request.execution_request_id
-        or source_replay_request.validation_attempt_id != attempt.validation_attempt_id
-        or source_replay_request.candidate_id != attempt.candidate_id
-        or source_replay_request.candidate_tree_hash != attempt.candidate_tree_hash
-        or source_replay_request.candidate_commit_record_id
-        != attempt.candidate_commit_record_id
-        or source_replay_request.scope_contract_id != attempt.scope_contract_id
-        or source_replay_request.parent_release_id != attempt.parent_release_id
-        or source_replay_request.parent_tree_hash != plan.parent_tree_hash
-        or source_replay_request.validation_policy_id != attempt.validation_policy_id
-        or source_replay_request.configuration_fingerprint
-        != attempt.configuration_fingerprint
+        plan.mode is not expected_mode
+        or ((result is None) != (source_replay_request is None))
+        or (
+            expected_mode is ExpertReleaseMatrixMode.PARENT_COMPARISON
+            and source_replay_request is None
+        )
     ):
         raise ExpertReleaseMatrixPlanError(
             "release matrix source authority differs from its active attempt"
         )
-    _validate_source_joins(plan, result, source_replay_request)
+    if result is not None and source_replay_request is not None:
+        receipt = result.paired_comparison_receipt
+        if (
+            plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
+            or result.outcome is not ExpertEvaluatorOutcome.PASSED
+            or result.validation_attempt_id != attempt.validation_attempt_id
+            or result.candidate_id != attempt.candidate_id
+            or result.candidate_tree_hash != attempt.candidate_tree_hash
+            or result.execution_request_id != source_replay_request.execution_request_id
+            or result.validation_policy_id != attempt.validation_policy_id
+            or result.configuration_fingerprint != attempt.configuration_fingerprint
+            or receipt.execution_request_id
+            != source_replay_request.execution_request_id
+            or source_replay_request.validation_attempt_id
+            != attempt.validation_attempt_id
+            or source_replay_request.candidate_id != attempt.candidate_id
+            or source_replay_request.candidate_tree_hash != attempt.candidate_tree_hash
+            or source_replay_request.candidate_commit_record_id
+            != attempt.candidate_commit_record_id
+            or source_replay_request.scope_contract_id != attempt.scope_contract_id
+            or source_replay_request.parent_release_id != attempt.parent_release_id
+            or source_replay_request.parent_tree_hash != plan.parent_tree_hash
+            or source_replay_request.validation_policy_id
+            != attempt.validation_policy_id
+            or source_replay_request.configuration_fingerprint
+            != attempt.configuration_fingerprint
+        ):
+            raise ExpertReleaseMatrixPlanError(
+                "release matrix source authority differs from its active attempt"
+            )
+        _validate_source_joins(plan, result, source_replay_request)
+    elif any(
+        provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
+        for provenance in plan.provenance_bindings
+    ):
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix source provenance lacks accepted replay authority"
+        )
+    _validate_adapter_case_joins(plan, attempt)
     _validate_policy(plan, validation_policy)
 
 
@@ -344,7 +474,7 @@ def validate_expert_release_matrix_plan_durable_shape(
     state: ExpertCandidateValidationState,
     attempt: ExpertValidationAttempt,
     accepted_stage_results: tuple[ExpertReleaseMatrixAcceptedResult, ...],
-    source_replay_request: ExpertSourceReplayExecutionRequest,
+    source_replay_request: ExpertSourceReplayExecutionRequest | None,
     stored_candidate: StoredExpertCandidate,
     verified_adapters: tuple[VerifiedTaskAdapter, ...],
     validation_policy: ExpertValidationPolicy,
@@ -371,50 +501,69 @@ def validate_expert_release_matrix_plan_durable_shape(
         != attempt.candidate_commit_record_id
         or manifest.scope_contract_id != attempt.scope_contract_id
         or manifest.parent_release_id != attempt.parent_release_id
-        or stored_candidate.closure.candidate_tree.source_tree_manifest_id
-        != source_replay_request.candidate_source_tree_manifest_id
-        or selection is None
-        or selection.source_replay_selection_id
-        != source_replay_request.source_replay_selection_id
+        or plan.parent_tree_hash
+        != (None if attempt.parent_release_id is None else manifest.parent_tree_hash)
+        or (
+            attempt.parent_release_id is not None
+            and packet.parent_tree_hash != manifest.parent_tree_hash
+        )
     ):
         raise ExpertReleaseMatrixPlanError(
             "release matrix plan differs from immutable candidate evidence"
         )
-    episodes = {episode.episode_id: episode for episode in packet.episodes}
-    provenances = {
-        provenance.source_execution_case_id: provenance
-        for provenance in plan.provenance_bindings
-    }
-    for request_case in source_replay_request.cases:
-        episode = episodes.get(request_case.episode_id)
-        provenance = provenances[request_case.execution_case_id]
-        if episode is None:
+    if source_replay_request is None:
+        if selection is not None:
             raise ExpertReleaseMatrixPlanError(
-                "release matrix source case is absent from candidate evidence"
+                "release matrix source selection lacks an execution request"
             )
-        terminal_attempt = episode.attempts[episode.terminal_attempt_revision]
-        environment = episode.artifact_environment
+    else:
         if (
-            episode.source_bundle_id != request_case.source_bundle_id
-            or episode.source["node_id"] != request_case.source_node_id
-            or episode.task_context_binding != provenance.task_context_binding
-            or episode.terminal_attempt_revision
-            != request_case.source_execution_revision
-            or tuple(
-                fingerprint.evaluation_fingerprint_id
-                for fingerprint in terminal_attempt.evaluation_fingerprints
-            )
-            != request_case.source_evaluation_fingerprint_ids
-            or environment.task_adapter_manifest_id
-            != request_case.task_adapter_manifest_id
-            or environment.task_adapter_verification_receipt_id
-            != request_case.verification_receipt_id
-            or tuple(sorted(environment.starting_artifact_content_ids.values()))
-            != request_case.starting_artifact_content_ids
+            stored_candidate.closure.candidate_tree.source_tree_manifest_id
+            != source_replay_request.candidate_source_tree_manifest_id
+            or selection is None
+            or selection.source_replay_selection_id
+            != source_replay_request.source_replay_selection_id
         ):
             raise ExpertReleaseMatrixPlanError(
-                "release matrix source case differs from candidate episode evidence"
+                "release matrix plan differs from immutable source evidence"
             )
+        episodes = {episode.episode_id: episode for episode in packet.episodes}
+        provenances = {
+            provenance.source_execution_case_id: provenance
+            for provenance in plan.provenance_bindings
+            if provenance.provenance_kind
+            is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
+        }
+        for request_case in source_replay_request.cases:
+            episode = episodes.get(request_case.episode_id)
+            provenance = provenances[request_case.execution_case_id]
+            if episode is None:
+                raise ExpertReleaseMatrixPlanError(
+                    "release matrix source case is absent from candidate evidence"
+                )
+            terminal_attempt = episode.attempts[episode.terminal_attempt_revision]
+            environment = episode.artifact_environment
+            if (
+                episode.source_bundle_id != request_case.source_bundle_id
+                or episode.source["node_id"] != request_case.source_node_id
+                or episode.task_context_binding != provenance.task_context_binding
+                or episode.terminal_attempt_revision
+                != request_case.source_execution_revision
+                or tuple(
+                    fingerprint.evaluation_fingerprint_id
+                    for fingerprint in terminal_attempt.evaluation_fingerprints
+                )
+                != request_case.source_evaluation_fingerprint_ids
+                or environment.task_adapter_manifest_id
+                != request_case.task_adapter_manifest_id
+                or environment.task_adapter_verification_receipt_id
+                != request_case.verification_receipt_id
+                or tuple(sorted(environment.starting_artifact_content_ids.values()))
+                != request_case.starting_artifact_content_ids
+            ):
+                raise ExpertReleaseMatrixPlanError(
+                    "release matrix source case differs from candidate episode evidence"
+                )
     verified = {
         (
             adapter.manifest.task_adapter_manifest_id,
@@ -429,7 +578,13 @@ def validate_expert_release_matrix_plan_durable_shape(
         )
         for authority in plan.adapter_authorities
     }
-    if set(verified) != authority_packages:
+    active_pins = {
+        (pin.task_adapter_manifest_id, pin.verification_receipt_id): pin
+        for pin in attempt.task_adapter_pins
+    }
+    if set(verified) != authority_packages or not set(active_pins).issubset(
+        authority_packages
+    ):
         raise ExpertReleaseMatrixPlanError(
             "release matrix verified adapter coverage is not exact"
         )
@@ -448,6 +603,17 @@ def validate_expert_release_matrix_plan_durable_shape(
             raise ExpertReleaseMatrixPlanError(
                 "release matrix adapter authority differs from verified package"
             )
+        package_key = (
+            authority.task_adapter_manifest.task_adapter_manifest_id,
+            authority.verification_receipt.verification_receipt_id,
+        )
+        if package_key in active_pins:
+            if authority.task_adapter_pin != active_pins[package_key]:
+                raise ExpertReleaseMatrixPlanError(
+                    "release matrix active adapter authority differs from its pin"
+                )
+            for case in authority.task_adapter_manifest.release_matrix_cases:
+                case.task_context_binding.validate_against(packet.scope_contract)
 
 
 @dataclass(frozen=True)
@@ -458,7 +624,7 @@ class PreparedExpertReleaseMatrixPlan:
     state: ExpertCandidateValidationState
     attempt: ExpertValidationAttempt
     accepted_stage_results: tuple[ExpertReleaseMatrixAcceptedResult, ...]
-    source_replay_request: ExpertSourceReplayExecutionRequest
+    source_replay_request: ExpertSourceReplayExecutionRequest | None
     stored_candidate: StoredExpertCandidate
     verified_adapters: tuple[VerifiedTaskAdapter, ...]
     validation_policy: ExpertValidationPolicy
@@ -473,8 +639,11 @@ class PreparedExpertReleaseMatrixPlan:
             type(self.plan) is not ExpertReleaseMatrixEvaluationPlan
             or type(self.state) is not ExpertCandidateValidationState
             or type(self.attempt) is not ExpertValidationAttempt
-            or type(self.source_replay_request)
-            is not ExpertSourceReplayExecutionRequest
+            or (
+                self.source_replay_request is not None
+                and type(self.source_replay_request)
+                is not ExpertSourceReplayExecutionRequest
+            )
             or not isinstance(self.stored_candidate, StoredExpertCandidate)
             or any(
                 not isinstance(adapter, VerifiedTaskAdapter)
@@ -510,14 +679,19 @@ def prepare_expert_release_matrix_plan_for_admission(
     state: ExpertCandidateValidationState,
     attempt: ExpertValidationAttempt,
     accepted_stage_results: tuple[ExpertReleaseMatrixAcceptedResult, ...],
-    source_replay_request: ExpertSourceReplayExecutionRequest,
+    source_replay_request: ExpertSourceReplayExecutionRequest | None,
     candidate_store: ExpertReleaseMatrixCandidateProvider,
     current_release_provider: ExpertReleaseMatrixCurrentReleaseProvider,
     task_adapter_provider: VerifiedTaskAdapterProvider,
     validation_policy: ExpertValidationPolicy,
     validation_settings: ExpertValidationSettings,
 ) -> PreparedExpertReleaseMatrixPlan:
-    """Freshly reopen external authority immediately before reservation."""
+    """Freshly reopen external authority immediately before reservation.
+
+    Reservation performs no evaluator work. Bootstrap absence is checked on both
+    sides of exact adapter resolution; durable alias replay stays offline. The
+    later execution and publication boundaries must reacquire current authority.
+    """
 
     if type(prepared_plan) is not PreparedExpertReleaseMatrixPlan:
         raise ExpertReleaseMatrixPlanError(
@@ -586,23 +760,48 @@ def derive_expert_release_matrix_plan(
     state: ExpertCandidateValidationState,
     attempt: ExpertValidationAttempt,
     accepted_stage_results: tuple[ExpertReleaseMatrixAcceptedResult, ...],
-    source_replay_request: ExpertSourceReplayExecutionRequest,
+    source_replay_request: ExpertSourceReplayExecutionRequest | None,
     stored_candidate: StoredExpertCandidate,
     verified_adapters: tuple[VerifiedTaskAdapter, ...],
     validation_policy: ExpertValidationPolicy,
     validation_settings: ExpertValidationSettings,
 ) -> PreparedExpertReleaseMatrixPlan:
-    """Derive all parent-backed cells from the complete accepted source replay."""
+    """Derive every signed active case and any exact accepted source evidence."""
 
-    if attempt.parent_release_id is None:
-        raise ExpertReleaseMatrixPlanError(
-            "source-only release matrix derivation requires a parent release"
-        )
     result = _source_result(accepted_stage_results)
-    comparisons = {
-        comparison.execution_case_id: comparison
-        for comparison in result.paired_comparison_receipt.case_comparisons
-    }
+    if (result is None) != (source_replay_request is None):
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix source result and execution request must appear together"
+        )
+    mode = (
+        ExpertReleaseMatrixMode.BOOTSTRAP
+        if attempt.parent_release_id is None
+        else ExpertReleaseMatrixMode.PARENT_COMPARISON
+    )
+    if mode is ExpertReleaseMatrixMode.BOOTSTRAP and source_replay_request is not None:
+        raise ExpertReleaseMatrixPlanError(
+            "bootstrap release matrix cannot reuse parent comparison evidence"
+        )
+    if (
+        mode is ExpertReleaseMatrixMode.PARENT_COMPARISON
+        and source_replay_request is None
+    ):
+        raise ExpertReleaseMatrixPlanError(
+            "parent release matrix requires accepted source replay authority"
+        )
+    parent_tree_hash = (
+        None
+        if mode is ExpertReleaseMatrixMode.BOOTSTRAP
+        else stored_candidate.closure.manifest.parent_tree_hash
+    )
+    if (
+        source_replay_request is not None
+        and source_replay_request.parent_tree_hash != parent_tree_hash
+    ):
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix source request differs from the candidate parent tree"
+        )
+    canonical_adapters = _canonical_verified_adapters(verified_adapters)
     episodes = {
         episode.episode_id: episode
         for episode in stored_candidate.closure.trigger_packet.episodes
@@ -612,91 +811,194 @@ def derive_expert_release_matrix_plan(
             adapter.manifest.task_adapter_manifest_id,
             adapter.verification_receipt.verification_receipt_id,
         ): adapter
-        for adapter in verified_adapters
+        for adapter in canonical_adapters
     }
-    authorities = {key: _authority(adapter) for key, adapter in adapters.items()}
+    active_pins = {
+        (pin.task_adapter_manifest_id, pin.verification_receipt_id): pin
+        for pin in attempt.task_adapter_pins
+    }
+    if len(active_pins) != len(attempt.task_adapter_pins):
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix active adapter pins are not unique"
+        )
+    source_package_keys = (
+        set()
+        if source_replay_request is None
+        else {
+            (case.task_adapter_manifest_id, case.verification_receipt_id)
+            for case in source_replay_request.cases
+        }
+    )
+    required_package_keys = {*active_pins, *source_package_keys}
+    if set(adapters) != required_package_keys:
+        raise ExpertReleaseMatrixPlanError(
+            "release matrix verified adapter closure is not exact"
+        )
+    authorities = {
+        key: _authority(adapters[key]) for key in sorted(required_package_keys)
+    }
+    for package_key, pin in active_pins.items():
+        if authorities[package_key].task_adapter_pin != pin:
+            raise ExpertReleaseMatrixPlanError(
+                "release matrix active adapter differs from its attempt pin"
+            )
     provenances = []
     cells = []
-    for request_case in source_replay_request.cases:
-        package_key = (
-            request_case.task_adapter_manifest_id,
-            request_case.verification_receipt_id,
-        )
-        authority = authorities.get(package_key)
-        episode = episodes.get(request_case.episode_id)
-        comparison_case = comparisons.get(request_case.execution_case_id)
-        if authority is None or episode is None or comparison_case is None:
-            raise ExpertReleaseMatrixPlanError(
-                "release matrix derivation lacks source case authority"
-            )
-        fingerprint_ids = tuple(
-            item.evaluation_fingerprint.evaluation_fingerprint_id
-            for item in comparison_case.fingerprint_comparisons
-        )
-        provenance_dependencies = {
-            authority.adapter_authority_id,
-            episode.task_context_binding.task_context_binding_id,
-            *fingerprint_ids,
-            result.stage_result_record_id,
-            result.paired_comparison_receipt.paired_comparison_receipt_id,
-            request_case.execution_case_id,
-            source_replay_request.source_replay_selection_id,
-            *request_case.bundle_lineage_ids,
-            request_case.episode_id,
-            request_case.context_materialization_receipt_id,
-            *request_case.starting_artifact_content_ids,
-        }
-        provenance = ExpertReleaseMatrixProvenanceBinding.mint(
-            provenance_kind=ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY,
-            adapter_authority_id=authority.adapter_authority_id,
-            task_context_binding=episode.task_context_binding,
-            evaluation_fingerprint_ids=fingerprint_ids,
-            adapter_case_id=None,
-            source_replay_stage_result_id=result.stage_result_record_id,
-            paired_comparison_receipt_id=(
-                result.paired_comparison_receipt.paired_comparison_receipt_id
-            ),
-            source_execution_case_id=request_case.execution_case_id,
-            source_replay_selection_id=source_replay_request.source_replay_selection_id,
-            source_bundle_id=request_case.source_bundle_id,
-            bundle_lineage_ids=request_case.bundle_lineage_ids,
-            source_episode_id=request_case.episode_id,
-            context_materialization_receipt_id=(
-                request_case.context_materialization_receipt_id
-            ),
-            starting_artifact_ids=request_case.starting_artifact_content_ids,
-            exact_dependency_ids=tuple(sorted(provenance_dependencies)),
-        )
-        provenances.append(provenance)
-        for comparison in comparison_case.fingerprint_comparisons:
-            fingerprint = comparison.evaluation_fingerprint
+
+    def append_cells(authority, provenance, fingerprint_bindings) -> None:
+        for fingerprint, comparison_binding in fingerprint_bindings:
             dependencies = {
                 attempt.validation_attempt_id,
                 attempt.candidate_id,
-                attempt.parent_release_id,
                 authority.adapter_authority_id,
                 provenance.provenance_binding_id,
-                episode.task_context_binding.task_context_binding_id,
+                provenance.task_context_binding.task_context_binding_id,
                 provenance.independence_identity_id,
                 fingerprint.evaluation_fingerprint_id,
             }
+            if attempt.parent_release_id is not None:
+                dependencies.add(attempt.parent_release_id)
             cells.append(
                 ExpertReleaseMatrixEvaluationCell.mint(
-                    mode=ExpertReleaseMatrixMode.PARENT_COMPARISON,
+                    mode=mode,
                     validation_attempt_id=attempt.validation_attempt_id,
                     candidate_id=attempt.candidate_id,
                     candidate_tree_hash=attempt.candidate_tree_hash,
                     parent_release_id=attempt.parent_release_id,
-                    parent_tree_hash=source_replay_request.parent_tree_hash,
+                    parent_tree_hash=parent_tree_hash,
                     adapter_authority_id=authority.adapter_authority_id,
                     provenance_binding_id=provenance.provenance_binding_id,
-                    task_context_binding=episode.task_context_binding,
+                    task_context_binding=provenance.task_context_binding,
                     independence_identity_id=provenance.independence_identity_id,
                     evaluation_fingerprint=fingerprint,
-                    metric_comparison_binding=comparison.metric_comparison_binding,
+                    metric_comparison_binding=comparison_binding,
                     exact_dependency_ids=tuple(sorted(dependencies)),
                 )
             )
+
+    if source_replay_request is not None and result is not None:
+        comparisons = {
+            comparison.execution_case_id: comparison
+            for comparison in result.paired_comparison_receipt.case_comparisons
+        }
+        for request_case in source_replay_request.cases:
+            package_key = (
+                request_case.task_adapter_manifest_id,
+                request_case.verification_receipt_id,
+            )
+            authority = authorities[package_key]
+            episode = episodes.get(request_case.episode_id)
+            comparison_case = comparisons.get(request_case.execution_case_id)
+            if episode is None or comparison_case is None:
+                raise ExpertReleaseMatrixPlanError(
+                    "release matrix derivation lacks source case authority"
+                )
+            fingerprint_ids = tuple(
+                item.evaluation_fingerprint.evaluation_fingerprint_id
+                for item in comparison_case.fingerprint_comparisons
+            )
+            provenance_dependencies = {
+                authority.adapter_authority_id,
+                episode.task_context_binding.task_context_binding_id,
+                *fingerprint_ids,
+                result.stage_result_record_id,
+                result.paired_comparison_receipt.paired_comparison_receipt_id,
+                request_case.execution_case_id,
+                source_replay_request.source_replay_selection_id,
+                *request_case.bundle_lineage_ids,
+                request_case.episode_id,
+                request_case.context_materialization_receipt_id,
+                *request_case.starting_artifact_content_ids,
+            }
+            provenance = ExpertReleaseMatrixProvenanceBinding.mint(
+                provenance_kind=ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY,
+                adapter_authority_id=authority.adapter_authority_id,
+                task_context_binding=episode.task_context_binding,
+                evaluation_fingerprint_ids=fingerprint_ids,
+                adapter_case=None,
+                source_replay_stage_result_id=result.stage_result_record_id,
+                paired_comparison_receipt_id=(
+                    result.paired_comparison_receipt.paired_comparison_receipt_id
+                ),
+                source_execution_case_id=request_case.execution_case_id,
+                source_replay_selection_id=(
+                    source_replay_request.source_replay_selection_id
+                ),
+                source_bundle_id=request_case.source_bundle_id,
+                bundle_lineage_ids=request_case.bundle_lineage_ids,
+                source_episode_id=request_case.episode_id,
+                context_materialization_receipt_id=(
+                    request_case.context_materialization_receipt_id
+                ),
+                starting_artifact_ids=request_case.starting_artifact_content_ids,
+                exact_dependency_ids=tuple(sorted(provenance_dependencies)),
+            )
+            provenances.append(provenance)
+            append_cells(
+                authority,
+                provenance,
+                tuple(
+                    (
+                        comparison.evaluation_fingerprint,
+                        comparison.metric_comparison_binding,
+                    )
+                    for comparison in comparison_case.fingerprint_comparisons
+                ),
+            )
+
+    for package_key, pin in sorted(
+        active_pins.items(), key=lambda item: item[1].adapter_binding_id
+    ):
+        authority = authorities[package_key]
+        manifest = authority.task_adapter_manifest
+        comparison_bindings = {
+            (binding.evaluator_fingerprint, binding.metric_name): binding
+            for binding in manifest.task_evaluator.metric_comparison_bindings
+        }
+        for case in manifest.release_matrix_cases:
+            provenance_dependencies = {
+                authority.adapter_authority_id,
+                case.task_context_binding.task_context_binding_id,
+                case.release_matrix_case_id,
+                case.independence_group.independence_group_id,
+                *case.evaluation_fingerprint_ids,
+                *case.starting_artifact_ids,
+            }
+            provenance = ExpertReleaseMatrixProvenanceBinding.mint(
+                provenance_kind=ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE,
+                adapter_authority_id=authority.adapter_authority_id,
+                task_context_binding=case.task_context_binding,
+                evaluation_fingerprint_ids=case.evaluation_fingerprint_ids,
+                adapter_case=case,
+                source_replay_stage_result_id=None,
+                paired_comparison_receipt_id=None,
+                source_execution_case_id=None,
+                source_replay_selection_id=None,
+                source_bundle_id=None,
+                bundle_lineage_ids=(),
+                source_episode_id=None,
+                context_materialization_receipt_id=None,
+                starting_artifact_ids=case.starting_artifact_ids,
+                exact_dependency_ids=tuple(sorted(provenance_dependencies)),
+            )
+            fingerprint_bindings = tuple(
+                (
+                    fingerprint,
+                    comparison_bindings.get(
+                        (
+                            fingerprint.evaluator_fingerprint,
+                            fingerprint.metric_name,
+                        )
+                    ),
+                )
+                for fingerprint in case.evaluation_fingerprints
+            )
+            if any(binding is None for _fingerprint, binding in fingerprint_bindings):
+                raise ExpertReleaseMatrixPlanError(
+                    "release matrix adapter case lacks metric comparison authority"
+                )
+            provenances.append(provenance)
+            append_cells(authority, provenance, fingerprint_bindings)
     ordered_authorities = tuple(
         sorted(authorities.values(), key=lambda item: item.canonical_key)
     )
@@ -733,18 +1035,19 @@ def derive_expert_release_matrix_plan(
             attempt.candidate_commit_record_id,
             attempt.scope_contract_id,
             attempt.validation_policy_id,
-            attempt.parent_release_id,
         }
     )
+    if attempt.parent_release_id is not None:
+        external.add(attempt.parent_release_id)
     plan = ExpertReleaseMatrixEvaluationPlan.mint(
-        mode=ExpertReleaseMatrixMode.PARENT_COMPARISON,
+        mode=mode,
         validation_attempt_id=attempt.validation_attempt_id,
         candidate_id=attempt.candidate_id,
         candidate_commit_record_id=attempt.candidate_commit_record_id,
         candidate_tree_hash=attempt.candidate_tree_hash,
         scope_contract_id=attempt.scope_contract_id,
         parent_release_id=attempt.parent_release_id,
-        parent_tree_hash=source_replay_request.parent_tree_hash,
+        parent_tree_hash=parent_tree_hash,
         validation_policy_id=attempt.validation_policy_id,
         configuration_fingerprint=attempt.configuration_fingerprint,
         adapter_authorities=ordered_authorities,
@@ -759,7 +1062,7 @@ def derive_expert_release_matrix_plan(
         accepted_stage_results=accepted_stage_results,
         source_replay_request=source_replay_request,
         stored_candidate=stored_candidate,
-        verified_adapters=verified_adapters,
+        verified_adapters=canonical_adapters,
         validation_policy=validation_policy,
         validation_settings=validation_settings,
     )

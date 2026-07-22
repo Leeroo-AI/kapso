@@ -18,6 +18,7 @@ from kapso.cross_run.contracts import (
     StrictContract,
     TaskAdapterManifest,
     TaskAdapterPackagePin,
+    TaskAdapterReleaseMatrixCase,
     TaskContextBinding,
     TaskEvaluatorMetricComparisonBinding,
 )
@@ -205,7 +206,7 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
     adapter_authority_id: str
     task_context_binding: TaskContextBinding
     evaluation_fingerprint_ids: tuple[str, ...]
-    adapter_case_id: str | None
+    adapter_case: TaskAdapterReleaseMatrixCase | None
     source_replay_stage_result_id: str | None
     paired_comparison_receipt_id: str | None
     source_execution_case_id: str | None
@@ -238,7 +239,7 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
             )
         if self.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
             if (
-                self.adapter_case_id is None
+                self.adapter_case is None
                 or self.source_replay_stage_result_id is not None
                 or self.paired_comparison_receipt_id is not None
                 or self.source_execution_case_id is not None
@@ -247,26 +248,37 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
                 or self.bundle_lineage_ids
                 or self.source_episode_id is not None
                 or self.context_materialization_receipt_id is not None
-                or self.starting_artifact_ids
             ):
                 raise ExpertReleaseMatrixContractError(
                     "adapter-case provenance must contain only its precommitted task case"
                 )
-            _require_namespaced_id(
-                self.adapter_case_id,
-                "task-adapter-release-matrix-case",
-                "release matrix adapter-owned task case",
-            )
+            case = self.adapter_case
+            if (
+                self.task_context_binding != case.task_context_binding
+                or self.evaluation_fingerprint_ids != case.evaluation_fingerprint_ids
+                or self.starting_artifact_ids != case.starting_artifact_ids
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "adapter-case provenance differs from its embedded task case"
+                )
+            for artifact_id in self.starting_artifact_ids:
+                _require_namespaced_id(
+                    artifact_id,
+                    "task-adapter-release-matrix-starting-artifact",
+                    "release matrix adapter starting artifact",
+                )
             expected_dependencies = {
                 self.adapter_authority_id,
                 self.task_context_binding.task_context_binding_id,
-                self.adapter_case_id,
+                case.release_matrix_case_id,
+                case.independence_group.independence_group_id,
                 *self.evaluation_fingerprint_ids,
+                *self.starting_artifact_ids,
             }
             self._validate_dependency_closure(expected_dependencies)
             return
         if (
-            self.adapter_case_id is not None
+            self.adapter_case is not None
             or self.source_replay_stage_result_id is None
             or self.paired_comparison_receipt_id is None
             or self.source_execution_case_id is None
@@ -377,13 +389,13 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
     @property
     def provenance_case_id(self) -> str:
         if self.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
-            return self.adapter_case_id
+            return self.adapter_case.release_matrix_case_id
         return self.source_execution_case_id
 
     @property
     def independence_identity_id(self) -> str:
         if self.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
-            return self.adapter_case_id
+            return self.adapter_case.independence_group.independence_group_id
         return self.bundle_lineage_ids[0]
 
 
@@ -439,7 +451,7 @@ class ExpertReleaseMatrixEvaluationCell(StrictContract):
         )
         if self.independence_identity_id.split(":sha256:", 1)[0] not in {
             "run-bundle",
-            "task-adapter-release-matrix-case",
+            "task-adapter-release-matrix-independence-group",
         }:
             raise ExpertReleaseMatrixContractError(
                 "release matrix cell independence identity uses the wrong namespace"
@@ -676,6 +688,30 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             raise ExpertReleaseMatrixContractError(
                 "bootstrap release matrix requires adapter-owned task cases"
             )
+        for provenance in self.provenance_bindings:
+            authority = authorities.get(provenance.adapter_authority_id)
+            if authority is None:
+                raise ExpertReleaseMatrixContractError(
+                    "release matrix provenance lacks adapter authority"
+                )
+            if (
+                provenance.provenance_kind
+                is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+            ):
+                manifest_cases = {
+                    case.release_matrix_case_id: case
+                    for case in authority.task_adapter_manifest.release_matrix_cases
+                }
+                if (
+                    provenance.adapter_case is None
+                    or manifest_cases.get(
+                        provenance.adapter_case.release_matrix_case_id
+                    )
+                    != provenance.adapter_case
+                ):
+                    raise ExpertReleaseMatrixContractError(
+                        "release matrix adapter provenance lacks exact manifest authority"
+                    )
         fingerprint_groups: set[tuple[str, str, str]] = set()
         observed_fingerprints: dict[str, set[str]] = {}
         for cell in self.evaluation_cells:
@@ -683,6 +719,12 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             provenance = provenance_by_id[cell.provenance_binding_id]
             manifest = authority.task_adapter_manifest
             context = cell.task_context_binding
+            adapter_case_fingerprint = None
+            if provenance.adapter_case is not None:
+                adapter_case_fingerprint = {
+                    fingerprint.evaluation_fingerprint_id: fingerprint
+                    for fingerprint in provenance.adapter_case.evaluation_fingerprints
+                }.get(cell.evaluation_fingerprint.evaluation_fingerprint_id)
             if (
                 provenance.task_context_binding != context
                 or provenance.adapter_authority_id != cell.adapter_authority_id
@@ -694,6 +736,11 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
                 not in manifest.task_evaluator.supported_evaluator_fingerprints
                 or cell.metric_comparison_binding
                 not in manifest.task_evaluator.metric_comparison_bindings
+                or (
+                    provenance.provenance_kind
+                    is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+                    and adapter_case_fingerprint != cell.evaluation_fingerprint
+                )
             ):
                 raise ExpertReleaseMatrixContractError(
                     "release matrix cell differs from adapter or provenance authority"

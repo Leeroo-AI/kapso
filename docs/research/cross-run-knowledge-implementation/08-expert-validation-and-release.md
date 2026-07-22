@@ -708,14 +708,32 @@ declared by each case, never fingerprints invented from the adapter's metric cat
 The eventual report must name the validation-operation alias that reserved the plan,
 so embedding an otherwise identical plan cannot fabricate temporal precommit.
 
-The implemented planner currently derives parent-comparison plans only from the
-complete accepted source-replay result. It freshly reopens the candidate, current
-parent, and every exact adapter package before admission; the validation journal then
-binds one plan to the unchanged `RELEASE_MATRIX` head without advancing that head.
-Identical concurrent admission replays the same alias. A different plan, stale head,
-changed parent, corrupt durable join, bootstrap attempt, or untyped adapter-owned case
-fails closed. Bootstrap and mixed-channel planning remain unavailable until the task
-adapter publishes typed, resolver-backed case authority.
+`TaskAdapterManifest` now owns a non-empty canonical set of signed release-matrix
+cases. Each case embeds its full task context and fingerprints, an explicit
+statistical independence group, and any starting-artifact byte trees stored under
+the package's reserved asset subtree. Package verification rejects missing,
+substituted, overlapping, hidden, or executable/runtime-aliased asset bytes. Exact
+scope validation happens at enrollment and again at plan admission. The structural
+anti-inflation rule prevents budget, runtime, metric, fidelity, or replicate changes
+from turning one dataset origin into multiple claimed independence groups.
+
+The planner now derives a mixed parent matrix from the complete accepted source
+replay plus every signed case in every immutable attempt-pinned active adapter.
+Historical package versions needed by source evidence remain exact authorities but
+do not contribute adapter-owned cases unless they are also active pins. Bootstrap
+derives only active adapter cases, names no parent or control, needs no source request,
+and reserves/reopens through the same unchanged-head journal alias. Parent mode
+requires accepted source authority and directly binds the plan parent tree to the
+candidate's verified parent closure.
+
+Plan reservation performs no evaluator spend. Admission reopens the candidate and
+every exact package, checks current release authority before and after adapter
+resolution, and rejects a release that appears during bootstrap admission. The
+durable alias intentionally replays offline; authenticated current/empty authority
+must be reacquired before evaluator spawn and again before terminal publication.
+Identical concurrent admission replays the same alias, while a different plan, stale
+head, changed current authority, corrupt durable join, or foreign adapter case fails
+closed.
 
 The report covers reserved cells exactly once and in canonical order, with complete
 candidate and, when parent-backed, control replicate maps. Observation-event

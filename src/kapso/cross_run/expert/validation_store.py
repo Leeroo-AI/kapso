@@ -2221,16 +2221,18 @@ class ExpertValidationStore:
             | ExpertAutomatedReviewStageResultRecord,
             ...,
         ],
-    ) -> ExpertSourceReplayExecutionRequest:
+    ) -> ExpertSourceReplayExecutionRequest | None:
         source_results = tuple(
             result
             for result in accepted_results
             if type(result) is ExpertSourceReplayStageResultRecord
         )
-        if len(source_results) != 1:
+        if len(source_results) > 1:
             raise ExpertValidationStoreError(
-                "release matrix plan requires one accepted source replay result"
+                "release matrix plan accepts at most one source replay result"
             )
+        if not source_results:
+            return None
         return self._read_contract_unlocked(
             source_results[0].execution_request_id,
             ExpertSourceReplayExecutionRequest,

@@ -27,6 +27,7 @@ def task_adapter_release_matrix_case(
     label: str,
     starting_artifacts: tuple[TaskAdapterReleaseMatrixStartingArtifact, ...] = (),
     evaluation_bindings: tuple[tuple[str, str, ObjectiveDirection], ...] | None = None,
+    seed_or_replicate_ids: tuple[str, ...] = ("seed-1",),
 ) -> TaskAdapterReleaseMatrixCase:
     context = TaskContextBinding.mint(
         scope_contract_id=scope_contract_id,
@@ -65,7 +66,7 @@ def task_adapter_release_matrix_case(
                     objective_direction=direction,
                     fidelity="full",
                     fraction=1.0,
-                    seed_or_replicate_ids=("seed-1",),
+                    seed_or_replicate_ids=seed_or_replicate_ids,
                     aggregation_protocol="arithmetic-mean",
                     judge_version=None,
                 )

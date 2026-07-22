@@ -10,6 +10,7 @@ from kapso.cross_run.canonical import content_id
 from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
     ExpertValidationStage,
+    TaskAdapterManifest,
 )
 from kapso.cross_run.expert import (
     ExpertCandidateProposalEngine,
@@ -26,6 +27,10 @@ from kapso.cross_run.expert.promotion_plan import (
     PreparedExpertReleaseMatrixPlan,
     _canonical_verified_adapters,
     derive_expert_release_matrix_plan,
+)
+from kapso.cross_run.expert.promotion_contracts import (
+    ExpertReleaseMatrixMode,
+    ExpertReleaseMatrixProvenanceKind,
 )
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionProviderRegistry,
@@ -56,6 +61,7 @@ from kapso.cross_run.expert.validation_store import (
 )
 from test_expert_candidate_workspace import FixtureSourceMaterializer
 from test_expert_candidates import (
+    bootstrap_candidate_closure,
     expert_settings,
     sanitation_settings,
 )
@@ -77,10 +83,12 @@ from test_expert_source_replay_request import (
     _request_fixture,
 )
 from test_expert_triggers import trigger_settings
+from test_cross_run_contracts import verified_test_task_adapter
 from test_expert_validation import (
     _AttestationVerifier,
     _ValidationStateProvider,
 )
+from task_adapter_matrix_fixtures import task_adapter_release_matrix_case
 
 
 def _quality_only_validation_settings():
@@ -127,7 +135,13 @@ class _ParentChangingDuringAdapterResolution:
         return self.changed_release_id
 
 
-def _release_matrix_fixture(tmp_path, monkeypatch):
+def _release_matrix_fixture(
+    tmp_path,
+    monkeypatch,
+    *,
+    rotate_active_adapter=False,
+    add_active_case=False,
+):
     settings = _quality_only_validation_settings()
     source_fixture = _request_fixture(
         tmp_path,
@@ -206,7 +220,48 @@ def _release_matrix_fixture(tmp_path, monkeypatch):
         )
         .stored_candidate
     )
-    adapter_provider = _AdapterProvider(packet)
+    adapter_provider = _AdapterProvider(
+        packet,
+        rotate_active=rotate_active_adapter,
+    )
+    if add_active_case:
+        active_manifest = adapter_provider.adapter.manifest
+        comparison_bindings = active_manifest.task_evaluator.metric_comparison_bindings
+        additional_case = task_adapter_release_matrix_case(
+            scope_contract_id=active_manifest.scope_contract_id,
+            scope_id=packet.scope_contract.scope_id,
+            task_family_id=active_manifest.task_family_id,
+            task_adapter_id=active_manifest.task_adapter_id,
+            evaluator_fingerprint=comparison_bindings[0].evaluator_fingerprint,
+            metric_directions=tuple(
+                (binding.metric_name, binding.objective_direction)
+                for binding in comparison_bindings
+            ),
+            transfer_dimensions=dict(
+                active_manifest.release_matrix_cases[
+                    0
+                ].task_context_binding.transfer_dimensions
+            ),
+            label="additional-active-case",
+        )
+        active_values = active_manifest.to_dict()
+        active_values.pop("task_adapter_manifest_id")
+        active_values["release_matrix_cases"] = tuple(
+            sorted(
+                (*active_manifest.release_matrix_cases, additional_case),
+                key=lambda case: case.release_matrix_case_id,
+            )
+        )
+        adapter_provider.adapter = verified_test_task_adapter(
+            TaskAdapterManifest.mint(**active_values),
+            source_contents=adapter_provider.adapter.source_contents,
+        )
+        adapter_provider.exact_adapters[
+            (
+                adapter_provider.adapter.manifest.task_adapter_manifest_id,
+                adapter_provider.adapter.verification_receipt.verification_receipt_id,
+            )
+        ] = adapter_provider.adapter
     current_release_provider = _CurrentReleaseProvider(packet.parent_release_id)
     eligibility = ExpertCandidateEligibilityEvaluator(
         settings,
@@ -342,15 +397,7 @@ def _release_matrix_fixture(tmp_path, monkeypatch):
         review_execution
     ).snapshot
     assert snapshot.latest_attempt is not None
-    verified_adapters = tuple(
-        {
-            (
-                case.task_adapter.manifest.task_adapter_manifest_id,
-                case.task_adapter.verification_receipt.verification_receipt_id,
-            ): case.task_adapter
-            for case in source_prepared.cases
-        }.values()
-    )
+    verified_adapters = tuple(adapter_provider.exact_adapters.values())
     prepared_plan = derive_expert_release_matrix_plan(
         state=snapshot.state,
         attempt=snapshot.latest_attempt,
@@ -382,22 +429,294 @@ def test_plan_derivation_uses_every_accepted_source_case_and_fingerprint(
         for case in source_result.paired_comparison_receipt.case_comparisons
     }
 
+    source_provenances = tuple(
+        provenance
+        for provenance in prepared.plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
+    )
+    adapter_provenances = tuple(
+        provenance
+        for provenance in prepared.plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+    )
     assert (
-        {
-            provenance.source_execution_case_id
-            for provenance in prepared.plan.provenance_bindings
-        }
+        {provenance.source_execution_case_id for provenance in source_provenances}
         == request_case_ids
         == comparison_case_ids
     )
+    assert {provenance.provenance_case_id for provenance in adapter_provenances} == {
+        case.release_matrix_case_id
+        for authority in prepared.plan.adapter_authorities
+        if authority.task_adapter_pin in prepared.attempt.task_adapter_pins
+        for case in authority.task_adapter_manifest.release_matrix_cases
+    }
     assert {
         cell.evaluation_fingerprint.evaluation_fingerprint_id
         for cell in prepared.plan.evaluation_cells
+        if cell.provenance_binding_id
+        in {provenance.provenance_binding_id for provenance in source_provenances}
     } == {
         fingerprint_id
         for case in prepared.source_replay_request.cases
         for fingerprint_id in case.source_evaluation_fingerprint_ids
     }
+
+
+def test_historical_source_package_cases_are_not_planned_as_active_cases(
+    tmp_path,
+    monkeypatch,
+):
+    _, _, prepared = _release_matrix_fixture(
+        tmp_path,
+        monkeypatch,
+        rotate_active_adapter=True,
+    )
+    authority_by_id = {
+        authority.adapter_authority_id: authority
+        for authority in prepared.plan.adapter_authorities
+    }
+    active_manifest_ids = {
+        pin.task_adapter_manifest_id for pin in prepared.attempt.task_adapter_pins
+    }
+    adapter_authority_manifest_ids = {
+        authority_by_id[
+            provenance.adapter_authority_id
+        ].task_adapter_manifest.task_adapter_manifest_id
+        for provenance in prepared.plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+    }
+    source_authority_manifest_ids = {
+        authority_by_id[
+            provenance.adapter_authority_id
+        ].task_adapter_manifest.task_adapter_manifest_id
+        for provenance in prepared.plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
+    }
+
+    assert adapter_authority_manifest_ids == active_manifest_ids
+    assert source_authority_manifest_ids.isdisjoint(active_manifest_ids)
+    assert len(prepared.plan.adapter_authorities) == 2
+
+
+def test_plan_enumerates_every_case_from_the_active_signed_manifest(
+    tmp_path,
+    monkeypatch,
+):
+    _, _, prepared = _release_matrix_fixture(
+        tmp_path,
+        monkeypatch,
+        add_active_case=True,
+    )
+    active_manifest_ids = {
+        pin.task_adapter_manifest_id for pin in prepared.attempt.task_adapter_pins
+    }
+    active_authorities = tuple(
+        authority
+        for authority in prepared.plan.adapter_authorities
+        if authority.task_adapter_manifest.task_adapter_manifest_id
+        in active_manifest_ids
+    )
+    adapter_provenances = tuple(
+        provenance
+        for provenance in prepared.plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+    )
+
+    assert len(active_authorities) == 1
+    assert {provenance.provenance_case_id for provenance in adapter_provenances} == {
+        case.release_matrix_case_id
+        for case in active_authorities[0].task_adapter_manifest.release_matrix_cases
+    }
+    assert len(adapter_provenances) == 2
+
+
+def _bootstrap_release_matrix_fixture(
+    tmp_path,
+    monkeypatch,
+):
+    settings = _quality_only_validation_settings()
+    configured_expert_settings = replace(
+        expert_settings(),
+        validation=settings,
+    )
+    workspace_root = (tmp_path / "bootstrap-system").resolve()
+    workspace_root.mkdir(mode=0o700)
+    cross_run_root = (workspace_root / ".kapso" / "cross_run").resolve()
+    cross_run_root.mkdir(mode=0o700, parents=True)
+    candidates = ExpertCandidateStore(
+        (workspace_root / configured_expert_settings.candidate_path).resolve(),
+        cross_run_root,
+        ExpertCandidateValidator(
+            configured_expert_settings,
+            sanitation_settings(),
+        ),
+    )
+    stored_candidate = candidates.persist(bootstrap_candidate_closure())
+    packet = stored_candidate.closure.trigger_packet
+    adapter_provider = _AdapterProvider(packet)
+    current_release_provider = _CurrentReleaseProvider(None)
+    eligibility = ExpertCandidateEligibilityEvaluator(
+        settings,
+        candidates,
+        adapter_provider,
+        current_release_provider,
+    ).decide(candidate_id=stored_candidate.closure.manifest.candidate_id)
+    reducer = ExpertValidationReducer(
+        settings,
+        candidates,
+        _AttestationVerifier(),
+        adapter_provider,
+        current_release_provider,
+        _ValidationStateProvider(),
+    )
+    validation_store = ExpertValidationStore(
+        (workspace_root / settings.state_path).resolve(),
+        cross_run_root,
+        settings,
+        reducer,
+    )
+    snapshot = validation_store.publish_start(
+        expected_transition_id=None,
+        eligibility=eligibility,
+    ).snapshot
+    assert snapshot.latest_attempt is not None
+    while snapshot.state.next_stage is not ExpertValidationStage.AUTOMATED_REVIEW:
+        stage = snapshot.state.next_stage
+        assert stage is not None
+        assert stage not in {
+            ExpertValidationStage.SOURCE_RUN_REPLAY,
+            ExpertValidationStage.RELEASE_MATRIX,
+        }
+        result = ExpertEvaluatorRunBuilder(settings).build(
+            attempt=snapshot.latest_attempt,
+            stage=stage,
+            exact_additional_input_ids=(),
+            output_payloads={"result.json": b'{"completed":true}'},
+            measurements={},
+            costs={},
+            duration_seconds=1.0,
+            outcome=ExpertEvaluatorOutcome.PASSED,
+            signature="test-signature",
+        )
+        snapshot = validation_store.publish_evaluator_result(
+            candidate_id=snapshot.state.candidate_id,
+            expected_transition_id=snapshot.transition.transition_id,
+            result=result,
+        ).snapshot
+        assert snapshot.latest_attempt is not None
+    outputs = {
+        reviewer.reviewer_role: {
+            "disposition": "core_eligible",
+            "judgment": settings.policy.promotion.approval_judgment,
+            "rationale": f"{reviewer.reviewer_id} accepted bootstrap evidence.",
+        }
+        for reviewer in settings.policy.reviewers
+    }
+    monkeypatch.setattr(
+        "kapso.execution.coding_agents.structured_call.subprocess.run",
+        AutomatedReviewProcess(outputs),
+    )
+    review_coordinator = ExpertAutomatedReviewCoordinator(
+        configured_expert_settings,
+        workspace_root,
+    )
+    validation_store._bind_automated_review_publication_authority(review_coordinator)
+    prepared_review = review_coordinator.prepare(
+        stored_candidate=stored_candidate,
+        validation_attempt=snapshot.latest_attempt,
+        authorization_transition_id=snapshot.transition.transition_id,
+        authorization_state=snapshot.state,
+        accepted_stage_results=snapshot.accepted_stage_results,
+    )
+    review_workspace = (tmp_path / "bootstrap-review").resolve()
+    review_workspace.mkdir(mode=0o700)
+    review_execution = review_coordinator.execute(
+        prepared_review,
+        workspace=review_workspace,
+    )
+    snapshot = validation_store.publish_automated_review_stage(
+        review_execution
+    ).snapshot
+    assert snapshot.latest_attempt is not None
+    prepared = derive_expert_release_matrix_plan(
+        state=snapshot.state,
+        attempt=snapshot.latest_attempt,
+        accepted_stage_results=snapshot.accepted_stage_results,
+        source_replay_request=None,
+        stored_candidate=stored_candidate,
+        verified_adapters=(adapter_provider.adapter,),
+        validation_policy=settings.policy.validation_policy(),
+        validation_settings=settings,
+    )
+    return validation_store, snapshot, prepared, adapter_provider
+
+
+def test_bootstrap_plan_reserves_and_reopens_without_source_replay(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, snapshot, prepared, adapter_provider = (
+        _bootstrap_release_matrix_fixture(tmp_path, monkeypatch)
+    )
+    committed = validation_store.reserve_release_matrix_plan(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_plan=prepared,
+    )
+    reopened_store = ExpertValidationStore(
+        validation_store.root,
+        validation_store.state_root,
+        validation_store.settings,
+        validation_store.reducer,
+    )
+    reopened = reopened_store.reopen_release_matrix_plan_reservation(
+        evaluation_plan_id=prepared.plan.evaluation_plan_id,
+        prepared_plan=prepared,
+    )
+
+    assert prepared.plan.mode is ExpertReleaseMatrixMode.BOOTSTRAP
+    assert prepared.source_replay_request is None
+    assert all(
+        provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+        for provenance in prepared.plan.provenance_bindings
+    )
+    assert {
+        provenance.provenance_case_id
+        for provenance in prepared.plan.provenance_bindings
+    } == {
+        case.release_matrix_case_id
+        for case in adapter_provider.adapter.manifest.release_matrix_cases
+    }
+    assert committed.reservation.evaluation_plan == prepared.plan
+    assert reopened == committed.reservation
+
+
+def test_bootstrap_reservation_rejects_a_release_appearing_during_admission(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, snapshot, prepared, _adapter_provider = (
+        _bootstrap_release_matrix_fixture(tmp_path, monkeypatch)
+    )
+    validation_store.reducer.current_release_provider = (
+        _ParentChangingDuringAdapterResolution(
+            None,
+            content_id(
+                "expert-base-release",
+                {"appeared": "during-bootstrap-admission"},
+            ),
+        )
+    )
+
+    with pytest.raises(
+        ExpertReleaseMatrixPlanError,
+        match="parent authority changed during adapter resolution",
+    ):
+        validation_store.reserve_release_matrix_plan(
+            expected_transition_id=snapshot.transition.transition_id,
+            prepared_plan=prepared,
+        )
+
+    assert validation_store.snapshot(prepared.plan.candidate_id) == snapshot
 
 
 def test_release_matrix_plan_reservation_is_atomic_reopenable_and_unchanged(
