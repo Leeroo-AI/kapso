@@ -46,6 +46,12 @@ from kapso.cross_run.expert.replay_request import (
     VerifiedExpertSourceReplayCandidate,
     VerifiedExpertSourceReplayParent,
 )
+from kapso.cross_run.expert.replay_publication_contracts import (
+    ExpertSourceReplayPublicationError,
+    ExpertSourceReplayStageResultRecord,
+    SourceReplayDecisionPublicationFence,
+    source_replay_publication_security_subject_ids,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -129,7 +135,9 @@ __all__ = [
     "ExpertSourceReplayParentProvider",
     "ExpertSourceReplayPreflightCoordinator",
     "ExpertSourceReplayPreflightResult",
+    "ExpertSourceReplayPublicationError",
     "ExpertSourceReplayRequestError",
+    "ExpertSourceReplayStageResultRecord",
     "ExpertSourceReplayTaskAdapterProvider",
     "ExpertSourceReplayValidationAuthority",
     "ExpertTriggerDecisionStore",
@@ -160,6 +168,7 @@ __all__ = [
     "MaterializedExpertSourceReplayCase",
     "PreparedExpertSourceReplayRequest",
     "SourceReplayContextProvider",
+    "SourceReplayDecisionPublicationFence",
     "SourceReplayMaterializationLimits",
     "StoredExpertCandidate",
     "VerifiedExpertSourceReplayCandidate",
@@ -168,4 +177,5 @@ __all__ = [
     "VerifiedSourceReplayStartingArtifact",
     "compile_expert_semantic_book",
     "expert_semantic_book_digest",
+    "source_replay_publication_security_subject_ids",
 ]

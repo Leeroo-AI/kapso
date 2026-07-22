@@ -348,6 +348,20 @@ case/fingerprint references and the expanded receipt/policy dependency closure;
 fresh external authority and validation-head compare-and-swap remain a separate
 publication step.
 
+That final step uses a distinct `SourceReplayDecisionPublicationFence`; a
+per-leg spawn fence cannot authorize it because it predates the scientific
+result and binds only one invocation. The final fence has no invocation
+allocation. It records a newly fetched parent `CURRENT`, freshly reverified
+historical adapters and verifier identities, and one exact denylist observation
+covering the reservation/request, full factual receipt and decision, every
+execution event, and every nested spawn-fence, adapter, verifier, provider-handle,
+and denylist dependency. The resulting
+`ExpertSourceReplayStageResultRecord` is self-contained: it nests the factual
+receipt, policy decision, and final fence and binds them to the exact validation
+attempt, authorization transition/state, candidate tree, reservation, policy,
+and configuration. It is source-stage evidence, not a fabricated evaluator run
+or attestation.
+
 Publication fsyncs a private staging file, renames it atomically without
 replacement, and fsyncs both directories. Event, request, result, staging-entry,
 and structural event/blob counts are config-bounded before allocation or parse.

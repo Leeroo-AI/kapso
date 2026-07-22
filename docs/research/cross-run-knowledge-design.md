@@ -1759,6 +1759,11 @@ canonical prefix against the attempt's stage plan. Ordinary automated stages use
 signed evaluator result records. Source replay uses its own result record binding
 the factual receipt, deterministic decision, and final fresh-publication fence;
 it never synthesizes an evaluator run or attestation.
+The final fence is distinct from every per-leg spawn fence and carries no
+invocation allocation. Its exact denylist observation expands every execution
+event and nested spawn, adapter, verifier, provider-handle, and prior authority
+dependency; the self-contained source result binds that fence and its factual
+and policy inputs to the reserved validation attempt and authorization head.
 
 That reservation is an immutable operation alias bound atomically to the existing
 authorization transition, not a second validation state or expiring lease. The
