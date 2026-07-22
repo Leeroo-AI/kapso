@@ -362,6 +362,17 @@ attempt, authorization transition/state, candidate tree, reservation, policy,
 and configuration. It is source-stage evidence, not a fabricated evaluator run
 or attestation.
 
+Publication idempotency is keyed only by the reservation command: candidate,
+the reservation's authorization transition, and reservation ID. Receipt,
+decision, and fence identities do not enter the operation ID. The store replays
+that operation before external work and again under its exclusive lock, so the
+first valid fresh fence wins and concurrent or lost-response retries return its
+exact source result. A process/store/coordinator-bound one-shot permit is required
+for a new commit; serialized fence bytes alone are not authority. Receipt,
+decision, fence, source result, target state, operation, and transition are
+written as immutable objects before the candidate journal is atomically replaced
+as the sole visibility point.
+
 Publication fsyncs a private staging file, renames it atomically without
 replacement, and fsyncs both directories. Event, request, result, staging-entry,
 and structural event/blob counts are config-bounded before allocation or parse.

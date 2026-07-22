@@ -27,6 +27,7 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionReservation,
     ExpertValidationAuthorityInvalidation,
     ExpertValidationAttempt,
+    ExpertValidationStage,
     StrictContract,
 )
 from kapso.cross_run.expert.validation import (
@@ -34,6 +35,19 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationPredecessor,
     ExpertValidationReducer,
     validate_source_replay_request_authority_shape,
+)
+from kapso.cross_run.expert.replay_comparison_contracts import (
+    ExpertSourceReplayPairedComparisonReceipt,
+)
+from kapso.cross_run.expert.replay_decision_contracts import (
+    ExpertSourceReplayStageDecision,
+)
+from kapso.cross_run.expert.replay_publication_contracts import (
+    ExpertSourceReplayStageResultRecord,
+    SourceReplayDecisionPublicationFence,
+)
+from kapso.cross_run.expert.replay_publication import (
+    ExpertSourceReplayDecisionPublicationCoordinator,
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 from kapso.cross_run.settings import (
@@ -54,6 +68,7 @@ class ExpertValidationOperationKind(str, Enum):
     START = "start"
     EVALUATOR_RESULT = "evaluator_result"
     SOURCE_REPLAY_RESERVATION = "source_replay_reservation"
+    SOURCE_REPLAY_STAGE_RESULT = "source_replay_stage_result"
     AUTHORITY_INVALIDATION = "authority_invalidation"
 
 
@@ -211,7 +226,9 @@ class ExpertValidationSnapshot:
     transition: ExpertValidationTransition
     state: ExpertCandidateValidationState
     latest_attempt: ExpertValidationAttempt | None
-    accepted_stage_results: tuple[ExpertEvaluatorResultRecord, ...]
+    accepted_stage_results: tuple[
+        ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+    ]
 
     @property
     def predecessor(self) -> ExpertValidationPredecessor:
@@ -278,6 +295,79 @@ class ExpertSourceReplayReservationSnapshot:
             )
 
 
+@dataclass(frozen=True)
+class ExpertSourceReplayStageCommitResult:
+    stage_result: ExpertSourceReplayStageResultRecord
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+_SOURCE_REPLAY_PUBLICATION_PERMIT_SEAL = object()
+
+
+class SourceReplayDecisionPublicationPermit:
+    """One-shot process-local authority for source-stage validation CAS."""
+
+    __slots__ = (
+        "_store",
+        "_coordinator",
+        "_owner_process_id",
+        "_consumed",
+        "reservation_snapshot",
+        "prepared_request",
+        "stage_result",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        store: ExpertValidationStore,
+        coordinator: object,
+        reservation_snapshot: ExpertSourceReplayReservationSnapshot,
+        prepared_request: PreparedExpertSourceReplayRequest,
+        stage_result: ExpertSourceReplayStageResultRecord,
+    ) -> None:
+        if seal is not _SOURCE_REPLAY_PUBLICATION_PERMIT_SEAL:
+            raise ExpertValidationStoreError(
+                "source replay publication permit is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_coordinator", coordinator)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "reservation_snapshot", reservation_snapshot)
+        object.__setattr__(self, "prepared_request", prepared_request)
+        object.__setattr__(self, "stage_result", stage_result)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertValidationStoreError(
+            "source replay publication permit is immutable"
+        )
+
+    def _consume(
+        self,
+        store: ExpertValidationStore,
+        coordinator: object,
+    ) -> None:
+        self._require_bound(store, coordinator)
+        object.__setattr__(self, "_consumed", True)
+
+    def _require_bound(
+        self,
+        store: ExpertValidationStore,
+        coordinator: object,
+    ) -> None:
+        if (
+            self._consumed
+            or self._store is not store
+            or self._coordinator is not coordinator
+            or self._owner_process_id != os.getpid()
+        ):
+            raise ExpertValidationStoreError(
+                "source replay publication permit is consumed or foreign"
+            )
+
+
 class ExpertValidationStore:
     """Publish linear validation transitions through one atomic candidate journal."""
 
@@ -309,6 +399,7 @@ class ExpertValidationStore:
         self.configuration_root = root / "configurations"
         self.journal_root = root / "journals"
         self.staging_root = root / "staging"
+        self._source_replay_publication_coordinator = None
         initialization_lock = state_root / f".{root.name}.initialization.lock"
         with _ValidationStoreLock(initialization_lock, exclusive=True, create=True):
             self._prepare_layout()
@@ -321,6 +412,233 @@ class ExpertValidationStore:
         require_content_id(candidate_id, "candidate_id")
         with self._lock(exclusive=False):
             return self._snapshot_unlocked(candidate_id)
+
+    def reopen_or_replay_source_replay_publication(
+        self,
+        *,
+        reservation: ExpertSourceReplayExecutionReservation,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> tuple[
+        ExpertSourceReplayStageCommitResult | None,
+        ExpertSourceReplayReservationSnapshot | None,
+    ]:
+        prepared = self._require_exact_reservation_prepared(
+            reservation,
+            prepared_request,
+        )
+        operation = self._source_replay_stage_operation(reservation)
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(reservation.candidate_id)
+            snapshot = self._resolved_operation_unlocked(journal, operation)
+            if snapshot is not None:
+                result = self._source_stage_result_for_transition_unlocked(
+                    snapshot.transition
+                )
+                if result.execution_request_id != prepared.request.execution_request_id:
+                    raise ExpertValidationStoreError(
+                        "replayed source stage result differs from prepared request"
+                    )
+                return (
+                    ExpertSourceReplayStageCommitResult(
+                        stage_result=result,
+                        snapshot=snapshot,
+                        replayed=True,
+                    ),
+                    None,
+                )
+            current_reservation = self._current_source_replay_reservation_unlocked(
+                journal,
+                reservation.authorization_transition_id,
+            )
+            if current_reservation.reservation != reservation:
+                raise ExpertValidationCompareAndSwapError(
+                    "another source replay reservation owns the validation head"
+                )
+            return None, current_reservation
+
+    def _bind_source_replay_publication_authority(
+        self,
+        coordinator: ExpertSourceReplayDecisionPublicationCoordinator,
+    ) -> None:
+        if type(
+            coordinator
+        ) is not ExpertSourceReplayDecisionPublicationCoordinator or (
+            self._source_replay_publication_coordinator is not None
+            and self._source_replay_publication_coordinator is not coordinator
+        ):
+            raise ExpertValidationStoreError(
+                "validation store already has another publication coordinator"
+            )
+        self._source_replay_publication_coordinator = coordinator
+
+    def _seal_source_replay_publication_authority(
+        self,
+        *,
+        coordinator: object,
+        reservation_snapshot: ExpertSourceReplayReservationSnapshot,
+        prepared_request: PreparedExpertSourceReplayRequest,
+        stage_result: ExpertSourceReplayStageResultRecord,
+    ) -> SourceReplayDecisionPublicationPermit:
+        if (
+            self._source_replay_publication_coordinator is not coordinator
+            or type(coordinator) is not ExpertSourceReplayDecisionPublicationCoordinator
+            or not isinstance(
+                reservation_snapshot,
+                ExpertSourceReplayReservationSnapshot,
+            )
+            or type(stage_result) is not ExpertSourceReplayStageResultRecord
+        ):
+            raise ExpertValidationStoreError(
+                "source replay publication lacks its bound coordinator authority"
+            )
+        prepared = self._require_exact_reservation_prepared(
+            reservation_snapshot.reservation,
+            prepared_request,
+        )
+        reservation = reservation_snapshot.reservation
+        request = prepared.request
+        if (
+            reservation_snapshot.request != request
+            or stage_result.reservation_id != reservation.reservation_id
+            or stage_result.execution_request_id != request.execution_request_id
+            or stage_result.authorization_transition_id
+            != reservation.authorization_transition_id
+            or stage_result.authorization_state_id != reservation.authorization_state_id
+            or stage_result.validation_attempt_id != reservation.validation_attempt_id
+            or stage_result.candidate_id != reservation.candidate_id
+            or stage_result.candidate_tree_hash != reservation.candidate_tree_hash
+            or stage_result.validation_policy_id != request.validation_policy_id
+            or stage_result.configuration_fingerprint
+            != request.configuration_fingerprint
+        ):
+            raise ExpertValidationStoreError(
+                "source replay publication result differs from its reservation"
+            )
+        return SourceReplayDecisionPublicationPermit(
+            _SOURCE_REPLAY_PUBLICATION_PERMIT_SEAL,
+            self,
+            coordinator,
+            reservation_snapshot,
+            prepared,
+            stage_result,
+        )
+
+    def _commit_source_replay_publication(
+        self,
+        *,
+        coordinator: object,
+        publication_permit: SourceReplayDecisionPublicationPermit,
+    ) -> ExpertSourceReplayStageCommitResult:
+        if type(publication_permit) is not SourceReplayDecisionPublicationPermit:
+            raise ExpertValidationStoreError(
+                "source replay publication requires its live one-shot permit"
+            )
+        publication_permit._require_bound(self, coordinator)
+        reservation_snapshot = publication_permit.reservation_snapshot
+        reservation = reservation_snapshot.reservation
+        prepared = self._require_exact_reservation_prepared(
+            reservation,
+            publication_permit.prepared_request,
+        )
+        result = publication_permit.stage_result
+        operation = self._source_replay_stage_operation(reservation)
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(reservation.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertSourceReplayStageCommitResult(
+                    stage_result=(
+                        self._source_stage_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            observed_reservation = self._current_source_replay_reservation_unlocked(
+                journal,
+                reservation.authorization_transition_id,
+            )
+            if observed_reservation != reservation_snapshot:
+                raise ExpertValidationCompareAndSwapError(
+                    "source replay reservation changed before publication"
+                )
+        if observed_reservation.snapshot.latest_attempt is None:
+            raise ExpertValidationStoreError(
+                "source replay publication has no active validation attempt"
+            )
+        target_state = self.reducer.advance_source_replay_stage(
+            state=observed_reservation.snapshot.state,
+            attempt=observed_reservation.snapshot.latest_attempt,
+            accepted_results=(observed_reservation.snapshot.accepted_stage_results),
+            result=result,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(reservation.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertSourceReplayStageCommitResult(
+                    stage_result=(
+                        self._source_stage_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            current_reservation = self._current_source_replay_reservation_unlocked(
+                journal,
+                reservation.authorization_transition_id,
+            )
+            if current_reservation != observed_reservation:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during source replay publication"
+                )
+            publication_permit._consume(self, coordinator)
+            current = current_reservation.snapshot
+            if current.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "source replay publication lost its validation attempt"
+                )
+            accepted_ids = current.transition.accepted_stage_result_record_ids
+            if result.outcome is ExpertEvaluatorOutcome.PASSED:
+                accepted_ids = (*accepted_ids, result.stage_result_record_id)
+            transition = ExpertValidationTransition.mint(
+                candidate_id=reservation.candidate_id,
+                candidate_tree_hash=reservation.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=current.transition.transition_id,
+                predecessor_state_id=current.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=current.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=current.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    current.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=accepted_ids,
+                transition_stage_result_record_id=result.stage_result_record_id,
+                transition_authority_invalidation_id=None,
+            )
+            self._write_contract_unlocked(result.paired_comparison_receipt)
+            self._write_contract_unlocked(result.stage_decision)
+            self._write_contract_unlocked(result.publication_authority_fence)
+            self._write_contract_unlocked(result)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertSourceReplayStageCommitResult(
+                stage_result=result,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
+                replayed=False,
+            )
 
     def publish_start(
         self,
@@ -809,6 +1127,148 @@ class ExpertValidationStore:
             transition_authority_invalidation_id=None,
         )
 
+    @staticmethod
+    def _require_exact_reservation_prepared(
+        reservation: ExpertSourceReplayExecutionReservation,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> PreparedExpertSourceReplayRequest:
+        if not isinstance(
+            reservation,
+            ExpertSourceReplayExecutionReservation,
+        ) or not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
+            raise ExpertValidationStoreError(
+                "source replay publication requires typed reservation authority"
+            )
+        prepared = PreparedExpertSourceReplayRequest(
+            request=prepared_request.request,
+            settings=prepared_request.settings,
+            attempt=prepared_request.attempt,
+            selection=prepared_request.selection,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            authorization_state=prepared_request.authorization_state,
+            cases=prepared_request.cases,
+        )
+        request = prepared.request
+        if (
+            reservation.execution_request_id != request.execution_request_id
+            or reservation.validation_attempt_id != request.validation_attempt_id
+            or reservation.authorization_state_id != request.authorization_state_id
+            or reservation.candidate_id != request.candidate_id
+            or reservation.candidate_tree_hash != request.candidate_tree_hash
+            or reservation.observed_parent_release_id != request.parent_release_id
+        ):
+            raise ExpertValidationStoreError(
+                "source replay reservation differs from prepared request"
+            )
+        return prepared
+
+    @staticmethod
+    def _source_replay_stage_operation(
+        reservation: ExpertSourceReplayExecutionReservation,
+    ) -> ExpertValidationOperation:
+        return ExpertValidationOperation.mint(
+            operation_kind=ExpertValidationOperationKind.SOURCE_REPLAY_STAGE_RESULT,
+            candidate_id=reservation.candidate_id,
+            expected_transition_id=reservation.authorization_transition_id,
+            request_record_id=reservation.reservation_id,
+        )
+
+    def _current_source_replay_reservation_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        authorization_transition_id: str,
+    ) -> ExpertSourceReplayReservationSnapshot:
+        current = self._current_from_journal_unlocked(journal)
+        self._require_expected_head(current, authorization_transition_id)
+        if current is None:
+            raise ExpertValidationStoreError(
+                "source replay reservation has no validation head"
+            )
+        stored = self._source_replay_reservation_unlocked(
+            journal,
+            authorization_transition_id,
+        )
+        if stored is None:
+            raise ExpertValidationStoreError(
+                "source replay reservation is absent from its authorization head"
+            )
+        reservation, request = stored
+        return ExpertSourceReplayReservationSnapshot(
+            reservation=reservation,
+            request=request,
+            snapshot=current,
+        )
+
+    def _source_stage_result_for_transition_unlocked(
+        self,
+        transition: ExpertValidationTransition,
+    ) -> ExpertSourceReplayStageResultRecord:
+        result_record_id = transition.transition_stage_result_record_id
+        if (
+            result_record_id is None
+            or result_record_id.split(":sha256:", 1)[0]
+            != "expert-source-replay-stage-result"
+        ):
+            raise ExpertValidationStoreError(
+                "validation transition does not contain a source replay result"
+            )
+        return self._read_contract_unlocked(
+            result_record_id,
+            ExpertSourceReplayStageResultRecord,
+        )
+
+    def _read_stage_result_unlocked(
+        self,
+        result_record_id: str,
+    ) -> ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord:
+        namespace = result_record_id.split(":sha256:", 1)[0]
+        if namespace == "expert-evaluator-result-record":
+            return self._read_contract_unlocked(
+                result_record_id,
+                ExpertEvaluatorResultRecord,
+            )
+        if namespace == "expert-source-replay-stage-result":
+            return self._read_contract_unlocked(
+                result_record_id,
+                ExpertSourceReplayStageResultRecord,
+            )
+        raise ExpertValidationStoreError(
+            "validation stage result uses an unsupported namespace"
+        )
+
+    @staticmethod
+    def _stage_result_projection(
+        result: ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord,
+    ) -> tuple[
+        ExpertValidationStage,
+        str,
+        ExpertEvaluatorOutcome,
+        str,
+        str,
+        str,
+    ]:
+        if type(result) is ExpertEvaluatorResultRecord:
+            run = result.evaluator_run
+            return (
+                run.stage,
+                result.evaluator_result_record_id,
+                run.outcome,
+                run.validation_attempt_id,
+                run.candidate_id,
+                run.candidate_tree_hash,
+            )
+        if type(result) is ExpertSourceReplayStageResultRecord:
+            return (
+                ExpertValidationStage.SOURCE_RUN_REPLAY,
+                result.stage_result_record_id,
+                result.outcome,
+                result.validation_attempt_id,
+                result.candidate_id,
+                result.candidate_tree_hash,
+            )
+        raise ExpertValidationStoreError("validation stage result type is unsupported")
+
     def _snapshot_unlocked(
         self,
         candidate_id: str,
@@ -872,10 +1332,7 @@ class ExpertValidationStore:
                 "latest validation attempt differs from its transition"
             )
         accepted_records = tuple(
-            self._read_contract_unlocked(
-                result_record_id,
-                ExpertEvaluatorResultRecord,
-            )
+            self._read_stage_result_unlocked(result_record_id)
             for result_record_id in transition.accepted_stage_result_record_ids
         )
         return ExpertValidationSnapshot(
@@ -929,6 +1386,7 @@ class ExpertValidationStore:
                     "validation journal transition lineage is inconsistent"
                 )
             self._validate_transition_closure_unlocked(
+                journal,
                 transition,
                 state,
                 operation,
@@ -1084,8 +1542,125 @@ class ExpertValidationStore:
             )
         return None if not matches else matches[0]
 
+    def _validate_source_stage_transition_unlocked(
+        self,
+        *,
+        journal: ExpertValidationJournal,
+        transition: ExpertValidationTransition,
+        state: ExpertCandidateValidationState,
+        operation: ExpertValidationOperation,
+        latest_attempt: ExpertValidationAttempt | None,
+        previous_accepted: tuple[str, ...],
+        result_record: ExpertSourceReplayStageResultRecord,
+    ) -> None:
+        if transition.predecessor_state_id is None:
+            raise ExpertValidationStoreError(
+                "source replay result requires its authorization state"
+            )
+        predecessor_state = self._read_contract_unlocked(
+            transition.predecessor_state_id,
+            ExpertCandidateValidationState,
+        )
+        reservation = self._read_contract_unlocked(
+            result_record.reservation_id,
+            ExpertSourceReplayExecutionReservation,
+        )
+        request = self._read_contract_unlocked(
+            result_record.execution_request_id,
+            ExpertSourceReplayExecutionRequest,
+        )
+        stored_reservation = self._source_replay_reservation_unlocked(
+            journal,
+            result_record.authorization_transition_id,
+        )
+        receipt = self._read_contract_unlocked(
+            result_record.paired_comparison_receipt.paired_comparison_receipt_id,
+            ExpertSourceReplayPairedComparisonReceipt,
+        )
+        decision = self._read_contract_unlocked(
+            result_record.stage_decision.source_replay_stage_decision_id,
+            ExpertSourceReplayStageDecision,
+        )
+        fence = self._read_contract_unlocked(
+            result_record.publication_authority_fence.fence_id,
+            SourceReplayDecisionPublicationFence,
+        )
+        common_invalid = (
+            operation.operation_kind
+            is not ExpertValidationOperationKind.SOURCE_REPLAY_STAGE_RESULT
+            or operation.request_record_id != reservation.reservation_id
+            or operation.expected_transition_id
+            != reservation.authorization_transition_id
+            or transition.predecessor_transition_id
+            != reservation.authorization_transition_id
+            or latest_attempt is None
+            or predecessor_state.promotion_state is not ExpertPromotionState.VALIDATING
+            or predecessor_state.next_stage
+            is not ExpertValidationStage.SOURCE_RUN_REPLAY
+            or predecessor_state.validation_attempt_id
+            != latest_attempt.validation_attempt_id
+            or tuple(
+                item.stage_result_record_id
+                for item in predecessor_state.accepted_stage_results
+            )
+            != previous_accepted
+            or state.review_assertion_ids != predecessor_state.review_assertion_ids
+            or result_record.validation_attempt_id
+            != latest_attempt.validation_attempt_id
+            or result_record.authorization_transition_id
+            != transition.predecessor_transition_id
+            or result_record.authorization_state_id
+            != predecessor_state.validation_state_id
+            or result_record.candidate_id != transition.candidate_id
+            or result_record.candidate_tree_hash != transition.candidate_tree_hash
+            or result_record.validation_policy_id != latest_attempt.validation_policy_id
+            or result_record.configuration_fingerprint
+            != latest_attempt.configuration_fingerprint
+            or reservation.execution_request_id != request.execution_request_id
+            or reservation.validation_attempt_id != latest_attempt.validation_attempt_id
+            or reservation.authorization_state_id
+            != predecessor_state.validation_state_id
+            or reservation.candidate_id != transition.candidate_id
+            or reservation.candidate_tree_hash != transition.candidate_tree_hash
+            or request.authorization_state_id != predecessor_state.validation_state_id
+            or request.validation_attempt_id != latest_attempt.validation_attempt_id
+            or request.validation_policy_id != latest_attempt.validation_policy_id
+            or request.configuration_fingerprint
+            != latest_attempt.configuration_fingerprint
+            or stored_reservation != (reservation, request)
+            or receipt != result_record.paired_comparison_receipt
+            or decision != result_record.stage_decision
+            or fence != result_record.publication_authority_fence
+            or state.transition_evidence_id != result_record.stage_result_record_id
+        )
+        if common_invalid:
+            raise ExpertValidationStoreError(
+                "source replay result transition closure is inconsistent"
+            )
+        if result_record.outcome is ExpertEvaluatorOutcome.PASSED:
+            valid_state = (
+                state.promotion_state is ExpertPromotionState.VALIDATING
+                and not state.terminal_evidence_ids
+                and state.reason == "stage_source_run_replay_passed"
+            )
+        else:
+            valid_state = (
+                result_record.outcome is ExpertEvaluatorOutcome.CANDIDATE_FAILED
+                and state.promotion_state is ExpertPromotionState.FAILED
+                and state.next_stage is None
+                and state.terminal_evidence_ids
+                == (result_record.stage_result_record_id,)
+                and state.reason == "stage_source_run_replay_candidate_failed"
+                and transition.accepted_stage_result_record_ids == previous_accepted
+            )
+        if not valid_state:
+            raise ExpertValidationStoreError(
+                "source replay result state semantics are inconsistent"
+            )
+
     def _validate_transition_closure_unlocked(
         self,
+        journal: ExpertValidationJournal,
         transition: ExpertValidationTransition,
         state: ExpertCandidateValidationState,
         operation: ExpertValidationOperation,
@@ -1141,18 +1716,17 @@ class ExpertValidationStore:
                 "validation state differs from the transition latest attempt"
             )
         accepted_records = tuple(
-            self._read_contract_unlocked(
-                result_record_id,
-                ExpertEvaluatorResultRecord,
-            )
+            self._read_stage_result_unlocked(result_record_id)
             for result_record_id in transition.accepted_stage_result_record_ids
         )
+        accepted_projections = tuple(
+            self._stage_result_projection(record) for record in accepted_records
+        )
         accepted_refs = tuple(
-            (
-                record.evaluator_run.stage,
-                record.evaluator_result_record_id,
+            (stage, record_id)
+            for stage, record_id, _outcome, _attempt_id, _candidate_id, _tree_hash in (
+                accepted_projections
             )
-            for record in accepted_records
         )
         state_refs = tuple(
             (item.stage, item.stage_result_record_id)
@@ -1162,7 +1736,10 @@ class ExpertValidationStore:
             accepted_refs != state_refs
             or (
                 latest_attempt is not None
-                and tuple(record.evaluator_run.stage for record in accepted_records)
+                and tuple(
+                    stage
+                    for stage, _record_id, _outcome, _attempt_id, _candidate_id, _tree_hash in accepted_projections
+                )
                 != latest_attempt.required_stages[: len(accepted_records)]
             )
             or (
@@ -1175,17 +1752,15 @@ class ExpertValidationStore:
                 )
             )
             or any(
-                record.evaluator_run.outcome is not ExpertEvaluatorOutcome.PASSED
-                for record in accepted_records
+                outcome is not ExpertEvaluatorOutcome.PASSED
+                for _stage, _record_id, outcome, _attempt_id, _candidate_id, _tree_hash in accepted_projections
             )
             or any(
                 latest_attempt is None
-                or record.evaluator_run.validation_attempt_id
-                != latest_attempt.validation_attempt_id
-                or record.evaluator_run.candidate_id != transition.candidate_id
-                or record.evaluator_run.candidate_tree_hash
-                != transition.candidate_tree_hash
-                for record in accepted_records
+                or attempt_id != latest_attempt.validation_attempt_id
+                or candidate_id != transition.candidate_id
+                or candidate_tree_hash != transition.candidate_tree_hash
+                for _stage, _record_id, _outcome, attempt_id, candidate_id, candidate_tree_hash in accepted_projections
             )
         ):
             raise ExpertValidationStoreError(
@@ -1242,40 +1817,57 @@ class ExpertValidationStore:
                     "validation start attempt differs from its eligibility decision"
                 )
         elif transition.transition_stage_result_record_id is not None:
-            result_record = self._read_contract_unlocked(
-                transition.transition_stage_result_record_id,
-                ExpertEvaluatorResultRecord,
-            )
-            if (
-                operation.operation_kind
-                is not ExpertValidationOperationKind.EVALUATOR_RESULT
-                or operation.request_record_id
-                != result_record.evaluator_result_record_id
-                or latest_attempt is None
-                or result_record.evaluator_run.validation_attempt_id
-                != latest_attempt.validation_attempt_id
-                or result_record.evaluator_run.candidate_id != transition.candidate_id
-                or result_record.evaluator_run.candidate_tree_hash
-                != transition.candidate_tree_hash
-                or state.transition_evidence_id
-                != result_record.attestation_envelope.attestation.evaluator_attestation_id
-                or operation.expected_transition_id
-                != transition.predecessor_transition_id
-            ):
-                raise ExpertValidationStoreError(
-                    "validation result transition closure is inconsistent"
-                )
             previous_accepted = (
                 ()
                 if previous_transition is None
                 else previous_transition.accepted_stage_result_record_ids
             )
-            expected_accepted = previous_accepted
-            if result_record.evaluator_run.outcome is ExpertEvaluatorOutcome.PASSED:
-                expected_accepted = (
-                    *previous_accepted,
-                    result_record.evaluator_result_record_id,
+            result_record = self._read_stage_result_unlocked(
+                transition.transition_stage_result_record_id
+            )
+            if type(result_record) is ExpertEvaluatorResultRecord:
+                if (
+                    operation.operation_kind
+                    is not ExpertValidationOperationKind.EVALUATOR_RESULT
+                    or operation.request_record_id
+                    != result_record.evaluator_result_record_id
+                    or latest_attempt is None
+                    or result_record.evaluator_run.validation_attempt_id
+                    != latest_attempt.validation_attempt_id
+                    or result_record.evaluator_run.candidate_id
+                    != transition.candidate_id
+                    or result_record.evaluator_run.candidate_tree_hash
+                    != transition.candidate_tree_hash
+                    or state.transition_evidence_id
+                    != result_record.attestation_envelope.attestation.evaluator_attestation_id
+                    or operation.expected_transition_id
+                    != transition.predecessor_transition_id
+                ):
+                    raise ExpertValidationStoreError(
+                        "validation result transition closure is inconsistent"
+                    )
+                expected_accepted = previous_accepted
+                if result_record.evaluator_run.outcome is ExpertEvaluatorOutcome.PASSED:
+                    expected_accepted = (
+                        *previous_accepted,
+                        result_record.evaluator_result_record_id,
+                    )
+            else:
+                self._validate_source_stage_transition_unlocked(
+                    journal=journal,
+                    transition=transition,
+                    state=state,
+                    operation=operation,
+                    latest_attempt=latest_attempt,
+                    previous_accepted=previous_accepted,
+                    result_record=result_record,
                 )
+                expected_accepted = previous_accepted
+                if result_record.outcome is ExpertEvaluatorOutcome.PASSED:
+                    expected_accepted = (
+                        *previous_accepted,
+                        result_record.stage_result_record_id,
+                    )
             if transition.accepted_stage_result_record_ids != expected_accepted:
                 raise ExpertValidationStoreError(
                     "validation accepted result prefix is not gap-free"

@@ -52,6 +52,11 @@ from kapso.cross_run.expert.replay_publication_contracts import (
     SourceReplayDecisionPublicationFence,
     source_replay_publication_security_subject_ids,
 )
+from kapso.cross_run.expert.replay_publication import (
+    ExpertSourceReplayDecisionPublicationCoordinator,
+    ExpertSourceReplayPublicationCurrentAuthority,
+    ExpertSourceReplayPublicationDenylistAuthority,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -82,6 +87,7 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationStateProvider,
 )
 from kapso.cross_run.expert.validation_store import (
+    ExpertSourceReplayStageCommitResult,
     ExpertValidationCommitResult,
     ExpertValidationCompareAndSwapError,
     ExpertValidationJournal,
@@ -132,12 +138,16 @@ __all__ = [
     "ExpertRepositoryArchitect",
     "ExpertSourceReplayBundleProvider",
     "ExpertSourceReplayCandidateReader",
+    "ExpertSourceReplayDecisionPublicationCoordinator",
     "ExpertSourceReplayParentProvider",
     "ExpertSourceReplayPreflightCoordinator",
     "ExpertSourceReplayPreflightResult",
     "ExpertSourceReplayPublicationError",
+    "ExpertSourceReplayPublicationCurrentAuthority",
+    "ExpertSourceReplayPublicationDenylistAuthority",
     "ExpertSourceReplayRequestError",
     "ExpertSourceReplayStageResultRecord",
+    "ExpertSourceReplayStageCommitResult",
     "ExpertSourceReplayTaskAdapterProvider",
     "ExpertSourceReplayValidationAuthority",
     "ExpertTriggerDecisionStore",
