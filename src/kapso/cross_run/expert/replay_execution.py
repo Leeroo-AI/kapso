@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, Protocol
@@ -37,13 +38,20 @@ class ExpertSourceReplayExecutionProviderKey(StrictContract):
     paired_execution_protocol_version: str
     execution_provider_id: str
     execution_provider_version: str
+    execution_provider_settings_digest: str
     sandbox_policy_version: str
     task_adapter_runtime_protocol_version: str
     task_evaluator_protocol_version: str
 
     def _validate(self) -> None:
         for value, name in zip(self.identity, self.field_names, strict=True):
-            require_identifier(value, f"source replay provider key {name}")
+            if name == "execution_provider_settings_digest":
+                if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+                    raise ExpertSourceReplayExecutionError(
+                        "source replay provider settings digest is invalid"
+                    )
+            else:
+                require_identifier(value, f"source replay provider key {name}")
 
     @property
     def identity(self) -> tuple[str, ...]:
@@ -51,6 +59,7 @@ class ExpertSourceReplayExecutionProviderKey(StrictContract):
             self.paired_execution_protocol_version,
             self.execution_provider_id,
             self.execution_provider_version,
+            self.execution_provider_settings_digest,
             self.sandbox_policy_version,
             self.task_adapter_runtime_protocol_version,
             self.task_evaluator_protocol_version,
@@ -62,6 +71,7 @@ class ExpertSourceReplayExecutionProviderKey(StrictContract):
             "paired_execution_protocol_version",
             "execution_provider_id",
             "execution_provider_version",
+            "execution_provider_settings_digest",
             "sandbox_policy_version",
             "task_adapter_runtime_protocol_version",
             "task_evaluator_protocol_version",
@@ -95,6 +105,7 @@ def expert_source_replay_execution_provider_key(
         paired_execution_protocol_version=(compute.paired_execution_protocol_version),
         execution_provider_id=compute.execution_provider_id,
         execution_provider_version=compute.execution_provider_version,
+        execution_provider_settings_digest=(compute.execution_provider_settings_digest),
         sandbox_policy_version=compute.sandbox_policy_version,
         task_adapter_runtime_protocol_version=(
             manifest.runtime.runtime_protocol_version

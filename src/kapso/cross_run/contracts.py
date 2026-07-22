@@ -3083,6 +3083,7 @@ class ExpertSourceReplayComputeBinding(StrictContract):
     paired_execution_protocol_version: str
     execution_provider_id: str
     execution_provider_version: str
+    execution_provider_settings_digest: str
     sandbox_policy_version: str
     leg_wall_time_limit_seconds: int
     termination_grace_seconds: int
@@ -3115,6 +3116,10 @@ class ExpertSourceReplayComputeBinding(StrictContract):
             (self.sandbox_policy_version, "sandbox_policy_version"),
         ):
             require_identifier(value, f"source replay compute {name}")
+        _require_digest(
+            self.execution_provider_settings_digest,
+            "source replay compute execution_provider_settings_digest",
+        )
         for value, name in (
             (self.leg_wall_time_limit_seconds, "leg_wall_time_limit_seconds"),
             (self.termination_grace_seconds, "termination_grace_seconds"),

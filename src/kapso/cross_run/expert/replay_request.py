@@ -154,6 +154,9 @@ def _source_replay_compute_bindings(
                 execution_provider_version=(
                     policy.source_replay_execution_provider_version
                 ),
+                execution_provider_settings_digest=tree_or_blob_digest(
+                    settings.source_replay_provider.to_json_bytes()
+                ),
                 sandbox_policy_version=policy.source_replay_sandbox_policy_version,
                 leg_wall_time_limit_seconds=evaluator.timeout_seconds,
                 termination_grace_seconds=(

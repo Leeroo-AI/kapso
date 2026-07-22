@@ -144,8 +144,9 @@ that guarantees offline direct execution, read-only inputs, fresh private
 writable roots, and a fixed non-secret environment.
 
 Provider selection is one exact composite dispatch over the paired-execution
-protocol, execution-provider ID and version, sandbox-policy version, historical
-adapter runtime-protocol version, and historical task-evaluator protocol version.
+protocol, execution-provider ID, version, and canonical settings digest,
+sandbox-policy version, historical adapter runtime-protocol version, and
+historical task-evaluator protocol version.
 The registry pre-resolves every case in the aggregate prepared request before
 reservation or filesystem work and fails if any complete key is absent. There
 are no wildcards, aliases, compatible-version ranges, per-field lookup, or

@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionError,
     ExpertSourceReplayExecutionProviderKey,
@@ -50,6 +51,9 @@ def test_provider_key_comes_from_the_exact_compute_and_adapter_authorities(
     compute = replay_case.request_case.compute_binding
     manifest = replay_case.task_adapter.manifest
 
+    assert compute.execution_provider_settings_digest == tree_or_blob_digest(
+        prepared_replay_request.settings.source_replay_provider.to_json_bytes()
+    )
     assert expert_source_replay_execution_provider_key(replay_case) == (
         ExpertSourceReplayExecutionProviderKey(
             paired_execution_protocol_version=(
@@ -57,6 +61,9 @@ def test_provider_key_comes_from_the_exact_compute_and_adapter_authorities(
             ),
             execution_provider_id=compute.execution_provider_id,
             execution_provider_version=compute.execution_provider_version,
+            execution_provider_settings_digest=(
+                compute.execution_provider_settings_digest
+            ),
             sandbox_policy_version=compute.sandbox_policy_version,
             task_adapter_runtime_protocol_version=(
                 manifest.runtime.runtime_protocol_version
@@ -133,6 +140,7 @@ def test_mixed_key_aggregate_fails_before_any_provider_revalidation(
         "paired_execution_protocol_version",
         "execution_provider_id",
         "execution_provider_version",
+        "execution_provider_settings_digest",
         "sandbox_policy_version",
         "task_adapter_runtime_protocol_version",
         "task_evaluator_protocol_version",
@@ -145,10 +153,12 @@ def test_registry_has_no_partial_version_or_provider_fallback(
     exact_key = expert_source_replay_execution_provider_key(
         prepared_replay_request.cases[0]
     )
-    changed_key = replace(
-        exact_key,
-        **{field_name: f"{getattr(exact_key, field_name)}.other"},
+    changed_value = (
+        "sha256:" + "f" * 64
+        if field_name == "execution_provider_settings_digest"
+        else f"{getattr(exact_key, field_name)}.other"
     )
+    changed_key = replace(exact_key, **{field_name: changed_value})
     registry = ExpertSourceReplayExecutionProviderRegistry((_Provider(changed_key),))
 
     with pytest.raises(ExpertSourceReplayExecutionError, match="unsupported"):
@@ -265,4 +275,16 @@ def test_provider_key_rejects_malformed_versions(
         replace(
             exact_key,
             paired_execution_protocol_version=invalid_value,
+        )
+
+
+def test_provider_key_rejects_malformed_settings_digest(prepared_replay_request):
+    exact_key = expert_source_replay_execution_provider_key(
+        prepared_replay_request.cases[0]
+    )
+
+    with pytest.raises(ValueError, match="settings digest"):
+        replace(
+            exact_key,
+            execution_provider_settings_digest="sha256:wrong",
         )
