@@ -4181,7 +4181,6 @@ class ExpertAcceptedStageResultRef(StrictContract):
             ExpertValidationStage.DEVELOPMENT_ANCHORS,
             ExpertValidationStage.CROSS_FAMILY_TRANSFER,
             ExpertValidationStage.SEALED_CANARY,
-            ExpertValidationStage.RELEASE_MATRIX,
         }
         if self.stage in evaluator_stages:
             expected_namespace = "expert-evaluator-result-record"
@@ -4189,6 +4188,8 @@ class ExpertAcceptedStageResultRef(StrictContract):
             expected_namespace = "expert-source-replay-stage-result"
         elif self.stage is ExpertValidationStage.AUTOMATED_REVIEW:
             expected_namespace = "expert-automated-review-stage-result"
+        elif self.stage is ExpertValidationStage.RELEASE_MATRIX:
+            expected_namespace = "expert-release-matrix-stage-result"
         elif self.stage is ExpertValidationStage.PUBLICATION_ELIGIBILITY:
             expected_namespace = "expert-publication-eligibility-stage-result"
         else:

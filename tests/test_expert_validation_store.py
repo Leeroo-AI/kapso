@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kapso.cross_run.canonical import content_id
+from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
     ExpertEvaluatorRunBuilder,
@@ -22,6 +22,8 @@ from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,
 )
 from kapso.cross_run.contracts import (
+    ExpertEvaluatorAttestation,
+    ExpertEvaluatorAttestationEnvelope,
     ExpertEvaluatorOutcome,
     ExpertEvaluatorResultRecord,
     ExpertPromotionState,
@@ -87,6 +89,13 @@ def _result(settings, attempt, stage, outcome):
         outcome=outcome,
         signature="test-signature",
     )
+
+
+def _remint(record, **changes):
+    values = record.to_dict()
+    values.pop(record.IDENTITY_FIELD)
+    values.update(changes)
+    return type(record).mint(**values)
 
 
 def _record_available_validation_lock(store, calls, provider_name):
@@ -273,6 +282,50 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(
     assert replayed_first.replayed is True
     assert replayed_first.snapshot == after_first
     assert len(after_second.state.accepted_stage_results) == 2
+
+
+def test_persisted_generic_release_matrix_result_fails_closed_on_read(tmp_path):
+    candidates, _, adapter, settings, eligibility = _candidate_and_eligibility(tmp_path)
+    reducer = _validation_reducer(
+        settings,
+        adapter,
+        candidate_store=candidates,
+    )
+    store = _validation_store(tmp_path, settings, reducer)
+    started = store.publish_start(
+        expected_transition_id=None,
+        eligibility=eligibility,
+    ).snapshot
+    assert started.latest_attempt is not None
+    valid_result = _result(
+        settings,
+        started.latest_attempt,
+        ExpertValidationStage.CONTRACT_SCHEMA,
+        ExpertEvaluatorOutcome.PASSED,
+    )
+    generic_matrix_run = _remint(
+        valid_result.evaluator_run,
+        stage=ExpertValidationStage.RELEASE_MATRIX,
+    )
+    generic_matrix_attestation = ExpertEvaluatorAttestation.mint(
+        evaluator_run_id=generic_matrix_run.evaluator_run_id,
+        issuer_id=generic_matrix_run.evaluator_id,
+        trust_root_id=None,
+        predicate_digest=tree_or_blob_digest(generic_matrix_run.to_json_bytes()),
+    )
+    generic_matrix_result = ExpertEvaluatorResultRecord.mint(
+        evaluator_run=generic_matrix_run,
+        attestation_envelope=ExpertEvaluatorAttestationEnvelope(
+            attestation=generic_matrix_attestation,
+            signature="legacy-signature",
+        ),
+    )
+    store._write_contract_unlocked(generic_matrix_result)
+
+    with pytest.raises(ExpertValidationStoreError, match="cannot use a generic"):
+        store._read_stage_result_unlocked(
+            generic_matrix_result.evaluator_result_record_id
+        )
 
 
 def test_result_attestation_verification_holds_no_validation_lock(

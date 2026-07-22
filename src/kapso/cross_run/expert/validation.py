@@ -70,6 +70,25 @@ class ExpertValidationAuthorityInvalidationResult:
     state: ExpertCandidateValidationState
 
 
+def _expert_evaluator_base_input_ids(
+    attempt: ExpertValidationAttempt,
+) -> set[str]:
+    input_ids = {
+        attempt.validation_attempt_id,
+        attempt.candidate_id,
+        attempt.candidate_commit_record_id,
+        attempt.scope_contract_id,
+        attempt.eligibility_decision_id,
+        attempt.validation_policy_id,
+        *(pin.task_adapter_manifest_id for pin in attempt.task_adapter_pins),
+        *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
+        *attempt.eligibility_dependency_ids,
+    }
+    if attempt.parent_release_id is not None:
+        input_ids.add(attempt.parent_release_id)
+    return input_ids
+
+
 def validate_source_replay_request_authority_shape(
     *,
     state: ExpertCandidateValidationState,
@@ -517,10 +536,11 @@ class ExpertEvaluatorRunBuilder:
             )
         if stage in {
             ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.RELEASE_MATRIX,
             ExpertValidationStage.PUBLICATION_ELIGIBILITY,
         }:
             raise ExpertValidationError(
-                f"stage {stage.value} requires a typed decision record"
+                f"stage {stage.value} requires a typed stage path"
             )
         evaluator = self._evaluator(stage)
         self._validate_outputs(output_payloads)
@@ -534,7 +554,6 @@ class ExpertEvaluatorRunBuilder:
             ExpertValidationStage.DEVELOPMENT_ANCHORS,
             ExpertValidationStage.CROSS_FAMILY_TRANSFER,
             ExpertValidationStage.SEALED_CANARY,
-            ExpertValidationStage.RELEASE_MATRIX,
         }
         if (
             stage in stages_requiring_external_evidence
@@ -544,19 +563,9 @@ class ExpertEvaluatorRunBuilder:
                 f"stage {stage.value} requires exact external evidence inputs"
             )
         exact_input_ids = {
-            attempt.validation_attempt_id,
-            attempt.candidate_id,
-            attempt.candidate_commit_record_id,
-            attempt.scope_contract_id,
-            attempt.eligibility_decision_id,
-            attempt.validation_policy_id,
-            *(pin.task_adapter_manifest_id for pin in attempt.task_adapter_pins),
-            *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
-            *attempt.eligibility_dependency_ids,
+            *_expert_evaluator_base_input_ids(attempt),
             *exact_additional_input_ids,
         }
-        if attempt.parent_release_id is not None:
-            exact_input_ids.add(attempt.parent_release_id)
         checksums = {
             path: tree_or_blob_digest(payload)
             for path, payload in sorted(output_payloads.items())
@@ -1007,14 +1016,16 @@ class ExpertValidationReducer:
         if expected_stage in {
             ExpertValidationStage.SOURCE_RUN_REPLAY,
             ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.RELEASE_MATRIX,
             ExpertValidationStage.PUBLICATION_ELIGIBILITY,
         } or run.stage in {
             ExpertValidationStage.SOURCE_RUN_REPLAY,
             ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.RELEASE_MATRIX,
             ExpertValidationStage.PUBLICATION_ELIGIBILITY,
         }:
             raise ExpertValidationError(
-                "typed decision stage cannot consume an evaluator result"
+                "typed stage cannot consume a generic evaluator result"
             )
         if state.next_stage is not expected_stage or run.stage is not expected_stage:
             raise ExpertValidationError("evaluator result is out of order")
@@ -1297,28 +1308,21 @@ class ExpertValidationReducer:
             )
         if run.stage in {
             ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.RELEASE_MATRIX,
             ExpertValidationStage.PUBLICATION_ELIGIBILITY,
         }:
             raise ExpertValidationError(
-                f"stage {run.stage.value} requires a typed decision record"
+                f"stage {run.stage.value} requires a typed stage path"
             )
         envelope = result.attestation_envelope
         attestation = envelope.attestation
-        required_inputs = {
-            attempt.validation_attempt_id,
-            attempt.candidate_id,
-            attempt.candidate_commit_record_id,
-            attempt.scope_contract_id,
-            attempt.eligibility_decision_id,
-            attempt.validation_policy_id,
-            *(pin.task_adapter_manifest_id for pin in attempt.task_adapter_pins),
-            *(pin.verification_receipt_id for pin in attempt.task_adapter_pins),
-            *attempt.eligibility_dependency_ids,
-        }
-        if attempt.parent_release_id is not None:
-            required_inputs.add(attempt.parent_release_id)
+        required_inputs = _expert_evaluator_base_input_ids(attempt)
         if not required_inputs.issubset(run.exact_input_ids):
             raise ExpertValidationError("evaluator input closure is incomplete")
+        decoded_outputs = {
+            path: base64.b64decode(payload, validate=True)
+            for path, payload in run.output_payloads_base64.items()
+        }
         if (
             attestation.evaluator_run_id != run.evaluator_run_id
             or attestation.issuer_id != run.evaluator_id
@@ -1332,10 +1336,7 @@ class ExpertValidationReducer:
         )
         if attestation.trust_root_id != expected_trust_root:
             raise ExpertValidationError("evaluator attestation trust root is invalid")
-        output_bytes = sum(
-            len(base64.b64decode(payload, validate=True))
-            for payload in run.output_payloads_base64.values()
-        )
+        output_bytes = sum(len(payload) for payload in decoded_outputs.values())
         if (
             len(run.output_payloads_base64) > self.settings.policy.artifact_entry_limit
             or output_bytes > self.settings.policy.artifact_byte_limit

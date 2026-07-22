@@ -573,8 +573,7 @@ class ExpertValidationStore:
             or self.reducer.candidate_store.root
             != coordinator.workspace_root / coordinator.settings.candidate_path
             or self.root
-            != coordinator.workspace_root
-            / coordinator.settings.validation.state_path
+            != coordinator.workspace_root / coordinator.settings.validation.state_path
         ):
             raise ExpertValidationStoreError(
                 "validation store has invalid or conflicting review authority"
@@ -592,14 +591,12 @@ class ExpertValidationStore:
         coordinator._require_runner_authority()
         if (
             coordinator is not self._automated_review_coordinator
-            or self.reducer.candidate_store.validator.settings
-            != coordinator.settings
+            or self.reducer.candidate_store.validator.settings != coordinator.settings
             or self.settings != coordinator.settings.validation
             or self.reducer.candidate_store.root
             != coordinator.workspace_root / coordinator.settings.candidate_path
             or self.root
-            != coordinator.workspace_root
-            / coordinator.settings.validation.state_path
+            != coordinator.workspace_root / coordinator.settings.validation.state_path
         ):
             raise ExpertValidationStoreError(
                 "automated review publication authority changed after binding"
@@ -1660,10 +1657,15 @@ class ExpertValidationStore:
     ):
         namespace = result_record_id.split(":sha256:", 1)[0]
         if namespace == "expert-evaluator-result-record":
-            return self._read_contract_unlocked(
+            result = self._read_contract_unlocked(
                 result_record_id,
                 ExpertEvaluatorResultRecord,
             )
+            if result.evaluator_run.stage is ExpertValidationStage.RELEASE_MATRIX:
+                raise ExpertValidationStoreError(
+                    "release matrix cannot use a generic evaluator result"
+                )
+            return result
         if namespace == "expert-source-replay-stage-result":
             return self._read_contract_unlocked(
                 result_record_id,
@@ -1695,6 +1697,10 @@ class ExpertValidationStore:
     ]:
         if type(result) is ExpertEvaluatorResultRecord:
             run = result.evaluator_run
+            if run.stage is ExpertValidationStage.RELEASE_MATRIX:
+                raise ExpertValidationStoreError(
+                    "release matrix cannot use a generic evaluator result"
+                )
             return (
                 run.stage,
                 result.evaluator_result_record_id,
@@ -2472,7 +2478,9 @@ class ExpertValidationStore:
             )
             if type(result_record) is ExpertEvaluatorResultRecord:
                 if (
-                    operation.operation_kind
+                    result_record.evaluator_run.stage
+                    is ExpertValidationStage.RELEASE_MATRIX
+                    or operation.operation_kind
                     is not ExpertValidationOperationKind.EVALUATOR_RESULT
                     or operation.request_record_id
                     != result_record.evaluator_result_record_id

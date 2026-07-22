@@ -661,26 +661,47 @@ transition.
 
 Minimal ownership:
 
-- `promotion_contracts.py` owns typed matrix rows/evidence, the deterministic
-  decision, fresh-authority fence, and publication-eligibility stage result;
-- `promotion.py` parses the sole canonical release-matrix payload, resolves exact
-  pinned adapter metric bindings, re-derives normalized effects, validates coverage,
-  and computes the decision without weighted scores;
+- `promotion_contracts.py` owns the immutable adapter authority, provenance,
+  full-fingerprint cell, precommitted evaluation plan, factual row, and report;
+- the deterministic planner derives cells from the frozen attempt, accepted source
+  replay, and adapter-owned cases, then `validation_store.py` reserves exactly one
+  plan against the unchanged `RELEASE_MATRIX` validation head before any process
+  starts;
+- the task-evaluation substrate generalizes source replay's request, journal,
+  bounded execution, accepted-result, and fresh-adapter-authority machinery for
+  cells that cannot reuse exact accepted replay evidence;
+- the factual reducer resolves every referenced accepted event, reuses a source
+  comparison only on exact candidate/parent/adapter/context/fingerprint identity,
+  and mints the report; it never accepts evaluator-authored rows or effects;
+- `promotion.py` re-derives per-replicate direction-aligned normalized effects and
+  computes the Pareto decision without weighted scores;
 - `promotion_authority.py` proves fresh `CURRENT` or authenticated bootstrap
   absence plus exact adapter/verifier/denylist authority and seals publication;
-- `promotion_stage.py` serializes one candidate, reopens deterministic work, and
-  hands one sealed execution to the validation store; and
-- `validation.py` and `validation_store.py` only reduce the terminal state and
-  persist/rederive the content-addressed closure through one journal CAS.
+  and
+- `promotion_stage.py` reopens deterministic work, while `validation.py` and
+  `validation_store.py` reduce and persist the terminal transition through one
+  journal compare-and-swap.
 
-Each matrix row binds the exact candidate and parent, task-adapter manifest and
-verification receipt, evaluation fingerprint, metric binding, context, independent
-lineage, repeat, paired control/candidate values, and evidence dependencies. The
-framework recomputes direction-aligned scale-normalized effects; missing or extra
-dimensions, reused context/repeat authority, nonfinite values, nonpositive scale,
-direction substitution, or omitted dependencies fail loud. Bootstrap uses an
-explicit standalone-coverage mode and authenticated `CURRENT` absence—never a
-synthetic zero control.
+The generic `ExpertEvaluatorRun.measurements` route is fail-closed for
+`RELEASE_MATRIX`; there is no legacy flat-payload admission path. Plan persistence,
+not embedding a plan in a later report, supplies temporal precommit authority.
+The plan binds the exact candidate and optional parent trees, full verified adapter
+packages, task contexts, source lineage or adapter-owned case, complete
+`EvaluationFingerprint` including every seed/replicate, metric authority, and exact
+dependency closure. Source replay and adapter-owned-case provenance are orthogonal
+to parent-comparison versus bootstrap mode: a parent matrix may mix both channels,
+while bootstrap requires adapter-owned standalone cases and never fabricates a zero
+control. Fresh provider verification is required at plan admission, before each
+spawn, and before terminal publication; embedded authority exists for durable
+offline revalidation, not as a substitute for freshness.
+
+The report covers reserved cells exactly once and in canonical order, with complete
+candidate and, when parent-backed, control replicate maps. Observation-event
+namespaces must match their provenance channel. Missing/extra dimensions, contexts,
+fingerprints or replicates; reused lineage authority; nonfinite or signed-zero
+values; metric direction/scale substitution; stale packages; or omitted dependencies
+fail loud. Effects, thresholds, winner labels, and promotion state are absent from
+the factual report and derived only by the trusted decision reducer.
 
 Decision order is fixed:
 

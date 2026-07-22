@@ -654,6 +654,23 @@ def test_source_replay_execution_fails_closed_without_a_typed_receipt():
         )
 
 
+def test_release_matrix_fails_closed_without_a_reserved_typed_stage_path():
+    settings = _validation_settings()
+    attempt = _attempt(_eligibility_decision())
+    with pytest.raises(ExpertValidationError, match="typed stage path"):
+        ExpertEvaluatorRunBuilder(settings).build(
+            attempt=attempt,
+            stage=ExpertValidationStage.RELEASE_MATRIX,
+            exact_additional_input_ids=(_content_id("matrix-input"),),
+            output_payloads={"result.json": b'{"passed":true}'},
+            measurements={"quality": 1.0},
+            costs={},
+            duration_seconds=1.0,
+            outcome=ExpertEvaluatorOutcome.PASSED,
+            signature="test-signature",
+        )
+
+
 def test_sealed_canary_persists_only_a_typed_aggregate():
     decision = _eligibility_decision(track=ExpertValidationTrack.BEHAVIORAL_CAPABILITY)
     attempt = _attempt(decision)
@@ -767,6 +784,23 @@ def test_accepted_stage_result_reference_is_typed_by_stage():
         ExpertAcceptedStageResultRef(
             stage=ExpertValidationStage.CONTRACT_SCHEMA,
             stage_result_record_id=source_result_id,
+        )
+    matrix_result_id = content_id(
+        "expert-release-matrix-stage-result",
+        {"matrix": True},
+    )
+    matrix_reference = ExpertAcceptedStageResultRef(
+        stage=ExpertValidationStage.RELEASE_MATRIX,
+        stage_result_record_id=matrix_result_id,
+    )
+    assert matrix_reference.stage_result_record_id == matrix_result_id
+    with pytest.raises(ContractValidationError, match="wrong namespace"):
+        ExpertAcceptedStageResultRef(
+            stage=ExpertValidationStage.RELEASE_MATRIX,
+            stage_result_record_id=content_id(
+                "expert-evaluator-result-record",
+                {"legacy-matrix": True},
+            ),
         )
 
 
