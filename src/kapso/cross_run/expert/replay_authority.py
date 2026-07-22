@@ -7,9 +7,7 @@ from typing import Protocol
 from kapso.cross_run.expert.replay_authority_contracts import (
     ExpertSourceReplayFreshAuthorityError,
     SourceReplayCurrentReleaseObservation,
-    SourceReplaySecurityDenylistObservation,
     SourceReplaySpawnAuthorityFence,
-    SourceReplayTaskAdapterTrustObservation,
     source_replay_spawn_security_subject_ids,
     source_replay_task_adapter_trust_observations,
 )
@@ -27,6 +25,10 @@ from kapso.cross_run.expert.replay_execution_store import (
 from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,
     PreparedExpertSourceReplayRequest,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
 )
 from kapso.cross_run.expert.validation_store import (
     ExpertSourceReplayReservationSnapshot,
@@ -66,7 +68,7 @@ class ExpertSourceReplaySecurityDenylistAuthority(Protocol):
         scope_id: str,
         scope_contract_id: str,
         checked_subject_ids: tuple[str, ...],
-    ) -> SourceReplaySecurityDenylistObservation: ...
+    ) -> SecurityDenylistObservation: ...
 
 
 class ExpertSourceReplayFreshAuthorityCoordinator:
@@ -200,7 +202,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
         if (
             not isinstance(
                 denylist_observation,
-                SourceReplaySecurityDenylistObservation,
+                SecurityDenylistObservation,
             )
             or denylist_observation.checked_subject_ids != checked_subject_ids
             or denylist_observation.denied_subject_ids
@@ -251,7 +253,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
     def _reverify_adapters(
         self,
         prepared: PreparedExpertSourceReplayRequest,
-    ) -> tuple[SourceReplayTaskAdapterTrustObservation, ...]:
+    ) -> tuple[TaskAdapterTrustObservation, ...]:
         adapters = {
             (
                 item.task_adapter.manifest.task_adapter_manifest_id,

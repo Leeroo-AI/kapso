@@ -21,7 +21,6 @@ from kapso.cross_run.expert.replay_execution import (
 from kapso.cross_run.expert.replay_authority import (
     ExpertSourceReplayFreshAuthorityCoordinator,
     SourceReplayCurrentReleaseObservation,
-    SourceReplaySecurityDenylistObservation,
 )
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
@@ -32,6 +31,9 @@ from kapso.cross_run.expert.replay_execution_store import (
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
 )
 from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorFingerprintResult,
@@ -111,7 +113,7 @@ class _SecurityDenylistAuthority:
         scope_contract_id,
         checked_subject_ids,
     ):
-        return SourceReplaySecurityDenylistObservation.mint(
+        return SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
             scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),

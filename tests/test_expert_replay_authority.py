@@ -9,7 +9,6 @@ from kapso.cross_run.expert.replay_authority import (
     ExpertSourceReplayFreshAuthorityCoordinator,
     ExpertSourceReplayFreshAuthorityError,
     SourceReplayCurrentReleaseObservation,
-    SourceReplaySecurityDenylistObservation,
 )
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
@@ -21,6 +20,9 @@ from kapso.cross_run.expert.replay_execution import (
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStoreError
 from test_expert_source_replay_request import _prepared, _request_fixture
@@ -77,7 +79,7 @@ class _DenylistAuthority:
             checked_subject_ids[:-1] if self.substitute_checked else checked_subject_ids
         )
         denied_subject_ids = (observed_subjects[0],) if self.denied else ()
-        return SourceReplaySecurityDenylistObservation.mint(
+        return SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
             scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),

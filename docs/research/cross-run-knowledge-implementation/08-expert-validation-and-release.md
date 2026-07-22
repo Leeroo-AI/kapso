@@ -804,6 +804,21 @@ complete canonical evaluator request and handle internally, carries only the sel
 expert leg, and has no provider-execution surface until the journal owns its one-shot
 spawn capability.
 
+Fresh task-evaluation authority also has one shared observation vocabulary. The
+adapter-verifier and authenticated denylist observations are now neutral contracts
+used by both source replay and adapter-owned matrix execution; the old source-named
+formats are removed. A minimal matrix spawn fence binds only the reservation, request,
+allocation, one stable fresh current-or-absent observation, the exact sorted set of
+all prepared adapter trust observations, and the exact denylist observation. Its pure
+projection derives the complete checked-subject set from the reservation/request
+closures, allocated case/leg pair, candidate and optional parent dependencies,
+current publication/validation closure, and every adapter/verifier dependency. Missing
+or extra checked subjects, denied subjects, foreign scope/release/absence, substituted
+adapters, or a cross-case allocation fail closed. A harmless branch-head advance after
+admission may produce a new observation; the later coordinator must require its two
+fresh observations to equal each other while preserving the reservation's exact
+parent release or bootstrap absence.
+
 `TaskEvaluationPreflightCoordinator` is the sole producer that turns a reserved plan
 into that byte-closed request. Its order is fixed:
 

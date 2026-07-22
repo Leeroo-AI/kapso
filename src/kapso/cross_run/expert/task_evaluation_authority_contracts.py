@@ -8,6 +8,13 @@ from typing import ClassVar
 
 from kapso.cross_run.canonical import require_content_id, require_identifier
 from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.expert.task_evaluation_contracts import (
+    TaskEvaluationInvocationAllocation,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
+)
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -83,3 +90,86 @@ class TaskEvaluationCurrentReleaseObservation(StrictContract):
                 closure_id,
                 "task evaluation current validation closure",
             )
+
+
+@dataclass(frozen=True)
+class TaskEvaluationSpawnAuthorityFence(StrictContract):
+    fence_id: str
+    reservation_id: str
+    request_id: str
+    invocation_allocation: TaskEvaluationInvocationAllocation
+    stable_current_release_observation: TaskEvaluationCurrentReleaseObservation
+    task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
+    security_denylist_observation: SecurityDenylistObservation
+
+    CONTENT_NAMESPACE: ClassVar[str] = "task-evaluation-spawn-authority-fence"
+    IDENTITY_FIELD: ClassVar[str] = "fence_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.reservation_id,
+                "task-evaluation-reservation",
+                "task evaluation spawn reservation",
+            ),
+            (
+                self.request_id,
+                "task-evaluation-request",
+                "task evaluation spawn request",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise TaskEvaluationAuthorityError(f"{name} uses the wrong namespace")
+        if self.invocation_allocation.reservation_id != self.reservation_id:
+            raise TaskEvaluationAuthorityError(
+                "task evaluation spawn allocation uses another reservation"
+            )
+        current = self.stable_current_release_observation
+        observation_ids = tuple(
+            observation.observation_id
+            for observation in self.task_adapter_trust_observations
+        )
+        if not observation_ids or observation_ids != tuple(
+            sorted(set(observation_ids))
+        ):
+            raise TaskEvaluationAuthorityError(
+                "task evaluation spawn adapter observations are noncanonical"
+            )
+        denylist = self.security_denylist_observation
+        if denylist.denied_subject_ids:
+            raise TaskEvaluationAuthorityError(
+                "task evaluation spawn authority contains denied subjects"
+            )
+        if denylist.scope_id != current.scope_id:
+            raise TaskEvaluationAuthorityError(
+                "task evaluation spawn denylist uses another scope authority"
+            )
+        required_subjects = {
+            self.reservation_id,
+            self.request_id,
+            self.invocation_allocation.evaluation_case_id,
+            self.invocation_allocation.evaluation_leg_id,
+            current.observation_id,
+            *current.validation_closure_ids,
+        }
+        if current.publication_id is not None:
+            required_subjects.add(current.publication_id)
+        for observation in self.task_adapter_trust_observations:
+            required_subjects.update(
+                {
+                    observation.observation_id,
+                    observation.task_adapter_manifest_id,
+                    observation.verification_receipt_id,
+                    observation.verifier_authority_subject_id,
+                    *observation.dependency_ids,
+                }
+            )
+        if not required_subjects.issubset(self.security_subject_ids):
+            raise TaskEvaluationAuthorityError(
+                "task evaluation spawn fence omits mandatory security subjects"
+            )
+
+    @property
+    def security_subject_ids(self) -> tuple[str, ...]:
+        return self.security_denylist_observation.checked_subject_ids

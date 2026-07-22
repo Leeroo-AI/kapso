@@ -79,6 +79,13 @@ from kapso.cross_run.expert.task_evaluation_execution import (
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationAuthorityError,
     TaskEvaluationCurrentReleaseObservation,
+    TaskEvaluationSpawnAuthorityFence,
+)
+from kapso.cross_run.expert.task_evaluation_authority_projection import (
+    build_task_evaluation_spawn_authority_fence,
+    task_evaluation_adapter_trust_observations,
+    task_evaluation_allocation_case_leg,
+    task_evaluation_spawn_security_subject_ids,
 )
 from kapso.cross_run.expert.task_evaluation_preflight import (
     MaterializedTaskEvaluationCase,
@@ -302,6 +309,7 @@ __all__ = [
     "TaskEvaluationProviderSupportRequirements",
     "TaskEvaluationRequest",
     "TaskEvaluationReservation",
+    "TaskEvaluationSpawnAuthorityFence",
     "StoredExpertCandidate",
     "TaskEvaluationPreflightError",
     "VerifiedTaskEvaluationAdapterRuntime",
@@ -312,9 +320,13 @@ __all__ = [
     "VerifiedSourceReplayStartingArtifact",
     "materialize_task_evaluation_starting_artifacts",
     "project_prepared_task_evaluation_cases",
+    "task_evaluation_adapter_trust_observations",
+    "task_evaluation_allocation_case_leg",
     "task_evaluation_materialization_usage",
     "task_evaluation_provider_execution_handle",
+    "task_evaluation_spawn_security_subject_ids",
     "build_task_evaluation_evaluator_request",
+    "build_task_evaluation_spawn_authority_fence",
     "compile_expert_semantic_book",
     "expert_semantic_book_digest",
     "source_replay_publication_security_subject_ids",

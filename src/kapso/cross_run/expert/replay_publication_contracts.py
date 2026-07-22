@@ -14,9 +14,11 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
-    SourceReplaySecurityDenylistObservation,
-    SourceReplayTaskAdapterTrustObservation,
     source_replay_task_adapter_trust_observations,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
 )
 from kapso.cross_run.expert.replay_comparison_contracts import (
     ExpertSourceReplayPairedComparisonReceipt,
@@ -73,8 +75,8 @@ class SourceReplayDecisionPublicationFence(StrictContract):
     source_replay_stage_decision_id: str
     outcome: ExpertEvaluatorOutcome
     current_release_observation: SourceReplayCurrentReleaseObservation
-    task_adapter_trust_observations: tuple[SourceReplayTaskAdapterTrustObservation, ...]
-    security_denylist_observation: SourceReplaySecurityDenylistObservation
+    task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
+    security_denylist_observation: SecurityDenylistObservation
 
     CONTENT_NAMESPACE: ClassVar[str] = "source-replay-decision-publication-fence"
     IDENTITY_FIELD: ClassVar[str] = "fence_id"
@@ -473,9 +475,7 @@ def source_replay_publication_security_subject_ids(
     stage_decision: ExpertSourceReplayStageDecision,
     execution_events: tuple[SourceReplayExecutionJournalEvent, ...],
     current_release_observation: SourceReplayCurrentReleaseObservation,
-    task_adapter_trust_observations: tuple[
-        SourceReplayTaskAdapterTrustObservation, ...
-    ],
+    task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...],
 ) -> tuple[str, ...]:
     """Expand the exact revocation closure checked before final publication."""
 

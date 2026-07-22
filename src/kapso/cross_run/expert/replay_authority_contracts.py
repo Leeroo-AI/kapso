@@ -6,17 +6,17 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
-from kapso.cross_run.canonical import (
-    content_id,
-    require_content_id,
-    require_identifier,
-)
+from kapso.cross_run.canonical import require_content_id, require_identifier
 from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionReservation,
     StrictContract,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayInvocationAllocation,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
 )
 
 if TYPE_CHECKING:
@@ -92,143 +92,6 @@ class SourceReplayCurrentReleaseObservation(StrictContract):
 
 
 @dataclass(frozen=True)
-class SourceReplayTaskAdapterTrustObservation(StrictContract):
-    observation_id: str
-    task_adapter_manifest_id: str
-    verification_receipt_id: str
-    verifier_id: str
-    verifier_version: str
-    dependency_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-task-adapter-trust-observation"
-    IDENTITY_FIELD: ClassVar[str] = "observation_id"
-
-    def _validate(self) -> None:
-        for value, namespace, name in (
-            (
-                self.task_adapter_manifest_id,
-                "task-adapter-manifest",
-                "task_adapter_manifest_id",
-            ),
-            (
-                self.verification_receipt_id,
-                "task-adapter-verification-receipt",
-                "verification_receipt_id",
-            ),
-        ):
-            require_content_id(value, f"source replay adapter trust {name}")
-            if value.split(":sha256:", 1)[0] != namespace:
-                raise ExpertSourceReplayFreshAuthorityError(
-                    f"source replay adapter trust {name} uses the wrong namespace"
-                )
-        for value, name in (
-            (self.verifier_id, "verifier_id"),
-            (self.verifier_version, "verifier_version"),
-        ):
-            require_identifier(value, f"source replay adapter trust {name}")
-        require_sorted_content_ids(
-            self.dependency_ids,
-            "source replay adapter trust dependencies",
-        )
-        if self.verification_receipt_id not in self.dependency_ids:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay adapter trust omits its verification receipt"
-            )
-
-    @property
-    def verifier_authority_subject_id(self) -> str:
-        return content_id(
-            "task-adapter-verifier-authority",
-            {
-                "verifier_id": self.verifier_id,
-                "verifier_version": self.verifier_version,
-            },
-        )
-
-
-@dataclass(frozen=True)
-class SourceReplaySecurityDenylistObservation(StrictContract):
-    observation_id: str
-    scope_id: str
-    scope_contract_id: str
-    scope_repository_binding_hash: str
-    snapshot_id: str
-    generation: int
-    publication_id: str
-    repository_full_name: str
-    repository_node_id: str
-    pointer_digest: str
-    authority_commit_sha: str
-    release_attestation_ref: str
-    checked_subject_ids: tuple[str, ...]
-    denied_subject_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-security-denylist-observation"
-    IDENTITY_FIELD: ClassVar[str] = "observation_id"
-
-    def _validate(self) -> None:
-        require_identifier(self.scope_id, "source replay denylist scope_id")
-        require_content_id(
-            self.scope_contract_id,
-            "source replay denylist scope_contract_id",
-        )
-        if _SHA256_DIGEST_PATTERN.fullmatch(self.scope_repository_binding_hash) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist repository binding is invalid"
-            )
-        require_content_id(self.snapshot_id, "source replay denylist snapshot_id")
-        if self.snapshot_id.split(":sha256:", 1)[0] != "security-denylist-snapshot":
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist snapshot uses the wrong namespace"
-            )
-        if type(self.generation) is not int or self.generation < 0:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist generation must be non-negative"
-            )
-        require_content_id(
-            self.publication_id,
-            "source replay denylist publication_id",
-        )
-        if self.publication_id.split(":sha256:", 1)[0] != "github-publication":
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist publication uses the wrong namespace"
-            )
-        if _GITHUB_REPOSITORY_PATTERN.fullmatch(self.repository_full_name) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist repository is invalid"
-            )
-        require_identifier(
-            self.repository_node_id,
-            "source replay denylist repository_node_id",
-        )
-        if _SHA256_DIGEST_PATTERN.fullmatch(self.pointer_digest) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist pointer digest is invalid"
-            )
-        if re.fullmatch(r"[0-9a-f]{40}", self.authority_commit_sha) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist authority commit is invalid"
-            )
-        if not self.release_attestation_ref.strip():
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist release attestation is required"
-            )
-        require_sorted_content_ids(
-            self.checked_subject_ids,
-            "source replay denylist checked subjects",
-        )
-        require_sorted_content_ids(
-            self.denied_subject_ids,
-            "source replay denylist denied subjects",
-            allow_empty=True,
-        )
-        if not set(self.denied_subject_ids).issubset(self.checked_subject_ids):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denied subjects were not checked"
-            )
-
-
-@dataclass(frozen=True)
 class SourceReplaySpawnAuthorityFence(StrictContract):
     fence_id: str
     reservation_id: str
@@ -241,8 +104,8 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
     expected_parent_release_id: str
     invocation_allocation: ExpertSourceReplayInvocationAllocation
     current_release_observation: SourceReplayCurrentReleaseObservation
-    task_adapter_trust_observations: tuple[SourceReplayTaskAdapterTrustObservation, ...]
-    security_denylist_observation: SourceReplaySecurityDenylistObservation
+    task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
+    security_denylist_observation: SecurityDenylistObservation
 
     CONTENT_NAMESPACE: ClassVar[str] = "source-replay-spawn-authority-fence"
     IDENTITY_FIELD: ClassVar[str] = "fence_id"
@@ -357,7 +220,7 @@ class SourceReplaySpawnAuthorityFence(StrictContract):
 
 def source_replay_task_adapter_trust_observations(
     prepared: PreparedExpertSourceReplayRequest,
-) -> tuple[SourceReplayTaskAdapterTrustObservation, ...]:
+) -> tuple[TaskAdapterTrustObservation, ...]:
     adapters = {
         (
             item.task_adapter.manifest.task_adapter_manifest_id,
@@ -368,7 +231,7 @@ def source_replay_task_adapter_trust_observations(
     return tuple(
         sorted(
             (
-                SourceReplayTaskAdapterTrustObservation.mint(
+                TaskAdapterTrustObservation.mint(
                     task_adapter_manifest_id=manifest_id,
                     verification_receipt_id=receipt_id,
                     verifier_id=adapter.verification_receipt.verifier_id,
@@ -386,7 +249,7 @@ def source_replay_spawn_security_subject_ids(
     prepared: PreparedExpertSourceReplayRequest,
     reservation: ExpertSourceReplayExecutionReservation,
     current: SourceReplayCurrentReleaseObservation,
-    adapter_observations: tuple[SourceReplayTaskAdapterTrustObservation, ...],
+    adapter_observations: tuple[TaskAdapterTrustObservation, ...],
 ) -> tuple[str, ...]:
     request = prepared.request
     candidate = prepared.candidate.manifest

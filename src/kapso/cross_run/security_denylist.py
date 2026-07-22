@@ -26,8 +26,8 @@ from kapso.cross_run.contracts import (
     SecurityDenylistSnapshot,
     StrictContract,
 )
-from kapso.cross_run.expert.replay_authority import (
-    SourceReplaySecurityDenylistObservation,
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
 )
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.github.publisher import (
@@ -752,7 +752,7 @@ class AuthenticatedSecurityDenylistAuthority:
         scope_id: str,
         scope_contract_id: str,
         checked_subject_ids: tuple[str, ...],
-    ) -> SourceReplaySecurityDenylistObservation:
+    ) -> SecurityDenylistObservation:
         require_identifier(scope_id, "security denylist scope_id")
         require_content_id(scope_contract_id, "security denylist scope_contract_id")
         if not isinstance(checked_subject_ids, tuple) or not checked_subject_ids:
@@ -818,7 +818,7 @@ class AuthenticatedSecurityDenylistAuthority:
             for subject_id in checked_subject_ids
             if subject_id in denied_subjects
         )
-        return SourceReplaySecurityDenylistObservation.mint(
+        return SecurityDenylistObservation.mint(
             scope_id=scope_id,
             scope_contract_id=scope_contract_id,
             scope_repository_binding_hash=repositories.binding_fingerprint,

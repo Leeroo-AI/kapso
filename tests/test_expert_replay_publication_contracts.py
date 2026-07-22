@@ -13,9 +13,11 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
-    SourceReplaySecurityDenylistObservation,
-    SourceReplayTaskAdapterTrustObservation,
     source_replay_task_adapter_trust_observations,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
 )
 from kapso.cross_run.expert.replay_comparison import (
     build_expert_source_replay_paired_comparison_receipt,
@@ -147,7 +149,7 @@ def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
         current_release_observation=current,
         task_adapter_trust_observations=adapter_observations,
     )
-    denylist = SourceReplaySecurityDenylistObservation.mint(
+    denylist = SecurityDenylistObservation.mint(
         scope_id=parent.scope_id,
         scope_contract_id=prepared.request.scope_contract_id,
         scope_repository_binding_hash=tree_or_blob_digest(b"scope binding"),
@@ -302,7 +304,7 @@ def test_source_stage_result_rejects_substituted_adapter_or_scientific_decision(
 ):
     _, prepared, reservation, _, _, fence, result = _publication_evidence(tmp_path)
     expected_observation = fence.task_adapter_trust_observations[0]
-    substituted_observation = SourceReplayTaskAdapterTrustObservation.mint(
+    substituted_observation = TaskAdapterTrustObservation.mint(
         task_adapter_manifest_id=expected_observation.task_adapter_manifest_id,
         verification_receipt_id=expected_observation.verification_receipt_id,
         verifier_id=expected_observation.verifier_id,

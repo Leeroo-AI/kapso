@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING, Protocol
 from kapso.cross_run.contracts import ExpertSourceReplayExecutionReservation
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
-    SourceReplaySecurityDenylistObservation,
-    SourceReplayTaskAdapterTrustObservation,
     source_replay_task_adapter_trust_observations,
 )
 from kapso.cross_run.expert.replay_comparison import (
@@ -26,6 +24,10 @@ from kapso.cross_run.expert.replay_publication_contracts import (
     source_replay_publication_security_subject_ids,
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
+    TaskAdapterTrustObservation,
+)
 from kapso.cross_run.task_adapters import (
     VerifiedTaskAdapter,
     VerifiedTaskAdapterProvider,
@@ -56,7 +58,7 @@ class ExpertSourceReplayPublicationDenylistAuthority(Protocol):
         scope_id: str,
         scope_contract_id: str,
         checked_subject_ids: tuple[str, ...],
-    ) -> SourceReplaySecurityDenylistObservation: ...
+    ) -> SecurityDenylistObservation: ...
 
 
 class ExpertSourceReplayDecisionPublicationCoordinator:
@@ -162,7 +164,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
             checked_subject_ids=security_subject_ids,
         )
         if (
-            not isinstance(denylist, SourceReplaySecurityDenylistObservation)
+            not isinstance(denylist, SecurityDenylistObservation)
             or denylist.checked_subject_ids != security_subject_ids
             or denylist.denied_subject_ids
         ):
@@ -226,7 +228,7 @@ class ExpertSourceReplayDecisionPublicationCoordinator:
     def _reverify_adapters(
         self,
         prepared: PreparedExpertSourceReplayRequest,
-    ) -> tuple[SourceReplayTaskAdapterTrustObservation, ...]:
+    ) -> tuple[TaskAdapterTrustObservation, ...]:
         adapters = {
             (
                 item.task_adapter.manifest.task_adapter_manifest_id,
