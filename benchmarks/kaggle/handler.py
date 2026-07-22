@@ -76,6 +76,13 @@ provided checkpoint if any, inside the kernel and writes submission.csv
 itself); keep {self.submission_dir}/kernel/ holding the exact kernel
 (script + kernel-metadata.json) of your best submitted attempt.
 
+The job is END-TO-END within this run's time budget: develop → push the
+kernel → Kaggle runs it (~10–20 min round trip) → operator-approved
+submit → public score, all before the deadline. Budget those round trips
+into your plan from the start — an unsubmitted or unscored model counts
+for nothing, and the last kernel push must leave enough margin for its
+cloud run, the approval, and scoring.
+
 `kaggle competitions submit` requires operator approval: the CLI logs
 your exact command to ~/kaggle_submit_requests.log and the approved
 submission's full output appears in ~/kaggle_submit_executed.log — poll
