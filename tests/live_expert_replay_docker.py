@@ -26,21 +26,24 @@ from urllib.parse import urlsplit
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
-    ExpertSourceReplayExecutionLegKind,
+    ExpertPromotionState,
+    ExpertValidationStage,
     TaskAdapterManifest,
     TaskAdapterRuntimeContract,
 )
-from kapso.cross_run.expert.replay_comparison import (
-    build_expert_source_replay_paired_comparison_receipt,
-)
-from kapso.cross_run.expert.replay_decision import decide_expert_source_replay_stage
 from kapso.cross_run.expert.replay_docker_bootstrap import (
     build_source_replay_docker_provider_registry,
 )
 from kapso.cross_run.expert.replay_docker_runtime import read_verified_root_executable
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
-    source_replay_execution_schedule,
+    SourceReplayExecutionJournalEventKind,
+)
+from kapso.cross_run.expert.replay_publication import (
+    ExpertSourceReplayDecisionPublicationCoordinator,
+)
+from kapso.cross_run.expert.replay_stage import (
+    ExpertSourceReplayStageOrchestrator,
 )
 from test_cross_run_contracts import (
     TASK_ADAPTER_RUNTIME_LOCK,
@@ -454,124 +457,80 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         assert local_registry.server.observed_violations == ()
         registry_requests_after_pull = local_registry.server.request_count
 
-        provider_registry = build_source_replay_docker_provider_registry(
-            prepared_request=prepared_request,
-            workspace_root=tmp_path.resolve(),
-        )
-        resolved_cases = provider_registry.resolve_all(prepared_request)
-        snapshot = fixture.validation_store.snapshot(
+        initial_snapshot = fixture.validation_store.snapshot(
             prepared_request.request.candidate_id
         )
-        assert snapshot is not None
-        committed = fixture.validation_store.reserve_source_replay(
-            expected_transition_id=snapshot.transition.transition_id,
-            prepared_request=prepared_request,
-        )
+        assert initial_snapshot is not None
         execution_store = ExpertSourceReplayExecutionStore(
             (fixture.validation_store.root / "source-replay-executions").resolve(),
             fixture.validation_store.root,
             prepared_request.settings.policy,
         )
-        schedule = source_replay_execution_schedule(
-            committed.reservation,
-            prepared_request.request,
-        )
-        accepted_scores: dict[ExpertSourceReplayExecutionLegKind, float] = {}
-        provider_handle_ids = []
         authority_coordinator = _coordinator(
             fixture,
             prepared_request,
             execution_store,
         )
+        publication_coordinator = ExpertSourceReplayDecisionPublicationCoordinator(
+            validation_store=fixture.validation_store,
+            execution_store=execution_store,
+            current_release_authority=(authority_coordinator.current_release_authority),
+            task_adapter_authority=fixture.adapter_provider,
+            security_denylist_authority=(
+                authority_coordinator.security_denylist_authority
+            ),
+        )
+        provider_registries = []
 
+        def provider_registry_factory(exact_prepared_request):
+            registry = build_source_replay_docker_provider_registry(
+                prepared_request=exact_prepared_request,
+                workspace_root=tmp_path.resolve(),
+            )
+            provider_registries.append(registry)
+            return registry
+
+        orchestrator = ExpertSourceReplayStageOrchestrator(
+            validation_store=fixture.validation_store,
+            preflight_coordinator=fixture.coordinator,
+            execution_store=execution_store,
+            provider_registry_factory=provider_registry_factory,
+            spawn_authority_coordinator=authority_coordinator,
+            publication_coordinator=publication_coordinator,
+        )
+        final_snapshot = orchestrator.run(fixture.attempt)
+        replayed_snapshot = orchestrator.run(fixture.attempt)
+        committed = fixture.validation_store.reserve_source_replay(
+            expected_transition_id=initial_snapshot.transition.transition_id,
+            prepared_request=prepared_request,
+        )
         with execution_store.reservation_session(
             reservation=committed.reservation,
             prepared_request=prepared_request,
         ) as session:
-            for expected_case_id, expected_leg_id in schedule:
-                allocation_permit = session.allocate_expected_leg()
-                allocation = allocation_permit.require_current_allocation(
-                    execution_store
-                )
-                assert (allocation.execution_case_id, allocation.execution_leg_id) == (
-                    expected_case_id,
-                    expected_leg_id,
-                )
-                resolved_case = next(
-                    case
-                    for case in resolved_cases
-                    if case.materialized_case.request_case.execution_case_id
-                    == allocation.execution_case_id
-                )
-                execution = authority_coordinator.commit_spawn(
-                    prepared_request=prepared_request,
-                    reservation_id=committed.reservation.reservation_id,
-                    invocation_permit=allocation_permit,
-                    resolved_case=resolved_case,
-                )
-                spawn_event = session.events[-1]
-                provider_handle_ids.append(
-                    spawn_event.provider_execution_handle.provider_handle_id
-                )
-                completion = execution.execute()
-                process_result = completion._provider_completion.process_result
-                assert process_result.returncode == 0, (
-                    process_result.outcome,
-                    process_result.stdout,
-                    process_result.stderr,
-                )
-                session.record_result_received(completion)
-                accepted = session.accept_received_result()
-                request_case = resolved_case.materialized_case.request_case
-                leg_kind = (
-                    ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
-                    if allocation.execution_leg_id
-                    == request_case.control_leg.execution_leg_id
-                    else ExpertSourceReplayExecutionLegKind.CANDIDATE
-                )
-                assert len(accepted.fingerprint_results) == 1
-                accepted_scores[leg_kind] = accepted.fingerprint_results[
-                    0
-                ].aggregate_value
             completed_execution = session.completed_execution()
-
-        comparison_receipt = build_expert_source_replay_paired_comparison_receipt(
-            completed_execution=completed_execution,
-            execution_store=execution_store,
-            reservation=committed.reservation,
-            prepared_request=prepared_request,
-        )
+        stage_result = final_snapshot.accepted_stage_results[-1]
+        comparison_receipt = stage_result.paired_comparison_receipt
         fingerprint_comparison = comparison_receipt.case_comparisons[
             0
         ].fingerprint_comparisons[0]
-        stage_decision = decide_expert_source_replay_stage(
-            paired_comparison_receipt=comparison_receipt,
-            prepared_request=prepared_request,
+        provider_handle_ids = tuple(
+            event.provider_execution_handle.provider_handle_id
+            for event in completed_execution.events
+            if event.event_kind is SourceReplayExecutionJournalEventKind.SPAWN_COMMITTED
         )
-        with execution_store.reservation_session(
-            reservation=committed.reservation,
-            prepared_request=prepared_request,
-        ) as reopened:
-            rebuilt_receipt = build_expert_source_replay_paired_comparison_receipt(
-                completed_execution=reopened.completed_execution(),
-                execution_store=execution_store,
-                reservation=committed.reservation,
-                prepared_request=prepared_request,
-            )
 
-        assert accepted_scores == {
-            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
-            ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
-        }
+        assert final_snapshot.state.promotion_state is ExpertPromotionState.VALIDATING
+        assert final_snapshot.state.next_stage is ExpertValidationStage.AUTOMATED_REVIEW
+        assert replayed_snapshot == final_snapshot
+        assert len(provider_registries) == 1
         assert fingerprint_comparison.control_result.aggregate_value == 0.7
         assert fingerprint_comparison.candidate_result.aggregate_value == 0.8
         assert fingerprint_comparison.aggregate_raw_delta == 0.8 - 0.7
         assert fingerprint_comparison.aggregate_direction_aligned_delta == 0.8 - 0.7
         assert fingerprint_comparison.aggregate_normalized_effect == 0.8 - 0.7
-        assert stage_decision.outcome is ExpertEvaluatorOutcome.PASSED
-        assert stage_decision.hard_regression_comparisons == ()
-        assert rebuilt_receipt == comparison_receipt
-        assert rebuilt_receipt.to_json_bytes() == comparison_receipt.to_json_bytes()
+        assert stage_result.stage_decision.outcome is ExpertEvaluatorOutcome.PASSED
+        assert stage_result.stage_decision.hard_regression_comparisons == ()
         assert local_registry.server.request_count == registry_requests_after_pull
         assert local_registry.server.observed_violations == ()
         _assert_no_daemon_resources(

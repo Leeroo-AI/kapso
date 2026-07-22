@@ -830,7 +830,12 @@ class ExpertValidationStore:
                         "validation head already reserves another source replay request"
                     )
                 current = self._current_from_journal_unlocked(journal)
-                self._require_expected_head(current, expected_transition_id)
+                self._require_reservation_replay_authority_unlocked(
+                    journal,
+                    current,
+                    reservation,
+                    expected_transition_id,
+                )
                 return ExpertSourceReplayReservationCommitResult(
                     reservation=reservation,
                     snapshot=self._snapshot_at_unlocked(
@@ -864,7 +869,12 @@ class ExpertValidationStore:
                         "validation head already reserves another source replay request"
                     )
                 current = self._current_from_journal_unlocked(journal)
-                self._require_expected_head(current, expected_transition_id)
+                self._require_reservation_replay_authority_unlocked(
+                    journal,
+                    current,
+                    reservation,
+                    expected_transition_id,
+                )
                 return ExpertSourceReplayReservationCommitResult(
                     reservation=reservation,
                     snapshot=self._snapshot_at_unlocked(
@@ -920,6 +930,87 @@ class ExpertValidationStore:
                     current.transition.transition_id,
                 ),
                 replayed=False,
+            )
+
+    def existing_source_replay_reservation(
+        self,
+        *,
+        expected_transition_id: str,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> ExpertSourceReplayReservationCommitResult | None:
+        """Read an exact existing reservation without creating durable state."""
+
+        require_content_id(expected_transition_id, "expected_transition_id")
+        if not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
+            raise ExpertValidationStoreError(
+                "source replay reservation lookup requires a prepared request"
+            )
+        prepared = PreparedExpertSourceReplayRequest(
+            request=prepared_request.request,
+            settings=prepared_request.settings,
+            attempt=prepared_request.attempt,
+            selection=prepared_request.selection,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            authorization_state=prepared_request.authorization_state,
+            cases=prepared_request.cases,
+        )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(prepared.request.candidate_id)
+            existing = self._source_replay_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            if existing is None:
+                return None
+            reservation, stored_request = existing
+            if stored_request != prepared.request:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head already reserves another source replay request"
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_reservation_replay_authority_unlocked(
+                journal,
+                current,
+                reservation,
+                expected_transition_id,
+            )
+            return ExpertSourceReplayReservationCommitResult(
+                reservation=reservation,
+                snapshot=self._snapshot_at_unlocked(
+                    journal,
+                    expected_transition_id,
+                ),
+                replayed=True,
+            )
+
+    def _require_reservation_replay_authority_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        current: ExpertValidationSnapshot | None,
+        reservation: ExpertSourceReplayExecutionReservation,
+        expected_transition_id: str,
+    ) -> None:
+        if (
+            current is not None
+            and current.transition.transition_id == expected_transition_id
+        ):
+            return
+        publication_operation = self._source_replay_stage_operation(reservation)
+        published = self._resolved_operation_unlocked(
+            journal,
+            publication_operation,
+        )
+        if published is None or current != published:
+            self._require_expected_head(current, expected_transition_id)
+            return
+        result = self._source_stage_result_for_transition_unlocked(published.transition)
+        if (
+            result.reservation_id != reservation.reservation_id
+            or result.execution_request_id != reservation.execution_request_id
+        ):
+            raise ExpertValidationStoreError(
+                "published source replay result differs from reservation replay"
             )
 
     def reopen_source_replay_reservation(

@@ -51,6 +51,7 @@ from kapso.cross_run.process import BoundedProcessOutcome
 from kapso.cross_run.settings import ExpertValidationPolicySettings
 
 _EXECUTION_JOURNAL_SCHEMA_VERSION = "kapso.source_replay_execution_journal.v2"
+_EXECUTION_JOURNAL_DIRECTORY_NAME = "source-replay-executions"
 _RENAME_NOREPLACE = 1
 _AT_FDCWD = -100
 _EVENT_FILENAME_PATTERN = re.compile(r"^(?P<number>[0-9]{20})\.json$")
@@ -1141,12 +1142,85 @@ class ExpertSourceReplayExecutionStore:
         with _ExecutionStoreLock(self.initialization_lock_path):
             self._prepare_layout()
 
+    @staticmethod
+    def canonical_root(validation_store_root: Path) -> Path:
+        if not isinstance(validation_store_root, Path):
+            raise ExpertSourceReplayExecutionStoreError(
+                "execution journal canonical root requires a path"
+            )
+        return validation_store_root / _EXECUTION_JOURNAL_DIRECTORY_NAME
+
     def reservation_session(
         self,
         *,
         reservation: ExpertSourceReplayExecutionReservation,
         prepared_request: PreparedExpertSourceReplayRequest,
     ) -> _ReservationSessionContext:
+        prepared = self._require_prepared_authority(prepared_request)
+        _validate_reservation_request(reservation, prepared.request)
+        return _ReservationSessionContext(self, reservation, prepared)
+
+    def stage_run_lock(self, candidate_id: str) -> _ExecutionStoreLock:
+        """Serialize one local candidate stage without granting validation authority."""
+
+        require_content_id(candidate_id, "source replay stage candidate_id")
+        namespace, digest = candidate_id.split(":sha256:", 1)
+        if namespace != "expert-candidate":
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay stage lock requires an expert candidate"
+            )
+        return _ExecutionStoreLock(self.lock_root / f"candidate-stage-{digest}.lock")
+
+    def existing_reservation_events(
+        self,
+        *,
+        reservation: ExpertSourceReplayExecutionReservation,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> tuple[SourceReplayExecutionJournalEvent, ...] | None:
+        """Read an existing journal without creating its reservation layout."""
+
+        prepared = self._require_prepared_authority(prepared_request)
+        _validate_reservation_request(reservation, prepared.request)
+        reservation_root = self._reservation_path(reservation.reservation_id)
+        with _ExecutionStoreLock(self.initialization_lock_path):
+            if not reservation_root.exists():
+                return None
+            self._validate_private_directory(
+                reservation_root,
+                "execution journal reservation",
+            )
+            required_directories = {"events", "staging", "results"}
+            with os.scandir(reservation_root) as entries:
+                observed_entries = tuple(entries)
+            observed_names = {entry.name for entry in observed_entries}
+            if not observed_names.issubset(required_directories):
+                raise ExpertSourceReplayExecutionStoreError(
+                    "partial execution journal layout has an unexpected entry"
+                )
+            for entry in observed_entries:
+                if not entry.is_dir(follow_symlinks=False):
+                    raise ExpertSourceReplayExecutionStoreError(
+                        "partial execution journal layout contains a non-directory"
+                    )
+                self._validate_private_directory(
+                    Path(entry.path),
+                    f"execution journal {entry.name}",
+                )
+            if observed_names != required_directories:
+                for entry in observed_entries:
+                    with os.scandir(entry.path) as children:
+                        if next(children, None) is not None:
+                            raise ExpertSourceReplayExecutionStoreError(
+                                "partial execution journal layout contains durable state"
+                            )
+                return None
+        with _ExecutionStoreLock(self._lock_path(reservation.reservation_id)):
+            return self._read_events(reservation, prepared)
+
+    def _require_prepared_authority(
+        self,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> PreparedExpertSourceReplayRequest:
         if not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
             raise ExpertSourceReplayExecutionStoreError(
                 "execution journal requires its prepared byte authority"
@@ -1169,8 +1243,7 @@ class ExpertSourceReplayExecutionStore:
             raise ExpertSourceReplayExecutionStoreError(
                 "execution journal prepared authority uses another validation policy"
             )
-        _validate_reservation_request(reservation, prepared.request)
-        return _ReservationSessionContext(self, reservation, prepared)
+        return prepared
 
     def _bind_spawn_authority(self, coordinator_type: type[object]) -> None:
         if (

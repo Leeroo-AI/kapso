@@ -211,9 +211,11 @@ digest-addressed scratch image from a loopback-only OCI registry, pulls that
 exact digest once, then runs both counterbalanced legs through the request-bound
 registry, fresh-authority coordinator, journal, and concrete Docker provider. It
 requires zero subsequent registry requests, accepts the exact parent and
-candidate scores, and proves that every handle-owned container, volume, and
-workspace is gone. The fixture synthesizes the task-adapter publisher proof; it
-does not exercise a production publisher or remote GitHub transport.
+candidate scores, publishes the typed source-stage result into the validation
+journal, replays the completed stage without another provider bootstrap, and
+proves that every handle-owned container, volume, and workspace is gone. The
+fixture synthesizes task-adapter, current-release, and denylist authority; it does
+not exercise their production GitHub transports.
 
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
@@ -510,6 +512,15 @@ Implemented validation substrate:
 - fresh spawn authority performs the exact double reopen around rich GitHub
   `CURRENT`, complete historical-adapter trust, transitive denylist, and verifier
   authority observations and returns one invocation-bound typed fence; and
+- one production source-stage orchestrator composes preflight, complete provider
+  resolution before reservation, reservation replay, durable journal-tail
+  recovery, fresh-authority execution, and final atomic publication. Empty and
+  allocated tails continue, received results are parsed without provider work,
+  completed publications replay without external work, and a reopened spawn is
+  idempotently cleaned then reported as permanently non-reexecutable. One
+  canonical execution-journal child and a candidate-scoped kernel lock prevent
+  alternate local journals or concurrent orchestrators from duplicating paid
+  work, while a partially created empty journal layout remains restartable; and
 - parent-authority invalidation is a content-addressed terminal transition that
   preserves accepted-stage history, proves expected versus observed `CURRENT`,
   and makes stale attempts recoverable without accepting their remaining work.

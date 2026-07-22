@@ -57,6 +57,12 @@ from kapso.cross_run.expert.replay_publication import (
     ExpertSourceReplayPublicationCurrentAuthority,
     ExpertSourceReplayPublicationDenylistAuthority,
 )
+from kapso.cross_run.expert.replay_stage import (
+    ExpertSourceReplayPermanentlyInterruptedError,
+    ExpertSourceReplayStageError,
+    ExpertSourceReplayStageOrchestrator,
+    SourceReplayProviderRegistryFactory,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -145,9 +151,12 @@ __all__ = [
     "ExpertSourceReplayPublicationError",
     "ExpertSourceReplayPublicationCurrentAuthority",
     "ExpertSourceReplayPublicationDenylistAuthority",
+    "ExpertSourceReplayPermanentlyInterruptedError",
     "ExpertSourceReplayRequestError",
     "ExpertSourceReplayStageResultRecord",
     "ExpertSourceReplayStageCommitResult",
+    "ExpertSourceReplayStageError",
+    "ExpertSourceReplayStageOrchestrator",
     "ExpertSourceReplayTaskAdapterProvider",
     "ExpertSourceReplayValidationAuthority",
     "ExpertTriggerDecisionStore",
@@ -178,6 +187,7 @@ __all__ = [
     "MaterializedExpertSourceReplayCase",
     "PreparedExpertSourceReplayRequest",
     "SourceReplayContextProvider",
+    "SourceReplayProviderRegistryFactory",
     "SourceReplayDecisionPublicationFence",
     "SourceReplayMaterializationLimits",
     "StoredExpertCandidate",
