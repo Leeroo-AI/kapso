@@ -53,6 +53,14 @@ from kapso.cross_run.expert.replay_publication import (
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
+from kapso.cross_run.expert.promotion_contracts import (
+    ExpertReleaseMatrixEvaluationPlan,
+)
+from kapso.cross_run.expert.promotion_plan import (
+    PreparedExpertReleaseMatrixPlan,
+    prepare_expert_release_matrix_plan_for_admission,
+    validate_expert_release_matrix_plan_store_shape,
+)
 from kapso.cross_run.expert.review import (
     ExpertAutomatedReviewCoordinator,
     ExpertAutomatedReviewExecution,
@@ -89,6 +97,7 @@ class ExpertValidationOperationKind(str, Enum):
     SOURCE_REPLAY_RESERVATION = "source_replay_reservation"
     SOURCE_REPLAY_STAGE_RESULT = "source_replay_stage_result"
     AUTOMATED_REVIEW_STAGE_RESULT = "automated_review_stage_result"
+    RELEASE_MATRIX_PLAN_RESERVATION = "release_matrix_plan_reservation"
     AUTHORITY_INVALIDATION = "authority_invalidation"
 
 
@@ -329,6 +338,60 @@ class ExpertSourceReplayStageCommitResult:
 class ExpertAutomatedReviewStageCommitResult:
     stage_result: ExpertAutomatedReviewStageResultRecord
     snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class ExpertReleaseMatrixPlanReservationSnapshot:
+    """A plan bound to one unchanged release-matrix validation head."""
+
+    operation: ExpertValidationOperation
+    evaluation_plan: ExpertReleaseMatrixEvaluationPlan
+    snapshot: ExpertValidationSnapshot
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.operation) is not ExpertValidationOperation
+            or type(self.evaluation_plan) is not ExpertReleaseMatrixEvaluationPlan
+            or not isinstance(self.snapshot, ExpertValidationSnapshot)
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix plan reservation is not typed"
+            )
+        attempt = self.snapshot.latest_attempt
+        transition = self.snapshot.transition
+        state = self.snapshot.state
+        plan = self.evaluation_plan
+        operation = self.operation
+        if (
+            attempt is None
+            or operation.operation_kind
+            is not ExpertValidationOperationKind.RELEASE_MATRIX_PLAN_RESERVATION
+            or operation.request_record_id != plan.evaluation_plan_id
+            or operation.expected_transition_id != transition.transition_id
+            or operation.candidate_id != plan.candidate_id
+            or plan.validation_attempt_id != attempt.validation_attempt_id
+            or plan.candidate_id != state.candidate_id
+            or plan.candidate_id != transition.candidate_id
+            or plan.candidate_tree_hash != state.candidate_tree_hash
+            or plan.candidate_tree_hash != transition.candidate_tree_hash
+            or plan.candidate_commit_record_id != attempt.candidate_commit_record_id
+            or plan.scope_contract_id != attempt.scope_contract_id
+            or plan.parent_release_id != attempt.parent_release_id
+            or plan.validation_policy_id != attempt.validation_policy_id
+            or plan.configuration_fingerprint != attempt.configuration_fingerprint
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix plan reservation authority is inconsistent"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertReleaseMatrixPlanReservationCommitResult:
+    reservation: ExpertReleaseMatrixPlanReservationSnapshot
     replayed: bool
 
 
@@ -1168,6 +1231,174 @@ class ExpertValidationStore:
                 replayed=False,
             )
 
+    def reserve_release_matrix_plan(
+        self,
+        *,
+        expected_transition_id: str,
+        prepared_plan: PreparedExpertReleaseMatrixPlan,
+    ) -> ExpertReleaseMatrixPlanReservationCommitResult:
+        require_content_id(expected_transition_id, "expected_transition_id")
+        if type(prepared_plan) is not PreparedExpertReleaseMatrixPlan:
+            raise ExpertValidationStoreError(
+                "release matrix reservation requires a prepared plan"
+            )
+        plan = prepared_plan.plan
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            existing = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            if existing is not None:
+                operation, stored_plan = existing
+                if stored_plan != plan:
+                    raise ExpertValidationCompareAndSwapError(
+                        "validation head already reserves another release matrix plan"
+                    )
+                current = self._current_from_journal_unlocked(journal)
+                self._require_expected_head(current, expected_transition_id)
+                if current is None:
+                    raise ExpertValidationStoreError(
+                        "release matrix reservation has no validation head"
+                    )
+                return ExpertReleaseMatrixPlanReservationCommitResult(
+                    reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                        operation=operation,
+                        evaluation_plan=stored_plan,
+                        snapshot=current,
+                    ),
+                    replayed=True,
+                )
+            observed = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(observed, expected_transition_id)
+            if (
+                observed is None
+                or observed.latest_attempt is None
+                or observed.state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+            ):
+                raise ExpertValidationStoreError(
+                    "release matrix reservation requires the active matrix stage"
+                )
+        admitted = prepare_expert_release_matrix_plan_for_admission(
+            prepared_plan=prepared_plan,
+            state=observed.state,
+            attempt=observed.latest_attempt,
+            accepted_stage_results=observed.accepted_stage_results,
+            source_replay_request=prepared_plan.source_replay_request,
+            candidate_store=self.reducer.candidate_store,
+            current_release_provider=self.reducer.current_release_provider,
+            task_adapter_provider=self.reducer.task_adapter_provider,
+            validation_policy=self.settings.policy.validation_policy(),
+            validation_settings=self.settings,
+        )
+        if admitted != prepared_plan:
+            raise ExpertValidationStoreError(
+                "release matrix plan differs from fresh admission authority"
+            )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            existing = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            if existing is not None:
+                operation, stored_plan = existing
+                if stored_plan != plan:
+                    raise ExpertValidationCompareAndSwapError(
+                        "validation head already reserves another release matrix plan"
+                    )
+                current = self._current_from_journal_unlocked(journal)
+                self._require_expected_head(current, expected_transition_id)
+                if current is None:
+                    raise ExpertValidationStoreError(
+                        "release matrix reservation lost its validation head"
+                    )
+                return ExpertReleaseMatrixPlanReservationCommitResult(
+                    reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                        operation=operation,
+                        evaluation_plan=stored_plan,
+                        snapshot=current,
+                    ),
+                    replayed=True,
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(current, expected_transition_id)
+            if current != observed:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during release matrix plan admission"
+                )
+            operation = ExpertValidationOperation.mint(
+                operation_kind=(
+                    ExpertValidationOperationKind.RELEASE_MATRIX_PLAN_RESERVATION
+                ),
+                candidate_id=plan.candidate_id,
+                expected_transition_id=expected_transition_id,
+                request_record_id=plan.evaluation_plan_id,
+            )
+            self._write_contract_unlocked(plan)
+            self._write_contract_unlocked(operation)
+            updated = self._bind_operation(journal, operation, current.transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertReleaseMatrixPlanReservationCommitResult(
+                reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                    operation=operation,
+                    evaluation_plan=plan,
+                    snapshot=self._snapshot_at_unlocked(
+                        updated,
+                        current.transition.transition_id,
+                    ),
+                ),
+                replayed=False,
+            )
+
+    def reopen_release_matrix_plan_reservation(
+        self,
+        *,
+        evaluation_plan_id: str,
+        prepared_plan: PreparedExpertReleaseMatrixPlan,
+    ) -> ExpertReleaseMatrixPlanReservationSnapshot:
+        require_content_id(evaluation_plan_id, "release matrix evaluation_plan_id")
+        if evaluation_plan_id.split(":sha256:", 1)[0] != (
+            "expert-release-matrix-evaluation-plan"
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix evaluation_plan_id uses the wrong namespace"
+            )
+        if type(prepared_plan) is not PreparedExpertReleaseMatrixPlan:
+            raise ExpertValidationStoreError(
+                "release matrix reopen requires a prepared plan"
+            )
+        plan = prepared_plan.plan
+        if plan.evaluation_plan_id != evaluation_plan_id:
+            raise ExpertValidationStoreError(
+                "release matrix reopen plan identity differs"
+            )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "release matrix reservation has no current validation head"
+                )
+            stored = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                current.transition.transition_id,
+            )
+            if stored is None:
+                raise ExpertValidationStoreError(
+                    "release matrix plan is not bound to the current head"
+                )
+            operation, stored_plan = stored
+            if stored_plan != plan:
+                raise ExpertValidationStoreError(
+                    "stored release matrix plan differs from its prepared closure"
+                )
+            return ExpertReleaseMatrixPlanReservationSnapshot(
+                operation=operation,
+                evaluation_plan=stored_plan,
+                snapshot=current,
+            )
+
     def existing_source_replay_reservation(
         self,
         *,
@@ -1870,7 +2101,8 @@ class ExpertValidationStore:
             )
             for transition_id in journal.transition_ids
         }
-        reserved_transition_ids: set[str] = set()
+        source_replay_reserved_transition_ids: set[str] = set()
+        release_matrix_reserved_transition_ids: set[str] = set()
         for operation_id, transition_id in journal.operation_transition_ids.items():
             operation = self._read_contract_unlocked(
                 operation_id,
@@ -1900,7 +2132,7 @@ class ExpertValidationStore:
                 operation.operation_kind
                 is ExpertValidationOperationKind.SOURCE_REPLAY_RESERVATION
             ):
-                if transition_id in reserved_transition_ids:
+                if transition_id in source_replay_reserved_transition_ids:
                     raise ExpertValidationStoreError(
                         "validation transition has multiple source replay reservations"
                     )
@@ -1908,11 +2140,130 @@ class ExpertValidationStore:
                     operation,
                     transition,
                 )
-                reserved_transition_ids.add(transition_id)
+                source_replay_reserved_transition_ids.add(transition_id)
+                continue
+            if (
+                operation.operation_kind
+                is ExpertValidationOperationKind.RELEASE_MATRIX_PLAN_RESERVATION
+            ):
+                if transition_id in release_matrix_reserved_transition_ids:
+                    raise ExpertValidationStoreError(
+                        "validation transition has multiple release matrix plans"
+                    )
+                self._validate_release_matrix_plan_alias_unlocked(
+                    operation,
+                    transition,
+                )
+                release_matrix_reserved_transition_ids.add(transition_id)
                 continue
             raise ExpertValidationStoreError(
                 "validation replay operation does not bind its transition"
             )
+
+    def _validate_release_matrix_plan_alias_unlocked(
+        self,
+        operation: ExpertValidationOperation,
+        transition: ExpertValidationTransition,
+    ) -> None:
+        plan = self._read_contract_unlocked(
+            operation.request_record_id,
+            ExpertReleaseMatrixEvaluationPlan,
+        )
+        state = self._read_contract_unlocked(
+            transition.target_state_id,
+            ExpertCandidateValidationState,
+        )
+        if transition.latest_attempt_id is None:
+            raise ExpertValidationStoreError(
+                "release matrix plan reservation requires a validation attempt"
+            )
+        attempt = self._read_contract_unlocked(
+            transition.latest_attempt_id,
+            ExpertValidationAttempt,
+        )
+        persisted_settings = self._read_configuration_unlocked(
+            transition.configuration_fingerprint
+        )
+        validation_policy = self._read_contract_unlocked(
+            transition.validation_policy_id,
+            ExpertValidationPolicy,
+        )
+        accepted_results = tuple(
+            self._read_stage_result_unlocked(result_record_id)
+            for result_record_id in transition.accepted_stage_result_record_ids
+        )
+        source_replay_request = self._source_replay_request_for_results_unlocked(
+            accepted_results
+        )
+        validate_expert_release_matrix_plan_store_shape(
+            plan=plan,
+            state=state,
+            attempt=attempt,
+            accepted_stage_results=accepted_results,
+            source_replay_request=source_replay_request,
+            validation_policy=validation_policy,
+            validation_settings=persisted_settings,
+        )
+        if (
+            operation.expected_transition_id != transition.transition_id
+            or operation.candidate_id != transition.candidate_id
+            or operation.request_record_id != plan.evaluation_plan_id
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix plan reservation alias closure is inconsistent"
+            )
+
+    def _source_replay_request_for_results_unlocked(
+        self,
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord,
+            ...,
+        ],
+    ) -> ExpertSourceReplayExecutionRequest:
+        source_results = tuple(
+            result
+            for result in accepted_results
+            if type(result) is ExpertSourceReplayStageResultRecord
+        )
+        if len(source_results) != 1:
+            raise ExpertValidationStoreError(
+                "release matrix plan requires one accepted source replay result"
+            )
+        return self._read_contract_unlocked(
+            source_results[0].execution_request_id,
+            ExpertSourceReplayExecutionRequest,
+        )
+
+    def _release_matrix_plan_reservation_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        authorization_transition_id: str,
+    ) -> tuple[ExpertValidationOperation, ExpertReleaseMatrixEvaluationPlan] | None:
+        matches = []
+        for operation_id, transition_id in journal.operation_transition_ids.items():
+            if transition_id != authorization_transition_id:
+                continue
+            operation = self._read_contract_unlocked(
+                operation_id,
+                ExpertValidationOperation,
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.RELEASE_MATRIX_PLAN_RESERVATION
+            ):
+                continue
+            plan = self._read_contract_unlocked(
+                operation.request_record_id,
+                ExpertReleaseMatrixEvaluationPlan,
+            )
+            matches.append((operation, plan))
+        if len(matches) > 1:
+            raise ExpertValidationStoreError(
+                "validation transition has multiple release matrix plans"
+            )
+        return None if not matches else matches[0]
 
     def _validate_source_replay_reservation_alias_unlocked(
         self,

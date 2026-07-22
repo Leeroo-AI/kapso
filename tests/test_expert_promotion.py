@@ -192,6 +192,7 @@ def _context(
 
 
 def _provenance(
+    authority: ExpertReleaseMatrixAdapterAuthority,
     context: TaskContextBinding,
     label: str = "task",
     *,
@@ -199,20 +200,38 @@ def _provenance(
         ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
     ),
 ) -> ExpertReleaseMatrixProvenanceBinding:
+    evaluation_fingerprint_ids = tuple(
+        sorted(
+            _fingerprint(binding.metric_name).evaluation_fingerprint_id
+            for binding in authority.task_adapter_manifest.task_evaluator.metric_comparison_bindings
+        )
+    )
     if provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
         case_id = _id("task-adapter-release-matrix-case", label)
         return ExpertReleaseMatrixProvenanceBinding.mint(
             provenance_kind=provenance_kind,
+            adapter_authority_id=authority.adapter_authority_id,
             task_context_binding=context,
+            evaluation_fingerprint_ids=evaluation_fingerprint_ids,
             adapter_case_id=case_id,
+            source_replay_stage_result_id=None,
+            paired_comparison_receipt_id=None,
+            source_execution_case_id=None,
             source_replay_selection_id=None,
             source_bundle_id=None,
             bundle_lineage_ids=(),
-            source_episode_ids=(),
+            source_episode_id=None,
             context_materialization_receipt_id=None,
             starting_artifact_ids=(),
             exact_dependency_ids=tuple(
-                sorted({context.task_context_binding_id, case_id})
+                sorted(
+                    {
+                        authority.adapter_authority_id,
+                        context.task_context_binding_id,
+                        case_id,
+                        *evaluation_fingerprint_ids,
+                    }
+                )
             ),
         )
     source_bundle_id = _id("run-bundle", label)
@@ -220,27 +239,40 @@ def _provenance(
         _id("run-bundle", f"{label}-ancestor"),
         source_bundle_id,
     )
-    source_episode_ids = (_id("transfer-episode", label),)
+    source_episode_id = _id("transfer-episode", label)
     materialization_id = _id("expert-source-replay-context-materialization", label)
     starting_artifact_ids = (_id("source-replay-starting-artifact", label),)
     selection_id = _id("expert-source-replay-selection", label)
+    stage_result_id = _id("expert-source-replay-stage-result", label)
+    comparison_receipt_id = _id("expert-source-replay-paired-comparison", label)
+    execution_case_id = _id("expert-source-replay-execution-case", label)
     return ExpertReleaseMatrixProvenanceBinding.mint(
         provenance_kind=provenance_kind,
+        adapter_authority_id=authority.adapter_authority_id,
         task_context_binding=context,
+        evaluation_fingerprint_ids=evaluation_fingerprint_ids,
         adapter_case_id=None,
+        source_replay_stage_result_id=stage_result_id,
+        paired_comparison_receipt_id=comparison_receipt_id,
+        source_execution_case_id=execution_case_id,
         source_replay_selection_id=selection_id,
         source_bundle_id=source_bundle_id,
         bundle_lineage_ids=bundle_lineage_ids,
-        source_episode_ids=source_episode_ids,
+        source_episode_id=source_episode_id,
         context_materialization_receipt_id=materialization_id,
         starting_artifact_ids=starting_artifact_ids,
         exact_dependency_ids=tuple(
             sorted(
                 {
+                    authority.adapter_authority_id,
                     context.task_context_binding_id,
+                    *evaluation_fingerprint_ids,
+                    stage_result_id,
+                    comparison_receipt_id,
+                    execution_case_id,
                     selection_id,
                     *bundle_lineage_ids,
-                    *source_episode_ids,
+                    source_episode_id,
                     materialization_id,
                     *starting_artifact_ids,
                 }
@@ -346,6 +378,7 @@ def _plan(
         dependency_id
         for provenance in ordered_provenances
         for dependency_id in provenance.exact_dependency_ids
+        if dependency_id not in internal_ids
     )
     external_dependencies.update(
         dependency_id
@@ -436,12 +469,17 @@ def _report(
     rows: tuple[ExpertReleaseMatrixComparisonRow, ...],
 ) -> ExpertReleaseMatrixReport:
     first_cell = plan.evaluation_cells[0]
+    reservation_operation_id = _id(
+        "expert-validation-operation",
+        "plan-reservation",
+    )
     dependencies = {
         first_cell.validation_attempt_id,
         first_cell.candidate_id,
         _id("expert-candidate-commit", "candidate"),
         _id("expert-scope-contract", "scope"),
         _id("expert-validation-policy", "policy"),
+        reservation_operation_id,
         plan.evaluation_plan_id,
         *plan.exact_dependency_ids,
         *(row.comparison_row_id for row in rows),
@@ -460,10 +498,17 @@ def _report(
         parent_tree_hash=first_cell.parent_tree_hash,
         validation_policy_id=_id("expert-validation-policy", "policy"),
         configuration_fingerprint=_digest("configuration"),
+        plan_reservation_operation_id=reservation_operation_id,
         evaluation_plan=plan,
         evidence_rows=rows,
         exact_evidence_input_ids=tuple(
-            sorted({plan.evaluation_plan_id, *plan.external_dependency_ids})
+            sorted(
+                {
+                    reservation_operation_id,
+                    plan.evaluation_plan_id,
+                    *plan.external_dependency_ids,
+                }
+            )
         ),
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
@@ -479,6 +524,7 @@ def _matrix(
 ]:
     authority = _authority()
     provenance = _provenance(
+        authority,
         _context(authority),
         provenance_kind=(
             ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
@@ -500,7 +546,13 @@ def test_parent_report_round_trips_self_contained_precommitted_plan():
 
     assert report.parent_tree_hash == _digest("parent-tree")
     assert report.exact_evidence_input_ids == tuple(
-        sorted({plan.evaluation_plan_id, *plan.external_dependency_ids})
+        sorted(
+            {
+                report.plan_reservation_operation_id,
+                plan.evaluation_plan_id,
+                *plan.external_dependency_ids,
+            }
+        )
     )
     assert authority.adapter_authority_id in report.exact_dependency_ids
     assert provenance.provenance_binding_id in report.exact_dependency_ids
@@ -535,8 +587,13 @@ def test_bootstrap_plan_and_rows_forbid_parent_authority():
 
 def test_parent_plan_mixes_source_replay_and_adapter_owned_cases():
     authority = _authority()
-    source_provenance = _provenance(_context(authority, "source"), "source")
+    source_provenance = _provenance(
+        authority,
+        _context(authority, "source"),
+        "source",
+    )
     adapter_provenance = _provenance(
+        authority,
         _context(authority, "anchor"),
         "anchor",
         provenance_kind=ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE,
@@ -578,6 +635,60 @@ def test_parent_plan_mixes_source_replay_and_adapter_owned_cases():
                 for position, row in enumerate(rows)
             ),
         )
+
+
+def test_plan_retains_exact_package_versions_of_one_logical_adapter_binding():
+    authority = _authority()
+    rotated_manifest = replace(
+        authority.task_adapter_manifest,
+        publisher_attestation={"issuer": "test", "signature": "rotated"},
+    )
+    rotated_receipt = _verification_receipt(rotated_manifest)
+    rotated_authority = ExpertReleaseMatrixAdapterAuthority.mint(
+        task_adapter_pin=replace(
+            authority.task_adapter_pin,
+            verification_receipt_id=rotated_receipt.verification_receipt_id,
+        ),
+        task_adapter_manifest=rotated_manifest,
+        verification_receipt=rotated_receipt,
+        task_adapter_dependency_ids=_provider_dependency_ids(
+            rotated_manifest,
+            rotated_receipt,
+        ),
+    )
+    provenances = (
+        _provenance(authority, _context(authority, "historical"), "historical"),
+        _provenance(
+            rotated_authority,
+            _context(rotated_authority, "active"),
+            "active",
+        ),
+    )
+    cells = tuple(
+        _cell(selected_authority, provenance, metric_name)
+        for selected_authority, provenance in zip(
+            (authority, rotated_authority),
+            provenances,
+            strict=True,
+        )
+        for metric_name in ("quality_score", "robustness_score")
+    )
+
+    plan = _plan(
+        (authority, rotated_authority),
+        provenances,
+        cells,
+    )
+
+    assert len(plan.adapter_authorities) == 2
+    assert (
+        plan.adapter_authorities[0].task_adapter_pin.adapter_binding_id
+        == plan.adapter_authorities[1].task_adapter_pin.adapter_binding_id
+    )
+    assert (
+        plan.adapter_authorities[0].task_adapter_pin.verification_receipt_id
+        != plan.adapter_authorities[1].task_adapter_pin.verification_receipt_id
+    )
 
 
 def test_adapter_authority_binds_full_attestation_source_and_provider_projection():
@@ -624,7 +735,7 @@ def test_adapter_authority_binds_full_attestation_source_and_provider_projection
 def test_provenance_binding_rejects_unknown_sources_and_nonexact_closure():
     authority = _authority(("quality_score",))
     context = _context(authority)
-    provenance = _provenance(context)
+    provenance = _provenance(authority, context)
 
     with pytest.raises(ExpertReleaseMatrixContractError, match="wrong namespace"):
         replace(
@@ -648,37 +759,46 @@ def test_provenance_binding_rejects_unknown_sources_and_nonexact_closure():
             exact_dependency_ids=tuple(
                 dependency_id
                 for dependency_id in provenance.exact_dependency_ids
-                if dependency_id != provenance.source_episode_ids[0]
+                if dependency_id != provenance.source_episode_id
             ),
         )
 
 
-def test_plan_requires_exact_declared_metric_coverage_and_single_context_lineage():
+def test_plan_requires_exact_case_fingerprint_coverage_and_retains_repeated_context():
     authority = _authority()
     context = _context(authority)
-    provenance = _provenance(context)
+    provenance = _provenance(authority, context)
     quality = _cell(authority, provenance, "quality_score")
     robustness = _cell(authority, provenance, "robustness_score")
     plan = _plan((authority,), (provenance,), (quality, robustness))
 
-    with pytest.raises(ExpertReleaseMatrixContractError, match="metric coverage"):
+    with pytest.raises(
+        ExpertReleaseMatrixContractError,
+        match="case fingerprint coverage",
+    ):
         replace(plan, evaluation_cells=(quality,))
 
     alternate_provenance = _provenance(
+        authority,
         context,
         "alternate",
+    )
+    alternate_quality = _cell(
+        authority,
+        alternate_provenance,
+        "quality_score",
     )
     alternate_robustness = _cell(
         authority,
         alternate_provenance,
         "robustness_score",
     )
-    with pytest.raises(ExpertReleaseMatrixContractError, match="multiple lineage"):
-        _plan(
-            (authority,),
-            (provenance, alternate_provenance),
-            (quality, alternate_robustness),
-        )
+    repeated_context_plan = _plan(
+        (authority,),
+        (provenance, alternate_provenance),
+        (quality, robustness, alternate_quality, alternate_robustness),
+    )
+    assert len(repeated_context_plan.provenance_bindings) == 2
 
 
 def test_one_fingerprint_cell_owns_its_complete_replicate_map():

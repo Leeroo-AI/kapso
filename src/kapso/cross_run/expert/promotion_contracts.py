@@ -202,12 +202,17 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
 
     provenance_binding_id: str
     provenance_kind: ExpertReleaseMatrixProvenanceKind
+    adapter_authority_id: str
     task_context_binding: TaskContextBinding
+    evaluation_fingerprint_ids: tuple[str, ...]
     adapter_case_id: str | None
+    source_replay_stage_result_id: str | None
+    paired_comparison_receipt_id: str | None
+    source_execution_case_id: str | None
     source_replay_selection_id: str | None
     source_bundle_id: str | None
     bundle_lineage_ids: tuple[str, ...]
-    source_episode_ids: tuple[str, ...]
+    source_episode_id: str | None
     context_materialization_receipt_id: str | None
     starting_artifact_ids: tuple[str, ...]
     exact_dependency_ids: tuple[str, ...]
@@ -216,13 +221,31 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "provenance_binding_id"
 
     def _validate(self) -> None:
+        _require_namespaced_id(
+            self.adapter_authority_id,
+            "expert-release-matrix-adapter-authority",
+            "release matrix provenance adapter authority",
+        )
+        _require_sorted_content_ids(
+            self.evaluation_fingerprint_ids,
+            "release matrix provenance evaluation fingerprints",
+        )
+        for fingerprint_id in self.evaluation_fingerprint_ids:
+            _require_namespaced_id(
+                fingerprint_id,
+                "evaluation-fingerprint",
+                "release matrix provenance evaluation fingerprint",
+            )
         if self.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
             if (
                 self.adapter_case_id is None
+                or self.source_replay_stage_result_id is not None
+                or self.paired_comparison_receipt_id is not None
+                or self.source_execution_case_id is not None
                 or self.source_replay_selection_id is not None
                 or self.source_bundle_id is not None
                 or self.bundle_lineage_ids
-                or self.source_episode_ids
+                or self.source_episode_id is not None
                 or self.context_materialization_receipt_id is not None
                 or self.starting_artifact_ids
             ):
@@ -235,21 +258,42 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
                 "release matrix adapter-owned task case",
             )
             expected_dependencies = {
+                self.adapter_authority_id,
                 self.task_context_binding.task_context_binding_id,
                 self.adapter_case_id,
+                *self.evaluation_fingerprint_ids,
             }
             self._validate_dependency_closure(expected_dependencies)
             return
         if (
             self.adapter_case_id is not None
+            or self.source_replay_stage_result_id is None
+            or self.paired_comparison_receipt_id is None
+            or self.source_execution_case_id is None
             or self.source_replay_selection_id is None
             or self.source_bundle_id is None
+            or self.source_episode_id is None
             or self.context_materialization_receipt_id is None
         ):
             raise ExpertReleaseMatrixContractError(
                 "source-reuse provenance requires its complete replay authority"
             )
         for value, namespace, name in (
+            (
+                self.source_replay_stage_result_id,
+                "expert-source-replay-stage-result",
+                "release matrix source replay stage result",
+            ),
+            (
+                self.paired_comparison_receipt_id,
+                "expert-source-replay-paired-comparison",
+                "release matrix paired comparison receipt",
+            ),
+            (
+                self.source_execution_case_id,
+                "expert-source-replay-execution-case",
+                "release matrix source execution case",
+            ),
             (
                 self.source_replay_selection_id,
                 "expert-source-replay-selection",
@@ -281,30 +325,32 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
                 "run-bundle",
                 "release matrix bundle lineage",
             )
-        for values, namespace, name in (
-            (
-                self.source_episode_ids,
-                "transfer-episode",
-                "release matrix source episodes",
-            ),
-            (
-                self.starting_artifact_ids,
+        _require_namespaced_id(
+            self.source_episode_id,
+            "transfer-episode",
+            "release matrix source episode",
+        )
+        _require_sorted_content_ids(
+            self.starting_artifact_ids,
+            "release matrix starting artifacts",
+            required=False,
+        )
+        for value in self.starting_artifact_ids:
+            _require_namespaced_id(
+                value,
                 "source-replay-starting-artifact",
                 "release matrix starting artifacts",
-            ),
-        ):
-            _require_sorted_content_ids(
-                values,
-                name,
-                required=namespace != "source-replay-starting-artifact",
             )
-            for value in values:
-                _require_namespaced_id(value, namespace, name)
         expected_dependencies = {
+            self.adapter_authority_id,
             self.task_context_binding.task_context_binding_id,
+            *self.evaluation_fingerprint_ids,
+            self.source_replay_stage_result_id,
+            self.paired_comparison_receipt_id,
+            self.source_execution_case_id,
             self.source_replay_selection_id,
             *self.bundle_lineage_ids,
-            *self.source_episode_ids,
+            self.source_episode_id,
             self.context_materialization_receipt_id,
             *self.starting_artifact_ids,
         }
@@ -321,11 +367,18 @@ class ExpertReleaseMatrixProvenanceBinding(StrictContract):
             )
 
     @property
-    def canonical_key(self) -> tuple[str, str]:
+    def canonical_key(self) -> tuple[str, str, str]:
         return (
-            self.task_context_binding.task_context_binding_id,
-            self.independence_identity_id,
+            self.adapter_authority_id,
+            self.provenance_kind.value,
+            self.provenance_case_id,
         )
+
+    @property
+    def provenance_case_id(self) -> str:
+        if self.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE:
+            return self.adapter_case_id
+        return self.source_execution_case_id
 
     @property
     def independence_identity_id(self) -> str:
@@ -443,13 +496,6 @@ class ExpertReleaseMatrixEvaluationCell(StrictContract):
             )
 
     @property
-    def metric_key(self) -> tuple[str, str]:
-        return (
-            self.evaluation_fingerprint.evaluator_fingerprint,
-            self.evaluation_fingerprint.metric_name,
-        )
-
-    @property
     def canonical_key(self) -> tuple[str, str, str, str, str, str]:
         return (
             self.metric_comparison_binding.comparison_dimension_id,
@@ -540,15 +586,10 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
         authority_ids = tuple(
             authority.adapter_authority_id for authority in self.adapter_authorities
         )
-        authority_bindings = tuple(
-            authority.task_adapter_pin.adapter_binding_id
-            for authority in self.adapter_authorities
-        )
         if (
             not authority_keys
             or authority_keys != tuple(sorted(set(authority_keys)))
             or len(authority_ids) != len(set(authority_ids))
-            or len(authority_bindings) != len(set(authority_bindings))
         ):
             raise ExpertReleaseMatrixContractError(
                 "release matrix adapter authorities must be canonical and unique"
@@ -635,9 +676,8 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             raise ExpertReleaseMatrixContractError(
                 "bootstrap release matrix requires adapter-owned task cases"
             )
-        context_owners: dict[str, tuple[str, str]] = {}
         fingerprint_groups: set[tuple[str, str, str]] = set()
-        metric_groups: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        observed_fingerprints: dict[str, set[str]] = {}
         for cell in self.evaluation_cells:
             authority = authorities[cell.adapter_authority_id]
             provenance = provenance_by_id[cell.provenance_binding_id]
@@ -645,6 +685,7 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             context = cell.task_context_binding
             if (
                 provenance.task_context_binding != context
+                or provenance.adapter_authority_id != cell.adapter_authority_id
                 or provenance.independence_identity_id != cell.independence_identity_id
                 or context.scope_contract_id != manifest.scope_contract_id
                 or context.task_family_id != manifest.task_family_id
@@ -657,19 +698,6 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
                 raise ExpertReleaseMatrixContractError(
                     "release matrix cell differs from adapter or provenance authority"
                 )
-            context_id = context.task_context_binding_id
-            context_owner = (
-                cell.provenance_binding_id,
-                cell.independence_identity_id,
-            )
-            previous_context_owner = context_owners.get(context_id)
-            if previous_context_owner is not None and (
-                previous_context_owner != context_owner
-            ):
-                raise ExpertReleaseMatrixContractError(
-                    "release matrix context has multiple lineage owners"
-                )
-            context_owners[context_id] = context_owner
             fingerprint_group = (
                 cell.adapter_authority_id,
                 cell.evaluation_fingerprint.evaluation_fingerprint_id,
@@ -680,23 +708,16 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
                     "release matrix plan repeats an adapter, fingerprint, and provenance cell"
                 )
             fingerprint_groups.add(fingerprint_group)
-            metric_groups.setdefault(
-                (cell.adapter_authority_id, context_id), set()
-            ).add(cell.metric_key)
-        for group, observed_metric_keys in metric_groups.items():
-            authority_id, _ = group
-            declared_metric_keys = {
-                (
-                    binding.evaluator_fingerprint,
-                    binding.metric_name,
-                )
-                for binding in authorities[
-                    authority_id
-                ].task_adapter_manifest.task_evaluator.metric_comparison_bindings
-            }
-            if observed_metric_keys != declared_metric_keys:
+            observed_fingerprints.setdefault(
+                cell.provenance_binding_id,
+                set(),
+            ).add(cell.evaluation_fingerprint.evaluation_fingerprint_id)
+        for provenance in self.provenance_bindings:
+            if observed_fingerprints[provenance.provenance_binding_id] != set(
+                provenance.evaluation_fingerprint_ids
+            ):
                 raise ExpertReleaseMatrixContractError(
-                    "release matrix plan metric coverage is not exact"
+                    "release matrix plan case fingerprint coverage is not exact"
                 )
         _require_sorted_content_ids(
             self.external_dependency_ids,
@@ -712,6 +733,7 @@ class ExpertReleaseMatrixEvaluationPlan(StrictContract):
             dependency_id
             for provenance in self.provenance_bindings
             for dependency_id in provenance.exact_dependency_ids
+            if dependency_id not in internal_ids
         )
         expected_external_dependencies.update(
             dependency_id
@@ -838,6 +860,7 @@ class ExpertReleaseMatrixReport(StrictContract):
     parent_tree_hash: str | None
     validation_policy_id: str
     configuration_fingerprint: str
+    plan_reservation_operation_id: str
     evaluation_plan: ExpertReleaseMatrixEvaluationPlan
     evidence_rows: tuple[ExpertReleaseMatrixComparisonRow, ...]
     exact_evidence_input_ids: tuple[str, ...]
@@ -879,6 +902,11 @@ class ExpertReleaseMatrixReport(StrictContract):
         _require_digest(
             self.configuration_fingerprint,
             "release matrix configuration fingerprint",
+        )
+        _require_namespaced_id(
+            self.plan_reservation_operation_id,
+            "expert-validation-operation",
+            "release matrix plan reservation operation",
         )
         if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
             if self.parent_release_id is not None or self.parent_tree_hash is not None:
@@ -944,6 +972,7 @@ class ExpertReleaseMatrixReport(StrictContract):
             "release matrix exact evidence inputs",
         )
         expected_evidence_inputs = {
+            self.plan_reservation_operation_id,
             plan.evaluation_plan_id,
             *plan.external_dependency_ids,
         }
@@ -961,6 +990,7 @@ class ExpertReleaseMatrixReport(StrictContract):
             self.candidate_commit_record_id,
             self.scope_contract_id,
             self.validation_policy_id,
+            self.plan_reservation_operation_id,
             plan.evaluation_plan_id,
             *plan.exact_dependency_ids,
             *(row.comparison_row_id for row in self.evidence_rows),

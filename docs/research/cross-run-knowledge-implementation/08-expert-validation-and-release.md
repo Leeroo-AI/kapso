@@ -663,7 +663,7 @@ Minimal ownership:
 
 - `promotion_contracts.py` owns the immutable adapter authority, provenance,
   full-fingerprint cell, precommitted evaluation plan, factual row, and report;
-- the deterministic planner derives cells from the frozen attempt, accepted source
+- `promotion_plan.py` derives cells from the frozen attempt, accepted source
   replay, and adapter-owned cases, then `validation_store.py` reserves exactly one
   plan against the unchanged `RELEASE_MATRIX` validation head before any process
   starts;
@@ -694,6 +694,28 @@ while bootstrap requires adapter-owned standalone cases and never fabricates a z
 control. Fresh provider verification is required at plan admission, before each
 spawn, and before terminal publication; embedded authority exists for durable
 offline revalidation, not as a substitute for freshness.
+
+One provenance record represents exactly one declared evaluation case. Source
+provenance names the accepted source-stage result, paired-comparison receipt,
+execution case, selection, episode, complete bundle lineage, materialization receipt,
+and every case-declared fingerprint. It cannot substitute a merely namespaced bundle
+or select a subset of the accepted comparison. Multiple cases may legitimately share
+the same task context or lineage root; they remain separate cases, while later power
+analysis counts distinct context and independence identities without pretending that
+same-root repeats are independent. Exact historical and active package versions of
+one logical adapter binding may coexist. Coverage is the exact fingerprint set
+declared by each case, never fingerprints invented from the adapter's metric catalog.
+The eventual report must name the validation-operation alias that reserved the plan,
+so embedding an otherwise identical plan cannot fabricate temporal precommit.
+
+The implemented planner currently derives parent-comparison plans only from the
+complete accepted source-replay result. It freshly reopens the candidate, current
+parent, and every exact adapter package before admission; the validation journal then
+binds one plan to the unchanged `RELEASE_MATRIX` head without advancing that head.
+Identical concurrent admission replays the same alias. A different plan, stale head,
+changed parent, corrupt durable join, bootstrap attempt, or untyped adapter-owned case
+fails closed. Bootstrap and mixed-channel planning remain unavailable until the task
+adapter publishes typed, resolver-backed case authority.
 
 The report covers reserved cells exactly once and in canonical order, with complete
 candidate and, when parent-backed, control replicate maps. Observation-event
