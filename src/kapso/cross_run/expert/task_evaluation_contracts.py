@@ -316,6 +316,7 @@ class TaskEvaluationRequest(StrictContract):
     candidate_commit_record_id: str
     candidate_tree_hash: str
     scope_contract_id: str
+    scope_id: str
     parent_release_id: str | None
     parent_tree_hash: str | None
     validation_policy_id: str
@@ -347,6 +348,7 @@ class TaskEvaluationRequest(StrictContract):
             self.release_matrix_evaluator_version,
             "task evaluation release matrix evaluator version",
         )
+        require_identifier(self.scope_id, "task evaluation scope ID")
         for value, namespace, name in (
             (
                 self.plan_reservation_operation_id,
@@ -510,7 +512,10 @@ class TaskEvaluationReservation(StrictContract):
     validation_attempt_id: str
     candidate_id: str
     candidate_tree_hash: str
-    observed_parent_release_id: str | None
+    scope_contract_id: str
+    scope_id: str
+    current_release_observation_id: str
+    observed_current_release_id: str | None
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "task-evaluation-reservation"
@@ -545,23 +550,34 @@ class TaskEvaluationReservation(StrictContract):
                 "task evaluation validation attempt",
             ),
             (self.candidate_id, "expert-candidate", "task evaluation candidate"),
+            (
+                self.scope_contract_id,
+                "expert-scope-contract",
+                "task evaluation scope contract",
+            ),
+            (
+                self.current_release_observation_id,
+                "task-evaluation-current-release-observation",
+                "task evaluation current release observation",
+            ),
         ):
             _require_namespaced_id(value, namespace, name)
         _require_digest(
             self.candidate_tree_hash,
             "task evaluation reservation candidate tree",
         )
-        if self.observed_parent_release_id is not None:
+        require_identifier(self.scope_id, "task evaluation reservation scope ID")
+        if self.observed_current_release_id is not None:
             _require_namespaced_id(
-                self.observed_parent_release_id,
+                self.observed_current_release_id,
                 "expert-base-release",
-                "task evaluation observed parent",
+                "task evaluation observed current release",
             )
         if (self.mode is ExpertReleaseMatrixMode.BOOTSTRAP) != (
-            self.observed_parent_release_id is None
+            self.observed_current_release_id is None
         ):
             raise TaskEvaluationContractError(
-                "task evaluation reservation parent differs from its mode"
+                "task evaluation reservation current release differs from its mode"
             )
         expected_dependencies = {
             self.request_id,
@@ -571,9 +587,11 @@ class TaskEvaluationReservation(StrictContract):
             self.authorization_state_id,
             self.validation_attempt_id,
             self.candidate_id,
+            self.scope_contract_id,
+            self.current_release_observation_id,
         }
-        if self.observed_parent_release_id is not None:
-            expected_dependencies.add(self.observed_parent_release_id)
+        if self.observed_current_release_id is not None:
+            expected_dependencies.add(self.observed_current_release_id)
         if self.exact_dependency_ids != tuple(sorted(expected_dependencies)):
             raise TaskEvaluationContractError(
                 "task evaluation reservation dependency closure is not exact"

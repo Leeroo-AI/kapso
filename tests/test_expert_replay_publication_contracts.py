@@ -39,9 +39,11 @@ from kapso.cross_run.expert.replay_publication_contracts import (
     _build_expert_source_replay_stage_result_record,
     source_replay_publication_security_subject_ids,
 )
-from kapso.cross_run.expert.validation_store import (
+from kapso.cross_run.expert.validation_operation_contracts import (
     ExpertValidationOperation,
     ExpertValidationOperationKind,
+)
+from kapso.cross_run.expert.validation_store import (
     ExpertValidationStore,
     ExpertValidationStoreError,
 )

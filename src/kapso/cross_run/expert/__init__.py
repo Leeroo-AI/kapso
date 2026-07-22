@@ -51,6 +51,10 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationStartingArtifact,
     materialize_task_evaluation_starting_artifacts,
 )
+from kapso.cross_run.expert.task_evaluation_contracts import (
+    TaskEvaluationRequest,
+    TaskEvaluationReservation,
+)
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationAuthorityError,
     TaskEvaluationCurrentReleaseObservation,
@@ -135,14 +139,21 @@ from kapso.cross_run.expert.validation import (
 from kapso.cross_run.expert.validation_store import (
     ExpertAutomatedReviewStageCommitResult,
     ExpertSourceReplayStageCommitResult,
+    ExpertTaskEvaluationReservationCommitResult,
+    ExpertTaskEvaluationReservationSnapshot,
     ExpertValidationCommitResult,
     ExpertValidationCompareAndSwapError,
     ExpertValidationJournal,
-    ExpertValidationOperation,
-    ExpertValidationOperationKind,
-    ExpertValidationSnapshot,
     ExpertValidationStore,
     ExpertValidationStoreError,
+)
+from kapso.cross_run.expert.validation_operation_contracts import (
+    ExpertValidationOperation,
+    ExpertValidationOperationKind,
+)
+from kapso.cross_run.expert.validation_snapshots import (
+    ExpertReleaseMatrixPlanReservationSnapshot,
+    ExpertValidationSnapshot,
     ExpertValidationTransition,
 )
 from kapso.cross_run.expert.workspace import (
@@ -196,6 +207,7 @@ __all__ = [
     "ExpertParentTreeReceipt",
     "ExpertProposalContractError",
     "ExpertRepositoryArchitect",
+    "ExpertReleaseMatrixPlanReservationSnapshot",
     "ExpertSourceReplayBundleProvider",
     "ExpertSourceReplayCandidateReader",
     "ExpertSourceReplayDecisionPublicationCoordinator",
@@ -220,6 +232,8 @@ __all__ = [
     "ExpertTriggerEvaluator",
     "ExpertTriggerObservation",
     "ExpertTriggerObservationKind",
+    "ExpertTaskEvaluationReservationCommitResult",
+    "ExpertTaskEvaluationReservationSnapshot",
     "ExpertValidationError",
     "ExpertValidationAuthorityInvalidationResult",
     "ExpertValidationCommitResult",
@@ -255,6 +269,8 @@ __all__ = [
     "TaskEvaluationParentProvider",
     "TaskEvaluationPlanReservationAuthority",
     "TaskEvaluationPreflightCoordinator",
+    "TaskEvaluationRequest",
+    "TaskEvaluationReservation",
     "StoredExpertCandidate",
     "TaskEvaluationPreflightError",
     "VerifiedTaskEvaluationAdapterRuntime",

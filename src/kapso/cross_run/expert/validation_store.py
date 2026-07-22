@@ -8,9 +8,8 @@ import re
 import stat
 import tempfile
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
-from typing import ClassVar, Mapping
+from typing import Mapping
 
 from kapso.cross_run.canonical import (
     require_content_id,
@@ -37,6 +36,15 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationPredecessor,
     ExpertValidationReducer,
     validate_source_replay_request_authority_shape,
+)
+from kapso.cross_run.expert.validation_operation_contracts import (
+    ExpertValidationOperation,
+    ExpertValidationOperationKind,
+)
+from kapso.cross_run.expert.validation_snapshots import (
+    ExpertReleaseMatrixPlanReservationSnapshot,
+    ExpertValidationSnapshot,
+    ExpertValidationTransition,
 )
 from kapso.cross_run.expert.replay_comparison_contracts import (
     ExpertSourceReplayPairedComparisonReceipt,
@@ -79,6 +87,19 @@ from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewPacket,
     ExpertAutomatedReviewStageResultRecord,
 )
+from kapso.cross_run.expert.task_evaluation_authority_contracts import (
+    TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.expert.task_evaluation_contracts import (
+    TaskEvaluationRequest,
+    TaskEvaluationReservation,
+)
+from kapso.cross_run.expert.task_evaluation_preflight import (
+    PreparedTaskEvaluationRequest,
+)
+from kapso.cross_run.expert.task_evaluation_request import (
+    PlanJoinedTaskEvaluationRequest,
+)
 from kapso.cross_run.settings import (
     ExpertValidationPolicy,
     ExpertValidationSettings,
@@ -91,141 +112,6 @@ class ExpertValidationStoreError(ValueError):
 
 class ExpertValidationCompareAndSwapError(ExpertValidationStoreError):
     """A validation operation was reduced from a stale candidate head."""
-
-
-class ExpertValidationOperationKind(str, Enum):
-    START = "start"
-    EVALUATOR_RESULT = "evaluator_result"
-    SOURCE_REPLAY_RESERVATION = "source_replay_reservation"
-    SOURCE_REPLAY_STAGE_RESULT = "source_replay_stage_result"
-    AUTOMATED_REVIEW_STAGE_RESULT = "automated_review_stage_result"
-    RELEASE_MATRIX_PLAN_RESERVATION = "release_matrix_plan_reservation"
-    AUTHORITY_INVALIDATION = "authority_invalidation"
-
-
-@dataclass(frozen=True)
-class ExpertValidationOperation(StrictContract):
-    operation_id: str
-    operation_kind: ExpertValidationOperationKind
-    candidate_id: str
-    expected_transition_id: str | None
-    request_record_id: str
-
-    CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-operation"
-    IDENTITY_FIELD: ClassVar[str] = "operation_id"
-
-    def _validate(self) -> None:
-        require_content_id(self.candidate_id, "operation candidate_id")
-        if self.expected_transition_id is not None:
-            require_content_id(
-                self.expected_transition_id,
-                "operation expected_transition_id",
-            )
-        require_content_id(self.request_record_id, "operation request_record_id")
-
-
-@dataclass(frozen=True)
-class ExpertValidationTransition(StrictContract):
-    transition_id: str
-    candidate_id: str
-    candidate_tree_hash: str
-    transition_number: int
-    predecessor_transition_id: str | None
-    predecessor_state_id: str | None
-    target_state_id: str
-    latest_attempt_id: str | None
-    operation_id: str
-    validation_policy_id: str
-    configuration_fingerprint: str
-    eligibility_decision_id: str | None
-    created_attempt_id: str | None
-    accepted_stage_result_record_ids: tuple[str, ...]
-    transition_stage_result_record_id: str | None
-    transition_authority_invalidation_id: str | None
-
-    CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-transition"
-    IDENTITY_FIELD: ClassVar[str] = "transition_id"
-
-    def _validate(self) -> None:
-        for value, name in (
-            (self.candidate_id, "transition candidate_id"),
-            (self.target_state_id, "transition target_state_id"),
-            (self.operation_id, "transition operation_id"),
-            (self.validation_policy_id, "transition validation_policy_id"),
-        ):
-            require_content_id(value, name)
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.candidate_tree_hash) is None:
-            raise ContractValidationError("transition candidate tree hash is invalid")
-        if self.transition_number <= 0:
-            raise ContractValidationError("transition number must be positive")
-        first = self.transition_number == 1
-        if (self.predecessor_transition_id is None) != (
-            self.predecessor_state_id is None
-        ) or first != (self.predecessor_transition_id is None):
-            raise ContractValidationError(
-                "only the first transition may omit both predecessors"
-            )
-        for value, name in (
-            (self.predecessor_transition_id, "predecessor_transition_id"),
-            (self.predecessor_state_id, "predecessor_state_id"),
-            (self.latest_attempt_id, "latest_attempt_id"),
-            (self.eligibility_decision_id, "eligibility_decision_id"),
-            (self.created_attempt_id, "created_attempt_id"),
-            (
-                self.transition_stage_result_record_id,
-                "transition_stage_result_record_id",
-            ),
-            (
-                self.transition_authority_invalidation_id,
-                "transition_authority_invalidation_id",
-            ),
-        ):
-            if value is not None:
-                require_content_id(value, name)
-        if (
-            re.fullmatch(
-                r"sha256:[0-9a-f]{64}",
-                self.configuration_fingerprint,
-            )
-            is None
-        ):
-            raise ContractValidationError(
-                "transition configuration fingerprint is invalid"
-            )
-        if len(self.accepted_stage_result_record_ids) != len(
-            set(self.accepted_stage_result_record_ids)
-        ):
-            raise ContractValidationError(
-                "accepted stage result records must be unique"
-            )
-        for result_record_id in self.accepted_stage_result_record_ids:
-            require_content_id(
-                result_record_id,
-                "accepted_stage_result_record_ids",
-            )
-        request_count = sum(
-            value is not None
-            for value in (
-                self.eligibility_decision_id,
-                self.transition_stage_result_record_id,
-                self.transition_authority_invalidation_id,
-            )
-        )
-        if request_count != 1:
-            raise ContractValidationError(
-                "transition must contain exactly one start, result, or invalidation request"
-            )
-        start = self.eligibility_decision_id is not None
-        if not start and self.created_attempt_id is not None:
-            raise ContractValidationError(
-                "only a start transition may create a validation attempt"
-            )
-        if self.created_attempt_id is not None and (
-            self.latest_attempt_id != self.created_attempt_id
-        ):
-            raise ContractValidationError(
-                "created validation attempt must become the latest attempt"
-            )
 
 
 @dataclass(frozen=True)
@@ -250,26 +136,6 @@ class ExpertValidationJournal(StrictContract):
                 raise ContractValidationError(
                     "journal operation names an absent transition"
                 )
-
-
-@dataclass(frozen=True)
-class ExpertValidationSnapshot:
-    transition: ExpertValidationTransition
-    state: ExpertCandidateValidationState
-    latest_attempt: ExpertValidationAttempt | None
-    accepted_stage_results: tuple[
-        ExpertEvaluatorResultRecord
-        | ExpertSourceReplayStageResultRecord
-        | ExpertAutomatedReviewStageResultRecord,
-        ...,
-    ]
-
-    @property
-    def predecessor(self) -> ExpertValidationPredecessor:
-        return ExpertValidationPredecessor(
-            latest_attempt=self.latest_attempt,
-            state=self.state,
-        )
 
 
 @dataclass(frozen=True)
@@ -344,56 +210,86 @@ class ExpertAutomatedReviewStageCommitResult:
 
 
 @dataclass(frozen=True)
-class ExpertReleaseMatrixPlanReservationSnapshot:
-    """A plan bound to one unchanged release-matrix validation head."""
+class ExpertReleaseMatrixPlanReservationCommitResult:
+    reservation: ExpertReleaseMatrixPlanReservationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class ExpertTaskEvaluationReservationSnapshot:
+    """One task request durably bound to its plan and admission observation."""
 
     operation: ExpertValidationOperation
-    evaluation_plan: ExpertReleaseMatrixEvaluationPlan
-    snapshot: ExpertValidationSnapshot
+    reservation: TaskEvaluationReservation
+    request: TaskEvaluationRequest
+    current_release_observation: TaskEvaluationCurrentReleaseObservation
+    plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot
 
     def __post_init__(self) -> None:
         if (
             type(self.operation) is not ExpertValidationOperation
-            or type(self.evaluation_plan) is not ExpertReleaseMatrixEvaluationPlan
-            or not isinstance(self.snapshot, ExpertValidationSnapshot)
+            or type(self.reservation) is not TaskEvaluationReservation
+            or type(self.request) is not TaskEvaluationRequest
+            or type(self.current_release_observation)
+            is not TaskEvaluationCurrentReleaseObservation
+            or type(self.plan_reservation)
+            is not ExpertReleaseMatrixPlanReservationSnapshot
         ):
             raise ExpertValidationStoreError(
-                "release matrix plan reservation is not typed"
+                "task evaluation reservation snapshot is not typed"
             )
-        attempt = self.snapshot.latest_attempt
-        transition = self.snapshot.transition
-        state = self.snapshot.state
-        plan = self.evaluation_plan
         operation = self.operation
+        reservation = self.reservation
+        request = self.request
+        observation = self.current_release_observation
+        plan_reservation = self.plan_reservation
+        plan = plan_reservation.evaluation_plan
+        validation_snapshot = plan_reservation.snapshot
+        attempt = validation_snapshot.latest_attempt
+        scope_ids = {
+            provenance.task_context_binding.scope_id
+            for provenance in plan.provenance_bindings
+        }
         if (
             attempt is None
+            or scope_ids != {request.scope_id}
             or operation.operation_kind
-            is not ExpertValidationOperationKind.RELEASE_MATRIX_PLAN_RESERVATION
-            or operation.request_record_id != plan.evaluation_plan_id
-            or operation.expected_transition_id != transition.transition_id
-            or operation.candidate_id != plan.candidate_id
-            or plan.validation_attempt_id != attempt.validation_attempt_id
-            or plan.candidate_id != state.candidate_id
-            or plan.candidate_id != transition.candidate_id
-            or plan.candidate_tree_hash != state.candidate_tree_hash
-            or plan.candidate_tree_hash != transition.candidate_tree_hash
-            or plan.candidate_commit_record_id != attempt.candidate_commit_record_id
-            or plan.scope_contract_id != attempt.scope_contract_id
-            or plan.parent_release_id != attempt.parent_release_id
-            or plan.validation_policy_id != attempt.validation_policy_id
-            or plan.configuration_fingerprint != attempt.configuration_fingerprint
-            or state.validation_attempt_id != attempt.validation_attempt_id
-            or state.promotion_state is not ExpertPromotionState.VALIDATING
-            or state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+            is not ExpertValidationOperationKind.TASK_EVALUATION_RESERVATION
+            or operation.request_record_id != reservation.reservation_id
+            or operation.expected_transition_id
+            != validation_snapshot.transition.transition_id
+            or operation.candidate_id != request.candidate_id
+            or reservation.request_id != request.request_id
+            or reservation.plan_reservation_operation_id
+            != plan_reservation.operation.operation_id
+            or reservation.evaluation_plan_id != plan.evaluation_plan_id
+            or reservation.mode is not request.mode
+            or reservation.authorization_transition_id
+            != request.authorization_transition_id
+            or reservation.authorization_transition_id
+            != validation_snapshot.transition.transition_id
+            or reservation.authorization_state_id != request.authorization_state_id
+            or reservation.authorization_state_id
+            != validation_snapshot.state.validation_state_id
+            or reservation.validation_attempt_id != request.validation_attempt_id
+            or reservation.validation_attempt_id != attempt.validation_attempt_id
+            or reservation.candidate_id != request.candidate_id
+            or reservation.candidate_tree_hash != request.candidate_tree_hash
+            or reservation.scope_contract_id != request.scope_contract_id
+            or reservation.scope_id != request.scope_id
+            or reservation.current_release_observation_id != observation.observation_id
+            or reservation.observed_current_release_id != request.parent_release_id
+            or reservation.observed_current_release_id != observation.release_id
+            or observation.scope_id != request.scope_id
         ):
             raise ExpertValidationStoreError(
-                "release matrix plan reservation authority is inconsistent"
+                "task evaluation reservation snapshot authority is inconsistent"
             )
 
 
 @dataclass(frozen=True)
-class ExpertReleaseMatrixPlanReservationCommitResult:
-    reservation: ExpertReleaseMatrixPlanReservationSnapshot
+class ExpertTaskEvaluationReservationCommitResult:
+    reservation: ExpertTaskEvaluationReservationSnapshot
     replayed: bool
 
 
@@ -1528,6 +1424,216 @@ class ExpertValidationStore:
                 snapshot=current,
             )
 
+    def reserve_task_evaluation(
+        self,
+        *,
+        expected_transition_id: str,
+        prepared_request: PreparedTaskEvaluationRequest,
+    ) -> ExpertTaskEvaluationReservationCommitResult:
+        """Atomically bind one byte-closed task request to the current plan head."""
+
+        require_content_id(expected_transition_id, "expected_transition_id")
+        if type(prepared_request) is not PreparedTaskEvaluationRequest:
+            raise ExpertValidationStoreError(
+                "task evaluation reservation requires an exact prepared request"
+            )
+        prepared = PreparedTaskEvaluationRequest(
+            plan_join=prepared_request.plan_join,
+            stored_candidate=prepared_request.stored_candidate,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            current_release_observation=(prepared_request.current_release_observation),
+            cases=prepared_request.cases,
+        )
+        request = prepared.plan_join.request
+        supplied_plan_reservation = prepared.plan_join.plan_reservation
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(request.candidate_id)
+            existing = self._task_evaluation_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(current, expected_transition_id)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "task evaluation reservation has no validation head"
+                )
+            stored_plan = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            if (
+                stored_plan
+                != (
+                    supplied_plan_reservation.operation,
+                    supplied_plan_reservation.evaluation_plan,
+                )
+                or current != supplied_plan_reservation.snapshot
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "task evaluation reservation plan authority changed"
+                )
+            if existing is not None:
+                operation, reservation, stored_request, observation = existing
+                if stored_request != request:
+                    raise ExpertValidationCompareAndSwapError(
+                        "validation head already reserves another task evaluation"
+                    )
+                return ExpertTaskEvaluationReservationCommitResult(
+                    reservation=ExpertTaskEvaluationReservationSnapshot(
+                        operation=operation,
+                        reservation=reservation,
+                        request=stored_request,
+                        current_release_observation=observation,
+                        plan_reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                            operation=stored_plan[0],
+                            evaluation_plan=stored_plan[1],
+                            snapshot=current,
+                        ),
+                    ),
+                    replayed=True,
+                )
+            observation = prepared.current_release_observation
+            dependencies = {
+                request.request_id,
+                request.plan_reservation_operation_id,
+                request.evaluation_plan_id,
+                request.authorization_transition_id,
+                request.authorization_state_id,
+                request.validation_attempt_id,
+                request.candidate_id,
+                request.scope_contract_id,
+                observation.observation_id,
+            }
+            if request.parent_release_id is not None:
+                dependencies.add(request.parent_release_id)
+            reservation = TaskEvaluationReservation.mint(
+                request_id=request.request_id,
+                plan_reservation_operation_id=(request.plan_reservation_operation_id),
+                evaluation_plan_id=request.evaluation_plan_id,
+                mode=request.mode,
+                authorization_transition_id=request.authorization_transition_id,
+                authorization_state_id=request.authorization_state_id,
+                validation_attempt_id=request.validation_attempt_id,
+                candidate_id=request.candidate_id,
+                candidate_tree_hash=request.candidate_tree_hash,
+                scope_contract_id=request.scope_contract_id,
+                scope_id=request.scope_id,
+                current_release_observation_id=observation.observation_id,
+                observed_current_release_id=observation.release_id,
+                exact_dependency_ids=tuple(sorted(dependencies)),
+            )
+            operation = ExpertValidationOperation.mint(
+                operation_kind=(
+                    ExpertValidationOperationKind.TASK_EVALUATION_RESERVATION
+                ),
+                candidate_id=request.candidate_id,
+                expected_transition_id=current.transition.transition_id,
+                request_record_id=reservation.reservation_id,
+            )
+            self._write_contract_unlocked(request)
+            self._write_contract_unlocked(observation)
+            self._write_contract_unlocked(reservation)
+            self._write_contract_unlocked(operation)
+            updated = self._bind_operation(journal, operation, current.transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertTaskEvaluationReservationCommitResult(
+                reservation=ExpertTaskEvaluationReservationSnapshot(
+                    operation=operation,
+                    reservation=reservation,
+                    request=request,
+                    current_release_observation=observation,
+                    plan_reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                        operation=stored_plan[0],
+                        evaluation_plan=stored_plan[1],
+                        snapshot=self._snapshot_at_unlocked(
+                            updated,
+                            current.transition.transition_id,
+                        ),
+                    ),
+                ),
+                replayed=False,
+            )
+
+    def reopen_task_evaluation_reservation(
+        self,
+        *,
+        reservation_id: str,
+        prepared_request: PreparedTaskEvaluationRequest,
+    ) -> ExpertTaskEvaluationReservationSnapshot:
+        """Reopen one current task reservation from its exact prepared bytes."""
+
+        require_content_id(reservation_id, "task evaluation reservation_id")
+        if reservation_id.split(":sha256:", 1)[0] != "task-evaluation-reservation":
+            raise ExpertValidationStoreError(
+                "task evaluation reservation_id uses the wrong namespace"
+            )
+        if type(prepared_request) is not PreparedTaskEvaluationRequest:
+            raise ExpertValidationStoreError(
+                "task evaluation reopen requires an exact prepared request"
+            )
+        prepared = PreparedTaskEvaluationRequest(
+            plan_join=prepared_request.plan_join,
+            stored_candidate=prepared_request.stored_candidate,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            current_release_observation=(prepared_request.current_release_observation),
+            cases=prepared_request.cases,
+        )
+        request = prepared.plan_join.request
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(request.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "task evaluation reservation has no current validation head"
+                )
+            stored = self._task_evaluation_reservation_unlocked(
+                journal,
+                current.transition.transition_id,
+            )
+            if stored is None:
+                raise ExpertValidationStoreError(
+                    "task evaluation reservation is not bound to the current head"
+                )
+            operation, reservation, stored_request, observation = stored
+            if reservation.reservation_id != reservation_id:
+                raise ExpertValidationStoreError(
+                    "task evaluation reservation identity is not current"
+                )
+            if stored_request != request:
+                raise ExpertValidationStoreError(
+                    "task evaluation stored request differs from prepared bytes"
+                )
+            stored_plan = self._release_matrix_plan_reservation_unlocked(
+                journal,
+                current.transition.transition_id,
+            )
+            supplied_plan = prepared.plan_join.plan_reservation
+            if (
+                stored_plan
+                != (
+                    supplied_plan.operation,
+                    supplied_plan.evaluation_plan,
+                )
+                or current != supplied_plan.snapshot
+            ):
+                raise ExpertValidationStoreError(
+                    "task evaluation stored plan differs from prepared bytes"
+                )
+            return ExpertTaskEvaluationReservationSnapshot(
+                operation=operation,
+                reservation=reservation,
+                request=stored_request,
+                current_release_observation=observation,
+                plan_reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                    operation=stored_plan[0],
+                    evaluation_plan=stored_plan[1],
+                    snapshot=current,
+                ),
+            )
+
     def reopen_release_matrix_source_evidence(
         self,
         *,
@@ -2303,6 +2409,7 @@ class ExpertValidationStore:
         }
         source_replay_reserved_transition_ids: set[str] = set()
         release_matrix_reserved_transition_ids: set[str] = set()
+        task_evaluation_reserved_transition_ids: set[str] = set()
         for operation_id, transition_id in journal.operation_transition_ids.items():
             operation = self._read_contract_unlocked(
                 operation_id,
@@ -2355,6 +2462,21 @@ class ExpertValidationStore:
                     transition,
                 )
                 release_matrix_reserved_transition_ids.add(transition_id)
+                continue
+            if (
+                operation.operation_kind
+                is ExpertValidationOperationKind.TASK_EVALUATION_RESERVATION
+            ):
+                if transition_id in task_evaluation_reserved_transition_ids:
+                    raise ExpertValidationStoreError(
+                        "validation transition has multiple task evaluations"
+                    )
+                self._validate_task_evaluation_reservation_alias_unlocked(
+                    journal,
+                    operation,
+                    transition,
+                )
+                task_evaluation_reserved_transition_ids.add(transition_id)
                 continue
             raise ExpertValidationStoreError(
                 "validation replay operation does not bind its transition"
@@ -2438,6 +2560,74 @@ class ExpertValidationStore:
             ExpertSourceReplayExecutionRequest,
         )
 
+    def _validate_task_evaluation_reservation_alias_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        operation: ExpertValidationOperation,
+        transition: ExpertValidationTransition,
+    ) -> None:
+        reservation = self._read_contract_unlocked(
+            operation.request_record_id,
+            TaskEvaluationReservation,
+        )
+        request = self._read_contract_unlocked(
+            reservation.request_id,
+            TaskEvaluationRequest,
+        )
+        observation = self._read_contract_unlocked(
+            reservation.current_release_observation_id,
+            TaskEvaluationCurrentReleaseObservation,
+        )
+        plan_alias = self._release_matrix_plan_reservation_unlocked(
+            journal,
+            transition.transition_id,
+        )
+        if plan_alias is None:
+            raise ExpertValidationStoreError(
+                "task evaluation reservation lacks its release matrix plan"
+            )
+        state = self._read_contract_unlocked(
+            transition.target_state_id,
+            ExpertCandidateValidationState,
+        )
+        if transition.latest_attempt_id is None:
+            raise ExpertValidationStoreError(
+                "task evaluation reservation requires a validation attempt"
+            )
+        attempt = self._read_contract_unlocked(
+            transition.latest_attempt_id,
+            ExpertValidationAttempt,
+        )
+        accepted_results = tuple(
+            self._read_stage_result_unlocked(result_record_id)
+            for result_record_id in transition.accepted_stage_result_record_ids
+        )
+        plan_reservation = ExpertReleaseMatrixPlanReservationSnapshot(
+            operation=plan_alias[0],
+            evaluation_plan=plan_alias[1],
+            snapshot=ExpertValidationSnapshot(
+                transition=transition,
+                state=state,
+                latest_attempt=attempt,
+                accepted_stage_results=accepted_results,
+            ),
+        )
+        persisted_settings = self._read_configuration_unlocked(
+            transition.configuration_fingerprint
+        )
+        PlanJoinedTaskEvaluationRequest(
+            request=request,
+            plan_reservation=plan_reservation,
+            settings=persisted_settings,
+        )
+        ExpertTaskEvaluationReservationSnapshot(
+            operation=operation,
+            reservation=reservation,
+            request=request,
+            current_release_observation=observation,
+            plan_reservation=plan_reservation,
+        )
+
     def _release_matrix_plan_reservation_unlocked(
         self,
         journal: ExpertValidationJournal,
@@ -2464,6 +2654,51 @@ class ExpertValidationStore:
         if len(matches) > 1:
             raise ExpertValidationStoreError(
                 "validation transition has multiple release matrix plans"
+            )
+        return None if not matches else matches[0]
+
+    def _task_evaluation_reservation_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        authorization_transition_id: str,
+    ) -> (
+        tuple[
+            ExpertValidationOperation,
+            TaskEvaluationReservation,
+            TaskEvaluationRequest,
+            TaskEvaluationCurrentReleaseObservation,
+        ]
+        | None
+    ):
+        matches = []
+        for operation_id, transition_id in journal.operation_transition_ids.items():
+            if transition_id != authorization_transition_id:
+                continue
+            operation = self._read_contract_unlocked(
+                operation_id,
+                ExpertValidationOperation,
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.TASK_EVALUATION_RESERVATION
+            ):
+                continue
+            reservation = self._read_contract_unlocked(
+                operation.request_record_id,
+                TaskEvaluationReservation,
+            )
+            request = self._read_contract_unlocked(
+                reservation.request_id,
+                TaskEvaluationRequest,
+            )
+            observation = self._read_contract_unlocked(
+                reservation.current_release_observation_id,
+                TaskEvaluationCurrentReleaseObservation,
+            )
+            matches.append((operation, reservation, request, observation))
+        if len(matches) > 1:
+            raise ExpertValidationStoreError(
+                "validation transition has multiple task evaluation reservations"
             )
         return None if not matches else matches[0]
 

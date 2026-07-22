@@ -184,7 +184,7 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
     attempt_id = _id("expert-validation-attempt", "attempt")
     candidate_id = _id("expert-candidate", "candidate")
     commit_id = _id("expert-candidate-commit", "candidate")
-    scope_id = _id("expert-scope-contract", "scope")
+    scope_contract_id = _id("expert-scope-contract", "scope")
     policy_id = _id("expert-validation-policy", "policy")
     parent_id = (
         None
@@ -208,7 +208,7 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
         attempt_id,
         candidate_id,
         commit_id,
-        scope_id,
+        scope_contract_id,
         policy_id,
         *plan_dependencies,
         case.evaluation_case_id,
@@ -227,7 +227,8 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
         candidate_id=candidate_id,
         candidate_commit_record_id=commit_id,
         candidate_tree_hash=_digest("candidate-tree"),
-        scope_contract_id=scope_id,
+        scope_contract_id=scope_contract_id,
+        scope_id="ml_ai",
         parent_release_id=parent_id,
         parent_tree_hash=(None if parent_id is None else _digest("parent-tree")),
         validation_policy_id=policy_id,
@@ -242,6 +243,10 @@ def _request(mode: ExpertReleaseMatrixMode) -> TaskEvaluationRequest:
 
 
 def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
+    observation_id = _id(
+        "task-evaluation-current-release-observation",
+        "current",
+    )
     dependencies = {
         request.request_id,
         request.plan_reservation_operation_id,
@@ -250,6 +255,8 @@ def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
         request.authorization_state_id,
         request.validation_attempt_id,
         request.candidate_id,
+        request.scope_contract_id,
+        observation_id,
     }
     if request.parent_release_id is not None:
         dependencies.add(request.parent_release_id)
@@ -263,7 +270,10 @@ def _reservation(request: TaskEvaluationRequest) -> TaskEvaluationReservation:
         validation_attempt_id=request.validation_attempt_id,
         candidate_id=request.candidate_id,
         candidate_tree_hash=request.candidate_tree_hash,
-        observed_parent_release_id=request.parent_release_id,
+        scope_contract_id=request.scope_contract_id,
+        scope_id=request.scope_id,
+        current_release_observation_id=observation_id,
+        observed_current_release_id=request.parent_release_id,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
 
@@ -405,10 +415,13 @@ def test_bootstrap_cannot_name_or_schedule_a_parent():
             bootstrap,
             cases=parent.cases,
         )
-    with pytest.raises(TaskEvaluationContractError, match="parent differs"):
+    with pytest.raises(TaskEvaluationContractError, match="dependency closure"):
         _remint(
             _reservation(bootstrap),
-            observed_parent_release_id=parent.parent_release_id,
+            current_release_observation_id=_id(
+                "task-evaluation-current-release-observation",
+                "substituted",
+            ),
         )
 
 

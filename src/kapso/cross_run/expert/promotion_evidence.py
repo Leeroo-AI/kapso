@@ -9,8 +9,10 @@ from kapso.cross_run.expert.promotion_contracts import (
 from kapso.cross_run.expert.promotion_plan import (
     validate_expert_release_matrix_source_joins,
 )
-from kapso.cross_run.expert.validation_store import (
+from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
+)
+from kapso.cross_run.expert.validation_store import (
     ExpertReleaseMatrixSourceEvidenceSnapshot,
     ExpertValidationStore,
 )

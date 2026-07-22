@@ -29,10 +29,8 @@ from kapso.cross_run.expert.replay_request import (
     ExpertSourceReplayPreflightCoordinator,
     PreparedExpertSourceReplayRequest,
 )
-from kapso.cross_run.expert.validation_store import (
-    ExpertValidationSnapshot,
-    ExpertValidationStore,
-)
+from kapso.cross_run.expert.validation_snapshots import ExpertValidationSnapshot
+from kapso.cross_run.expert.validation_store import ExpertValidationStore
 
 
 class ExpertSourceReplayStageError(ValueError):

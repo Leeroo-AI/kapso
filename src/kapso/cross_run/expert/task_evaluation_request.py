@@ -24,7 +24,7 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationCandidate,
     VerifiedTaskEvaluationParent,
 )
-from kapso.cross_run.expert.validation_store import (
+from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
 )
 from kapso.cross_run.settings import ExpertValidationSettings
@@ -83,6 +83,11 @@ class PlanJoinedTaskEvaluationRequest:
             or request.candidate_commit_record_id != plan.candidate_commit_record_id
             or request.candidate_tree_hash != plan.candidate_tree_hash
             or request.scope_contract_id != plan.scope_contract_id
+            or {request.scope_id}
+            != {
+                provenance.task_context_binding.scope_id
+                for provenance in plan.provenance_bindings
+            }
             or request.parent_release_id != plan.parent_release_id
             or request.parent_tree_hash != plan.parent_tree_hash
             or request.validation_policy_id != plan.validation_policy_id
@@ -295,6 +300,7 @@ def prepare_task_evaluation_request(
         candidate_commit_record_id=plan.candidate_commit_record_id,
         candidate_tree_hash=plan.candidate_tree_hash,
         scope_contract_id=plan.scope_contract_id,
+        scope_id=packet.scope_contract.scope_id,
         parent_release_id=plan.parent_release_id,
         parent_tree_hash=plan.parent_tree_hash,
         validation_policy_id=plan.validation_policy_id,

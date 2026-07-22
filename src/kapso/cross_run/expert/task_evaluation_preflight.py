@@ -33,7 +33,7 @@ from kapso.cross_run.task_adapters import (
     task_adapter_materialization_usage,
 )
 from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
-from kapso.cross_run.expert.validation_store import (
+from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
 )
 from kapso.cross_run.settings import ExpertValidationSettings

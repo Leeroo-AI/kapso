@@ -12,10 +12,8 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.review import ExpertAutomatedReviewCoordinator
 from kapso.cross_run.expert.store import ExpertCandidateStore
-from kapso.cross_run.expert.validation_store import (
-    ExpertValidationSnapshot,
-    ExpertValidationStore,
-)
+from kapso.cross_run.expert.validation_snapshots import ExpertValidationSnapshot
+from kapso.cross_run.expert.validation_store import ExpertValidationStore
 
 
 class ExpertAutomatedReviewStageError(ValueError):
@@ -38,8 +36,7 @@ class ExpertAutomatedReviewStageOrchestrator:
             != coordinator.workspace_root / coordinator.settings.candidate_path
             or candidate_store.state_root != candidate_store.root.parent
             or validation_store.root
-            != coordinator.workspace_root
-            / coordinator.settings.validation.state_path
+            != coordinator.workspace_root / coordinator.settings.validation.state_path
             or validation_store.state_root != validation_store.root.parent
             or validation_store.settings != coordinator.settings.validation
             or validation_store.reducer.candidate_store is not candidate_store

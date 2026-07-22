@@ -802,9 +802,18 @@ into that byte-closed request. Its order is fixed:
 Bootstrap never calls the parent provider. Exact observation equality detects a
 release appearing during bootstrap and a parent restored under a new branch head
 after intermediate movement. No network call occurs under the validation-store lock.
-The next boundary must durably reserve this exact request and observation before any
-cell allocation; every later spawn must still reacquire live package, current-release,
-and denylist authority.
+`TaskEvaluationReservation` then durably binds the exact request, plan alias,
+authorization transition/state/attempt, candidate tree, scope contract and logical
+scope, and the required content-addressed current-or-absent observation. The store
+persists request, observation, reservation, and operation as one alias on the existing
+release-matrix transition; it creates no new validation state. The exact prepared
+closure is reconstructed before the exclusive local commit, and the journal reopens
+the complete request/plan/configuration/observation join without GitHub, candidate,
+adapter, or evaluator calls. Concurrent identical commits produce one winner. A later
+identical replay preserves the first admission observation even if a harmless branch
+commit produced a newer observation; spawn freshness is a separate authority. A
+different request or changed validation/plan head conflicts. Every later spawn must
+still reacquire live package, current-release, and denylist authority.
 
 The planner now derives a mixed parent matrix from the complete accepted source
 replay plus every signed case in every immutable attempt-pinned active adapter.
