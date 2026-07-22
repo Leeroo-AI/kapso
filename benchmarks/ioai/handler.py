@@ -97,7 +97,15 @@ invocation works against dev.csv from a scratch directory.
 Update procedure when a candidate beats the current best dev score: write to
 `submission.tmp/`, verify it loads and solves a few rows, then atomically
 swap into {self.submission_dir}, and append `<dev_score> <iso-time>
-<experiment-name>` to {self.task_dir}/best_score.log. Install ONE minimal
+<experiment-name>` to {self.task_dir}/best_score.log.
+PARALLEL-LANE SAFETY: another experiment lane may be running concurrently,
+so the compare-and-swap MUST hold a lock — re-read the current best INSIDE
+it and promote only if you still win:
+`( flock 9; best=$(awk '{{if($1+0>m)m=$1+0}}END{{print m+0}}' {self.task_dir}/best_score.log 2>/dev/null); \\
+  python3 -c "exit(0 if <your_score> > $best else 1)" && mv submission.tmp {self.submission_dir} \\
+  && echo "<score> <iso-time> <name>" >> {self.task_dir}/best_score.log ) 9>>{self.task_dir}/best_score.log`
+If the best score advances without your action, that is the other lane
+working — evidence, not corruption; never "fix" it. Install ONE minimal
 working submission immediately as insurance (see Reward & time economics);
 after that, spend nothing further on intermediate stability.
 

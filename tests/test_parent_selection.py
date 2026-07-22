@@ -37,6 +37,8 @@ def strategy_with_history(policy="best", *, maximize=True):
     strategy.registered_evaluator_id = ""
     strategy.fidelity_decision = None
     strategy.problem_handler = SimpleNamespace(maximize_scoring=maximize)
+    strategy.node_expansion_value = 1
+    strategy.expansion_lane_env = None
     strategy.node_history = [
         SearchNode(node_id=0, branch_name="candidate-0", score=0.4),
         SearchNode(node_id=1, branch_name="candidate-1", score=0.8),
@@ -120,11 +122,11 @@ def test_iteration_uses_the_same_selected_parent_everywhere(
 
     def generate(problem, parent_branch):
         calls["ideation"] = parent_branch
-        return "solution", [], {"cost_usd": 0.0, "duration_seconds": 0.0}
+        return ["solution"], [], {"cost_usd": 0.0, "duration_seconds": 0.0}
 
     def implement(**kwargs):
         calls["implementation"] = kwargs["parent_branch_name"]
-        return "agent output", {"cost_usd": 0.0, "duration_seconds": 0.0}
+        return "agent output", {"cost_usd": 0.0, "duration_seconds": 0.0}, None
 
     def code_diff(branch_name, parent_branch):
         calls["diff"] = parent_branch
@@ -214,6 +216,8 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.idea_generation_model = "model"
     strategy._claude_auth_settings = {"auth_mode": "oauth"}
     strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
+    strategy.node_expansion_value = 1
+    strategy.expansion_lane_env = None
     strategy.aws_region = "us-east-1"
     strategy.ideation_timeout = 10
     strategy.budget_snapshot = None
@@ -224,12 +228,12 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.ideation_ensemble = None
     strategy.llm = None
 
-    solution, sections, telemetry = strategy._generate_solution(
+    solutions, sections, telemetry = strategy._generate_solution(
         "problem",
         "candidate-7",
     )
 
-    assert solution == "selected solution"
+    assert solutions == ["selected solution"]
     assert sections == []
     assert telemetry["cost_usd"] == 0.0
     assert telemetry["duration_seconds"] >= 0

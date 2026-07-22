@@ -59,6 +59,14 @@ modes:
           cli: "claude_code"
           model: "claude-opus-4-8"
           effort: "xhigh"
+        # K-way node expansion: the selector emits top-K ranked solutions and
+        # each is implemented/evaluated/fed-back on its own branch in
+        # parallel (barrier before the next iteration). Needs one GPU per
+        # lane — pin them via expansion_lane_env. Default 1 = sequential.
+        # node_expansion_value: 2
+        # expansion_lane_env:
+        #   - {CUDA_VISIBLE_DEVICES: "0"}
+        #   - {CUDA_VISIBLE_DEVICES: "1"}
         # Optional: point the campaign shared cache at a persistent
         # task-level path to carry artifacts (e.g. the oracle answer table)
         # across campaigns; agents get them as an OPTIONAL offer with a

@@ -94,16 +94,19 @@ def test_run_sums_attributed_phase_costs_onto_the_node():
     strategy.fidelity_decision = None
     strategy.problem_handler = SimpleNamespace(maximize_scoring=True)
     strategy.node_history = []
+    strategy.node_expansion_value = 1
+    strategy.expansion_lane_env = None
     strategy.iteration_count = 0
     strategy.workspace_dir = "/workspace"
     strategy._generate_solution = lambda problem, parent_branch: (
-        "solution",
+        ["solution"],
         [],
         {"cost_usd": 0.25, "duration_seconds": 1.0},
     )
     strategy._implement = lambda **kwargs: (
         "agent output",
         {"cost_usd": 0.5, "duration_seconds": 2.0},
+        None,
     )
     strategy._get_code_diff = lambda branch_name, parent_branch: ""
     strategy._extract_agent_result = lambda output: {}

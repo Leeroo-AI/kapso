@@ -20,7 +20,7 @@ import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Mapping, Optional, Tuple, TYPE_CHECKING
 
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
@@ -29,6 +29,7 @@ from kapso.execution.search_strategies.base import (
 )
 from kapso.execution.search_strategies.factory import register_strategy
 from kapso.execution.fidelity import (
+    FULL_PASSTHROUGH,
     PROFILE_VALIDATE,
     ComparabilityClass,
     EvaluationAttempt,
@@ -104,6 +105,74 @@ def is_degenerate_ensemble_candidate(text: str) -> bool:
     return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
 
 DEFAULT_MEMBER_LENS = "no specific lens — judge freely"
+
+MAX_NODE_EXPANSION = 8
+
+
+def normalize_node_expansion(params: Mapping[str, Any]) -> Tuple[int, Optional[List[Dict[str, str]]]]:
+    """Validate node_expansion_value and the optional per-lane env overlays."""
+    raw = params.get("node_expansion_value", 1)
+    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_NODE_EXPANSION:
+        raise ValueError(
+            f"node_expansion_value must be an int in [1, {MAX_NODE_EXPANSION}]"
+        )
+    lane_env = params.get("expansion_lane_env")
+    if lane_env is not None:
+        if not isinstance(lane_env, list) or not all(
+            isinstance(e, dict) and all(
+                isinstance(k, str) and isinstance(v, str) for k, v in e.items()
+            )
+            for e in lane_env
+        ):
+            raise ValueError(
+                "expansion_lane_env must be a list of {str: str} mappings "
+                "(one per lane, e.g. CUDA_VISIBLE_DEVICES pins)"
+            )
+    return raw, lane_env
+
+
+def validate_node_expansion_config(
+    expansion: int,
+    ensemble: Optional[List[Dict[str, str]]],
+    selector: Optional[Dict[str, str]],
+) -> None:
+    """K>1 requires the ensemble+selector flow (the selector emits the K)."""
+    if expansion > 1 and (not ensemble or selector is None):
+        raise ValueError(
+            "node_expansion_value > 1 requires ideation_ensemble and "
+            "ideation_selector (the selector emits the top-K solutions)"
+        )
+
+
+def parse_selected_solutions(output: str, expansion_count: int) -> List[str]:
+    """Extract the selector's ranked solutions.
+
+    K=1 keeps today's single <solution> contract. K>1 reads <solution_N>
+    tags in rank order, skipping empty/missing slots (a short list degrades
+    the round to fewer lanes — loud, never fatal); if no numbered tag
+    parsed, a single legacy <solution> tag still yields one lane.
+    """
+    text = output or ""
+    if expansion_count <= 1:
+        match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
+        return [match.group(1).strip()] if match and match.group(1).strip() else []
+    solutions = []
+    for i in range(1, expansion_count + 1):
+        match = re.search(
+            rf"<solution_{i}>(.*?)</solution_{i}>", text, re.DOTALL
+        )
+        if match and match.group(1).strip():
+            solutions.append(match.group(1).strip())
+        else:
+            logger.warning(
+                f"[GenericSearch] Selector omitted <solution_{i}> — "
+                "round degrades to fewer lanes"
+            )
+    if not solutions:
+        match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
+        if match and match.group(1).strip():
+            solutions.append(match.group(1).strip())
+    return solutions
 
 _LENS_PLANNER_KEYS = frozenset({"cli", "model", "effort", "timeout"})
 LENS_PLAN_FILENAME = "lens_plan.json"
@@ -377,6 +446,17 @@ class GenericSearch(SearchStrategy):
         validate_lens_planner_against_ensemble(
             self.ideation_lens_planner, self.ideation_ensemble
         )
+        # K-way node expansion: the selector emits top-K solutions and each
+        # is implemented/evaluated/fed-back on its own branch, in parallel,
+        # with a barrier before the next iteration. K=1 is today's path.
+        self.node_expansion_value, self.expansion_lane_env = (
+            normalize_node_expansion(self.params)
+        )
+        validate_node_expansion_config(
+            self.node_expansion_value,
+            self.ideation_ensemble,
+            self.ideation_selector,
+        )
         # Include experiment_history, repo_memory, and leeroopedia gates by default for ideation
         self.ideation_gates = self.params.get("ideation_gates", ["research", "experiment_history", "repo_memory", "leeroopedia"])
         
@@ -490,16 +570,54 @@ class GenericSearch(SearchStrategy):
         # ideation view, and the implementation base cannot diverge.
         parent = self._select_parent()
 
-        # Step 1: Generate solution (agent queries experiment history via MCP)
-        solution, ideation_sections, ideation_telemetry = self._generate_solution(
+        # Step 1: Generate solution(s). With node_expansion_value > 1 the
+        # selector emits a ranked top-K; each entry becomes one lane.
+        solutions, ideation_sections, ideation_telemetry = self._generate_solution(
             problem,
             parent.branch_name,
         )
-        print(f"[GenericSearch] Generated solution ({len(solution)} chars)")
+        if len(solutions) > 1 and decision is not None and decision is not FULL_PASSTHROUGH:
+            raise ValueError(
+                "node_expansion_value > 1 is not supported with fidelity "
+                "grants active — run with the fidelity block disabled"
+            )
+        for solution in solutions:
+            print(f"[GenericSearch] Generated solution ({len(solution)} chars)")
 
-        # Create node
+        return self._expand_round(
+            problem=problem,
+            solutions=solutions,
+            parent=parent,
+            decision=decision,
+            ideation_sections=ideation_sections,
+            ideation_telemetry=ideation_telemetry,
+            iteration_started_at=iteration_started_at,
+            iteration_started_monotonic=iteration_started_monotonic,
+        )
+
+    def _run_expansion_lane(
+        self,
+        problem: str,
+        solution: str,
+        node_id: int,
+        parent: "ParentSelection",
+        decision,
+        ideation_sections: List[str],
+        ideation_telemetry: Dict[str, float],
+        iteration_started_at: str,
+        lane_index: int,
+    ) -> SearchNode:
+        """One lane: node creation -> implementation -> result extraction.
+
+        Feedback/integrity run post-barrier (serialized) so lane threads
+        never interleave feedback streams; everything here is lane-local
+        except the workspace push, which the repo_lock serializes.
+        """
+        lane_tag = (
+            f"[lane {lane_index}] " if self.node_expansion_value > 1 else ""
+        )
         node = SearchNode(
-            node_id=len(self.node_history),
+            node_id=node_id,
             parent_node_id=parent.node_id,
             solution=solution,
             workspace_dir=self.workspace_dir,
@@ -511,21 +629,22 @@ class GenericSearch(SearchStrategy):
             node.eval_fidelity = decision.eval_fidelity
             if decision.profile == "full":
                 node.promoted_from = decision.target_node_id
-        
+
         # Step 2: Implement - developer agent handles everything
         branch_name = f"generic_exp_{node.node_id}"
-        
+
         print(
-            f"[GenericSearch] Implementing on branch: {branch_name} "
+            f"{lane_tag}[GenericSearch] Implementing on branch: {branch_name} "
             f"(from {parent.branch_name})"
         )
-        
-        agent_output, implementation_telemetry = self._implement(
+
+        agent_output, implementation_telemetry, recovered = self._implement(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
             parent_branch_name=parent.branch_name,
             ideation_repo_memory_sections_consulted=ideation_sections,
+            lane_index=lane_index,
         )
         node.phase_telemetry["implementation"] = implementation_telemetry
 
@@ -534,10 +653,10 @@ class GenericSearch(SearchStrategy):
         node.parent_branch_name = parent.branch_name
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(branch_name, parent.branch_name)
-        
+
         # Step 3: Extract results from agent output JSON
         agent_result = self._extract_agent_result(agent_output)
-        
+
         if agent_result:
             node.code_changes_summary = agent_result.get("code_changes_summary", "")
             node.evaluation_script_path = agent_result.get("evaluation_script_path", "")
@@ -546,56 +665,133 @@ class GenericSearch(SearchStrategy):
             # Score from agent result (may be overridden by feedback generator)
             if agent_result.get("score") is not None:
                 node.score = float(agent_result.get("score", 0.0))
-            print(f"[GenericSearch] Extracted result from agent JSON")
+            print(f"{lane_tag}[GenericSearch] Extracted result from agent JSON")
         else:
             # Fallback: use raw agent output
             node.evaluation_output = agent_output
-            print(f"[GenericSearch] Warning: No JSON result from agent, using raw output")
-        
+            print(f"{lane_tag}[GenericSearch] Warning: No JSON result from agent, using raw output")
+
         # Step 3b: the implementor is the primary author of
         # technical_difficulties; the fallback reconstructs it when the tag
         # is missing. Purely mechanical trigger — never score/outcome-based.
         self._ensure_technical_difficulties(node)
 
-        # Step 3c: inject a manifest recovered from the durable run archive
-        # (stashed by the pre-finalize teardown guard) so the score of
-        # record survives a session that died before printing it.
-        recovered = getattr(self, "_recovered_manifest_line", None)
+        # Step 3c: inject the manifest recovered from the durable run archive
+        # (returned by this lane's own _implement) so the score of record
+        # survives a session that died before printing it.
         if recovered and self._manifest_score_of_record(node) is None:
             node.evaluation_output = (
                 (node.evaluation_output or "") + "\n" + recovered
             )
-            self._recovered_manifest_line = None
+        return node
 
-        # Step 4: Verify provided evaluation files before accepting any score
-        # or feedback derived from them.
-        if self.enforce_evaluation_integrity(node):
-            self._generate_feedback(node)
-            self._record_evaluation_attempt(node)
+    def _expand_round(
+        self,
+        problem: str,
+        solutions: List[str],
+        parent: "ParentSelection",
+        decision,
+        ideation_sections: List[str],
+        ideation_telemetry: Dict[str, float],
+        iteration_started_at: str,
+        iteration_started_monotonic: float,
+    ) -> SearchNode:
+        """Implement K solutions on K branches; barrier; feedback in order.
+
+        K=1 preserves today's single-node lifecycle exactly (inline, no
+        executor). K>1 allocates node ids/branches up front, fans lanes out
+        on threads, then runs integrity+feedback serially in id order and
+        appends nodes to history in that order. The returned representative
+        is the best-scoring node; its should_stop carries any lane's stop.
+        """
+        lane_count = len(solutions)
+        first_node_id = len(self.node_history)
+        lane_args = [
+            (solutions[i], first_node_id + i, i) for i in range(lane_count)
+        ]
+
+        if lane_count == 1:
+            solution, node_id, lane_index = lane_args[0]
+            nodes = [
+                self._run_expansion_lane(
+                    problem, solution, node_id, parent, decision,
+                    ideation_sections, ideation_telemetry,
+                    iteration_started_at, lane_index,
+                )
+            ]
         else:
             print(
-                "[GenericSearch] Rejected invalid provided evaluation: "
-                f"{node.evaluation_integrity_error}"
+                f"[GenericSearch] Node expansion: {lane_count} lanes "
+                f"(nodes {first_node_id}..{first_node_id + lane_count - 1}) "
+                f"from parent {parent.branch_name}"
             )
-        
-        # Stamp iteration totals: wall-clock for the whole iteration, spend as
-        # the sum of attributed phase costs.
-        node.duration_seconds = time.monotonic() - iteration_started_monotonic
-        node.cost_usd = sum(
-            phase.get("cost_usd", 0.0)
-            for phase in node.phase_telemetry.values()
-        )
+            with ThreadPoolExecutor(max_workers=lane_count) as executor:
+                nodes = list(
+                    executor.map(
+                        lambda args: self._run_expansion_lane(
+                            problem, args[0], args[1], parent, decision,
+                            ideation_sections, ideation_telemetry,
+                            iteration_started_at, args[2],
+                        ),
+                        lane_args,
+                    )
+                )
 
-        # Store node
-        self.node_history.append(node)
+        # Post-barrier: integrity + feedback serialized in node-id order —
+        # deterministic history, no interleaved feedback sessions.
+        for node in nodes:
+            if self.enforce_evaluation_integrity(node):
+                self._generate_feedback(node)
+                self._record_evaluation_attempt(node)
+            else:
+                print(
+                    "[GenericSearch] Rejected invalid provided evaluation: "
+                    f"{node.evaluation_integrity_error}"
+                )
+            # Stamp iteration totals: wall-clock for the whole iteration,
+            # spend as the sum of attributed phase costs.
+            node.duration_seconds = (
+                time.monotonic() - iteration_started_monotonic
+            )
+            node.cost_usd = sum(
+                phase.get("cost_usd", 0.0)
+                for phase in node.phase_telemetry.values()
+            )
+            self.node_history.append(node)
+            print(
+                f"[GenericSearch] ✓ Node {node.node_id} completed: "
+                f"score={node.score}, should_stop={node.should_stop}"
+            )
 
-        print(f"[GenericSearch] ✓ Node {node.node_id} completed: score={node.score}, should_stop={node.should_stop}")
+        representative = self._pick_representative(nodes)
+        if lane_count > 1:
+            representative.should_stop = any(n.should_stop for n in nodes)
+            print(
+                "[GenericSearch] Round winner: node "
+                f"{representative.node_id} (score={representative.score}); "
+                f"stop={representative.should_stop}"
+            )
+        return representative
 
-        return node
+    def _pick_representative(self, nodes: List[SearchNode]) -> SearchNode:
+        """Best-scoring node of the round; scoreless nodes rank last."""
+        if len(nodes) == 1:
+            return nodes[0]
+
+        def sort_key(node: SearchNode):
+            if node.score is None:
+                return (0, 0.0)
+            return (
+                1,
+                node.score
+                if self.problem_handler.maximize_scoring
+                else -node.score,
+            )
+        return max(nodes, key=sort_key)
 
     def _generate_solution(
         self, problem: str, parent_branch: str
-    ) -> Tuple[str, List[str], Dict[str, float]]:
+    ) -> Tuple[List[str], List[str], Dict[str, float]]:
         """
         Generate solution using Claude Code with MCP gates.
         
@@ -609,8 +805,9 @@ class GenericSearch(SearchStrategy):
             parent_branch: Git branch to base ideation on
 
         Returns:
-            Tuple of (solution_text, sections_consulted, phase_telemetry)
-            where phase_telemetry is {"cost_usd": ..., "duration_seconds": ...}
+            Tuple of (solutions, sections_consulted, phase_telemetry) —
+            solutions is rank-ordered, length <= node_expansion_value
+            (single-session ideation always yields exactly one).
         """
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
@@ -713,11 +910,11 @@ class GenericSearch(SearchStrategy):
                             "deadline-terminated ideation session"
                         )
                         return (
-                            salvaged,
+                            [salvaged],
                             self._extract_sections_consulted(result.output),
                             telemetry,
                         )
-                    return self._fallback_solution(problem), [], telemetry
+                    return [self._fallback_solution(problem)], [], telemetry
 
                 solution = self._extract_solution_from_output(result.output)
                 sections_consulted = self._extract_sections_consulted(
@@ -728,7 +925,7 @@ class GenericSearch(SearchStrategy):
                     "[GenericSearch] Ideation complete, sections consulted: "
                     f"{sections_consulted}"
                 )
-                return solution, sections_consulted, telemetry
+                return [solution], sections_consulted, telemetry
             finally:
                 agent.cleanup()
     
@@ -1044,10 +1241,10 @@ class GenericSearch(SearchStrategy):
             f"from {len(members)} members"
         )
         if not pool:
-            return self._fallback_solution(problem), sections, telemetry
+            return [self._fallback_solution(problem)], sections, telemetry
         if len(pool) == 1:
             print("[GenericSearch] Single candidate — selector skipped")
-            return pool[0]["text"], sections, telemetry
+            return [pool[0]["text"]], sections, telemetry
 
         chosen = self._select_from_candidates(
             problem=problem,
@@ -1058,7 +1255,7 @@ class GenericSearch(SearchStrategy):
         )
         telemetry["cost_usd"] += chosen["cost_usd"]
         telemetry["duration_seconds"] = time.monotonic() - phase_started
-        return chosen["solution"], sections, telemetry
+        return chosen["solutions"], sections, telemetry
 
     def _select_from_candidates(
         self,
@@ -1068,10 +1265,15 @@ class GenericSearch(SearchStrategy):
         ideation_dir: str,
         selector_deadline: float,
     ) -> Dict[str, Any]:
-        """Run the selector-critic session over the pooled candidates."""
+        """Run the selector-critic session over the pooled candidates.
+
+        Returns {"solutions": List[str] (rank order, len<=node_expansion_value),
+        "cost_usd": float}. With expansion 1 this is today's single pick.
+        """
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
 
+        expansion = self.node_expansion_value
         candidates_block = "\n\n".join(
             f"### Candidate {i} (from {c['source']})\n{c['text']}"
             for i, c in enumerate(pool, 1)
@@ -1087,6 +1289,15 @@ class GenericSearch(SearchStrategy):
                 "candidates": candidates_block,
             },
         )
+        if expansion > 1:
+            # Appended override keeps the K=1 selector prompt byte-identical.
+            prompt += "\n\n" + render_prompt(
+                load_prompt(
+                    "execution/search_strategies/generic/prompts/"
+                    "ideation_selector_expansion_addendum.md"
+                ),
+                {"expansion_count": str(expansion)},
+            )
         selector = self.ideation_selector
         config = CodingAgentConfig(
             agent_type="claude_code",
@@ -1120,22 +1331,28 @@ class GenericSearch(SearchStrategy):
                 "[GenericSearch] Selector reasoning:\n"
                 + reasoning.group(1).strip()
             )
-        match = re.search(
-            r"<solution>(.*?)</solution>", result.output or "", re.DOTALL
+        solutions = (
+            parse_selected_solutions(result.output, expansion)
+            if result.success
+            else []
         )
-        if result.success and match:
-            return {"solution": match.group(1).strip(), "cost_usd": cost}
+        if solutions:
+            return {"solutions": solutions, "cost_usd": cost}
 
-        # Fail-soft: the pooled work must not die with the selector.
+        # Fail-soft: the pooled work must not die with the selector. Fill
+        # rank order from the pool (claude candidates first), up to K.
         logger.warning(
             "[GenericSearch] Selector failed "
-            f"({result.error or 'no <solution> tag'}); falling back to the "
-            "first claude candidate"
+            f"({result.error or 'no solution tags'}); falling back to the "
+            "pooled candidates"
         )
-        for candidate in pool:
-            if candidate["cli"] == "claude_code":
-                return {"solution": candidate["text"], "cost_usd": cost}
-        return {"solution": pool[0]["text"], "cost_usd": cost}
+        ordered = [c for c in pool if c["cli"] == "claude_code"] + [
+            c for c in pool if c["cli"] != "claude_code"
+        ]
+        return {
+            "solutions": [c["text"] for c in ordered[:expansion]],
+            "cost_usd": cost,
+        }
 
     def _build_ideation_prompt(
         self,
@@ -1239,7 +1456,8 @@ Problem: {problem}"""
         branch_name: str,
         parent_branch_name: str = "main",
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
-    ) -> Tuple[str, Dict[str, float]]:
+        lane_index: int = 0,
+    ) -> Tuple[str, Dict[str, float], Optional[str]]:
         """
         Implementation using Claude Code with MCP gates (code, research).
         
@@ -1293,19 +1511,29 @@ Problem: {problem}"""
         logger.info(f"[GenericSearch] Implementation tools: {implementation_allowed_tools}")
         
         # 4. Configure Claude Code for implementation
+        lane_env = (
+            self.expansion_lane_env[lane_index]
+            if self.expansion_lane_env
+            and lane_index < len(self.expansion_lane_env)
+            else None
+        )
         config = CodingAgentConfig(
             agent_type="claude_code",
             model=self.implementation_model,
             debug_model=self.implementation_model,
             agent_specific={
                 **self._claude_auth_settings,
+                **({"env_overrides": lane_env} if lane_env else {}),
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": implementation_allowed_tools,
                 "timeout": self._clamped_timeout(self.implementation_timeout),
-                "streaming": True,
+                # Under node expansion only lane 0 streams to the console;
+                # other lanes stay buffered (their raw streams still land in
+                # per-branch stream_artifact_path files).
+                "streaming": lane_index == 0,
                 "effort": self.session_effort,
                 # Per-session process record: raw stream-json events land
                 # here as they arrive, so a killed session still leaves its
@@ -1421,14 +1649,15 @@ Problem: {problem}"""
         
         # 8. Registered-evaluation teardown guard: wait for a live grader
         # and stash any durable-archive recovery BEFORE finalize's rmtree.
-        self._recovered_manifest_line = self._await_registered_evaluation(
+        recovered_manifest_line = self._await_registered_evaluation(
             agent_output
         )
 
-        # 9. Finalize session (commits changes)
+        # 9. Finalize session (commits changes; push serialized by the
+        # workspace repo_lock — lane-safe under node expansion)
         self.workspace.finalize_session(session)
 
-        return agent_output, telemetry
+        return agent_output, telemetry, recovered_manifest_line
     
     def _build_implementation_prompt(
         self,
