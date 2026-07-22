@@ -910,7 +910,6 @@ class ExpertReleaseMatrixReport(StrictContract):
     plan_reservation_operation_id: str
     evaluation_plan: ExpertReleaseMatrixEvaluationPlan
     evidence_rows: tuple[ExpertReleaseMatrixComparisonRow, ...]
-    exact_evidence_input_ids: tuple[str, ...]
     exact_dependency_ids: tuple[str, ...]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-release-matrix-report"
@@ -1008,25 +1007,41 @@ class ExpertReleaseMatrixReport(StrictContract):
             provenance.provenance_binding_id: provenance
             for provenance in plan.provenance_bindings
         }
+        event_pairs_by_provenance = {}
+        event_owners = {}
         for cell, row in zip(plan.evaluation_cells, self.evidence_rows, strict=True):
+            provenance = provenance_by_id[cell.provenance_binding_id]
             self._validate_observation(
                 cell,
                 row,
-                provenance_by_id[cell.provenance_binding_id],
+                provenance,
             )
-        _require_sorted_content_ids(
-            self.exact_evidence_input_ids,
-            "release matrix exact evidence inputs",
-        )
-        expected_evidence_inputs = {
-            self.plan_reservation_operation_id,
-            plan.evaluation_plan_id,
-            *plan.external_dependency_ids,
-        }
-        if set(self.exact_evidence_input_ids) != expected_evidence_inputs:
-            raise ExpertReleaseMatrixContractError(
-                "release matrix evidence input closure is not exact"
+            event_pair = (
+                row.candidate_observation_event_id,
+                row.parent_observation_event_id,
             )
+            existing_pair = event_pairs_by_provenance.setdefault(
+                provenance.provenance_binding_id,
+                event_pair,
+            )
+            if existing_pair != event_pair:
+                raise ExpertReleaseMatrixContractError(
+                    "release matrix fingerprint rows from one provenance must share "
+                    "one observation event pair"
+                )
+            for role, event_id in (
+                ("candidate", row.candidate_observation_event_id),
+                ("parent", row.parent_observation_event_id),
+            ):
+                if event_id is None:
+                    continue
+                owner = (provenance.provenance_binding_id, role)
+                existing_owner = event_owners.setdefault(event_id, owner)
+                if existing_owner != owner:
+                    raise ExpertReleaseMatrixContractError(
+                        "release matrix observation event is shared across provenance "
+                        "or leg roles"
+                    )
         _require_sorted_content_ids(
             self.exact_dependency_ids,
             "release matrix report dependencies",

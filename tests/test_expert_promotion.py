@@ -464,7 +464,7 @@ def _row(
                 is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
                 else "source-replay-execution-journal-event"
             ),
-            f"candidate-{cell.evaluation_cell_id}",
+            f"candidate-{provenance.provenance_binding_id}",
         ),
         parent_observation_event_id=(
             None
@@ -476,7 +476,7 @@ def _row(
                     is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
                     else "source-replay-execution-journal-event"
                 ),
-                f"parent-{cell.evaluation_cell_id}",
+                f"parent-{provenance.provenance_binding_id}",
             )
         ),
         candidate_replicate_values=selected_candidate_values,
@@ -521,15 +521,6 @@ def _report(
         plan_reservation_operation_id=reservation_operation_id,
         evaluation_plan=plan,
         evidence_rows=rows,
-        exact_evidence_input_ids=tuple(
-            sorted(
-                {
-                    reservation_operation_id,
-                    plan.evaluation_plan_id,
-                    *plan.external_dependency_ids,
-                }
-            )
-        ),
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
 
@@ -565,15 +556,6 @@ def test_parent_report_round_trips_self_contained_precommitted_plan():
     authority, provenance, plan, report = _matrix()
 
     assert report.parent_tree_hash == _digest("parent-tree")
-    assert report.exact_evidence_input_ids == tuple(
-        sorted(
-            {
-                report.plan_reservation_operation_id,
-                plan.evaluation_plan_id,
-                *plan.external_dependency_ids,
-            }
-        )
-    )
     assert authority.adapter_authority_id in report.exact_dependency_ids
     assert provenance.provenance_binding_id in report.exact_dependency_ids
     assert provenance.independence_identity_id == provenance.bundle_lineage_ids[0]
@@ -905,6 +887,70 @@ def test_one_fingerprint_cell_owns_its_complete_replicate_map():
         )
 
 
+def test_fingerprint_rows_share_one_case_event_pair_without_cross_case_reuse():
+    authority, provenance, plan, report = _matrix()
+
+    assert {
+        (
+            row.candidate_observation_event_id,
+            row.parent_observation_event_id,
+        )
+        for row in report.evidence_rows
+    } == {
+        (
+            report.evidence_rows[0].candidate_observation_event_id,
+            report.evidence_rows[0].parent_observation_event_id,
+        )
+    }
+    with pytest.raises(ExpertReleaseMatrixContractError, match="share one"):
+        _report(
+            plan,
+            (
+                report.evidence_rows[0],
+                _remint(
+                    report.evidence_rows[1],
+                    candidate_observation_event_id=_id(
+                        "source-replay-execution-journal-event",
+                        "substituted-fingerprint-event",
+                    ),
+                ),
+            ),
+        )
+
+    alternate_provenance = _provenance(
+        authority,
+        _context(authority, "alternate"),
+        "alternate",
+    )
+    provenances = (provenance, alternate_provenance)
+    cells = tuple(
+        _cell(authority, item, metric_name)
+        for item in provenances
+        for metric_name in ("quality_score", "robustness_score")
+    )
+    repeated_plan = _plan((authority,), provenances, cells)
+    provenance_by_id = {
+        item.provenance_binding_id: item for item in repeated_plan.provenance_bindings
+    }
+    rows = tuple(
+        _row(cell, provenance_by_id[cell.provenance_binding_id])
+        for cell in repeated_plan.evaluation_cells
+    )
+    first_provenance_id = repeated_plan.evaluation_cells[0].provenance_binding_id
+    foreign_row_index = next(
+        position
+        for position, cell in enumerate(repeated_plan.evaluation_cells)
+        if cell.provenance_binding_id != first_provenance_id
+    )
+    substituted_rows = list(rows)
+    substituted_rows[foreign_row_index] = _remint(
+        substituted_rows[foreign_row_index],
+        candidate_observation_event_id=rows[0].candidate_observation_event_id,
+    )
+    with pytest.raises(ExpertReleaseMatrixContractError, match="shared across"):
+        _report(repeated_plan, tuple(substituted_rows))
+
+
 def test_report_rejects_missing_extra_reordered_or_substituted_plan_cells():
     _, _, plan, report = _matrix()
 
@@ -932,15 +978,6 @@ def test_plan_and_report_dependency_closures_are_exact():
             plan,
             external_dependency_ids=tuple(
                 sorted((*plan.external_dependency_ids, extra))
-            ),
-        )
-    with pytest.raises(ExpertReleaseMatrixContractError, match="evidence input"):
-        replace(
-            report,
-            exact_evidence_input_ids=tuple(
-                dependency_id
-                for dependency_id in report.exact_evidence_input_ids
-                if dependency_id != plan.evaluation_plan_id
             ),
         )
     with pytest.raises(ExpertReleaseMatrixContractError, match="not exact"):
