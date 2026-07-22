@@ -345,10 +345,12 @@ class TaskEvaluationLegInvocation:
             raise TaskEvaluationExecutionError(
                 "task evaluation invocation requires sealed journal authority"
             )
-        registry.require_exact_prepared_authority(prepared_request)
-        if not any(
-            resolved_case is owned_case for owned_case in registry.resolve_all()
-        ):
+        expected_resolved_case = registry._resolved_case_for_allocation(
+            prepared_request=prepared_request,
+            reservation_snapshot=reservation_snapshot,
+            invocation_allocation=invocation_allocation,
+        )
+        if resolved_case is not expected_resolved_case:
             raise TaskEvaluationExecutionError(
                 "task evaluation invocation names a foreign provider resolution"
             )
@@ -574,8 +576,128 @@ class TaskEvaluationExecutionProviderRegistry:
 
     def resolve_all(self) -> tuple[ResolvedTaskEvaluationCase, ...]:
         for resolved_case in self._resolved_cases:
-            resolved_case.require_current_provider_identity()
+            self._require_owned_resolved_case(resolved_case)
         return self._resolved_cases
+
+    def _resolved_case_for_allocation(
+        self,
+        *,
+        prepared_request: PreparedTaskEvaluationRequest,
+        reservation_snapshot: ExpertTaskEvaluationReservationSnapshot,
+        invocation_allocation: TaskEvaluationInvocationAllocation,
+    ) -> ResolvedTaskEvaluationCase:
+        """Resolve one journal allocation by its exact case-scoped leg authority."""
+
+        self.require_exact_prepared_authority(prepared_request)
+        if (
+            type(reservation_snapshot) is not ExpertTaskEvaluationReservationSnapshot
+            or type(invocation_allocation) is not TaskEvaluationInvocationAllocation
+            or reservation_snapshot.request
+            != self._prepared_request.plan_join.request
+            or reservation_snapshot.plan_reservation
+            != self._prepared_request.plan_join.plan_reservation
+            or invocation_allocation.reservation_id
+            != reservation_snapshot.reservation.reservation_id
+        ):
+            raise TaskEvaluationExecutionError(
+                "task evaluation allocation differs from its exact reservation"
+            )
+        matching_resolutions = tuple(
+            resolved_case
+            for resolved_case in self._resolved_cases
+            if resolved_case.executable_case.evaluation_case_id
+            == invocation_allocation.evaluation_case_id
+            and any(
+                leg.authority.leg_id == invocation_allocation.evaluation_leg_id
+                for leg in resolved_case.executable_case.legs
+            )
+        )
+        if len(matching_resolutions) != 1:
+            raise TaskEvaluationExecutionError(
+                "task evaluation allocation has no exact resolved case and leg"
+            )
+        resolved_case = matching_resolutions[0]
+        self._require_owned_resolved_case(resolved_case)
+        return resolved_case
+
+    def _execute_journal_leg(
+        self,
+        *,
+        prepared_request: PreparedTaskEvaluationRequest,
+        reservation_snapshot: ExpertTaskEvaluationReservationSnapshot,
+        resolved_case: ResolvedTaskEvaluationCase,
+        invocation_allocation: TaskEvaluationInvocationAllocation,
+    ) -> TaskEvaluationProviderCompletion:
+        """Execute exactly once through one registry-owned journal resolution."""
+
+        expected_resolved_case = self._resolved_case_for_allocation(
+            prepared_request=prepared_request,
+            reservation_snapshot=reservation_snapshot,
+            invocation_allocation=invocation_allocation,
+        )
+        if resolved_case is not expected_resolved_case:
+            raise TaskEvaluationExecutionError(
+                "task evaluation journal execution names a foreign resolution"
+            )
+        invocation = TaskEvaluationLegInvocation(
+            _TASK_EVALUATION_INVOCATION_SEAL,
+            registry=self,
+            prepared_request=prepared_request,
+            reservation_snapshot=reservation_snapshot,
+            resolved_case=resolved_case,
+            invocation_allocation=invocation_allocation,
+        )
+        provider = resolved_case._provider
+        execute_leg = getattr(provider, "execute_leg", None)
+        if not callable(execute_leg):
+            raise TaskEvaluationExecutionError(
+                "task evaluation provider has no exact leg executor"
+            )
+        current_resolved_case = self._resolved_case_for_allocation(
+            prepared_request=prepared_request,
+            reservation_snapshot=reservation_snapshot,
+            invocation_allocation=invocation_allocation,
+        )
+        if current_resolved_case is not resolved_case:
+            raise TaskEvaluationExecutionError(
+                "task evaluation journal resolution changed before execution"
+            )
+        completion = execute_leg(invocation)
+        current_resolved_case = self._resolved_case_for_allocation(
+            prepared_request=prepared_request,
+            reservation_snapshot=reservation_snapshot,
+            invocation_allocation=invocation_allocation,
+        )
+        if current_resolved_case is not resolved_case:
+            raise TaskEvaluationExecutionError(
+                "task evaluation journal resolution changed during execution"
+            )
+        if (
+            type(completion) is not TaskEvaluationProviderCompletion
+            or completion.provider_handle_id
+            != invocation.provider_handle.provider_handle_id
+        ):
+            raise TaskEvaluationExecutionError(
+                "task evaluation provider returned a foreign completion"
+            )
+        return completion
+
+    def _require_owned_resolved_case(
+        self,
+        resolved_case: ResolvedTaskEvaluationCase,
+    ) -> None:
+        if (
+            type(resolved_case) is not ResolvedTaskEvaluationCase
+            or not any(
+                resolved_case is owned_case for owned_case in self._resolved_cases
+            )
+            or self._providers_by_key.get(resolved_case.dispatch_key)
+            is not resolved_case._provider
+        ):
+            raise TaskEvaluationExecutionError(
+                "task evaluation provider resolution is not owned by this registry"
+            )
+        resolved_case.require_current_provider_identity()
 
     def cleanup_interrupted(
         self,
