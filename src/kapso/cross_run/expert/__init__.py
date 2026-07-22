@@ -63,6 +63,21 @@ from kapso.cross_run.expert.replay_stage import (
     ExpertSourceReplayStageOrchestrator,
     SourceReplayProviderRegistryFactory,
 )
+from kapso.cross_run.expert.review import (
+    ExpertAutomatedReviewCoordinator,
+    ExpertAutomatedReviewExecution,
+    PreparedExpertAutomatedReviewPacket,
+)
+from kapso.cross_run.expert.review_contracts import (
+    EXPERT_AUTOMATED_REVIEW_CONTRACT_VERSION,
+    ExpertAutomatedReviewAdjudication,
+    ExpertAutomatedReviewAssertion,
+    ExpertAutomatedReviewError,
+    ExpertAutomatedReviewOperationRecord,
+    ExpertAutomatedReviewOutcome,
+    ExpertAutomatedReviewPacket,
+    ExpertAutomatedReviewStageResultRecord,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -117,7 +132,17 @@ from kapso.cross_run.task_adapters import (
 
 __all__ = [
     "EXPERT_BOOK_PATH",
+    "EXPERT_AUTOMATED_REVIEW_CONTRACT_VERSION",
     "EMPTY_EXPERT_TREE_DIGEST",
+    "ExpertAutomatedReviewAdjudication",
+    "ExpertAutomatedReviewAssertion",
+    "ExpertAutomatedReviewCoordinator",
+    "ExpertAutomatedReviewError",
+    "ExpertAutomatedReviewExecution",
+    "ExpertAutomatedReviewOperationRecord",
+    "ExpertAutomatedReviewOutcome",
+    "ExpertAutomatedReviewPacket",
+    "ExpertAutomatedReviewStageResultRecord",
     "ExpertEvolutionTriggerDecision",
     "GitHubExpertCurrentReleaseProvider",
     "ExpertAttestationVerifier",
@@ -184,6 +209,7 @@ __all__ = [
     "VerifiedTaskAdapter",
     "VerifiedTaskAdapterProvider",
     "PreparedExpertCandidateWorkspace",
+    "PreparedExpertAutomatedReviewPacket",
     "MaterializedExpertSourceReplayCase",
     "PreparedExpertSourceReplayRequest",
     "SourceReplayContextProvider",
