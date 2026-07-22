@@ -301,7 +301,7 @@ def _request_fixture(
     )
     if candidate_first_execution:
         base_protocol_version = (
-            settings.policy.source_replay_paired_execution_protocol_version
+            settings.policy.task_evaluation_execution_protocol_version
         )
         protocol_ordinal = 0
         while (
@@ -314,7 +314,7 @@ def _request_fixture(
                 settings,
                 policy=replace(
                     settings.policy,
-                    source_replay_paired_execution_protocol_version=(
+                    task_evaluation_execution_protocol_version=(
                         f"{base_protocol_version}.candidate-first-{protocol_ordinal}"
                     ),
                 ),
@@ -469,7 +469,7 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
         fixture.episode.task_context_binding.task_context_binding_id
     ]
     assert fixture.context_provider.limits_seen[0].maximum_bytes < (
-        fixture.settings.policy.source_replay_materialization_byte_limit
+        fixture.settings.policy.task_evaluation_materialization_byte_limit
     )
     assert request_case.control_leg.expert_artifact_id == (
         prepared.parent.release_manifest.release_id
@@ -487,7 +487,7 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
         source_replay_evaluator.timeout_seconds
     )
     assert compute_binding.cpu_millicore_limit == (
-        fixture.settings.policy.source_replay_cpu_millicore_limit
+        fixture.settings.policy.task_evaluation_cpu_millicore_limit
     )
     assert compute_binding.output_entry_limit == (
         fixture.settings.policy.artifact_entry_limit
@@ -641,8 +641,8 @@ def test_aggregate_limit_counts_candidate_parent_adapter_bundle_and_context(tmp_
         fixture.settings,
         policy=replace(
             fixture.settings.policy,
-            source_replay_materialization_entry_limit=entry_count,
-            source_replay_materialization_byte_limit=byte_count - 1,
+            task_evaluation_materialization_entry_limit=entry_count,
+            task_evaluation_materialization_byte_limit=byte_count - 1,
         ),
     )
     limited_coordinator = ExpertSourceReplayPreflightCoordinator(
@@ -673,7 +673,7 @@ def test_aggregate_limit_counts_candidate_parent_adapter_bundle_and_context(tmp_
         fixture.settings,
         policy=replace(
             fixture.settings.policy,
-            source_replay_materialization_byte_limit=byte_count + 1,
+            task_evaluation_materialization_byte_limit=byte_count + 1,
         ),
     )
     with pytest.raises(
@@ -766,7 +766,7 @@ def test_preflight_uses_one_decreasing_materialization_deadline(tmp_path):
                 limits,
             )
             controlled_clock.value = float(
-                expired.settings.policy.source_replay_materialization_timeout_seconds
+                expired.settings.policy.task_evaluation_materialization_timeout_seconds
             )
             return parent
 

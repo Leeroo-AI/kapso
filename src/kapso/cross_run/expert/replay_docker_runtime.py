@@ -19,7 +19,7 @@ from kapso.cross_run.process import (
     BoundedProcessResult,
     BoundedProcessRunner,
 )
-from kapso.cross_run.settings import SourceReplayDockerProviderSettings
+from kapso.cross_run.settings import TaskEvaluationDockerProviderSettings
 
 _AUTHORITY_DIRECTORY_NAME = "authority"
 _DOCKER_CONFIG_DIRECTORY_PREFIX = "docker-config-"
@@ -46,10 +46,10 @@ class SourceReplayDockerRuntime:
         self,
         *,
         trusted_root: Path,
-        settings: SourceReplayDockerProviderSettings,
+        settings: TaskEvaluationDockerProviderSettings,
         process_runner: SourceReplayDockerProcessRunner,
     ) -> None:
-        if not isinstance(settings, SourceReplayDockerProviderSettings):
+        if not isinstance(settings, TaskEvaluationDockerProviderSettings):
             raise SourceReplayDockerRuntimeError(
                 "source replay Docker runtime requires exact provider settings"
             )
@@ -112,7 +112,7 @@ class SourceReplayDockerRuntime:
         cls,
         *,
         trusted_root: Path,
-        settings: SourceReplayDockerProviderSettings,
+        settings: TaskEvaluationDockerProviderSettings,
     ) -> SourceReplayDockerRuntime:
         return cls(
             trusted_root=trusted_root,
@@ -125,7 +125,7 @@ class SourceReplayDockerRuntime:
         return self._trusted_root
 
     @property
-    def settings(self) -> SourceReplayDockerProviderSettings:
+    def settings(self) -> TaskEvaluationDockerProviderSettings:
         return self._settings
 
     def require_live_authority(self) -> None:
@@ -299,7 +299,7 @@ def read_verified_private_executable(path: Path) -> str:
 def _require_daemon_authority(
     version: Mapping[str, Any],
     info: Mapping[str, Any],
-    settings: SourceReplayDockerProviderSettings,
+    settings: TaskEvaluationDockerProviderSettings,
 ) -> None:
     client = _require_mapping(version, "Client", "Docker version client")
     server = _require_mapping(version, "Server", "Docker version server")

@@ -38,7 +38,9 @@ def test_shipped_cross_run_config_is_strict_and_single_sourced():
 
 def test_execution_journal_bound_contains_its_complete_spawn_authority():
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["policy"]["source_replay_journal_event_byte_limit"] = 1
+    raw["expert"]["validation"]["policy"][
+        "task_evaluation_journal_event_byte_limit"
+    ] = 1
 
     with pytest.raises(CrossRunConfigurationError, match="cannot contain"):
         CrossRunSettings.from_dict(raw)
@@ -82,7 +84,7 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert settings.task_adapters.zstd_window_size_bytes == (
         cross_run_settings.github.zstd_window_size_bytes
     )
-    replay_provider = settings.validation.source_replay_provider
+    replay_provider = settings.validation.task_evaluation_provider
     assert replay_provider.runtime_executable_path == "/usr/bin/docker"
     assert replay_provider.runtime_socket_path == "/run/docker.sock"
     assert replay_provider.helper_executable_path == "/usr/bin/busybox"
@@ -104,7 +106,7 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
         lambda expert: expert["task_adapters"].__setitem__(
             "state_path", expert["validation"]["state_path"]
         ),
-        lambda expert: expert["validation"]["source_replay_provider"].__setitem__(
+        lambda expert: expert["validation"]["task_evaluation_provider"].__setitem__(
             "workspace_path", expert["validation"]["state_path"]
         ),
     ),
@@ -130,39 +132,77 @@ def test_expert_state_paths_must_be_disjoint(mutate):
         ("cleanup_timeout_seconds", 61, "exceeds"),
     ),
 )
-def test_source_replay_provider_runtime_authority_is_strict(
+def test_task_evaluation_provider_runtime_authority_is_strict(
     field_name,
     invalid_value,
     message,
 ):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["source_replay_provider"][field_name] = invalid_value
+    raw["expert"]["validation"]["task_evaluation_provider"][field_name] = invalid_value
 
     with pytest.raises(CrossRunConfigurationError, match=message):
         CrossRunSettings.from_dict(raw)
 
 
-def test_source_replay_cpu_quota_must_be_exact():
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda validation: validation.__setitem__(
+            "source_replay_provider",
+            validation.pop("task_evaluation_provider"),
+        ),
+        lambda validation: validation["policy"].__setitem__(
+            "source_replay_cpu_millicore_limit",
+            validation["policy"].pop("task_evaluation_cpu_millicore_limit"),
+        ),
+    ),
+)
+def test_legacy_source_replay_execution_config_is_rejected(mutate):
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["source_replay_provider"][
+    mutate(raw["expert"]["validation"])
+
+    with pytest.raises(ContractValidationError, match="fields mismatch"):
+        CrossRunSettings.from_dict(raw)
+
+
+def test_task_evaluation_cpu_quota_must_be_exact():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["task_evaluation_provider"][
         "cpu_period_microseconds"
     ] = 99999
-    raw["expert"]["validation"]["policy"]["source_replay_cpu_millicore_limit"] = 8001
+    raw["expert"]["validation"]["policy"]["task_evaluation_cpu_millicore_limit"] = 8001
 
     with pytest.raises(CrossRunConfigurationError, match="exact runtime quota"):
         CrossRunSettings.from_dict(raw)
 
 
-def test_source_replay_provider_command_must_contain_graceful_stop():
+def test_task_evaluation_provider_command_must_contain_graceful_stop():
     raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
-    raw["expert"]["validation"]["source_replay_provider"]["command_timeout_seconds"] = (
-        raw["expert"]["validation"]["policy"]["source_replay_termination_grace_seconds"]
-    )
-    raw["expert"]["validation"]["source_replay_provider"]["cleanup_timeout_seconds"] = (
-        raw["expert"]["validation"]["policy"]["source_replay_termination_grace_seconds"]
-    )
+    raw["expert"]["validation"]["task_evaluation_provider"][
+        "command_timeout_seconds"
+    ] = raw["expert"]["validation"]["policy"][
+        "task_evaluation_termination_grace_seconds"
+    ]
+    raw["expert"]["validation"]["task_evaluation_provider"][
+        "cleanup_timeout_seconds"
+    ] = raw["expert"]["validation"]["policy"][
+        "task_evaluation_termination_grace_seconds"
+    ]
 
     with pytest.raises(CrossRunConfigurationError, match="contain graceful stop"):
+        CrossRunSettings.from_dict(raw)
+
+
+@pytest.mark.parametrize("stage", ("source_run_replay", "release_matrix"))
+def test_task_evaluation_grace_must_fit_each_task_evaluator(stage):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    policy = raw["expert"]["validation"]["policy"]
+    evaluator = next(item for item in policy["evaluators"] if item["stage"] == stage)
+    evaluator["timeout_seconds"] = (
+        policy["task_evaluation_termination_grace_seconds"] - 1
+    )
+
+    with pytest.raises(CrossRunConfigurationError, match="exceeds a leg timeout"):
         CrossRunSettings.from_dict(raw)
 
 
@@ -413,7 +453,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_termination_grace_seconds",
+                "task_evaluation_termination_grace_seconds",
             ),
             0,
         ),
@@ -422,7 +462,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_cpu_millicore_limit",
+                "task_evaluation_cpu_millicore_limit",
             ),
             True,
         ),
@@ -431,7 +471,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_memory_byte_limit",
+                "task_evaluation_memory_byte_limit",
             ),
             0,
         ),
@@ -440,7 +480,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_shared_memory_byte_limit",
+                "task_evaluation_shared_memory_byte_limit",
             ),
             0,
         ),
@@ -449,7 +489,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_process_limit",
+                "task_evaluation_process_limit",
             ),
             0,
         ),
@@ -458,7 +498,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_open_file_limit",
+                "task_evaluation_open_file_limit",
             ),
             0,
         ),
@@ -467,7 +507,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_writable_inode_limit",
+                "task_evaluation_writable_inode_limit",
             ),
             0,
         ),
@@ -476,7 +516,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_writable_storage_byte_limit",
+                "task_evaluation_writable_storage_byte_limit",
             ),
             0,
         ),
@@ -485,7 +525,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_stdout_byte_limit",
+                "task_evaluation_stdout_byte_limit",
             ),
             0,
         ),
@@ -494,7 +534,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_stderr_byte_limit",
+                "task_evaluation_stderr_byte_limit",
             ),
             0,
         ),
@@ -503,7 +543,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_accelerator_count",
+                "task_evaluation_accelerator_count",
             ),
             True,
         ),
@@ -514,7 +554,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_materialization_entry_limit",
+                "task_evaluation_materialization_entry_limit",
             ),
             0,
         ),
@@ -532,7 +572,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_materialization_byte_limit",
+                "task_evaluation_materialization_byte_limit",
             ),
             0,
         ),
@@ -541,7 +581,7 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
                 "expert",
                 "validation",
                 "policy",
-                "source_replay_materialization_timeout_seconds",
+                "task_evaluation_materialization_timeout_seconds",
             ),
             0,
         ),
@@ -576,27 +616,27 @@ def test_zstd_window_configuration_uses_decoder_byte_units():
     "mutate",
     (
         lambda policy: policy.__setitem__(
-            "source_replay_shared_memory_byte_limit",
-            policy["source_replay_memory_byte_limit"] + 1,
+            "task_evaluation_shared_memory_byte_limit",
+            policy["task_evaluation_memory_byte_limit"] + 1,
         ),
         lambda policy: policy.__setitem__(
             "artifact_entry_limit",
-            policy["source_replay_writable_inode_limit"],
+            policy["task_evaluation_writable_inode_limit"],
         ),
         lambda policy: policy.__setitem__(
-            "source_replay_result_byte_limit",
+            "task_evaluation_result_byte_limit",
             policy["artifact_byte_limit"] + 1,
         ),
         lambda policy: policy.__setitem__(
-            "source_replay_accelerator_count",
+            "task_evaluation_accelerator_count",
             1,
         ),
         lambda policy: policy.__setitem__(
-            "source_replay_accelerator_class_id",
+            "task_evaluation_accelerator_class_id",
             "h100",
         ),
         lambda policy: policy.__setitem__(
-            "source_replay_termination_grace_seconds",
+            "task_evaluation_termination_grace_seconds",
             next(
                 evaluator["timeout_seconds"]
                 for evaluator in policy["evaluators"]

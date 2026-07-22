@@ -1127,11 +1127,13 @@ class ExpertSourceReplayExecutionStore:
         self.trusted_root = trusted_root
         self.policy_settings = policy_settings
         self.maximum_event_size_bytes = (
-            policy_settings.source_replay_journal_event_byte_limit
+            policy_settings.task_evaluation_journal_event_byte_limit
         )
-        self.maximum_result_size_bytes = policy_settings.source_replay_result_byte_limit
+        self.maximum_result_size_bytes = (
+            policy_settings.task_evaluation_result_byte_limit
+        )
         self.maximum_staging_entry_count = (
-            policy_settings.source_replay_staging_entry_limit
+            policy_settings.task_evaluation_staging_entry_limit
         )
         self.lock_root = root / "locks"
         self.reservation_root = root / "reservations"
@@ -1327,7 +1329,7 @@ class ExpertSourceReplayExecutionStore:
             or task_evaluator_request.opaque_invocation_id
             != allocation.opaque_invocation_id
             or len(task_evaluator_request.to_json_bytes())
-            > self.policy_settings.source_replay_task_request_byte_limit
+            > self.policy_settings.task_evaluation_task_request_byte_limit
             or aggregate_tolerance
             != self.policy_settings.source_replay_score_comparison_tolerance
             or not {
@@ -1564,7 +1566,7 @@ class ExpertSourceReplayExecutionStore:
                     or event.task_evaluator_request
                     != build_task_evaluator_request(matching_cases[0], allocation)
                     or len(event.task_evaluator_request.to_json_bytes())
-                    > self.policy_settings.source_replay_task_request_byte_limit
+                    > self.policy_settings.task_evaluation_task_request_byte_limit
                     or event.aggregate_tolerance
                     != self.policy_settings.source_replay_score_comparison_tolerance
                     or source_replay_spawn_security_subject_ids(

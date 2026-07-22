@@ -711,6 +711,16 @@ identities, and artifacts. That plan join is deliberately not a spawn capability
 materialization must still prove exact package bytes, configured compute, and fresh
 adapter authority.
 
+The shared operational authority is single-sourced as
+`validation.task_evaluation_provider` plus `task_evaluation_*` policy fields.
+Execution protocol, provider identity/version/settings digest, sandbox, resource and
+stream ceilings, journal/result bounds, accelerator, and aggregate materialization
+limits are common to source replay and adapter-owned matrix cases. Evaluator identity,
+role, version, and leg timeout remain stage-specific in `evaluators`; source selection,
+bundle/episode limits, historical context materialization, stage decision, and score
+comparison tolerance remain explicitly source-replay policy. The former generic
+`source_replay_*` execution keys and provider block are rejected rather than aliased.
+
 One provenance record represents exactly one declared evaluation case. Source
 provenance names the accepted source-stage result, paired-comparison receipt,
 execution case, selection, episode, complete bundle lineage, materialization receipt,

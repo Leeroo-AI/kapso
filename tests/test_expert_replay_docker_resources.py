@@ -113,7 +113,7 @@ class _StatefulDockerRunner:
 def resources(tmp_path, monkeypatch):
     provider_settings = CrossRunSettings.from_dict(
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
-    ).expert.validation.source_replay_provider
+    ).expert.validation.task_evaluation_provider
     provider_settings = replace(
         provider_settings,
         runtime_executable_digest=tree_or_blob_digest(_TEST_DOCKER_BYTES),

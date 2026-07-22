@@ -197,8 +197,8 @@ cross_run:
       zstd_window_size_bytes: *cross_run_zstd_window_size_bytes
     validation:
       state_path: ".kapso/cross_run/expert_validation"
-      source_replay_provider:
-        workspace_path: ".kapso/cross_run/source_replay_provider"
+      task_evaluation_provider:
+        workspace_path: ".kapso/cross_run/task_evaluation_provider"
         runtime_executable_path: "/usr/bin/docker"
         runtime_executable_digest: "sha256:7ed12b00293d64742419a6601ae97960a367a0ce97c88b06e3278cc0a409557b"
         runtime_socket_path: "/run/docker.sock"
@@ -225,34 +225,34 @@ cross_run:
       policy:
         source_replay_selection_policy_version: "kapso.expert_source_replay_selection.v1"
         source_replay_request_policy_version: "kapso.expert_source_replay_request.v2"
-        source_replay_paired_execution_protocol_version: "kapso.expert_source_replay_paired_execution.v1"
+        task_evaluation_execution_protocol_version: "kapso.task_evaluation_execution.v1"
         source_replay_stage_decision_policy_version: "kapso.expert_source_replay_stage_decision.v1"
-        source_replay_execution_provider_id: "kapso_source_replay_execution_provider"
-        source_replay_execution_provider_version: "kapso.source_replay_execution_provider.v1"
-        source_replay_sandbox_policy_version: "kapso.source_replay_sandbox.offline_readonly.v1"
-        source_replay_termination_grace_seconds: 10
-        source_replay_cpu_millicore_limit: 8000
-        source_replay_memory_byte_limit: 34359738368
-        source_replay_shared_memory_byte_limit: 1073741824
-        source_replay_process_limit: 4096
-        source_replay_open_file_limit: 4096
-        source_replay_writable_inode_limit: 10000
-        source_replay_writable_storage_byte_limit: *cross_run_materialized_asset_size_bytes
-        source_replay_stdout_byte_limit: 16777216
-        source_replay_stderr_byte_limit: 16777216
-        source_replay_task_request_byte_limit: 16777216
-        source_replay_journal_event_byte_limit: 67108864
-        source_replay_result_byte_limit: 16777216
-        source_replay_staging_entry_limit: 1
-        source_replay_accelerator_class_id: null
-        source_replay_accelerator_count: 0
+        task_evaluation_execution_provider_id: "kapso_task_evaluation_execution_provider"
+        task_evaluation_execution_provider_version: "kapso.task_evaluation_execution_provider.v1"
+        task_evaluation_sandbox_policy_version: "kapso.task_evaluation_sandbox.offline_readonly.v1"
+        task_evaluation_termination_grace_seconds: 10
+        task_evaluation_cpu_millicore_limit: 8000
+        task_evaluation_memory_byte_limit: 34359738368
+        task_evaluation_shared_memory_byte_limit: 1073741824
+        task_evaluation_process_limit: 4096
+        task_evaluation_open_file_limit: 4096
+        task_evaluation_writable_inode_limit: 10000
+        task_evaluation_writable_storage_byte_limit: *cross_run_materialized_asset_size_bytes
+        task_evaluation_stdout_byte_limit: 16777216
+        task_evaluation_stderr_byte_limit: 16777216
+        task_evaluation_task_request_byte_limit: 16777216
+        task_evaluation_journal_event_byte_limit: 67108864
+        task_evaluation_result_byte_limit: 16777216
+        task_evaluation_staging_entry_limit: 1
+        task_evaluation_accelerator_class_id: null
+        task_evaluation_accelerator_count: 0
         source_replay_episode_limit: 32
         source_replay_bundle_limit: 16
         source_replay_context_materializer_id: "expert_source_replay_context_materializer"
         source_replay_context_materializer_version: "kapso.expert_source_replay_context_materializer.v1"
-        source_replay_materialization_entry_limit: 10000
-        source_replay_materialization_byte_limit: 10737418240
-        source_replay_materialization_timeout_seconds: &expert_validation_timeout_seconds 21600
+        task_evaluation_materialization_entry_limit: 10000
+        task_evaluation_materialization_byte_limit: 10737418240
+        task_evaluation_materialization_timeout_seconds: &expert_validation_timeout_seconds 21600
         source_replay_score_comparison_tolerance: *cross_run_score_comparison_tolerance
         sealed_canary_trust_root: null
         architecture_requires_sealed_canary: true

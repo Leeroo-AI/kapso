@@ -66,7 +66,7 @@ def test_provider_key_comes_from_the_exact_compute_and_adapter_authorities(
     manifest = replay_case.task_adapter.manifest
 
     assert compute.execution_provider_settings_digest == tree_or_blob_digest(
-        prepared_replay_request.settings.source_replay_provider.to_json_bytes()
+        prepared_replay_request.settings.task_evaluation_provider.to_json_bytes()
     )
     assert expert_source_replay_execution_provider_key(replay_case) == (
         ExpertSourceReplayExecutionProviderKey(

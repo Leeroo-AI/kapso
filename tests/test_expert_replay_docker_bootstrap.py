@@ -60,7 +60,7 @@ def test_bootstrap_binds_request_keys_to_one_historical_runtime(
     prepared_replay_request,
 ):
     tmp_path.chmod(0o700)
-    provider_settings = prepared_replay_request.settings.source_replay_provider
+    provider_settings = prepared_replay_request.settings.task_evaluation_provider
     configured_root = (tmp_path / provider_settings.workspace_path).resolve()
     runtime = _runtime(configured_root, provider_settings)
     constructions = []
@@ -240,7 +240,7 @@ def test_provider_direct_construction_rejects_unsupported_protocol(
     supported_key = expert_source_replay_execution_provider_key(
         prepared_replay_request.cases[0]
     )
-    runtime = _runtime(tmp_path.resolve(), settings.source_replay_provider)
+    runtime = _runtime(tmp_path.resolve(), settings.task_evaluation_provider)
 
     with pytest.raises(
         SourceReplayDockerProviderError, match="implementation authority"
@@ -252,7 +252,7 @@ def test_provider_direct_construction_rejects_unsupported_protocol(
                     f"{supported_key.task_evaluator_protocol_version}.future"
                 ),
             ),
-            provider_settings=settings.source_replay_provider,
+            provider_settings=settings.task_evaluation_provider,
             policy_settings=settings.policy,
             runtime=runtime,
         )

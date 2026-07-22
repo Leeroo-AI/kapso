@@ -340,7 +340,7 @@ def provider(tmp_path, monkeypatch, prepared_replay_request):
     invocation = _matched_invocation(prepared_replay_request, "candidate_leg")
     case = invocation.materialized_case
     compute = case.request_case.compute_binding
-    settings = prepared_replay_request.settings.source_replay_provider
+    settings = prepared_replay_request.settings.task_evaluation_provider
     adapter_runtime = case.task_adapter.manifest.runtime
     tmp_path.chmod(0o700)
     docker_path = tmp_path / "docker"

@@ -957,7 +957,7 @@ def test_oversized_result_is_rejected_before_blob_publication(tmp_path):
             fixture.validation_store.root,
             expert_source_replay_execution_provider_key(prepared.cases[0]),
             result_payload=b"x"
-            * (prepared.settings.policy.source_replay_result_byte_limit + 1),
+            * (prepared.settings.policy.task_evaluation_result_byte_limit + 1),
         )
         execution, _provider = _commit_spawn(
             fixture,
@@ -1426,8 +1426,8 @@ def test_journal_store_rejects_a_different_prepared_policy(tmp_path):
     fixture, prepared, reservation, _store = _journal_fixture(tmp_path)
     changed_policy = replace(
         prepared.settings.policy,
-        source_replay_stdout_byte_limit=(
-            prepared.settings.policy.source_replay_stdout_byte_limit - 1
+        task_evaluation_stdout_byte_limit=(
+            prepared.settings.policy.task_evaluation_stdout_byte_limit - 1
         ),
     )
     store = ExpertSourceReplayExecutionStore(

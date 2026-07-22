@@ -133,7 +133,7 @@ def _source_replay_compute_bindings(
             {
                 "episode_ids": ordered_episode_ids,
                 "paired_execution_protocol_version": (
-                    policy.source_replay_paired_execution_protocol_version
+                    policy.task_evaluation_execution_protocol_version
                 ),
             }
         )
@@ -148,37 +148,37 @@ def _source_replay_compute_bindings(
         {
             episode_id: ExpertSourceReplayComputeBinding.mint(
                 paired_execution_protocol_version=(
-                    policy.source_replay_paired_execution_protocol_version
+                    policy.task_evaluation_execution_protocol_version
                 ),
-                execution_provider_id=policy.source_replay_execution_provider_id,
+                execution_provider_id=policy.task_evaluation_execution_provider_id,
                 execution_provider_version=(
-                    policy.source_replay_execution_provider_version
+                    policy.task_evaluation_execution_provider_version
                 ),
                 execution_provider_settings_digest=tree_or_blob_digest(
-                    settings.source_replay_provider.to_json_bytes()
+                    settings.task_evaluation_provider.to_json_bytes()
                 ),
-                sandbox_policy_version=policy.source_replay_sandbox_policy_version,
+                sandbox_policy_version=policy.task_evaluation_sandbox_policy_version,
                 leg_wall_time_limit_seconds=evaluator.timeout_seconds,
                 termination_grace_seconds=(
-                    policy.source_replay_termination_grace_seconds
+                    policy.task_evaluation_termination_grace_seconds
                 ),
-                cpu_millicore_limit=policy.source_replay_cpu_millicore_limit,
-                memory_byte_limit=policy.source_replay_memory_byte_limit,
+                cpu_millicore_limit=policy.task_evaluation_cpu_millicore_limit,
+                memory_byte_limit=policy.task_evaluation_memory_byte_limit,
                 shared_memory_byte_limit=(
-                    policy.source_replay_shared_memory_byte_limit
+                    policy.task_evaluation_shared_memory_byte_limit
                 ),
-                process_limit=policy.source_replay_process_limit,
-                open_file_limit=policy.source_replay_open_file_limit,
-                writable_inode_limit=policy.source_replay_writable_inode_limit,
+                process_limit=policy.task_evaluation_process_limit,
+                open_file_limit=policy.task_evaluation_open_file_limit,
+                writable_inode_limit=policy.task_evaluation_writable_inode_limit,
                 writable_storage_byte_limit=(
-                    policy.source_replay_writable_storage_byte_limit
+                    policy.task_evaluation_writable_storage_byte_limit
                 ),
                 output_entry_limit=policy.artifact_entry_limit,
                 output_byte_limit=policy.artifact_byte_limit,
-                stdout_byte_limit=policy.source_replay_stdout_byte_limit,
-                stderr_byte_limit=policy.source_replay_stderr_byte_limit,
-                accelerator_class_id=policy.source_replay_accelerator_class_id,
-                accelerator_count=policy.source_replay_accelerator_count,
+                stdout_byte_limit=policy.task_evaluation_stdout_byte_limit,
+                stderr_byte_limit=policy.task_evaluation_stderr_byte_limit,
+                accelerator_class_id=policy.task_evaluation_accelerator_class_id,
+                accelerator_count=policy.task_evaluation_accelerator_count,
                 leg_order=(
                     control_first
                     if (position + starting_offset) % 2 == 0
@@ -649,9 +649,9 @@ class PreparedExpertSourceReplayRequest:
                 for item in self.cases
             )
             or entry_count
-            > self.settings.policy.source_replay_materialization_entry_limit
+            > self.settings.policy.task_evaluation_materialization_entry_limit
             or byte_count
-            > self.settings.policy.source_replay_materialization_byte_limit
+            > self.settings.policy.task_evaluation_materialization_byte_limit
             or any(
                 item.task_context.receipt.materializer_id
                 != self.settings.policy.source_replay_context_materializer_id
@@ -776,7 +776,7 @@ class ExpertSourceReplayPreflightCoordinator:
     ) -> ExpertSourceReplayPreflightResult:
         deadline = (
             self.monotonic_clock()
-            + self.settings.policy.source_replay_materialization_timeout_seconds
+            + self.settings.policy.task_evaluation_materialization_timeout_seconds
         )
         state = self._authorized_state(attempt)
         stored_candidate = self.candidate_store.read(attempt.candidate_id)
@@ -1401,13 +1401,13 @@ class ExpertSourceReplayPreflightCoordinator:
     def _materialization_limits(self) -> SourceReplayMaterializationLimits:
         return SourceReplayMaterializationLimits(
             maximum_entries=(
-                self.settings.policy.source_replay_materialization_entry_limit
+                self.settings.policy.task_evaluation_materialization_entry_limit
             ),
             maximum_bytes=(
-                self.settings.policy.source_replay_materialization_byte_limit
+                self.settings.policy.task_evaluation_materialization_byte_limit
             ),
             timeout_seconds=(
-                self.settings.policy.source_replay_materialization_timeout_seconds
+                self.settings.policy.task_evaluation_materialization_timeout_seconds
             ),
         )
 

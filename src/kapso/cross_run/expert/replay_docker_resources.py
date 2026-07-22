@@ -15,7 +15,7 @@ from kapso.cross_run.expert.replay_docker_runtime import SourceReplayDockerRunti
 from kapso.cross_run.expert.replay_execution import (
     SourceReplayProviderExecutionHandle,
 )
-from kapso.cross_run.settings import SourceReplayDockerProviderSettings
+from kapso.cross_run.settings import TaskEvaluationDockerProviderSettings
 
 _HANDLE_LABEL = "io.kapso.source-replay.handle"
 _ROLE_LABEL = "io.kapso.source-replay.role"
@@ -417,7 +417,7 @@ class SourceReplayDockerResourceManager:
 def _writable_volume_options(
     identity: SourceReplayDockerResourceIdentity,
     compute: ExpertSourceReplayComputeBinding,
-    settings: SourceReplayDockerProviderSettings,
+    settings: TaskEvaluationDockerProviderSettings,
 ) -> dict[str, str]:
     if not identity.volume_name:
         raise SourceReplayDockerResourceError(

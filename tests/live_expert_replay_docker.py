@@ -389,7 +389,7 @@ def _assert_no_daemon_resources(
 def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> None:
     tmp_path.chmod(0o700)
     validation_settings = _validation_policy()
-    provider_settings = validation_settings.source_replay_provider
+    provider_settings = validation_settings.task_evaluation_provider
     busybox_bytes = read_verified_root_executable(
         Path(provider_settings.helper_executable_path),
         provider_settings.helper_executable_digest,

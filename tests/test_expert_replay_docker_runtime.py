@@ -49,7 +49,7 @@ class _ScriptedProcessRunner:
 def provider_settings():
     settings = CrossRunSettings.from_dict(
         load_config(_CANONICAL_CONFIG_PATH)["cross_run"]
-    ).expert.validation.source_replay_provider
+    ).expert.validation.task_evaluation_provider
     return replace(
         settings,
         runtime_executable_digest=tree_or_blob_digest(_TEST_EXECUTABLE_BYTES),

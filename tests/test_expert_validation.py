@@ -1605,7 +1605,7 @@ def test_evaluator_output_limits_are_enforced_before_result_identity(tmp_path):
         policy=replace(
             settings.policy,
             artifact_byte_limit=1,
-            source_replay_result_byte_limit=1,
+            task_evaluation_result_byte_limit=1,
         ),
     )
     eligibility = _eligibility_evaluator(limited, store, adapter).decide(

@@ -26,7 +26,7 @@ from kapso.cross_run.expert.replay_execution import (
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 from kapso.cross_run.settings import (
     ExpertValidationPolicySettings,
-    SourceReplayDockerProviderSettings,
+    TaskEvaluationDockerProviderSettings,
 )
 
 
@@ -72,19 +72,19 @@ def build_source_replay_docker_provider_registry(
     settings = prepared_request.settings
     trusted_root = _configured_trusted_root(
         workspace_root,
-        settings.source_replay_provider,
+        settings.task_evaluation_provider,
     )
     dispatch_keys = _distinct_supported_dispatch_keys(prepared_request)
     runtime_authority = _LazySourceReplayDockerRuntime(
         trusted_root=trusted_root,
-        provider_settings=settings.source_replay_provider,
+        provider_settings=settings.task_evaluation_provider,
     )
     registry = SourceReplayDockerProviderRegistry(
         prepared_request=prepared_request,
         providers=tuple(
             _LazySourceReplayDockerExecutionProvider(
                 dispatch_key=dispatch_key,
-                provider_settings=settings.source_replay_provider,
+                provider_settings=settings.task_evaluation_provider,
                 policy_settings=settings.policy,
                 runtime_authority=runtime_authority,
             )
@@ -94,7 +94,7 @@ def build_source_replay_docker_provider_registry(
     _prepare_configured_trusted_root(
         workspace_root,
         trusted_root,
-        settings.source_replay_provider,
+        settings.task_evaluation_provider,
     )
     return registry
 
@@ -110,7 +110,7 @@ def _distinct_supported_dispatch_keys(
         dispatch_key = expert_source_replay_execution_provider_key(materialized_case)
         if not source_replay_docker_provider_key_is_supported(
             dispatch_key,
-            prepared_request.settings.source_replay_provider,
+            prepared_request.settings.task_evaluation_provider,
             prepared_request.settings.policy,
         ):
             raise SourceReplayDockerBootstrapError(
@@ -125,7 +125,7 @@ class _LazySourceReplayDockerRuntime:
         self,
         *,
         trusted_root: Path,
-        provider_settings: SourceReplayDockerProviderSettings,
+        provider_settings: TaskEvaluationDockerProviderSettings,
     ) -> None:
         self.trusted_root = trusted_root
         self.provider_settings = provider_settings
@@ -147,7 +147,7 @@ class _LazySourceReplayDockerExecutionProvider:
         self,
         *,
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
-        provider_settings: SourceReplayDockerProviderSettings,
+        provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
         runtime_authority: _LazySourceReplayDockerRuntime,
     ) -> None:
@@ -184,7 +184,7 @@ class _LazySourceReplayDockerExecutionProvider:
 
 def _configured_trusted_root(
     workspace_root: Path,
-    provider_settings: SourceReplayDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
 ) -> Path:
     if (
         not isinstance(workspace_root, Path)
@@ -224,7 +224,7 @@ def _configured_trusted_root(
 def _prepare_configured_trusted_root(
     workspace_root: Path,
     trusted_root: Path,
-    provider_settings: SourceReplayDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
 ) -> None:
     if trusted_root != workspace_root / provider_settings.workspace_path:
         raise SourceReplayDockerBootstrapError(

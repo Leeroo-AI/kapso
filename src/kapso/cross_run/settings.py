@@ -830,34 +830,34 @@ class ExpertPromotionPolicySettings(StrictContract):
 class ExpertValidationPolicySettings(StrictContract):
     source_replay_selection_policy_version: str
     source_replay_request_policy_version: str
-    source_replay_paired_execution_protocol_version: str
+    task_evaluation_execution_protocol_version: str
     source_replay_stage_decision_policy_version: str
-    source_replay_execution_provider_id: str
-    source_replay_execution_provider_version: str
-    source_replay_sandbox_policy_version: str
-    source_replay_termination_grace_seconds: int
-    source_replay_cpu_millicore_limit: int
-    source_replay_memory_byte_limit: int
-    source_replay_shared_memory_byte_limit: int
-    source_replay_process_limit: int
-    source_replay_open_file_limit: int
-    source_replay_writable_inode_limit: int
-    source_replay_writable_storage_byte_limit: int
-    source_replay_stdout_byte_limit: int
-    source_replay_stderr_byte_limit: int
-    source_replay_task_request_byte_limit: int
-    source_replay_journal_event_byte_limit: int
-    source_replay_result_byte_limit: int
-    source_replay_staging_entry_limit: int
-    source_replay_accelerator_class_id: str | None
-    source_replay_accelerator_count: int
+    task_evaluation_execution_provider_id: str
+    task_evaluation_execution_provider_version: str
+    task_evaluation_sandbox_policy_version: str
+    task_evaluation_termination_grace_seconds: int
+    task_evaluation_cpu_millicore_limit: int
+    task_evaluation_memory_byte_limit: int
+    task_evaluation_shared_memory_byte_limit: int
+    task_evaluation_process_limit: int
+    task_evaluation_open_file_limit: int
+    task_evaluation_writable_inode_limit: int
+    task_evaluation_writable_storage_byte_limit: int
+    task_evaluation_stdout_byte_limit: int
+    task_evaluation_stderr_byte_limit: int
+    task_evaluation_task_request_byte_limit: int
+    task_evaluation_journal_event_byte_limit: int
+    task_evaluation_result_byte_limit: int
+    task_evaluation_staging_entry_limit: int
+    task_evaluation_accelerator_class_id: str | None
+    task_evaluation_accelerator_count: int
     source_replay_episode_limit: int
     source_replay_bundle_limit: int
     source_replay_context_materializer_id: str
     source_replay_context_materializer_version: str
-    source_replay_materialization_entry_limit: int
-    source_replay_materialization_byte_limit: int
-    source_replay_materialization_timeout_seconds: int
+    task_evaluation_materialization_entry_limit: int
+    task_evaluation_materialization_byte_limit: int
+    task_evaluation_materialization_timeout_seconds: int
     source_replay_score_comparison_tolerance: float
     sealed_canary_trust_root: str | None
     architecture_requires_sealed_canary: bool
@@ -878,97 +878,97 @@ class ExpertValidationPolicySettings(StrictContract):
         )
         for value, name in (
             (
-                self.source_replay_paired_execution_protocol_version,
-                "source_replay_paired_execution_protocol_version",
+                self.task_evaluation_execution_protocol_version,
+                "task_evaluation_execution_protocol_version",
             ),
             (
                 self.source_replay_stage_decision_policy_version,
                 "source_replay_stage_decision_policy_version",
             ),
             (
-                self.source_replay_execution_provider_id,
-                "source_replay_execution_provider_id",
+                self.task_evaluation_execution_provider_id,
+                "task_evaluation_execution_provider_id",
             ),
             (
-                self.source_replay_execution_provider_version,
-                "source_replay_execution_provider_version",
+                self.task_evaluation_execution_provider_version,
+                "task_evaluation_execution_provider_version",
             ),
             (
-                self.source_replay_sandbox_policy_version,
-                "source_replay_sandbox_policy_version",
+                self.task_evaluation_sandbox_policy_version,
+                "task_evaluation_sandbox_policy_version",
             ),
         ):
             require_identifier(value, f"expert.validation.policy.{name}")
         for value, name in (
             (
-                self.source_replay_termination_grace_seconds,
-                "source_replay_termination_grace_seconds",
+                self.task_evaluation_termination_grace_seconds,
+                "task_evaluation_termination_grace_seconds",
             ),
             (
-                self.source_replay_cpu_millicore_limit,
-                "source_replay_cpu_millicore_limit",
+                self.task_evaluation_cpu_millicore_limit,
+                "task_evaluation_cpu_millicore_limit",
             ),
             (
-                self.source_replay_memory_byte_limit,
-                "source_replay_memory_byte_limit",
+                self.task_evaluation_memory_byte_limit,
+                "task_evaluation_memory_byte_limit",
             ),
             (
-                self.source_replay_shared_memory_byte_limit,
-                "source_replay_shared_memory_byte_limit",
+                self.task_evaluation_shared_memory_byte_limit,
+                "task_evaluation_shared_memory_byte_limit",
             ),
-            (self.source_replay_process_limit, "source_replay_process_limit"),
+            (self.task_evaluation_process_limit, "task_evaluation_process_limit"),
             (
-                self.source_replay_open_file_limit,
-                "source_replay_open_file_limit",
-            ),
-            (
-                self.source_replay_writable_inode_limit,
-                "source_replay_writable_inode_limit",
+                self.task_evaluation_open_file_limit,
+                "task_evaluation_open_file_limit",
             ),
             (
-                self.source_replay_writable_storage_byte_limit,
-                "source_replay_writable_storage_byte_limit",
+                self.task_evaluation_writable_inode_limit,
+                "task_evaluation_writable_inode_limit",
             ),
             (
-                self.source_replay_stdout_byte_limit,
-                "source_replay_stdout_byte_limit",
+                self.task_evaluation_writable_storage_byte_limit,
+                "task_evaluation_writable_storage_byte_limit",
             ),
             (
-                self.source_replay_stderr_byte_limit,
-                "source_replay_stderr_byte_limit",
+                self.task_evaluation_stdout_byte_limit,
+                "task_evaluation_stdout_byte_limit",
             ),
             (
-                self.source_replay_task_request_byte_limit,
-                "source_replay_task_request_byte_limit",
+                self.task_evaluation_stderr_byte_limit,
+                "task_evaluation_stderr_byte_limit",
             ),
             (
-                self.source_replay_journal_event_byte_limit,
-                "source_replay_journal_event_byte_limit",
+                self.task_evaluation_task_request_byte_limit,
+                "task_evaluation_task_request_byte_limit",
             ),
             (
-                self.source_replay_result_byte_limit,
-                "source_replay_result_byte_limit",
+                self.task_evaluation_journal_event_byte_limit,
+                "task_evaluation_journal_event_byte_limit",
             ),
             (
-                self.source_replay_staging_entry_limit,
-                "source_replay_staging_entry_limit",
+                self.task_evaluation_result_byte_limit,
+                "task_evaluation_result_byte_limit",
+            ),
+            (
+                self.task_evaluation_staging_entry_limit,
+                "task_evaluation_staging_entry_limit",
             ),
         ):
             _require_positive(value, f"expert.validation.policy.{name}")
         _require_non_negative(
-            self.source_replay_accelerator_count,
-            "expert.validation.policy.source_replay_accelerator_count",
+            self.task_evaluation_accelerator_count,
+            "expert.validation.policy.task_evaluation_accelerator_count",
         )
-        if (self.source_replay_accelerator_class_id is None) != (
-            self.source_replay_accelerator_count == 0
+        if (self.task_evaluation_accelerator_class_id is None) != (
+            self.task_evaluation_accelerator_count == 0
         ):
             raise CrossRunConfigurationError(
-                "source replay accelerator class and count must be present together"
+                "task evaluation accelerator class and count must be present together"
             )
-        if self.source_replay_accelerator_class_id is not None:
+        if self.task_evaluation_accelerator_class_id is not None:
             require_identifier(
-                self.source_replay_accelerator_class_id,
-                "expert.validation.policy.source_replay_accelerator_class_id",
+                self.task_evaluation_accelerator_class_id,
+                "expert.validation.policy.task_evaluation_accelerator_class_id",
             )
         _require_positive(
             self.source_replay_episode_limit,
@@ -990,16 +990,16 @@ class ExpertValidationPolicySettings(StrictContract):
         ):
             require_identifier(value, f"expert.validation.policy.{name}")
         _require_positive(
-            self.source_replay_materialization_entry_limit,
-            "expert.validation.policy.source_replay_materialization_entry_limit",
+            self.task_evaluation_materialization_entry_limit,
+            "expert.validation.policy.task_evaluation_materialization_entry_limit",
         )
         _require_positive(
-            self.source_replay_materialization_byte_limit,
-            "expert.validation.policy.source_replay_materialization_byte_limit",
+            self.task_evaluation_materialization_byte_limit,
+            "expert.validation.policy.task_evaluation_materialization_byte_limit",
         )
         _require_positive(
-            self.source_replay_materialization_timeout_seconds,
-            "expert.validation.policy.source_replay_materialization_timeout_seconds",
+            self.task_evaluation_materialization_timeout_seconds,
+            "expert.validation.policy.task_evaluation_materialization_timeout_seconds",
         )
         _require_positive(
             self.source_replay_score_comparison_tolerance,
@@ -1014,20 +1014,21 @@ class ExpertValidationPolicySettings(StrictContract):
             "expert.validation.policy.artifact_byte_limit",
         )
         if (
-            self.source_replay_shared_memory_byte_limit
-            > self.source_replay_memory_byte_limit
-            or self.artifact_entry_limit >= self.source_replay_writable_inode_limit
-            or self.artifact_byte_limit > self.source_replay_writable_storage_byte_limit
-            or self.source_replay_stdout_byte_limit
-            > self.source_replay_writable_storage_byte_limit
-            or self.source_replay_stderr_byte_limit
-            > self.source_replay_writable_storage_byte_limit
-            or self.source_replay_result_byte_limit
-            > self.source_replay_writable_storage_byte_limit
-            or self.source_replay_result_byte_limit > self.artifact_byte_limit
+            self.task_evaluation_shared_memory_byte_limit
+            > self.task_evaluation_memory_byte_limit
+            or self.artifact_entry_limit >= self.task_evaluation_writable_inode_limit
+            or self.artifact_byte_limit
+            > self.task_evaluation_writable_storage_byte_limit
+            or self.task_evaluation_stdout_byte_limit
+            > self.task_evaluation_writable_storage_byte_limit
+            or self.task_evaluation_stderr_byte_limit
+            > self.task_evaluation_writable_storage_byte_limit
+            or self.task_evaluation_result_byte_limit
+            > self.task_evaluation_writable_storage_byte_limit
+            or self.task_evaluation_result_byte_limit > self.artifact_byte_limit
         ):
             raise CrossRunConfigurationError(
-                "source replay compute limits are internally inconsistent"
+                "task evaluation compute limits are internally inconsistent"
             )
         if self.sealed_canary_trust_root is not None:
             require_identifier(
@@ -1048,15 +1049,17 @@ class ExpertValidationPolicySettings(StrictContract):
             raise CrossRunConfigurationError(
                 "expert evaluators must cover every executable stage in order"
             )
-        source_replay_evaluator = self.evaluators[
-            configurable_stages.index(ExpertValidationStage.SOURCE_RUN_REPLAY)
-        ]
-        if (
-            self.source_replay_termination_grace_seconds
-            > source_replay_evaluator.timeout_seconds
+        task_evaluation_stages = {
+            ExpertValidationStage.SOURCE_RUN_REPLAY,
+            ExpertValidationStage.RELEASE_MATRIX,
+        }
+        if any(
+            self.task_evaluation_termination_grace_seconds > evaluator.timeout_seconds
+            for evaluator in self.evaluators
+            if evaluator.stage in task_evaluation_stages
         ):
             raise CrossRunConfigurationError(
-                "source replay termination grace exceeds its leg timeout"
+                "task evaluation termination grace exceeds a leg timeout"
             )
         evaluator_ids = tuple(evaluator.evaluator_id for evaluator in self.evaluators)
         if len(evaluator_ids) != len(set(evaluator_ids)):
@@ -1173,7 +1176,7 @@ class ExpertValidationPolicy(StrictContract):
 
 
 @dataclass(frozen=True)
-class SourceReplayDockerProviderSettings(StrictContract):
+class TaskEvaluationDockerProviderSettings(StrictContract):
     workspace_path: str
     runtime_executable_path: str
     runtime_executable_digest: str
@@ -1199,7 +1202,7 @@ class SourceReplayDockerProviderSettings(StrictContract):
     def _validate(self) -> None:
         _require_relative_path(
             self.workspace_path,
-            "expert.validation.source_replay_provider.workspace_path",
+            "expert.validation.task_evaluation_provider.workspace_path",
         )
         for value, name in (
             (self.runtime_executable_path, "runtime_executable_path"),
@@ -1208,11 +1211,11 @@ class SourceReplayDockerProviderSettings(StrictContract):
         ):
             _require_path(
                 value,
-                f"expert.validation.source_replay_provider.{name}",
+                f"expert.validation.task_evaluation_provider.{name}",
             )
             if not PurePosixPath(value).is_absolute():
                 raise CrossRunConfigurationError(
-                    f"expert.validation.source_replay_provider.{name} must be absolute"
+                    f"expert.validation.task_evaluation_provider.{name} must be absolute"
                 )
         for value, name in (
             (self.runtime_executable_digest, "runtime_executable_digest"),
@@ -1220,7 +1223,7 @@ class SourceReplayDockerProviderSettings(StrictContract):
         ):
             if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
                 raise CrossRunConfigurationError(
-                    f"expert.validation.source_replay_provider.{name} must be a sha256 digest"
+                    f"expert.validation.task_evaluation_provider.{name} must be a sha256 digest"
                 )
         for value, name in (
             (self.runtime_server_version, "runtime_server_version"),
@@ -1236,7 +1239,7 @@ class SourceReplayDockerProviderSettings(StrictContract):
         ):
             require_identifier(
                 value,
-                f"expert.validation.source_replay_provider.{name}",
+                f"expert.validation.task_evaluation_provider.{name}",
             )
         if (
             not self.required_security_options
@@ -1249,7 +1252,7 @@ class SourceReplayDockerProviderSettings(StrictContract):
             )
         ):
             raise CrossRunConfigurationError(
-                "source replay provider security options must be sorted and unique"
+                "task evaluation provider security options must be sorted and unique"
             )
         for value, name in (
             (self.container_user_id, "container_user_id"),
@@ -1257,7 +1260,7 @@ class SourceReplayDockerProviderSettings(StrictContract):
         ):
             if type(value) is not int or value < 0:
                 raise CrossRunConfigurationError(
-                    f"expert.validation.source_replay_provider.{name} must be a non-negative integer"
+                    f"expert.validation.task_evaluation_provider.{name} must be a non-negative integer"
                 )
         for value, name in (
             (self.cpu_period_microseconds, "cpu_period_microseconds"),
@@ -1271,37 +1274,37 @@ class SourceReplayDockerProviderSettings(StrictContract):
         ):
             if type(value) is not int or value <= 0:
                 raise CrossRunConfigurationError(
-                    f"expert.validation.source_replay_provider.{name} must be a positive integer"
+                    f"expert.validation.task_evaluation_provider.{name} must be a positive integer"
                 )
         if self.cleanup_timeout_seconds > self.command_timeout_seconds:
             raise CrossRunConfigurationError(
-                "source replay provider cleanup timeout exceeds its command timeout"
+                "task evaluation provider cleanup timeout exceeds its command timeout"
             )
 
 
 @dataclass(frozen=True)
 class ExpertValidationSettings(StrictContract):
     state_path: str
-    source_replay_provider: SourceReplayDockerProviderSettings
+    task_evaluation_provider: TaskEvaluationDockerProviderSettings
     policy: ExpertValidationPolicySettings
 
     def _validate(self) -> None:
         _require_relative_path(self.state_path, "expert.validation.state_path")
         if (
-            self.policy.source_replay_cpu_millicore_limit
-            * self.source_replay_provider.cpu_period_microseconds
+            self.policy.task_evaluation_cpu_millicore_limit
+            * self.task_evaluation_provider.cpu_period_microseconds
             % 1000
             != 0
         ):
             raise CrossRunConfigurationError(
-                "source replay millicore limit has no exact runtime quota"
+                "task evaluation millicore limit has no exact runtime quota"
             )
         if (
-            self.policy.source_replay_termination_grace_seconds
-            >= self.source_replay_provider.command_timeout_seconds
+            self.policy.task_evaluation_termination_grace_seconds
+            >= self.task_evaluation_provider.command_timeout_seconds
         ):
             raise CrossRunConfigurationError(
-                "source replay provider command timeout cannot contain graceful stop"
+                "task evaluation provider command timeout cannot contain graceful stop"
             )
 
     @property
@@ -1394,9 +1397,9 @@ class ExpertSettings(StrictContract):
             self.validation.state_path,
             "expert.validation.state_path",
         )
-        source_replay_provider_path = _require_relative_path(
-            self.validation.source_replay_provider.workspace_path,
-            "expert.validation.source_replay_provider.workspace_path",
+        task_evaluation_provider_path = _require_relative_path(
+            self.validation.task_evaluation_provider.workspace_path,
+            "expert.validation.task_evaluation_provider.workspace_path",
         )
         task_adapter_path = _require_relative_path(
             self.task_adapters.state_path,
@@ -1407,7 +1410,7 @@ class ExpertSettings(StrictContract):
             "candidates": candidate_path,
             "agent artifacts": artifact_path,
             "validation": validation_path,
-            "source replay provider": source_replay_provider_path,
+            "task evaluation provider": task_evaluation_provider_path,
             "task adapters": task_adapter_path,
         }
         for name, path in paths.items():
@@ -1588,12 +1591,16 @@ class CrossRunSettings(StrictContract):
             raise CrossRunConfigurationError(
                 "capture and source replay projection tolerances must match"
             )
-        if self.expert.validation.policy.source_replay_journal_event_byte_limit < 2 * (
-            self.launch.security_denylist_checked_subject_size_bytes
-            + self.expert.validation.policy.source_replay_task_request_byte_limit
+        if (
+            self.expert.validation.policy.task_evaluation_journal_event_byte_limit
+            < 2
+            * (
+                self.launch.security_denylist_checked_subject_size_bytes
+                + self.expert.validation.policy.task_evaluation_task_request_byte_limit
+            )
         ):
             raise CrossRunConfigurationError(
-                "source replay journal event bound cannot contain its denylist and "
+                "task evaluation journal event bound cannot contain its denylist and "
                 "task-request authorities"
             )
 

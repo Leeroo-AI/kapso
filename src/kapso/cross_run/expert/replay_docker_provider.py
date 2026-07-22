@@ -46,7 +46,7 @@ from kapso.cross_run.expert.replay_provider_filesystem import (
 from kapso.cross_run.process import BoundedProcessOutcome, BoundedProcessResult
 from kapso.cross_run.settings import (
     ExpertValidationPolicySettings,
-    SourceReplayDockerProviderSettings,
+    TaskEvaluationDockerProviderSettings,
 )
 
 _PROVIDER_DIRECTORY_NAME = "provider"
@@ -62,15 +62,15 @@ _PROVIDER_ENVIRONMENT = (
     ("HOME", _CONTAINER_HOME),
     ("HOSTNAME", _CONTAINER_HOSTNAME),
 )
-SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID = "kapso_source_replay_execution_provider"
+SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID = "kapso_task_evaluation_execution_provider"
 SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_VERSION = (
-    "kapso.source_replay_execution_provider.v1"
+    "kapso.task_evaluation_execution_provider.v1"
 )
 SOURCE_REPLAY_DOCKER_PAIRED_EXECUTION_PROTOCOL_VERSION = (
-    "kapso.expert_source_replay_paired_execution.v1"
+    "kapso.task_evaluation_execution.v1"
 )
 SOURCE_REPLAY_DOCKER_SANDBOX_POLICY_VERSION = (
-    "kapso.source_replay_sandbox.offline_readonly.v1"
+    "kapso.task_evaluation_sandbox.offline_readonly.v1"
 )
 
 
@@ -80,14 +80,14 @@ class SourceReplayDockerProviderError(RuntimeError):
 
 def source_replay_docker_provider_key_is_supported(
     dispatch_key: ExpertSourceReplayExecutionProviderKey,
-    provider_settings: SourceReplayDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
     policy_settings: ExpertValidationPolicySettings,
 ) -> bool:
     """Return whether a key and policy name this exact implementation."""
 
     return not (
         not isinstance(dispatch_key, ExpertSourceReplayExecutionProviderKey)
-        or not isinstance(provider_settings, SourceReplayDockerProviderSettings)
+        or not isinstance(provider_settings, TaskEvaluationDockerProviderSettings)
         or not isinstance(policy_settings, ExpertValidationPolicySettings)
         or dispatch_key.paired_execution_protocol_version
         != SOURCE_REPLAY_DOCKER_PAIRED_EXECUTION_PROTOCOL_VERSION
@@ -103,20 +103,20 @@ def source_replay_docker_provider_key_is_supported(
         != TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION
         or dispatch_key.task_evaluator_protocol_version
         != TASK_EVALUATOR_PROTOCOL_VERSION
-        or policy_settings.source_replay_paired_execution_protocol_version
+        or policy_settings.task_evaluation_execution_protocol_version
         != SOURCE_REPLAY_DOCKER_PAIRED_EXECUTION_PROTOCOL_VERSION
-        or policy_settings.source_replay_execution_provider_id
+        or policy_settings.task_evaluation_execution_provider_id
         != SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID
-        or policy_settings.source_replay_execution_provider_version
+        or policy_settings.task_evaluation_execution_provider_version
         != SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_VERSION
-        or policy_settings.source_replay_sandbox_policy_version
+        or policy_settings.task_evaluation_sandbox_policy_version
         != SOURCE_REPLAY_DOCKER_SANDBOX_POLICY_VERSION
     )
 
 
 def require_source_replay_docker_provider_key(
     dispatch_key: ExpertSourceReplayExecutionProviderKey,
-    provider_settings: SourceReplayDockerProviderSettings,
+    provider_settings: TaskEvaluationDockerProviderSettings,
     policy_settings: ExpertValidationPolicySettings,
 ) -> None:
     """Require the complete implementation-owned Docker dispatch authority."""
@@ -138,12 +138,12 @@ class SourceReplayDockerExecutionProvider:
         self,
         *,
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
-        provider_settings: SourceReplayDockerProviderSettings,
+        provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
         runtime: SourceReplayDockerRuntime,
     ) -> None:
         if (
-            not isinstance(provider_settings, SourceReplayDockerProviderSettings)
+            not isinstance(provider_settings, TaskEvaluationDockerProviderSettings)
             or not isinstance(policy_settings, ExpertValidationPolicySettings)
             or type(runtime) is not SourceReplayDockerRuntime
             or runtime.settings != provider_settings
@@ -165,7 +165,7 @@ class SourceReplayDockerExecutionProvider:
                 "source replay Docker host identity cannot realize the sandbox"
             )
         if (
-            policy_settings.source_replay_termination_grace_seconds
+            policy_settings.task_evaluation_termination_grace_seconds
             >= provider_settings.command_timeout_seconds
         ):
             raise SourceReplayDockerProviderError(
@@ -182,7 +182,7 @@ class SourceReplayDockerExecutionProvider:
         cls,
         *,
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
-        provider_settings: SourceReplayDockerProviderSettings,
+        provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
         trusted_root: Path,
     ) -> SourceReplayDockerExecutionProvider:
@@ -539,7 +539,7 @@ class SourceReplayDockerExecutionProvider:
             )
         maximum_result_bytes = min(
             compute.output_byte_limit,
-            self._policy_settings.source_replay_result_byte_limit,
+            self._policy_settings.task_evaluation_result_byte_limit,
         )
         maximum_snapshot_bytes = (
             maximum_result_bytes
@@ -600,7 +600,7 @@ def _container_create_prefix(
     identity: SourceReplayDockerResourceIdentity,
     role: str,
     compute: ExpertSourceReplayComputeBinding,
-    settings: SourceReplayDockerProviderSettings,
+    settings: TaskEvaluationDockerProviderSettings,
     workdir: str,
 ) -> tuple[str, ...]:
     name = identity.evaluator_name if role == _EVALUATOR_ROLE else identity.keeper_name
@@ -721,7 +721,7 @@ def _require_container_contract(
     identity: SourceReplayDockerResourceIdentity,
     runtime: TaskAdapterRuntimeContract,
     compute: ExpertSourceReplayComputeBinding,
-    settings: SourceReplayDockerProviderSettings,
+    settings: TaskEvaluationDockerProviderSettings,
     *,
     entrypoint: str,
     command: tuple[str, ...],
