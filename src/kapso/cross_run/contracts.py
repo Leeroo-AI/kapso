@@ -3058,6 +3058,93 @@ class ExpertSourceReplayExecutionLeg(StrictContract):
             )
 
 
+@dataclass(frozen=True)
+class ExpertSourceReplayComputeBinding(StrictContract):
+    compute_binding_id: str
+    paired_execution_protocol_version: str
+    execution_provider_id: str
+    execution_provider_version: str
+    sandbox_policy_version: str
+    leg_wall_time_limit_seconds: int
+    termination_grace_seconds: int
+    cpu_millicore_limit: int
+    memory_byte_limit: int
+    shared_memory_byte_limit: int
+    process_limit: int
+    open_file_limit: int
+    writable_entry_limit: int
+    writable_byte_limit: int
+    output_entry_limit: int
+    output_byte_limit: int
+    stdout_byte_limit: int
+    stderr_byte_limit: int
+    accelerator_class_id: str | None
+    accelerator_count: int
+    leg_order: tuple[ExpertSourceReplayExecutionLegKind, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-source-replay-compute-binding"
+    IDENTITY_FIELD: ClassVar[str] = "compute_binding_id"
+
+    def _validate(self) -> None:
+        for value, name in (
+            (
+                self.paired_execution_protocol_version,
+                "paired_execution_protocol_version",
+            ),
+            (self.execution_provider_id, "execution_provider_id"),
+            (self.execution_provider_version, "execution_provider_version"),
+            (self.sandbox_policy_version, "sandbox_policy_version"),
+        ):
+            require_identifier(value, f"source replay compute {name}")
+        for value, name in (
+            (self.leg_wall_time_limit_seconds, "leg_wall_time_limit_seconds"),
+            (self.termination_grace_seconds, "termination_grace_seconds"),
+            (self.cpu_millicore_limit, "cpu_millicore_limit"),
+            (self.memory_byte_limit, "memory_byte_limit"),
+            (self.shared_memory_byte_limit, "shared_memory_byte_limit"),
+            (self.process_limit, "process_limit"),
+            (self.open_file_limit, "open_file_limit"),
+            (self.writable_entry_limit, "writable_entry_limit"),
+            (self.writable_byte_limit, "writable_byte_limit"),
+            (self.output_entry_limit, "output_entry_limit"),
+            (self.output_byte_limit, "output_byte_limit"),
+            (self.stdout_byte_limit, "stdout_byte_limit"),
+            (self.stderr_byte_limit, "stderr_byte_limit"),
+        ):
+            if type(value) is not int or value <= 0:
+                raise ContractValidationError(
+                    f"source replay compute {name} must be a positive integer"
+                )
+        if (
+            self.termination_grace_seconds > self.leg_wall_time_limit_seconds
+            or self.shared_memory_byte_limit > self.memory_byte_limit
+            or self.output_entry_limit > self.writable_entry_limit
+            or self.output_byte_limit > self.writable_byte_limit
+        ):
+            raise ContractValidationError(
+                "source replay compute limits are internally inconsistent"
+            )
+        if type(self.accelerator_count) is not int or self.accelerator_count < 0:
+            raise ContractValidationError(
+                "source replay compute accelerator_count must be non-negative"
+            )
+        if (self.accelerator_class_id is None) != (self.accelerator_count == 0):
+            raise ContractValidationError(
+                "source replay compute accelerator class and count must be present together"
+            )
+        if self.accelerator_class_id is not None:
+            require_identifier(
+                self.accelerator_class_id,
+                "source replay compute accelerator_class_id",
+            )
+        if len(self.leg_order) != 2 or set(self.leg_order) != set(
+            ExpertSourceReplayExecutionLegKind
+        ):
+            raise ContractValidationError(
+                "source replay compute leg_order must contain both legs exactly once"
+            )
+
+
 def expert_source_replay_matched_compute_digest(
     *,
     bundle_lineage_ids: tuple[str, ...],
@@ -3075,6 +3162,7 @@ def expert_source_replay_matched_compute_digest(
     task_evaluator_digest: str,
     task_adapter_runtime_digest: str,
     task_adapter_context_binding_digest: str,
+    compute_binding_id: str,
 ) -> str:
     """Derive the immutable environment shared by both replay legs."""
 
@@ -3085,6 +3173,7 @@ def expert_source_replay_matched_compute_digest(
                 "context_materialization_receipt_id": (
                     context_materialization_receipt_id
                 ),
+                "compute_binding_id": compute_binding_id,
                 "episode_id": episode_id,
                 "projection_manifest_id": projection_manifest_id,
                 "source_evaluation_fingerprint_ids": (
@@ -3133,6 +3222,7 @@ class ExpertSourceReplayExecutionCase(StrictContract):
     task_adapter_runtime_digest: str
     task_adapter_context_binding_digest: str
     task_adapter_dependency_ids: tuple[str, ...]
+    compute_binding: ExpertSourceReplayComputeBinding
     matched_compute_binding_digest: str
     control_leg: ExpertSourceReplayExecutionLeg
     candidate_leg: ExpertSourceReplayExecutionLeg
@@ -3300,6 +3390,7 @@ class ExpertSourceReplayExecutionCase(StrictContract):
                 task_adapter_context_binding_digest=(
                     self.task_adapter_context_binding_digest
                 ),
+                compute_binding_id=self.compute_binding.compute_binding_id,
             )
         ):
             raise ContractValidationError(
@@ -3345,6 +3436,7 @@ class ExpertSourceReplayExecutionCase(StrictContract):
             self.adapter_binding_id,
             self.task_adapter_manifest_id,
             self.verification_receipt_id,
+            self.compute_binding.compute_binding_id,
             *self.task_adapter_dependency_ids,
             self.control_leg.execution_leg_id,
             *self.control_leg.exact_dependency_ids,

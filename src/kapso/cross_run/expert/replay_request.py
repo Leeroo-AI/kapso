@@ -19,6 +19,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateValidationState,
     ExpertPromotionState,
     ExpertSourceReplayCase,
+    ExpertSourceReplayComputeBinding,
     ExpertSourceReplayExecutionCase,
     ExpertSourceReplayExecutionLeg,
     ExpertSourceReplayExecutionLegKind,
@@ -112,6 +113,76 @@ class ExpertSourceReplayTaskAdapterProvider(Protocol):
         maximum_bytes: int,
         timeout_seconds: int,
     ) -> VerifiedTaskAdapter: ...
+
+
+def _source_replay_compute_bindings(
+    settings: ExpertValidationSettings,
+    episode_ids: tuple[str, ...],
+) -> Mapping[str, ExpertSourceReplayComputeBinding]:
+    ordered_episode_ids = tuple(sorted(episode_ids))
+    if not ordered_episode_ids or len(ordered_episode_ids) != len(
+        set(ordered_episode_ids)
+    ):
+        raise ExpertSourceReplayRequestError(
+            "source replay compute schedule requires unique selected episodes"
+        )
+    policy = settings.policy
+    evaluator = _source_replay_evaluator(settings)
+    order_digest = tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "episode_ids": ordered_episode_ids,
+                "paired_execution_protocol_version": (
+                    policy.source_replay_paired_execution_protocol_version
+                ),
+            }
+        )
+    )
+    control_first = (
+        ExpertSourceReplayExecutionLegKind.CONTROL_PARENT,
+        ExpertSourceReplayExecutionLegKind.CANDIDATE,
+    )
+    candidate_first = tuple(reversed(control_first))
+    starting_offset = int(order_digest[-1], 16) % 2
+    return MappingProxyType(
+        {
+            episode_id: ExpertSourceReplayComputeBinding.mint(
+                paired_execution_protocol_version=(
+                    policy.source_replay_paired_execution_protocol_version
+                ),
+                execution_provider_id=policy.source_replay_execution_provider_id,
+                execution_provider_version=(
+                    policy.source_replay_execution_provider_version
+                ),
+                sandbox_policy_version=policy.source_replay_sandbox_policy_version,
+                leg_wall_time_limit_seconds=evaluator.timeout_seconds,
+                termination_grace_seconds=(
+                    policy.source_replay_termination_grace_seconds
+                ),
+                cpu_millicore_limit=policy.source_replay_cpu_millicore_limit,
+                memory_byte_limit=policy.source_replay_memory_byte_limit,
+                shared_memory_byte_limit=(
+                    policy.source_replay_shared_memory_byte_limit
+                ),
+                process_limit=policy.source_replay_process_limit,
+                open_file_limit=policy.source_replay_open_file_limit,
+                writable_entry_limit=policy.source_replay_writable_entry_limit,
+                writable_byte_limit=policy.source_replay_writable_byte_limit,
+                output_entry_limit=policy.artifact_entry_limit,
+                output_byte_limit=policy.artifact_byte_limit,
+                stdout_byte_limit=policy.source_replay_stdout_byte_limit,
+                stderr_byte_limit=policy.source_replay_stderr_byte_limit,
+                accelerator_class_id=policy.source_replay_accelerator_class_id,
+                accelerator_count=policy.source_replay_accelerator_count,
+                leg_order=(
+                    control_first
+                    if (position + starting_offset) % 2 == 0
+                    else candidate_first
+                ),
+            )
+            for position, episode_id in enumerate(ordered_episode_ids)
+        }
+    )
 
 
 def _verified_source_contents(
@@ -324,6 +395,7 @@ class MaterializedExpertSourceReplayCase:
             adapter.manifest.task_adapter_manifest_id,
             adapter.verification_receipt.verification_receipt_id,
             *adapter_dependencies,
+            case.compute_binding.compute_binding_id,
             case.control_leg.execution_leg_id,
             *case.control_leg.exact_dependency_ids,
             case.candidate_leg.execution_leg_id,
@@ -355,6 +427,7 @@ class MaterializedExpertSourceReplayCase:
             task_adapter_context_binding_digest=tree_or_blob_digest(
                 adapter.manifest.context_binding.to_json_bytes()
             ),
+            compute_binding_id=case.compute_binding.compute_binding_id,
         )
         if (
             self.bundle_lineage.bundle_ids != case.bundle_lineage_ids
@@ -587,6 +660,11 @@ class PreparedExpertSourceReplayRequest:
                 case.control_leg != control_leg or case.candidate_leg != candidate_leg
                 for case in request_cases
             )
+            or {case.episode_id: case.compute_binding for case in request_cases}
+            != _source_replay_compute_bindings(
+                self.settings,
+                tuple(case.episode_id for case in request_cases),
+            )
             or expected_dependencies != set(self.request.exact_dependency_ids)
         ):
             raise ExpertSourceReplayRequestError(
@@ -711,6 +789,15 @@ class ExpertSourceReplayPreflightCoordinator:
         materialized_cases: list[MaterializedExpertSourceReplayCase] = []
         control_leg = _control_leg(parent)
         candidate_leg = _candidate_leg(candidate)
+        selected_episode_ids = tuple(
+            episode_id
+            for selected_case in selection.cases
+            for episode_id in selected_case.episode_ids
+        )
+        compute_bindings = _source_replay_compute_bindings(
+            self.settings,
+            selected_episode_ids,
+        )
         for selected_case in selection.cases:
             lineage = lineages.get(selected_case.source_bundle_id)
             if lineage is None:
@@ -761,6 +848,7 @@ class ExpertSourceReplayPreflightCoordinator:
                         lineages=tuple(lineages.values()),
                         control_leg=control_leg,
                         candidate_leg=candidate_leg,
+                        compute_binding=compute_bindings[episode_id],
                         deadline=deadline,
                     )
                 )
@@ -1063,6 +1151,7 @@ class ExpertSourceReplayPreflightCoordinator:
         lineages: tuple[VerifiedRunBundleLineage, ...],
         control_leg: ExpertSourceReplayExecutionLeg,
         candidate_leg: ExpertSourceReplayExecutionLeg,
+        compute_binding: ExpertSourceReplayComputeBinding,
         deadline: float,
     ) -> MaterializedExpertSourceReplayCase:
         bundle = lineage.tip_bundle.manifest
@@ -1162,6 +1251,7 @@ class ExpertSourceReplayPreflightCoordinator:
             adapter.manifest.task_adapter_manifest_id,
             adapter.verification_receipt.verification_receipt_id,
             *adapter_dependencies,
+            compute_binding.compute_binding_id,
             control_leg.execution_leg_id,
             *control_leg.exact_dependency_ids,
             candidate_leg.execution_leg_id,
@@ -1199,6 +1289,7 @@ class ExpertSourceReplayPreflightCoordinator:
                 adapter.manifest.context_binding.to_json_bytes()
             ),
             task_adapter_dependency_ids=adapter_dependencies,
+            compute_binding=compute_binding,
             matched_compute_binding_digest=expert_source_replay_matched_compute_digest(
                 bundle_lineage_ids=lineage.bundle_ids,
                 projection_manifest_id=projection_manifest_id,
@@ -1225,6 +1316,7 @@ class ExpertSourceReplayPreflightCoordinator:
                 task_adapter_context_binding_digest=tree_or_blob_digest(
                     adapter.manifest.context_binding.to_json_bytes()
                 ),
+                compute_binding_id=compute_binding.compute_binding_id,
             ),
             control_leg=control_leg,
             candidate_leg=candidate_leg,

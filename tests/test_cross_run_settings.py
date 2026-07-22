@@ -334,6 +334,105 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
         (("knowledge", "retrieval", "lexical_weight"), 1.1),
         (("knowledge", "embeddings", "dimensions"), True),
         (("expert", "validation", "reviewer_count"), 0),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_termination_grace_seconds",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_cpu_millicore_limit",
+            ),
+            True,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_memory_byte_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_shared_memory_byte_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_process_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_open_file_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_writable_entry_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_writable_byte_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_stdout_byte_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_stderr_byte_limit",
+            ),
+            0,
+        ),
+        (
+            (
+                "expert",
+                "validation",
+                "policy",
+                "source_replay_accelerator_count",
+            ),
+            True,
+        ),
         (("expert", "validation", "policy", "source_replay_episode_limit"), 0),
         (("expert", "validation", "policy", "source_replay_bundle_limit"), 0),
         (
@@ -394,6 +493,45 @@ def test_zstd_window_configuration_uses_decoder_byte_units():
     settings = CrossRunSettings.from_dict(raw)
 
     assert settings.github.zstd_window_size_bytes == 1024
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda policy: policy.__setitem__(
+            "source_replay_shared_memory_byte_limit",
+            policy["source_replay_memory_byte_limit"] + 1,
+        ),
+        lambda policy: policy.__setitem__(
+            "artifact_entry_limit",
+            policy["source_replay_writable_entry_limit"] + 1,
+        ),
+        lambda policy: policy.__setitem__(
+            "source_replay_accelerator_count",
+            1,
+        ),
+        lambda policy: policy.__setitem__(
+            "source_replay_accelerator_class_id",
+            "h100",
+        ),
+        lambda policy: policy.__setitem__(
+            "source_replay_termination_grace_seconds",
+            next(
+                evaluator["timeout_seconds"]
+                for evaluator in policy["evaluators"]
+                if evaluator["stage"] == "source_run_replay"
+            )
+            + 1,
+        ),
+    ),
+)
+def test_source_replay_compute_policy_rejects_inconsistent_limits(mutate):
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    policy = raw["expert"]["validation"]["policy"]
+    mutate(policy)
+
+    with pytest.raises(CrossRunConfigurationError):
+        CrossRunSettings.from_dict(raw)
 
 
 def test_source_replay_must_use_the_capture_projection_tolerance():

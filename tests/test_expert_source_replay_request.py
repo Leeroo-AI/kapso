@@ -24,6 +24,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateValidationState,
     ExpertEvaluatorOutcome,
     ExpertPromotionState,
+    ExpertSourceReplayExecutionLegKind,
     ExpertSourceReplayContextMaterializationReceipt,
     ExpertSourceReplayStartingArtifact,
     ExpertValidationStage,
@@ -39,6 +40,7 @@ from kapso.cross_run.expert.replay_request import (
     ExpertSourceReplayPreflightCoordinator,
     ExpertSourceReplayRequestError,
     VerifiedExpertSourceReplayParent,
+    _source_replay_compute_bindings,
 )
 from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvaluator,
@@ -378,6 +380,33 @@ def _prepared(fixture):
     return result.prepared_request
 
 
+@pytest.mark.parametrize("episode_count", (2, 3, 32))
+def test_compute_schedule_is_balanced_and_input_order_invariant(episode_count):
+    episode_ids = tuple(
+        content_id("transfer-episode", {"position": position})
+        for position in range(episode_count)
+    )
+    settings = _validation_policy()
+
+    schedule = _source_replay_compute_bindings(settings, episode_ids)
+    reversed_schedule = _source_replay_compute_bindings(
+        settings,
+        tuple(reversed(episode_ids)),
+    )
+    ordered_bindings = tuple(schedule[episode_id] for episode_id in sorted(episode_ids))
+    control_first_count = sum(
+        binding.leg_order[0] is ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+        for binding in ordered_bindings
+    )
+
+    assert schedule == reversed_schedule
+    assert abs(control_first_count - (episode_count - control_first_count)) <= 1
+    assert all(
+        left.leg_order != right.leg_order
+        for left, right in itertools.pairwise(ordered_bindings)
+    )
+
+
 def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context(
     tmp_path,
 ):
@@ -412,6 +441,23 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
     assert request_case.candidate_leg.expert_artifact_id == (
         prepared.candidate.manifest.candidate_id
     )
+    compute_binding = request_case.compute_binding
+    source_replay_evaluator = next(
+        evaluator
+        for evaluator in fixture.settings.policy.evaluators
+        if evaluator.stage is ExpertValidationStage.SOURCE_RUN_REPLAY
+    )
+    assert compute_binding.leg_wall_time_limit_seconds == (
+        source_replay_evaluator.timeout_seconds
+    )
+    assert compute_binding.cpu_millicore_limit == (
+        fixture.settings.policy.source_replay_cpu_millicore_limit
+    )
+    assert compute_binding.output_entry_limit == (
+        fixture.settings.policy.artifact_entry_limit
+    )
+    assert set(compute_binding.leg_order) == set(ExpertSourceReplayExecutionLegKind)
+    assert compute_binding.compute_binding_id in request_case.exact_dependency_ids
     assert set(prepared.request.exact_dependency_ids) == {
         prepared.request.validation_attempt_id,
         prepared.request.authorization_state_id,

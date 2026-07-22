@@ -1639,8 +1639,14 @@ vary those inputs. Its matched-compute identity explicitly binds the source
 execution revision, every evaluation fingerprint, the score-of-record
 fingerprint, task context and materialization receipt, starting artifacts,
 adapter source tree, evaluator ABI, context allowlist, and immutable runtime
-proof. Parent/candidate tree identities remain the deliberate experimental
-variable and are not part of that shared binding. One monotonic deadline and
+proof. It also binds a content-addressed compute envelope: exact execution
+provider/protocol/sandbox versions, equal per-leg resource and output ceilings,
+accelerator class/count, and a deterministic counterbalanced leg order. The
+envelope contains no outcome, observed-use, task-domain, candidate, or parent
+fields. Parent/candidate tree identities remain the deliberate experimental
+variable and are not part of that shared binding. Scientific repetition remains
+defined by the evaluation fingerprints; neither infrastructure recovery nor an
+observed first leg may add an accepted trial. One monotonic deadline and
 aggregate entry/byte budget cover
 the candidate, parent, adapters, every retained bundle generation, and contexts;
 duplicate content counts once and conflicting bytes under one identity fail.

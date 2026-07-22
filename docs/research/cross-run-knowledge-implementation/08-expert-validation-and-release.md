@@ -129,6 +129,20 @@ dependency closure. The prepared object rechecks its settings/config identity,
 selection cases, byte-derived lineages, and aggregate limits, and owns all bytes;
 a sandbox may not resolve IDs or mutable pointers.
 
+Each case also owns one immutable `ExpertSourceReplayComputeBinding`. It copies
+the configured execution-provider, paired-protocol, and sandbox-policy versions;
+the exact per-leg wall time, termination grace, CPU, memory, shared-memory,
+process, open-file, writable-store, output, stream, and accelerator limits; and a
+deterministically counterbalanced two-leg order. Its content ID is part of the
+case dependency closure and matched-compute digest. Both legs therefore receive
+the same authorized allocation, but their observed duration and consumption may
+differ and belong only in execution receipts. Scientific repeats remain solely
+the exact evaluation fingerprints: the executor runs each named leg once and may
+not add an observation-dependent retry. The sandbox policy is structural, not a
+set of caller-controlled booleans: its version must dispatch to an implementation
+that guarantees offline direct execution, read-only inputs, fresh private
+writable roots, and a fixed non-secret environment.
+
 Preflight re-observes the current parent after materialization, but its request
 is evidence, not an execution lease. Source execution remains fail-closed until
 the executor can atomically reserve the unchanged validation head and, immediately
@@ -158,7 +172,8 @@ remains fenced by validation-head compare-and-swap.
 
 The reservation API accepts only the runtime-only prepared closure, reconstructs
 it to rerun all byte, lineage, context, artifact, adapter, parent, candidate, and
-aggregate-budget invariants, and then persists its request. A self-consistent
+aggregate-budget invariants, independently re-derives every compute binding from
+the persisted settings, and then persists its request. A self-consistent
 content contract without those prepared authorities is not executable admission.
 
 Reservation admission reopens the candidate, rechecks `CURRENT`, re-resolves

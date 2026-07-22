@@ -197,7 +197,23 @@ cross_run:
       state_path: ".kapso/cross_run/expert_validation"
       policy:
         source_replay_selection_policy_version: "kapso.expert_source_replay_selection.v1"
-        source_replay_request_policy_version: "kapso.expert_source_replay_request.v1"
+        source_replay_request_policy_version: "kapso.expert_source_replay_request.v2"
+        source_replay_paired_execution_protocol_version: "kapso.expert_source_replay_paired_execution.v1"
+        source_replay_execution_provider_id: "kapso_source_replay_execution_provider"
+        source_replay_execution_provider_version: "kapso.source_replay_execution_provider.v1"
+        source_replay_sandbox_policy_version: "kapso.source_replay_sandbox.offline_readonly.v1"
+        source_replay_termination_grace_seconds: 10
+        source_replay_cpu_millicore_limit: 8000
+        source_replay_memory_byte_limit: 34359738368
+        source_replay_shared_memory_byte_limit: 1073741824
+        source_replay_process_limit: 4096
+        source_replay_open_file_limit: 4096
+        source_replay_writable_entry_limit: 10000
+        source_replay_writable_byte_limit: *cross_run_materialized_asset_size_bytes
+        source_replay_stdout_byte_limit: 16777216
+        source_replay_stderr_byte_limit: 16777216
+        source_replay_accelerator_class_id: null
+        source_replay_accelerator_count: 0
         source_replay_episode_limit: 32
         source_replay_bundle_limit: 16
         source_replay_context_materializer_id: "expert_source_replay_context_materializer"

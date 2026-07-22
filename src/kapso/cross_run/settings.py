@@ -814,6 +814,22 @@ class ExpertPromotionPolicySettings(StrictContract):
 class ExpertValidationPolicySettings(StrictContract):
     source_replay_selection_policy_version: str
     source_replay_request_policy_version: str
+    source_replay_paired_execution_protocol_version: str
+    source_replay_execution_provider_id: str
+    source_replay_execution_provider_version: str
+    source_replay_sandbox_policy_version: str
+    source_replay_termination_grace_seconds: int
+    source_replay_cpu_millicore_limit: int
+    source_replay_memory_byte_limit: int
+    source_replay_shared_memory_byte_limit: int
+    source_replay_process_limit: int
+    source_replay_open_file_limit: int
+    source_replay_writable_entry_limit: int
+    source_replay_writable_byte_limit: int
+    source_replay_stdout_byte_limit: int
+    source_replay_stderr_byte_limit: int
+    source_replay_accelerator_class_id: str | None
+    source_replay_accelerator_count: int
     source_replay_episode_limit: int
     source_replay_bundle_limit: int
     source_replay_context_materializer_id: str
@@ -839,6 +855,80 @@ class ExpertValidationPolicySettings(StrictContract):
             self.source_replay_request_policy_version,
             "expert.validation.policy.source_replay_request_policy_version",
         )
+        for value, name in (
+            (
+                self.source_replay_paired_execution_protocol_version,
+                "source_replay_paired_execution_protocol_version",
+            ),
+            (
+                self.source_replay_execution_provider_id,
+                "source_replay_execution_provider_id",
+            ),
+            (
+                self.source_replay_execution_provider_version,
+                "source_replay_execution_provider_version",
+            ),
+            (
+                self.source_replay_sandbox_policy_version,
+                "source_replay_sandbox_policy_version",
+            ),
+        ):
+            require_identifier(value, f"expert.validation.policy.{name}")
+        for value, name in (
+            (
+                self.source_replay_termination_grace_seconds,
+                "source_replay_termination_grace_seconds",
+            ),
+            (
+                self.source_replay_cpu_millicore_limit,
+                "source_replay_cpu_millicore_limit",
+            ),
+            (
+                self.source_replay_memory_byte_limit,
+                "source_replay_memory_byte_limit",
+            ),
+            (
+                self.source_replay_shared_memory_byte_limit,
+                "source_replay_shared_memory_byte_limit",
+            ),
+            (self.source_replay_process_limit, "source_replay_process_limit"),
+            (
+                self.source_replay_open_file_limit,
+                "source_replay_open_file_limit",
+            ),
+            (
+                self.source_replay_writable_entry_limit,
+                "source_replay_writable_entry_limit",
+            ),
+            (
+                self.source_replay_writable_byte_limit,
+                "source_replay_writable_byte_limit",
+            ),
+            (
+                self.source_replay_stdout_byte_limit,
+                "source_replay_stdout_byte_limit",
+            ),
+            (
+                self.source_replay_stderr_byte_limit,
+                "source_replay_stderr_byte_limit",
+            ),
+        ):
+            _require_positive(value, f"expert.validation.policy.{name}")
+        _require_non_negative(
+            self.source_replay_accelerator_count,
+            "expert.validation.policy.source_replay_accelerator_count",
+        )
+        if (self.source_replay_accelerator_class_id is None) != (
+            self.source_replay_accelerator_count == 0
+        ):
+            raise CrossRunConfigurationError(
+                "source replay accelerator class and count must be present together"
+            )
+        if self.source_replay_accelerator_class_id is not None:
+            require_identifier(
+                self.source_replay_accelerator_class_id,
+                "expert.validation.policy.source_replay_accelerator_class_id",
+            )
         _require_positive(
             self.source_replay_episode_limit,
             "expert.validation.policy.source_replay_episode_limit",
@@ -882,6 +972,19 @@ class ExpertValidationPolicySettings(StrictContract):
             self.artifact_byte_limit,
             "expert.validation.policy.artifact_byte_limit",
         )
+        if (
+            self.source_replay_shared_memory_byte_limit
+            > self.source_replay_memory_byte_limit
+            or self.artifact_entry_limit > self.source_replay_writable_entry_limit
+            or self.artifact_byte_limit > self.source_replay_writable_byte_limit
+            or self.source_replay_stdout_byte_limit
+            > self.source_replay_writable_byte_limit
+            or self.source_replay_stderr_byte_limit
+            > self.source_replay_writable_byte_limit
+        ):
+            raise CrossRunConfigurationError(
+                "source replay compute limits are internally inconsistent"
+            )
         if self.sealed_canary_trust_root is not None:
             require_identifier(
                 self.sealed_canary_trust_root,
@@ -900,6 +1003,16 @@ class ExpertValidationPolicySettings(StrictContract):
         if evaluator_stages != configurable_stages:
             raise CrossRunConfigurationError(
                 "expert evaluators must cover every executable stage in order"
+            )
+        source_replay_evaluator = self.evaluators[
+            configurable_stages.index(ExpertValidationStage.SOURCE_RUN_REPLAY)
+        ]
+        if (
+            self.source_replay_termination_grace_seconds
+            > source_replay_evaluator.timeout_seconds
+        ):
+            raise CrossRunConfigurationError(
+                "source replay termination grace exceeds its leg timeout"
             )
         evaluator_ids = tuple(evaluator.evaluator_id for evaluator in self.evaluators)
         if len(evaluator_ids) != len(set(evaluator_ids)):

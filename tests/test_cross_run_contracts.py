@@ -50,6 +50,8 @@ from kapso.cross_run.contracts import (
     ExpertProposerAuthority,
     ExpertRepositoryMap,
     ExpertScopeContract,
+    ExpertSourceReplayComputeBinding,
+    ExpertSourceReplayExecutionLegKind,
     ExpertSourceReplayStartingArtifact,
     ExpertSourceTreeManifest,
     ExpertTaskAdapterBoundary,
@@ -1143,6 +1145,7 @@ def test_matched_compute_digest_binds_every_shared_scientific_input():
         "task_evaluator_digest": digest("evaluator-contract"),
         "task_adapter_runtime_digest": digest("runtime-contract"),
         "task_adapter_context_binding_digest": digest("context-contract"),
+        "compute_binding_id": content_id("compute-binding", {"name": "limits"}),
     }
     replacements = {
         "bundle_lineage_ids": (content_id("run-bundle", {"generation": 1}),),
@@ -1167,6 +1170,7 @@ def test_matched_compute_digest_binds_every_shared_scientific_input():
         "task_evaluator_digest": digest("changed-evaluator-contract"),
         "task_adapter_runtime_digest": digest("changed-runtime-contract"),
         "task_adapter_context_binding_digest": digest("changed-context-contract"),
+        "compute_binding_id": content_id("compute-binding", {"name": "changed-limits"}),
     }
     baseline = expert_source_replay_matched_compute_digest(**inputs)
 
@@ -1175,6 +1179,112 @@ def test_matched_compute_digest_binds_every_shared_scientific_input():
         assert (
             expert_source_replay_matched_compute_digest(**changed_inputs) != baseline
         ), field_name
+
+
+def _source_replay_compute_binding():
+    return ExpertSourceReplayComputeBinding.mint(
+        paired_execution_protocol_version="kapso.paired-execution.v1",
+        execution_provider_id="docker",
+        execution_provider_version="docker-provider-v1",
+        sandbox_policy_version="offline-readonly-v1",
+        leg_wall_time_limit_seconds=600,
+        termination_grace_seconds=10,
+        cpu_millicore_limit=8000,
+        memory_byte_limit=32 * 1024**3,
+        shared_memory_byte_limit=1024**3,
+        process_limit=4096,
+        open_file_limit=4096,
+        writable_entry_limit=10_000,
+        writable_byte_limit=4 * 1024**3,
+        output_entry_limit=1000,
+        output_byte_limit=1024**3,
+        stdout_byte_limit=16 * 1024**2,
+        stderr_byte_limit=16 * 1024**2,
+        accelerator_class_id=None,
+        accelerator_count=0,
+        leg_order=(
+            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT,
+            ExpertSourceReplayExecutionLegKind.CANDIDATE,
+        ),
+    )
+
+
+def test_source_replay_compute_binding_is_canonical_and_every_field_is_bound():
+    binding = _source_replay_compute_binding()
+    payload = binding.to_dict()
+    replacements = {
+        "paired_execution_protocol_version": "kapso.paired-execution.v2",
+        "execution_provider_id": "isolated-docker",
+        "execution_provider_version": "docker-provider-v2",
+        "sandbox_policy_version": "offline-readonly-v2",
+        "leg_wall_time_limit_seconds": 601,
+        "termination_grace_seconds": 11,
+        "cpu_millicore_limit": 8001,
+        "memory_byte_limit": binding.memory_byte_limit + 1,
+        "shared_memory_byte_limit": binding.shared_memory_byte_limit + 1,
+        "process_limit": 4097,
+        "open_file_limit": 4097,
+        "writable_entry_limit": 10_001,
+        "writable_byte_limit": binding.writable_byte_limit + 1,
+        "output_entry_limit": 1001,
+        "output_byte_limit": binding.output_byte_limit + 1,
+        "stdout_byte_limit": binding.stdout_byte_limit + 1,
+        "stderr_byte_limit": binding.stderr_byte_limit + 1,
+        "accelerator_class_id": "h100",
+        "accelerator_count": 1,
+        "leg_order": (
+            ExpertSourceReplayExecutionLegKind.CANDIDATE.value,
+            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT.value,
+        ),
+    }
+
+    assert ExpertSourceReplayComputeBinding.from_json_bytes(
+        binding.to_json_bytes()
+    ) == (binding)
+    for field_name, changed_value in replacements.items():
+        changed_payload = {
+            **payload,
+            field_name: changed_value,
+        }
+        changed_payload.pop("compute_binding_id")
+        if field_name in {"accelerator_class_id", "accelerator_count"}:
+            changed_payload.update(
+                accelerator_class_id="h100",
+                accelerator_count=1,
+            )
+        changed = ExpertSourceReplayComputeBinding.mint(**changed_payload)
+        assert changed.compute_binding_id != binding.compute_binding_id, field_name
+
+
+@pytest.mark.parametrize(
+    ("field_name", "changed_value", "error"),
+    (
+        ("cpu_millicore_limit", True, "must be an integer"),
+        ("memory_byte_limit", 0, "positive integer"),
+        ("accelerator_count", True, "must be an integer"),
+        ("accelerator_count", 1, "present together"),
+        ("termination_grace_seconds", 601, "internally inconsistent"),
+        ("shared_memory_byte_limit", 32 * 1024**3 + 1, "internally inconsistent"),
+        ("output_entry_limit", 10_001, "internally inconsistent"),
+        ("output_byte_limit", 4 * 1024**3 + 1, "internally inconsistent"),
+        (
+            "leg_order",
+            ("control_parent", "control_parent"),
+            "both legs exactly once",
+        ),
+    ),
+)
+def test_source_replay_compute_binding_rejects_invalid_envelopes(
+    field_name,
+    changed_value,
+    error,
+):
+    payload = _source_replay_compute_binding().to_dict()
+    payload.pop("compute_binding_id")
+    payload[field_name] = changed_value
+
+    with pytest.raises(ContractValidationError, match=error):
+        ExpertSourceReplayComputeBinding.mint(**payload)
 
 
 def test_content_mutation_is_detected_but_attestation_rotation_preserves_identity():
