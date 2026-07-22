@@ -78,6 +78,10 @@ from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewPacket,
     ExpertAutomatedReviewStageResultRecord,
 )
+from kapso.cross_run.expert.review_stage import (
+    ExpertAutomatedReviewStageError,
+    ExpertAutomatedReviewStageOrchestrator,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -108,6 +112,7 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationStateProvider,
 )
 from kapso.cross_run.expert.validation_store import (
+    ExpertAutomatedReviewStageCommitResult,
     ExpertSourceReplayStageCommitResult,
     ExpertValidationCommitResult,
     ExpertValidationCompareAndSwapError,
@@ -143,6 +148,9 @@ __all__ = [
     "ExpertAutomatedReviewOutcome",
     "ExpertAutomatedReviewPacket",
     "ExpertAutomatedReviewStageResultRecord",
+    "ExpertAutomatedReviewStageCommitResult",
+    "ExpertAutomatedReviewStageError",
+    "ExpertAutomatedReviewStageOrchestrator",
     "ExpertEvolutionTriggerDecision",
     "GitHubExpertCurrentReleaseProvider",
     "ExpertAttestationVerifier",

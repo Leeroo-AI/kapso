@@ -521,13 +521,24 @@ Implemented validation substrate:
   canonical execution-journal child and a candidate-scoped kernel lock prevent
   alternate local journals or concurrent orchestrators from duplicating paid
   work, while a partially created empty journal layout remains restartable; and
+- automated review is a distinct typed validation stage rather than an evaluator
+  alias. A self-contained candidate source input and the complete ordered accepted
+  evidence prefix are rendered without truncation to every configured independent
+  reviewer in an empty read-only workspace with no tools or prior-knowledge MCP.
+  The coordinator constructs the configured CLI runner from the authorized
+  workspace root and rejects runner, configured-path, prompt-budget, or sealed
+  artifact-budget substitution. Deterministic operation identities make paid calls
+  restart-safe; exact agent artifacts, receipts, assertions, and
+  unanimous/rejected/disputed adjudication are persisted before one packet-keyed
+  journal CAS. Restart re-derives the full closure, accepted reviews advance only
+  to the release matrix, and rejected or conflicting reviews terminate without
+  appending a passed-stage reference; and
 - parent-authority invalidation is a content-addressed terminal transition that
   preserves accepted-stage history, proves expected versus observed `CURRENT`,
   and makes stale attempts recoverable without accepting their remaining work.
 
-The automated-review, promotion-decision, composition, and release paths remain
-separate later slices; the executable reducer and store cannot synthesize their
-authority.
+The Pareto promotion-decision, composition, and release paths remain separate
+later slices; automated review cannot synthesize their authority.
 
 The shared adapter trust boundary now separates stable scientific manifest
 identity from exact verified package identity. A typed verification receipt binds
@@ -623,11 +634,11 @@ ineligible; it is never treated as a skipped or passed stage.
 
 ## Automated review and decision
 
-- [ ] Accept reviewer assertions only from configured autonomous identities/roles.
-- [ ] Require exact candidate, evidence, evaluator-run, rubric, and parent-release
+- [x] Accept reviewer assertions only from configured autonomous identities/roles.
+- [x] Require exact candidate, evidence, evaluator-run, rubric, and parent-release
       references.
-- [ ] Preserve conflicting reviews as disputed; do not overwrite by time.
-- [ ] A separate coding-agent/service role reviews each proposal; the proposing
+- [x] Preserve conflicting reviews as disputed; do not overwrite by time.
+- [x] A separate coding-agent/service role reviews each proposal; the proposing
       invocation cannot review its own output or transition state.
 - [ ] Supported task-specific improvements remain knowledge/task-adapter candidates,
       never expert core.

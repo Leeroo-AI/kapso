@@ -56,8 +56,9 @@ from kapso.execution.coding_agents.operation_receipt import (
 )
 from kapso.execution.coding_agents.structured_call import (
     CodingAgentCallRequest,
-    CodingAgentCallRunner,
+    CodingAgentRunnerSettings,
     CodingAgentWorkspacePolicy,
+    SubprocessCodingAgentCallRunner,
     coding_agent_invocation_bytes,
     coding_agent_mcp_configuration_fingerprint,
     coding_agent_response_schema_bytes,
@@ -66,6 +67,8 @@ from kapso.execution.coding_agents.structured_call import (
 _PROMPT_TEMPLATE_PATH = Path(__file__).parents[1] / "prompts" / "expert_reviewer.md"
 _PROMPT_PACKET_MARKER = "AUTOMATED_REVIEW_PACKET_JSON"
 _PROVISIONAL_OPERATION_ID = "agent_call_" + "0" * 32
+_AUTOMATED_REVIEW_EXECUTION_SEAL = object()
+_TRUSTED_CODING_AGENT_RUN_METHOD = SubprocessCodingAgentCallRunner.run
 
 ExpertAcceptedReviewInput = (
     ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord
@@ -115,6 +118,13 @@ class PreparedExpertAutomatedReviewPacket:
             or candidate_manifest.parent_release_id != packet.parent_release_id
             or candidate_manifest.proposer_operation_record_id
             != self.candidate_operation.operation_record_id
+            or candidate_manifest.trigger_evidence_packet_id
+            != packet.trigger_evidence_packet_id
+            or candidate_manifest.trigger_decision_id != packet.trigger_decision_id
+            or self.candidate_operation.trigger_evidence_packet_id
+            != packet.trigger_evidence_packet_id
+            or self.candidate_operation.trigger_decision_id
+            != packet.trigger_decision_id
         ):
             raise ExpertAutomatedReviewError(
                 "prepared automated review packet closure is inconsistent"
@@ -122,23 +132,94 @@ class PreparedExpertAutomatedReviewPacket:
         _validate_prepared_review_stage_results(self)
 
 
-@dataclass(frozen=True)
 class ExpertAutomatedReviewExecution:
-    """Complete authenticated facts ready for atomic store publication."""
+    """Process-local coordinator authority over authenticated review facts."""
 
-    prepared_packet: PreparedExpertAutomatedReviewPacket
-    assertions: tuple[ExpertAutomatedReviewAssertion, ...]
-    operation_records: tuple[ExpertAutomatedReviewOperationRecord, ...]
-    adjudication: ExpertAutomatedReviewAdjudication
-    stage_result: ExpertAutomatedReviewStageResultRecord
+    __slots__ = (
+        "_consumed",
+        "_coordinator",
+        "_owner_process_id",
+        "adjudication",
+        "assertions",
+        "operation_records",
+        "prepared_packet",
+        "stage_result",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        coordinator: "ExpertAutomatedReviewCoordinator",
+        *,
+        prepared_packet: PreparedExpertAutomatedReviewPacket,
+        assertions: tuple[ExpertAutomatedReviewAssertion, ...],
+        operation_records: tuple[ExpertAutomatedReviewOperationRecord, ...],
+        adjudication: ExpertAutomatedReviewAdjudication,
+        stage_result: ExpertAutomatedReviewStageResultRecord,
+    ) -> None:
+        if seal is not _AUTOMATED_REVIEW_EXECUTION_SEAL:
+            raise ExpertAutomatedReviewError(
+                "automated review execution is not coordinator sealed"
+            )
+        object.__setattr__(self, "_coordinator", coordinator)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "prepared_packet", prepared_packet)
+        object.__setattr__(self, "assertions", assertions)
+        object.__setattr__(self, "operation_records", operation_records)
+        object.__setattr__(self, "adjudication", adjudication)
+        object.__setattr__(self, "stage_result", stage_result)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertAutomatedReviewError("automated review execution is immutable")
+
+    def _require_bound(self, coordinator: object) -> None:
+        if (
+            self._coordinator is not coordinator
+            or self._owner_process_id != os.getpid()
+            or self._consumed
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review execution is consumed or foreign"
+            )
+
+    def _consume(self, coordinator: object) -> None:
+        self._require_bound(coordinator)
+        object.__setattr__(self, "_consumed", True)
 
 
 class ExpertAutomatedReviewCoordinator:
     """Prepare one immutable review round and invoke every configured slot."""
 
-    def __init__(self, settings: ExpertSettings, runner: CodingAgentCallRunner):
+    def __init__(self, settings: ExpertSettings, workspace_root: Path):
+        self._validate_workspace_root(workspace_root)
         self.settings = settings
-        self.runner = runner
+        self.workspace_root = workspace_root
+        self._owner_process_id = os.getpid()
+        self.runner = SubprocessCodingAgentCallRunner(self._runner_settings())
+
+    def _runner_settings(self) -> CodingAgentRunnerSettings:
+        return CodingAgentRunnerSettings(
+            artifact_root=str(
+                self.workspace_root / self.settings.agent_artifact_path
+            ),
+            termination_grace_seconds=self.settings.termination_grace_seconds,
+            sensitive_file_glob_scan_max_depth=(
+                self.settings.sensitive_file_glob_scan_max_depth
+            ),
+        )
+
+    def _require_runner_authority(self) -> None:
+        if (
+            self._owner_process_id != os.getpid()
+            or type(self.runner) is not SubprocessCodingAgentCallRunner
+            or self.runner.settings != self._runner_settings()
+            or "run" in vars(self.runner)
+            or type(self.runner).run is not _TRUSTED_CODING_AGENT_RUN_METHOD
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review runner lacks configured CLI authority"
+            )
 
     def prepare(
         self,
@@ -204,6 +285,7 @@ class ExpertAutomatedReviewCoordinator:
             parent_release_id=validation_attempt.parent_release_id,
             validation_policy_id=validation_attempt.validation_policy_id,
             configuration_fingerprint=(validation_attempt.configuration_fingerprint),
+            agent_artifact_byte_limit=self.settings.agent_artifact_byte_limit,
             accepted_stage_results=authorization_state.accepted_stage_results,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
@@ -223,6 +305,18 @@ class ExpertAutomatedReviewCoordinator:
         *,
         workspace: Path,
     ) -> ExpertAutomatedReviewExecution:
+        self._require_runner_authority()
+        if (
+            prepared.packet.agent_artifact_byte_limit
+            != self.settings.agent_artifact_byte_limit
+            or prepared.packet.configuration_fingerprint
+            != self.settings.validation.configuration_fingerprint
+            or prepared.validation_policy
+            != self.settings.validation.policy.validation_policy()
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review packet differs from configured execution authority"
+            )
         self._validate_review_workspace(workspace)
         assertions = []
         operations = []
@@ -255,7 +349,16 @@ class ExpertAutomatedReviewCoordinator:
             operation_records=operation_tuple,
             adjudication=adjudication,
         )
+        validate_expert_automated_review_facts(
+            prepared=prepared,
+            assertions=assertion_tuple,
+            operation_records=operation_tuple,
+            adjudication=adjudication,
+            stage_result=stage_result,
+        )
         return ExpertAutomatedReviewExecution(
+            _AUTOMATED_REVIEW_EXECUTION_SEAL,
+            self,
             prepared_packet=prepared,
             assertions=assertion_tuple,
             operation_records=operation_tuple,
@@ -293,6 +396,10 @@ class ExpertAutomatedReviewCoordinator:
             _PROMPT_PACKET_MARKER,
             canonical_json_bytes(prompt_payload).decode("utf-8"),
         )
+        if len(prompt.encode("utf-8")) > prepared.packet.agent_artifact_byte_limit:
+            raise ExpertAutomatedReviewError(
+                "automated review prompt exceeds the configured artifact limit"
+            )
         request, operation_preimage = self._request(
             prepared=prepared,
             reviewer=reviewer,
@@ -311,6 +418,12 @@ class ExpertAutomatedReviewCoordinator:
             ),
             result=result,
         )
+        if sum(len(payload) for payload in sealed.artifact_bytes.values()) > (
+            prepared.packet.agent_artifact_byte_limit
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review artifacts exceed the configured limit"
+            )
         assertion = self._parse_assertion(
             prepared.packet,
             reviewer,
@@ -409,27 +522,7 @@ class ExpertAutomatedReviewCoordinator:
         prepared: PreparedExpertAutomatedReviewPacket,
         reviewer: ExpertReviewerSettings,
     ) -> Mapping[str, Any]:
-        return {
-            "accepted_stage_evidence": tuple(
-                self._review_stage_evidence(result)
-                for result in prepared.accepted_stage_results
-            ),
-            "candidate_input": prepared.candidate_input.to_dict(),
-            "candidate_proposer": {
-                "operation_record_id": (
-                    prepared.candidate_operation.operation_record_id
-                ),
-                "operation_receipt_id": (
-                    prepared.candidate_operation.operation_receipt.operation_receipt_id
-                ),
-                "proposer_authority": (
-                    prepared.candidate_operation.proposer_authority.to_dict()
-                ),
-            },
-            "promotion_policy": (self.settings.validation.policy.promotion.to_dict()),
-            "review_packet": prepared.packet.to_dict(),
-            "reviewer_slot": reviewer.to_dict(),
-        }
+        return expert_automated_review_prompt_payload(prepared, reviewer)
 
     @staticmethod
     def _review_stage_evidence(
@@ -683,6 +776,174 @@ class ExpertAutomatedReviewCoordinator:
             raise ExpertAutomatedReviewError(
                 "automated review workspace must be private"
             )
+
+    @staticmethod
+    def _validate_workspace_root(workspace_root: Path) -> None:
+        if (
+            not isinstance(workspace_root, Path)
+            or not workspace_root.is_absolute()
+            or workspace_root != Path(os.path.abspath(workspace_root))
+            or workspace_root.is_symlink()
+            or not workspace_root.is_dir()
+            or workspace_root.resolve() != workspace_root
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review workspace root must be an authorized real directory"
+            )
+        metadata = workspace_root.stat(follow_symlinks=False)
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_mode & (
+            stat.S_IRWXG | stat.S_IRWXO
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review workspace root must be private"
+            )
+
+
+def expert_automated_review_prompt_payload(
+    prepared: PreparedExpertAutomatedReviewPacket,
+    reviewer: ExpertReviewerSettings,
+) -> Mapping[str, Any]:
+    return {
+        "accepted_stage_evidence": tuple(
+            ExpertAutomatedReviewCoordinator._review_stage_evidence(result)
+            for result in prepared.accepted_stage_results
+        ),
+        "candidate_input": prepared.candidate_input.to_dict(),
+        "candidate_proposer": {
+            "operation_record_id": prepared.candidate_operation.operation_record_id,
+            "operation_receipt_id": (
+                prepared.candidate_operation.operation_receipt.operation_receipt_id
+            ),
+            "proposer_authority": (
+                prepared.candidate_operation.proposer_authority.to_dict()
+            ),
+        },
+        "promotion_policy": prepared.validation_policy.policy.promotion.to_dict(),
+        "review_packet": prepared.packet.to_dict(),
+        "reviewer_slot": reviewer.to_dict(),
+    }
+
+
+def validate_expert_automated_review_facts(
+    *,
+    prepared: PreparedExpertAutomatedReviewPacket,
+    assertions: tuple[ExpertAutomatedReviewAssertion, ...],
+    operation_records: tuple[ExpertAutomatedReviewOperationRecord, ...],
+    adjudication: ExpertAutomatedReviewAdjudication,
+    stage_result: ExpertAutomatedReviewStageResultRecord,
+) -> None:
+    policy = prepared.validation_policy.policy
+    reviewers = {reviewer.reviewer_id: reviewer for reviewer in policy.reviewers}
+    assertions_by_reviewer = {
+        assertion.reviewer_id: assertion for assertion in assertions
+    }
+    operations_by_reviewer = {
+        operation.operation_receipt.principal_id: operation
+        for operation in operation_records
+    }
+    if (
+        set(assertions_by_reviewer) != set(reviewers)
+        or set(operations_by_reviewer) != set(reviewers)
+        or len(assertions_by_reviewer) != len(assertions)
+        or len(operations_by_reviewer) != len(operation_records)
+    ):
+        raise ExpertAutomatedReviewError(
+            "automated review fact closure does not match configured reviewers"
+        )
+    template = ExpertAutomatedReviewCoordinator.operation_template()
+    schema = ExpertAutomatedReviewCoordinator.response_schema(policy.promotion)
+    for reviewer_id in sorted(reviewers):
+        reviewer = reviewers[reviewer_id]
+        assertion = assertions_by_reviewer[reviewer_id]
+        operation = operations_by_reviewer[reviewer_id]
+        validate_expert_automated_review_operation(
+            packet=prepared.packet,
+            reviewer=reviewer,
+            assertion=assertion,
+            operation=operation,
+            promotion=policy.promotion,
+        )
+        prompt = template.replace(
+            _PROMPT_PACKET_MARKER,
+            canonical_json_bytes(
+                expert_automated_review_prompt_payload(prepared, reviewer)
+            ).decode("utf-8"),
+        )
+        payloads = {
+            name: base64.b64decode(payload, validate=True)
+            for name, payload in operation.artifact_payloads_base64.items()
+        }
+        if sum(len(payload) for payload in payloads.values()) > (
+            prepared.packet.agent_artifact_byte_limit
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review artifacts exceed the configured limit"
+            )
+        scan_depth = operation.operation_preimage[
+            "sensitive_file_glob_scan_max_depth"
+        ]
+        expected_request = CodingAgentCallRequest(
+            operation_id=operation.operation_receipt.operation_id,
+            role=reviewer.reviewer_role,
+            cli=reviewer.agent.cli,
+            model=reviewer.agent.model,
+            prompt=prompt,
+            workspace="/",
+            workspace_policy=CodingAgentWorkspacePolicy.read_only(),
+            timeout_seconds=reviewer.agent.timeout_seconds,
+            effort=reviewer.agent.effort,
+            allowed_tools=(),
+            prior_knowledge=None,
+        )
+        expected_inputs = {
+            "invocation.json": coding_agent_invocation_bytes(
+                expected_request,
+                sensitive_file_glob_scan_max_depth=scan_depth,
+            ),
+            "prior_knowledge.json": b"null\n",
+            "prompt.txt": prompt.encode("utf-8"),
+            "response_schema.json": coding_agent_response_schema_bytes(schema),
+        }
+        expected_preimage = {
+            "input_artifact_checksums": {
+                name: tree_or_blob_digest(payload)
+                for name, payload in sorted(expected_inputs.items())
+            },
+            "mcp_configuration_fingerprint": (
+                coding_agent_mcp_configuration_fingerprint(None)
+            ),
+            "review_contract_version": EXPERT_AUTOMATED_REVIEW_CONTRACT_VERSION,
+            "review_packet_id": prepared.packet.review_packet_id,
+            "reviewer": reviewer.to_dict(),
+            "sensitive_file_glob_scan_max_depth": scan_depth,
+            "validation_configuration_fingerprint": (
+                prepared.packet.configuration_fingerprint
+            ),
+        }
+        if (
+            canonical_json_bytes(operation.operation_preimage)
+            != canonical_json_bytes(expected_preimage)
+            or any(payloads[name] != payload for name, payload in expected_inputs.items())
+        ):
+            raise ExpertAutomatedReviewError(
+                "automated review operation did not use the canonical packet prompt"
+            )
+    expected_adjudication = adjudicate_expert_automated_review(
+        packet=prepared.packet,
+        validation_policy=prepared.validation_policy,
+        assertions=assertions,
+        operation_records=operation_records,
+    )
+    expected_result = build_expert_automated_review_stage_result(
+        prepared=prepared,
+        assertions=assertions,
+        operation_records=operation_records,
+        adjudication=expected_adjudication,
+    )
+    if adjudication != expected_adjudication or stage_result != expected_result:
+        raise ExpertAutomatedReviewError(
+            "automated review aggregate differs from canonical facts"
+        )
 
 
 def validate_expert_automated_review_operation(

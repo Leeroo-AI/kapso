@@ -32,6 +32,10 @@ from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
 )
+from kapso.cross_run.expert.review_contracts import (
+    ExpertAutomatedReviewOutcome,
+    ExpertAutomatedReviewStageResultRecord,
+)
 from kapso.cross_run.settings import (
     ExpertEvaluatorSettings,
     ExpertValidationPolicy,
@@ -511,6 +515,13 @@ class ExpertEvaluatorRunBuilder:
             raise ExpertValidationError(
                 "source replay requires a typed execution receipt"
             )
+        if stage in {
+            ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+        }:
+            raise ExpertValidationError(
+                f"stage {stage.value} requires a typed decision record"
+            )
         evaluator = self._evaluator(stage)
         self._validate_outputs(output_payloads)
         for input_id in exact_additional_input_ids:
@@ -520,7 +531,6 @@ class ExpertEvaluatorRunBuilder:
                 "additional evaluator inputs must be sorted and unique"
             )
         stages_requiring_external_evidence = {
-            ExpertValidationStage.SOURCE_RUN_REPLAY,
             ExpertValidationStage.DEVELOPMENT_ANCHORS,
             ExpertValidationStage.CROSS_FAMILY_TRANSFER,
             ExpertValidationStage.SEALED_CANARY,
@@ -964,7 +974,10 @@ class ExpertValidationReducer:
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
         accepted_results: tuple[
-            ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord,
+            ...,
         ],
         result: ExpertEvaluatorResultRecord,
     ) -> ExpertCandidateValidationState:
@@ -991,6 +1004,18 @@ class ExpertValidationReducer:
         expected_stage = attempt.required_stages[accepted_count]
         run = result.evaluator_run
         envelope = result.attestation_envelope
+        if expected_stage in {
+            ExpertValidationStage.SOURCE_RUN_REPLAY,
+            ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+        } or run.stage in {
+            ExpertValidationStage.SOURCE_RUN_REPLAY,
+            ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+        }:
+            raise ExpertValidationError(
+                "typed decision stage cannot consume an evaluator result"
+            )
         if state.next_stage is not expected_stage or run.stage is not expected_stage:
             raise ExpertValidationError("evaluator result is out of order")
         evaluator = ExpertEvaluatorRunBuilder(self.settings)._evaluator(expected_stage)
@@ -1059,7 +1084,10 @@ class ExpertValidationReducer:
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
         accepted_results: tuple[
-            ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord,
+            ...,
         ],
         result: ExpertSourceReplayStageResultRecord,
     ) -> ExpertCandidateValidationState:
@@ -1146,6 +1174,117 @@ class ExpertValidationReducer:
             reason="stage_source_run_replay_passed",
         )
 
+    def advance_automated_review_stage(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord,
+            ...,
+        ],
+        result: ExpertAutomatedReviewStageResultRecord,
+    ) -> ExpertCandidateValidationState:
+        if (
+            state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+        ):
+            raise ExpertValidationError("only the matching active attempt may advance")
+        policy = self.settings.policy.validation_policy()
+        if (
+            attempt.validation_policy_id != policy.validation_policy_id
+            or attempt.configuration_fingerprint
+            != self.settings.configuration_fingerprint
+        ):
+            raise ExpertValidationError(
+                "active attempt differs from reducer configuration"
+            )
+        self._validate_accepted_history(state, attempt, accepted_results)
+        accepted_count = len(state.accepted_stage_results)
+        if accepted_count >= len(attempt.required_stages):
+            raise ExpertValidationError("validation attempt has no remaining stage")
+        expected_stage = attempt.required_stages[accepted_count]
+        if (
+            type(result) is not ExpertAutomatedReviewStageResultRecord
+            or state.next_stage is not ExpertValidationStage.AUTOMATED_REVIEW
+            or expected_stage is not ExpertValidationStage.AUTOMATED_REVIEW
+            or result.validation_attempt_id != attempt.validation_attempt_id
+            or result.authorization_state_id != state.validation_state_id
+            or result.candidate_id != attempt.candidate_id
+            or result.candidate_tree_hash != attempt.candidate_tree_hash
+            or result.scope_contract_id != attempt.scope_contract_id
+            or result.parent_release_id != attempt.parent_release_id
+            or result.validation_policy_id != attempt.validation_policy_id
+            or result.configuration_fingerprint != attempt.configuration_fingerprint
+        ):
+            raise ExpertValidationError(
+                "automated review result differs from the active configured stage"
+            )
+        assertion_ids = result.assertion_ids
+        if result.outcome is ExpertAutomatedReviewOutcome.REJECTED:
+            return ExpertCandidateValidationState.mint(
+                validation_attempt_id=attempt.validation_attempt_id,
+                candidate_id=attempt.candidate_id,
+                candidate_tree_hash=attempt.candidate_tree_hash,
+                predecessor_state_id=state.validation_state_id,
+                promotion_state=ExpertPromotionState.FAILED,
+                accepted_stage_results=state.accepted_stage_results,
+                next_stage=None,
+                review_assertion_ids=assertion_ids,
+                terminal_evidence_ids=(result.stage_result_record_id,),
+                transition_evidence_id=result.stage_result_record_id,
+                reason="stage_automated_review_rejected",
+            )
+        if result.outcome is ExpertAutomatedReviewOutcome.DISPUTED:
+            if len(assertion_ids) < 2:
+                raise ExpertValidationError(
+                    "disputed automated review requires multiple assertions"
+                )
+            return ExpertCandidateValidationState.mint(
+                validation_attempt_id=attempt.validation_attempt_id,
+                candidate_id=attempt.candidate_id,
+                candidate_tree_hash=attempt.candidate_tree_hash,
+                predecessor_state_id=state.validation_state_id,
+                promotion_state=ExpertPromotionState.DISPUTED,
+                accepted_stage_results=state.accepted_stage_results,
+                next_stage=None,
+                review_assertion_ids=assertion_ids,
+                terminal_evidence_ids=(result.stage_result_record_id,),
+                transition_evidence_id=result.stage_result_record_id,
+                reason="stage_automated_review_disputed",
+            )
+        if result.outcome is not ExpertAutomatedReviewOutcome.PASSED:
+            raise ExpertValidationError("automated review outcome is unsupported")
+        accepted = (
+            *state.accepted_stage_results,
+            ExpertAcceptedStageResultRef(
+                stage=ExpertValidationStage.AUTOMATED_REVIEW,
+                stage_result_record_id=result.stage_result_record_id,
+            ),
+        )
+        next_position = len(accepted)
+        if next_position >= len(attempt.required_stages):
+            raise ExpertValidationError(
+                "final promotion stages require a typed promotion decision"
+            )
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.VALIDATING,
+            accepted_stage_results=accepted,
+            next_stage=attempt.required_stages[next_position],
+            review_assertion_ids=assertion_ids,
+            terminal_evidence_ids=(),
+            transition_evidence_id=result.stage_result_record_id,
+            reason="stage_automated_review_passed",
+        )
+
     def _validate_result_closure(
         self,
         attempt: ExpertValidationAttempt,
@@ -1155,6 +1294,13 @@ class ExpertValidationReducer:
         if run.stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
             raise ExpertValidationError(
                 "source replay requires a typed execution receipt"
+            )
+        if run.stage in {
+            ExpertValidationStage.AUTOMATED_REVIEW,
+            ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+        }:
+            raise ExpertValidationError(
+                f"stage {run.stage.value} requires a typed decision record"
             )
         envelope = result.attestation_envelope
         attestation = envelope.attestation
@@ -1201,7 +1347,10 @@ class ExpertValidationReducer:
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
         accepted_results: tuple[
-            ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord,
+            ...,
         ],
     ) -> None:
         if len(accepted_results) != len(state.accepted_stage_results):
@@ -1237,6 +1386,31 @@ class ExpertValidationReducer:
                 ):
                     raise ExpertValidationError(
                         "accepted source replay differs from the stage prefix"
+                    )
+                continue
+            if expected_stage is ExpertValidationStage.AUTOMATED_REVIEW:
+                if (
+                    type(accepted_result) is not ExpertAutomatedReviewStageResultRecord
+                    or evidence.stage is not expected_stage
+                    or evidence.stage_result_record_id
+                    != accepted_result.stage_result_record_id
+                    or accepted_result.outcome
+                    is not ExpertAutomatedReviewOutcome.PASSED
+                    or accepted_result.validation_attempt_id
+                    != attempt.validation_attempt_id
+                    or accepted_result.candidate_id != attempt.candidate_id
+                    or accepted_result.candidate_tree_hash
+                    != attempt.candidate_tree_hash
+                    or accepted_result.scope_contract_id != attempt.scope_contract_id
+                    or accepted_result.parent_release_id != attempt.parent_release_id
+                    or accepted_result.validation_policy_id
+                    != attempt.validation_policy_id
+                    or accepted_result.configuration_fingerprint
+                    != attempt.configuration_fingerprint
+                    or state.review_assertion_ids != accepted_result.assertion_ids
+                ):
+                    raise ExpertValidationError(
+                        "accepted automated review differs from the stage prefix"
                     )
                 continue
             if type(accepted_result) is not ExpertEvaluatorResultRecord:

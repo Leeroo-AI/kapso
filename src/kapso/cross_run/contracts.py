@@ -4173,11 +4173,28 @@ class ExpertAcceptedStageResultRef(StrictContract):
             self.stage_result_record_id,
             "accepted stage_result_record_id",
         )
-        expected_namespace = (
-            "expert-source-replay-stage-result"
-            if self.stage is ExpertValidationStage.SOURCE_RUN_REPLAY
-            else "expert-evaluator-result-record"
-        )
+        evaluator_stages = {
+            ExpertValidationStage.CONTRACT_SCHEMA,
+            ExpertValidationStage.IDENTITY_SECRETS_LICENSE_DEPENDENCY,
+            ExpertValidationStage.STATIC_UNIT_SECURITY_RESOURCE,
+            ExpertValidationStage.SYNTHETIC_FRESH_TASK,
+            ExpertValidationStage.DEVELOPMENT_ANCHORS,
+            ExpertValidationStage.CROSS_FAMILY_TRANSFER,
+            ExpertValidationStage.SEALED_CANARY,
+            ExpertValidationStage.RELEASE_MATRIX,
+        }
+        if self.stage in evaluator_stages:
+            expected_namespace = "expert-evaluator-result-record"
+        elif self.stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
+            expected_namespace = "expert-source-replay-stage-result"
+        elif self.stage is ExpertValidationStage.AUTOMATED_REVIEW:
+            expected_namespace = "expert-automated-review-stage-result"
+        elif self.stage is ExpertValidationStage.PUBLICATION_ELIGIBILITY:
+            expected_namespace = "expert-publication-eligibility-stage-result"
+        else:
+            raise ContractValidationError(
+                "accepted stage result uses an unsupported stage"
+            )
         if self.stage_result_record_id.split(":sha256:", 1)[0] != expected_namespace:
             raise ContractValidationError(
                 "accepted stage result record uses the wrong namespace"

@@ -89,6 +89,7 @@ class ExpertAutomatedReviewPacket(StrictContract):
     parent_release_id: str | None
     validation_policy_id: str
     configuration_fingerprint: str
+    agent_artifact_byte_limit: int
     accepted_stage_results: tuple[ExpertAcceptedStageResultRef, ...]
     exact_dependency_ids: tuple[str, ...]
 
@@ -120,6 +121,13 @@ class ExpertAutomatedReviewPacket(StrictContract):
             self.configuration_fingerprint,
             "review configuration_fingerprint",
         )
+        if (
+            type(self.agent_artifact_byte_limit) is not int
+            or self.agent_artifact_byte_limit <= 0
+        ):
+            raise ContractValidationError(
+                "review agent artifact byte limit must be positive"
+            )
         if not self.accepted_stage_results:
             raise ContractValidationError(
                 "automated review requires an accepted evaluator prefix"

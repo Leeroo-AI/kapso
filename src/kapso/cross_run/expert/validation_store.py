@@ -17,7 +17,9 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    CodingAgentOperationReceipt,
     ContractValidationError,
+    ExpertCandidateOperationRecord,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
     ExpertEvaluatorOutcome,
@@ -50,6 +52,23 @@ from kapso.cross_run.expert.replay_publication import (
     ExpertSourceReplayDecisionPublicationCoordinator,
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
+from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
+from kapso.cross_run.expert.review import (
+    ExpertAutomatedReviewCoordinator,
+    ExpertAutomatedReviewExecution,
+    PreparedExpertAutomatedReviewPacket,
+    adjudicate_expert_automated_review,
+    build_expert_automated_review_stage_result,
+    validate_expert_automated_review_facts,
+)
+from kapso.cross_run.expert.review_contracts import (
+    ExpertAutomatedReviewAdjudication,
+    ExpertAutomatedReviewAssertion,
+    ExpertAutomatedReviewOperationRecord,
+    ExpertAutomatedReviewOutcome,
+    ExpertAutomatedReviewPacket,
+    ExpertAutomatedReviewStageResultRecord,
+)
 from kapso.cross_run.settings import (
     ExpertValidationPolicy,
     ExpertValidationSettings,
@@ -69,6 +88,7 @@ class ExpertValidationOperationKind(str, Enum):
     EVALUATOR_RESULT = "evaluator_result"
     SOURCE_REPLAY_RESERVATION = "source_replay_reservation"
     SOURCE_REPLAY_STAGE_RESULT = "source_replay_stage_result"
+    AUTOMATED_REVIEW_STAGE_RESULT = "automated_review_stage_result"
     AUTHORITY_INVALIDATION = "authority_invalidation"
 
 
@@ -227,7 +247,10 @@ class ExpertValidationSnapshot:
     state: ExpertCandidateValidationState
     latest_attempt: ExpertValidationAttempt | None
     accepted_stage_results: tuple[
-        ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+        ExpertEvaluatorResultRecord
+        | ExpertSourceReplayStageResultRecord
+        | ExpertAutomatedReviewStageResultRecord,
+        ...,
     ]
 
     @property
@@ -298,6 +321,13 @@ class ExpertSourceReplayReservationSnapshot:
 @dataclass(frozen=True)
 class ExpertSourceReplayStageCommitResult:
     stage_result: ExpertSourceReplayStageResultRecord
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class ExpertAutomatedReviewStageCommitResult:
+    stage_result: ExpertAutomatedReviewStageResultRecord
     snapshot: ExpertValidationSnapshot
     replayed: bool
 
@@ -400,6 +430,7 @@ class ExpertValidationStore:
         self.journal_root = root / "journals"
         self.staging_root = root / "staging"
         self._source_replay_publication_coordinator = None
+        self._automated_review_coordinator = None
         initialization_lock = state_root / f".{root.name}.initialization.lock"
         with _ValidationStoreLock(initialization_lock, exclusive=True, create=True):
             self._prepare_layout()
@@ -412,6 +443,59 @@ class ExpertValidationStore:
         require_content_id(candidate_id, "candidate_id")
         with self._lock(exclusive=False):
             return self._snapshot_unlocked(candidate_id)
+
+    def reopen_or_replay_automated_review(
+        self,
+        packet: ExpertAutomatedReviewPacket,
+    ) -> ExpertAutomatedReviewStageCommitResult | None:
+        if type(packet) is not ExpertAutomatedReviewPacket:
+            raise ExpertValidationStoreError(
+                "automated review replay requires its typed packet"
+            )
+        operation = self._automated_review_operation(packet)
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(packet.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertAutomatedReviewStageCommitResult(
+                    stage_result=self._automated_review_result_for_transition_unlocked(
+                        replay.transition
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(
+                current,
+                packet.authorization_transition_id,
+            )
+            if (
+                current is None
+                or current.latest_attempt is None
+                or current.state.validation_state_id != packet.authorization_state_id
+                or current.latest_attempt.validation_attempt_id
+                != packet.validation_attempt_id
+                or current.state.next_stage
+                is not ExpertValidationStage.AUTOMATED_REVIEW
+            ):
+                raise ExpertValidationStoreError(
+                    "automated review packet lacks current stage authority"
+                )
+        return None
+
+    def automated_review_stage_lock(
+        self,
+        candidate_id: str,
+    ) -> _ValidationStoreLock:
+        """Serialize paid review work for one candidate across processes."""
+        require_content_id(candidate_id, "candidate_id")
+        candidate_digest = candidate_id.rsplit(":", 1)[-1]
+        return _ValidationStoreLock(
+            self.state_root
+            / f".{self.root.name}.{candidate_digest}.automated-review.lock",
+            exclusive=True,
+            create=True,
+        )
 
     def reopen_or_replay_source_replay_publication(
         self,
@@ -470,6 +554,57 @@ class ExpertValidationStore:
                 "validation store already has another publication coordinator"
             )
         self._source_replay_publication_coordinator = coordinator
+
+    def _bind_automated_review_publication_authority(
+        self,
+        coordinator: ExpertAutomatedReviewCoordinator,
+    ) -> None:
+        if type(coordinator) is not ExpertAutomatedReviewCoordinator:
+            raise ExpertValidationStoreError(
+                "validation store review coordinator type is invalid"
+            )
+        coordinator._require_runner_authority()
+        if (
+            self._automated_review_coordinator is not None
+            and self._automated_review_coordinator is not coordinator
+        ) or (
+            self.reducer.candidate_store.validator.settings != coordinator.settings
+            or self.settings != coordinator.settings.validation
+            or self.reducer.candidate_store.root
+            != coordinator.workspace_root / coordinator.settings.candidate_path
+            or self.root
+            != coordinator.workspace_root
+            / coordinator.settings.validation.state_path
+        ):
+            raise ExpertValidationStoreError(
+                "validation store has invalid or conflicting review authority"
+            )
+        self._automated_review_coordinator = coordinator
+
+    def _require_bound_automated_review_authority(
+        self,
+        coordinator: object,
+    ) -> ExpertAutomatedReviewCoordinator:
+        if type(coordinator) is not ExpertAutomatedReviewCoordinator:
+            raise ExpertValidationStoreError(
+                "automated review publication lacks bound coordinator authority"
+            )
+        coordinator._require_runner_authority()
+        if (
+            coordinator is not self._automated_review_coordinator
+            or self.reducer.candidate_store.validator.settings
+            != coordinator.settings
+            or self.settings != coordinator.settings.validation
+            or self.reducer.candidate_store.root
+            != coordinator.workspace_root / coordinator.settings.candidate_path
+            or self.root
+            != coordinator.workspace_root
+            / coordinator.settings.validation.state_path
+        ):
+            raise ExpertValidationStoreError(
+                "automated review publication authority changed after binding"
+            )
+        return coordinator
 
     def _seal_source_replay_publication_authority(
         self,
@@ -792,6 +927,110 @@ class ExpertValidationStore:
             self._publish_journal_unlocked(updated)
             return ExpertValidationCommitResult(
                 snapshot=self._snapshot_at_unlocked(updated, transition.transition_id),
+                replayed=False,
+            )
+
+    def publish_automated_review_stage(
+        self,
+        execution: ExpertAutomatedReviewExecution,
+    ) -> ExpertAutomatedReviewStageCommitResult:
+        if type(execution) is not ExpertAutomatedReviewExecution:
+            raise ExpertValidationStoreError(
+                "automated review publication requires its complete execution"
+            )
+        packet = execution.prepared_packet.packet
+        operation = self._automated_review_operation(packet)
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(packet.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertAutomatedReviewStageCommitResult(
+                    stage_result=self._automated_review_result_for_transition_unlocked(
+                        replay.transition
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            observed = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(
+                observed,
+                packet.authorization_transition_id,
+            )
+            if observed is None or observed.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "automated review requires a current validation attempt"
+                )
+        coordinator = self._require_bound_automated_review_authority(
+            self._automated_review_coordinator
+        )
+        prepared, result, target_state = self._validate_automated_review_execution(
+            execution,
+            observed,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(packet.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertAutomatedReviewStageCommitResult(
+                    stage_result=self._automated_review_result_for_transition_unlocked(
+                        replay.transition
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(
+                current,
+                packet.authorization_transition_id,
+            )
+            if current != observed or current.latest_attempt is None:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during automated review checks"
+                )
+            execution._consume(coordinator)
+            accepted_ids = current.transition.accepted_stage_result_record_ids
+            if result.outcome is ExpertAutomatedReviewOutcome.PASSED:
+                accepted_ids = (*accepted_ids, result.stage_result_record_id)
+            transition = ExpertValidationTransition.mint(
+                candidate_id=packet.candidate_id,
+                candidate_tree_hash=packet.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=current.transition.transition_id,
+                predecessor_state_id=current.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=current.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=current.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    current.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=accepted_ids,
+                transition_stage_result_record_id=result.stage_result_record_id,
+                transition_authority_invalidation_id=None,
+            )
+            self._write_contract_unlocked(prepared.candidate_input)
+            self._write_contract_unlocked(prepared.candidate_operation)
+            self._write_contract_unlocked(packet)
+            for review_operation in execution.operation_records:
+                self._write_contract_unlocked(review_operation.operation_receipt)
+                self._write_contract_unlocked(review_operation)
+            for assertion in execution.assertions:
+                self._write_contract_unlocked(assertion)
+            self._write_contract_unlocked(execution.adjudication)
+            self._write_contract_unlocked(result)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertAutomatedReviewStageCommitResult(
+                stage_result=result,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
                 replayed=False,
             )
 
@@ -1265,6 +1504,90 @@ class ExpertValidationStore:
             request_record_id=reservation.reservation_id,
         )
 
+    @staticmethod
+    def _automated_review_operation(
+        packet: ExpertAutomatedReviewPacket,
+    ) -> ExpertValidationOperation:
+        return ExpertValidationOperation.mint(
+            operation_kind=(
+                ExpertValidationOperationKind.AUTOMATED_REVIEW_STAGE_RESULT
+            ),
+            candidate_id=packet.candidate_id,
+            expected_transition_id=packet.authorization_transition_id,
+            request_record_id=packet.review_packet_id,
+        )
+
+    def _validate_automated_review_execution(
+        self,
+        execution: ExpertAutomatedReviewExecution,
+        observed: ExpertValidationSnapshot,
+    ) -> tuple[
+        PreparedExpertAutomatedReviewPacket,
+        ExpertAutomatedReviewStageResultRecord,
+        ExpertCandidateValidationState,
+    ]:
+        if observed.latest_attempt is None:
+            raise ExpertValidationStoreError(
+                "automated review execution has no active attempt"
+            )
+        supplied = execution.prepared_packet
+        prepared = PreparedExpertAutomatedReviewPacket(
+            packet=supplied.packet,
+            candidate_input=supplied.candidate_input,
+            candidate_operation=supplied.candidate_operation,
+            validation_attempt=supplied.validation_attempt,
+            authorization_state=supplied.authorization_state,
+            validation_policy=supplied.validation_policy,
+            accepted_stage_results=supplied.accepted_stage_results,
+        )
+        packet = prepared.packet
+        policy = self.settings.policy.validation_policy()
+        if (
+            prepared != supplied
+            or prepared.validation_attempt != observed.latest_attempt
+            or prepared.authorization_state != observed.state
+            or prepared.accepted_stage_results != observed.accepted_stage_results
+            or prepared.validation_policy != policy
+            or packet.authorization_transition_id != observed.transition.transition_id
+        ):
+            raise ExpertValidationStoreError(
+                "automated review execution differs from the validation head"
+            )
+        adjudication = adjudicate_expert_automated_review(
+            packet=packet,
+            validation_policy=policy,
+            assertions=execution.assertions,
+            operation_records=execution.operation_records,
+        )
+        if adjudication != execution.adjudication:
+            raise ExpertValidationStoreError(
+                "automated review adjudication is not deterministic"
+            )
+        result = build_expert_automated_review_stage_result(
+            prepared=prepared,
+            assertions=execution.assertions,
+            operation_records=execution.operation_records,
+            adjudication=adjudication,
+        )
+        if result != execution.stage_result:
+            raise ExpertValidationStoreError(
+                "automated review stage result is not deterministic"
+            )
+        validate_expert_automated_review_facts(
+            prepared=prepared,
+            assertions=execution.assertions,
+            operation_records=execution.operation_records,
+            adjudication=adjudication,
+            stage_result=result,
+        )
+        target_state = self.reducer.advance_automated_review_stage(
+            state=observed.state,
+            attempt=observed.latest_attempt,
+            accepted_results=observed.accepted_stage_results,
+            result=result,
+        )
+        return prepared, result, target_state
+
     def _current_source_replay_reservation_unlocked(
         self,
         journal: ExpertValidationJournal,
@@ -1309,10 +1632,32 @@ class ExpertValidationStore:
             ExpertSourceReplayStageResultRecord,
         )
 
+    def _automated_review_result_for_transition_unlocked(
+        self,
+        transition: ExpertValidationTransition,
+    ) -> ExpertAutomatedReviewStageResultRecord:
+        result_record_id = transition.transition_stage_result_record_id
+        if (
+            result_record_id is None
+            or result_record_id.split(":sha256:", 1)[0]
+            != "expert-automated-review-stage-result"
+        ):
+            raise ExpertValidationStoreError(
+                "validation transition does not contain an automated review result"
+            )
+        return self._read_contract_unlocked(
+            result_record_id,
+            ExpertAutomatedReviewStageResultRecord,
+        )
+
     def _read_stage_result_unlocked(
         self,
         result_record_id: str,
-    ) -> ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord:
+    ) -> (
+        ExpertEvaluatorResultRecord
+        | ExpertSourceReplayStageResultRecord
+        | ExpertAutomatedReviewStageResultRecord
+    ):
         namespace = result_record_id.split(":sha256:", 1)[0]
         if namespace == "expert-evaluator-result-record":
             return self._read_contract_unlocked(
@@ -1324,17 +1669,26 @@ class ExpertValidationStore:
                 result_record_id,
                 ExpertSourceReplayStageResultRecord,
             )
+        if namespace == "expert-automated-review-stage-result":
+            return self._read_contract_unlocked(
+                result_record_id,
+                ExpertAutomatedReviewStageResultRecord,
+            )
         raise ExpertValidationStoreError(
             "validation stage result uses an unsupported namespace"
         )
 
     @staticmethod
     def _stage_result_projection(
-        result: ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord,
+        result: (
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord
+        ),
     ) -> tuple[
         ExpertValidationStage,
         str,
-        ExpertEvaluatorOutcome,
+        bool,
         str,
         str,
         str,
@@ -1344,7 +1698,7 @@ class ExpertValidationStore:
             return (
                 run.stage,
                 result.evaluator_result_record_id,
-                run.outcome,
+                run.outcome is ExpertEvaluatorOutcome.PASSED,
                 run.validation_attempt_id,
                 run.candidate_id,
                 run.candidate_tree_hash,
@@ -1353,7 +1707,16 @@ class ExpertValidationStore:
             return (
                 ExpertValidationStage.SOURCE_RUN_REPLAY,
                 result.stage_result_record_id,
-                result.outcome,
+                result.outcome is ExpertEvaluatorOutcome.PASSED,
+                result.validation_attempt_id,
+                result.candidate_id,
+                result.candidate_tree_hash,
+            )
+        if type(result) is ExpertAutomatedReviewStageResultRecord:
+            return (
+                ExpertValidationStage.AUTOMATED_REVIEW,
+                result.stage_result_record_id,
+                result.outcome is ExpertAutomatedReviewOutcome.PASSED,
                 result.validation_attempt_id,
                 result.candidate_id,
                 result.candidate_tree_hash,
@@ -1749,6 +2112,197 @@ class ExpertValidationStore:
                 "source replay result state semantics are inconsistent"
             )
 
+    def _validate_automated_review_transition_unlocked(
+        self,
+        *,
+        transition: ExpertValidationTransition,
+        state: ExpertCandidateValidationState,
+        operation: ExpertValidationOperation,
+        latest_attempt: ExpertValidationAttempt | None,
+        previous_accepted: tuple[str, ...],
+        result_record: ExpertAutomatedReviewStageResultRecord,
+        validation_policy: ExpertValidationPolicy,
+    ) -> None:
+        if transition.predecessor_state_id is None or latest_attempt is None:
+            raise ExpertValidationStoreError(
+                "automated review result requires its active predecessor"
+            )
+        predecessor_state = self._read_contract_unlocked(
+            transition.predecessor_state_id,
+            ExpertCandidateValidationState,
+        )
+        if transition.predecessor_transition_id is None:
+            raise ExpertValidationStoreError(
+                "automated review result requires its authorization transition"
+            )
+        predecessor_transition = self._read_contract_unlocked(
+            transition.predecessor_transition_id,
+            ExpertValidationTransition,
+        )
+        packet = self._read_contract_unlocked(
+            result_record.review_packet_id,
+            ExpertAutomatedReviewPacket,
+        )
+        candidate_input = self._read_contract_unlocked(
+            packet.candidate_input_id,
+            ExpertCandidateAncestorInput,
+        )
+        candidate_operation = self._read_contract_unlocked(
+            packet.proposer_operation_record_id,
+            ExpertCandidateOperationRecord,
+        )
+        accepted_results = tuple(
+            self._read_stage_result_unlocked(result_id)
+            for result_id in previous_accepted
+        )
+        prepared = PreparedExpertAutomatedReviewPacket(
+            packet=packet,
+            candidate_input=candidate_input,
+            candidate_operation=candidate_operation,
+            validation_attempt=latest_attempt,
+            authorization_state=predecessor_state,
+            validation_policy=validation_policy,
+            accepted_stage_results=accepted_results,
+        )
+        assertions = tuple(
+            sorted(
+                (
+                    self._read_contract_unlocked(
+                        assertion_id,
+                        ExpertAutomatedReviewAssertion,
+                    )
+                    for assertion_id in result_record.assertion_ids
+                ),
+                key=lambda assertion: assertion.reviewer_id,
+            )
+        )
+        review_operations = tuple(
+            sorted(
+                (
+                    self._read_contract_unlocked(
+                        operation_record_id,
+                        ExpertAutomatedReviewOperationRecord,
+                    )
+                    for operation_record_id in result_record.operation_record_ids
+                ),
+                key=lambda review_operation: (
+                    review_operation.operation_receipt.principal_id
+                ),
+            )
+        )
+        stored_receipts = tuple(
+            self._read_contract_unlocked(
+                receipt_id,
+                CodingAgentOperationReceipt,
+            )
+            for receipt_id in result_record.operation_receipt_ids
+        )
+        adjudication = self._read_contract_unlocked(
+            result_record.adjudication_id,
+            ExpertAutomatedReviewAdjudication,
+        )
+        expected_adjudication = adjudicate_expert_automated_review(
+            packet=packet,
+            validation_policy=validation_policy,
+            assertions=assertions,
+            operation_records=review_operations,
+        )
+        expected_result = build_expert_automated_review_stage_result(
+            prepared=prepared,
+            assertions=assertions,
+            operation_records=review_operations,
+            adjudication=expected_adjudication,
+        )
+        validate_expert_automated_review_facts(
+            prepared=prepared,
+            assertions=assertions,
+            operation_records=review_operations,
+            adjudication=adjudication,
+            stage_result=result_record,
+        )
+        common_invalid = (
+            operation.operation_kind
+            is not ExpertValidationOperationKind.AUTOMATED_REVIEW_STAGE_RESULT
+            or operation.request_record_id != packet.review_packet_id
+            or operation.expected_transition_id != packet.authorization_transition_id
+            or transition.predecessor_transition_id
+            != packet.authorization_transition_id
+            or packet.authorization_state_id != predecessor_state.validation_state_id
+            or packet.validation_attempt_id != latest_attempt.validation_attempt_id
+            or packet.candidate_id != transition.candidate_id
+            or packet.candidate_tree_hash != transition.candidate_tree_hash
+            or packet.scope_contract_id != latest_attempt.scope_contract_id
+            or packet.parent_release_id != latest_attempt.parent_release_id
+            or packet.validation_policy_id != transition.validation_policy_id
+            or packet.configuration_fingerprint != transition.configuration_fingerprint
+            or predecessor_state.promotion_state is not ExpertPromotionState.VALIDATING
+            or predecessor_state.next_stage
+            is not ExpertValidationStage.AUTOMATED_REVIEW
+            or tuple(
+                item.stage_result_record_id
+                for item in predecessor_state.accepted_stage_results
+            )
+            != previous_accepted
+            or predecessor_transition.accepted_stage_result_record_ids
+            != previous_accepted
+            or result_record != expected_result
+            or adjudication != expected_adjudication
+            or tuple(
+                sorted(
+                    stored_receipts,
+                    key=lambda receipt: receipt.operation_receipt_id,
+                )
+            )
+            != tuple(
+                sorted(
+                    (
+                        review_operation.operation_receipt
+                        for review_operation in review_operations
+                    ),
+                    key=lambda receipt: receipt.operation_receipt_id,
+                )
+            )
+            or state.review_assertion_ids != result_record.assertion_ids
+            or state.transition_evidence_id != result_record.stage_result_record_id
+        )
+        if common_invalid:
+            raise ExpertValidationStoreError(
+                "automated review transition closure is inconsistent"
+            )
+        if result_record.outcome is ExpertAutomatedReviewOutcome.PASSED:
+            valid_state = (
+                state.promotion_state is ExpertPromotionState.VALIDATING
+                and state.next_stage is ExpertValidationStage.RELEASE_MATRIX
+                and not state.terminal_evidence_ids
+                and state.reason == "stage_automated_review_passed"
+                and transition.accepted_stage_result_record_ids
+                == (*previous_accepted, result_record.stage_result_record_id)
+            )
+        elif result_record.outcome is ExpertAutomatedReviewOutcome.REJECTED:
+            valid_state = (
+                state.promotion_state is ExpertPromotionState.FAILED
+                and state.next_stage is None
+                and state.terminal_evidence_ids
+                == (result_record.stage_result_record_id,)
+                and state.reason == "stage_automated_review_rejected"
+                and transition.accepted_stage_result_record_ids == previous_accepted
+            )
+        else:
+            valid_state = (
+                result_record.outcome is ExpertAutomatedReviewOutcome.DISPUTED
+                and len(result_record.assertion_ids) >= 2
+                and state.promotion_state is ExpertPromotionState.DISPUTED
+                and state.next_stage is None
+                and state.terminal_evidence_ids
+                == (result_record.stage_result_record_id,)
+                and state.reason == "stage_automated_review_disputed"
+                and transition.accepted_stage_result_record_ids == previous_accepted
+            )
+        if not valid_state:
+            raise ExpertValidationStoreError(
+                "automated review state semantics are inconsistent"
+            )
+
     def _validate_transition_closure_unlocked(
         self,
         journal: ExpertValidationJournal,
@@ -1815,7 +2369,7 @@ class ExpertValidationStore:
         )
         accepted_refs = tuple(
             (stage, record_id)
-            for stage, record_id, _outcome, _attempt_id, _candidate_id, _tree_hash in (
+            for stage, record_id, _accepted, _attempt_id, _candidate_id, _tree_hash in (
                 accepted_projections
             )
         )
@@ -1829,7 +2383,7 @@ class ExpertValidationStore:
                 latest_attempt is not None
                 and tuple(
                     stage
-                    for stage, _record_id, _outcome, _attempt_id, _candidate_id, _tree_hash in accepted_projections
+                    for stage, _record_id, _accepted, _attempt_id, _candidate_id, _tree_hash in accepted_projections
                 )
                 != latest_attempt.required_stages[: len(accepted_records)]
             )
@@ -1843,15 +2397,15 @@ class ExpertValidationStore:
                 )
             )
             or any(
-                outcome is not ExpertEvaluatorOutcome.PASSED
-                for _stage, _record_id, outcome, _attempt_id, _candidate_id, _tree_hash in accepted_projections
+                not accepted
+                for _stage, _record_id, accepted, _attempt_id, _candidate_id, _tree_hash in accepted_projections
             )
             or any(
                 latest_attempt is None
                 or attempt_id != latest_attempt.validation_attempt_id
                 or candidate_id != transition.candidate_id
                 or candidate_tree_hash != transition.candidate_tree_hash
-                for _stage, _record_id, _outcome, attempt_id, candidate_id, candidate_tree_hash in accepted_projections
+                for _stage, _record_id, _accepted, attempt_id, candidate_id, candidate_tree_hash in accepted_projections
             )
         ):
             raise ExpertValidationStoreError(
@@ -1943,7 +2497,7 @@ class ExpertValidationStore:
                         *previous_accepted,
                         result_record.evaluator_result_record_id,
                     )
-            else:
+            elif type(result_record) is ExpertSourceReplayStageResultRecord:
                 self._validate_source_stage_transition_unlocked(
                     journal=journal,
                     transition=transition,
@@ -1959,6 +2513,26 @@ class ExpertValidationStore:
                         *previous_accepted,
                         result_record.stage_result_record_id,
                     )
+            elif type(result_record) is ExpertAutomatedReviewStageResultRecord:
+                self._validate_automated_review_transition_unlocked(
+                    transition=transition,
+                    state=state,
+                    operation=operation,
+                    latest_attempt=latest_attempt,
+                    previous_accepted=previous_accepted,
+                    result_record=result_record,
+                    validation_policy=policy,
+                )
+                expected_accepted = previous_accepted
+                if result_record.outcome is ExpertAutomatedReviewOutcome.PASSED:
+                    expected_accepted = (
+                        *previous_accepted,
+                        result_record.stage_result_record_id,
+                    )
+            else:
+                raise ExpertValidationStoreError(
+                    "validation stage result type is unsupported"
+                )
             if transition.accepted_stage_result_record_ids != expected_accepted:
                 raise ExpertValidationStoreError(
                     "validation accepted result prefix is not gap-free"
