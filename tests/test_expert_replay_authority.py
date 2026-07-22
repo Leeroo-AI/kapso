@@ -12,7 +12,9 @@ from kapso.cross_run.expert.replay_authority import (
 )
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
-    ExpertSourceReplayExecutionStoreError,
+)
+from kapso.cross_run.expert.private_execution_journal import (
+    ExecutionJournalStoreError,
 )
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionProviderRegistry,
@@ -301,7 +303,7 @@ def test_fresh_spawn_authority_rejects_an_alternate_store_permit(authority):
     ) as session:
         alternate_permit = session.allocate_expected_leg()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="canonical live store lock",
         ):
             authority.coordinator.commit_spawn(

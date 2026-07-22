@@ -83,7 +83,6 @@ from kapso.cross_run.expert.task_evaluation_execution_journal import (
     TaskEvaluationExecutionJournalEventKind,
     TaskEvaluationExecutionPrefixState,
     TaskEvaluationProcessObservation,
-    TaskEvaluationResultBlob,
     task_evaluation_execution_schedule,
     validate_task_evaluation_execution_prefix,
 )
@@ -325,7 +324,6 @@ __all__ = [
     "TaskEvaluationProviderSupportRequirements",
     "TaskEvaluationRequest",
     "TaskEvaluationReservation",
-    "TaskEvaluationResultBlob",
     "TaskEvaluationSpawnAuthorityFence",
     "StoredExpertCandidate",
     "TaskEvaluationPreflightError",

@@ -24,10 +24,12 @@ from kapso.cross_run.expert.replay_authority import (
 )
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
-    ExpertSourceReplayExecutionStoreError,
     SourceReplayExecutionJournalEvent,
     SourceReplaySealedLegCompletion,
     source_replay_execution_schedule,
+)
+from kapso.cross_run.expert.private_execution_journal import (
+    ExecutionJournalStoreError,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayInvocationAllocation,
@@ -75,7 +77,7 @@ def _allocate_in_process(store, reservation, prepared, result_queue):
 
 def _reject_inherited_execution_in_process(execution, result_queue):
     with pytest.raises(
-        ExpertSourceReplayExecutionStoreError,
+        ExecutionJournalStoreError,
         match="creator process",
     ):
         execution.execute()
@@ -89,8 +91,44 @@ def _remint(record, **changes):
     return type(record).mint(**values)
 
 
+def _reservation_digest(store, reservation_id):
+    return store._reservation_digest(reservation_id)
+
+
+def _event_path(store, reservation_id, event):
+    return store._filesystem.event_path(
+        _reservation_digest(store, reservation_id),
+        event.event_number,
+    )
+
+
+def _events_path(store, reservation_id):
+    return store._filesystem.events_path(_reservation_digest(store, reservation_id))
+
+
+def _staging_path(store, reservation_id):
+    return store._filesystem.staging_path(_reservation_digest(store, reservation_id))
+
+
+def _results_path(store, reservation_id):
+    return store._filesystem.results_path(_reservation_digest(store, reservation_id))
+
+
+def _result_path(store, reservation_id, result_blob):
+    return store._filesystem.result_path(
+        _reservation_digest(store, reservation_id),
+        result_blob,
+    )
+
+
+def _lock_path(store, reservation_id):
+    return store._filesystem.reservation_lock_path(
+        _reservation_digest(store, reservation_id)
+    )
+
+
 def _replace_published_event(store, reservation_id, event):
-    event_path = store._event_path(reservation_id, event)
+    event_path = _event_path(store, reservation_id, event)
     event_path.chmod(0o600)
     event_path.write_bytes(event.to_json_bytes())
     event_path.chmod(0o400)
@@ -479,16 +517,16 @@ def test_event_file_is_private_canonical_and_session_cannot_escape_its_lock(tmp_
         permit = session.allocate_expected_leg()
         event = session.events[0]
 
-    event_entries = tuple(os.scandir(store._events_path(reservation.reservation_id)))
+    event_entries = tuple(os.scandir(_events_path(store, reservation.reservation_id)))
     assert len(event_entries) == 1
     assert event_entries[0].name == "00000000000000000001.json"
     metadata = event_entries[0].stat(follow_symlinks=False)
     assert stat.S_ISREG(metadata.st_mode)
     assert stat.S_IMODE(metadata.st_mode) == 0o400
     assert metadata.st_nlink == 1
-    event_path = store._events_path(reservation.reservation_id) / event_entries[0].name
+    event_path = _events_path(store, reservation.reservation_id) / event_entries[0].name
     assert event_path.read_bytes() == event.to_json_bytes()
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="closed"):
+    with pytest.raises(ExecutionJournalStoreError, match="closed"):
         permit.require_current_allocation(store)
 
 
@@ -541,7 +579,7 @@ def test_process_race_allocates_one_create_only_ordinal(tmp_path):
     result_queue.close()
     result_queue.join_thread()
     assert len(set(allocations)) == 1
-    assert len(tuple(store._events_path(reservation.reservation_id).iterdir())) == 1
+    assert len(tuple(_events_path(store, reservation.reservation_id).iterdir())) == 1
 
 
 def test_durable_spawn_result_acceptance_advances_the_exact_schedule(tmp_path):
@@ -678,7 +716,7 @@ def test_provider_exception_consumes_execution_capability(tmp_path):
         with pytest.raises(RuntimeError, match="provider execution failed"):
             execution.execute()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="already consumed",
         ):
             execution.execute()
@@ -707,7 +745,7 @@ def test_provider_identity_change_after_execution_cannot_seal_a_result(tmp_path)
         with pytest.raises(ValueError, match="identity changed"):
             execution.execute()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="already consumed",
         ):
             execution.execute()
@@ -739,7 +777,7 @@ def test_provider_identity_change_after_spawn_burns_capability_without_a_call(
         with pytest.raises(ValueError, match="identity changed"):
             execution.execute()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="already consumed",
         ):
             execution.execute()
@@ -776,7 +814,7 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
             observed_expert_sources.append(provider.invocations[0].expert_source)
             session.accept_received_result()
 
-        with pytest.raises(ExpertSourceReplayExecutionStoreError, match="complete"):
+        with pytest.raises(ExecutionJournalStoreError, match="complete"):
             session.allocate_expected_leg()
         assert len(session.events) == 4 * len(schedule)
 
@@ -804,7 +842,7 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
         reservation=reservation,
         prepared_request=prepared,
     ) as recovered:
-        with pytest.raises(ExpertSourceReplayExecutionStoreError, match="complete"):
+        with pytest.raises(ExecutionJournalStoreError, match="complete"):
             recovered.allocate_expected_leg()
 
 
@@ -824,7 +862,7 @@ def test_reopened_spawn_marker_is_permanently_interrupted(tmp_path):
         )
         registry = ExpertSourceReplayExecutionProviderRegistry((provider,))
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="reopened interrupted",
         ):
             session.cleanup_interrupted_spawn(registry)
@@ -842,7 +880,7 @@ def test_reopened_spawn_marker_is_permanently_interrupted(tmp_path):
             cleaned_handle,
         ]
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="permanently interrupted",
         ):
             recovered.allocate_expected_leg()
@@ -905,12 +943,12 @@ def test_technical_completion_is_durable_and_cannot_advance(tmp_path):
 
         assert received.process_observation.outcome is BoundedProcessOutcome.TIMED_OUT
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="no acceptable result",
         ):
             session.accept_received_result()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="must be accepted",
         ):
             session.allocate_expected_leg()
@@ -939,12 +977,12 @@ def test_result_and_process_observation_bounds_consume_the_spawn(tmp_path):
             provider,
         )
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="compute authority",
         ):
             execution.execute()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="already consumed",
         ):
             execution.execute()
@@ -972,11 +1010,11 @@ def test_oversized_result_is_rejected_before_blob_publication(tmp_path):
             provider,
         )
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="compute authority",
         ):
             execution.execute()
-        assert tuple(store._results_path(reservation.reservation_id).iterdir()) == ()
+        assert tuple(_results_path(store, reservation.reservation_id).iterdir()) == ()
 
 
 def test_malformed_durable_result_cannot_advance_or_repeat_the_spawn(tmp_path):
@@ -1003,7 +1041,7 @@ def test_malformed_durable_result_cannot_advance_or_repeat_the_spawn(tmp_path):
         with pytest.raises(ValueError):
             session.accept_received_result()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="must be accepted",
         ):
             session.allocate_expected_leg()
@@ -1033,20 +1071,20 @@ def test_raw_results_and_requests_cannot_cross_runtime_boundaries(
             allocation_permit,
         )
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="journal-sealed",
         ):
             session.record_result_received(_process_result(tmp_path))
         assert not hasattr(execution, "claim_execution")
         assert not hasattr(session, "commit_spawn")
-        with pytest.raises(ExpertSourceReplayExecutionStoreError, match="immutable"):
+        with pytest.raises(ExecutionJournalStoreError, match="immutable"):
             execution._execution_started = False
         completion = execution.execute()
-        with pytest.raises(ExpertSourceReplayExecutionStoreError, match="immutable"):
+        with pytest.raises(ExecutionJournalStoreError, match="immutable"):
             completion._provider_completion = None
         session.record_result_received(completion)
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="consumed or foreign",
         ):
             session.record_result_received(completion)
@@ -1054,7 +1092,7 @@ def test_raw_results_and_requests_cannot_cross_runtime_boundaries(
 
 def test_provider_completion_requires_the_journal_factory_seal():
     with pytest.raises(
-        ExpertSourceReplayExecutionStoreError,
+        ExecutionJournalStoreError,
         match="not journal sealed",
     ):
         SourceReplaySealedLegCompletion(object(), None, None, None)
@@ -1080,7 +1118,7 @@ def test_sealed_completion_cannot_cross_a_reopened_session(tmp_path):
         prepared_request=prepared,
     ) as recovered:
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="consumed or foreign",
         ):
             recovered.record_result_received(completion)
@@ -1120,7 +1158,7 @@ def test_spawn_publication_failure_never_yields_execution_authority(
             )
         assert provider.invocations == []
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="must reopen",
         ):
             _ = session.events
@@ -1171,11 +1209,11 @@ def test_post_rename_append_failure_requires_reopen_without_fork(
             completion = execution.execute()
         if append_kind == "result_accepted":
             session.record_result_received(completion)
-        original_fsync = store._fsync_directory
+        original_fsync = store._filesystem._fsync_directory
         failure_directory = (
-            store._results_path(reservation.reservation_id)
+            _results_path(store, reservation.reservation_id)
             if append_kind == "result_blob"
-            else store._events_path(reservation.reservation_id)
+            else _events_path(store, reservation.reservation_id)
         )
 
         def publish_then_fail(path):
@@ -1183,7 +1221,11 @@ def test_post_rename_append_failure_requires_reopen_without_fork(
             if path == failure_directory:
                 raise OSError("post-rename fsync response lost")
 
-        monkeypatch.setattr(store, "_fsync_directory", publish_then_fail)
+        monkeypatch.setattr(
+            store._filesystem,
+            "_fsync_directory",
+            publish_then_fail,
+        )
         with pytest.raises(OSError, match="response lost"):
             if append_kind == "allocation":
                 session.allocate_expected_leg()
@@ -1200,12 +1242,16 @@ def test_post_rename_append_failure_requires_reopen_without_fork(
             else:
                 session.accept_received_result()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="must reopen",
         ):
             _ = session.events
 
-    monkeypatch.setattr(store, "_fsync_directory", original_fsync)
+    monkeypatch.setattr(
+        store._filesystem,
+        "_fsync_directory",
+        original_fsync,
+    )
     with store.reservation_session(
         reservation=reservation,
         prepared_request=prepared,
@@ -1216,7 +1262,7 @@ def test_post_rename_append_failure_requires_reopen_without_fork(
         elif append_kind in {"spawn", "result_blob"}:
             assert len(recovered.events) == 2
             with pytest.raises(
-                ExpertSourceReplayExecutionStoreError,
+                ExecutionJournalStoreError,
                 match="permanently interrupted",
             ):
                 recovered.allocate_expected_leg()
@@ -1263,7 +1309,7 @@ def test_result_publication_failure_leaves_an_unrepeatable_spawn_tail(
         prepared_request=prepared,
     ) as recovered:
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="permanently interrupted",
         ):
             recovered.allocate_expected_leg()
@@ -1273,7 +1319,7 @@ def test_journal_rejects_a_reservation_request_substitution(tmp_path):
     _, prepared, reservation, store = _journal_fixture(tmp_path)
     _, other_prepared, _, _ = _journal_fixture(tmp_path)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="differs"):
+    with pytest.raises(ExecutionJournalStoreError, match="differs"):
         store.reservation_session(
             reservation=reservation,
             prepared_request=other_prepared,
@@ -1330,7 +1376,7 @@ def test_reopen_rederives_persisted_spawn_authority(tmp_path, substitution):
     substituted = _remint(spawn_event, **changes)
     _replace_published_event(store, reservation.reservation_id, substituted)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="spawn fence"):
+    with pytest.raises(ExecutionJournalStoreError, match="spawn fence"):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1383,7 +1429,7 @@ def test_reopen_rejects_a_self_consistent_adapter_authority_substitution(tmp_pat
     )
     _replace_published_event(store, reservation.reservation_id, substituted)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="spawn fence"):
+    with pytest.raises(ExecutionJournalStoreError, match="spawn fence"):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1418,7 +1464,7 @@ def test_reopen_rejects_persisted_process_observations_over_compute_bounds(tmp_p
     )
     _replace_published_event(store, reservation.reservation_id, substituted)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="compute bounds"):
+    with pytest.raises(ExecutionJournalStoreError, match="compute bounds"):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1441,7 +1487,7 @@ def test_journal_store_rejects_a_different_prepared_policy(tmp_path):
     )
 
     with pytest.raises(
-        ExpertSourceReplayExecutionStoreError,
+        ExecutionJournalStoreError,
         match="another validation policy",
     ):
         store.reservation_session(
@@ -1461,7 +1507,7 @@ def test_journal_fails_loud_for_corrupt_published_events(tmp_path, corruption):
         prepared_request=prepared,
     ) as session:
         session.allocate_expected_leg()
-    event_path = next(store._events_path(reservation.reservation_id).iterdir())
+    event_path = next(_events_path(store, reservation.reservation_id).iterdir())
 
     if corruption == "mode":
         event_path.chmod(0o600)
@@ -1476,14 +1522,14 @@ def test_journal_fails_loud_for_corrupt_published_events(tmp_path, corruption):
         event_path.unlink()
         os.mkfifo(event_path, mode=0o400)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError):
+    with pytest.raises(ExecutionJournalStoreError):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
         ):
             pass
     lock_descriptor = os.open(
-        store._lock_path(reservation.reservation_id),
+        _lock_path(store, reservation.reservation_id),
         os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
     with os.fdopen(lock_descriptor, "r+b") as lock_handle:
@@ -1498,7 +1544,7 @@ def test_event_ordinal_is_the_create_only_publication_slot(tmp_path):
         prepared_request=prepared,
     ) as session:
         session.allocate_expected_leg()
-    event_path = next(store._events_path(reservation.reservation_id).iterdir())
+    event_path = next(_events_path(store, reservation.reservation_id).iterdir())
     original_event = SourceReplayExecutionJournalEvent.from_json_bytes(
         event_path.read_bytes()
     )
@@ -1534,16 +1580,11 @@ def test_event_ordinal_is_the_create_only_publication_slot(tmp_path):
         result_blob=None,
         task_evaluator_result=None,
     )
-    fork_staging_path = store._staging_path(reservation.reservation_id) / (
-        f".event-{'f' * 32}.tmp"
-    )
-    fork_staging_path.write_bytes(forked_event.to_json_bytes())
-    fork_staging_path.chmod(0o400)
-
     with pytest.raises(OSError):
-        store._rename_no_replace(
-            fork_staging_path,
-            store._event_path(reservation.reservation_id, forked_event),
+        store._filesystem.publish_numbered_event(
+            _reservation_digest(store, reservation.reservation_id),
+            forked_event.event_number,
+            forked_event.to_json_bytes(),
         )
     assert event_path.read_bytes() == original_event.to_json_bytes()
     with store.reservation_session(
@@ -1560,7 +1601,7 @@ def test_journal_removes_only_validated_orphan_staging_files(tmp_path):
         prepared_request=prepared,
     ):
         pass
-    staging_root = store._staging_path(reservation.reservation_id)
+    staging_root = _staging_path(store, reservation.reservation_id)
     orphan = staging_root / f".event-{'a' * 32}.tmp"
     orphan.write_bytes(b"orphan")
     orphan.chmod(0o600)
@@ -1575,7 +1616,7 @@ def test_journal_removes_only_validated_orphan_staging_files(tmp_path):
     unexpected = staging_root / "untrusted-entry"
     unexpected.write_bytes(b"unsafe")
     unexpected.chmod(0o600)
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="unexpected"):
+    with pytest.raises(ExecutionJournalStoreError, match="unexpected"):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1590,12 +1631,12 @@ def test_journal_bounds_event_reads_and_staging_enumeration(tmp_path):
         prepared_request=prepared,
     ) as session:
         session.allocate_expected_leg()
-    event_path = next(store._events_path(reservation.reservation_id).iterdir())
+    event_path = next(_events_path(store, reservation.reservation_id).iterdir())
     event_path.chmod(0o600)
-    event_path.write_bytes(b"x" * (store.maximum_event_size_bytes + 1))
+    event_path.write_bytes(b"x" * (store._filesystem.maximum_event_size_bytes + 1))
     event_path.chmod(0o400)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="configured bound"):
+    with pytest.raises(ExecutionJournalStoreError, match="configured bound"):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1603,12 +1644,12 @@ def test_journal_bounds_event_reads_and_staging_enumeration(tmp_path):
             pass
 
     event_path.unlink()
-    staging_root = store._staging_path(reservation.reservation_id)
+    staging_root = _staging_path(store, reservation.reservation_id)
     for token in ("a", "b"):
         path = staging_root / f".event-{token * 32}.tmp"
         path.write_bytes(b"orphan")
         path.chmod(0o600)
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="staging.*bound"):
+    with pytest.raises(ExecutionJournalStoreError, match="staging.*bound"):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1631,10 +1672,10 @@ def test_result_blob_corruption_and_untrusted_root_fail_loud(tmp_path):
             allocation_permit,
         )
         received = session.record_result_received(execution.execute())
-    result_path = store._result_path(reservation.reservation_id, received.result_blob)
+    result_path = _result_path(store, reservation.reservation_id, received.result_blob)
     result_path.chmod(0o600)
 
-    with pytest.raises(ExpertSourceReplayExecutionStoreError):
+    with pytest.raises(ExecutionJournalStoreError):
         with store.reservation_session(
             reservation=reservation,
             prepared_request=prepared,
@@ -1643,7 +1684,7 @@ def test_result_blob_corruption_and_untrusted_root_fail_loud(tmp_path):
 
     trusted_root = fixture.validation_store.root
     trusted_root.chmod(0o777)
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="owner-private"):
+    with pytest.raises(ExecutionJournalStoreError, match="owner-private"):
         ExpertSourceReplayExecutionStore(
             (trusted_root / "untrusted-executions").resolve(),
             trusted_root,

@@ -23,9 +23,11 @@ from kapso.cross_run.expert.task_evaluation_execution_journal import (
     TaskEvaluationExecutionJournalEventKind,
     TaskEvaluationExecutionPrefixState,
     TaskEvaluationProcessObservation,
-    TaskEvaluationResultBlob,
     task_evaluation_execution_schedule,
     validate_task_evaluation_execution_prefix,
+)
+from kapso.cross_run.expert.private_execution_journal import (
+    ExecutionJournalResultBlob,
 )
 from kapso.cross_run.expert.task_evaluation_protocol import (
     build_task_evaluation_evaluator_request,
@@ -231,7 +233,7 @@ def _leg_events(
     )
     if result_payload is None:
         result_payload = _result(task_evaluator_request).to_json_bytes()
-    result_blob = TaskEvaluationResultBlob(
+    result_blob = ExecutionJournalResultBlob(
         digest=tree_or_blob_digest(result_payload),
         size=len(result_payload),
     )
@@ -589,7 +591,7 @@ def test_prefix_requires_exact_blob_set_and_persisted_compute_bounds(
             result_payloads=(),
         )
     extra_payload = b"orphan"
-    extra_blob = TaskEvaluationResultBlob(
+    extra_blob = ExecutionJournalResultBlob(
         digest=tree_or_blob_digest(extra_payload),
         size=len(extra_payload),
     )

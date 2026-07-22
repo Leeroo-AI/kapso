@@ -27,9 +27,11 @@ from kapso.cross_run.expert.replay_execution import (
 from kapso.cross_run.expert.replay_execution_store import (
     CompletedExpertSourceReplayExecution,
     ExpertSourceReplayExecutionStore,
-    ExpertSourceReplayExecutionStoreError,
     SourceReplayExecutionJournalEventKind,
     source_replay_execution_schedule,
+)
+from kapso.cross_run.expert.private_execution_journal import (
+    ExecutionJournalStoreError,
 )
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayProtocolError,
@@ -57,7 +59,7 @@ def _reject_completed_execution_after_fork(
     prepared_request,
     result_queue,
 ):
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="authority"):
+    with pytest.raises(ExecutionJournalStoreError, match="authority"):
         completed.require_exact(execution_store, reservation, prepared_request)
     result_queue.put("rejected")
 
@@ -357,7 +359,7 @@ def test_incomplete_journal_cannot_mint_completed_execution(tmp_path, event_coun
             else:
                 session.accept_received_result()
         with pytest.raises(
-            ExpertSourceReplayExecutionStoreError,
+            ExecutionJournalStoreError,
             match="incomplete",
         ):
             session.completed_execution()
@@ -366,7 +368,7 @@ def test_incomplete_journal_cannot_mint_completed_execution(tmp_path, event_coun
 def test_completed_execution_is_sealed_immutable_and_store_bound(tmp_path):
     fixture, prepared, reservation, store, completed = _complete_execution(tmp_path)
     with pytest.raises(
-        ExpertSourceReplayExecutionStoreError,
+        ExecutionJournalStoreError,
         match="not journal sealed",
     ):
         CompletedExpertSourceReplayExecution(
@@ -376,14 +378,14 @@ def test_completed_execution_is_sealed_immutable_and_store_bound(tmp_path):
             prepared,
             completed.events,
         )
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="immutable"):
+    with pytest.raises(ExecutionJournalStoreError, match="immutable"):
         completed.events = ()
     foreign_store = type(store)(
         (fixture.validation_store.root / "foreign-source-replay-executions").resolve(),
         fixture.validation_store.root,
         prepared.settings.policy,
     )
-    with pytest.raises(ExpertSourceReplayExecutionStoreError, match="authority"):
+    with pytest.raises(ExecutionJournalStoreError, match="authority"):
         completed.require_exact(foreign_store, reservation, prepared)
 
     process_context = get_context("fork")

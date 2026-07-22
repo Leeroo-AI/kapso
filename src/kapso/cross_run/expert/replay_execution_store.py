@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import ctypes
-import errno
-import fcntl
 import math
 import os
-import re
 import secrets
-import stat
 from contextlib import ExitStack
 from dataclasses import dataclass
 from enum import Enum
@@ -17,7 +12,7 @@ from pathlib import Path
 from threading import Lock
 from typing import ClassVar
 
-from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
+from kapso.cross_run.canonical import require_content_id
 from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionLegKind,
     ExpertSourceReplayExecutionRequest,
@@ -25,6 +20,12 @@ from kapso.cross_run.contracts import (
     StrictContract,
 )
 from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
+from kapso.cross_run.expert.private_execution_journal import (
+    ExecutionJournalFilesystem,
+    ExecutionJournalLock,
+    ExecutionJournalResultBlob,
+    ExecutionJournalStoreError,
+)
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayInvocationAllocation,
 )
@@ -54,15 +55,6 @@ from kapso.cross_run.settings import ExpertValidationPolicySettings
 
 _EXECUTION_JOURNAL_SCHEMA_VERSION = "kapso.source_replay_execution_journal.v2"
 _EXECUTION_JOURNAL_DIRECTORY_NAME = "source-replay-executions"
-_RENAME_NOREPLACE = 1
-_AT_FDCWD = -100
-_EVENT_FILENAME_PATTERN = re.compile(r"^(?P<number>[0-9]{20})\.json$")
-_STAGING_FILENAME_PATTERN = re.compile(r"^\.(?:event|result)-[0-9a-f]{32}\.tmp$")
-_RESULT_FILENAME_PATTERN = re.compile(r"^(?P<digest>[0-9a-f]{64})\.json$")
-
-
-class ExpertSourceReplayExecutionStoreError(ValueError):
-    """The private execution journal is unsafe, corrupt, or conflicting."""
 
 
 class SourceReplayExecutionJournalEventKind(str, Enum):
@@ -82,7 +74,7 @@ class SourceReplayProcessObservation(StrictContract):
 
     def _validate(self) -> None:
         if type(self.returncode) is not int:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay process returncode must be an integer"
             )
         if (
@@ -94,24 +86,8 @@ class SourceReplayProcessObservation(StrictContract):
             or not math.isfinite(self.duration_seconds)
             or self.duration_seconds < 0.0
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay process observation is invalid"
-            )
-
-
-@dataclass(frozen=True)
-class SourceReplayResultBlob(StrictContract):
-    digest: str
-    size: int
-
-    def _validate(self) -> None:
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", self.digest) is None:
-            raise ExpertSourceReplayExecutionStoreError(
-                "source replay result blob digest is invalid"
-            )
-        if type(self.size) is not int or self.size < 0:
-            raise ExpertSourceReplayExecutionStoreError(
-                "source replay result blob size must be non-negative"
             )
 
 
@@ -133,7 +109,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
     task_evaluator_request: TaskEvaluatorRequest | None
     aggregate_tolerance: float | None
     process_observation: SourceReplayProcessObservation | None
-    result_blob: SourceReplayResultBlob | None
+    result_blob: ExecutionJournalResultBlob | None
     task_evaluator_result: TaskEvaluatorResult | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "source-replay-execution-journal-event"
@@ -141,15 +117,15 @@ class SourceReplayExecutionJournalEvent(StrictContract):
 
     def _validate(self) -> None:
         if self.schema_version != _EXECUTION_JOURNAL_SCHEMA_VERSION:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay execution journal schema is unsupported"
             )
         if type(self.event_number) is not int or self.event_number <= 0:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay execution event number must be positive"
             )
         if (self.predecessor_event_id is None) != (self.event_number == 1):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "only the first execution event may omit its predecessor"
             )
         if self.predecessor_event_id is not None:
@@ -160,7 +136,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
             if self.predecessor_event_id.split(":sha256:", 1)[0] != (
                 "source-replay-execution-journal-event"
             ):
-                raise ExpertSourceReplayExecutionStoreError(
+                raise ExecutionJournalStoreError(
                     "source replay execution predecessor uses the wrong namespace"
                 )
         for value, namespace, name in (
@@ -187,7 +163,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
         ):
             require_content_id(value, f"source replay execution event {name}")
             if value.split(":sha256:", 1)[0] != namespace:
-                raise ExpertSourceReplayExecutionStoreError(
+                raise ExecutionJournalStoreError(
                     f"source replay execution event {name} uses the wrong namespace"
                 )
         allocation = self.invocation_allocation
@@ -196,7 +172,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
             or allocation.execution_case_id != self.execution_case_id
             or allocation.execution_leg_id != self.execution_leg_id
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay invocation allocation differs from its event"
             )
         allocated_shape = (
@@ -245,7 +221,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
             SourceReplayExecutionJournalEventKind.RESULT_ACCEPTED: accepted_shape,
         }[self.event_kind]
         if not expected_shape:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay execution event payload differs from its kind"
             )
         if self.aggregate_tolerance is not None and (
@@ -253,7 +229,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
             or not math.isfinite(self.aggregate_tolerance)
             or self.aggregate_tolerance < 0.0
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn aggregate tolerance is invalid"
             )
         if self.spawn_authority_fence is not None and (
@@ -267,7 +243,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
             or self.task_evaluator_request.opaque_invocation_id
             != allocation.opaque_invocation_id
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn payload differs from its event"
             )
         if (
@@ -278,7 +254,7 @@ class SourceReplayExecutionJournalEvent(StrictContract):
             )
             and self.result_blob is not None
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay failed process cannot publish a result blob"
             )
 
@@ -290,7 +266,7 @@ def _validate_reservation_request(
     if not isinstance(
         reservation, ExpertSourceReplayExecutionReservation
     ) or not isinstance(request, ExpertSourceReplayExecutionRequest):
-        raise ExpertSourceReplayExecutionStoreError(
+        raise ExecutionJournalStoreError(
             "execution journal requires typed reservation and request authority"
         )
     if (
@@ -301,7 +277,7 @@ def _validate_reservation_request(
         or reservation.candidate_tree_hash != request.candidate_tree_hash
         or reservation.observed_parent_release_id != request.parent_release_id
     ):
-        raise ExpertSourceReplayExecutionStoreError(
+        raise ExecutionJournalStoreError(
             "execution journal reservation differs from its request"
         )
 
@@ -360,7 +336,7 @@ class SourceReplayInvocationAllocationPermit:
             or self._session._events[-1].event_id != self._event_id
             or self._session._events[-1].invocation_allocation != self.allocation
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay allocation permit is not current"
             )
         return self.allocation
@@ -398,7 +374,7 @@ class SourceReplaySpawnAuthorizationPermit:
         aggregate_tolerance: float,
     ) -> None:
         if seal is not _SPAWN_AUTHORIZATION_SEAL:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn authorization is not sealed"
             )
         self._store = store
@@ -418,7 +394,7 @@ class SourceReplaySpawnAuthorizationPermit:
         session: _SourceReplayReservationSession,
     ) -> None:
         if self._consumed or session._store is not self._store:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn authorization is consumed or foreign"
             )
         allocation = self._allocation_permit.require_current_allocation(self._store)
@@ -452,7 +428,7 @@ class SourceReplaySpawnAuthorizationPermit:
             )
             != self.fence.security_subject_ids
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn authorization differs from its live allocation"
             )
         self.resolved_case.require_current_provider_identity()
@@ -497,7 +473,7 @@ class SourceReplaySpawnPermit:
         )
 
     def __setattr__(self, name, value) -> None:
-        raise ExpertSourceReplayExecutionStoreError(
+        raise ExecutionJournalStoreError(
             "source replay execution capability is immutable"
         )
 
@@ -505,7 +481,7 @@ class SourceReplaySpawnPermit:
         with self._execution_guard:
             self._require_current()
             if self._execution_started:
-                raise ExpertSourceReplayExecutionStoreError(
+                raise ExecutionJournalStoreError(
                     "source replay spawn execution was already consumed"
                 )
             object.__setattr__(self, "_execution_started", True)
@@ -524,7 +500,7 @@ class SourceReplaySpawnPermit:
             or self._session._events[-1].event_kind
             is not SourceReplayExecutionJournalEventKind.SPAWN_COMMITTED
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn permit is not current"
             )
 
@@ -546,7 +522,7 @@ class SourceReplaySealedLegCompletion:
         provider_completion: ExpertSourceReplayProviderCompletion,
     ) -> None:
         if seal is not _PROVIDER_COMPLETION_SEAL:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay provider completion is not journal sealed"
             )
         object.__setattr__(self, "_session", session)
@@ -554,7 +530,7 @@ class SourceReplaySealedLegCompletion:
         object.__setattr__(self, "_provider_completion", provider_completion)
 
     def __setattr__(self, name, value) -> None:
-        raise ExpertSourceReplayExecutionStoreError(
+        raise ExecutionJournalStoreError(
             "source replay sealed provider completion is immutable"
         )
 
@@ -567,7 +543,7 @@ class SourceReplaySealedLegCompletion:
             or session._pending_completion is not self
             or session._spawn_permit is not self._spawn_permit
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay provider completion is consumed or foreign"
             )
         self._spawn_permit._require_current()
@@ -595,7 +571,7 @@ class CompletedExpertSourceReplayExecution:
         events: tuple[SourceReplayExecutionJournalEvent, ...],
     ) -> None:
         if seal is not _COMPLETED_EXECUTION_SEAL:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "completed source replay execution is not journal sealed"
             )
         object.__setattr__(self, "_execution_store", execution_store)
@@ -605,7 +581,7 @@ class CompletedExpertSourceReplayExecution:
         object.__setattr__(self, "events", events)
 
     def __setattr__(self, name, value) -> None:
-        raise ExpertSourceReplayExecutionStoreError(
+        raise ExecutionJournalStoreError(
             "completed source replay execution is immutable"
         )
 
@@ -621,7 +597,7 @@ class CompletedExpertSourceReplayExecution:
             or reservation != self.reservation
             or prepared_request != self.prepared_request
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "completed source replay execution differs from its journal authority"
             )
         return self.events
@@ -636,11 +612,11 @@ class _SourceReplayReservationSession:
         reservation: ExpertSourceReplayExecutionReservation,
         prepared_request: PreparedExpertSourceReplayRequest,
         events: tuple[SourceReplayExecutionJournalEvent, ...],
-        execution_lock: _ExecutionStoreLock,
+        execution_lock: ExecutionJournalLock,
         factory_authority: object,
     ) -> None:
         if factory_authority is not store._session_factory_authority:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution session lacks canonical store authority"
             )
         self._store = store
@@ -677,7 +653,7 @@ class _SourceReplayReservationSession:
             or durable_events[-1].event_kind
             is not SourceReplayExecutionJournalEventKind.RESULT_ACCEPTED
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay execution journal is incomplete"
             )
         return CompletedExpertSourceReplayExecution(
@@ -697,7 +673,7 @@ class _SourceReplayReservationSession:
             provider_registry,
             ExpertSourceReplayExecutionProviderRegistry,
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay interrupted cleanup requires its provider registry"
             )
         if (
@@ -706,12 +682,12 @@ class _SourceReplayReservationSession:
             is not SourceReplayExecutionJournalEventKind.SPAWN_COMMITTED
             or self._spawn_permit is not None
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay cleanup requires a reopened interrupted spawn"
             )
         provider_handle = self._events[-1].provider_execution_handle
         if type(provider_handle) is not SourceReplayProviderExecutionHandle:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay interrupted spawn has no provider handle"
             )
         provider_registry.cleanup_interrupted(provider_handle)
@@ -728,11 +704,11 @@ class _SourceReplayReservationSession:
                 )
             return self._allocation_permit
         if phase == 2:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn marker is permanently interrupted after reopen"
             )
         if phase == 3:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay received result must be accepted before another leg"
             )
         schedule = source_replay_execution_schedule(
@@ -741,7 +717,7 @@ class _SourceReplayReservationSession:
         )
         schedule_position = len(self._events) // 4
         if schedule_position >= len(schedule):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay execution schedule is complete"
             )
         execution_case_id, execution_leg_id = schedule[schedule_position]
@@ -788,13 +764,13 @@ class _SourceReplayReservationSession:
     ) -> SourceReplaySpawnPermit:
         self._require_active()
         if type(authorization) is not SourceReplaySpawnAuthorizationPermit:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn requires sealed fresh authorization"
             )
         if len(self._events) % 4 != 1 or self._events[-1].event_kind is not (
             SourceReplayExecutionJournalEventKind.INVOCATION_ALLOCATED
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay spawn requires the current allocation tail"
             )
         authorization._consume(self)
@@ -843,7 +819,7 @@ class _SourceReplayReservationSession:
             or provider_completion.provider_handle_id
             != spawn_permit._invocation.provider_handle.provider_handle_id
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay provider completion differs from its live spawn"
             )
         process_result = provider_completion.process_result
@@ -869,7 +845,7 @@ class _SourceReplayReservationSession:
                 and len(result_payload)
                 > min(
                     compute.output_byte_limit,
-                    self._store.maximum_result_size_bytes,
+                    self._store._filesystem.maximum_result_size_bytes,
                 )
             )
             or (
@@ -880,7 +856,7 @@ class _SourceReplayReservationSession:
                 and result_payload is not None
             )
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay provider completion exceeds its exact compute authority"
             )
         sealed = SourceReplaySealedLegCompletion(
@@ -898,7 +874,7 @@ class _SourceReplayReservationSession:
     ) -> SourceReplayExecutionJournalEvent:
         self._require_active()
         if type(completion) is not SourceReplaySealedLegCompletion:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay result requires a journal-sealed provider completion"
             )
         provider_completion = completion._consume(self)
@@ -908,8 +884,8 @@ class _SourceReplayReservationSession:
         result_blob = (
             None
             if result_payload is None
-            else self._store._publish_result_blob(
-                self.reservation.reservation_id,
+            else self._store._filesystem.publish_result(
+                self._store._reservation_digest(self.reservation.reservation_id),
                 result_payload,
             )
         )
@@ -949,17 +925,17 @@ class _SourceReplayReservationSession:
         if len(self._events) % 4 != 3 or self._events[-1].event_kind is not (
             SourceReplayExecutionJournalEventKind.RESULT_RECEIVED
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay result acceptance requires a received-result tail"
             )
         received_event = self._events[-1]
         spawn_event = self._events[-2]
         if received_event.result_blob is None:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay process produced no acceptable result"
             )
-        payload = self._store._read_result_blob(
-            self.reservation.reservation_id,
+        payload = self._store._filesystem.read_result(
+            self._store._reservation_digest(self.reservation.reservation_id),
             received_event.result_blob,
         )
         result = parse_task_evaluator_result(
@@ -995,11 +971,11 @@ class _SourceReplayReservationSession:
 
     def _require_active(self) -> None:
         if not self._active:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay reservation session is closed"
             )
         if self._append_poisoned:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay reservation session must reopen after append"
             )
 
@@ -1018,15 +994,18 @@ class _SourceReplayReservationSession:
         if (
             execution_store is not self._store
             or os.getpid() != self._owner_process_id
-            or not isinstance(self._execution_lock, _ExecutionStoreLock)
+            or not isinstance(self._execution_lock, ExecutionJournalLock)
+            or self._execution_lock.owner_process_id != os.getpid()
             or not self._execution_lock.acquired
             or self._execution_lock.handle is None
             or self._execution_lock.path
-            != execution_store._lock_path(self.reservation.reservation_id)
+            != execution_store._filesystem.reservation_lock_path(
+                execution_store._reservation_digest(self.reservation.reservation_id)
+            )
             or execution_store._active_sessions.get(self.reservation.reservation_id)
             is not self
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay runtime authority lacks its creator process and canonical live store lock"
             )
 
@@ -1052,14 +1031,15 @@ class _ReservationSessionContext:
         self.session = None
 
     def __enter__(self) -> _SourceReplayReservationSession:
-        self.store._prepare_reservation_layout(self.reservation.reservation_id)
+        reservation_digest = self.store._reservation_digest(
+            self.reservation.reservation_id
+        )
+        self.store._filesystem.ensure_reservation_layout(reservation_digest)
         with ExitStack() as setup:
             execution_lock = setup.enter_context(
-                _ExecutionStoreLock(
-                    self.store._lock_path(self.reservation.reservation_id),
-                )
+                self.store._filesystem.reservation_lock(reservation_digest)
             )
-            self.store._clean_staging(self.reservation.reservation_id)
+            self.store._filesystem.clean_staging(reservation_digest)
             events = self.store._read_events(
                 self.reservation,
                 self.prepared_request,
@@ -1094,62 +1074,34 @@ class ExpertSourceReplayExecutionStore:
         trusted_root: Path,
         policy_settings: ExpertValidationPolicySettings,
     ) -> None:
-        if (
-            not isinstance(trusted_root, Path)
-            or not trusted_root.is_absolute()
-            or trusted_root.resolve() != trusted_root
-            or not trusted_root.is_dir()
-        ):
-            raise ExpertSourceReplayExecutionStoreError(
-                "execution journal trusted root must be a resolved directory"
-            )
-        trusted_root_metadata = os.stat(trusted_root, follow_symlinks=False)
-        if (
-            not stat.S_ISDIR(trusted_root_metadata.st_mode)
-            or stat.S_IMODE(trusted_root_metadata.st_mode) != 0o700
-            or trusted_root_metadata.st_uid != os.geteuid()
-        ):
-            raise ExpertSourceReplayExecutionStoreError(
-                "execution journal trusted root must be owner-private"
-            )
-        if (
-            not isinstance(root, Path)
-            or not root.is_absolute()
-            or root != Path(os.path.abspath(root))
-            or root.parent != trusted_root
-        ):
-            raise ExpertSourceReplayExecutionStoreError(
-                "execution journal must be a direct child of its trusted root"
-            )
         if not isinstance(policy_settings, ExpertValidationPolicySettings):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal requires canonical validation policy settings"
             )
+        self._filesystem = ExecutionJournalFilesystem(
+            root,
+            trusted_root,
+            maximum_event_size_bytes=(
+                policy_settings.task_evaluation_journal_event_byte_limit
+            ),
+            maximum_result_size_bytes=(
+                policy_settings.task_evaluation_result_byte_limit
+            ),
+            maximum_staging_entry_count=(
+                policy_settings.task_evaluation_staging_entry_limit
+            ),
+        )
         self.root = root
         self.trusted_root = trusted_root
         self.policy_settings = policy_settings
-        self.maximum_event_size_bytes = (
-            policy_settings.task_evaluation_journal_event_byte_limit
-        )
-        self.maximum_result_size_bytes = (
-            policy_settings.task_evaluation_result_byte_limit
-        )
-        self.maximum_staging_entry_count = (
-            policy_settings.task_evaluation_staging_entry_limit
-        )
-        self.lock_root = root / "locks"
-        self.reservation_root = root / "reservations"
-        self.initialization_lock_path = trusted_root / f".{root.name}.lock"
         self._session_factory_authority = object()
         self._spawn_authority_type = None
         self._active_sessions = {}
-        with _ExecutionStoreLock(self.initialization_lock_path):
-            self._prepare_layout()
 
     @staticmethod
     def canonical_root(validation_store_root: Path) -> Path:
         if not isinstance(validation_store_root, Path):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal canonical root requires a path"
             )
         return validation_store_root / _EXECUTION_JOURNAL_DIRECTORY_NAME
@@ -1164,16 +1116,16 @@ class ExpertSourceReplayExecutionStore:
         _validate_reservation_request(reservation, prepared.request)
         return _ReservationSessionContext(self, reservation, prepared)
 
-    def stage_run_lock(self, candidate_id: str) -> _ExecutionStoreLock:
+    def stage_run_lock(self, candidate_id: str) -> ExecutionJournalLock:
         """Serialize one local candidate stage without granting validation authority."""
 
         require_content_id(candidate_id, "source replay stage candidate_id")
         namespace, digest = candidate_id.split(":sha256:", 1)
         if namespace != "expert-candidate":
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "source replay stage lock requires an expert candidate"
             )
-        return _ExecutionStoreLock(self.lock_root / f"candidate-stage-{digest}.lock")
+        return self._filesystem.lock(f"candidate-stage-{digest}.lock")
 
     def existing_reservation_events(
         self,
@@ -1185,40 +1137,10 @@ class ExpertSourceReplayExecutionStore:
 
         prepared = self._require_prepared_authority(prepared_request)
         _validate_reservation_request(reservation, prepared.request)
-        reservation_root = self._reservation_path(reservation.reservation_id)
-        with _ExecutionStoreLock(self.initialization_lock_path):
-            if not reservation_root.exists():
-                return None
-            self._validate_private_directory(
-                reservation_root,
-                "execution journal reservation",
-            )
-            required_directories = {"events", "staging", "results"}
-            with os.scandir(reservation_root) as entries:
-                observed_entries = tuple(entries)
-            observed_names = {entry.name for entry in observed_entries}
-            if not observed_names.issubset(required_directories):
-                raise ExpertSourceReplayExecutionStoreError(
-                    "partial execution journal layout has an unexpected entry"
-                )
-            for entry in observed_entries:
-                if not entry.is_dir(follow_symlinks=False):
-                    raise ExpertSourceReplayExecutionStoreError(
-                        "partial execution journal layout contains a non-directory"
-                    )
-                self._validate_private_directory(
-                    Path(entry.path),
-                    f"execution journal {entry.name}",
-                )
-            if observed_names != required_directories:
-                for entry in observed_entries:
-                    with os.scandir(entry.path) as children:
-                        if next(children, None) is not None:
-                            raise ExpertSourceReplayExecutionStoreError(
-                                "partial execution journal layout contains durable state"
-                            )
-                return None
-        with _ExecutionStoreLock(self._lock_path(reservation.reservation_id)):
+        reservation_digest = self._reservation_digest(reservation.reservation_id)
+        if not self._filesystem.has_complete_reservation_layout(reservation_digest):
+            return None
+        with self._filesystem.reservation_lock(reservation_digest):
             return self._read_events(reservation, prepared)
 
     def _require_prepared_authority(
@@ -1226,7 +1148,7 @@ class ExpertSourceReplayExecutionStore:
         prepared_request: PreparedExpertSourceReplayRequest,
     ) -> PreparedExpertSourceReplayRequest:
         if not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal requires its prepared byte authority"
             )
         prepared = PreparedExpertSourceReplayRequest(
@@ -1244,7 +1166,7 @@ class ExpertSourceReplayExecutionStore:
             or prepared.request.validation_policy_id
             != self.policy_settings.validation_policy().validation_policy_id
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal prepared authority uses another validation policy"
             )
         return prepared
@@ -1255,14 +1177,14 @@ class ExpertSourceReplayExecutionStore:
             or coordinator_type.__qualname__
             != "ExpertSourceReplayFreshAuthorityCoordinator"
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn authority type is invalid"
             )
         if (
             self._spawn_authority_type is not None
             and self._spawn_authority_type is not coordinator_type
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn authority is already bound"
             )
         self._spawn_authority_type = coordinator_type
@@ -1278,7 +1200,7 @@ class ExpertSourceReplayExecutionStore:
         aggregate_tolerance: float,
     ) -> SourceReplaySpawnAuthorizationPermit:
         if type(coordinator) is not self._spawn_authority_type:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn authorization lacks its coordinator"
             )
         allocation = allocation_permit.require_current_allocation(self)
@@ -1290,7 +1212,7 @@ class ExpertSourceReplayExecutionStore:
             or type(resolved_case) is not ResolvedExpertSourceReplayExecutionCase
             or prepared_request != session.prepared_request
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn resolution differs from its live session"
             )
         matching_cases = tuple(
@@ -1302,7 +1224,7 @@ class ExpertSourceReplayExecutionStore:
             len(matching_cases) != 1
             or resolved_case.materialized_case != matching_cases[0]
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn resolution names another case"
             )
         resolved_case.require_exact_prepared_authority(prepared_request)
@@ -1341,7 +1263,7 @@ class ExpertSourceReplayExecutionStore:
                 *request.exact_dependency_ids,
             }.issubset(fence.security_subject_ids)
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn authorization differs from journal authority"
             )
         return SourceReplaySpawnAuthorizationPermit(
@@ -1370,7 +1292,7 @@ class ExpertSourceReplayExecutionStore:
             or authorization._store is not self
             or authorization._coordinator is not coordinator
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal spawn commit lacks fresh coordinator authority"
             )
         return authorization._allocation_permit._session._commit_spawn(authorization)
@@ -1385,7 +1307,7 @@ class ExpertSourceReplayExecutionStore:
             or not session._execution_lock.acquired
             or reservation_id in self._active_sessions
         ):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution store cannot register the reservation session"
             )
         self._active_sessions[reservation_id] = session
@@ -1396,38 +1318,10 @@ class ExpertSourceReplayExecutionStore:
     ) -> None:
         reservation_id = session.reservation.reservation_id
         if self._active_sessions.get(reservation_id) is not session:
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution store reservation session registration changed"
             )
         del self._active_sessions[reservation_id]
-
-    def _prepare_layout(self) -> None:
-        self._ensure_private_directory(self.root, self.trusted_root)
-        self._ensure_private_directory(self.lock_root, self.root)
-        self._ensure_private_directory(self.reservation_root, self.root)
-        self._validate_private_directory(self.root, "execution journal root")
-        self._validate_private_directory(self.lock_root, "execution journal locks")
-        self._validate_private_directory(
-            self.reservation_root,
-            "execution journal reservations",
-        )
-
-    def _prepare_reservation_layout(self, reservation_id: str) -> None:
-        with _ExecutionStoreLock(self.initialization_lock_path):
-            reservation_root = self._reservation_path(reservation_id)
-            self._ensure_private_directory(reservation_root, self.reservation_root)
-            self._ensure_private_directory(
-                reservation_root / "events",
-                reservation_root,
-            )
-            self._ensure_private_directory(
-                reservation_root / "staging",
-                reservation_root,
-            )
-            self._ensure_private_directory(
-                reservation_root / "results",
-                reservation_root,
-            )
 
     def _read_events(
         self,
@@ -1435,52 +1329,29 @@ class ExpertSourceReplayExecutionStore:
         prepared_request: PreparedExpertSourceReplayRequest,
     ) -> tuple[SourceReplayExecutionJournalEvent, ...]:
         request = prepared_request.request
-        events_root = self._events_path(reservation.reservation_id)
+        reservation_digest = self._reservation_digest(reservation.reservation_id)
         maximum_event_count = 4 * len(
             source_replay_execution_schedule(reservation, request)
         )
-        scanned_entries = []
-        with os.scandir(events_root) as entries:
-            for entry in entries:
-                scanned_entries.append(entry)
-                if len(scanned_entries) > maximum_event_count:
-                    raise ExpertSourceReplayExecutionStoreError(
-                        "execution journal exceeds its structural event bound"
-                    )
-        entries = tuple(sorted(scanned_entries, key=lambda entry: entry.name))
         parsed_entries = []
-        seen_numbers = set()
-        for entry in entries:
-            match = _EVENT_FILENAME_PATTERN.fullmatch(entry.name)
-            if match is None:
-                raise ExpertSourceReplayExecutionStoreError(
-                    "execution journal contains an unexpected event entry"
-                )
-            event_number = int(match.group("number"))
-            if event_number in seen_numbers:
-                raise ExpertSourceReplayExecutionStoreError(
-                    "execution journal contains a forked event number"
-                )
-            seen_numbers.add(event_number)
-            payload = self._read_private_file(
-                Path(entry.path),
-                required_mode=0o400,
-                name="execution journal event",
-                maximum_size_bytes=self.maximum_event_size_bytes,
-            )
+        for numbered_payload in self._filesystem.read_numbered_event_payloads(
+            reservation_digest,
+            maximum_event_count,
+        ):
+            payload = numbered_payload.payload
             event = SourceReplayExecutionJournalEvent.from_json_bytes(payload)
             if payload != event.to_json_bytes():
-                raise ExpertSourceReplayExecutionStoreError(
+                raise ExecutionJournalStoreError(
                     "execution journal event is not canonical"
                 )
-            if event.event_number != event_number:
-                raise ExpertSourceReplayExecutionStoreError(
+            if event.event_number != numbered_payload.event_number:
+                raise ExecutionJournalStoreError(
                     "execution journal event filename differs from its identity"
                 )
             parsed_entries.append(event)
         events = tuple(parsed_entries)
-        self._validate_result_entries(
-            reservation.reservation_id,
+        self._filesystem.validate_results(
+            reservation_digest,
             len(source_replay_execution_schedule(reservation, request)),
         )
         self._validate_events(reservation, prepared_request, events)
@@ -1496,7 +1367,7 @@ class ExpertSourceReplayExecutionStore:
         _validate_reservation_request(reservation, request)
         schedule = source_replay_execution_schedule(reservation, request)
         if len(events) > 4 * len(schedule):
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal contains an unsupported event suffix"
             )
         phases = (
@@ -1525,7 +1396,7 @@ class ExpertSourceReplayExecutionStore:
                 or event.execution_leg_id != expected_leg_id
                 or allocation != allocation_event.invocation_allocation
             ):
-                raise ExpertSourceReplayExecutionStoreError(
+                raise ExecutionJournalStoreError(
                     "execution journal is not an exact authorized schedule prefix"
                 )
             if phase_position == 0:
@@ -1533,7 +1404,7 @@ class ExpertSourceReplayExecutionStore:
                     allocation.invocation_nonce in seen_nonces
                     or allocation.opaque_invocation_id in seen_invocation_ids
                 ):
-                    raise ExpertSourceReplayExecutionStoreError(
+                    raise ExecutionJournalStoreError(
                         "execution journal reuses an invocation identity"
                     )
                 seen_nonces.add(allocation.invocation_nonce)
@@ -1579,7 +1450,7 @@ class ExpertSourceReplayExecutionStore:
                     )
                     != fence.security_subject_ids
                 ):
-                    raise ExpertSourceReplayExecutionStoreError(
+                    raise ExecutionJournalStoreError(
                         "execution journal spawn fence differs from its reservation"
                     )
             elif phase_position == 2:
@@ -1599,31 +1470,31 @@ class ExpertSourceReplayExecutionStore:
                         > request_case.compute_binding.output_byte_limit
                     )
                 ):
-                    raise ExpertSourceReplayExecutionStoreError(
+                    raise ExecutionJournalStoreError(
                         "execution journal result exceeds its persisted compute bounds"
                     )
                 if event.result_blob is not None:
-                    self._read_result_blob(
-                        reservation.reservation_id,
+                    self._filesystem.read_result(
+                        self._reservation_digest(reservation.reservation_id),
                         event.result_blob,
                     )
             elif phase_position == 3:
                 spawn_event = events[schedule_position * 4 + 1]
                 received_event = events[schedule_position * 4 + 2]
                 if received_event.result_blob is None:
-                    raise ExpertSourceReplayExecutionStoreError(
+                    raise ExecutionJournalStoreError(
                         "execution journal accepted a missing result blob"
                     )
                 parsed = parse_task_evaluator_result(
-                    self._read_result_blob(
-                        reservation.reservation_id,
+                    self._filesystem.read_result(
+                        self._reservation_digest(reservation.reservation_id),
                         received_event.result_blob,
                     ),
                     spawn_event.task_evaluator_request,
                     spawn_event.aggregate_tolerance,
                 )
                 if parsed != event.task_evaluator_result:
-                    raise ExpertSourceReplayExecutionStoreError(
+                    raise ExecutionJournalStoreError(
                         "execution journal accepted result differs from its blob"
                     )
             previous_event_id = event.event_id
@@ -1633,327 +1504,18 @@ class ExpertSourceReplayExecutionStore:
         reservation_id: str,
         event: SourceReplayExecutionJournalEvent,
     ) -> None:
-        payload = event.to_json_bytes()
-        if len(payload) > self.maximum_event_size_bytes:
-            raise ExpertSourceReplayExecutionStoreError(
-                "execution journal event exceeds its configured bound"
-            )
-        staging_root = self._staging_path(reservation_id)
-        temporary_path = staging_root / f".event-{secrets.token_hex(16)}.tmp"
-        descriptor = os.open(
-            temporary_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-            0o600,
+        self._filesystem.publish_numbered_event(
+            self._reservation_digest(reservation_id),
+            event.event_number,
+            event.to_json_bytes(),
         )
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fchmod(handle.fileno(), 0o400)
-            os.fsync(handle.fileno())
-        staged_payload = self._read_private_file(
-            temporary_path,
-            required_mode=0o400,
-            name="staged execution journal event",
-            maximum_size_bytes=self.maximum_event_size_bytes,
-        )
-        if staged_payload != payload:
-            raise ExpertSourceReplayExecutionStoreError(
-                "staged execution event differs from canonical bytes"
-            )
-        destination = self._event_path(reservation_id, event)
-        self._rename_no_replace(temporary_path, destination)
-        self._fsync_directory(destination.parent)
-        self._fsync_directory(staging_root)
-
-    def _clean_staging(self, reservation_id: str) -> None:
-        staging_root = self._staging_path(reservation_id)
-        scanned_entries = []
-        with os.scandir(staging_root) as entries:
-            for entry in entries:
-                scanned_entries.append(entry)
-                if len(scanned_entries) > self.maximum_staging_entry_count:
-                    raise ExpertSourceReplayExecutionStoreError(
-                        "execution journal staging exceeds its configured bound"
-                    )
-        entries = tuple(scanned_entries)
-        for entry in entries:
-            if _STAGING_FILENAME_PATTERN.fullmatch(entry.name) is None:
-                raise ExpertSourceReplayExecutionStoreError(
-                    "execution journal staging contains an unexpected entry"
-                )
-            metadata = entry.stat(follow_symlinks=False)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_nlink != 1
-                or stat.S_IMODE(metadata.st_mode) not in {0o400, 0o600}
-                or metadata.st_uid != os.geteuid()
-            ):
-                raise ExpertSourceReplayExecutionStoreError(
-                    "execution journal staging entry is unsafe"
-                )
-            os.unlink(entry.path)
-        if entries:
-            self._fsync_directory(staging_root)
-
-    def _publish_result_blob(
-        self,
-        reservation_id: str,
-        payload: bytes,
-    ) -> SourceReplayResultBlob:
-        if len(payload) > self.maximum_result_size_bytes:
-            raise ExpertSourceReplayExecutionStoreError(
-                "source replay result blob exceeds its configured bound"
-            )
-        result_blob = SourceReplayResultBlob(
-            digest=tree_or_blob_digest(payload),
-            size=len(payload),
-        )
-        staging_root = self._staging_path(reservation_id)
-        temporary_path = staging_root / f".result-{secrets.token_hex(16)}.tmp"
-        descriptor = os.open(
-            temporary_path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-            0o600,
-        )
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fchmod(handle.fileno(), 0o400)
-            os.fsync(handle.fileno())
-        staged_payload = self._read_private_file(
-            temporary_path,
-            required_mode=0o400,
-            name="staged source replay result",
-            maximum_size_bytes=self.maximum_result_size_bytes,
-        )
-        if staged_payload != payload:
-            raise ExpertSourceReplayExecutionStoreError(
-                "staged source replay result differs from its payload"
-            )
-        destination = self._result_path(reservation_id, result_blob)
-        self._rename_no_replace(temporary_path, destination)
-        self._fsync_directory(destination.parent)
-        self._fsync_directory(staging_root)
-        return result_blob
-
-    def _read_result_blob(
-        self,
-        reservation_id: str,
-        result_blob: SourceReplayResultBlob,
-    ) -> bytes:
-        payload = self._read_private_file(
-            self._result_path(reservation_id, result_blob),
-            required_mode=0o400,
-            name="source replay result blob",
-            maximum_size_bytes=self.maximum_result_size_bytes,
-        )
-        if (
-            len(payload) != result_blob.size
-            or tree_or_blob_digest(payload) != result_blob.digest
-        ):
-            raise ExpertSourceReplayExecutionStoreError(
-                "source replay result blob differs from its descriptor"
-            )
-        return payload
-
-    def _validate_result_entries(
-        self,
-        reservation_id: str,
-        maximum_result_count: int,
-    ) -> None:
-        result_root = self._results_path(reservation_id)
-        entry_count = 0
-        with os.scandir(result_root) as entries:
-            for entry in entries:
-                entry_count += 1
-                if entry_count > maximum_result_count:
-                    raise ExpertSourceReplayExecutionStoreError(
-                        "source replay result store exceeds its structural bound"
-                    )
-                match = _RESULT_FILENAME_PATTERN.fullmatch(entry.name)
-                if match is None:
-                    raise ExpertSourceReplayExecutionStoreError(
-                        "source replay result store contains an unexpected entry"
-                    )
-                payload = self._read_private_file(
-                    Path(entry.path),
-                    required_mode=0o400,
-                    name="source replay result blob",
-                    maximum_size_bytes=self.maximum_result_size_bytes,
-                )
-                if tree_or_blob_digest(payload).removeprefix("sha256:") != match.group(
-                    "digest"
-                ):
-                    raise ExpertSourceReplayExecutionStoreError(
-                        "source replay result filename differs from its payload"
-                    )
-
-    def _event_path(
-        self,
-        reservation_id: str,
-        event: SourceReplayExecutionJournalEvent,
-    ) -> Path:
-        return self._events_path(reservation_id) / f"{event.event_number:020d}.json"
-
-    def _lock_path(self, reservation_id: str) -> Path:
-        digest = self._reservation_digest(reservation_id)
-        return self.lock_root / f"{digest}.lock"
-
-    def _reservation_path(self, reservation_id: str) -> Path:
-        return self.reservation_root / self._reservation_digest(reservation_id)
-
-    def _events_path(self, reservation_id: str) -> Path:
-        return self._reservation_path(reservation_id) / "events"
-
-    def _staging_path(self, reservation_id: str) -> Path:
-        return self._reservation_path(reservation_id) / "staging"
-
-    def _results_path(self, reservation_id: str) -> Path:
-        return self._reservation_path(reservation_id) / "results"
-
-    def _result_path(
-        self,
-        reservation_id: str,
-        result_blob: SourceReplayResultBlob,
-    ) -> Path:
-        digest = result_blob.digest.removeprefix("sha256:")
-        return self._results_path(reservation_id) / f"{digest}.json"
 
     @staticmethod
     def _reservation_digest(reservation_id: str) -> str:
         require_content_id(reservation_id, "source replay execution reservation_id")
         namespace, digest = reservation_id.split(":sha256:", 1)
         if namespace != "expert-source-replay-execution-reservation":
-            raise ExpertSourceReplayExecutionStoreError(
+            raise ExecutionJournalStoreError(
                 "execution journal reservation uses the wrong namespace"
             )
         return digest
-
-    @staticmethod
-    def _ensure_private_directory(path: Path, parent: Path) -> None:
-        if not os.path.lexists(path):
-            os.mkdir(path, mode=0o700)
-            ExpertSourceReplayExecutionStore._fsync_directory(parent)
-        ExpertSourceReplayExecutionStore._validate_private_directory(
-            path,
-            "execution journal directory",
-        )
-
-    @staticmethod
-    def _validate_private_directory(path: Path, name: str) -> None:
-        metadata = os.stat(path, follow_symlinks=False)
-        if (
-            not stat.S_ISDIR(metadata.st_mode)
-            or stat.S_IMODE(metadata.st_mode) != 0o700
-            or metadata.st_uid != os.geteuid()
-        ):
-            raise ExpertSourceReplayExecutionStoreError(
-                f"{name} must be a private real directory"
-            )
-
-    @staticmethod
-    def _read_private_file(
-        path: Path,
-        *,
-        required_mode: int,
-        name: str,
-        maximum_size_bytes: int,
-    ) -> bytes:
-        descriptor = os.open(
-            path,
-            os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
-        )
-        with os.fdopen(descriptor, "rb") as handle:
-            metadata = os.fstat(handle.fileno())
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or metadata.st_nlink != 1
-                or stat.S_IMODE(metadata.st_mode) != required_mode
-                or metadata.st_uid != os.geteuid()
-            ):
-                raise ExpertSourceReplayExecutionStoreError(
-                    f"{name} must be a private independent regular file"
-                )
-            payload = handle.read(maximum_size_bytes + 1)
-        if len(payload) > maximum_size_bytes:
-            raise ExpertSourceReplayExecutionStoreError(
-                f"{name} exceeds its configured bound"
-            )
-        return payload
-
-    @staticmethod
-    def _fsync_directory(path: Path) -> None:
-        descriptor = os.open(
-            path,
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-        )
-        os.fsync(descriptor)
-        os.close(descriptor)
-
-    @staticmethod
-    def _rename_no_replace(source: Path, destination: Path) -> None:
-        libc = ctypes.CDLL(None, use_errno=True)
-        if not hasattr(libc, "renameat2"):
-            raise ExpertSourceReplayExecutionStoreError(
-                "atomic no-replace execution journal publication is unavailable"
-            )
-        rename_at2 = libc.renameat2
-        rename_at2.argtypes = (
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_uint,
-        )
-        rename_at2.restype = ctypes.c_int
-        result = rename_at2(
-            _AT_FDCWD,
-            os.fsencode(source),
-            _AT_FDCWD,
-            os.fsencode(destination),
-            _RENAME_NOREPLACE,
-        )
-        if result != 0:
-            error_number = ctypes.get_errno()
-            raise OSError(
-                error_number,
-                "execution journal publication failed: "
-                f"{errno.errorcode.get(error_number)}",
-            )
-
-
-class _ExecutionStoreLock:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.handle = None
-        self.acquired = False
-
-    def __enter__(self):
-        descriptor = os.open(
-            self.path,
-            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
-            0o600,
-        )
-        self.handle = os.fdopen(descriptor, "r+b")
-        metadata = os.fstat(self.handle.fileno())
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-            or metadata.st_uid != os.geteuid()
-        ):
-            self.handle.close()
-            self.handle = None
-            raise ExpertSourceReplayExecutionStoreError(
-                "execution journal lock must be a private independent file"
-            )
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
-        self.acquired = True
-        return self
-
-    def __exit__(self, exception_type, exception, traceback):
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
-        self.acquired = False
-        self.handle.close()
-        self.handle = None
-        return False

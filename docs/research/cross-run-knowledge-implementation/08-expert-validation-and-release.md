@@ -518,6 +518,15 @@ Implemented validation substrate:
   and configured tolerance. Referenced result bytes are digest-, size-, policy-,
   and compute-bounded; accepted events are reparsed from those bytes, while a
   malformed received-result tail remains safely reopenable and non-advancing; and
+- source replay and task evaluation now share one semantics-free private journal
+  filesystem. It validates owner-private roots and digest-only paths, distinguishes
+  absent or empty partial layouts from corrupt durable partial state with
+  `lexists`, bounds directory enumeration and no-follow reads, validates the whole
+  staging set before cleanup, publishes immutable numbered events and result
+  blobs with no-replace rename plus file/directory fsync, and carries process-local
+  flock ownership. Source replay retains its own schedule, event reducer, permits,
+  and completed capability; no generic callback state machine or legacy store
+  error/result-blob alias remains; and
 - a complete journal can mint only one deterministic store/process-bound completed
   capability, from which the factual reducer produces a canonical paired receipt
   with semantic control/candidate assignment, adapter-declared dimension/scale,

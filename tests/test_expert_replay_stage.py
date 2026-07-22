@@ -430,7 +430,9 @@ def test_stage_orchestrator_rejects_mismatched_policy_wiring_before_run(tmp_path
 def test_stage_orchestrator_repairs_partial_reservation_layout_after_crash(tmp_path):
     stage = _stage_fixture(tmp_path)
     reservation = _reserve(stage)
-    partial_root = stage.execution_store._reservation_path(reservation.reservation_id)
+    partial_root = stage.execution_store._filesystem.reservation_path(
+        stage.execution_store._reservation_digest(reservation.reservation_id)
+    )
     partial_root.mkdir(mode=0o700)
 
     snapshot = stage.orchestrator.run(stage.fixture.attempt)

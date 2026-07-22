@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
@@ -33,6 +32,9 @@ from kapso.cross_run.expert.task_evaluation_preflight import (
 from kapso.cross_run.expert.task_evaluation_protocol import (
     build_task_evaluation_evaluator_request,
 )
+from kapso.cross_run.expert.private_execution_journal import (
+    ExecutionJournalResultBlob,
+)
 from kapso.cross_run.expert.task_evaluation_reservation import (
     ExpertTaskEvaluationReservationSnapshot,
 )
@@ -46,8 +48,6 @@ from kapso.cross_run.process import BoundedProcessOutcome
 TASK_EVALUATION_EXECUTION_JOURNAL_SCHEMA_VERSION = (
     "kapso.task_evaluation_execution_journal.v1"
 )
-
-_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class TaskEvaluationExecutionJournalError(ValueError):
@@ -89,22 +89,6 @@ class TaskEvaluationProcessObservation(StrictContract):
 
 
 @dataclass(frozen=True)
-class TaskEvaluationResultBlob(StrictContract):
-    digest: str
-    size: int
-
-    def _validate(self) -> None:
-        if _DIGEST_PATTERN.fullmatch(self.digest) is None:
-            raise TaskEvaluationExecutionJournalError(
-                "task evaluation result blob digest is invalid"
-            )
-        if type(self.size) is not int or self.size < 0:
-            raise TaskEvaluationExecutionJournalError(
-                "task evaluation result blob size must be non-negative"
-            )
-
-
-@dataclass(frozen=True)
 class TaskEvaluationExecutionJournalEvent(StrictContract):
     event_id: str
     schema_version: str
@@ -119,7 +103,7 @@ class TaskEvaluationExecutionJournalEvent(StrictContract):
     task_evaluator_request: TaskEvaluatorRequest | None
     aggregate_tolerance: float | None
     process_observation: TaskEvaluationProcessObservation | None
-    result_blob: TaskEvaluationResultBlob | None
+    result_blob: ExecutionJournalResultBlob | None
     task_evaluator_result: TaskEvaluatorResult | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "task-evaluation-execution-journal-event"
@@ -307,7 +291,7 @@ def validate_task_evaluation_execution_prefix(
     reservation_snapshot: ExpertTaskEvaluationReservationSnapshot,
     prepared_request: PreparedTaskEvaluationRequest,
     events: tuple[TaskEvaluationExecutionJournalEvent, ...],
-    result_payloads: tuple[tuple[TaskEvaluationResultBlob, bytes], ...],
+    result_payloads: tuple[tuple[ExecutionJournalResultBlob, bytes], ...],
 ) -> TaskEvaluationExecutionPrefixState:
     """Validate an exact journal prefix without external or provider work."""
 
@@ -454,13 +438,13 @@ def _require_execution_authority(
 
 def _validate_result_payloads(
     events: tuple[TaskEvaluationExecutionJournalEvent, ...],
-    result_payloads: tuple[tuple[TaskEvaluationResultBlob, bytes], ...],
+    result_payloads: tuple[tuple[ExecutionJournalResultBlob, bytes], ...],
     maximum_result_size_bytes: int,
-) -> dict[TaskEvaluationResultBlob, bytes]:
+) -> dict[ExecutionJournalResultBlob, bytes]:
     if type(result_payloads) is not tuple or any(
         type(item) is not tuple
         or len(item) != 2
-        or type(item[0]) is not TaskEvaluationResultBlob
+        or type(item[0]) is not ExecutionJournalResultBlob
         or not isinstance(item[1], bytes)
         for item in result_payloads
     ):
