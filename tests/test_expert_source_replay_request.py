@@ -368,7 +368,7 @@ def _request_fixture(
             outcome=ExpertEvaluatorOutcome.PASSED,
             signature="test-signature",
         )
-        snapshot = validation_store.publish_result(
+        snapshot = validation_store.publish_evaluator_result(
             candidate_id=snapshot.state.candidate_id,
             expected_transition_id=snapshot.transition.transition_id,
             result=result,

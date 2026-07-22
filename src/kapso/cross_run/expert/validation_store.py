@@ -20,9 +20,8 @@ from kapso.cross_run.contracts import (
     ContractValidationError,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
-    ExpertEvaluatorAttestationEnvelope,
     ExpertEvaluatorOutcome,
-    ExpertEvaluatorRun,
+    ExpertEvaluatorResultRecord,
     ExpertPromotionState,
     ExpertSourceReplayExecutionRequest,
     ExpertSourceReplayExecutionReservation,
@@ -32,7 +31,6 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.validation import (
     ExpertEligibilityResult,
-    ExpertEvaluatorResult,
     ExpertValidationPredecessor,
     ExpertValidationReducer,
     validate_source_replay_request_authority_shape,
@@ -57,28 +55,6 @@ class ExpertValidationOperationKind(str, Enum):
     EVALUATOR_RESULT = "evaluator_result"
     SOURCE_REPLAY_RESERVATION = "source_replay_reservation"
     AUTHORITY_INVALIDATION = "authority_invalidation"
-
-
-@dataclass(frozen=True)
-class ExpertEvaluatorResultRecord(StrictContract):
-    evaluator_result_record_id: str
-    evaluator_run: ExpertEvaluatorRun
-    attestation_envelope: ExpertEvaluatorAttestationEnvelope
-
-    CONTENT_NAMESPACE: ClassVar[str] = "expert-evaluator-result-record"
-    IDENTITY_FIELD: ClassVar[str] = "evaluator_result_record_id"
-
-    def _validate(self) -> None:
-        attestation = self.attestation_envelope.attestation
-        if (
-            attestation.evaluator_run_id != self.evaluator_run.evaluator_run_id
-            or attestation.issuer_id != self.evaluator_run.evaluator_id
-            or attestation.predicate_digest
-            != tree_or_blob_digest(self.evaluator_run.to_json_bytes())
-        ):
-            raise ContractValidationError(
-                "evaluator result record attestation does not bind its run"
-            )
 
 
 @dataclass(frozen=True)
@@ -117,8 +93,8 @@ class ExpertValidationTransition(StrictContract):
     configuration_fingerprint: str
     eligibility_decision_id: str | None
     created_attempt_id: str | None
-    accepted_result_record_ids: tuple[str, ...]
-    transition_result_record_id: str | None
+    accepted_stage_result_record_ids: tuple[str, ...]
+    transition_stage_result_record_id: str | None
     transition_authority_invalidation_id: str | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-transition"
@@ -149,7 +125,10 @@ class ExpertValidationTransition(StrictContract):
             (self.latest_attempt_id, "latest_attempt_id"),
             (self.eligibility_decision_id, "eligibility_decision_id"),
             (self.created_attempt_id, "created_attempt_id"),
-            (self.transition_result_record_id, "transition_result_record_id"),
+            (
+                self.transition_stage_result_record_id,
+                "transition_stage_result_record_id",
+            ),
             (
                 self.transition_authority_invalidation_id,
                 "transition_authority_invalidation_id",
@@ -167,19 +146,22 @@ class ExpertValidationTransition(StrictContract):
             raise ContractValidationError(
                 "transition configuration fingerprint is invalid"
             )
-        if len(self.accepted_result_record_ids) != len(
-            set(self.accepted_result_record_ids)
+        if len(self.accepted_stage_result_record_ids) != len(
+            set(self.accepted_stage_result_record_ids)
         ):
             raise ContractValidationError(
-                "accepted evaluator result records must be unique"
+                "accepted stage result records must be unique"
             )
-        for result_record_id in self.accepted_result_record_ids:
-            require_content_id(result_record_id, "accepted_result_record_ids")
+        for result_record_id in self.accepted_stage_result_record_ids:
+            require_content_id(
+                result_record_id,
+                "accepted_stage_result_record_ids",
+            )
         request_count = sum(
             value is not None
             for value in (
                 self.eligibility_decision_id,
-                self.transition_result_record_id,
+                self.transition_stage_result_record_id,
                 self.transition_authority_invalidation_id,
             )
         )
@@ -229,7 +211,7 @@ class ExpertValidationSnapshot:
     transition: ExpertValidationTransition
     state: ExpertCandidateValidationState
     latest_attempt: ExpertValidationAttempt | None
-    accepted_results: tuple[ExpertEvaluatorResult, ...]
+    accepted_stage_results: tuple[ExpertEvaluatorResultRecord, ...]
 
     @property
     def predecessor(self) -> ExpertValidationPredecessor:
@@ -416,24 +398,20 @@ class ExpertValidationStore:
                 replayed=False,
             )
 
-    def publish_result(
+    def publish_evaluator_result(
         self,
         *,
         candidate_id: str,
         expected_transition_id: str,
-        result: ExpertEvaluatorResult,
+        result: ExpertEvaluatorResultRecord,
     ) -> ExpertValidationCommitResult:
         require_content_id(candidate_id, "candidate_id")
         require_content_id(expected_transition_id, "expected_transition_id")
-        result_record = ExpertEvaluatorResultRecord.mint(
-            evaluator_run=result.evaluator_run,
-            attestation_envelope=result.attestation_envelope,
-        )
         operation = ExpertValidationOperation.mint(
             operation_kind=ExpertValidationOperationKind.EVALUATOR_RESULT,
             candidate_id=candidate_id,
             expected_transition_id=expected_transition_id,
-            request_record_id=result_record.evaluator_result_record_id,
+            request_record_id=result.evaluator_result_record_id,
         )
         with self._lock(exclusive=False):
             journal = self._read_journal_unlocked(candidate_id)
@@ -446,10 +424,10 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "evaluator result requires a current validation attempt"
                 )
-        target_state = self.reducer.advance(
+        target_state = self.reducer.advance_evaluator_stage(
             state=observed.state,
             attempt=observed.latest_attempt,
-            accepted_results=observed.accepted_results,
+            accepted_results=observed.accepted_stage_results,
             result=result,
         )
         with self._lock(exclusive=True):
@@ -463,11 +441,11 @@ class ExpertValidationStore:
                 raise ExpertValidationCompareAndSwapError(
                     "validation head changed during evaluator checks"
                 )
-            accepted_ids = current.transition.accepted_result_record_ids
+            accepted_ids = current.transition.accepted_stage_result_record_ids
             if result.evaluator_run.outcome is ExpertEvaluatorOutcome.PASSED:
                 accepted_ids = (
                     *accepted_ids,
-                    result_record.evaluator_result_record_id,
+                    result.evaluator_result_record_id,
                 )
             transition = ExpertValidationTransition.mint(
                 candidate_id=candidate_id,
@@ -484,11 +462,11 @@ class ExpertValidationStore:
                 ),
                 eligibility_decision_id=None,
                 created_attempt_id=None,
-                accepted_result_record_ids=accepted_ids,
-                transition_result_record_id=(result_record.evaluator_result_record_id),
+                accepted_stage_result_record_ids=accepted_ids,
+                transition_stage_result_record_id=(result.evaluator_result_record_id),
                 transition_authority_invalidation_id=None,
             )
-            self._write_contract_unlocked(result_record)
+            self._write_contract_unlocked(result)
             self._write_contract_unlocked(target_state)
             self._write_contract_unlocked(operation)
             self._write_contract_unlocked(transition)
@@ -552,7 +530,7 @@ class ExpertValidationStore:
         self.reducer.validate_source_replay_request(
             state=observed.state,
             attempt=observed.latest_attempt,
-            accepted_results=observed.accepted_results,
+            accepted_results=observed.accepted_stage_results,
             request=request,
         )
         with self._lock(exclusive=True):
@@ -758,10 +736,10 @@ class ExpertValidationStore:
                 ),
                 eligibility_decision_id=None,
                 created_attempt_id=None,
-                accepted_result_record_ids=(
-                    current.transition.accepted_result_record_ids
+                accepted_stage_result_record_ids=(
+                    current.transition.accepted_stage_result_record_ids
                 ),
-                transition_result_record_id=None,
+                transition_stage_result_record_id=None,
                 transition_authority_invalidation_id=(
                     invalidation.authority_invalidation_id
                 ),
@@ -826,8 +804,8 @@ class ExpertValidationStore:
             created_attempt_id=(
                 None if attempt is None else attempt.validation_attempt_id
             ),
-            accepted_result_record_ids=(),
-            transition_result_record_id=None,
+            accepted_stage_result_record_ids=(),
+            transition_stage_result_record_id=None,
             transition_authority_invalidation_id=None,
         )
 
@@ -874,7 +852,7 @@ class ExpertValidationStore:
         )
         active_attempt_transition = (
             transition.created_attempt_id is not None
-            or transition.transition_result_record_id is not None
+            or transition.transition_stage_result_record_id is not None
             or transition.transition_authority_invalidation_id is not None
         )
         if latest_attempt is not None and (
@@ -898,19 +876,13 @@ class ExpertValidationStore:
                 result_record_id,
                 ExpertEvaluatorResultRecord,
             )
-            for result_record_id in transition.accepted_result_record_ids
+            for result_record_id in transition.accepted_stage_result_record_ids
         )
         return ExpertValidationSnapshot(
             transition=transition,
             state=state,
             latest_attempt=latest_attempt,
-            accepted_results=tuple(
-                ExpertEvaluatorResult(
-                    evaluator_run=record.evaluator_run,
-                    attestation_envelope=record.attestation_envelope,
-                )
-                for record in accepted_records
-            ),
+            accepted_stage_results=accepted_records,
         )
 
     def _validate_journal_unlocked(self, journal: ExpertValidationJournal) -> None:
@@ -1173,21 +1145,35 @@ class ExpertValidationStore:
                 result_record_id,
                 ExpertEvaluatorResultRecord,
             )
-            for result_record_id in transition.accepted_result_record_ids
+            for result_record_id in transition.accepted_stage_result_record_ids
         )
-        evidence = tuple(
+        accepted_refs = tuple(
             (
-                record.evaluator_run.evaluator_run_id,
-                record.attestation_envelope.attestation.evaluator_attestation_id,
+                record.evaluator_run.stage,
+                record.evaluator_result_record_id,
             )
             for record in accepted_records
         )
-        state_evidence = tuple(
-            (item.evaluator_run_id, item.evaluator_attestation_id)
-            for item in state.accepted_evaluator_evidence
+        state_refs = tuple(
+            (item.stage, item.stage_result_record_id)
+            for item in state.accepted_stage_results
         )
         if (
-            evidence != state_evidence
+            accepted_refs != state_refs
+            or (
+                latest_attempt is not None
+                and tuple(record.evaluator_run.stage for record in accepted_records)
+                != latest_attempt.required_stages[: len(accepted_records)]
+            )
+            or (
+                state.promotion_state is ExpertPromotionState.VALIDATING
+                and (
+                    latest_attempt is None
+                    or len(accepted_records) >= len(latest_attempt.required_stages)
+                    or state.next_stage
+                    is not latest_attempt.required_stages[len(accepted_records)]
+                )
+            )
             or any(
                 record.evaluator_run.outcome is not ExpertEvaluatorOutcome.PASSED
                 for record in accepted_records
@@ -1221,7 +1207,7 @@ class ExpertValidationStore:
                 or state.transition_evidence_id != decision.eligibility_decision_id
                 or operation.expected_transition_id
                 != transition.predecessor_transition_id
-                or transition.accepted_result_record_ids
+                or transition.accepted_stage_result_record_ids
             ):
                 raise ExpertValidationStoreError(
                     "validation start transition closure is inconsistent"
@@ -1255,9 +1241,9 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "validation start attempt differs from its eligibility decision"
                 )
-        elif transition.transition_result_record_id is not None:
+        elif transition.transition_stage_result_record_id is not None:
             result_record = self._read_contract_unlocked(
-                transition.transition_result_record_id,
+                transition.transition_stage_result_record_id,
                 ExpertEvaluatorResultRecord,
             )
             if (
@@ -1282,7 +1268,7 @@ class ExpertValidationStore:
             previous_accepted = (
                 ()
                 if previous_transition is None
-                else previous_transition.accepted_result_record_ids
+                else previous_transition.accepted_stage_result_record_ids
             )
             expected_accepted = previous_accepted
             if result_record.evaluator_run.outcome is ExpertEvaluatorOutcome.PASSED:
@@ -1290,7 +1276,7 @@ class ExpertValidationStore:
                     *previous_accepted,
                     result_record.evaluator_result_record_id,
                 )
-            if transition.accepted_result_record_ids != expected_accepted:
+            if transition.accepted_stage_result_record_ids != expected_accepted:
                 raise ExpertValidationStoreError(
                     "validation accepted result prefix is not gap-free"
                 )
@@ -1310,7 +1296,7 @@ class ExpertValidationStore:
             previous_accepted = (
                 ()
                 if previous_transition is None
-                else previous_transition.accepted_result_record_ids
+                else previous_transition.accepted_stage_result_record_ids
             )
             if (
                 operation.operation_kind
@@ -1338,15 +1324,15 @@ class ExpertValidationStore:
                 or transition.configuration_fingerprint
                 != latest_attempt.configuration_fingerprint
                 or state.promotion_state is not ExpertPromotionState.FAILED
-                or state.accepted_evaluator_evidence
-                != predecessor_state.accepted_evaluator_evidence
+                or state.accepted_stage_results
+                != predecessor_state.accepted_stage_results
                 or state.review_assertion_ids != predecessor_state.review_assertion_ids
                 or state.terminal_evidence_ids
                 != (invalidation.authority_invalidation_id,)
                 or state.transition_evidence_id
                 != invalidation.authority_invalidation_id
                 or state.reason != "validation_parent_release_changed"
-                or transition.accepted_result_record_ids != previous_accepted
+                or transition.accepted_stage_result_record_ids != previous_accepted
             ):
                 raise ExpertValidationStoreError(
                     "validation authority invalidation closure is inconsistent"

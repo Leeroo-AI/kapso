@@ -1,6 +1,9 @@
 """Evidence-triggered expert candidate proposal plane."""
 
-from kapso.cross_run.contracts import EMPTY_EXPERT_TREE_DIGEST
+from kapso.cross_run.contracts import (
+    EMPTY_EXPERT_TREE_DIGEST,
+    ExpertEvaluatorResultRecord,
+)
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
     compile_expert_semantic_book,
@@ -64,7 +67,6 @@ from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
     ExpertCurrentReleaseProvider,
     ExpertEligibilityResult,
-    ExpertEvaluatorResult,
     ExpertEvaluatorRunBuilder,
     ExpertValidationError,
     ExpertValidationAuthorityInvalidationResult,
@@ -74,7 +76,6 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationStateProvider,
 )
 from kapso.cross_run.expert.validation_store import (
-    ExpertEvaluatorResultRecord,
     ExpertValidationCommitResult,
     ExpertValidationCompareAndSwapError,
     ExpertValidationJournal,
@@ -112,7 +113,6 @@ __all__ = [
     "ExpertCandidateValidator",
     "ExpertCapabilityGeneralizer",
     "ExpertEligibilityResult",
-    "ExpertEvaluatorResult",
     "ExpertEvaluatorRunBuilder",
     "ExpertEvaluatorResultRecord",
     "ExpertCandidateWorkspaceError",

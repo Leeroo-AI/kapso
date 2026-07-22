@@ -13,7 +13,6 @@ from kapso.cross_run.expert.validation import (
     ExpertValidationError,
 )
 from kapso.cross_run.expert.validation_store import (
-    ExpertEvaluatorResultRecord,
     ExpertValidationCompareAndSwapError,
     ExpertValidationStore,
     ExpertValidationStoreError,
@@ -24,6 +23,7 @@ from kapso.cross_run.expert.replay_request import (
 )
 from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
+    ExpertEvaluatorResultRecord,
     ExpertPromotionState,
     ExpertValidationStage,
 )
@@ -231,7 +231,7 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(
         ExpertValidationStage.CONTRACT_SCHEMA,
         ExpertEvaluatorOutcome.PASSED,
     )
-    after_first = store.publish_result(
+    after_first = store.publish_evaluator_result(
         candidate_id=started.state.candidate_id,
         expected_transition_id=started.transition.transition_id,
         result=first,
@@ -239,7 +239,7 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(
     reopened = _validation_store(tmp_path, settings, reducer)
     recovered = reopened.snapshot(started.state.candidate_id)
     assert recovered is not None
-    assert recovered.accepted_results == (first,)
+    assert recovered.accepted_stage_results == (first,)
     verify = reducer.attestation_verifier.verify
 
     def unexpected_attestation_verification(_envelope):
@@ -250,7 +250,7 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(
         "verify",
         unexpected_attestation_verification,
     )
-    replayed_first = reopened.publish_result(
+    replayed_first = reopened.publish_evaluator_result(
         candidate_id=started.state.candidate_id,
         expected_transition_id=started.transition.transition_id,
         result=first,
@@ -263,16 +263,16 @@ def test_passed_results_reopen_as_the_exact_ordered_reducer_prefix(
         ExpertValidationStage.IDENTITY_SECRETS_LICENSE_DEPENDENCY,
         ExpertEvaluatorOutcome.PASSED,
     )
-    after_second = reopened.publish_result(
+    after_second = reopened.publish_evaluator_result(
         candidate_id=started.state.candidate_id,
         expected_transition_id=after_first.transition.transition_id,
         result=second,
     ).snapshot
 
-    assert after_second.accepted_results == (first, second)
+    assert after_second.accepted_stage_results == (first, second)
     assert replayed_first.replayed is True
     assert replayed_first.snapshot == after_first
-    assert len(after_second.state.accepted_evaluator_evidence) == 2
+    assert len(after_second.state.accepted_stage_results) == 2
 
 
 def test_result_attestation_verification_holds_no_validation_lock(
@@ -306,13 +306,13 @@ def test_result_attestation_verification_holds_no_validation_lock(
 
     monkeypatch.setattr(reducer.attestation_verifier, "verify", unlocked_verify)
 
-    advanced = store.publish_result(
+    advanced = store.publish_evaluator_result(
         candidate_id=started.state.candidate_id,
         expected_transition_id=started.transition.transition_id,
         result=result,
     )
 
-    assert advanced.snapshot.accepted_results == (result,)
+    assert advanced.snapshot.accepted_stage_results == (result,)
     assert verifier_calls == ["attestation"]
 
 
@@ -350,7 +350,7 @@ def test_result_rejects_a_head_advanced_during_attestation_verification(
     def advance_head(envelope):
         monkeypatch.setattr(reducer.attestation_verifier, "verify", verify)
         advanced.append(
-            store.publish_result(
+            store.publish_evaluator_result(
                 candidate_id=started.state.candidate_id,
                 expected_transition_id=started.transition.transition_id,
                 result=competing_result,
@@ -370,7 +370,7 @@ def test_result_rejects_a_head_advanced_during_attestation_verification(
     )
 
     with pytest.raises(ExpertValidationCompareAndSwapError, match="head changed"):
-        store.publish_result(
+        store.publish_evaluator_result(
             candidate_id=started.state.candidate_id,
             expected_transition_id=started.transition.transition_id,
             result=outer_result,
@@ -401,7 +401,7 @@ def test_concurrent_identical_results_commit_once(tmp_path):
     )
 
     def publish(_position):
-        return store.publish_result(
+        return store.publish_evaluator_result(
             candidate_id=started.state.candidate_id,
             expected_transition_id=started.transition.transition_id,
             result=result,
@@ -430,7 +430,7 @@ def test_failed_ineligible_retry_preserves_historical_attempt_across_reopen(
         eligibility=eligible,
     ).snapshot
     assert started.latest_attempt is not None
-    failed = store.publish_result(
+    failed = store.publish_evaluator_result(
         candidate_id=started.state.candidate_id,
         expected_transition_id=started.transition.transition_id,
         result=_result(
@@ -522,7 +522,7 @@ def test_stale_result_cannot_fork_or_rewind_the_candidate_head(tmp_path):
         ExpertValidationStage.CONTRACT_SCHEMA,
         ExpertEvaluatorOutcome.PASSED,
     )
-    advanced = store.publish_result(
+    advanced = store.publish_evaluator_result(
         candidate_id=started.state.candidate_id,
         expected_transition_id=started.transition.transition_id,
         result=passed,
@@ -535,7 +535,7 @@ def test_stale_result_cannot_fork_or_rewind_the_candidate_head(tmp_path):
     )
 
     with pytest.raises(ExpertValidationCompareAndSwapError, match="head changed"):
-        store.publish_result(
+        store.publish_evaluator_result(
             candidate_id=started.state.candidate_id,
             expected_transition_id=started.transition.transition_id,
             result=competing,
@@ -788,7 +788,7 @@ def test_parent_authority_invalidation_rejects_a_head_advanced_during_observatio
 
     def advance_head(_scope_id):
         advanced.append(
-            store.publish_result(
+            store.publish_evaluator_result(
                 candidate_id=started.state.candidate_id,
                 expected_transition_id=started.transition.transition_id,
                 result=competing_result,

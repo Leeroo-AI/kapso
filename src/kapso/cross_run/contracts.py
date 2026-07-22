@@ -4142,16 +4142,46 @@ class ExpertEvaluatorAttestationEnvelope(StrictContract):
 
 
 @dataclass(frozen=True)
-class ExpertEvaluatorEvidenceRef(StrictContract):
-    evaluator_run_id: str
-    evaluator_attestation_id: str
+class ExpertEvaluatorResultRecord(StrictContract):
+    evaluator_result_record_id: str
+    evaluator_run: ExpertEvaluatorRun
+    attestation_envelope: ExpertEvaluatorAttestationEnvelope
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-evaluator-result-record"
+    IDENTITY_FIELD: ClassVar[str] = "evaluator_result_record_id"
 
     def _validate(self) -> None:
-        require_content_id(self.evaluator_run_id, "evaluator_run_id")
+        attestation = self.attestation_envelope.attestation
+        if (
+            attestation.evaluator_run_id != self.evaluator_run.evaluator_run_id
+            or attestation.issuer_id != self.evaluator_run.evaluator_id
+            or attestation.predicate_digest
+            != tree_or_blob_digest(self.evaluator_run.to_json_bytes())
+        ):
+            raise ContractValidationError(
+                "evaluator result record attestation does not bind its run"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertAcceptedStageResultRef(StrictContract):
+    stage: ExpertValidationStage
+    stage_result_record_id: str
+
+    def _validate(self) -> None:
         require_content_id(
-            self.evaluator_attestation_id,
-            "evaluator_attestation_id",
+            self.stage_result_record_id,
+            "accepted stage_result_record_id",
         )
+        expected_namespace = (
+            "expert-source-replay-stage-result"
+            if self.stage is ExpertValidationStage.SOURCE_RUN_REPLAY
+            else "expert-evaluator-result-record"
+        )
+        if self.stage_result_record_id.split(":sha256:", 1)[0] != expected_namespace:
+            raise ContractValidationError(
+                "accepted stage result record uses the wrong namespace"
+            )
 
 
 @dataclass(frozen=True)
@@ -4219,7 +4249,7 @@ class ExpertCandidateValidationState(StrictContract):
     candidate_tree_hash: str
     predecessor_state_id: str | None
     promotion_state: ExpertPromotionState
-    accepted_evaluator_evidence: tuple[ExpertEvaluatorEvidenceRef, ...]
+    accepted_stage_results: tuple[ExpertAcceptedStageResultRef, ...]
     next_stage: ExpertValidationStage | None
     review_assertion_ids: tuple[str, ...]
     terminal_evidence_ids: tuple[str, ...]
@@ -4242,18 +4272,15 @@ class ExpertCandidateValidationState(StrictContract):
             require_content_id(self.predecessor_state_id, "predecessor_state_id")
             if self.predecessor_state_id == self.validation_state_id:
                 raise ContractValidationError("validation state cannot parent itself")
-        run_ids = tuple(
-            evidence.evaluator_run_id for evidence in self.accepted_evaluator_evidence
+        accepted_stages = tuple(result.stage for result in self.accepted_stage_results)
+        accepted_record_ids = tuple(
+            result.stage_result_record_id for result in self.accepted_stage_results
         )
-        attestation_ids = tuple(
-            evidence.evaluator_attestation_id
-            for evidence in self.accepted_evaluator_evidence
-        )
-        if len(run_ids) != len(set(run_ids)) or len(attestation_ids) != len(
-            set(attestation_ids)
-        ):
+        if len(accepted_stages) != len(set(accepted_stages)) or len(
+            accepted_record_ids
+        ) != len(set(accepted_record_ids)):
             raise ContractValidationError(
-                "accepted evaluator runs and attestations must be unique"
+                "accepted stage results must have unique stages and records"
             )
         for values, name in (
             (self.review_assertion_ids, "review_assertion_ids"),
@@ -4278,7 +4305,7 @@ class ExpertCandidateValidationState(StrictContract):
             )
         if self.promotion_state is ExpertPromotionState.INELIGIBLE and (
             self.validation_attempt_id is not None
-            or self.accepted_evaluator_evidence
+            or self.accepted_stage_results
             or self.review_assertion_ids
             or not self.terminal_evidence_ids
         ):
@@ -4305,7 +4332,7 @@ class ExpertCandidateValidationState(StrictContract):
             ExpertPromotionState.APPROVED,
             ExpertPromotionState.RELEASED,
         } and (
-            not self.accepted_evaluator_evidence
+            not self.accepted_stage_results
             or not self.review_assertion_ids
             or self.predecessor_state_id is None
         ):
@@ -4313,7 +4340,7 @@ class ExpertCandidateValidationState(StrictContract):
                 "approved or released state requires evaluated reviewed lineage"
             )
         if self.promotion_state is ExpertPromotionState.DISPUTED and (
-            not self.accepted_evaluator_evidence
+            not self.accepted_stage_results
             or len(self.review_assertion_ids) < 2
             or self.predecessor_state_id is None
         ):
@@ -4321,7 +4348,7 @@ class ExpertCandidateValidationState(StrictContract):
                 "disputed state requires evaluated conflicting review lineage"
             )
         if self.promotion_state is ExpertPromotionState.PARETO_RETAINED and (
-            not self.accepted_evaluator_evidence
+            not self.accepted_stage_results
             or not self.review_assertion_ids
             or self.predecessor_state_id is None
         ):

@@ -9,12 +9,13 @@ from typing import Mapping, Protocol
 from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
+    ExpertAcceptedStageResultRef,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
     ExpertEvaluatorAttestation,
     ExpertEvaluatorAttestationEnvelope,
-    ExpertEvaluatorEvidenceRef,
     ExpertEvaluatorOutcome,
+    ExpertEvaluatorResultRecord,
     ExpertEvaluatorRun,
     ExpertPromotionState,
     ExpertSourceReplayExecutionRequest,
@@ -48,12 +49,6 @@ class ExpertValidationError(ValueError):
 class ExpertEligibilityResult:
     decision: ExpertCandidateEligibilityDecision
     policy: ExpertValidationPolicy
-
-
-@dataclass(frozen=True)
-class ExpertEvaluatorResult:
-    evaluator_run: ExpertEvaluatorRun
-    attestation_envelope: ExpertEvaluatorAttestationEnvelope
 
 
 @dataclass(frozen=True)
@@ -499,7 +494,7 @@ class ExpertEvaluatorRunBuilder:
         duration_seconds: float,
         outcome: ExpertEvaluatorOutcome,
         signature: str,
-    ) -> ExpertEvaluatorResult:
+    ) -> ExpertEvaluatorResultRecord:
         policy = self.settings.policy.validation_policy()
         if (
             attempt.validation_policy_id != policy.validation_policy_id
@@ -585,7 +580,7 @@ class ExpertEvaluatorRunBuilder:
             trust_root_id=trust_root_id,
             predicate_digest=tree_or_blob_digest(run.to_json_bytes()),
         )
-        return ExpertEvaluatorResult(
+        return ExpertEvaluatorResultRecord.mint(
             evaluator_run=run,
             attestation_envelope=ExpertEvaluatorAttestationEnvelope(
                 attestation=attestation,
@@ -691,7 +686,7 @@ class ExpertValidationReducer:
                 candidate_tree_hash=eligibility.decision.candidate_tree_hash,
                 predecessor_state_id=predecessor_state_id,
                 promotion_state=ExpertPromotionState.INELIGIBLE,
-                accepted_evaluator_evidence=(),
+                accepted_stage_results=(),
                 next_stage=None,
                 review_assertion_ids=(),
                 terminal_evidence_ids=(eligibility.decision.eligibility_decision_id,),
@@ -742,7 +737,7 @@ class ExpertValidationReducer:
             candidate_tree_hash=attempt.candidate_tree_hash,
             predecessor_state_id=predecessor_state_id,
             promotion_state=ExpertPromotionState.VALIDATING,
-            accepted_evaluator_evidence=(),
+            accepted_stage_results=(),
             next_stage=attempt.required_stages[0],
             review_assertion_ids=(),
             terminal_evidence_ids=(),
@@ -829,7 +824,7 @@ class ExpertValidationReducer:
             candidate_tree_hash=attempt.candidate_tree_hash,
             predecessor_state_id=state.validation_state_id,
             promotion_state=ExpertPromotionState.FAILED,
-            accepted_evaluator_evidence=state.accepted_evaluator_evidence,
+            accepted_stage_results=state.accepted_stage_results,
             next_stage=None,
             review_assertion_ids=state.review_assertion_ids,
             terminal_evidence_ids=(invalidation.authority_invalidation_id,),
@@ -846,7 +841,7 @@ class ExpertValidationReducer:
         *,
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
-        accepted_results: tuple[ExpertEvaluatorResult, ...],
+        accepted_results: tuple[ExpertEvaluatorResultRecord, ...],
         request: ExpertSourceReplayExecutionRequest,
     ) -> None:
         validate_source_replay_request_authority_shape(
@@ -960,13 +955,13 @@ class ExpertValidationReducer:
                 )
         self._validate_accepted_history(state, attempt, accepted_results)
 
-    def advance(
+    def advance_evaluator_stage(
         self,
         *,
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
-        accepted_results: tuple[ExpertEvaluatorResult, ...],
-        result: ExpertEvaluatorResult,
+        accepted_results: tuple[ExpertEvaluatorResultRecord, ...],
+        result: ExpertEvaluatorResultRecord,
     ) -> ExpertCandidateValidationState:
         if (
             state.promotion_state is not ExpertPromotionState.VALIDATING
@@ -985,7 +980,7 @@ class ExpertValidationReducer:
                 "active attempt differs from reducer configuration"
             )
         self._validate_accepted_history(state, attempt, accepted_results)
-        accepted_count = len(state.accepted_evaluator_evidence)
+        accepted_count = len(state.accepted_stage_results)
         if accepted_count >= len(attempt.required_stages):
             raise ExpertValidationError("validation attempt has no remaining stage")
         expected_stage = attempt.required_stages[accepted_count]
@@ -1007,9 +1002,9 @@ class ExpertValidationReducer:
             )
         self._validate_result_closure(attempt, result)
         self.attestation_verifier.verify(envelope)
-        evidence = ExpertEvaluatorEvidenceRef(
-            evaluator_run_id=run.evaluator_run_id,
-            evaluator_attestation_id=(envelope.attestation.evaluator_attestation_id),
+        evidence = ExpertAcceptedStageResultRef(
+            stage=run.stage,
+            stage_result_record_id=result.evaluator_result_record_id,
         )
         if run.outcome is not ExpertEvaluatorOutcome.PASSED:
             terminal_ids = tuple(
@@ -1026,14 +1021,14 @@ class ExpertValidationReducer:
                 candidate_tree_hash=attempt.candidate_tree_hash,
                 predecessor_state_id=state.validation_state_id,
                 promotion_state=ExpertPromotionState.FAILED,
-                accepted_evaluator_evidence=state.accepted_evaluator_evidence,
+                accepted_stage_results=state.accepted_stage_results,
                 next_stage=None,
                 review_assertion_ids=state.review_assertion_ids,
                 terminal_evidence_ids=terminal_ids,
                 transition_evidence_id=(envelope.attestation.evaluator_attestation_id),
                 reason=f"stage_{run.stage.value}_{run.outcome.value}",
             )
-        accepted = (*state.accepted_evaluator_evidence, evidence)
+        accepted = (*state.accepted_stage_results, evidence)
         next_position = len(accepted)
         if next_position >= len(attempt.required_stages):
             raise ExpertValidationError(
@@ -1045,7 +1040,7 @@ class ExpertValidationReducer:
             candidate_tree_hash=attempt.candidate_tree_hash,
             predecessor_state_id=state.validation_state_id,
             promotion_state=ExpertPromotionState.VALIDATING,
-            accepted_evaluator_evidence=accepted,
+            accepted_stage_results=accepted,
             next_stage=attempt.required_stages[next_position],
             review_assertion_ids=state.review_assertion_ids,
             terminal_evidence_ids=(),
@@ -1056,7 +1051,7 @@ class ExpertValidationReducer:
     def _validate_result_closure(
         self,
         attempt: ExpertValidationAttempt,
-        result: ExpertEvaluatorResult,
+        result: ExpertEvaluatorResultRecord,
     ) -> None:
         run = result.evaluator_run
         if run.stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
@@ -1107,16 +1102,16 @@ class ExpertValidationReducer:
         self,
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
-        accepted_results: tuple[ExpertEvaluatorResult, ...],
+        accepted_results: tuple[ExpertEvaluatorResultRecord, ...],
     ) -> None:
-        if len(accepted_results) != len(state.accepted_evaluator_evidence):
+        if len(accepted_results) != len(state.accepted_stage_results):
             raise ExpertValidationError("accepted evaluator history is incomplete")
         if len(accepted_results) >= len(attempt.required_stages):
             raise ExpertValidationError(
                 "accepted evaluator history exhausts the stage plan"
             )
         for position, (evidence, accepted_result) in enumerate(
-            zip(state.accepted_evaluator_evidence, accepted_results)
+            zip(state.accepted_stage_results, accepted_results)
         ):
             run = accepted_result.evaluator_run
             envelope = accepted_result.attestation_envelope
@@ -1125,9 +1120,9 @@ class ExpertValidationReducer:
                 expected_stage
             )
             if (
-                evidence.evaluator_run_id != run.evaluator_run_id
-                or evidence.evaluator_attestation_id
-                != envelope.attestation.evaluator_attestation_id
+                evidence.stage is not expected_stage
+                or evidence.stage_result_record_id
+                != accepted_result.evaluator_result_record_id
                 or run.outcome is not ExpertEvaluatorOutcome.PASSED
                 or run.stage is not expected_stage
                 or run.validation_attempt_id != attempt.validation_attempt_id

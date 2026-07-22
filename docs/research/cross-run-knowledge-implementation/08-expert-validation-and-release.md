@@ -442,14 +442,22 @@ Implemented validation substrate:
   pins even if the active publisher attestation rotates;
 - attempts retain the complete eligibility, adapter, and verification dependency
   closure;
-- executable-stage results are bounded before identity, signature-verified through
-  an injected fail-closed verifier, and accepted only in exact prefix order; and
+- ordinary executable-stage results are bounded before identity, stored as typed
+  `ExpertEvaluatorResultRecord` contracts, signature-verified through an injected
+  fail-closed verifier, and accepted only in exact prefix order; and
 - retry lineage preserves both the current state and latest historical attempt,
   and restarts at stage one. An intervening ineligible state cannot reset attempt
   identity; approved, released, validating, and revoked states cannot be retried.
 - durable validation history stores immutable content-addressed decisions,
   configurations, attempts, signed evaluator-result envelopes, states, operations,
   and transitions behind one atomic per-candidate journal;
+- validation states and transitions carry one ordered typed stage-result prefix:
+  each state reference binds the exact `ExpertValidationStage` to its result-record
+  namespace, and journal replay proves record identity, outcome, candidate,
+  attempt, and canonical stage-plan order. Ordinary stages retain evaluator result
+  records; source replay has a distinct reserved stage-result namespace for its
+  later receipt/decision/publication-authority record rather than a fabricated
+  evaluator run;
 - operation-to-transition bindings make lost-response retries exact, while the
   journal head provides compare-and-swap publication with no fork, merge, or
   rollback behavior; provider and attestation work runs outside that lock and an

@@ -1752,6 +1752,14 @@ content-addressed decision binds the exact receipt and validation policy, while
 fresh GitHub, denylist, verifier, and validation-head authority is checked only
 when publishing that decision into the validation state machine.
 
+Validation history is an ordered typed stage-result prefix rather than an
+evaluator-only evidence list. Each accepted reference binds its exact stage to a
+stage-specific result-record namespace, and transition replay proves the same
+canonical prefix against the attempt's stage plan. Ordinary automated stages use
+signed evaluator result records. Source replay uses its own result record binding
+the factual receipt, deterministic decision, and final fresh-publication fence;
+it never synthesizes an evaluator run or attestation.
+
 That reservation is an immutable operation alias bound atomically to the existing
 authorization transition, not a second validation state or expiring lease. The
 unchanged head keeps preflight reconstruction deterministic after a crash. One

@@ -15,11 +15,13 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import (
     ContractValidationError,
     CrossRunTaskBindingSettings,
+    ExpertAcceptedStageResultRef,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
     ExpertEvaluatorAttestation,
     ExpertEvaluatorAttestationEnvelope,
     ExpertEvaluatorOutcome,
+    ExpertEvaluatorResultRecord,
     ExpertEvaluatorRun,
     ExpertPromotionState,
     ExpertSealedCanaryAggregate,
@@ -40,7 +42,6 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
-    ExpertEvaluatorResult,
     ExpertEvaluatorRunBuilder,
     ExpertValidationError,
     ExpertValidationPredecessor,
@@ -637,7 +638,7 @@ def test_source_replay_execution_fails_closed_without_a_typed_receipt():
         trust_root_id=None,
         predicate_digest=tree_or_blob_digest(forged_run.to_json_bytes()),
     )
-    forged_result = ExpertEvaluatorResult(
+    forged_result = ExpertEvaluatorResultRecord.mint(
         evaluator_run=forged_run,
         attestation_envelope=ExpertEvaluatorAttestationEnvelope(
             attestation=forged_attestation,
@@ -707,7 +708,7 @@ def test_ineligible_state_has_no_attempt_and_validating_state_names_next_stage()
         candidate_tree_hash=decision.candidate_tree_hash,
         predecessor_state_id=None,
         promotion_state=ExpertPromotionState.INELIGIBLE,
-        accepted_evaluator_evidence=(),
+        accepted_stage_results=(),
         next_stage=None,
         review_assertion_ids=(),
         terminal_evidence_ids=(decision.eligibility_decision_id,),
@@ -721,7 +722,7 @@ def test_ineligible_state_has_no_attempt_and_validating_state_names_next_stage()
         candidate_tree_hash=decision.candidate_tree_hash,
         predecessor_state_id=ineligible.validation_state_id,
         promotion_state=ExpertPromotionState.VALIDATING,
-        accepted_evaluator_evidence=(),
+        accepted_stage_results=(),
         next_stage=attempt.required_stages[0],
         review_assertion_ids=(),
         terminal_evidence_ids=(),
@@ -742,12 +743,30 @@ def test_ineligible_state_has_no_attempt_and_validating_state_names_next_stage()
             candidate_tree_hash=decision.candidate_tree_hash,
             predecessor_state_id=None,
             promotion_state=ExpertPromotionState.APPROVED,
-            accepted_evaluator_evidence=(),
+            accepted_stage_results=(),
             next_stage=None,
             review_assertion_ids=(),
             terminal_evidence_ids=(decision.eligibility_decision_id,),
             transition_evidence_id=decision.eligibility_decision_id,
             reason="invalid direct approval",
+        )
+
+
+def test_accepted_stage_result_reference_is_typed_by_stage():
+    source_result_id = content_id(
+        "expert-source-replay-stage-result",
+        {"source": True},
+    )
+    source_reference = ExpertAcceptedStageResultRef(
+        stage=ExpertValidationStage.SOURCE_RUN_REPLAY,
+        stage_result_record_id=source_result_id,
+    )
+
+    assert source_reference.stage_result_record_id == source_result_id
+    with pytest.raises(ContractValidationError, match="wrong namespace"):
+        ExpertAcceptedStageResultRef(
+            stage=ExpertValidationStage.CONTRACT_SCHEMA,
+            stage_result_record_id=source_result_id,
         )
 
 
@@ -1203,14 +1222,18 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
         signature="test-signature",
     )
 
-    advanced = _validation_reducer(settings, adapter).advance(
+    advanced = _validation_reducer(settings, adapter).advance_evaluator_stage(
         state=started.state,
         attempt=started.attempt,
         accepted_results=(),
         result=result,
     )
 
-    assert len(advanced.accepted_evaluator_evidence) == 1
+    assert len(advanced.accepted_stage_results) == 1
+    assert advanced.accepted_stage_results[0] == ExpertAcceptedStageResultRef(
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        stage_result_record_id=result.evaluator_result_record_id,
+    )
     assert (
         advanced.next_stage is ExpertValidationStage.IDENTITY_SECRETS_LICENSE_DEPENDENCY
     )
@@ -1226,13 +1249,13 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
         signature="test-signature",
     )
     with pytest.raises(ExpertValidationError, match="history is incomplete"):
-        _validation_reducer(settings, adapter).advance(
+        _validation_reducer(settings, adapter).advance_evaluator_stage(
             state=advanced,
             attempt=started.attempt,
             accepted_results=(),
             result=second_result,
         )
-    twice_advanced = _validation_reducer(settings, adapter).advance(
+    twice_advanced = _validation_reducer(settings, adapter).advance_evaluator_stage(
         state=advanced,
         attempt=started.attempt,
         accepted_results=(result,),
@@ -1242,15 +1265,15 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
         twice_advanced.next_stage is ExpertValidationStage.STATIC_UNIT_SECURITY_RESOURCE
     )
 
-    invalid_signature = replace(
-        result,
+    invalid_signature = ExpertEvaluatorResultRecord.mint(
+        evaluator_run=result.evaluator_run,
         attestation_envelope=replace(
             result.attestation_envelope,
             signature="invalid",
         ),
     )
     with pytest.raises(ExpertValidationError, match="invalid test signature"):
-        _validation_reducer(settings, adapter).advance(
+        _validation_reducer(settings, adapter).advance_evaluator_stage(
             state=started.state,
             attempt=started.attempt,
             accepted_results=(),
@@ -1269,7 +1292,7 @@ def test_bounded_evaluator_result_advances_only_the_exact_next_stage(tmp_path):
         signature="test-signature",
     )
     with pytest.raises(ExpertValidationError, match="out of order"):
-        _validation_reducer(settings, adapter).advance(
+        _validation_reducer(settings, adapter).advance_evaluator_stage(
             state=started.state,
             attempt=started.attempt,
             accepted_results=(),
@@ -1301,7 +1324,7 @@ def test_failed_stage_is_terminal_and_a_retry_requires_a_new_attempt(tmp_path):
         outcome=ExpertEvaluatorOutcome.CANDIDATE_FAILED,
         signature="test-signature",
     )
-    failed = reducer.advance(
+    failed = reducer.advance_evaluator_stage(
         state=started.state,
         attempt=started.attempt,
         accepted_results=(),
@@ -1311,7 +1334,7 @@ def test_failed_stage_is_terminal_and_a_retry_requires_a_new_attempt(tmp_path):
     assert failed.promotion_state is ExpertPromotionState.FAILED
     assert failed.next_stage is None
     with pytest.raises(ExpertValidationError, match="active attempt"):
-        reducer.advance(
+        reducer.advance_evaluator_stage(
             state=failed,
             attempt=started.attempt,
             accepted_results=(),
@@ -1363,7 +1386,7 @@ def test_ineligible_state_does_not_reset_historical_attempt_lineage(tmp_path):
         outcome=ExpertEvaluatorOutcome.CANDIDATE_FAILED,
         signature="test-signature",
     )
-    failed = _validation_reducer(settings, adapter).advance(
+    failed = _validation_reducer(settings, adapter).advance_evaluator_stage(
         state=initial.state,
         attempt=initial.attempt,
         accepted_results=(),
