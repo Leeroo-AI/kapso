@@ -49,6 +49,9 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert KAGGLE["competition"] in context
     assert "operator approval" in context
     assert "kaggle_submit_requests.log" in context
+    # Competition framing, not a safety floor: highest expected score wins.
+    assert "highest expected final score" in context
+    assert "at least one" not in context
     assert "best_score.log" in context and "public scores only" in context
     assert "<score>" in context
     # The protocol/economics sermons must stay gone.
