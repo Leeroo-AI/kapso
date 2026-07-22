@@ -171,6 +171,12 @@ adapter-declared environment must match exactly, while inherited commands,
 volumes, and healthchecks are forbidden. The host kernel, root-owned dynamic
 loader/libraries and daemon, and same-UID processes able to mutate the private
 provider root are explicit trusted computing base; evaluator code is not.
+Daemon resource names use the complete unpredictable provider-handle digest and
+carry exact handle/role labels. The writable root is a fresh local-driver tmpfs
+volume whose size and inode options are derived from the matched compute binding.
+Cleanup validates every extant resource before mutation, removes containers by
+their inspected immutable IDs, rechecks the labelled volume before removal, and
+treats absence as idempotent success without any start or exec operation.
 
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
