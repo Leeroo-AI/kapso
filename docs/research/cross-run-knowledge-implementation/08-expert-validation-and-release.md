@@ -715,6 +715,13 @@ complete adapter-provenance set. That plan join is deliberately not a spawn
 capability: materialization must still prove exact package bytes and fresh adapter
 authority.
 
+Request construction is also derived rather than caller-authored. The reserved plan,
+configured release-matrix evaluator, immutable stored candidate, exact candidate
+bytes, and optional candidate-bound parent receipt/bytes produce the complete
+canonical request, cases, legs, compute bindings, and dependency closure; the result
+is immediately rejoined to the plan. Source-reuse provenances never become new
+evaluator cases because their already-accepted rows are reduced separately.
+
 The shared operational authority is single-sourced as
 `validation.task_evaluation_provider` plus `task_evaluation_*` policy fields.
 Execution protocol, provider identity/version/settings digest, sandbox, resource and
