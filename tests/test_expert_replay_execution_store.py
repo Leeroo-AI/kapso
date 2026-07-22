@@ -132,8 +132,9 @@ def test_allocation_is_create_only_and_replays_exactly_after_restart(
         reservation=reservation,
         request=prepared.request,
     ) as session:
-        allocation = session.allocate_expected_leg()
-        assert session.allocate_expected_leg() == allocation
+        permit = session.allocate_expected_leg()
+        assert session.allocate_expected_leg() is permit
+        allocation = permit.require_current_allocation(store)
         events = session.events
 
     recovered_store = ExpertSourceReplayExecutionStore(store.root, store.trusted_root)
@@ -141,11 +142,13 @@ def test_allocation_is_create_only_and_replays_exactly_after_restart(
         reservation=reservation,
         request=prepared.request,
     ) as recovered_session:
-        recovered = recovered_session.allocate_expected_leg()
+        recovered_permit = recovered_session.allocate_expected_leg()
+        recovered = recovered_permit.require_current_allocation(recovered_store)
 
     schedule = source_replay_execution_schedule(reservation, prepared.request)
     assert nonce_calls == [True]
     assert recovered == allocation
+    assert recovered_permit is not permit
     assert (allocation.execution_case_id, allocation.execution_leg_id) == schedule[0]
     assert len(events) == 1
     assert events[0].invocation_allocation == allocation
@@ -183,7 +186,7 @@ def test_event_file_is_private_canonical_and_session_cannot_escape_its_lock(tmp_
         reservation=reservation,
         request=prepared.request,
     ) as session:
-        session.allocate_expected_leg()
+        permit = session.allocate_expected_leg()
         event = session.events[0]
 
     event_entries = tuple(os.scandir(store._events_path(reservation.reservation_id)))
@@ -195,7 +198,7 @@ def test_event_file_is_private_canonical_and_session_cannot_escape_its_lock(tmp_
     event_path = store._events_path(reservation.reservation_id) / event_entries[0].name
     assert event_path.read_bytes() == event.to_json_bytes()
     with pytest.raises(ExpertSourceReplayExecutionStoreError, match="closed"):
-        session.allocate_expected_leg()
+        permit.require_current_allocation(store)
 
 
 def test_concurrent_sessions_allocate_one_nonce_for_the_exact_leg(
@@ -216,7 +219,7 @@ def test_concurrent_sessions_allocate_one_nonce_for_the_exact_leg(
             reservation=reservation,
             request=prepared.request,
         ) as session:
-            return session.allocate_expected_leg()
+            return session.allocate_expected_leg().require_current_allocation(store)
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         allocations = tuple(executor.map(allocate, range(16)))

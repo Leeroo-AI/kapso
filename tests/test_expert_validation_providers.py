@@ -9,9 +9,10 @@ from kapso.cross_run.expert.validation import ExpertValidationError
 
 
 class _Resolver:
-    def __init__(self, pointer=None, resolved_pointer=None):
+    def __init__(self, pointer=None, resolved_pointer=None, resolved_current=None):
         self.pointer = pointer
         self.resolved_pointer = resolved_pointer
+        self.resolved_current = resolved_current
         self.calls = []
 
     def diagnose_repository(self, scope_id, artifact_kind):
@@ -30,6 +31,10 @@ class _Resolver:
     def resolve_artifact(self, scope_id, artifact_kind, artifact_id):
         self.calls.append(("artifact", scope_id, artifact_kind, artifact_id))
         return SimpleNamespace(pointer=self.resolved_pointer)
+
+    def resolve_current(self, scope_id, artifact_kind):
+        self.calls.append(("resolve_current", scope_id, artifact_kind))
+        return self.resolved_current
 
 
 def _pointer(release_id):
@@ -86,3 +91,44 @@ def test_current_release_fails_if_immutable_resolution_switches_pointer():
 
     with pytest.raises(ExpertValidationError, match="observed CURRENT"):
         GitHubExpertCurrentReleaseProvider(resolver).current_release_id("ml_ai")
+
+
+def test_current_release_observation_retains_verified_github_authority():
+    release_id = content_id("expert-base-release", {"generation": 1})
+    publication_id = content_id("github-publication", {"generation": 1})
+    validation_closure_id = content_id("expert-validation", {"generation": 1})
+    pointer = SimpleNamespace(
+        scope_id="ml_ai",
+        publication_record=SimpleNamespace(
+            artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            artifact_id=release_id,
+            publication_id=publication_id,
+        ),
+        validation_closure_ids=(validation_closure_id,),
+        to_json_bytes=lambda: b'{"verified":"CURRENT"}',
+    )
+    resolved = SimpleNamespace(
+        pointer=pointer,
+        policy=SimpleNamespace(
+            repository_full_name="Leeroo-AI/kapso-expert",
+            repository_node_id="expert_repo_node",
+        ),
+        pointer_commit_sha="a" * 40,
+    )
+    resolver = _Resolver(resolved_current=resolved)
+
+    observation = GitHubExpertCurrentReleaseProvider(
+        resolver
+    ).current_release_observation("ml_ai")
+
+    assert observation.scope_id == "ml_ai"
+    assert observation.release_id == release_id
+    assert observation.publication_id == publication_id
+    assert observation.validation_closure_ids == (validation_closure_id,)
+    assert resolver.calls == [
+        (
+            "resolve_current",
+            "ml_ai",
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        )
+    ]

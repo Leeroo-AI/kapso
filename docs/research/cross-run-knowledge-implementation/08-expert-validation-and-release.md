@@ -238,6 +238,25 @@ No local lock can make GitHub, a denylist, and process creation transactional;
 safety instead comes from the double reopen, the durable at-most-once marker,
 and a final fresh-authority plus validation-head CAS before accepting receipts.
 
+The fresh spawn-authority coordinator implements that external interval as one
+aggregate operation. It retains a verified GitHub observation containing the
+exact expert publication, `CURRENT` pointer digest, branch commit, repository
+identity, and validation closure; reopens every unique prepared historical
+adapter and records its verifier/version and complete proof dependency closure;
+and submits an internally derived subject set to one authenticated denylist
+provider. That set includes the reservation and request, the request's entire
+dependency closure, parent-release and candidate dependencies, adapter proofs,
+and a content-addressed synthetic identity for each verifier authority. The
+provider must echo the exact sorted subject set with no denied subject. The
+resulting content-addressed fence persists the exact checked-subject tuple and
+binds an invocation allocation owned by the coordinator's exact execution-store
+instance under its live per-reservation lock, current release, adapter
+observations, denylist snapshot, and generation. Callers cannot mint an
+allocation, omit subjects, or construct a fence from top-level candidate/release
+IDs alone. The execution journal must rederive that subject tuple before it
+accepts a spawn marker; possession of serialized fence bytes is not runtime
+authority.
+
 The reservation API accepts only the runtime-only prepared closure, reconstructs
 it to rerun all byte, lineage, context, artifact, adapter, parent, candidate, and
 aggregate-budget invariants, independently re-derives every compute binding from
@@ -295,6 +314,9 @@ Implemented validation substrate:
   sessions, and rejects corrupt, forked, substituted, or unsafe journal state;
   spawn and result events extend the same create-only prefix rather than adding a
   mutable execution snapshot; and
+- fresh spawn authority performs the exact double reopen around rich GitHub
+  `CURRENT`, complete historical-adapter trust, transitive denylist, and verifier
+  authority observations and returns one invocation-bound typed fence; and
 - parent-authority invalidation is a content-addressed terminal transition that
   preserves accepted-stage history, proves expected versus observed `CURRENT`,
   and makes stale attempts recoverable without accepting their remaining work.

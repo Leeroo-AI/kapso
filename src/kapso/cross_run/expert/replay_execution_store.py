@@ -168,7 +168,38 @@ def _new_invocation_nonce() -> str:
     return secrets.token_hex(16)
 
 
-class SourceReplayReservationSession:
+class SourceReplayInvocationAllocationPermit:
+    """Runtime-only proof that one active locked session owns an allocation."""
+
+    __slots__ = ("_session", "_event_id", "allocation")
+
+    def __init__(
+        self,
+        session: _SourceReplayReservationSession,
+        event: SourceReplayExecutionJournalEvent,
+    ) -> None:
+        self._session = session
+        self._event_id = event.event_id
+        self.allocation = event.invocation_allocation
+
+    def require_current_allocation(
+        self,
+        execution_store: ExpertSourceReplayExecutionStore,
+    ) -> TaskEvaluatorInvocationAllocation:
+        self._session._require_live_store_lock(execution_store)
+        if (
+            self._session._allocation_permit is not self
+            or not self._session._events
+            or self._session._events[-1].event_id != self._event_id
+            or self._session._events[-1].invocation_allocation != self.allocation
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay allocation permit is not current"
+            )
+        return self.allocation
+
+
+class _SourceReplayReservationSession:
     """One exclusively locked reservation execution prefix."""
 
     def __init__(
@@ -177,22 +208,35 @@ class SourceReplayReservationSession:
         reservation: ExpertSourceReplayExecutionReservation,
         request: ExpertSourceReplayExecutionRequest,
         events: tuple[SourceReplayExecutionJournalEvent, ...],
+        execution_lock: _ExecutionStoreLock,
+        factory_authority: object,
     ) -> None:
+        if factory_authority is not store._session_factory_authority:
+            raise ExpertSourceReplayExecutionStoreError(
+                "execution session lacks canonical store authority"
+            )
         self._store = store
         self.reservation = reservation
         self.request = request
         self._events = events
+        self._execution_lock = execution_lock
         self._active = True
+        self._allocation_permit = None
 
     @property
     def events(self) -> tuple[SourceReplayExecutionJournalEvent, ...]:
         self._require_active()
         return self._events
 
-    def allocate_expected_leg(self) -> TaskEvaluatorInvocationAllocation:
+    def allocate_expected_leg(self) -> SourceReplayInvocationAllocationPermit:
         self._require_active()
         if self._events:
-            return self._events[-1].invocation_allocation
+            if self._allocation_permit is None:
+                self._allocation_permit = SourceReplayInvocationAllocationPermit(
+                    self,
+                    self._events[-1],
+                )
+            return self._allocation_permit
         execution_case_id, execution_leg_id = source_replay_execution_schedule(
             self.reservation,
             self.request,
@@ -216,7 +260,11 @@ class SourceReplayReservationSession:
         )
         self._store._publish_event(self.reservation.reservation_id, event)
         self._events = (event,)
-        return allocation
+        self._allocation_permit = SourceReplayInvocationAllocationPermit(
+            self,
+            event,
+        )
+        return self._allocation_permit
 
     def _require_active(self) -> None:
         if not self._active:
@@ -224,8 +272,28 @@ class SourceReplayReservationSession:
                 "source replay reservation session is closed"
             )
 
+    def _require_live_store_lock(
+        self,
+        execution_store: ExpertSourceReplayExecutionStore,
+    ) -> None:
+        self._require_active()
+        if (
+            execution_store is not self._store
+            or not isinstance(self._execution_lock, _ExecutionStoreLock)
+            or not self._execution_lock.acquired
+            or self._execution_lock.handle is None
+            or self._execution_lock.path
+            != execution_store._lock_path(self.reservation.reservation_id)
+            or execution_store._active_sessions.get(self.reservation.reservation_id)
+            is not self
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay allocation permit lacks the canonical live store lock"
+            )
+
     def _close(self) -> None:
         self._active = False
+        self._allocation_permit = None
 
 
 class _ReservationSessionContext:
@@ -241,10 +309,10 @@ class _ReservationSessionContext:
         self.stack = None
         self.session = None
 
-    def __enter__(self) -> SourceReplayReservationSession:
+    def __enter__(self) -> _SourceReplayReservationSession:
         self.store._prepare_reservation_layout(self.reservation.reservation_id)
         with ExitStack() as setup:
-            setup.enter_context(
+            execution_lock = setup.enter_context(
                 _ExecutionStoreLock(
                     self.store._lock_path(self.reservation.reservation_id),
                 )
@@ -254,16 +322,20 @@ class _ReservationSessionContext:
                 self.reservation,
                 self.request,
             )
-            self.session = SourceReplayReservationSession(
+            self.session = _SourceReplayReservationSession(
                 self.store,
                 self.reservation,
                 self.request,
                 events,
+                execution_lock,
+                self.store._session_factory_authority,
             )
+            self.store._register_active_session(self.session)
             self.stack = setup.pop_all()
         return self.session
 
     def __exit__(self, exception_type, exception, traceback):
+        self.store._unregister_active_session(self.session)
         self.session._close()
         self.session = None
         stack = self.stack
@@ -298,6 +370,8 @@ class ExpertSourceReplayExecutionStore:
         self.lock_root = root / "locks"
         self.reservation_root = root / "reservations"
         self.initialization_lock_path = trusted_root / f".{root.name}.lock"
+        self._session_factory_authority = object()
+        self._active_sessions = {}
         with _ExecutionStoreLock(self.initialization_lock_path):
             self._prepare_layout()
 
@@ -309,6 +383,32 @@ class ExpertSourceReplayExecutionStore:
     ) -> _ReservationSessionContext:
         _validate_reservation_request(reservation, request)
         return _ReservationSessionContext(self, reservation, request)
+
+    def _register_active_session(
+        self,
+        session: _SourceReplayReservationSession,
+    ) -> None:
+        reservation_id = session.reservation.reservation_id
+        if (
+            session._store is not self
+            or not session._execution_lock.acquired
+            or reservation_id in self._active_sessions
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "execution store cannot register the reservation session"
+            )
+        self._active_sessions[reservation_id] = session
+
+    def _unregister_active_session(
+        self,
+        session: _SourceReplayReservationSession,
+    ) -> None:
+        reservation_id = session.reservation.reservation_id
+        if self._active_sessions.get(reservation_id) is not session:
+            raise ExpertSourceReplayExecutionStoreError(
+                "execution store reservation session registration changed"
+            )
+        del self._active_sessions[reservation_id]
 
     def _prepare_layout(self) -> None:
         self._ensure_private_directory(self.root, self.trusted_root)
@@ -584,6 +684,7 @@ class _ExecutionStoreLock:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.handle = None
+        self.acquired = False
 
     def __enter__(self):
         descriptor = os.open(
@@ -604,10 +705,12 @@ class _ExecutionStoreLock:
                 "execution journal lock must be a private independent file"
             )
         fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX)
+        self.acquired = True
         return self
 
     def __exit__(self, exception_type, exception, traceback):
         fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        self.acquired = False
         self.handle.close()
         self.handle = None
         return False
