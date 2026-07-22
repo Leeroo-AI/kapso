@@ -316,11 +316,14 @@ def build_records():
         tree_hash=task_adapter_tree_hash,
         runtime=TaskAdapterRuntimeContract(
             runtime_protocol_version="kapso.task_adapter_runtime.v1",
-            image_digest=digest("task-adapter-runtime-image"),
+            image_repository="registry.example/kapso/task-adapter-runtime",
+            image_manifest_digest=digest("task-adapter-runtime-image"),
+            image_config_digest=digest("task-adapter-runtime-config"),
             dependency_lock_path="requirements.lock",
             dependency_lock_digest=tree_or_blob_digest(TASK_ADAPTER_RUNTIME_LOCK),
             operating_system="linux",
             architecture="amd64",
+            architecture_variant=None,
         ),
         sanitation_report_id=fixture_id("adapter-sanitation"),
         validation_refs=("validation/adapter-smoke",),
@@ -1095,11 +1098,37 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
                 executable_path="../adapter.py",
             ),
         )
-    with pytest.raises(ContractValidationError, match="image_digest"):
+    with pytest.raises(ContractValidationError, match="image_repository"):
         replace(
             manifest,
-            runtime=replace(manifest.runtime, image_digest="runtime:latest"),
+            runtime=replace(manifest.runtime, image_repository="runtime:latest"),
         )
+    with pytest.raises(ContractValidationError, match="explicit registry"):
+        replace(
+            manifest,
+            runtime=replace(
+                manifest.runtime,
+                image_repository="namespace/runtime",
+            ),
+        )
+    with pytest.raises(ContractValidationError, match="image_manifest_digest"):
+        replace(
+            manifest,
+            runtime=replace(
+                manifest.runtime,
+                image_manifest_digest="sha256:not-a-manifest-digest",
+            ),
+        )
+    assert manifest.runtime.image_reference == (
+        f"{manifest.runtime.image_repository}@{manifest.runtime.image_manifest_digest}"
+    )
+    legacy_runtime = manifest.runtime.to_dict()
+    legacy_runtime.pop("image_repository")
+    legacy_runtime.pop("image_manifest_digest")
+    legacy_runtime.pop("image_config_digest")
+    legacy_runtime["image_digest"] = digest("legacy-ambiguous-image")
+    with pytest.raises(ContractValidationError, match="fields"):
+        TaskAdapterRuntimeContract.from_dict(legacy_runtime)
     with pytest.raises(ContractValidationError, match="non-empty, sorted, and unique"):
         replace(
             manifest.task_evaluator,

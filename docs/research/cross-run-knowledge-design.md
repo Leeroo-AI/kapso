@@ -745,9 +745,9 @@ TaskAdapterManifest
   source_tree_ref + tree_hash
   runtime
     runtime_protocol_version
-    image_digest
+    image_repository + image_manifest_digest + image_config_digest
     dependency_lock_path + dependency_lock_digest
-    operating_system + architecture
+    operating_system + architecture + architecture_variant
   sanitation_report_id
   validation_refs
 ```

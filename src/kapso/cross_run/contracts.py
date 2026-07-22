@@ -4427,18 +4427,42 @@ class TaskAdapterContextBinding(StrictContract):
 @dataclass(frozen=True)
 class TaskAdapterRuntimeContract(StrictContract):
     runtime_protocol_version: str
-    image_digest: str
+    image_repository: str
+    image_manifest_digest: str
+    image_config_digest: str
     dependency_lock_path: str
     dependency_lock_digest: str
     operating_system: str
     architecture: str
+    architecture_variant: str | None
 
     def _validate(self) -> None:
         require_identifier(
             self.runtime_protocol_version,
             "task adapter runtime protocol version",
         )
-        _require_digest(self.image_digest, "task adapter runtime image_digest")
+        if (
+            re.fullmatch(
+                r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[1-9][0-9]*)?"
+                r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+",
+                self.image_repository,
+            )
+            is None
+        ):
+            raise ContractValidationError(
+                "task adapter runtime image_repository must be a normalized "
+                "registry-qualified OCI repository"
+            )
+        registry = self.image_repository.split("/", 1)[0]
+        if registry != "localhost" and "." not in registry and ":" not in registry:
+            raise ContractValidationError(
+                "task adapter runtime image_repository must name an explicit registry"
+            )
+        for digest, name in (
+            (self.image_manifest_digest, "image_manifest_digest"),
+            (self.image_config_digest, "image_config_digest"),
+        ):
+            _require_digest(digest, f"task adapter runtime {name}")
         _require_relative_path(
             self.dependency_lock_path,
             "task adapter runtime dependency_lock_path",
@@ -4452,6 +4476,15 @@ class TaskAdapterRuntimeContract(StrictContract):
             "task adapter runtime operating_system",
         )
         require_identifier(self.architecture, "task adapter runtime architecture")
+        if self.architecture_variant is not None:
+            require_identifier(
+                self.architecture_variant,
+                "task adapter runtime architecture_variant",
+            )
+
+    @property
+    def image_reference(self) -> str:
+        return f"{self.image_repository}@{self.image_manifest_digest}"
 
 
 @dataclass(frozen=True)

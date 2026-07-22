@@ -249,8 +249,12 @@ It contains exactly three domain-neutral contracts:
 - `TaskAdapterContextBinding`: a sorted allowlist of transfer-dimension IDs the
   evaluator consumes. It may be empty, must be a subset of the exact scope schema,
   and every replay context must contain the declared dimensions.
-- `TaskAdapterRuntimeContract`: runtime protocol, immutable image digest,
-  dependency-lock path/digest, operating system, and architecture.
+- `TaskAdapterRuntimeContract`: runtime protocol, normalized registry-qualified
+  image repository, platform-manifest and image-config digests,
+  dependency-lock path/digest, operating system, architecture, and optional OCI
+  variant. The derived `repository@manifest-digest` reference is the sole
+  executable image authority; the config digest disambiguates a platform image
+  from an OCI index. A bare local image ID or mutable tag is not authority.
 
 Package verification requires an executable mode of `100755`, proves the runtime
 lock against the extracted source bytes, and rejects mutable image locations.
