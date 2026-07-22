@@ -510,6 +510,14 @@ Implemented validation substrate:
   provider handles support idempotent daemon-resource cleanup without reexecution;
   concurrent sessions serialize; and corrupt, forked, substituted, over-bound, or
   unsafe journal state fails loud without a mutable execution snapshot; and
+- the task-evaluation journal now has its own minimal four-event contract and
+  pure offline prefix reducer. Its sole schedule follows canonical request-case
+  order and each case's semantic counterbalanced leg order, so repeated leg IDs
+  across cases cannot alias. Every spawn is rederived from the exact reservation,
+  prepared bytes, fresh fence, provider key and handle, blinded evaluator request,
+  and configured tolerance. Referenced result bytes are digest-, size-, policy-,
+  and compute-bounded; accepted events are reparsed from those bytes, while a
+  malformed received-result tail remains safely reopenable and non-advancing; and
 - a complete journal can mint only one deterministic store/process-bound completed
   capability, from which the factual reducer produces a canonical paired receipt
   with semantic control/candidate assignment, adapter-declared dimension/scale,
