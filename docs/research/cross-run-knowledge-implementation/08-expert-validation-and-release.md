@@ -143,6 +143,37 @@ set of caller-controlled booleans: its version must dispatch to an implementatio
 that guarantees offline direct execution, read-only inputs, fresh private
 writable roots, and a fixed non-secret environment.
 
+The task evaluator is a blinded scientific ABI, not a view of validation
+authority. Protocol v1 writes one canonical request to
+`/kapso/input/request.json`, mounts the selected expert at
+`/kapso/input/expert`, the verified adapter at `/kapso/input/adapter`, captured
+task artifacts beneath `/kapso/input/task`, and accepts only
+`/kapso/writable/result.json`. These paths are protocol constants rather than
+request-controlled fields. Before a spawn, the local execution journal mints a
+CSPRNG nonce, durably allocates it to the exact reservation/case/leg, and never
+reuses that allocation; protocol construction accepts only this typed allocation
+and derives the exported opaque invocation ID from its complete private binding.
+After that ID is redacted, both legs receive byte-identical
+request bodies containing only the input/target contract fingerprints, complete
+source `EvaluationFingerprint` records, the exact transfer dimensions named by
+the adapter's `consumed_dimension_ids`, and logical starting-artifact
+reference/mount pairs. Bundle history, source scores and effects, score-of-record
+selection, episode and validation provenance, compute policy, leg order/kind,
+and candidate/parent/tree identities remain in trusted Kapso receipts and never
+enter the adapter sandbox.
+
+The sole native evaluator result echoes the protocol and opaque invocation ID
+and contains one ID-sorted row per requested fingerprint: a finite floating-point
+aggregate and one finite floating-point value for every exact seed/replicate ID.
+It contains no pass/fail, winner, delta, costs, diagnostics, or general artifact
+map. Kapso rejects noncanonical JSON, unknown fields, missing/extra/substituted
+fingerprints or replicates, unsupported aggregation protocols, and aggregates
+that differ from a trusted recomputation beyond the policy-pinned tolerance.
+Parsing occurs only after a successful bounded process outcome and a trusted
+freeze of the sole regular result file; stdout is never a result channel. The
+future paired reducer, not the adapter, applies metric direction, comparison
+policy, and validation outcome.
+
 Preflight re-observes the current parent after materialization, but its request
 is evidence, not an execution lease. Source execution remains fail-closed until
 the executor can atomically reserve the unchanged validation head and, immediately
