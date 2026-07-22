@@ -499,6 +499,40 @@ class ExpertValidationStore:
             cases=prepared_request.cases,
         )
         request = prepared.request
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(request.candidate_id)
+            existing = self._source_replay_reservation_unlocked(
+                journal,
+                expected_transition_id,
+            )
+            if existing is not None:
+                reservation, stored_request = existing
+                if stored_request != request:
+                    raise ExpertValidationCompareAndSwapError(
+                        "validation head already reserves another source replay request"
+                    )
+                current = self._current_from_journal_unlocked(journal)
+                self._require_expected_head(current, expected_transition_id)
+                return ExpertSourceReplayReservationCommitResult(
+                    reservation=reservation,
+                    snapshot=self._snapshot_at_unlocked(
+                        journal,
+                        expected_transition_id,
+                    ),
+                    replayed=True,
+                )
+            observed = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(observed, expected_transition_id)
+            if observed is None or observed.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "source replay reservation requires a current validation attempt"
+                )
+        self.reducer.validate_source_replay_request(
+            state=observed.state,
+            attempt=observed.latest_attempt,
+            accepted_results=observed.accepted_results,
+            request=request,
+        )
         with self._lock(exclusive=True):
             journal = self._read_journal_unlocked(request.candidate_id)
             existing = self._source_replay_reservation_unlocked(
@@ -523,16 +557,10 @@ class ExpertValidationStore:
                 )
             current = self._current_from_journal_unlocked(journal)
             self._require_expected_head(current, expected_transition_id)
-            if current is None or current.latest_attempt is None:
-                raise ExpertValidationStoreError(
-                    "source replay reservation requires a current validation attempt"
+            if current != observed:
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during source replay reservation checks"
                 )
-            self.reducer.validate_source_replay_request(
-                state=current.state,
-                attempt=current.latest_attempt,
-                accepted_results=current.accepted_results,
-                request=request,
-            )
             reservation = ExpertSourceReplayExecutionReservation.mint(
                 execution_request_id=request.execution_request_id,
                 authorization_transition_id=current.transition.transition_id,

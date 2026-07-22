@@ -1,3 +1,5 @@
+import fcntl
+import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -722,6 +724,67 @@ def test_source_replay_reservation_rechecks_parent_and_adapter_authority(
         adapter_fixture.validation_store.snapshot(adapter_prepared.request.candidate_id)
         == adapter_snapshot
     )
+
+
+def test_source_replay_reservation_external_checks_hold_no_validation_lock(
+    tmp_path,
+    monkeypatch,
+):
+    fixture = _request_fixture(tmp_path)
+    prepared = _prepared_request(fixture)
+    snapshot = fixture.validation_store.snapshot(prepared.request.candidate_id)
+    assert snapshot is not None
+    provider_calls = []
+
+    def assert_validation_lock_available(provider_name):
+        descriptor = os.open(
+            fixture.validation_store.root / "validation.lock",
+            os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        with os.fdopen(descriptor, "r+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        provider_calls.append(provider_name)
+
+    candidate_read = fixture.validation_store.reducer.candidate_store.read
+    current_release_id = fixture.current_release_provider.current_release_id
+    resolve_exact = fixture.adapter_provider.resolve_exact
+
+    def unlocked_candidate(candidate_id):
+        assert_validation_lock_available("candidate")
+        return candidate_read(candidate_id)
+
+    def unlocked_current_release(scope_id):
+        assert_validation_lock_available("current_release")
+        return current_release_id(scope_id)
+
+    def unlocked_adapter(**request):
+        assert_validation_lock_available("task_adapter")
+        return resolve_exact(**request)
+
+    monkeypatch.setattr(
+        fixture.validation_store.reducer.candidate_store,
+        "read",
+        unlocked_candidate,
+    )
+    monkeypatch.setattr(
+        fixture.current_release_provider,
+        "current_release_id",
+        unlocked_current_release,
+    )
+    monkeypatch.setattr(
+        fixture.adapter_provider,
+        "resolve_exact",
+        unlocked_adapter,
+    )
+
+    committed = fixture.validation_store.reserve_source_replay(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_request=prepared,
+    )
+
+    assert committed.snapshot == snapshot
+    assert provider_calls == ["candidate", "current_release", "task_adapter"]
 
 
 def test_interrupted_source_replay_reservation_recovers_from_orphan_objects(

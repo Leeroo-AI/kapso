@@ -247,6 +247,11 @@ content contract without those prepared authorities is not executable admission.
 Reservation admission reopens the candidate, rechecks `CURRENT`, re-resolves
 every historical adapter package through its retained trusted verifier, and
 revalidates the accepted evaluator prefix before binding the operation. A
+short shared-lock read first captures the expected validation head; all candidate,
+GitHub, archive, and verifier work then runs without a validation lock; and a
+final exclusive-lock compare-and-swap either binds the unchanged head or replays
+an identical concurrently committed reservation. A changed head or different
+request fails rather than carrying stale external validation into admission. A
 historical reservation stays auditable after authority changes, while execution
 must perform fresh parent, revocation, and verifier observations immediately
 before each spawn and again before receipt publication. Adapter dependency
