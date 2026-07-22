@@ -650,6 +650,61 @@ Promotion states are explicit: `ineligible`, `validating`, `failed`, `disputed`,
 no implicit promotion from a direct Git commit; only a completely validated
 immutable release referenced by `CURRENT.json` is active.
 
+## Typed release matrix and publication eligibility
+
+The final Pareto decision must not consume `ExpertEvaluatorRun.measurements`
+directly. That generic map has no control pairing, adapter-owned scale/direction,
+context lineage, repeat identity, or comparability authority. The next slice first
+replaces the `RELEASE_MATRIX` payload with one typed comparative closure, then
+implements `PUBLICATION_ELIGIBILITY` as a pure derived decision and atomic terminal
+transition.
+
+Minimal ownership:
+
+- `promotion_contracts.py` owns typed matrix rows/evidence, the deterministic
+  decision, fresh-authority fence, and publication-eligibility stage result;
+- `promotion.py` parses the sole canonical release-matrix payload, resolves exact
+  pinned adapter metric bindings, re-derives normalized effects, validates coverage,
+  and computes the decision without weighted scores;
+- `promotion_authority.py` proves fresh `CURRENT` or authenticated bootstrap
+  absence plus exact adapter/verifier/denylist authority and seals publication;
+- `promotion_stage.py` serializes one candidate, reopens deterministic work, and
+  hands one sealed execution to the validation store; and
+- `validation.py` and `validation_store.py` only reduce the terminal state and
+  persist/rederive the content-addressed closure through one journal CAS.
+
+Each matrix row binds the exact candidate and parent, task-adapter manifest and
+verification receipt, evaluation fingerprint, metric binding, context, independent
+lineage, repeat, paired control/candidate values, and evidence dependencies. The
+framework recomputes direction-aligned scale-normalized effects; missing or extra
+dimensions, reused context/repeat authority, nonfinite values, nonpositive scale,
+direction substitution, or omitted dependencies fail loud. Bootstrap uses an
+explicit standalone-coverage mode and authenticated `CURRENT` absence—never a
+synthetic zero control.
+
+Decision order is fixed:
+
+1. prove exact dimension/adapter/context/repeat coverage and comparability;
+2. apply every hard-regression bound before aggregation (`effect < -bound`; equality
+   passes);
+3. classify strict `effect > noise_floor` gains, strict `effect < -noise_floor`
+   material regressions, and the inclusive interval as ties;
+4. require configured repeat sufficiency and distinct independent lineages per
+   dimension, with no averaging away a bad repeat; and
+5. approve only complete parent-backed evidence with no hard/material regression
+   and at least one confirmed benefit (or a policy-authorized deterministic
+   mechanical fix with complete non-regression).
+
+A hard regression or sufficiently powered no-benefit candidate is `FAILED`.
+Explicit incomparability, underpowered/noisy evidence, or a permitted non-hard
+gain/regression trade-off is terminal `PARETO_RETAINED`. Only `APPROVED` appends an
+accepted `PUBLICATION_ELIGIBILITY` reference; retained/failed candidates preserve
+the accepted prefix and cite the decision as terminal evidence. `PARETO_RETAINED`
+means retained relative to the named parent and matrix, never membership in a
+mutable global frontier and never permission to publish. Approval is also not a
+release lease: a later expected-parent GitHub CAS may still lose, requiring a new
+rebased/composed candidate and full revalidation.
+
 ## Rebase and composition
 
 Before release:
