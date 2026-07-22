@@ -22,6 +22,9 @@ class _Provider:
     def execute_leg(self, _invocation):
         raise RuntimeError("execution was not expected")
 
+    def cleanup_interrupted(self, _provider_handle):
+        return None
+
 
 class _CountingProvider:
     def __init__(self, dispatch_key):
@@ -32,6 +35,17 @@ class _CountingProvider:
     def dispatch_key(self):
         self.dispatch_key_reads += 1
         return self._dispatch_key
+
+    def execute_leg(self, _invocation):
+        raise RuntimeError("execution was not expected")
+
+    def cleanup_interrupted(self, _provider_handle):
+        return None
+
+
+class _ExecutionOnlyProvider:
+    def __init__(self, dispatch_key):
+        self.dispatch_key = dispatch_key
 
     def execute_leg(self, _invocation):
         raise RuntimeError("execution was not expected")
@@ -181,6 +195,10 @@ def test_registry_rejects_empty_duplicate_and_untyped_provider_sets(
         ExpertSourceReplayExecutionProviderRegistry((provider, provider))
     with pytest.raises(ExpertSourceReplayExecutionError, match="typed"):
         ExpertSourceReplayExecutionProviderRegistry((_Provider("not-a-key"),))
+    with pytest.raises(ExpertSourceReplayExecutionError, match="cleanup"):
+        ExpertSourceReplayExecutionProviderRegistry(
+            (_ExecutionOnlyProvider(dispatch_key),)
+        )
 
 
 def test_distinct_full_keys_can_use_the_same_provider_implementation(

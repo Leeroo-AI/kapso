@@ -89,6 +89,12 @@ class ExpertSourceReplayExecutionProvider(Protocol):
     ) -> ExpertSourceReplayProviderCompletion:
         """Execute one exact journal-owned scientific leg without retry."""
 
+    def cleanup_interrupted(
+        self,
+        provider_handle: SourceReplayProviderExecutionHandle,
+    ) -> None:
+        """Idempotently remove daemon resources without executing the leg."""
+
 
 def expert_source_replay_execution_provider_key(
     materialized_case: MaterializedExpertSourceReplayCase,
@@ -300,6 +306,10 @@ class ResolvedExpertSourceReplayExecutionCase:
             raise ExpertSourceReplayExecutionError(
                 "resolved source replay provider cannot execute a matched leg"
             )
+        if not callable(getattr(provider, "cleanup_interrupted", None)):
+            raise ExpertSourceReplayExecutionError(
+                "resolved source replay provider cannot clean an interrupted leg"
+            )
         if (
             type(candidate) is not VerifiedExpertSourceReplayCandidate
             or type(parent) is not VerifiedExpertSourceReplayParent
@@ -439,6 +449,10 @@ class ExpertSourceReplayExecutionProviderRegistry:
                 raise ExpertSourceReplayExecutionError(
                     "source replay provider must implement matched-leg execution"
                 )
+            if not callable(getattr(provider, "cleanup_interrupted", None)):
+                raise ExpertSourceReplayExecutionError(
+                    "source replay provider must implement interrupted cleanup"
+                )
             if advertised_key in providers_by_key:
                 raise ExpertSourceReplayExecutionError(
                     "source replay provider dispatch key is duplicated"
@@ -477,6 +491,34 @@ class ExpertSourceReplayExecutionProviderRegistry:
             prepared.candidate,
             prepared.parent,
         )
+
+    def cleanup_interrupted(
+        self,
+        provider_handle: SourceReplayProviderExecutionHandle,
+    ) -> None:
+        if type(provider_handle) is not SourceReplayProviderExecutionHandle:
+            raise ExpertSourceReplayExecutionError(
+                "source replay cleanup requires an exact provider handle"
+            )
+        provider = self._providers_by_key.get(provider_handle.dispatch_key)
+        if provider is None:
+            raise ExpertSourceReplayExecutionError(
+                "source replay interrupted provider key is unsupported"
+            )
+        if provider.dispatch_key != provider_handle.dispatch_key:
+            raise ExpertSourceReplayExecutionError(
+                "source replay interrupted provider identity changed"
+            )
+        cleanup_interrupted = getattr(provider, "cleanup_interrupted", None)
+        if not callable(cleanup_interrupted):
+            raise ExpertSourceReplayExecutionError(
+                "source replay provider has no interrupted cleanup"
+            )
+        cleanup_interrupted(provider_handle)
+        if provider.dispatch_key != provider_handle.dispatch_key:
+            raise ExpertSourceReplayExecutionError(
+                "source replay interrupted provider identity changed"
+            )
 
     def _resolve_cases(
         self,

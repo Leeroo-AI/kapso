@@ -146,6 +146,7 @@ def authority(tmp_path):
         provider = SimpleNamespace(
             dispatch_key=expert_source_replay_execution_provider_key(prepared.cases[0]),
             execute_leg=lambda _invocation: None,
+            cleanup_interrupted=lambda _provider_handle: None,
         )
         resolved_case = ExpertSourceReplayExecutionProviderRegistry(
             (provider,)

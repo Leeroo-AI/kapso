@@ -40,6 +40,7 @@ from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayMatchedLegInvocation,
     ExpertSourceReplayProviderCompletion,
     ExpertSourceReplayExecutionProviderKey,
+    ExpertSourceReplayExecutionProviderRegistry,
     ResolvedExpertSourceReplayExecutionCase,
     SourceReplayProviderExecutionHandle,
     expert_source_replay_execution_provider_key,
@@ -603,6 +604,35 @@ class _SourceReplayReservationSession:
     def events(self) -> tuple[SourceReplayExecutionJournalEvent, ...]:
         self._require_active()
         return self._events
+
+    def cleanup_interrupted_spawn(
+        self,
+        provider_registry: ExpertSourceReplayExecutionProviderRegistry,
+    ) -> SourceReplayProviderExecutionHandle:
+        self._require_active()
+        if not isinstance(
+            provider_registry,
+            ExpertSourceReplayExecutionProviderRegistry,
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay interrupted cleanup requires its provider registry"
+            )
+        if (
+            len(self._events) % 4 != 2
+            or self._events[-1].event_kind
+            is not SourceReplayExecutionJournalEventKind.SPAWN_COMMITTED
+            or self._spawn_permit is not None
+        ):
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay cleanup requires a reopened interrupted spawn"
+            )
+        provider_handle = self._events[-1].provider_execution_handle
+        if type(provider_handle) is not SourceReplayProviderExecutionHandle:
+            raise ExpertSourceReplayExecutionStoreError(
+                "source replay interrupted spawn has no provider handle"
+            )
+        provider_registry.cleanup_interrupted(provider_handle)
+        return provider_handle
 
     def allocate_expected_leg(self) -> SourceReplayInvocationAllocationPermit:
         self._require_active()

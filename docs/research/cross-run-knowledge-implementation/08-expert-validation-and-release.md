@@ -241,10 +241,13 @@ and structural event/blob counts are config-bounded before allocation or parse.
 Unsafe ownership or modes, links, unexpected entries, noncanonical bytes, forks,
 gaps, phase substitutions, reused invocation identities, or result-digest
 changes fail loud. An allocation-only tail is resumable. A reopened spawn tail is
-permanently interrupted and can never execute again. A received-result tail may
-resume deterministic parsing without provider authority, including after a
-crash. A technical, missing, or invalid result remains durable and terminal for
-that invocation rather than silently becoming another trial.
+permanently interrupted and can never execute again. Its persisted typed provider
+handle dispatches idempotent cleanup of daemon resources; repeated cleanup may
+remove only resources bearing that exact handle and never invokes the evaluator.
+A received-result tail may resume deterministic parsing without provider
+authority, including after a crash. A technical, missing, or invalid result
+remains durable and terminal for that invocation rather than silently becoming
+another trial.
 
 The executor reopens a reservation through a public read-only store boundary.
 The journal itself requires and reconstructs the complete prepared byte authority
@@ -349,9 +352,10 @@ Implemented validation substrate:
   no-argument executor, and raw process results or evaluator bytes are never an
   admission API;
   immutable bounded result bytes precede deterministic typed acceptance; restart
-  resumes allocation or result acceptance but never a committed spawn; concurrent
-  sessions serialize; and corrupt, forked, substituted, over-bound, or unsafe
-  journal state fails loud without a mutable execution snapshot; and
+  resumes allocation or result acceptance but never a committed spawn; persisted
+  provider handles support idempotent daemon-resource cleanup without reexecution;
+  concurrent sessions serialize; and corrupt, forked, substituted, over-bound, or
+  unsafe journal state fails loud without a mutable execution snapshot; and
 - fresh spawn authority performs the exact double reopen around rich GitHub
   `CURRENT`, complete historical-adapter trust, transitive denylist, and verifier
   authority observations and returns one invocation-bound typed fence; and

@@ -269,6 +269,7 @@ class _MatchedLegProvider:
         self.stdout_bytes_observed = stdout_bytes_observed
         self.stderr_bytes_observed = stderr_bytes_observed
         self.invocations = []
+        self.interrupted_cleanup_handles = []
 
     def execute_leg(self, invocation):
         self.invocations.append(invocation)
@@ -291,6 +292,9 @@ class _MatchedLegProvider:
             ),
             result_payload=payload,
         )
+
+    def cleanup_interrupted(self, provider_handle):
+        self.interrupted_cleanup_handles.append(provider_handle)
 
 
 class _FailingMatchedLegProvider(_MatchedLegProvider):
@@ -807,18 +811,32 @@ def test_reopened_spawn_marker_is_permanently_interrupted(tmp_path):
         prepared_request=prepared,
     ) as session:
         permit = session.allocate_expected_leg()
-        _commit_spawn(
+        execution, provider = _commit_spawn(
             fixture,
             prepared,
             reservation,
             store,
             permit,
         )
+        registry = ExpertSourceReplayExecutionProviderRegistry((provider,))
+        with pytest.raises(
+            ExpertSourceReplayExecutionStoreError,
+            match="reopened interrupted",
+        ):
+            session.cleanup_interrupted_spawn(registry)
 
     with store.reservation_session(
         reservation=reservation,
         prepared_request=prepared,
     ) as recovered:
+        cleaned_handle = recovered.cleanup_interrupted_spawn(registry)
+        assert cleaned_handle == execution._invocation.provider_handle
+        assert provider.interrupted_cleanup_handles == [cleaned_handle]
+        assert recovered.cleanup_interrupted_spawn(registry) == cleaned_handle
+        assert provider.interrupted_cleanup_handles == [
+            cleaned_handle,
+            cleaned_handle,
+        ]
         with pytest.raises(
             ExpertSourceReplayExecutionStoreError,
             match="permanently interrupted",
