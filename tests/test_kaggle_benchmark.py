@@ -1,10 +1,10 @@
 """Contract tests for the Kaggle code-competition benchmark.
 
-What must hold: the handler renders the metered-submission economics from
-config values (never literals), the insured predicate reads only >0 banked
-public scores and fails loud on corruption, the runner's leaderboard parsing
-survives CLI pagination noise and windows submissions to the run, and the
-preparer builds the exact layout the runner requires.
+What must hold: the handler context is the statement plus the minimal kapso
+contract (and stays free of the removed protocol/economics sermons), the
+runner's leaderboard parsing survives CLI pagination noise and windows
+submissions to the run, and the preparers build the exact layout the runner
+requires.
 """
 
 import json
@@ -28,7 +28,6 @@ CONFIG_PATH = os.path.join(
 )
 
 SESSION_CAPS = {"ideation_timeout": 1080, "implementation_timeout": 5400}
-ECONOMICS = {"insured_freeze_minutes": 10}
 KAGGLE = {"competition": "ioai-2026-ai-models-track-practice-task-1"}
 
 
@@ -38,7 +37,6 @@ def make_handler(tmp_path, **overrides):
         statement="statement body",
         deadline_ts=time.time() + 7200,
         session_caps=SESSION_CAPS,
-        contest_economics=ECONOMICS,
         kaggle=KAGGLE,
     )
     kwargs.update(overrides)
@@ -63,38 +61,6 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
 def test_handler_rejects_missing_kaggle_slug(tmp_path):
     with pytest.raises(ValueError, match="kaggle"):
         make_handler(tmp_path, kaggle={})
-    with pytest.raises(ValueError, match="insured_freeze_minutes"):
-        make_handler(tmp_path, contest_economics={})
-
-
-def test_insured_predicate_needs_kernel_and_positive_public_score(tmp_path):
-    handler = make_handler(tmp_path)
-    assert handler.deliverable_ready_reserve_seconds() is None
-
-    kernel_dir = tmp_path / "task" / "submission" / "kernel"
-    kernel_dir.mkdir(parents=True)
-    (kernel_dir / "script.py").write_text("print('hi')\n")
-    assert handler.deliverable_ready_reserve_seconds() is None
-
-    log = tmp_path / "task" / "best_score.log"
-    log.write_text("0.0 2026-07-22T15:00:00 insurance-placeholder\n")
-    assert handler.deliverable_ready_reserve_seconds() is None
-
-    log.write_text(
-        "0.0 2026-07-22T15:00:00 placeholder\n"
-        "0.41 2026-07-22T15:30:00 kernel=u/s:v2 baseline\n"
-    )
-    assert handler.deliverable_ready_reserve_seconds() == 600.0
-
-
-def test_insured_predicate_raises_on_corrupt_bank_line(tmp_path):
-    handler = make_handler(tmp_path)
-    kernel_dir = tmp_path / "task" / "submission" / "kernel"
-    kernel_dir.mkdir(parents=True)
-    (kernel_dir / "script.py").write_text("print('hi')\n")
-    (tmp_path / "task" / "best_score.log").write_text("not-a-score today\n")
-    with pytest.raises(ValueError):
-        handler.deliverable_ready_reserve_seconds()
 
 
 def test_parse_submissions_json_tolerates_pagination_noise():
@@ -195,5 +161,5 @@ def test_kaggle_mode_config_minimal_knobs():
     with open(CONFIG_PATH) as f:
         mode = yaml.safe_load(f)["modes"]["KAGGLE"]
     assert "kaggle" not in mode  # slug comes from the run root, not config
-    assert mode["contest_economics"] == {"insured_freeze_minutes": 10}
-    assert mode["budget"]["min_iteration_seconds_insured"] == 300
+    assert "contest_economics" not in mode
+    assert mode["budget"] == {"min_iteration_seconds": 900}

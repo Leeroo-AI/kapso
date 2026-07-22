@@ -2,8 +2,7 @@
 
 Hands the coding agent the task statement plus the minimal kapso contract:
 paths, the scored-submission deliverable, the operator approval gate, and
-score reporting. best_score.log holds PUBLIC leaderboard scores only —
-banking one arms the insured (shrunk) finalization reserve.
+score reporting. best_score.log records PUBLIC leaderboard scores only.
 """
 
 import os
@@ -22,7 +21,6 @@ class KaggleNotebookHandler(ProblemHandler):
         statement: str,
         deadline_ts: float,
         session_caps: dict,
-        contest_economics: dict,
         kaggle: dict,
     ):
         super().__init__(additional_context="")
@@ -34,19 +32,12 @@ class KaggleNotebookHandler(ProblemHandler):
                 "session_caps must be the runner's shaped session timeouts "
                 "(ideation_timeout/implementation_timeout, seconds)"
             )
-        if not isinstance(contest_economics, dict) or (
-            "insured_freeze_minutes" not in contest_economics
-        ):
-            raise ValueError(
-                "contest_economics must carry insured_freeze_minutes"
-            )
         if not isinstance(kaggle, dict) or not kaggle.get("competition"):
             raise ValueError("kaggle must carry the competition slug")
         self.task_dir = os.path.abspath(task_dir)
         self.statement = statement.strip()
         self.deadline_ts = deadline_ts
         self.session_caps = session_caps
-        self.contest_economics = contest_economics
         self.kaggle = kaggle
         self.dataset_dir = os.path.join(self.task_dir, "dataset")
         self.artifacts_dir = os.path.join(self.task_dir, "artifacts")
@@ -94,27 +85,6 @@ experiment's local validation score in <score></score> tags AND write
 kapso_evaluation/result.json: {{"score": <float>, "notes": "..."}}. Never
 fabricate a score; a failed run is reported as such.
 """
-
-    def deliverable_ready_reserve_seconds(self):
-        """Insured once a >0 public score is banked with a kernel on disk.
-
-        best_score.log holds public leaderboard scores only (the handler
-        prompt forbids local numbers there), so any >0 line plus the
-        current kernel folder means the endgame needs only the freeze
-        residual. A corrupt line raises — fail loud.
-        """
-        kernel_script = os.path.join(self.submission_dir, "kernel", "script.py")
-        if not os.path.isfile(kernel_script):
-            return None
-        score_log = os.path.join(self.task_dir, "best_score.log")
-        if not os.path.isfile(score_log):
-            return None
-        with open(score_log, encoding="utf-8") as f:
-            lines = [line for line in f.read().splitlines() if line.strip()]
-        for line in lines:
-            if float(line.split()[0]) > 0:
-                return self.contest_economics["insured_freeze_minutes"] * 60.0
-        return None
 
     def stop_condition(self) -> bool:
         return False

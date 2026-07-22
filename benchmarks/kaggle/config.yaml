@@ -56,13 +56,10 @@ modes:
       finalization_reserve_max_minutes: 15
       guard_minutes: 5
 
-    # Reserve residual once a >0 public score is banked (deliverable insured).
-    contest_economics:
-      insured_freeze_minutes: 10
 
+    # Admission floor: don't start an iteration that can't finish.
     budget:
       min_iteration_seconds: 900
-      min_iteration_seconds_insured: 300
 
     # Post-campaign scoring = polling the Kaggle submissions list.
     final_eval:

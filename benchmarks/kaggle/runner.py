@@ -269,7 +269,6 @@ def main():
         statement=statement,
         deadline_ts=deadline_ts,
         session_caps=session_timeouts,
-        contest_economics=mode_cfg["contest_economics"],
         kaggle={"competition": competition},
     )
 
