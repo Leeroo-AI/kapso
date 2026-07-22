@@ -259,9 +259,24 @@ class VerifiedTaskAdapter:
         expected_source_paths = {
             descriptor.relative_path for descriptor in extraction.source_tree_files
         }
-        if set(self.source_contents) != expected_source_paths:
+        source_descriptors = {
+            descriptor.relative_path: descriptor
+            for descriptor in extraction.source_tree_files
+        }
+        evaluator_descriptor = source_descriptors.get(
+            self.manifest.task_evaluator.executable_path
+        )
+        runtime_lock_descriptor = source_descriptors.get(
+            self.manifest.runtime.dependency_lock_path
+        )
+        if (
+            set(self.source_contents) != expected_source_paths
+            or evaluator_descriptor is None
+            or evaluator_descriptor.mode != "100755"
+            or runtime_lock_descriptor is None
+        ):
             raise ContractValidationError(
-                "task adapter source contents differ from extraction receipt"
+                "task adapter source closure lacks its evaluator or runtime lock"
             )
         for descriptor in extraction.source_tree_files:
             payload = self.source_contents[descriptor.relative_path]
@@ -273,6 +288,15 @@ class VerifiedTaskAdapter:
                 raise ContractValidationError(
                     "task adapter source content digest differs from extraction receipt"
                 )
+        if (
+            tree_or_blob_digest(
+                self.source_contents[self.manifest.runtime.dependency_lock_path]
+            )
+            != self.manifest.runtime.dependency_lock_digest
+        ):
+            raise ContractValidationError(
+                "task adapter runtime lock differs from its manifest"
+            )
         if set(self.proof_objects) != expected_proof_refs or any(
             tree_or_blob_digest(self.proof_objects[proof_ref])
             != receipt.proof_object_digests[proof_ref]

@@ -75,12 +75,16 @@ from kapso.cross_run.contracts import (
     ScopeRepositorySettings,
     SourceFileDescriptor,
     TaskAdapterBinding,
+    TaskAdapterContextBinding,
     TaskAdapterManifest,
+    TaskAdapterRuntimeContract,
     TaskContextBinding,
+    TaskEvaluatorBinding,
     TaskFamilyDefinition,
     TransferAttempt,
     TransferCompatibility,
     TransferEpisode,
+    expert_source_replay_matched_compute_digest,
 )
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
@@ -101,6 +105,7 @@ from kapso.cross_run.agent_artifacts import (
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+TASK_ADAPTER_RUNTIME_LOCK = b"python==3.11.9\n"
 
 
 def fixture_id(name):
@@ -113,13 +118,14 @@ def digest(name):
 
 def task_adapter_source(task_adapter_id):
     source_contents = {
-        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8")
+        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8"),
+        "requirements.lock": TASK_ADAPTER_RUNTIME_LOCK,
     }
     source_files = tuple(
         SourceFileDescriptor(
             relative_path=path,
             digest=tree_or_blob_digest(payload),
-            mode="100644",
+            mode="100755" if path == "adapter.py" else "100644",
             size=len(payload),
         )
         for path, payload in sorted(source_contents.items())
@@ -290,6 +296,34 @@ def build_records():
             "runtime_family": "pytorch",
         },
     )
+    _, _, task_adapter_tree_hash = task_adapter_source("posttrain")
+    task_adapter = TaskAdapterManifest.mint(
+        task_adapter_id="posttrain",
+        scope_contract_id=scope.scope_contract_id,
+        task_family_id="language_model_post_training",
+        publisher_attestation={"issuer": "test-publisher", "signature": "adapter"},
+        task_evaluator=TaskEvaluatorBinding(
+            protocol_version="kapso.task_evaluator.v1",
+            executable_path="adapter.py",
+            supported_evaluator_fingerprints=(digest("evaluator"),),
+        ),
+        context_binding=TaskAdapterContextBinding(
+            consumed_dimension_ids=("dataset_family", "runtime_family"),
+        ),
+        source_tree_ref="task-adapter.tar.zst",
+        tree_hash=task_adapter_tree_hash,
+        runtime=TaskAdapterRuntimeContract(
+            runtime_protocol_version="kapso.task_adapter_runtime.v1",
+            image_digest=digest("task-adapter-runtime-image"),
+            dependency_lock_path="requirements.lock",
+            dependency_lock_digest=tree_or_blob_digest(TASK_ADAPTER_RUNTIME_LOCK),
+            operating_system="linux",
+            architecture="amd64",
+        ),
+        sanitation_report_id=fixture_id("adapter-sanitation"),
+        validation_refs=("validation/adapter-smoke",),
+    )
+    verified_adapter = verified_test_task_adapter(task_adapter)
     evaluation = EvaluationFingerprint.mint(
         benchmark_id="posttrain",
         dataset_version="v1",
@@ -371,24 +405,6 @@ def build_records():
         compatibility_envelope={"python": ">=3.10"},
         publisher_attestation={"issuer": "test-publisher", "signature": "expert"},
     )
-    _, _, task_adapter_tree_hash = task_adapter_source("posttrain")
-    task_adapter = TaskAdapterManifest.mint(
-        task_adapter_id="posttrain",
-        scope_contract_id=scope.scope_contract_id,
-        task_family_id="language_model_post_training",
-        publisher_attestation={"issuer": "test-publisher", "signature": "adapter"},
-        task_evaluator_binding={"evaluator": "public"},
-        context_dimension_binding={
-            "dataset_family": "instruction",
-            "runtime_family": "pytorch",
-        },
-        source_tree_ref="task-adapter.tar.zst",
-        tree_hash=task_adapter_tree_hash,
-        dependency_runtime_contract={"python": ">=3.10"},
-        sanitation_report_id=fixture_id("adapter-sanitation"),
-        validation_refs=("validation/adapter-smoke",),
-    )
-    verified_adapter = verified_test_task_adapter(task_adapter)
     starting_artifact_payload = b"starting artifact:artifact/base"
     starting_artifact_file = SourceFileDescriptor(
         relative_path="artifact.bin",
@@ -1049,6 +1065,116 @@ def test_contracts_reject_missing_unknown_and_wrongly_typed_fields():
     boolean_integer["fraction"] = True
     with pytest.raises(ContractValidationError):
         EvaluationFingerprint.from_dict(boolean_integer)
+
+
+def test_task_adapter_manifest_has_one_typed_scientific_contract():
+    manifest = next(
+        record for record in build_records() if isinstance(record, TaskAdapterManifest)
+    )
+    payload = manifest.to_dict()
+
+    assert set(payload) >= {"task_evaluator", "context_binding", "runtime"}
+    assert not {
+        "task_evaluator_binding",
+        "context_dimension_binding",
+        "dependency_runtime_contract",
+    } & set(payload)
+
+    legacy_payload = dict(payload)
+    legacy_payload["task_evaluator_binding"] = legacy_payload.pop("task_evaluator")
+    with pytest.raises(ContractValidationError, match="fields"):
+        TaskAdapterManifest.from_dict(legacy_payload)
+
+    with pytest.raises(ContractValidationError, match="normalized relative path"):
+        replace(
+            manifest,
+            task_evaluator=replace(
+                manifest.task_evaluator,
+                executable_path="../adapter.py",
+            ),
+        )
+    with pytest.raises(ContractValidationError, match="image_digest"):
+        replace(
+            manifest,
+            runtime=replace(manifest.runtime, image_digest="runtime:latest"),
+        )
+    with pytest.raises(ContractValidationError, match="non-empty, sorted, and unique"):
+        replace(
+            manifest.task_evaluator,
+            supported_evaluator_fingerprints=(),
+        )
+    assert TaskAdapterContextBinding(consumed_dimension_ids=()).to_dict() == {
+        "consumed_dimension_ids": []
+    }
+
+    relbench_values = manifest.to_dict()
+    relbench_values.pop("task_adapter_manifest_id")
+    relbench_values.update(
+        task_adapter_id="relbench",
+        task_family_id="relational_tabular_prediction",
+        context_binding=TaskAdapterContextBinding(
+            consumed_dimension_ids=("dataset_family",)
+        ),
+    )
+    relbench_manifest = TaskAdapterManifest.mint(**relbench_values)
+    assert TaskAdapterManifest.from_json_bytes(relbench_manifest.to_json_bytes()) == (
+        relbench_manifest
+    )
+    assert relbench_manifest.runtime == manifest.runtime
+
+
+def test_matched_compute_digest_binds_every_shared_scientific_input():
+    fingerprint_id = content_id("evaluation-fingerprint", {"name": "score"})
+    inputs = {
+        "bundle_lineage_ids": (content_id("run-bundle", {"generation": 0}),),
+        "projection_manifest_id": content_id("projection", {"name": "p"}),
+        "episode_id": content_id("episode", {"name": "e"}),
+        "source_execution_revision": 0,
+        "source_evaluation_fingerprint_ids": (fingerprint_id,),
+        "source_score_of_record_fingerprint_id": fingerprint_id,
+        "task_context_binding_id": content_id("context", {"name": "c"}),
+        "context_materialization_receipt_id": content_id(
+            "context-receipt", {"name": "r"}
+        ),
+        "starting_artifact_content_ids": (content_id("artifact", {"name": "a"}),),
+        "task_adapter_manifest_id": content_id("adapter", {"name": "m"}),
+        "verification_receipt_id": content_id("verification", {"name": "v"}),
+        "task_adapter_source_tree_hash": digest("adapter-tree"),
+        "task_evaluator_digest": digest("evaluator-contract"),
+        "task_adapter_runtime_digest": digest("runtime-contract"),
+        "task_adapter_context_binding_digest": digest("context-contract"),
+    }
+    replacements = {
+        "bundle_lineage_ids": (content_id("run-bundle", {"generation": 1}),),
+        "projection_manifest_id": content_id("projection", {"name": "changed"}),
+        "episode_id": content_id("episode", {"name": "changed"}),
+        "source_execution_revision": 1,
+        "source_evaluation_fingerprint_ids": (
+            content_id("evaluation-fingerprint", {"name": "diagnostic"}),
+            fingerprint_id,
+        ),
+        "source_score_of_record_fingerprint_id": content_id(
+            "evaluation-fingerprint", {"name": "other-score"}
+        ),
+        "task_context_binding_id": content_id("context", {"name": "changed"}),
+        "context_materialization_receipt_id": content_id(
+            "context-receipt", {"name": "changed"}
+        ),
+        "starting_artifact_content_ids": (content_id("artifact", {"name": "changed"}),),
+        "task_adapter_manifest_id": content_id("adapter", {"name": "changed"}),
+        "verification_receipt_id": content_id("verification", {"name": "changed"}),
+        "task_adapter_source_tree_hash": digest("changed-adapter-tree"),
+        "task_evaluator_digest": digest("changed-evaluator-contract"),
+        "task_adapter_runtime_digest": digest("changed-runtime-contract"),
+        "task_adapter_context_binding_digest": digest("changed-context-contract"),
+    }
+    baseline = expert_source_replay_matched_compute_digest(**inputs)
+
+    for field_name, changed_value in replacements.items():
+        changed_inputs = {**inputs, field_name: changed_value}
+        assert (
+            expert_source_replay_matched_compute_digest(**changed_inputs) != baseline
+        ), field_name
 
 
 def test_content_mutation_is_detected_but_attestation_rotation_preserves_identity():

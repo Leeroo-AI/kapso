@@ -3063,10 +3063,18 @@ def expert_source_replay_matched_compute_digest(
     bundle_lineage_ids: tuple[str, ...],
     projection_manifest_id: str,
     episode_id: str,
+    source_execution_revision: int,
+    source_evaluation_fingerprint_ids: tuple[str, ...],
+    source_score_of_record_fingerprint_id: str,
     task_context_binding_id: str,
     context_materialization_receipt_id: str,
+    starting_artifact_content_ids: tuple[str, ...],
     task_adapter_manifest_id: str,
     verification_receipt_id: str,
+    task_adapter_source_tree_hash: str,
+    task_evaluator_digest: str,
+    task_adapter_runtime_digest: str,
+    task_adapter_context_binding_digest: str,
 ) -> str:
     """Derive the immutable environment shared by both replay legs."""
 
@@ -3079,7 +3087,21 @@ def expert_source_replay_matched_compute_digest(
                 ),
                 "episode_id": episode_id,
                 "projection_manifest_id": projection_manifest_id,
+                "source_evaluation_fingerprint_ids": (
+                    source_evaluation_fingerprint_ids
+                ),
+                "source_execution_revision": source_execution_revision,
+                "source_score_of_record_fingerprint_id": (
+                    source_score_of_record_fingerprint_id
+                ),
+                "starting_artifact_content_ids": starting_artifact_content_ids,
                 "task_adapter_manifest_id": task_adapter_manifest_id,
+                "task_adapter_runtime_digest": task_adapter_runtime_digest,
+                "task_adapter_context_binding_digest": (
+                    task_adapter_context_binding_digest
+                ),
+                "task_adapter_source_tree_hash": task_adapter_source_tree_hash,
+                "task_evaluator_digest": task_evaluator_digest,
                 "task_context_binding_id": task_context_binding_id,
                 "verification_receipt_id": verification_receipt_id,
             }
@@ -3097,6 +3119,7 @@ class ExpertSourceReplayExecutionCase(StrictContract):
     source_node_id: str
     source_execution_revision: int
     source_evaluation_fingerprint_ids: tuple[str, ...]
+    source_score_of_record_fingerprint_id: str
     episode_reason_codes: tuple[str, ...]
     task_context_binding_id: str
     source_expert_base_release_id: str
@@ -3106,7 +3129,9 @@ class ExpertSourceReplayExecutionCase(StrictContract):
     task_adapter_manifest_id: str
     verification_receipt_id: str
     task_adapter_source_tree_hash: str
-    task_evaluator_binding_digest: str
+    task_evaluator_digest: str
+    task_adapter_runtime_digest: str
+    task_adapter_context_binding_digest: str
     task_adapter_dependency_ids: tuple[str, ...]
     matched_compute_binding_digest: str
     control_leg: ExpertSourceReplayExecutionLeg
@@ -3201,6 +3226,19 @@ class ExpertSourceReplayExecutionCase(StrictContract):
                     raise ContractValidationError(
                         "source replay fingerprints must name EvaluationFingerprints"
                     )
+        require_content_id(
+            self.source_score_of_record_fingerprint_id,
+            "source replay source_score_of_record_fingerprint_id",
+        )
+        if (
+            self.source_score_of_record_fingerprint_id.split(":sha256:", 1)[0]
+            != "evaluation-fingerprint"
+            or self.source_score_of_record_fingerprint_id
+            not in self.source_evaluation_fingerprint_ids
+        ):
+            raise ContractValidationError(
+                "source replay score of record must name one source fingerprint"
+            )
         if self.starting_artifact_content_ids:
             _require_sorted_unique(
                 self.starting_artifact_content_ids,
@@ -3222,8 +3260,16 @@ class ExpertSourceReplayExecutionCase(StrictContract):
             "source replay task_adapter_source_tree_hash",
         )
         _require_digest(
-            self.task_evaluator_binding_digest,
-            "source replay task_evaluator_binding_digest",
+            self.task_evaluator_digest,
+            "source replay task_evaluator_digest",
+        )
+        _require_digest(
+            self.task_adapter_runtime_digest,
+            "source replay task_adapter_runtime_digest",
+        )
+        _require_digest(
+            self.task_adapter_context_binding_digest,
+            "source replay task_adapter_context_binding_digest",
         )
         _require_digest(
             self.matched_compute_binding_digest,
@@ -3234,12 +3280,26 @@ class ExpertSourceReplayExecutionCase(StrictContract):
                 bundle_lineage_ids=self.bundle_lineage_ids,
                 projection_manifest_id=self.projection_manifest_id,
                 episode_id=self.episode_id,
+                source_execution_revision=self.source_execution_revision,
+                source_evaluation_fingerprint_ids=(
+                    self.source_evaluation_fingerprint_ids
+                ),
+                source_score_of_record_fingerprint_id=(
+                    self.source_score_of_record_fingerprint_id
+                ),
                 task_context_binding_id=self.task_context_binding_id,
                 context_materialization_receipt_id=(
                     self.context_materialization_receipt_id
                 ),
+                starting_artifact_content_ids=self.starting_artifact_content_ids,
                 task_adapter_manifest_id=self.task_adapter_manifest_id,
                 verification_receipt_id=self.verification_receipt_id,
+                task_adapter_source_tree_hash=self.task_adapter_source_tree_hash,
+                task_evaluator_digest=self.task_evaluator_digest,
+                task_adapter_runtime_digest=self.task_adapter_runtime_digest,
+                task_adapter_context_binding_digest=(
+                    self.task_adapter_context_binding_digest
+                ),
             )
         ):
             raise ContractValidationError(
@@ -4232,17 +4292,88 @@ class ExpertBaseReleaseManifest(StrictContract):
 
 
 @dataclass(frozen=True)
+class TaskEvaluatorBinding(StrictContract):
+    protocol_version: str
+    executable_path: str
+    supported_evaluator_fingerprints: tuple[str, ...]
+
+    def _validate(self) -> None:
+        require_identifier(self.protocol_version, "task evaluator protocol_version")
+        _require_relative_path(
+            self.executable_path,
+            "task evaluator executable_path",
+        )
+        if not self.supported_evaluator_fingerprints or (
+            self.supported_evaluator_fingerprints
+            != tuple(sorted(set(self.supported_evaluator_fingerprints)))
+        ):
+            raise ContractValidationError(
+                "task evaluator fingerprints must be non-empty, sorted, and unique"
+            )
+        for fingerprint in self.supported_evaluator_fingerprints:
+            _require_digest(fingerprint, "task evaluator supported fingerprint")
+
+
+@dataclass(frozen=True)
+class TaskAdapterContextBinding(StrictContract):
+    consumed_dimension_ids: tuple[str, ...]
+
+    def _validate(self) -> None:
+        if self.consumed_dimension_ids != tuple(
+            sorted(set(self.consumed_dimension_ids))
+        ):
+            raise ContractValidationError(
+                "task adapter consumed_dimension_ids must be sorted and unique"
+            )
+        for dimension_id in self.consumed_dimension_ids:
+            require_identifier(
+                dimension_id,
+                "task adapter consumed dimension",
+            )
+
+
+@dataclass(frozen=True)
+class TaskAdapterRuntimeContract(StrictContract):
+    runtime_protocol_version: str
+    image_digest: str
+    dependency_lock_path: str
+    dependency_lock_digest: str
+    operating_system: str
+    architecture: str
+
+    def _validate(self) -> None:
+        require_identifier(
+            self.runtime_protocol_version,
+            "task adapter runtime protocol version",
+        )
+        _require_digest(self.image_digest, "task adapter runtime image_digest")
+        _require_relative_path(
+            self.dependency_lock_path,
+            "task adapter runtime dependency_lock_path",
+        )
+        _require_digest(
+            self.dependency_lock_digest,
+            "task adapter runtime dependency_lock_digest",
+        )
+        require_identifier(
+            self.operating_system,
+            "task adapter runtime operating_system",
+        )
+        require_identifier(self.architecture, "task adapter runtime architecture")
+
+
+@dataclass(frozen=True)
 class TaskAdapterManifest(StrictContract):
     task_adapter_manifest_id: str
     task_adapter_id: str
     scope_contract_id: str
     task_family_id: str
     publisher_attestation: Mapping[str, Any]
-    task_evaluator_binding: Mapping[str, Any]
-    context_dimension_binding: Mapping[str, Any]
+    task_evaluator: TaskEvaluatorBinding
+    context_binding: TaskAdapterContextBinding
     source_tree_ref: str
     tree_hash: str
-    dependency_runtime_contract: Mapping[str, Any]
+    runtime: TaskAdapterRuntimeContract
     sanitation_report_id: str
     validation_refs: tuple[str, ...]
 
@@ -4256,16 +4387,12 @@ class TaskAdapterManifest(StrictContract):
         require_identifier(self.task_family_id, "task_family_id")
         if not self.publisher_attestation:
             raise ContractValidationError("publisher_attestation must not be empty")
-        if not self.task_evaluator_binding or not self.context_dimension_binding:
+        if self.task_evaluator.executable_path == self.runtime.dependency_lock_path:
             raise ContractValidationError(
-                "task/evaluator and context-dimension bindings are required"
+                "task adapter evaluator and dependency lock paths must differ"
             )
         _require_text(self.source_tree_ref, "source_tree_ref")
         _require_digest(self.tree_hash, "tree_hash")
-        if not self.dependency_runtime_contract:
-            raise ContractValidationError(
-                "dependency_runtime_contract must not be empty"
-            )
         require_content_id(self.sanitation_report_id, "sanitation_report_id")
         _require_sorted_unique(self.validation_refs, "validation_refs")
 

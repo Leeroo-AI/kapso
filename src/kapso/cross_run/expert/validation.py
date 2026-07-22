@@ -6,11 +6,7 @@ import base64
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
-from kapso.cross_run.canonical import (
-    canonical_json_bytes,
-    require_content_id,
-    tree_or_blob_digest,
-)
+from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
     ExpertCandidateEligibilityDecision,
@@ -427,6 +423,10 @@ class ExpertCandidateEligibilityEvaluator:
         if len(ordering) != len(set(ordering)):
             raise ExpertValidationError("task adapters must be non-empty and unique")
         manifest = stored.closure.manifest
+        scope_dimension_ids = {
+            schema.dimension_id
+            for schema in stored.closure.trigger_packet.scope_contract.context_dimension_schemas
+        }
         expected_bindings = {
             (binding.task_family_id, binding.task_adapter_id)
             for binding in stored.closure.trigger_packet.active_task_bindings
@@ -442,6 +442,9 @@ class ExpertCandidateEligibilityEvaluator:
                 adapter.scope_contract_id != manifest.scope_contract_id
                 or (adapter.task_family_id, adapter.task_adapter_id)
                 not in expected_bindings
+                or not set(adapter.context_binding.consumed_dimension_ids).issubset(
+                    scope_dimension_ids
+                )
             ):
                 raise ExpertValidationError(
                     "task adapter does not match candidate scope and trigger"
@@ -937,9 +940,15 @@ class ExpertValidationReducer:
                 or any(
                     request_cases[episode_id].task_adapter_source_tree_hash
                     != adapter.manifest.tree_hash
-                    or request_cases[episode_id].task_evaluator_binding_digest
+                    or request_cases[episode_id].task_evaluator_digest
                     != tree_or_blob_digest(
-                        canonical_json_bytes(adapter.manifest.task_evaluator_binding)
+                        adapter.manifest.task_evaluator.to_json_bytes()
+                    )
+                    or request_cases[episode_id].task_adapter_runtime_digest
+                    != tree_or_blob_digest(adapter.manifest.runtime.to_json_bytes())
+                    or request_cases[episode_id].task_adapter_context_binding_digest
+                    != tree_or_blob_digest(
+                        adapter.manifest.context_binding.to_json_bytes()
                     )
                     or request_cases[episode_id].task_adapter_dependency_ids
                     != adapter.dependency_ids

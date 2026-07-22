@@ -736,10 +736,18 @@ TaskAdapterManifest
   scope_contract_id
   task_family_id
   publisher_attestation
-  task/evaluator binding
-  context-dimension binding
+  task_evaluator
+    protocol_version
+    executable_path
+    supported_evaluator_fingerprints[]
+  context_binding
+    consumed_dimension_ids[]
   source_tree_ref + tree_hash
-  dependency/runtime contract
+  runtime
+    runtime_protocol_version
+    image_digest
+    dependency_lock_path + dependency_lock_digest
+    operating_system + architecture
   sanitation_report_id
   validation_refs
 ```
@@ -762,6 +770,33 @@ Verifier rotation is explicit: one configured authority version signs new packag
 and activation records, historical versions remain in the trust registry while
 their pins are valid, and removing a version is an auditable revocation that makes
 its packages fail closed.
+
+These three nested records are deliberately narrow. The evaluator protocol fixes
+canonical request/result paths and schemas and is invoked directly without a shell;
+the manifest therefore does not carry free-form arguments or duplicate schema
+knobs. Its sorted evaluator-fingerprint allowlist is an exact compatibility claim
+covered by package verification; source replay rejects an evaluation-tree
+fingerprint absent from that attested list. Metric identity, direction, fidelity,
+seed/replicate set, aggregation, and judge version remain single-sourced in each
+`EvaluationFingerprint`. Exact compute allocations, stop rules, and
+sandbox/network policy belong to the immutable replay execution request under
+configured ceilings, not to the adapter's scientific identity.
+
+Launch must prove that every evaluator identity it can place into cross-run
+evidence is present in the pinned adapter allowlist. An evaluation-maintainer
+transition outside that list may still serve local experimentation, but its result
+is not replay-eligible until an authorized publisher verifies and activates a new
+adapter package that explicitly supports the new protected evaluation-tree
+fingerprint; Kapso never infers compatibility from a shared metric name.
+
+`consumed_dimension_ids` is a sorted allowlist and may be empty. Every name must
+exist in the exact scope revision and in a replay case's exact task context; the
+evaluator receives no undeclared transfer dimensions. Package verification
+requires `executable_path` to resolve to mode `100755`, requires the dependency
+lock path to exist in the exact source tree, and recomputes its declared digest.
+The image is an immutable digest rather than a mutable registry location; the
+configured runtime provider later resolves that digest for execution and must
+match the declared operating system and architecture before spawn.
 
 ### 4.12 `KnowledgeSnapshotManifest`
 
@@ -1600,7 +1635,13 @@ tree. The common case owns the exact historical task-adapter package, complete
 root-to-tip `RunBundle` byte lineage, evaluation fingerprints, and captured
 starting-artifact byte closures. Preparation independently reprojects every
 bundle generation instead of trusting a provider's projection. Neither leg may
-vary those inputs. One monotonic deadline and aggregate entry/byte budget cover
+vary those inputs. Its matched-compute identity explicitly binds the source
+execution revision, every evaluation fingerprint, the score-of-record
+fingerprint, task context and materialization receipt, starting artifacts,
+adapter source tree, evaluator ABI, context allowlist, and immutable runtime
+proof. Parent/candidate tree identities remain the deliberate experimental
+variable and are not part of that shared binding. One monotonic deadline and
+aggregate entry/byte budget cover
 the candidate, parent, adapters, every retained bundle generation, and contexts;
 duplicate content counts once and conflicting bytes under one identity fail.
 The self-validating prepared closure binds its exact settings and selection and

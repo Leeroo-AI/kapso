@@ -17,7 +17,14 @@ from kapso.cross_run.canonical import (
     source_tree_digest,
     tree_or_blob_digest,
 )
-from kapso.cross_run.contracts import SourceFileDescriptor, TaskAdapterManifest
+from kapso.cross_run.contracts import (
+    ContractValidationError,
+    SourceFileDescriptor,
+    TaskAdapterContextBinding,
+    TaskAdapterManifest,
+    TaskAdapterRuntimeContract,
+    TaskEvaluatorBinding,
+)
 from kapso.cross_run.expert.validation import ExpertCandidateEligibilityEvaluator
 from kapso.cross_run.settings import (
     CrossRunSettings,
@@ -38,27 +45,36 @@ from test_expert_candidates import bootstrap_candidate_closure
 from test_expert_validation import _CurrentReleaseProvider
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+RUNTIME_LOCK = b"python==3.11.9\n"
 
 
 def _content_id(label: str) -> str:
     return content_id("test-task-adapter-store", {"label": label})
 
 
-def _source_descriptor(
+def _source_descriptors(
     source: bytes,
     *,
-    executable: bool = False,
-) -> SourceFileDescriptor:
-    return SourceFileDescriptor(
-        relative_path="adapter.py",
-        digest=tree_or_blob_digest(source),
-        mode="100755" if executable else "100644",
-        size=len(source),
+    executable: bool = True,
+) -> tuple[SourceFileDescriptor, ...]:
+    return (
+        SourceFileDescriptor(
+            relative_path="adapter.py",
+            digest=tree_or_blob_digest(source),
+            mode="100755" if executable else "100644",
+            size=len(source),
+        ),
+        SourceFileDescriptor(
+            relative_path="requirements.lock",
+            digest=tree_or_blob_digest(RUNTIME_LOCK),
+            mode="100644",
+            size=len(RUNTIME_LOCK),
+        ),
     )
 
 
-def _source_tree_hash(source: bytes, *, executable: bool = False) -> str:
-    descriptor = _source_descriptor(source, executable=executable)
+def _source_tree_hash(source: bytes, *, executable: bool = True) -> str:
+    descriptors = _source_descriptors(source, executable=executable)
     return source_tree_digest(
         {
             descriptor.relative_path: (
@@ -66,11 +82,12 @@ def _source_tree_hash(source: bytes, *, executable: bool = False) -> str:
                 descriptor.mode,
                 descriptor.size,
             )
+            for descriptor in descriptors
         }
     )
 
 
-def _archive(tmp_path: Path, source: bytes, *, executable: bool = False) -> bytes:
+def _archive(tmp_path: Path, source: bytes, *, executable: bool = True) -> bytes:
     tar_path = tmp_path / "adapter.tar"
     with tarfile.open(tar_path, "w", format=tarfile.USTAR_FORMAT) as package:
         member = tarfile.TarInfo("adapter.py")
@@ -80,6 +97,13 @@ def _archive(tmp_path: Path, source: bytes, *, executable: bool = False) -> byte
         member.gid = 0
         member.mtime = 0
         package.addfile(member, io.BytesIO(source))
+        lock_member = tarfile.TarInfo("requirements.lock")
+        lock_member.size = len(RUNTIME_LOCK)
+        lock_member.mode = 0o644
+        lock_member.uid = 0
+        lock_member.gid = 0
+        lock_member.mtime = 0
+        package.addfile(lock_member, io.BytesIO(RUNTIME_LOCK))
     compressor = zstandard.ZstdCompressor(
         level=3,
         write_checksum=True,
@@ -95,7 +119,7 @@ def _manifest(
     scope_contract_id: str | None = None,
     task_family_id: str = "posttrain",
     task_adapter_id: str = "posttrain_adapter",
-    executable: bool = False,
+    executable: bool = True,
 ) -> TaskAdapterManifest:
     return TaskAdapterManifest.mint(
         task_adapter_id=task_adapter_id,
@@ -104,14 +128,37 @@ def _manifest(
         ),
         task_family_id=task_family_id,
         publisher_attestation={"publisher": publisher, "signature": "verified"},
-        task_evaluator_binding={"entrypoint": "adapter.py"},
-        context_dimension_binding={"benchmark": "synthetic"},
+        task_evaluator=TaskEvaluatorBinding(
+            protocol_version="kapso.task_evaluator.v1",
+            executable_path="adapter.py",
+            supported_evaluator_fingerprints=(
+                tree_or_blob_digest(b"source-evaluator"),
+            ),
+        ),
+        context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),
         source_tree_ref="task-adapter.tar.zst",
         tree_hash=_source_tree_hash(source, executable=executable),
-        dependency_runtime_contract={"python": ">=3.11"},
+        runtime=TaskAdapterRuntimeContract(
+            runtime_protocol_version="kapso.task_adapter_runtime.v1",
+            image_digest=tree_or_blob_digest(b"test-runtime-image"),
+            dependency_lock_path="requirements.lock",
+            dependency_lock_digest=tree_or_blob_digest(RUNTIME_LOCK),
+            operating_system="linux",
+            architecture="amd64",
+        ),
         sanitation_report_id=_content_id("sanitation"),
         validation_refs=("validation.adapter_smoke",),
     )
+
+
+def _remint_manifest(
+    manifest: TaskAdapterManifest,
+    **changes,
+) -> TaskAdapterManifest:
+    values = manifest.to_dict()
+    values.pop("task_adapter_manifest_id")
+    values.update(changes)
+    return TaskAdapterManifest.mint(**values)
 
 
 def _proof_objects(manifest: TaskAdapterManifest) -> dict[str, bytes]:
@@ -152,7 +199,7 @@ def _package(
     tmp_path: Path,
     manifest: TaskAdapterManifest,
     *,
-    executable: bool = False,
+    executable: bool = True,
 ) -> TaskAdapterPackage:
     source = b"def evaluate(value):\n    return value + 1\n"
     assert manifest.tree_hash == _source_tree_hash(source, executable=executable)
@@ -301,7 +348,10 @@ def test_real_archive_round_trip_and_identical_publication_replay(tmp_path):
 
     assert replay == published
     assert exact == published
-    assert exact.source_contents == {"adapter.py": source}
+    assert exact.source_contents == {
+        "adapter.py": source,
+        "requirements.lock": RUNTIME_LOCK,
+    }
     assert set(exact.dependency_ids) == {
         exact.verification_receipt.verification_receipt_id,
         exact.verification_receipt.source_extraction_receipt_id,
@@ -408,6 +458,39 @@ def test_executable_source_mode_survives_immutable_publication(tmp_path):
     assert (
         store.read(published.verification_receipt.verification_receipt_id) == published
     )
+
+
+def test_package_rejects_non_executable_evaluator_and_unbound_runtime_lock(tmp_path):
+    source = b"def evaluate(value):\n    return value + 1\n"
+    store = _store(tmp_path)
+    non_executable_manifest = _manifest(source, executable=False)
+
+    with pytest.raises(ContractValidationError, match="evaluator or runtime lock"):
+        store.publish(
+            _package(
+                tmp_path,
+                non_executable_manifest,
+                executable=False,
+            )
+        )
+
+    manifest = _manifest(source)
+    missing_lock_manifest = _remint_manifest(
+        manifest,
+        runtime=replace(manifest.runtime, dependency_lock_path="missing.lock"),
+    )
+    with pytest.raises(ContractValidationError, match="evaluator or runtime lock"):
+        store.publish(_package(tmp_path, missing_lock_manifest))
+
+    changed_lock_manifest = _remint_manifest(
+        manifest,
+        runtime=replace(
+            manifest.runtime,
+            dependency_lock_digest=tree_or_blob_digest(b"changed-lock"),
+        ),
+    )
+    with pytest.raises(ContractValidationError, match="runtime lock"):
+        store.publish(_package(tmp_path, changed_lock_manifest))
 
 
 def test_attestation_rotation_moves_active_but_preserves_exact_replay(tmp_path):

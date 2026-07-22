@@ -30,8 +30,11 @@ from kapso.cross_run.contracts import (
     ExpertValidationStage,
     ExpertValidationTrack,
     SourceFileDescriptor,
+    TaskAdapterContextBinding,
     TaskAdapterPackagePin,
     TaskAdapterManifest,
+    TaskAdapterRuntimeContract,
+    TaskEvaluatorBinding,
 )
 from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
@@ -54,6 +57,7 @@ from test_expert_candidate_store import candidate_store
 from test_expert_candidates import bootstrap_candidate_closure
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+TASK_ADAPTER_RUNTIME_LOCK = b"python==3.11.9\n"
 
 
 def _content_id(label: str) -> str:
@@ -172,11 +176,22 @@ def _task_adapter(closure, position=0) -> TaskAdapterManifest:
         scope_contract_id=closure.manifest.scope_contract_id,
         task_family_id=binding.task_family_id,
         publisher_attestation={"issuer": "test", "signature": "test"},
-        task_evaluator_binding={"evaluator": "public"},
-        context_dimension_binding={"dataset_family": "synthetic"},
+        task_evaluator=TaskEvaluatorBinding(
+            protocol_version="kapso.task_evaluator.v1",
+            executable_path="adapter.py",
+            supported_evaluator_fingerprints=(_digest("source-evaluator"),),
+        ),
+        context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),
         source_tree_ref="task-adapter.tar.zst",
         tree_hash=tree_hash,
-        dependency_runtime_contract={"python": ">=3.10"},
+        runtime=TaskAdapterRuntimeContract(
+            runtime_protocol_version="kapso.task_adapter_runtime.v1",
+            image_digest=_digest("task-adapter-runtime-image"),
+            dependency_lock_path="requirements.lock",
+            dependency_lock_digest=tree_or_blob_digest(TASK_ADAPTER_RUNTIME_LOCK),
+            operating_system="linux",
+            architecture="amd64",
+        ),
         sanitation_report_id=_content_id("task-adapter-sanitation"),
         validation_refs=("validation.adapter_smoke",),
     )
@@ -186,13 +201,14 @@ def _adapter_source(
     task_adapter_id: str,
 ) -> tuple[dict[str, bytes], tuple[SourceFileDescriptor, ...], str]:
     source_contents = {
-        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8")
+        "adapter.py": f"ADAPTER_ID = {task_adapter_id!r}\n".encode("utf-8"),
+        "requirements.lock": TASK_ADAPTER_RUNTIME_LOCK,
     }
     source_files = tuple(
         SourceFileDescriptor(
             relative_path=path,
             digest=tree_or_blob_digest(payload),
-            mode="100644",
+            mode="100755" if path == "adapter.py" else "100644",
             size=len(payload),
         )
         for path, payload in sorted(source_contents.items())
@@ -800,7 +816,8 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
     expanded_closure = SimpleNamespace(
         manifest=stored.closure.manifest,
         trigger_packet=SimpleNamespace(
-            active_task_bindings=(first_binding, second_binding)
+            active_task_bindings=(first_binding, second_binding),
+            scope_contract=stored.closure.trigger_packet.scope_contract,
         ),
     )
     expanded_stored = SimpleNamespace(closure=expanded_closure)
@@ -849,6 +866,47 @@ def test_adapter_enrollment_requires_every_exact_trigger_binding(tmp_path):
     assert task_family_ids == tuple(
         sorted((first_binding.task_family_id, second_binding.task_family_id))
     )
+
+
+def test_adapter_context_allowlist_must_be_declared_by_the_exact_scope(tmp_path):
+    store = candidate_store(tmp_path)
+    stored = store.persist(bootstrap_candidate_closure())
+    adapter = _task_adapter(stored.closure)
+    known_dimension_id = (
+        stored.closure.trigger_packet.scope_contract.context_dimension_schemas[
+            0
+        ].dimension_id
+    )
+    adapter_values = adapter.to_dict()
+    adapter_values.pop("task_adapter_manifest_id")
+    known_adapter = TaskAdapterManifest.mint(
+        **{
+            **adapter_values,
+            "context_binding": TaskAdapterContextBinding(
+                consumed_dimension_ids=(known_dimension_id,)
+            ),
+        }
+    )
+
+    pins, _, _ = ExpertCandidateEligibilityEvaluator._adapter_bindings(
+        stored,
+        (_verified_adapter(known_adapter),),
+    )
+    assert pins[0].task_adapter_manifest_id == known_adapter.task_adapter_manifest_id
+
+    unknown_adapter = TaskAdapterManifest.mint(
+        **{
+            **adapter_values,
+            "context_binding": TaskAdapterContextBinding(
+                consumed_dimension_ids=("unknown_dimension",)
+            ),
+        }
+    )
+    with pytest.raises(ExpertValidationError, match="scope and trigger"):
+        ExpertCandidateEligibilityEvaluator._adapter_bindings(
+            stored,
+            (_verified_adapter(unknown_adapter),),
+        )
 
 
 def test_adapter_receipt_pins_attestation_without_changing_scientific_identity(
@@ -1013,11 +1071,11 @@ def test_active_adapter_resolution_cannot_redirect_a_trigger_binding(tmp_path):
         scope_contract_id=expected_adapter.scope_contract_id,
         task_family_id=expected_adapter.task_family_id,
         publisher_attestation=expected_adapter.publisher_attestation,
-        task_evaluator_binding=expected_adapter.task_evaluator_binding,
-        context_dimension_binding=expected_adapter.context_dimension_binding,
+        task_evaluator=expected_adapter.task_evaluator,
+        context_binding=expected_adapter.context_binding,
         source_tree_ref=expected_adapter.source_tree_ref,
         tree_hash=redirected_tree_hash,
-        dependency_runtime_contract=expected_adapter.dependency_runtime_contract,
+        runtime=expected_adapter.runtime,
         sanitation_report_id=expected_adapter.sanitation_report_id,
         validation_refs=expected_adapter.validation_refs,
     )

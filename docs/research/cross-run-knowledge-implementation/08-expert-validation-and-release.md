@@ -224,6 +224,33 @@ one active authority for new records, retains explicit historical verifier
 versions for replay, and treats removal as revocation; deployment supplies those
 authority implementations behind the typed fail-closed protocol.
 
+The scientific manifest itself has no opaque evaluator, context, or runtime maps.
+It contains exactly three domain-neutral contracts:
+
+- `TaskEvaluatorBinding`: a protocol version and normalized adapter-relative
+  executable path plus a sorted allowlist of exact protected evaluation-tree
+  fingerprints. The package verifier attests that compatibility claim; the
+  protocol fixes request/result layout and direct, no-shell invocation.
+- `TaskAdapterContextBinding`: a sorted allowlist of transfer-dimension IDs the
+  evaluator consumes. It may be empty, must be a subset of the exact scope schema,
+  and every replay context must contain the declared dimensions.
+- `TaskAdapterRuntimeContract`: runtime protocol, immutable image digest,
+  dependency-lock path/digest, operating system, and architecture.
+
+Package verification requires an executable mode of `100755`, proves the runtime
+lock against the extracted source bytes, and rejects mutable image locations.
+Metric/direction/fidelity/replicate/aggregation authority stays in the exact
+`EvaluationFingerprint`; resource ceilings and the exact paired execution envelope
+belong to validation config and the execution request respectively. The replay
+case pins every source fingerprint plus its score of record and hashes the source
+revision, context receipt, starting artifacts, adapter tree, evaluator ABI,
+context allowlist, and runtime proof into one matched-compute binding. This keeps
+post-training, relational tabular prediction, and later ML task families on the
+same core contract without teaching Kapso task-specific metric or budget names.
+M9 must reject a launch whose possible evaluator IDs are absent from the pinned
+adapter; evaluator evolution outside the allowlist stays local-only until a newly
+verified adapter package attests the new protected evaluation-tree fingerprint.
+
 ## Evaluator cascade
 
 Implement one durable state machine:

@@ -63,6 +63,7 @@ def make_capture_fixture(
     denied_name_variants: bool = False,
     excluded_artifact_classes: bool = False,
     raw_observation_sentinel: str | None = None,
+    evaluator_fingerprint: str | None = None,
 ) -> CaptureFixture:
     settings = CrossRunSettings.from_dict(
         load_config("src/kapso/config.yaml")["cross_run"]
@@ -181,6 +182,11 @@ def make_capture_fixture(
     evaluation = next(
         item for item in records if isinstance(item, EvaluationFingerprint)
     )
+    if evaluator_fingerprint is not None:
+        evaluation_values = evaluation.to_dict()
+        evaluation_values.pop("evaluation_fingerprint_id")
+        evaluation_values["evaluator_fingerprint"] = evaluator_fingerprint
+        evaluation = EvaluationFingerprint.mint(**evaluation_values)
     evaluator_id = evaluation.evaluator_fingerprint.removeprefix("sha256:")
     node.evaluation_attempts = [
         EvaluationAttempt(

@@ -282,6 +282,19 @@ class MaterializedExpertSourceReplayCase:
             fingerprint.evaluation_fingerprint_id
             for fingerprint in terminal_attempt.evaluation_fingerprints
         )
+        score_of_record_fingerprint_id = terminal_attempt.score_of_record_fingerprint_id
+        if score_of_record_fingerprint_id is None:
+            raise ExpertSourceReplayRequestError(
+                "source replay requires a score-of-record fingerprint"
+            )
+        if any(
+            fingerprint.evaluator_fingerprint
+            not in adapter.manifest.task_evaluator.supported_evaluator_fingerprints
+            for fingerprint in terminal_attempt.evaluation_fingerprints
+        ):
+            raise ExpertSourceReplayRequestError(
+                "source replay fingerprint differs from the exact task evaluator"
+            )
         artifact_ids = tuple(
             artifact.starting_artifact_content_id
             for artifact in receipt.starting_artifacts
@@ -320,13 +333,27 @@ class MaterializedExpertSourceReplayCase:
             bundle_lineage_ids=self.bundle_lineage.bundle_ids,
             projection_manifest_id=projection_manifest.projection_manifest_id,
             episode_id=self.episode.episode_id,
+            source_execution_revision=self.episode.terminal_attempt_revision,
+            source_evaluation_fingerprint_ids=fingerprint_ids,
+            source_score_of_record_fingerprint_id=score_of_record_fingerprint_id,
             task_context_binding_id=context.task_context_binding_id,
             context_materialization_receipt_id=(
                 receipt.context_materialization_receipt_id
             ),
+            starting_artifact_content_ids=artifact_ids,
             task_adapter_manifest_id=adapter.manifest.task_adapter_manifest_id,
             verification_receipt_id=(
                 adapter.verification_receipt.verification_receipt_id
+            ),
+            task_adapter_source_tree_hash=adapter.manifest.tree_hash,
+            task_evaluator_digest=tree_or_blob_digest(
+                adapter.manifest.task_evaluator.to_json_bytes()
+            ),
+            task_adapter_runtime_digest=tree_or_blob_digest(
+                adapter.manifest.runtime.to_json_bytes()
+            ),
+            task_adapter_context_binding_digest=tree_or_blob_digest(
+                adapter.manifest.context_binding.to_json_bytes()
             ),
         )
         if (
@@ -345,12 +372,17 @@ class MaterializedExpertSourceReplayCase:
             != context.target_contract_fingerprint
             or materialized_artifact_ids != captured_artifact_ids
             or set(materialized_artifact_ids) != set(context.starting_artifact_refs)
+            or not set(
+                adapter.manifest.context_binding.consumed_dimension_ids
+            ).issubset(context.transfer_dimensions)
             or self.episode.episode_id not in self.selection_case.episode_ids
             or case.episode_reason_codes
             != self.selection_case.episode_reason_codes[self.episode.episode_id]
             or self.episode.source["node_id"] != case.source_node_id
             or self.episode.terminal_attempt_revision != case.source_execution_revision
             or fingerprint_ids != case.source_evaluation_fingerprint_ids
+            or score_of_record_fingerprint_id
+            != case.source_score_of_record_fingerprint_id
             or context.task_context_binding_id != case.task_context_binding_id
             or self.episode.artifact_environment.expert_base_release_id
             != case.source_expert_base_release_id
@@ -363,10 +395,12 @@ class MaterializedExpertSourceReplayCase:
             or adapter.verification_receipt.verification_receipt_id
             != case.verification_receipt_id
             or adapter.manifest.tree_hash != case.task_adapter_source_tree_hash
-            or tree_or_blob_digest(
-                canonical_json_bytes(adapter.manifest.task_evaluator_binding)
-            )
-            != case.task_evaluator_binding_digest
+            or tree_or_blob_digest(adapter.manifest.task_evaluator.to_json_bytes())
+            != case.task_evaluator_digest
+            or tree_or_blob_digest(adapter.manifest.runtime.to_json_bytes())
+            != case.task_adapter_runtime_digest
+            or tree_or_blob_digest(adapter.manifest.context_binding.to_json_bytes())
+            != case.task_adapter_context_binding_digest
             or adapter_dependencies != case.task_adapter_dependency_ids
             or matched_compute_digest != case.matched_compute_binding_digest
             or expected_dependencies != set(case.exact_dependency_ids)
@@ -1095,6 +1129,19 @@ class ExpertSourceReplayPreflightCoordinator:
             fingerprint.evaluation_fingerprint_id
             for fingerprint in terminal_attempt.evaluation_fingerprints
         )
+        score_of_record_fingerprint_id = terminal_attempt.score_of_record_fingerprint_id
+        if score_of_record_fingerprint_id is None:
+            raise ExpertSourceReplayRequestError(
+                "source replay requires a score-of-record fingerprint"
+            )
+        if any(
+            fingerprint.evaluator_fingerprint
+            not in adapter.manifest.task_evaluator.supported_evaluator_fingerprints
+            for fingerprint in terminal_attempt.evaluation_fingerprints
+        ):
+            raise ExpertSourceReplayRequestError(
+                "source replay fingerprint differs from the exact task evaluator"
+            )
         projection_manifest_id = projection.projection_manifest.projection_manifest_id
         context_receipt = verified_context.receipt
         artifact_ids = tuple(
@@ -1128,6 +1175,7 @@ class ExpertSourceReplayPreflightCoordinator:
             source_node_id=episode.source["node_id"],
             source_execution_revision=episode.terminal_attempt_revision,
             source_evaluation_fingerprint_ids=fingerprint_ids,
+            source_score_of_record_fingerprint_id=score_of_record_fingerprint_id,
             episode_reason_codes=selected_case.episode_reason_codes[episode.episode_id],
             task_context_binding_id=context.task_context_binding_id,
             source_expert_base_release_id=environment.expert_base_release_id,
@@ -1141,21 +1189,41 @@ class ExpertSourceReplayPreflightCoordinator:
                 adapter.verification_receipt.verification_receipt_id
             ),
             task_adapter_source_tree_hash=adapter.manifest.tree_hash,
-            task_evaluator_binding_digest=tree_or_blob_digest(
-                canonical_json_bytes(adapter.manifest.task_evaluator_binding)
+            task_evaluator_digest=tree_or_blob_digest(
+                adapter.manifest.task_evaluator.to_json_bytes()
+            ),
+            task_adapter_runtime_digest=tree_or_blob_digest(
+                adapter.manifest.runtime.to_json_bytes()
+            ),
+            task_adapter_context_binding_digest=tree_or_blob_digest(
+                adapter.manifest.context_binding.to_json_bytes()
             ),
             task_adapter_dependency_ids=adapter_dependencies,
             matched_compute_binding_digest=expert_source_replay_matched_compute_digest(
                 bundle_lineage_ids=lineage.bundle_ids,
                 projection_manifest_id=projection_manifest_id,
                 episode_id=episode.episode_id,
+                source_execution_revision=episode.terminal_attempt_revision,
+                source_evaluation_fingerprint_ids=fingerprint_ids,
+                source_score_of_record_fingerprint_id=(score_of_record_fingerprint_id),
                 task_context_binding_id=context.task_context_binding_id,
                 context_materialization_receipt_id=(
                     context_receipt.context_materialization_receipt_id
                 ),
+                starting_artifact_content_ids=artifact_ids,
                 task_adapter_manifest_id=(adapter.manifest.task_adapter_manifest_id),
                 verification_receipt_id=(
                     adapter.verification_receipt.verification_receipt_id
+                ),
+                task_adapter_source_tree_hash=adapter.manifest.tree_hash,
+                task_evaluator_digest=tree_or_blob_digest(
+                    adapter.manifest.task_evaluator.to_json_bytes()
+                ),
+                task_adapter_runtime_digest=tree_or_blob_digest(
+                    adapter.manifest.runtime.to_json_bytes()
+                ),
+                task_adapter_context_binding_digest=tree_or_blob_digest(
+                    adapter.manifest.context_binding.to_json_bytes()
                 ),
             ),
             control_leg=control_leg,

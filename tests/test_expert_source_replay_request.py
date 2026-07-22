@@ -188,10 +188,14 @@ def _request_fixture(
     *,
     rotate_active_adapter=False,
     bundle_generations=1,
+    evaluator_fingerprint=None,
 ):
     fixture_root = tmp_path / f"request-{next(REQUEST_FIXTURE_SEQUENCE)}"
     fixture_root.mkdir()
-    capture_fixture = make_capture_fixture(fixture_root)
+    capture_fixture = make_capture_fixture(
+        fixture_root,
+        evaluator_fingerprint=evaluator_fingerprint,
+    )
     capture_pipeline = RunCapturePipeline(
         RunCaptureContext(capture_fixture.request),
         capture_fixture.settings,
@@ -437,6 +441,16 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
                 )
             ),
         )
+
+
+def test_request_rejects_a_source_fingerprint_from_another_evaluator(tmp_path):
+    fixture = _request_fixture(
+        tmp_path,
+        evaluator_fingerprint=tree_or_blob_digest(b"another-evaluator"),
+    )
+
+    with pytest.raises(ExpertSourceReplayRequestError, match="exact task evaluator"):
+        fixture.coordinator.build(fixture.attempt)
 
 
 def test_aggregate_limit_counts_candidate_parent_adapter_bundle_and_context(tmp_path):
