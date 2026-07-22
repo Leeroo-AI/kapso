@@ -73,7 +73,8 @@ def shape_session_timeouts(mode_cfg: dict, total_run_seconds: float) -> dict:
 
 def build_runtime_config(mode: str, coding_model: "str | None",
                          task_dir: str, session_timeouts: dict,
-                         shared_cache_dir: "str | None" = None) -> str:
+                         shared_cache_dir: "str | None" = None,
+                         node_expansion: "int | None" = None) -> str:
     """Write the per-run config: shaped session deadlines + model override."""
     with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f)
@@ -84,6 +85,12 @@ def build_runtime_config(mode: str, coding_model: "str | None",
         # Persistent task-level cache: artifacts (and their registry offer)
         # carry across campaigns instead of dying with the workspace.
         params["shared_cache_dir"] = os.path.abspath(shared_cache_dir)
+    if node_expansion and node_expansion > 1:
+        params["node_expansion_value"] = node_expansion
+        # One GPU per lane on multi-GPU boxes.
+        params["expansion_lane_env"] = [
+            {"CUDA_VISIBLE_DEVICES": str(i)} for i in range(node_expansion)
+        ]
     if coding_model:
         params["idea_generation_model"] = coding_model
         params["implementation_model"] = coding_model
@@ -187,6 +194,9 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-final-eval", action="store_true")
     parser.add_argument("--final-eval-only", action="store_true")
+    parser.add_argument("--node-expansion", type=int, default=None,
+                        help="K parallel implementation lanes per round "
+                             "(selector emits top-K; one GPU per lane)")
     parser.add_argument("--shared-cache-dir", default=None,
                         help="Persistent task-level shared cache (artifact "
                              "registry offers carry across campaigns); "
@@ -239,7 +249,8 @@ def main():
 
     config_path = build_runtime_config(args.mode, args.coding_model, task_dir,
                                        session_timeouts,
-                                       shared_cache_dir=args.shared_cache_dir)
+                                       shared_cache_dir=args.shared_cache_dir,
+                                       node_expansion=args.node_expansion)
 
     print(f"root={root}")
     print(f"budget={budget_minutes} min (guard={guard_minutes} min, "
