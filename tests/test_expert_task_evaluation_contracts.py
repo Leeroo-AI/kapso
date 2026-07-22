@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
@@ -26,7 +28,10 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationCandidate,
     VerifiedTaskEvaluationParent,
 )
-from kapso.cross_run.expert.triggers import ExpertParentTreeReceipt
+from kapso.cross_run.expert.triggers import (
+    ExpertParentTreeReceipt,
+    ExpertTriggerEvidencePacket,
+)
 from test_expert_candidate_workspace import released_workspace_fixture
 from test_expert_release_matrix_reservation import (
     _bootstrap_release_matrix_fixture,
@@ -742,6 +747,41 @@ def test_request_derivation_enforces_parent_receipt_mode(
         parent_tree_receipt=substituted_receipt,
         source_contents=parent_contents,
     )
+    substituted_packet = ExpertTriggerEvidencePacket.mint(
+        knowledge_snapshot_manifest=parent_packet.knowledge_snapshot_manifest,
+        knowledge_record_closure_digest=(parent_packet.knowledge_record_closure_digest),
+        configuration_fingerprint=parent_packet.configuration_fingerprint,
+        scope_contract=parent_packet.scope_contract,
+        parent_scope_contract=parent_packet.parent_scope_contract,
+        parent_release=parent_packet.parent_release,
+        parent_tree_receipt=substituted_receipt,
+        parent_tree_hash=parent_packet.parent_tree_hash,
+        repository_map=parent_packet.repository_map,
+        module_contracts=parent_packet.module_contracts,
+        episodes=parent_packet.episodes,
+        claims=parent_packet.claims,
+        trigger_observations=parent_packet.trigger_observations,
+        active_task_bindings=parent_packet.active_task_bindings,
+        proof_reference_ids=parent_packet.proof_reference_ids,
+    )
+    substituted_stored_candidate = replace(
+        parent_prepared.stored_candidate,
+        closure=replace(
+            parent_prepared.stored_candidate.closure,
+            trigger_packet=substituted_packet,
+        ),
+    )
+    with pytest.raises(
+        TaskEvaluationRequestPreparationError,
+        match="candidate differs from reserved plan authority",
+    ):
+        prepare_task_evaluation_request(
+            plan_reservation=parent_reservation,
+            settings=parent_store.settings,
+            stored_candidate=substituted_stored_candidate,
+            candidate=parent_candidate,
+            parent=substituted_parent,
+        )
     with pytest.raises(
         TaskEvaluationRequestPreparationError,
         match="parent differs from reserved plan authority",

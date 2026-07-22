@@ -771,6 +771,15 @@ immutable artifact closures. These objects prove bytes; the later materialized-c
 closure must still join them to the reserved request, adapter authority, signed case,
 and fresh provider observation before they become a spawn capability.
 
+`PreparedTaskEvaluationRequest` now supplies that pure byte join. Every canonical
+request case retains its full `VerifiedTaskAdapter`, proves the exact embedded plan
+authority, derives the fixture-free runtime again, and matches only the signed case's
+artifact closures. Historical source-only adapter versions are not executable cases.
+Aggregate accounting includes candidate, optional parent, and each distinct full
+adapter package exactly once; runtime and fixture projections are views of already
+counted package bytes. This prepared object still performs no durable reservation or
+external freshness claim.
+
 The planner now derives a mixed parent matrix from the complete accepted source
 replay plus every signed case in every immutable attempt-pinned active adapter.
 Historical package versions needed by source evidence remain exact authorities but

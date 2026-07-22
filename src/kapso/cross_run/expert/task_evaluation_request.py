@@ -211,6 +211,16 @@ def prepare_task_evaluation_request(
         or candidate.source_tree != closure.candidate_tree
         or candidate.source_contents != closure.candidate_contents
         or candidate.manifest.candidate_id != plan.candidate_id
+        or candidate.manifest.trigger_evidence_packet_id != packet.evidence_packet_id
+        or candidate.manifest.trigger_decision_id
+        != closure.trigger_decision.trigger_decision_id
+        or closure.trigger_decision.evidence_packet_id != packet.evidence_packet_id
+        or candidate.manifest.scope_contract_id
+        != packet.scope_contract.scope_contract_id
+        or candidate.manifest.configuration_fingerprint
+        != packet.configuration_fingerprint
+        or candidate.manifest.parent_release_id != packet.parent_release_id
+        or candidate.manifest.parent_tree_hash != packet.parent_tree_hash
         or candidate.commit_record.commit_record_id != plan.candidate_commit_record_id
         or candidate.source_tree.tree_hash != plan.candidate_tree_hash
         or candidate.manifest.scope_contract_id != plan.scope_contract_id

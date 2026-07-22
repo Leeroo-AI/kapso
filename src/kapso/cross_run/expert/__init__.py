@@ -51,6 +51,12 @@ from kapso.cross_run.expert.task_evaluation_materialization import (
     VerifiedTaskEvaluationStartingArtifact,
     materialize_task_evaluation_starting_artifacts,
 )
+from kapso.cross_run.expert.task_evaluation_preflight import (
+    MaterializedTaskEvaluationCase,
+    PreparedTaskEvaluationRequest,
+    TaskEvaluationPreflightError,
+    task_evaluation_materialization_usage,
+)
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayPublicationError,
     ExpertSourceReplayStageResultRecord,
@@ -224,12 +230,15 @@ __all__ = [
     "PreparedExpertCandidateWorkspace",
     "PreparedExpertAutomatedReviewPacket",
     "MaterializedExpertSourceReplayCase",
+    "MaterializedTaskEvaluationCase",
     "PreparedExpertSourceReplayRequest",
+    "PreparedTaskEvaluationRequest",
     "SourceReplayContextProvider",
     "SourceReplayProviderRegistryFactory",
     "SourceReplayDecisionPublicationFence",
     "SourceReplayMaterializationLimits",
     "StoredExpertCandidate",
+    "TaskEvaluationPreflightError",
     "VerifiedTaskEvaluationAdapterRuntime",
     "VerifiedTaskEvaluationCandidate",
     "VerifiedTaskEvaluationParent",
@@ -237,6 +246,7 @@ __all__ = [
     "VerifiedSourceReplayContext",
     "VerifiedSourceReplayStartingArtifact",
     "materialize_task_evaluation_starting_artifacts",
+    "task_evaluation_materialization_usage",
     "compile_expert_semantic_book",
     "expert_semantic_book_digest",
     "source_replay_publication_security_subject_ids",
