@@ -252,6 +252,50 @@ class ExpertSourceReplayReservationCommitResult:
     replayed: bool
 
 
+@dataclass(frozen=True)
+class ExpertSourceReplayReservationSnapshot:
+    reservation: ExpertSourceReplayExecutionReservation
+    request: ExpertSourceReplayExecutionRequest
+    snapshot: ExpertValidationSnapshot
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(
+                self.reservation,
+                ExpertSourceReplayExecutionReservation,
+            )
+            or not isinstance(self.request, ExpertSourceReplayExecutionRequest)
+            or not isinstance(self.snapshot, ExpertValidationSnapshot)
+            or self.snapshot.latest_attempt is None
+        ):
+            raise ExpertValidationStoreError(
+                "source replay reservation snapshot is incomplete"
+            )
+        transition = self.snapshot.transition
+        state = self.snapshot.state
+        attempt = self.snapshot.latest_attempt
+        if (
+            self.reservation.execution_request_id != self.request.execution_request_id
+            or self.reservation.authorization_transition_id != transition.transition_id
+            or self.reservation.validation_attempt_id != attempt.validation_attempt_id
+            or self.reservation.validation_attempt_id
+            != self.request.validation_attempt_id
+            or self.reservation.authorization_state_id != state.validation_state_id
+            or self.reservation.authorization_state_id
+            != self.request.authorization_state_id
+            or self.reservation.candidate_id != self.request.candidate_id
+            or self.reservation.candidate_id != state.candidate_id
+            or self.reservation.candidate_id != transition.candidate_id
+            or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
+            or self.reservation.candidate_tree_hash != state.candidate_tree_hash
+            or self.reservation.observed_parent_release_id
+            != self.request.parent_release_id
+        ):
+            raise ExpertValidationStoreError(
+                "source replay reservation snapshot authority is inconsistent"
+            )
+
+
 class ExpertValidationStore:
     """Publish linear validation transitions through one atomic candidate journal."""
 
@@ -530,6 +574,64 @@ class ExpertValidationStore:
                     current.transition.transition_id,
                 ),
                 replayed=False,
+            )
+
+    def reopen_source_replay_reservation(
+        self,
+        *,
+        reservation_id: str,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> ExpertSourceReplayReservationSnapshot:
+        require_content_id(reservation_id, "source replay reservation_id")
+        if reservation_id.split(":sha256:", 1)[0] != (
+            "expert-source-replay-execution-reservation"
+        ):
+            raise ExpertValidationStoreError(
+                "source replay reservation_id uses the wrong namespace"
+            )
+        if not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
+            raise ExpertValidationStoreError(
+                "source replay reopen requires a verified prepared request"
+            )
+        prepared = PreparedExpertSourceReplayRequest(
+            request=prepared_request.request,
+            settings=prepared_request.settings,
+            attempt=prepared_request.attempt,
+            selection=prepared_request.selection,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            authorization_state=prepared_request.authorization_state,
+            cases=prepared_request.cases,
+        )
+        request = prepared.request
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(request.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current is None:
+                raise ExpertValidationStoreError(
+                    "source replay reservation has no current validation state"
+                )
+            stored = self._source_replay_reservation_unlocked(
+                journal,
+                current.transition.transition_id,
+            )
+            if stored is None:
+                raise ExpertValidationStoreError(
+                    "source replay reservation is not bound to the current head"
+                )
+            reservation, stored_request = stored
+            if reservation.reservation_id != reservation_id:
+                raise ExpertValidationStoreError(
+                    "source replay reservation identity is not current"
+                )
+            if stored_request != request:
+                raise ExpertValidationStoreError(
+                    "source replay stored request differs from its prepared closure"
+                )
+            return ExpertSourceReplayReservationSnapshot(
+                reservation=reservation,
+                request=stored_request,
+                snapshot=current,
             )
 
     def publish_parent_authority_invalidation(

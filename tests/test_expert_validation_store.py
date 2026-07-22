@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from kapso.cross_run.canonical import content_id
 from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
     ExpertEvaluatorRunBuilder,
@@ -530,6 +531,91 @@ def test_concurrent_identical_source_replay_reservations_have_one_commit(tmp_pat
     assert sum(not result.replayed for result in results) == 1
     assert len({result.reservation.reservation_id for result in results}) == 1
     assert all(result.snapshot == snapshot for result in results)
+
+
+def test_source_replay_reservation_reopens_exactly_across_store_restart(tmp_path):
+    fixture = _request_fixture(tmp_path)
+    prepared = _prepared_request(fixture)
+    snapshot = fixture.validation_store.snapshot(prepared.request.candidate_id)
+    assert snapshot is not None
+    committed = fixture.validation_store.reserve_source_replay(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_request=prepared,
+    )
+
+    reopened = fixture.validation_store.reopen_source_replay_reservation(
+        reservation_id=committed.reservation.reservation_id,
+        prepared_request=prepared,
+    )
+    recovered_store = ExpertValidationStore(
+        fixture.validation_store.root,
+        fixture.validation_store.state_root,
+        fixture.settings,
+        fixture.validation_store.reducer,
+    )
+    recovered = recovered_store.reopen_source_replay_reservation(
+        reservation_id=committed.reservation.reservation_id,
+        prepared_request=prepared,
+    )
+
+    assert reopened.reservation == committed.reservation
+    assert reopened.request == prepared.request
+    assert reopened.snapshot == committed.snapshot
+    assert recovered == reopened
+
+
+def test_source_replay_reopen_rejects_unbound_identity_and_prepared_request(
+    tmp_path,
+):
+    fixture = _request_fixture(tmp_path)
+    prepared = _prepared_request(fixture)
+    snapshot = fixture.validation_store.snapshot(prepared.request.candidate_id)
+    assert snapshot is not None
+    committed = fixture.validation_store.reserve_source_replay(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_request=prepared,
+    )
+    unbound_reservation_id = content_id(
+        "expert-source-replay-execution-reservation",
+        {"label": "unbound-reservation"},
+    )
+
+    with pytest.raises(ExpertValidationStoreError, match="identity"):
+        fixture.validation_store.reopen_source_replay_reservation(
+            reservation_id=unbound_reservation_id,
+            prepared_request=prepared,
+        )
+
+    other_prepared = _prepared_request(_request_fixture(tmp_path))
+    with pytest.raises(ExpertValidationStoreError, match="current validation"):
+        fixture.validation_store.reopen_source_replay_reservation(
+            reservation_id=committed.reservation.reservation_id,
+            prepared_request=other_prepared,
+        )
+
+
+def test_source_replay_reopen_rejects_an_advanced_validation_head(tmp_path):
+    fixture = _request_fixture(tmp_path)
+    prepared = _prepared_request(fixture)
+    snapshot = fixture.validation_store.snapshot(prepared.request.candidate_id)
+    assert snapshot is not None
+    committed = fixture.validation_store.reserve_source_replay(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_request=prepared,
+    )
+    fixture.current_release_provider.release_id = _content_id("changed-before-reopen")
+    invalidated = fixture.validation_store.publish_parent_authority_invalidation(
+        candidate_id=prepared.request.candidate_id,
+        expected_validation_state_id=snapshot.state.validation_state_id,
+    )
+
+    with pytest.raises(ExpertValidationStoreError, match="current head"):
+        fixture.validation_store.reopen_source_replay_reservation(
+            reservation_id=committed.reservation.reservation_id,
+            prepared_request=prepared,
+        )
+
+    assert invalidated.snapshot.state.promotion_state is ExpertPromotionState.FAILED
 
 
 def test_source_replay_reservation_requires_the_verified_prepared_boundary(tmp_path):

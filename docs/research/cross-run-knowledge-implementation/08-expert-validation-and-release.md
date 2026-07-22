@@ -212,6 +212,19 @@ one authorization transition admits at most one request. A local execution lock
 may avoid duplicate paid work but is never authority; final receipt publication
 remains fenced by validation-head compare-and-swap.
 
+The executor reopens a reservation through a public read-only store boundary.
+Prepared byte authority is reconstructed before the lock; one short shared-lock
+read then requires the exact journal-bound reservation, stored request, current
+transition/state/attempt, candidate, and observed parent. GitHub `CURRENT`,
+historical adapter re-verification, and the live security denylist are checked
+outside the validation lock. A second identical reopen after those external
+checks closes validation-head races before the local spawn boundary is written.
+The store lock is global, so it never encloses archive verification, network
+access, an execution-journal lock, a callback, workspace work, or provider start.
+No local lock can make GitHub, a denylist, and process creation transactional;
+safety instead comes from the double reopen, the durable at-most-once marker,
+and a final fresh-authority plus validation-head CAS before accepting receipts.
+
 The reservation API accepts only the runtime-only prepared closure, reconstructs
 it to rerun all byte, lineage, context, artifact, adapter, parent, candidate, and
 aggregate-budget invariants, independently re-derives every compute binding from
