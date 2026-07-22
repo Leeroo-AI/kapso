@@ -176,6 +176,18 @@ complete direct-evaluator environment without relying on Docker's implicit Linux
 defaults. The host kernel, root-owned dynamic
 loader/libraries and daemon, and same-UID processes able to mutate the private
 provider root are explicit trusted computing base; evaluator code is not.
+Registry bootstrap derives every distinct full dispatch key from the prepared
+historical request, requires every implementation-selecting dimension to match
+the concrete provider's code-owned v1 constants, and resolves the full request
+before fd-relative/no-follow initialization of the configured private hierarchy.
+The registry is permanently bound to that complete prepared byte authority, not
+only its dispatch key. All resolved providers share one lazy pinned runtime created
+only by execution or interrupted cleanup; deterministic received-result acceptance
+therefore has no Docker dependency. Bootstrap never reloads current settings. A
+kernel lock on the authorized workspace root serializes configured-hierarchy
+creation across processes, while a lock on the owner-private provider root
+serializes pinned runtime-authority publication; crashes release both locks with
+their descriptors.
 Daemon resource names use the complete unpredictable provider-handle digest and
 carry exact handle/role labels. The writable root is a fresh local-driver tmpfs
 volume whose size and inode options are derived from the matched compute binding.

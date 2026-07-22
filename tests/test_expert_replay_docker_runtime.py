@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import time
 from dataclasses import replace
 
 import pytest
@@ -162,6 +164,15 @@ def _make_runtime(tmp_path, settings, additional_outputs=()):
     return runtime, runner
 
 
+def _construct_runtime_after_signal(trusted_root, settings, start_signal):
+    start_signal.wait()
+    SourceReplayDockerRuntime(
+        trusted_root=trusted_root,
+        settings=settings,
+        process_runner=_ScriptedProcessRunner([]),
+    )
+
+
 def test_runtime_executes_privately_pinned_cli_with_no_inherited_environment(
     tmp_path,
     provider_settings,
@@ -205,6 +216,53 @@ def test_runtime_executes_privately_pinned_cli_with_no_inherited_environment(
     )
     assert docker_path.stat().st_mode & 0o777 == 0o500
     assert (docker_config_path / "config.json").read_bytes() == b'{"auths":{}}\n'
+
+
+def test_independent_process_runtimes_serialize_authority_publication(
+    tmp_path,
+    monkeypatch,
+    provider_settings,
+):
+    tmp_path.chmod(0o700)
+    process_context = multiprocessing.get_context("fork")
+    concurrent_calls = process_context.Array("i", (0, 0), lock=True)
+    start_signal = process_context.Event()
+    original_ensure_private_directory = runtime_module._ensure_private_directory
+
+    def observe_private_directory(path, parent):
+        with concurrent_calls.get_lock():
+            concurrent_calls[0] += 1
+            concurrent_calls[1] = max(concurrent_calls[1], concurrent_calls[0])
+        time.sleep(0.05)
+        original_ensure_private_directory(path, parent)
+        with concurrent_calls.get_lock():
+            concurrent_calls[0] -= 1
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_ensure_private_directory",
+        observe_private_directory,
+    )
+    monkeypatch.setattr(
+        runtime_module.SourceReplayDockerRuntime,
+        "require_live_authority",
+        lambda _runtime: None,
+    )
+    processes = tuple(
+        process_context.Process(
+            target=_construct_runtime_after_signal,
+            args=(tmp_path.resolve(), provider_settings, start_signal),
+        )
+        for _process_number in range(2)
+    )
+    for process in processes:
+        process.start()
+    start_signal.set()
+    for process in processes:
+        process.join(10)
+
+    assert tuple(process.exitcode for process in processes) == (0, 0)
+    assert tuple(concurrent_calls) == (0, 1)
 
 
 def test_runtime_client_version_is_bound_by_bytes_not_server_version(

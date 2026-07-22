@@ -16,6 +16,7 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import EvaluationFingerprint, StrictContract
 from kapso.cross_run.expert.replay_request import MaterializedExpertSourceReplayCase
 
+TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION = "kapso.task_adapter_runtime.v1"
 TASK_EVALUATOR_PROTOCOL_VERSION = "kapso.task_evaluator.v1"
 TASK_EVALUATOR_REQUEST_PATH = "/kapso/input/request.json"
 TASK_EVALUATOR_EXPERT_ROOT = "/kapso/input/expert"

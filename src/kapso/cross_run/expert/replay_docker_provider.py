@@ -31,7 +31,9 @@ from kapso.cross_run.expert.replay_execution import (
     expert_source_replay_execution_provider_key,
 )
 from kapso.cross_run.expert.replay_protocol import (
+    TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION,
     TASK_EVALUATOR_ADAPTER_ROOT,
+    TASK_EVALUATOR_PROTOCOL_VERSION,
     TASK_EVALUATOR_WRITABLE_ROOT,
 )
 from kapso.cross_run.expert.replay_provider_filesystem import (
@@ -59,10 +61,73 @@ _PROVIDER_ENVIRONMENT = (
     ("HOME", _CONTAINER_HOME),
     ("HOSTNAME", _CONTAINER_HOSTNAME),
 )
+SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID = "kapso_source_replay_execution_provider"
+SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_VERSION = (
+    "kapso.source_replay_execution_provider.v1"
+)
+SOURCE_REPLAY_DOCKER_PAIRED_EXECUTION_PROTOCOL_VERSION = (
+    "kapso.expert_source_replay_paired_execution.v1"
+)
+SOURCE_REPLAY_DOCKER_SANDBOX_POLICY_VERSION = (
+    "kapso.source_replay_sandbox.offline_readonly.v1"
+)
 
 
 class SourceReplayDockerProviderError(RuntimeError):
     """A concrete replay leg violates its exact Docker sandbox authority."""
+
+
+def source_replay_docker_provider_key_is_supported(
+    dispatch_key: ExpertSourceReplayExecutionProviderKey,
+    provider_settings: SourceReplayDockerProviderSettings,
+    policy_settings: ExpertValidationPolicySettings,
+) -> bool:
+    """Return whether a key and policy name this exact implementation."""
+
+    return not (
+        not isinstance(dispatch_key, ExpertSourceReplayExecutionProviderKey)
+        or not isinstance(provider_settings, SourceReplayDockerProviderSettings)
+        or not isinstance(policy_settings, ExpertValidationPolicySettings)
+        or dispatch_key.paired_execution_protocol_version
+        != SOURCE_REPLAY_DOCKER_PAIRED_EXECUTION_PROTOCOL_VERSION
+        or dispatch_key.execution_provider_id
+        != SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID
+        or dispatch_key.execution_provider_version
+        != SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_VERSION
+        or dispatch_key.execution_provider_settings_digest
+        != tree_or_blob_digest(provider_settings.to_json_bytes())
+        or dispatch_key.sandbox_policy_version
+        != SOURCE_REPLAY_DOCKER_SANDBOX_POLICY_VERSION
+        or dispatch_key.task_adapter_runtime_protocol_version
+        != TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION
+        or dispatch_key.task_evaluator_protocol_version
+        != TASK_EVALUATOR_PROTOCOL_VERSION
+        or policy_settings.source_replay_paired_execution_protocol_version
+        != SOURCE_REPLAY_DOCKER_PAIRED_EXECUTION_PROTOCOL_VERSION
+        or policy_settings.source_replay_execution_provider_id
+        != SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID
+        or policy_settings.source_replay_execution_provider_version
+        != SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_VERSION
+        or policy_settings.source_replay_sandbox_policy_version
+        != SOURCE_REPLAY_DOCKER_SANDBOX_POLICY_VERSION
+    )
+
+
+def require_source_replay_docker_provider_key(
+    dispatch_key: ExpertSourceReplayExecutionProviderKey,
+    provider_settings: SourceReplayDockerProviderSettings,
+    policy_settings: ExpertValidationPolicySettings,
+) -> None:
+    """Require the complete implementation-owned Docker dispatch authority."""
+
+    if not source_replay_docker_provider_key_is_supported(
+        dispatch_key,
+        provider_settings,
+        policy_settings,
+    ):
+        raise SourceReplayDockerProviderError(
+            "source replay Docker provider key differs from implementation authority"
+        )
 
 
 class SourceReplayDockerExecutionProvider:
@@ -77,8 +142,7 @@ class SourceReplayDockerExecutionProvider:
         runtime: SourceReplayDockerRuntime,
     ) -> None:
         if (
-            not isinstance(dispatch_key, ExpertSourceReplayExecutionProviderKey)
-            or not isinstance(provider_settings, SourceReplayDockerProviderSettings)
+            not isinstance(provider_settings, SourceReplayDockerProviderSettings)
             or not isinstance(policy_settings, ExpertValidationPolicySettings)
             or type(runtime) is not SourceReplayDockerRuntime
             or runtime.settings != provider_settings
@@ -86,21 +150,11 @@ class SourceReplayDockerExecutionProvider:
             raise SourceReplayDockerProviderError(
                 "source replay Docker provider authorities are not exact"
             )
-        if (
-            dispatch_key.paired_execution_protocol_version
-            != policy_settings.source_replay_paired_execution_protocol_version
-            or dispatch_key.execution_provider_id
-            != policy_settings.source_replay_execution_provider_id
-            or dispatch_key.execution_provider_version
-            != policy_settings.source_replay_execution_provider_version
-            or dispatch_key.execution_provider_settings_digest
-            != tree_or_blob_digest(provider_settings.to_json_bytes())
-            or dispatch_key.sandbox_policy_version
-            != policy_settings.source_replay_sandbox_policy_version
-        ):
-            raise SourceReplayDockerProviderError(
-                "source replay Docker provider key differs from policy authority"
-            )
+        require_source_replay_docker_provider_key(
+            dispatch_key,
+            provider_settings,
+            policy_settings,
+        )
         if (
             provider_settings.container_user_id != os.geteuid()
             or provider_settings.container_group_id != os.getegid()

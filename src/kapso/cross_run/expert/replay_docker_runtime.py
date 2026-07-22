@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import stat
@@ -67,20 +68,28 @@ class SourceReplayDockerRuntime:
         docker_config_root = trusted_root / (
             f"{_DOCKER_CONFIG_DIRECTORY_PREFIX}{settings_digest_suffix}"
         )
-        _ensure_private_directory(authority_root, trusted_root)
-        _ensure_private_directory(docker_config_root, trusted_root)
         docker_path = authority_root / (
             f"{_PINNED_DOCKER_FILENAME_PREFIX}{executable_digest_suffix}"
         )
-        docker_bytes = read_verified_root_executable(
-            Path(settings.runtime_executable_path),
-            settings.runtime_executable_digest,
-        )
-        _publish_or_verify_private_executable(docker_path, docker_bytes)
-        _publish_or_verify_private_file(
-            docker_config_root / _DOCKER_CONFIG_FILENAME,
-            _EMPTY_DOCKER_CONFIG,
-        )
+        with ExitStack() as initialization_descriptors:
+            trusted_root_descriptor = os.open(
+                trusted_root,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            initialization_descriptors.callback(os.close, trusted_root_descriptor)
+            fcntl.flock(trusted_root_descriptor, fcntl.LOCK_EX)
+            _ensure_private_directory(authority_root, trusted_root)
+            _ensure_private_directory(docker_config_root, trusted_root)
+            docker_bytes = read_verified_root_executable(
+                Path(settings.runtime_executable_path),
+                settings.runtime_executable_digest,
+            )
+            _publish_or_verify_private_executable(docker_path, docker_bytes)
+            _publish_or_verify_private_file(
+                docker_config_root / _DOCKER_CONFIG_FILENAME,
+                _EMPTY_DOCKER_CONFIG,
+            )
+            fcntl.flock(trusted_root_descriptor, fcntl.LOCK_UN)
         self._trusted_root = trusted_root
         self._settings = settings
         self._process_runner = process_runner
