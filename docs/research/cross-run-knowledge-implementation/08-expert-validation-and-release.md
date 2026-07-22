@@ -326,6 +326,28 @@ reservation/request dependency projections from which its exact closure is
 rederived on every parse. It records no threshold, pass/fail,
 winner, noise estimate, Pareto decision, retry, or promotion state.
 
+The pure source-stage decision reducer consumes that factual receipt and the
+runtime-only `PreparedExpertSourceReplayRequest` authority. From the latter it
+derives the exact content-addressed execution request and the validation policy
+explicitly pinned by that request. It requires the receipt's full request-dependency projection,
+case identities, score-of-record identities, and aggregate tolerance to match.
+Each complete fingerprint body must equal the source episode's terminal attempt,
+and each adapter-owned metric binding must equal the binding in the verified
+historical task-adapter manifest before policy is applied. Every
+case/fingerprint comparison remains an independent hard-regression constraint:
+the candidate fails iff any scale-normalized, already direction-aligned effect
+is strictly below the negative central `hard_regression_ratio`; equality with
+the bound passes. The reducer never averages rows, reapplies metric direction,
+or lets a gain compensate for a regression. Score of record remains the primary
+reporting identity but does not exempt auxiliary governed metrics from the hard
+gate. A complete factual receipt therefore yields only `passed` or
+`candidate_failed`. Noise floors, repeat sufficiency, independent contexts, and
+positive-benefit support belong to later promotion aggregation, not this
+non-regression stage. The durable decision stores only exact hard-regression
+case/fingerprint references and the expanded receipt/policy dependency closure;
+fresh external authority and validation-head compare-and-swap remain a separate
+publication step.
+
 Publication fsyncs a private staging file, renames it atomically without
 replacement, and fsyncs both directories. Event, request, result, staging-entry,
 and structural event/blob counts are config-bounded before allocation or parse.

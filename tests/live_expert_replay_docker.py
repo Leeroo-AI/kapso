@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.contracts import (
+    ExpertEvaluatorOutcome,
     ExpertSourceReplayExecutionLegKind,
     TaskAdapterManifest,
     TaskAdapterRuntimeContract,
@@ -32,6 +33,7 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.replay_comparison import (
     build_expert_source_replay_paired_comparison_receipt,
 )
+from kapso.cross_run.expert.replay_decision import decide_expert_source_replay_stage
 from kapso.cross_run.expert.replay_docker_bootstrap import (
     build_source_replay_docker_provider_registry,
 )
@@ -542,6 +544,10 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         fingerprint_comparison = comparison_receipt.case_comparisons[
             0
         ].fingerprint_comparisons[0]
+        stage_decision = decide_expert_source_replay_stage(
+            paired_comparison_receipt=comparison_receipt,
+            prepared_request=prepared_request,
+        )
         with execution_store.reservation_session(
             reservation=committed.reservation,
             prepared_request=prepared_request,
@@ -562,6 +568,8 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         assert fingerprint_comparison.aggregate_raw_delta == 0.8 - 0.7
         assert fingerprint_comparison.aggregate_direction_aligned_delta == 0.8 - 0.7
         assert fingerprint_comparison.aggregate_normalized_effect == 0.8 - 0.7
+        assert stage_decision.outcome is ExpertEvaluatorOutcome.PASSED
+        assert stage_decision.hard_regression_comparisons == ()
         assert rebuilt_receipt == comparison_receipt
         assert rebuilt_receipt.to_json_bytes() == comparison_receipt.to_json_bytes()
         assert local_registry.server.request_count == registry_requests_after_pull

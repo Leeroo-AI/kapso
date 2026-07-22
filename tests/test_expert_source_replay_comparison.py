@@ -7,9 +7,7 @@ from multiprocessing import get_context
 import pytest
 
 from kapso.cross_run.canonical import (
-    canonical_json_bytes,
     content_id,
-    tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
     ExpertSourceReplayExecutionLegKind,
@@ -118,13 +116,31 @@ def _provider(fixture, prepared, allocation, aggregate_by_leg_kind):
     )
 
 
-def _complete_execution(tmp_path, validation_settings=None):
-    if validation_settings is None:
+def _complete_execution(
+    tmp_path,
+    validation_settings=None,
+    aggregate_by_leg_kind=None,
+    candidate_first_execution=False,
+    contract_records=None,
+    source_adapter=None,
+    evaluation_evidence=None,
+):
+    if (
+        validation_settings is None
+        and not candidate_first_execution
+        and contract_records is None
+        and source_adapter is None
+        and evaluation_evidence is None
+    ):
         fixture, prepared, reservation, store = _journal_fixture(tmp_path)
     else:
         fixture = _request_fixture(
             tmp_path,
             validation_settings=validation_settings,
+            candidate_first_execution=candidate_first_execution,
+            contract_records=contract_records,
+            source_adapter=source_adapter,
+            evaluation_evidence=evaluation_evidence,
         )
         prepared = _prepared(fixture)
         snapshot = fixture.validation_store.snapshot(prepared.request.candidate_id)
@@ -139,10 +155,14 @@ def _complete_execution(tmp_path, validation_settings=None):
             fixture.validation_store.root,
             prepared.settings.policy,
         )
-    aggregate_by_leg_kind = {
-        ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
-        ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
-    }
+    selected_aggregates = (
+        {
+            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.7,
+            ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.8,
+        }
+        if aggregate_by_leg_kind is None
+        else aggregate_by_leg_kind
+    )
     with store.reservation_session(
         reservation=reservation,
         prepared_request=prepared,
@@ -161,40 +181,13 @@ def _complete_execution(tmp_path, validation_settings=None):
                     fixture,
                     prepared,
                     allocation,
-                    aggregate_by_leg_kind,
+                    selected_aggregates,
                 ),
             )
             session.record_result_received(execution.execute())
             session.accept_received_result()
         completed = session.completed_execution()
     return fixture, prepared, reservation, store, completed
-
-
-def _candidate_first_settings(prepared):
-    episode_ids = tuple(sorted(case.episode_id for case in prepared.request.cases))
-    ordinal = 0
-    while True:
-        version = (
-            f"{prepared.settings.policy.source_replay_paired_execution_protocol_version}"
-            f".candidate-first-{ordinal}"
-        )
-        order_digest = tree_or_blob_digest(
-            canonical_json_bytes(
-                {
-                    "episode_ids": episode_ids,
-                    "paired_execution_protocol_version": version,
-                }
-            )
-        )
-        if int(order_digest[-1], 16) % 2 == 1:
-            return replace(
-                prepared.settings,
-                policy=replace(
-                    prepared.settings.policy,
-                    source_replay_paired_execution_protocol_version=version,
-                ),
-            )
-        ordinal += 1
 
 
 def test_completed_journal_builds_one_deterministic_factual_receipt(tmp_path):
@@ -206,7 +199,7 @@ def test_completed_journal_builds_one_deterministic_factual_receipt(tmp_path):
         candidate_first_root.mkdir()
         _, prepared, reservation, store, completed = _complete_execution(
             candidate_first_root,
-            _candidate_first_settings(prepared),
+            candidate_first_execution=True,
         )
     request_case = prepared.request.cases[0]
     assert request_case.compute_binding.leg_order[0] is (

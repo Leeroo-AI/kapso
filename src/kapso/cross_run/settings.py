@@ -831,6 +831,7 @@ class ExpertValidationPolicySettings(StrictContract):
     source_replay_selection_policy_version: str
     source_replay_request_policy_version: str
     source_replay_paired_execution_protocol_version: str
+    source_replay_stage_decision_policy_version: str
     source_replay_execution_provider_id: str
     source_replay_execution_provider_version: str
     source_replay_sandbox_policy_version: str
@@ -879,6 +880,10 @@ class ExpertValidationPolicySettings(StrictContract):
             (
                 self.source_replay_paired_execution_protocol_version,
                 "source_replay_paired_execution_protocol_version",
+            ),
+            (
+                self.source_replay_stage_decision_policy_version,
+                "source_replay_stage_decision_policy_version",
             ),
             (
                 self.source_replay_execution_provider_id,

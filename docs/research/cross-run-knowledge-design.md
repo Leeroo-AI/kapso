@@ -1732,6 +1732,26 @@ dependency projections so its expanded exact closure is self-validating, but own
 no threshold, winner, pass/fail, noise estimate, or promotion state. Those remain
 the responsibility of a later policy decision under fresh publication authority.
 
+That policy decision first reduces the factual receipt without publication
+authority. It receives the runtime-only `PreparedExpertSourceReplayRequest`,
+requires the receipt's full request projection and case identities to match,
+then checks every complete fingerprint against the source episode's terminal
+attempt and every metric binding against the verified historical task-adapter
+manifest. It accepts only the central validation policy explicitly named by the
+derived exact request, then applies the request-pinned hard-regression bound to every
+governed case/fingerprint row using the receipt's already direction-aligned,
+scale-normalized effect. Any effect strictly below the negative bound fails the
+source stage; equality passes, and no gain in another row may compensate. The
+score-of-record fingerprint remains the case's primary reporting result, not an
+exemption for auxiliary quality, cost, robustness, portability, or
+reproducibility constraints. Consequently a complete factual receipt produces
+only `passed` or `candidate_failed`; technical incompleteness produces no
+scientific decision. Noise-floor gains, replicate sufficiency, and independent
+context counts are retained for later promotion evidence aggregation. The
+content-addressed decision binds the exact receipt and validation policy, while
+fresh GitHub, denylist, verifier, and validation-head authority is checked only
+when publishing that decision into the validation state machine.
+
 That reservation is an immutable operation alias bound atomically to the existing
 authorization transition, not a second validation state or expiring lease. The
 unchanged head keeps preflight reconstruction deterministic after a crash. One

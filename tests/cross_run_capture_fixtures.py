@@ -56,6 +56,7 @@ def make_capture_fixture(
     tmp_path: Path,
     *,
     contract_records: tuple[object, ...] | None = None,
+    evaluation_evidence: tuple[tuple[EvaluationFingerprint, float], ...] | None = None,
     completion_state: CompletionState = CompletionState.STOPPED,
     secret_source: bool = False,
     forbidden_artifacts: bool = False,
@@ -186,22 +187,54 @@ def make_capture_fixture(
         item for item in records if isinstance(item, EvaluationFingerprint)
     )
     if evaluator_fingerprint is not None:
+        if evaluation_evidence is not None:
+            raise ValueError(
+                "explicit evaluation evidence cannot override its evaluator"
+            )
         evaluation_values = evaluation.to_dict()
         evaluation_values.pop("evaluation_fingerprint_id")
         evaluation_values["evaluator_fingerprint"] = evaluator_fingerprint
         evaluation = EvaluationFingerprint.mint(**evaluation_values)
+    selected_evidence = (
+        ((evaluation, node.score),)
+        if evaluation_evidence is None
+        else tuple(
+            sorted(
+                evaluation_evidence,
+                key=lambda item: item[0].evaluation_fingerprint_id,
+            )
+        )
+    )
+    selected_fingerprint_ids = tuple(
+        fingerprint.evaluation_fingerprint_id
+        for fingerprint, _score in selected_evidence
+    )
+    if (
+        not selected_evidence
+        or selected_fingerprint_ids != tuple(sorted(set(selected_fingerprint_ids)))
+        or (evaluation, node.score) not in selected_evidence
+        or any(
+            fingerprint.seed_or_replicate_ids != ("seed-1",)
+            for fingerprint, _score in selected_evidence
+        )
+    ):
+        raise ValueError(
+            "evaluation evidence must be unique, include the score of record, "
+            "and use only seed-1"
+        )
     evaluator_id = evaluation.evaluator_fingerprint.removeprefix("sha256:")
     node.evaluation_attempts = [
         EvaluationAttempt(
             commit_sha=candidate_commit,
-            evaluator_id=evaluator_id,
-            fidelity="full",
-            fraction=1.0,
+            evaluator_id=fingerprint.evaluator_fingerprint.removeprefix("sha256:"),
+            fidelity=fingerprint.fidelity,
+            fraction=fingerprint.fraction,
             seed=1,
-            score=node.score,
+            score=score,
             duration_seconds=1.0,
-            metrics={"quality": node.score},
+            metrics={fingerprint.metric_name: score},
         )
+        for fingerprint, score in selected_evidence
     ]
     node.metrics = {"quality": node.score}
     node.primary_metric = "quality"
@@ -277,7 +310,9 @@ def make_capture_fixture(
         expert_base_release_id=environment.expert_base_release_id,
         task_context_binding=context,
         artifact_environment=environment,
-        evaluation_fingerprints=(evaluation,),
+        evaluation_fingerprints=tuple(
+            fingerprint for fingerprint, _score in selected_evidence
+        ),
     )
     fixture = CaptureFixture(
         workspace=workspace,

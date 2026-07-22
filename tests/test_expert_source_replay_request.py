@@ -192,9 +192,11 @@ def _request_fixture(
     rotate_active_adapter=False,
     bundle_generations=1,
     evaluator_fingerprint=None,
+    evaluation_evidence=None,
     contract_records=None,
     source_adapter=None,
     validation_settings=None,
+    candidate_first_execution=False,
 ):
     if (contract_records is None) != (source_adapter is None):
         raise ValueError(
@@ -206,6 +208,7 @@ def _request_fixture(
         fixture_root,
         contract_records=contract_records,
         evaluator_fingerprint=evaluator_fingerprint,
+        evaluation_evidence=evaluation_evidence,
     )
     capture_pipeline = RunCapturePipeline(
         RunCaptureContext(capture_fixture.request),
@@ -296,6 +299,27 @@ def _request_fixture(
     settings = (
         _validation_policy() if validation_settings is None else validation_settings
     )
+    if candidate_first_execution:
+        base_protocol_version = (
+            settings.policy.source_replay_paired_execution_protocol_version
+        )
+        protocol_ordinal = 0
+        while (
+            _source_replay_compute_bindings(settings, (episode.episode_id,))[
+                episode.episode_id
+            ].leg_order[0]
+            is not ExpertSourceReplayExecutionLegKind.CANDIDATE
+        ):
+            settings = replace(
+                settings,
+                policy=replace(
+                    settings.policy,
+                    source_replay_paired_execution_protocol_version=(
+                        f"{base_protocol_version}.candidate-first-{protocol_ordinal}"
+                    ),
+                ),
+            )
+            protocol_ordinal += 1
     adapter_provider = _AdapterProvider(
         packet,
         source_adapter=source_adapter,

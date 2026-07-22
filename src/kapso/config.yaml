@@ -226,6 +226,7 @@ cross_run:
         source_replay_selection_policy_version: "kapso.expert_source_replay_selection.v1"
         source_replay_request_policy_version: "kapso.expert_source_replay_request.v2"
         source_replay_paired_execution_protocol_version: "kapso.expert_source_replay_paired_execution.v1"
+        source_replay_stage_decision_policy_version: "kapso.expert_source_replay_stage_decision.v1"
         source_replay_execution_provider_id: "kapso_source_replay_execution_provider"
         source_replay_execution_provider_version: "kapso.source_replay_execution_provider.v1"
         source_replay_sandbox_policy_version: "kapso.source_replay_sandbox.offline_readonly.v1"
