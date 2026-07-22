@@ -143,6 +143,17 @@ set of caller-controlled booleans: its version must dispatch to an implementatio
 that guarantees offline direct execution, read-only inputs, fresh private
 writable roots, and a fixed non-secret environment.
 
+Provider selection is one exact composite dispatch over the paired-execution
+protocol, execution-provider ID and version, sandbox-policy version, historical
+adapter runtime-protocol version, and historical task-evaluator protocol version.
+The registry pre-resolves every case in the aggregate prepared request before
+reservation or filesystem work and fails if any complete key is absent. There
+are no wildcards, aliases, compatible-version ranges, per-field lookup, or
+defaults. Image/platform identities and resource ceilings remain exact case
+inputs checked by the selected provider; they do not select an implementation.
+The resolved provider advertises the same full key again immediately before
+execution so registry mutation or provider substitution cannot bypass dispatch.
+
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
 `/kapso/input/request.json`, mounts the selected expert at
