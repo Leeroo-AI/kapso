@@ -1727,6 +1727,23 @@ request contract. It reconstructs that closure at the boundary, so a request wit
 self-consistent IDs but substituted lineage, episode, context, artifact, adapter,
 parent, or candidate facts cannot reserve execution.
 
+Execution is one create-only hash-chained journal per reservation, with exactly
+four positions per scheduled leg: allocation, spawn commitment, raw result
+receipt, and typed result acceptance. The spawn commitment is the at-most-once
+boundary: it contains the invocation-bound fresh authority, exact provider key,
+and evaluator request, and a provider can run only from the nonserializable
+capability returned after that event is fsynced. Therefore a crash after the
+commit may sacrifice availability but can never repeat the scientific trial.
+Fresh external observations and the spawn append are one coordinator-owned call,
+so callers cannot retain a checked fence and commit it after authority changes.
+The execution capability privately invokes the exact resolved provider once and
+the journal accepts only its runtime-sealed, session-owned completion; raw process
+objects and result bytes are not admissible evidence.
+Raw result bytes are bounded and immutably published before their receipt event;
+acceptance reparses those bytes against the persisted request. A restart may
+resume an allocation or deterministic result acceptance, but a bare spawn tail is
+permanently interrupted and only an accepted result permits the next leg.
+
 ## 12. Final disposition of the earlier proposal
 
 Retain:

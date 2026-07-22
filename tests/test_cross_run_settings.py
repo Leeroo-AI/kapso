@@ -36,6 +36,14 @@ def test_shipped_cross_run_config_is_strict_and_single_sourced():
     assert "oauth_token" not in str(settings.to_dict()).lower()
 
 
+def test_execution_journal_bound_contains_its_complete_spawn_authority():
+    raw = copy.deepcopy(load_config(CANONICAL_CONFIG_PATH)["cross_run"])
+    raw["expert"]["validation"]["policy"]["source_replay_journal_event_byte_limit"] = 1
+
+    with pytest.raises(CrossRunConfigurationError, match="cannot contain"):
+        CrossRunSettings.from_dict(raw)
+
+
 def test_catalog_agents_and_admission_policy_are_fully_typed():
     settings = CrossRunSettings.from_dict(
         load_config(CANONICAL_CONFIG_PATH)["cross_run"]

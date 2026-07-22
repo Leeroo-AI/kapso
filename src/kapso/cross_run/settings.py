@@ -844,6 +844,10 @@ class ExpertValidationPolicySettings(StrictContract):
     source_replay_writable_byte_limit: int
     source_replay_stdout_byte_limit: int
     source_replay_stderr_byte_limit: int
+    source_replay_task_request_byte_limit: int
+    source_replay_journal_event_byte_limit: int
+    source_replay_result_byte_limit: int
+    source_replay_staging_entry_limit: int
     source_replay_accelerator_class_id: str | None
     source_replay_accelerator_count: int
     source_replay_episode_limit: int
@@ -928,6 +932,22 @@ class ExpertValidationPolicySettings(StrictContract):
                 self.source_replay_stderr_byte_limit,
                 "source_replay_stderr_byte_limit",
             ),
+            (
+                self.source_replay_task_request_byte_limit,
+                "source_replay_task_request_byte_limit",
+            ),
+            (
+                self.source_replay_journal_event_byte_limit,
+                "source_replay_journal_event_byte_limit",
+            ),
+            (
+                self.source_replay_result_byte_limit,
+                "source_replay_result_byte_limit",
+            ),
+            (
+                self.source_replay_staging_entry_limit,
+                "source_replay_staging_entry_limit",
+            ),
         ):
             _require_positive(value, f"expert.validation.policy.{name}")
         _require_non_negative(
@@ -996,6 +1016,8 @@ class ExpertValidationPolicySettings(StrictContract):
             or self.source_replay_stdout_byte_limit
             > self.source_replay_writable_byte_limit
             or self.source_replay_stderr_byte_limit
+            > self.source_replay_writable_byte_limit
+            or self.source_replay_result_byte_limit
             > self.source_replay_writable_byte_limit
         ):
             raise CrossRunConfigurationError(
@@ -1430,6 +1452,14 @@ class CrossRunSettings(StrictContract):
         ):
             raise CrossRunConfigurationError(
                 "capture and source replay projection tolerances must match"
+            )
+        if self.expert.validation.policy.source_replay_journal_event_byte_limit < 2 * (
+            self.launch.security_denylist_checked_subject_size_bytes
+            + self.expert.validation.policy.source_replay_task_request_byte_limit
+        ):
+            raise CrossRunConfigurationError(
+                "source replay journal event bound cannot contain its denylist and "
+                "task-request authorities"
             )
 
     @classmethod

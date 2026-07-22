@@ -214,6 +214,10 @@ cross_run:
         source_replay_writable_byte_limit: *cross_run_materialized_asset_size_bytes
         source_replay_stdout_byte_limit: 16777216
         source_replay_stderr_byte_limit: 16777216
+        source_replay_task_request_byte_limit: 16777216
+        source_replay_journal_event_byte_limit: 67108864
+        source_replay_result_byte_limit: 16777216
+        source_replay_staging_entry_limit: 1
         source_replay_accelerator_class_id: null
         source_replay_accelerator_count: 0
         source_replay_episode_limit: 32

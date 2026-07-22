@@ -2,25 +2,27 @@
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from typing import ClassVar, Protocol
+from typing import Protocol
 
-from kapso.cross_run.canonical import (
-    content_id,
-    require_content_id,
-    require_identifier,
-)
-from kapso.cross_run.contracts import (
-    ExpertSourceReplayExecutionReservation,
-    StrictContract,
+from kapso.cross_run.expert.replay_authority_contracts import (
+    ExpertSourceReplayFreshAuthorityError,
+    SourceReplayCurrentReleaseObservation,
+    SourceReplaySecurityDenylistObservation,
+    SourceReplaySpawnAuthorityFence,
+    SourceReplayTaskAdapterTrustObservation,
+    source_replay_spawn_security_subject_ids,
+    source_replay_task_adapter_trust_observations,
 )
 from kapso.cross_run.expert.replay_protocol import (
     TaskEvaluatorInvocationAllocation,
 )
+from kapso.cross_run.expert.replay_execution import (
+    ResolvedExpertSourceReplayExecutionCase,
+)
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
     SourceReplayInvocationAllocationPermit,
+    SourceReplaySpawnPermit,
 )
 from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,
@@ -33,334 +35,6 @@ from kapso.cross_run.task_adapters import (
     VerifiedTaskAdapter,
     VerifiedTaskAdapterProvider,
 )
-
-_SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-_GITHUB_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-
-
-class ExpertSourceReplayFreshAuthorityError(ValueError):
-    """A spawn lacks exact current external authority."""
-
-
-@dataclass(frozen=True)
-class SourceReplayCurrentReleaseObservation(StrictContract):
-    observation_id: str
-    scope_id: str
-    release_id: str
-    publication_id: str
-    repository_full_name: str
-    repository_node_id: str
-    current_pointer_digest: str
-    current_pointer_commit_sha: str
-    validation_closure_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-current-release-observation"
-    IDENTITY_FIELD: ClassVar[str] = "observation_id"
-
-    def _validate(self) -> None:
-        require_identifier(self.scope_id, "source replay current scope_id")
-        for value, namespace, name in (
-            (self.release_id, "expert-base-release", "release_id"),
-            (self.publication_id, "github-publication", "publication_id"),
-        ):
-            require_content_id(value, f"source replay current {name}")
-            if value.split(":sha256:", 1)[0] != namespace:
-                raise ExpertSourceReplayFreshAuthorityError(
-                    f"source replay current {name} uses the wrong namespace"
-                )
-        if _GITHUB_REPOSITORY_PATTERN.fullmatch(self.repository_full_name) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay current repository identity is invalid"
-            )
-        require_identifier(
-            self.repository_node_id,
-            "source replay current repository_node_id",
-        )
-        if _SHA256_DIGEST_PATTERN.fullmatch(self.current_pointer_digest) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay current pointer digest is invalid"
-            )
-        if re.fullmatch(r"[0-9a-f]{40}", self.current_pointer_commit_sha) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay current pointer commit is invalid"
-            )
-        _require_sorted_content_ids(
-            self.validation_closure_ids,
-            "source replay current validation closure",
-            allow_empty=True,
-        )
-
-
-@dataclass(frozen=True)
-class SourceReplayTaskAdapterTrustObservation(StrictContract):
-    observation_id: str
-    task_adapter_manifest_id: str
-    verification_receipt_id: str
-    verifier_id: str
-    verifier_version: str
-    dependency_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-task-adapter-trust-observation"
-    IDENTITY_FIELD: ClassVar[str] = "observation_id"
-
-    def _validate(self) -> None:
-        for value, namespace, name in (
-            (
-                self.task_adapter_manifest_id,
-                "task-adapter-manifest",
-                "task_adapter_manifest_id",
-            ),
-            (
-                self.verification_receipt_id,
-                "task-adapter-verification-receipt",
-                "verification_receipt_id",
-            ),
-        ):
-            require_content_id(value, f"source replay adapter trust {name}")
-            if value.split(":sha256:", 1)[0] != namespace:
-                raise ExpertSourceReplayFreshAuthorityError(
-                    f"source replay adapter trust {name} uses the wrong namespace"
-                )
-        for value, name in (
-            (self.verifier_id, "verifier_id"),
-            (self.verifier_version, "verifier_version"),
-        ):
-            require_identifier(value, f"source replay adapter trust {name}")
-        _require_sorted_content_ids(
-            self.dependency_ids,
-            "source replay adapter trust dependencies",
-        )
-        if self.verification_receipt_id not in self.dependency_ids:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay adapter trust omits its verification receipt"
-            )
-
-    @property
-    def verifier_authority_subject_id(self) -> str:
-        return content_id(
-            "task-adapter-verifier-authority",
-            {
-                "verifier_id": self.verifier_id,
-                "verifier_version": self.verifier_version,
-            },
-        )
-
-
-@dataclass(frozen=True)
-class SourceReplaySecurityDenylistObservation(StrictContract):
-    observation_id: str
-    scope_id: str
-    scope_contract_id: str
-    scope_repository_binding_hash: str
-    snapshot_id: str
-    generation: int
-    publication_id: str
-    repository_full_name: str
-    repository_node_id: str
-    pointer_digest: str
-    authority_commit_sha: str
-    release_attestation_ref: str
-    checked_subject_ids: tuple[str, ...]
-    denied_subject_ids: tuple[str, ...]
-
-    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-security-denylist-observation"
-    IDENTITY_FIELD: ClassVar[str] = "observation_id"
-
-    def _validate(self) -> None:
-        require_identifier(self.scope_id, "source replay denylist scope_id")
-        require_content_id(
-            self.scope_contract_id,
-            "source replay denylist scope_contract_id",
-        )
-        if _SHA256_DIGEST_PATTERN.fullmatch(self.scope_repository_binding_hash) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist repository binding is invalid"
-            )
-        require_content_id(self.snapshot_id, "source replay denylist snapshot_id")
-        if self.snapshot_id.split(":sha256:", 1)[0] != "security-denylist-snapshot":
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist snapshot uses the wrong namespace"
-            )
-        if type(self.generation) is not int or self.generation < 0:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist generation must be non-negative"
-            )
-        require_content_id(
-            self.publication_id,
-            "source replay denylist publication_id",
-        )
-        if self.publication_id.split(":sha256:", 1)[0] != "github-publication":
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist publication uses the wrong namespace"
-            )
-        if _GITHUB_REPOSITORY_PATTERN.fullmatch(self.repository_full_name) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist repository is invalid"
-            )
-        require_identifier(
-            self.repository_node_id,
-            "source replay denylist repository_node_id",
-        )
-        if _SHA256_DIGEST_PATTERN.fullmatch(self.pointer_digest) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist pointer digest is invalid"
-            )
-        if re.fullmatch(r"[0-9a-f]{40}", self.authority_commit_sha) is None:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist authority commit is invalid"
-            )
-        if not self.release_attestation_ref.strip():
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denylist release attestation is required"
-            )
-        _require_sorted_content_ids(
-            self.checked_subject_ids,
-            "source replay denylist checked subjects",
-        )
-        _require_sorted_content_ids(
-            self.denied_subject_ids,
-            "source replay denylist denied subjects",
-            allow_empty=True,
-        )
-        if not set(self.denied_subject_ids).issubset(self.checked_subject_ids):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay denied subjects were not checked"
-            )
-
-
-@dataclass(frozen=True)
-class SourceReplaySpawnAuthorityFence(StrictContract):
-    fence_id: str
-    reservation_id: str
-    execution_request_id: str
-    authorization_transition_id: str
-    authorization_state_id: str
-    candidate_id: str
-    scope_id: str
-    scope_contract_id: str
-    expected_parent_release_id: str
-    invocation_allocation: TaskEvaluatorInvocationAllocation
-    security_subject_ids: tuple[str, ...]
-    current_release_observation: SourceReplayCurrentReleaseObservation
-    task_adapter_trust_observations: tuple[SourceReplayTaskAdapterTrustObservation, ...]
-    security_denylist_observation: SourceReplaySecurityDenylistObservation
-
-    CONTENT_NAMESPACE: ClassVar[str] = "source-replay-spawn-authority-fence"
-    IDENTITY_FIELD: ClassVar[str] = "fence_id"
-
-    def _validate(self) -> None:
-        require_identifier(self.scope_id, "source replay spawn fence scope_id")
-        for value, namespace, name in (
-            (
-                self.reservation_id,
-                "expert-source-replay-execution-reservation",
-                "reservation_id",
-            ),
-            (
-                self.execution_request_id,
-                "expert-source-replay-execution-request",
-                "execution_request_id",
-            ),
-            (
-                self.authorization_transition_id,
-                "expert-validation-transition",
-                "authorization_transition_id",
-            ),
-            (
-                self.authorization_state_id,
-                "expert-candidate-validation-state",
-                "authorization_state_id",
-            ),
-            (self.candidate_id, "expert-candidate", "candidate_id"),
-            (
-                self.scope_contract_id,
-                "expert-scope-contract",
-                "scope_contract_id",
-            ),
-            (
-                self.expected_parent_release_id,
-                "expert-base-release",
-                "expected_parent_release_id",
-            ),
-        ):
-            require_content_id(value, f"source replay spawn fence {name}")
-            if value.split(":sha256:", 1)[0] != namespace:
-                raise ExpertSourceReplayFreshAuthorityError(
-                    f"source replay spawn fence {name} uses the wrong namespace"
-                )
-        if self.invocation_allocation.reservation_id != self.reservation_id:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn allocation uses another reservation"
-            )
-        _require_sorted_content_ids(
-            self.security_subject_ids,
-            "source replay spawn security subjects",
-        )
-        if (
-            self.security_subject_ids
-            != self.security_denylist_observation.checked_subject_ids
-        ):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn security subjects differ from the denylist"
-            )
-        current = self.current_release_observation
-        if (
-            current.scope_id != self.scope_id
-            or current.release_id != self.expected_parent_release_id
-        ):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn current release differs from its parent"
-            )
-        observation_ids = tuple(
-            observation.observation_id
-            for observation in self.task_adapter_trust_observations
-        )
-        if not observation_ids or observation_ids != tuple(
-            sorted(set(observation_ids))
-        ):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn adapter observations must be sorted and unique"
-            )
-        if self.security_denylist_observation.denied_subject_ids:
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn authority contains denied subjects"
-            )
-        denylist = self.security_denylist_observation
-        if (
-            denylist.scope_id != self.scope_id
-            or denylist.scope_contract_id != self.scope_contract_id
-        ):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn denylist uses another scope authority"
-            )
-        required_security_subjects = {
-            self.reservation_id,
-            self.execution_request_id,
-            self.authorization_transition_id,
-            self.authorization_state_id,
-            self.candidate_id,
-            self.scope_contract_id,
-            self.expected_parent_release_id,
-            self.invocation_allocation.execution_case_id,
-            self.invocation_allocation.execution_leg_id,
-            current.observation_id,
-            current.publication_id,
-            *current.validation_closure_ids,
-        }
-        for observation in self.task_adapter_trust_observations:
-            required_security_subjects.update(
-                {
-                    observation.observation_id,
-                    observation.task_adapter_manifest_id,
-                    observation.verification_receipt_id,
-                    observation.verifier_authority_subject_id,
-                    *observation.dependency_ids,
-                }
-            )
-        if not required_security_subjects.issubset(self.security_subject_ids):
-            raise ExpertSourceReplayFreshAuthorityError(
-                "source replay spawn fence omits mandatory security subjects"
-            )
 
 
 class ExpertSourceReplayReservationAuthority(Protocol):
@@ -415,14 +89,16 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
         self.current_release_authority = current_release_authority
         self.task_adapter_authority = task_adapter_authority
         self.security_denylist_authority = security_denylist_authority
+        self.execution_store._bind_spawn_authority(type(self))
 
-    def authorize_spawn(
+    def commit_spawn(
         self,
         *,
         prepared_request: PreparedExpertSourceReplayRequest,
         reservation_id: str,
         invocation_permit: SourceReplayInvocationAllocationPermit,
-    ) -> SourceReplaySpawnAuthorityFence:
+        resolved_case: ResolvedExpertSourceReplayExecutionCase,
+    ) -> SourceReplaySpawnPermit:
         if not isinstance(prepared_request, PreparedExpertSourceReplayRequest):
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn authority requires a prepared request"
@@ -443,6 +119,10 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
         ):
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn authority requires a live invocation allocation permit"
+            )
+        if type(resolved_case) is not ResolvedExpertSourceReplayExecutionCase:
+            raise ExpertSourceReplayFreshAuthorityError(
+                "fresh spawn authority requires an exact provider resolution"
             )
         invocation_allocation = invocation_permit.require_current_allocation(
             self.execution_store
@@ -468,6 +148,11 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             prepared,
             invocation_allocation,
         )
+        if resolved_case.materialized_case != materialized_case:
+            raise ExpertSourceReplayFreshAuthorityError(
+                "fresh spawn provider resolution differs from the allocated case"
+            )
+        resolved_case.require_current_provider_identity()
         scope_id = prepared.parent.release_manifest.scope_id
         if (
             prepared.parent.release_manifest.scope_contract_id
@@ -501,7 +186,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn allocated case lacks adapter trust authority"
             )
-        checked_subject_ids = _spawn_security_subject_ids(
+        checked_subject_ids = source_replay_spawn_security_subject_ids(
             prepared,
             reservation,
             current_observation,
@@ -534,7 +219,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             raise ExpertSourceReplayFreshAuthorityError(
                 "fresh spawn reservation changed during external checks"
             )
-        return SourceReplaySpawnAuthorityFence.mint(
+        fence = SourceReplaySpawnAuthorityFence.mint(
             reservation_id=reservation.reservation_id,
             execution_request_id=request.execution_request_id,
             authorization_transition_id=reservation.authorization_transition_id,
@@ -544,10 +229,23 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             scope_contract_id=request.scope_contract_id,
             expected_parent_release_id=request.parent_release_id,
             invocation_allocation=invocation_allocation,
-            security_subject_ids=checked_subject_ids,
             current_release_observation=current_observation,
             task_adapter_trust_observations=adapter_observations,
             security_denylist_observation=denylist_observation,
+        )
+        authorization = self.execution_store._seal_spawn_authorization(
+            coordinator=self,
+            allocation_permit=invocation_permit,
+            prepared_request=prepared,
+            resolved_case=resolved_case,
+            fence=fence,
+            aggregate_tolerance=(
+                prepared.settings.policy.source_replay_score_comparison_tolerance
+            ),
+        )
+        return self.execution_store._commit_spawn_authorization(
+            coordinator=self,
+            authorization=authorization,
         )
 
     def _reverify_adapters(
@@ -561,7 +259,6 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
             ): item.task_adapter
             for item in prepared.cases
         }
-        observations = []
         for (manifest_id, receipt_id), expected in sorted(adapters.items()):
             observed = self.task_adapter_authority.resolve_exact(
                 task_adapter_manifest_id=manifest_id,
@@ -571,17 +268,7 @@ class ExpertSourceReplayFreshAuthorityCoordinator:
                 raise ExpertSourceReplayFreshAuthorityError(
                     "fresh spawn adapter differs from the prepared byte closure"
                 )
-            receipt = observed.verification_receipt
-            observations.append(
-                SourceReplayTaskAdapterTrustObservation.mint(
-                    task_adapter_manifest_id=manifest_id,
-                    verification_receipt_id=receipt_id,
-                    verifier_id=receipt.verifier_id,
-                    verifier_version=receipt.verifier_version,
-                    dependency_ids=observed.dependency_ids,
-                )
-            )
-        return tuple(sorted(observations, key=lambda item: item.observation_id))
+        return source_replay_task_adapter_trust_observations(prepared)
 
 
 def _allocated_materialized_case(
@@ -606,55 +293,3 @@ def _allocated_materialized_case(
             "fresh spawn allocation names no prepared leg"
         )
     return matches[0]
-
-
-def _spawn_security_subject_ids(
-    prepared: PreparedExpertSourceReplayRequest,
-    reservation: ExpertSourceReplayExecutionReservation,
-    current: SourceReplayCurrentReleaseObservation,
-    adapter_observations: tuple[SourceReplayTaskAdapterTrustObservation, ...],
-) -> tuple[str, ...]:
-    request = prepared.request
-    candidate = prepared.candidate.manifest
-    parent = prepared.parent.release_manifest
-    subject_ids = {
-        reservation.reservation_id,
-        *reservation.exact_dependency_ids,
-        request.execution_request_id,
-        *request.exact_dependency_ids,
-        current.observation_id,
-        current.publication_id,
-        *current.validation_closure_ids,
-        *parent.dependency_closure_ids,
-        *candidate.source_dependency_ids,
-        *candidate.ancestor_candidate_ids,
-        candidate.sanitation_report_id,
-    }
-    for observation in adapter_observations:
-        subject_ids.update(
-            {
-                observation.task_adapter_manifest_id,
-                observation.verification_receipt_id,
-                observation.observation_id,
-                observation.verifier_authority_subject_id,
-                *observation.dependency_ids,
-            }
-        )
-    ordered = tuple(sorted(subject_ids))
-    _require_sorted_content_ids(
-        ordered,
-        "source replay spawn security subjects",
-    )
-    return ordered
-
-
-def _require_sorted_content_ids(
-    values: tuple[str, ...],
-    name: str,
-    *,
-    allow_empty: bool = False,
-) -> None:
-    if (not values and not allow_empty) or values != tuple(sorted(set(values))):
-        raise ExpertSourceReplayFreshAuthorityError(f"{name} must be sorted and unique")
-    for value in values:
-        require_content_id(value, name)

@@ -18,6 +18,9 @@ class _Provider:
     def __init__(self, dispatch_key):
         self.dispatch_key = dispatch_key
 
+    def execute_leg(self, _invocation):
+        raise RuntimeError("execution was not expected")
+
 
 class _CountingProvider:
     def __init__(self, dispatch_key):
@@ -28,6 +31,9 @@ class _CountingProvider:
     def dispatch_key(self):
         self.dispatch_key_reads += 1
         return self._dispatch_key
+
+    def execute_leg(self, _invocation):
+        raise RuntimeError("execution was not expected")
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +81,7 @@ def test_registry_resolves_the_complete_prepared_request_in_case_order(
     assert tuple(item.materialized_case for item in resolved) == (
         prepared_replay_request.cases
     )
-    assert tuple(item.provider for item in resolved) == (provider,)
+    assert all(not hasattr(item, "provider") for item in resolved)
     assert tuple(item.dispatch_key for item in resolved) == (dispatch_key,)
 
 
@@ -182,7 +188,12 @@ def test_distinct_full_keys_can_use_the_same_provider_implementation(
 
     resolved = registry.resolve_all(prepared_replay_request)
 
-    assert resolved[0].provider is exact_provider
+    exact_provider.dispatch_key = replace(
+        exact_key,
+        execution_provider_version=f"{exact_key.execution_provider_version}.changed",
+    )
+    with pytest.raises(ExpertSourceReplayExecutionError, match="changed"):
+        resolved[0].require_current_provider_identity()
 
 
 def test_resolved_provider_identity_is_fenced_again_before_execution(

@@ -15,6 +15,10 @@ from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
     ExpertSourceReplayExecutionStoreError,
 )
+from kapso.cross_run.expert.replay_execution import (
+    ExpertSourceReplayExecutionProviderRegistry,
+    expert_source_replay_execution_provider_key,
+)
 from kapso.cross_run.expert.replay_protocol import (
     TaskEvaluatorInvocationAllocation,
 )
@@ -109,6 +113,7 @@ def authority(tmp_path):
     execution_store = ExpertSourceReplayExecutionStore(
         (fixture.validation_store.root / "source-replay-executions").resolve(),
         fixture.validation_store.root,
+        prepared.settings.policy,
     )
     parent = prepared.parent.release_manifest
     current_observation = SourceReplayCurrentReleaseObservation.mint(
@@ -135,9 +140,16 @@ def authority(tmp_path):
     )
     with execution_store.reservation_session(
         reservation=committed.reservation,
-        request=prepared.request,
+        prepared_request=prepared,
     ) as session:
         invocation_permit = session.allocate_expected_leg()
+        provider = SimpleNamespace(
+            dispatch_key=expert_source_replay_execution_provider_key(prepared.cases[0]),
+            execute_leg=lambda _invocation: None,
+        )
+        resolved_case = ExpertSourceReplayExecutionProviderRegistry(
+            (provider,)
+        ).resolve_all(prepared)[0]
         yield SimpleNamespace(
             fixture=fixture,
             prepared=prepared,
@@ -149,16 +161,21 @@ def authority(tmp_path):
             calls=calls,
             denylist=denylist,
             coordinator=coordinator,
+            resolved_case=resolved_case,
+            session=session,
         )
 
 
 def test_fresh_spawn_authority_double_reopens_around_all_external_checks(authority):
 
-    fence = authority.coordinator.authorize_spawn(
+    execution = authority.coordinator.commit_spawn(
         prepared_request=authority.prepared,
         reservation_id=authority.reservation.reservation_id,
         invocation_permit=authority.invocation_permit,
+        resolved_case=authority.resolved_case,
     )
+    spawn_event = authority.session.events[-1]
+    fence = spawn_event.spawn_authority_fence
 
     assert authority.calls == [
         "reservation",
@@ -181,6 +198,10 @@ def test_fresh_spawn_authority_double_reopens_around_all_external_checks(authori
         authority.denylist.checked_subject_ids
     )
     assert type(fence).from_json_bytes(fence.to_json_bytes()) == fence
+    assert spawn_event.task_evaluator_request.opaque_invocation_id == (
+        authority.allocation.opaque_invocation_id
+    )
+    assert execution is authority.session._spawn_permit
 
 
 def test_fresh_spawn_authority_rejects_a_changed_current_before_adapter_work(
@@ -199,10 +220,11 @@ def test_fresh_spawn_authority_rejects_a_changed_current_before_adapter_work(
     authority.coordinator.current_release_authority.observation = changed_current
 
     with pytest.raises(ExpertSourceReplayFreshAuthorityError, match="current release"):
-        authority.coordinator.authorize_spawn(
+        authority.coordinator.commit_spawn(
             prepared_request=authority.prepared,
             reservation_id=authority.reservation.reservation_id,
             invocation_permit=authority.invocation_permit,
+            resolved_case=authority.resolved_case,
         )
 
     assert authority.calls == ["reservation", "current"]
@@ -221,10 +243,11 @@ def test_fresh_spawn_authority_rejects_nonexact_or_denied_security_state(
     authority.coordinator.security_denylist_authority = replacement
 
     with pytest.raises(ExpertSourceReplayFreshAuthorityError, match="denylist"):
-        authority.coordinator.authorize_spawn(
+        authority.coordinator.commit_spawn(
             prepared_request=authority.prepared,
             reservation_id=authority.reservation.reservation_id,
             invocation_permit=authority.invocation_permit,
+            resolved_case=authority.resolved_case,
         )
 
     assert authority.calls == ["reservation", "current", "adapter", "denylist"]
@@ -250,10 +273,11 @@ def test_fresh_spawn_authority_rejects_a_caller_minted_allocation(
         ExpertSourceReplayFreshAuthorityError,
         match="live invocation allocation permit",
     ):
-        authority.coordinator.authorize_spawn(
+        authority.coordinator.commit_spawn(
             prepared_request=authority.prepared,
             reservation_id=authority.reservation.reservation_id,
             invocation_permit=caller_allocation,
+            resolved_case=authority.resolved_case,
         )
 
     assert authority.calls == []
@@ -266,20 +290,22 @@ def test_fresh_spawn_authority_rejects_an_alternate_store_permit(authority):
             / "alternate-source-replay-executions"
         ).resolve(),
         authority.fixture.validation_store.root,
+        authority.prepared.settings.policy,
     )
     with alternate_store.reservation_session(
         reservation=authority.reservation,
-        request=authority.prepared.request,
+        prepared_request=authority.prepared,
     ) as session:
         alternate_permit = session.allocate_expected_leg()
         with pytest.raises(
             ExpertSourceReplayExecutionStoreError,
             match="canonical live store lock",
         ):
-            authority.coordinator.authorize_spawn(
+            authority.coordinator.commit_spawn(
                 prepared_request=authority.prepared,
                 reservation_id=authority.reservation.reservation_id,
                 invocation_permit=alternate_permit,
+                resolved_case=authority.resolved_case,
             )
 
     assert authority.calls == []
@@ -294,10 +320,11 @@ def test_fresh_spawn_authority_propagates_revoked_adapter_trust(authority):
     authority.coordinator.task_adapter_authority.resolve_exact = revoked_adapter
 
     with pytest.raises(RuntimeError, match="verifier revoked"):
-        authority.coordinator.authorize_spawn(
+        authority.coordinator.commit_spawn(
             prepared_request=authority.prepared,
             reservation_id=authority.reservation.reservation_id,
             invocation_permit=authority.invocation_permit,
+            resolved_case=authority.resolved_case,
         )
 
     assert authority.calls == ["reservation", "current", "adapter"]
@@ -321,10 +348,11 @@ def test_fresh_spawn_authority_second_reopen_rejects_an_advanced_head(authority)
     authority.denylist.observe_exact = advance_head
 
     with pytest.raises(ExpertValidationStoreError, match="current head"):
-        authority.coordinator.authorize_spawn(
+        authority.coordinator.commit_spawn(
             prepared_request=authority.prepared,
             reservation_id=authority.reservation.reservation_id,
             invocation_permit=authority.invocation_permit,
+            resolved_case=authority.resolved_case,
         )
 
     assert authority.calls == [

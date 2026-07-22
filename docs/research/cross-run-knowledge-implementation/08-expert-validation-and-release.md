@@ -151,8 +151,11 @@ reservation or filesystem work and fails if any complete key is absent. There
 are no wildcards, aliases, compatible-version ranges, per-field lookup, or
 defaults. Image/platform identities and resource ceilings remain exact case
 inputs checked by the selected provider; they do not select an implementation.
-The resolved provider advertises the same full key again immediately before
-execution so registry mutation or provider substitution cannot bypass dispatch.
+The resolved provider advertises the same full key again immediately before and
+after execution so registry mutation or provider substitution cannot bypass
+dispatch. Resolution keeps the provider private. After the durable spawn marker,
+a guarded one-shot capability invokes that exact provider with no caller-supplied
+arguments; only its session-registered sealed completion may enter the journal.
 
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
@@ -216,17 +219,32 @@ The execution journal is a private create-only event directory derived from the
 validation-store root. Each reservation has one exclusive lock, one canonical
 hash-chained event prefix, and no mutable head file. The legal leg order is
 derived from the persisted request and each case's counterbalanced `leg_order`;
-the caller cannot select work. The first durable boundary allocates one 128-bit
-CSPRNG nonce to the exact reservation/case/leg and reuses it after restart.
+the caller cannot select work. Each successful leg has exactly four events:
+`INVOCATION_ALLOCATED -> SPAWN_COMMITTED -> RESULT_RECEIVED -> RESULT_ACCEPTED`.
+The allocation mints one 128-bit CSPRNG nonce for the exact
+reservation/case/leg and reuses it after restart. `SPAWN_COMMITTED` persists the
+fresh authority fence, exact provider key, canonical evaluator request, and
+comparison tolerance immediately before the provider side effect; only the
+runtime capability returned after its directory fsync may start execution.
+`RESULT_RECEIVED` persists bounded process observations and references a private
+immutable raw-result blob whose bytes are committed before the event.
+`RESULT_ACCEPTED` is minted only after those exact bytes are reparsed against the
+persisted request and tolerance. Only an accepted tail advances the schedule.
+
 Publication fsyncs a private staging file, renames it atomically without
-replacement, and fsyncs both directories. Unsafe modes, links, unexpected
-entries, noncanonical bytes, forks, gaps, or identity substitutions fail loud. A
-later spawn event is the at-most-once boundary: an allocation-only tail is
-resumable, while a reopened spawn-marker tail is permanently interrupted and can
-be cleaned up but never executed again.
+replacement, and fsyncs both directories. Event, request, result, staging-entry,
+and structural event/blob counts are config-bounded before allocation or parse.
+Unsafe ownership or modes, links, unexpected entries, noncanonical bytes, forks,
+gaps, phase substitutions, reused invocation identities, or result-digest
+changes fail loud. An allocation-only tail is resumable. A reopened spawn tail is
+permanently interrupted and can never execute again. A received-result tail may
+resume deterministic parsing without provider authority, including after a
+crash. A technical, missing, or invalid result remains durable and terminal for
+that invocation rather than silently becoming another trial.
 
 The executor reopens a reservation through a public read-only store boundary.
-Prepared byte authority is reconstructed before the lock; one short shared-lock
+The journal itself requires and reconstructs the complete prepared byte authority
+and exact pinned policy before taking its lock; one short shared-lock
 read then requires the exact journal-bound reservation, stored request, current
 transition/state/attempt, candidate, and observed parent. GitHub `CURRENT`,
 historical adapter re-verification, and the live security denylist are checked
@@ -258,11 +276,13 @@ resulting content-addressed fence persists the exact checked-subject tuple and
 binds an invocation allocation owned by the coordinator's exact execution-store
 instance under its live per-reservation lock, current release, adapter
 observations, denylist snapshot/publication/repository/pointer/attestation, and
-generation. Callers cannot mint an
-allocation, omit subjects, or construct a fence from top-level candidate/release
-IDs alone. The execution journal must rederive that subject tuple before it
-accepts a spawn marker; possession of serialized fence bytes is not runtime
-authority.
+generation. Callers cannot mint an allocation, omit subjects, construct a fence
+from top-level candidate/release IDs alone, or retain fresh authorization for a
+later spawn. The coordinator's final reopen flows directly into the create-only
+spawn append and returns only the post-fsync execution capability. The journal
+rederives the provider key, handle, evaluator request, adapter observations, and
+security subject tuple from the prepared closure on every reopen; possession of
+serialized fence bytes is not runtime authority.
 
 The reservation API accepts only the runtime-only prepared closure, reconstructs
 it to rerun all byte, lineage, context, artifact, adapter, parent, candidate, and
@@ -318,10 +338,16 @@ Implemented validation substrate:
   prepared execution request without changing the validation head and replay
   exactly across process/store recovery;
 - the local source-replay execution journal durably allocates the first exact
-  scheduled invocation once, survives restart, serializes concurrent reservation
-  sessions, and rejects corrupt, forked, substituted, or unsafe journal state;
-  spawn and result events extend the same create-only prefix rather than adding a
-  mutable execution snapshot; and
+  scheduled invocation once and enforces the complete four-event lifecycle for
+  every leg; sealed runtime-only allocation, spawn-authorization, and spawn
+  capabilities prevent serialized authority from crossing process boundaries;
+  the private version-dispatched provider is called once through a guarded
+  no-argument executor, and raw process results or evaluator bytes are never an
+  admission API;
+  immutable bounded result bytes precede deterministic typed acceptance; restart
+  resumes allocation or result acceptance but never a committed spawn; concurrent
+  sessions serialize; and corrupt, forked, substituted, over-bound, or unsafe
+  journal state fails loud without a mutable execution snapshot; and
 - fresh spawn authority performs the exact double reopen around rich GitHub
   `CURRENT`, complete historical-adapter trust, transitive denylist, and verifier
   authority observations and returns one invocation-bound typed fence; and
