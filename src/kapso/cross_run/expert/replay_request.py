@@ -371,6 +371,24 @@ class MaterializedExpertSourceReplayCase:
             raise ExpertSourceReplayRequestError(
                 "source replay fingerprint differs from the exact task evaluator"
             )
+        comparison_bindings = {
+            (binding.evaluator_fingerprint, binding.metric_name): binding
+            for binding in adapter.manifest.task_evaluator.metric_comparison_bindings
+        }
+        if any(
+            comparison_bindings.get(
+                (fingerprint.evaluator_fingerprint, fingerprint.metric_name)
+            )
+            is None
+            or comparison_bindings[
+                (fingerprint.evaluator_fingerprint, fingerprint.metric_name)
+            ].objective_direction
+            is not fingerprint.objective_direction
+            for fingerprint in terminal_attempt.evaluation_fingerprints
+        ):
+            raise ExpertSourceReplayRequestError(
+                "source replay fingerprint lacks its exact metric comparison authority"
+            )
         artifact_ids = tuple(
             artifact.starting_artifact_content_id
             for artifact in receipt.starting_artifacts
@@ -521,6 +539,23 @@ class PreparedExpertSourceReplayRequest:
             )
         evaluator = _source_replay_evaluator(self.settings)
         policy = self.settings.policy.validation_policy()
+        pareto_dimensions = {
+            dimension.dimension_id: dimension
+            for dimension in self.settings.policy.promotion.pareto_dimensions
+        }
+        if any(
+            binding.comparison_dimension_id not in pareto_dimensions
+            or pareto_dimensions[binding.comparison_dimension_id].direction
+            is not binding.objective_direction
+            for item in self.cases
+            for binding in (
+                item.task_adapter.manifest.task_evaluator.metric_comparison_bindings
+            )
+        ):
+            raise ExpertSourceReplayRequestError(
+                "source replay metric comparison authority differs from central "
+                "promotion policy"
+            )
         request_cases = tuple(item.request_case for item in self.cases)
         adapters, lineages, contexts = _deduplicated_materialized_authorities(
             self.cases

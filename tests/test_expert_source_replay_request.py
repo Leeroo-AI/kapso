@@ -29,6 +29,7 @@ from kapso.cross_run.contracts import (
     ExpertSourceReplayStartingArtifact,
     ExpertValidationStage,
     MissingReferenceError,
+    ObjectiveDirection,
     SourceFileDescriptor,
     TaskAdapterManifest,
 )
@@ -54,7 +55,7 @@ from kapso.cross_run.expert.validation import (
 )
 from kapso.cross_run.expert.validation_store import ExpertValidationStore
 from cross_run_capture_fixtures import make_capture_fixture
-from test_cross_run_contracts import verified_test_task_adapter
+from test_cross_run_contracts import build_records, verified_test_task_adapter
 from test_expert_source_replay import (
     _AdapterProvider,
     _CandidateReader,
@@ -193,6 +194,7 @@ def _request_fixture(
     evaluator_fingerprint=None,
     contract_records=None,
     source_adapter=None,
+    validation_settings=None,
 ):
     if (contract_records is None) != (source_adapter is None):
         raise ValueError(
@@ -291,7 +293,9 @@ def _request_fixture(
         decision,
         (changed_module,),
     )
-    settings = _validation_policy()
+    settings = (
+        _validation_policy() if validation_settings is None else validation_settings
+    )
     adapter_provider = _AdapterProvider(
         packet,
         source_adapter=source_adapter,
@@ -482,7 +486,6 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
         request_case.execution_case_id,
         *request_case.exact_dependency_ids,
     }
-
     with pytest.raises(MissingReferenceError, match="not exact"):
         replace(
             prepared.request,
@@ -495,6 +498,77 @@ def test_request_materializes_exact_candidate_bundle_episode_adapter_and_context
                 )
             ),
         )
+
+
+@pytest.mark.parametrize(
+    ("binding_update", "message"),
+    (
+        ({"metric_name": "other_metric"}, "metric comparison authority"),
+        ({"comparison_dimension_id": "unknown_dimension"}, "central promotion"),
+        (
+            {
+                "objective_direction": ObjectiveDirection.MINIMIZE,
+                "comparison_dimension_id": "cost",
+            },
+            "metric comparison authority",
+        ),
+    ),
+)
+def test_request_rejects_invalid_metric_comparison_binding(
+    tmp_path,
+    binding_update,
+    message,
+):
+    records = build_records()
+    manifest = next(
+        record for record in records if isinstance(record, TaskAdapterManifest)
+    )
+    binding = manifest.task_evaluator.metric_comparison_bindings[0]
+    changed_evaluator = replace(
+        manifest.task_evaluator,
+        metric_comparison_bindings=(replace(binding, **binding_update),),
+    )
+    changed_records = build_records(task_evaluator=changed_evaluator)
+    changed_manifest = next(
+        record for record in changed_records if isinstance(record, TaskAdapterManifest)
+    )
+    fixture = _request_fixture(
+        tmp_path,
+        contract_records=changed_records,
+        source_adapter=verified_test_task_adapter(changed_manifest),
+    )
+
+    with pytest.raises(ExpertSourceReplayRequestError, match=message):
+        _prepared(fixture)
+
+
+def test_request_rejects_central_metric_direction_conflict(tmp_path):
+    settings = _validation_policy()
+    changed_dimensions = tuple(
+        (
+            replace(dimension, direction=ObjectiveDirection.MINIMIZE)
+            if dimension.dimension_id == "quality"
+            else dimension
+        )
+        for dimension in settings.policy.promotion.pareto_dimensions
+    )
+    changed_settings = replace(
+        settings,
+        policy=replace(
+            settings.policy,
+            promotion=replace(
+                settings.policy.promotion,
+                pareto_dimensions=changed_dimensions,
+            ),
+        ),
+    )
+    fixture = _request_fixture(
+        tmp_path,
+        validation_settings=changed_settings,
+    )
+
+    with pytest.raises(ExpertSourceReplayRequestError, match="central promotion"):
+        _prepared(fixture)
 
 
 def test_request_rejects_a_source_fingerprint_from_another_evaluator(tmp_path):

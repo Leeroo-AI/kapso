@@ -52,6 +52,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterRuntimeContract,
     TaskContextBinding,
     TaskEvaluatorBinding,
+    TaskEvaluatorMetricComparisonBinding,
     TransferEpisode,
 )
 from kapso.cross_run.settings import (
@@ -138,6 +139,7 @@ __all__ = [
     "TaskAdapterVerificationReceipt",
     "TaskContextBinding",
     "TaskEvaluatorBinding",
+    "TaskEvaluatorMetricComparisonBinding",
     "TransferEpisode",
     "VerifiedTaskAdapter",
     "VerifiedTaskAdapterProvider",

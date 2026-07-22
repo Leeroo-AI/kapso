@@ -246,6 +246,18 @@ freeze of the sole regular result file; stdout is never a result channel. The
 future paired reducer, not the adapter, applies metric direction, comparison
 policy, and validation outcome.
 
+Scientific comparison authority is nevertheless explicit before execution. Each
+verified task adapter binds every supported evaluator-fingerprint/metric pair to
+one domain-neutral promotion dimension, the exact objective direction, and a
+finite positive metric scale. Preflight requires every selected
+`EvaluationFingerprint` to match exactly one binding and requires that binding's
+dimension and direction to exist unchanged in central promotion policy. The
+adapter therefore defines metric semantics and scale, while central policy alone
+defines noise floors, hard-regression ratios, and repeat requirements. The paired
+reducer may divide direction-aligned deltas by the bound scale; it must never
+infer that a metric such as accuracy is `quality`, divide by an observed control
+score, or reinterpret aggregate-recomputation tolerance as scientific noise.
+
 Preflight re-observes the current parent after materialization, but its request
 is evidence, not an execution lease. Source execution remains fail-closed until
 the executor can atomically reserve the unchanged validation head and, immediately
@@ -439,9 +451,12 @@ The scientific manifest itself has no opaque evaluator, context, or runtime maps
 It contains exactly three domain-neutral contracts:
 
 - `TaskEvaluatorBinding`: a protocol version and normalized adapter-relative
-  executable path plus a sorted allowlist of exact protected evaluation-tree
-  fingerprints. The package verifier attests that compatibility claim; the
-  protocol fixes request/result layout and direct, no-shell invocation.
+  executable path, a sorted allowlist of exact protected evaluation-tree
+  fingerprints, and sorted exact evaluator/metric comparison bindings. Each
+  binding cross-checks objective direction and supplies one central promotion
+  dimension plus a finite positive task-semantic scale. The package verifier
+  attests those compatibility and comparison claims; the protocol fixes
+  request/result layout and direct, no-shell invocation.
 - `TaskAdapterContextBinding`: a sorted allowlist of transfer-dimension IDs the
   evaluator consumes. It may be empty, must be a subset of the exact scope schema,
   and every replay context must contain the declared dimensions.

@@ -83,6 +83,7 @@ from kapso.cross_run.contracts import (
     TaskAdapterRuntimeContract,
     TaskContextBinding,
     TaskEvaluatorBinding,
+    TaskEvaluatorMetricComparisonBinding,
     TaskFamilyDefinition,
     TransferAttempt,
     TransferCompatibility,
@@ -234,6 +235,7 @@ def build_records(
     *,
     task_adapter_runtime: TaskAdapterRuntimeContract | None = None,
     task_adapter_source_contents: Mapping[str, bytes] | None = None,
+    task_evaluator: TaskEvaluatorBinding | None = None,
 ):
     task_families = (
         TaskFamilyDefinition(
@@ -337,10 +339,23 @@ def build_records(
         scope_contract_id=scope.scope_contract_id,
         task_family_id="language_model_post_training",
         publisher_attestation={"issuer": "test-publisher", "signature": "adapter"},
-        task_evaluator=TaskEvaluatorBinding(
-            protocol_version="kapso.task_evaluator.v1",
-            executable_path="adapter.py",
-            supported_evaluator_fingerprints=(digest("evaluator"),),
+        task_evaluator=(
+            TaskEvaluatorBinding(
+                protocol_version="kapso.task_evaluator.v1",
+                executable_path="adapter.py",
+                supported_evaluator_fingerprints=(digest("evaluator"),),
+                metric_comparison_bindings=(
+                    TaskEvaluatorMetricComparisonBinding(
+                        evaluator_fingerprint=digest("evaluator"),
+                        metric_name="quality",
+                        objective_direction=ObjectiveDirection.MAXIMIZE,
+                        comparison_dimension_id="quality",
+                        comparison_scale=1.0,
+                    ),
+                ),
+            )
+            if task_evaluator is None
+            else task_evaluator
         ),
         context_binding=TaskAdapterContextBinding(
             consumed_dimension_ids=("dataset_family", "runtime_family"),
@@ -1117,6 +1132,9 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
         "context_dimension_binding",
         "dependency_runtime_contract",
     } & set(payload)
+    comparison_binding = manifest.task_evaluator.metric_comparison_bindings[0]
+    assert comparison_binding.comparison_dimension_id == "quality"
+    assert comparison_binding.comparison_scale == 1.0
 
     legacy_payload = dict(payload)
     legacy_payload["task_evaluator_binding"] = legacy_payload.pop("task_evaluator")
@@ -1129,6 +1147,20 @@ def test_task_adapter_manifest_has_one_typed_scientific_contract():
             task_evaluator=replace(
                 manifest.task_evaluator,
                 executable_path="../adapter.py",
+            ),
+        )
+    with pytest.raises(ContractValidationError, match="finite positive"):
+        replace(comparison_binding, comparison_scale=0.0)
+    with pytest.raises(ContractValidationError, match="cover every supported"):
+        replace(manifest.task_evaluator, metric_comparison_bindings=())
+    with pytest.raises(ContractValidationError, match="cover every supported"):
+        replace(
+            manifest.task_evaluator,
+            metric_comparison_bindings=(
+                replace(
+                    comparison_binding,
+                    evaluator_fingerprint=digest("unsupported-evaluator"),
+                ),
             ),
         )
     with pytest.raises(ContractValidationError, match="image_repository"):

@@ -19,11 +19,13 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ContractValidationError,
+    ObjectiveDirection,
     SourceFileDescriptor,
     TaskAdapterContextBinding,
     TaskAdapterManifest,
     TaskAdapterRuntimeContract,
     TaskEvaluatorBinding,
+    TaskEvaluatorMetricComparisonBinding,
 )
 from kapso.cross_run.expert.validation import ExpertCandidateEligibilityEvaluator
 from kapso.cross_run.settings import (
@@ -133,6 +135,15 @@ def _manifest(
             executable_path="adapter.py",
             supported_evaluator_fingerprints=(
                 tree_or_blob_digest(b"source-evaluator"),
+            ),
+            metric_comparison_bindings=(
+                TaskEvaluatorMetricComparisonBinding(
+                    evaluator_fingerprint=tree_or_blob_digest(b"source-evaluator"),
+                    metric_name="accuracy",
+                    objective_direction=ObjectiveDirection.MAXIMIZE,
+                    comparison_dimension_id="quality",
+                    comparison_scale=1.0,
+                ),
             ),
         ),
         context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),

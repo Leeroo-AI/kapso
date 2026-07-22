@@ -742,6 +742,9 @@ TaskAdapterManifest
     protocol_version
     executable_path
     supported_evaluator_fingerprints[]
+    metric_comparison_bindings[]
+      evaluator_fingerprint + metric + objective direction
+      comparison_dimension_id + positive comparison_scale
   context_binding
     consumed_dimension_ids[]
   source_tree_ref + tree_hash
@@ -778,9 +781,13 @@ canonical request/result paths and schemas and is invoked directly without a she
 the manifest therefore does not carry free-form arguments or duplicate schema
 knobs. Its sorted evaluator-fingerprint allowlist is an exact compatibility claim
 covered by package verification; source replay rejects an evaluation-tree
-fingerprint absent from that attested list. Metric identity, direction, fidelity,
-seed/replicate set, aggregation, and judge version remain single-sourced in each
-`EvaluationFingerprint`. Exact compute allocations, stop rules, and
+fingerprint absent from that attested list. Each fingerprint/metric comparison
+binding is likewise package-verified and names one central promotion dimension,
+repeats the required objective direction as an exact cross-check, and supplies a
+finite positive task-semantic scale. Measurement identity, fidelity,
+seed/replicate set, aggregation, and judge version remain in each
+`EvaluationFingerprint`; preflight requires its evaluator, metric, and direction
+to agree with the adapter binding. Exact compute allocations, stop rules, and
 sandbox/network policy belong to the immutable replay execution request under
 configured ceilings, not to the adapter's scientific identity.
 

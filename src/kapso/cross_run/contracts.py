@@ -4417,10 +4417,39 @@ class ExpertBaseReleaseManifest(StrictContract):
 
 
 @dataclass(frozen=True)
+class TaskEvaluatorMetricComparisonBinding(StrictContract):
+    evaluator_fingerprint: str
+    metric_name: str
+    objective_direction: ObjectiveDirection
+    comparison_dimension_id: str
+    comparison_scale: float
+
+    def _validate(self) -> None:
+        _require_digest(
+            self.evaluator_fingerprint,
+            "task evaluator metric evaluator_fingerprint",
+        )
+        require_identifier(self.metric_name, "task evaluator metric_name")
+        require_identifier(
+            self.comparison_dimension_id,
+            "task evaluator comparison_dimension_id",
+        )
+        if (
+            type(self.comparison_scale) is not float
+            or not math.isfinite(self.comparison_scale)
+            or self.comparison_scale <= 0.0
+        ):
+            raise ContractValidationError(
+                "task evaluator comparison_scale must be a finite positive float"
+            )
+
+
+@dataclass(frozen=True)
 class TaskEvaluatorBinding(StrictContract):
     protocol_version: str
     executable_path: str
     supported_evaluator_fingerprints: tuple[str, ...]
+    metric_comparison_bindings: tuple[TaskEvaluatorMetricComparisonBinding, ...]
 
     def _validate(self) -> None:
         require_identifier(self.protocol_version, "task evaluator protocol_version")
@@ -4437,6 +4466,23 @@ class TaskEvaluatorBinding(StrictContract):
             )
         for fingerprint in self.supported_evaluator_fingerprints:
             _require_digest(fingerprint, "task evaluator supported fingerprint")
+        comparison_keys = tuple(
+            (binding.evaluator_fingerprint, binding.metric_name)
+            for binding in self.metric_comparison_bindings
+        )
+        if (
+            not comparison_keys
+            or comparison_keys != tuple(sorted(set(comparison_keys)))
+            or {
+                binding.evaluator_fingerprint
+                for binding in self.metric_comparison_bindings
+            }
+            != set(self.supported_evaluator_fingerprints)
+        ):
+            raise ContractValidationError(
+                "task evaluator metric comparison bindings must be sorted, unique, "
+                "and cover every supported evaluator fingerprint"
+            )
 
 
 @dataclass(frozen=True)

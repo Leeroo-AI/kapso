@@ -29,12 +29,14 @@ from kapso.cross_run.contracts import (
     ExpertValidationAttempt,
     ExpertValidationStage,
     ExpertValidationTrack,
+    ObjectiveDirection,
     SourceFileDescriptor,
     TaskAdapterContextBinding,
     TaskAdapterPackagePin,
     TaskAdapterManifest,
     TaskAdapterRuntimeContract,
     TaskEvaluatorBinding,
+    TaskEvaluatorMetricComparisonBinding,
 )
 from kapso.cross_run.expert.validation import (
     ExpertCandidateEligibilityEvaluator,
@@ -180,6 +182,15 @@ def _task_adapter(closure, position=0) -> TaskAdapterManifest:
             protocol_version="kapso.task_evaluator.v1",
             executable_path="adapter.py",
             supported_evaluator_fingerprints=(_digest("source-evaluator"),),
+            metric_comparison_bindings=(
+                TaskEvaluatorMetricComparisonBinding(
+                    evaluator_fingerprint=_digest("source-evaluator"),
+                    metric_name="accuracy",
+                    objective_direction=ObjectiveDirection.MAXIMIZE,
+                    comparison_dimension_id="quality",
+                    comparison_scale=1.0,
+                ),
+            ),
         ),
         context_binding=TaskAdapterContextBinding(consumed_dimension_ids=()),
         source_tree_ref="task-adapter.tar.zst",
