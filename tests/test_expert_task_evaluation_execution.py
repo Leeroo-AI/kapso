@@ -1,0 +1,321 @@
+from dataclasses import fields, replace
+
+import pytest
+
+from kapso.cross_run.expert.task_evaluation_contracts import TaskEvaluationLegKind
+from kapso.cross_run.expert.task_evaluation_execution import (
+    ExecutableTaskEvaluationCase,
+    ResolvedTaskEvaluationCase,
+    TaskEvaluationExecutionError,
+    TaskEvaluationExecutionProviderKey,
+    TaskEvaluationExecutionProviderRegistry,
+    TaskEvaluationLegInvocation,
+    TaskEvaluationProviderSupportRequirements,
+    project_prepared_task_evaluation_cases,
+)
+from test_expert_release_matrix_reservation import (
+    _bootstrap_release_matrix_fixture,
+)
+from test_expert_task_evaluation_preflight import (
+    _CurrentAuthority,
+    _coordinator,
+    _current_observation,
+)
+from test_expert_task_evaluation_reservation import _parent_prepared
+
+
+class _Provider:
+    def __init__(self, dispatch_key, *, supported=True):
+        self.dispatch_key = dispatch_key
+        self.supported = supported
+        self.support_calls = []
+        self.execution_calls = []
+        self.cleanup_calls = []
+
+    def require_supported_execution(self, requirements):
+        self.support_calls.append(requirements)
+        if not self.supported:
+            raise TaskEvaluationExecutionError(
+                "provider rejects this deterministic case authority"
+            )
+
+    def execute_leg(self, invocation):
+        self.execution_calls.append(invocation)
+        raise AssertionError("registry resolution must not execute a leg")
+
+    def cleanup_interrupted(self, provider_handle):
+        self.cleanup_calls.append(provider_handle)
+
+
+def _bootstrap_prepared(tmp_path, monkeypatch):
+    validation_store, snapshot, prepared_plan, _active_provider = (
+        _bootstrap_release_matrix_fixture(tmp_path, monkeypatch)
+    )
+    plan_reservation = validation_store.reserve_release_matrix_plan(
+        expected_transition_id=snapshot.transition.transition_id,
+        prepared_plan=prepared_plan,
+    ).reservation
+    observation = _current_observation(prepared_plan)
+    coordinator, _candidate_reader, parent_provider, _adapter_provider = _coordinator(
+        validation_store=validation_store,
+        prepared_plan=prepared_plan,
+        parent=None,
+        current_authority=_CurrentAuthority((observation, observation)),
+    )
+    return coordinator.build(plan_reservation), parent_provider
+
+
+def test_registry_erases_matrix_provenance_and_resolves_every_parent_case(
+    tmp_path,
+    monkeypatch,
+):
+    _store, _snapshot, prepared, *_providers = _parent_prepared(
+        tmp_path,
+        monkeypatch,
+    )
+    executable_cases = project_prepared_task_evaluation_cases(prepared)
+    provider = _Provider(executable_cases[0].provider_key)
+
+    registry = TaskEvaluationExecutionProviderRegistry(prepared, (provider,))
+    resolved = registry.resolve_all()
+
+    assert len(resolved) == len(executable_cases) == len(prepared.cases)
+    assert all(type(item) is ResolvedTaskEvaluationCase for item in resolved)
+    assert tuple(item.executable_case for item in resolved) == executable_cases
+    assert len(provider.support_calls) == len(executable_cases)
+    assert all(
+        type(requirements) is TaskEvaluationProviderSupportRequirements
+        for requirements in provider.support_calls
+    )
+    assert provider.execution_calls == []
+    assert all(
+        type(case) is ExecutableTaskEvaluationCase
+        and not hasattr(case, "provenance_binding_id")
+        and not hasattr(case, "evaluation_cell_ids")
+        and {leg.authority.kind for leg in case.legs}
+        == {
+            TaskEvaluationLegKind.PARENT_CONTROL,
+            TaskEvaluationLegKind.CANDIDATE,
+        }
+        for case in executable_cases
+    )
+    for executable_case, materialized_case in zip(
+        executable_cases,
+        prepared.cases,
+        strict=True,
+    ):
+        signed_case = next(
+            signed
+            for signed in materialized_case.adapter.manifest.release_matrix_cases
+            if signed.release_matrix_case_id
+            == materialized_case.request_case.release_matrix_case_id
+        )
+        assert executable_case.task_context_binding == (
+            signed_case.task_context_binding
+        )
+        assert executable_case.evaluation_fingerprints == (
+            signed_case.evaluation_fingerprints
+        )
+        assert executable_case.adapter_runtime == materialized_case.adapter_runtime
+        assert executable_case.starting_artifacts == (
+            materialized_case.starting_artifacts
+        )
+
+
+def test_bootstrap_registry_resolves_only_candidate_legs(
+    tmp_path,
+    monkeypatch,
+):
+    prepared, parent_provider = _bootstrap_prepared(tmp_path, monkeypatch)
+    executable_cases = project_prepared_task_evaluation_cases(prepared)
+    provider = _Provider(executable_cases[0].provider_key)
+
+    resolved = TaskEvaluationExecutionProviderRegistry(
+        prepared,
+        (provider,),
+    ).resolve_all()
+
+    assert len(resolved) == len(prepared.cases)
+    assert all(
+        tuple(leg.authority.kind for leg in item.executable_case.legs)
+        == (TaskEvaluationLegKind.CANDIDATE,)
+        for item in resolved
+    )
+    assert parent_provider.calls == []
+
+
+def test_provider_key_excludes_case_mode_schedule_and_scientific_identity(
+    tmp_path,
+    monkeypatch,
+):
+    parent_root = tmp_path / "parent"
+    parent_root.mkdir()
+    _store, _snapshot, parent_prepared, *_providers = _parent_prepared(
+        parent_root,
+        monkeypatch,
+    )
+    bootstrap_root = tmp_path / "bootstrap"
+    bootstrap_root.mkdir()
+    bootstrap_prepared, _parent_provider = _bootstrap_prepared(
+        bootstrap_root,
+        monkeypatch,
+    )
+
+    parent_case = project_prepared_task_evaluation_cases(parent_prepared)[0]
+    bootstrap_case = project_prepared_task_evaluation_cases(bootstrap_prepared)[0]
+
+    assert parent_case.provider_key == bootstrap_case.provider_key
+    assert set(parent_case.compute_binding.leg_order) != set(
+        bootstrap_case.compute_binding.leg_order
+    )
+    assert parent_case.evaluation_case_id != bootstrap_case.evaluation_case_id
+
+
+def test_registry_rejects_missing_duplicate_and_mutated_provider_identity(
+    tmp_path,
+    monkeypatch,
+):
+    _store, _snapshot, prepared, *_providers = _parent_prepared(
+        tmp_path,
+        monkeypatch,
+    )
+    executable_case = project_prepared_task_evaluation_cases(prepared)[0]
+    key = executable_case.provider_key
+    foreign_key = replace(key, execution_provider_version="unsupported_provider_v2")
+
+    with pytest.raises(TaskEvaluationExecutionError, match="unsupported"):
+        TaskEvaluationExecutionProviderRegistry(
+            prepared,
+            (_Provider(foreign_key),),
+        )
+    with pytest.raises(TaskEvaluationExecutionError, match="duplicated"):
+        TaskEvaluationExecutionProviderRegistry(
+            prepared,
+            (_Provider(key), _Provider(key)),
+        )
+    with pytest.raises(TaskEvaluationExecutionError, match="exact required key set"):
+        TaskEvaluationExecutionProviderRegistry(
+            prepared,
+            (_Provider(key), _Provider(foreign_key)),
+        )
+
+    provider = _Provider(key)
+    registry = TaskEvaluationExecutionProviderRegistry(prepared, (provider,))
+    provider.dispatch_key = foreign_key
+    with pytest.raises(TaskEvaluationExecutionError, match="identity changed"):
+        registry.resolve_all()
+
+
+def test_deterministic_provider_incompatibility_fails_during_resolution(
+    tmp_path,
+    monkeypatch,
+):
+    _store, _snapshot, prepared, *_providers = _parent_prepared(
+        tmp_path,
+        monkeypatch,
+    )
+    executable_case = project_prepared_task_evaluation_cases(prepared)[0]
+    provider = _Provider(executable_case.provider_key, supported=False)
+
+    with pytest.raises(TaskEvaluationExecutionError, match="deterministic"):
+        TaskEvaluationExecutionProviderRegistry(prepared, (provider,))
+
+    assert len(provider.support_calls) == 1
+    assert provider.support_calls[0].dispatch_key == executable_case.provider_key
+    assert provider.execution_calls == []
+
+
+def test_support_check_receives_only_non_scientific_runtime_requirements(
+    tmp_path,
+    monkeypatch,
+):
+    _store, _snapshot, prepared, *_providers = _parent_prepared(
+        tmp_path,
+        monkeypatch,
+    )
+    executable_case = project_prepared_task_evaluation_cases(prepared)[0]
+    provider = _Provider(executable_case.provider_key)
+
+    TaskEvaluationExecutionProviderRegistry(prepared, (provider,))
+
+    assert {field.name for field in fields(provider.support_calls[0])} == {
+        "dispatch_key",
+        "runtime_contract",
+        "task_evaluator_executable_path",
+        "leg_wall_time_limit_seconds",
+        "termination_grace_seconds",
+        "cpu_millicore_limit",
+        "memory_byte_limit",
+        "shared_memory_byte_limit",
+        "process_limit",
+        "open_file_limit",
+        "writable_inode_limit",
+        "writable_storage_byte_limit",
+        "output_entry_limit",
+        "output_byte_limit",
+        "stdout_byte_limit",
+        "stderr_byte_limit",
+        "accelerator_class_id",
+        "accelerator_count",
+    }
+    requirements = provider.support_calls[0]
+    for forbidden_name in (
+        "evaluation_case_id",
+        "task_context_binding",
+        "evaluation_fingerprints",
+        "starting_artifacts",
+        "legs",
+        "expert_source",
+        "source_contents",
+        "leg_order",
+    ):
+        assert not hasattr(requirements, forbidden_name)
+
+
+def test_registry_is_bound_to_one_prepared_authority_and_has_no_spawn_surface(
+    tmp_path,
+    monkeypatch,
+):
+    parent_root = tmp_path / "parent"
+    parent_root.mkdir()
+    _store, _snapshot, parent_prepared, *_providers = _parent_prepared(
+        parent_root,
+        monkeypatch,
+    )
+    bootstrap_root = tmp_path / "bootstrap"
+    bootstrap_root.mkdir()
+    bootstrap_prepared, _parent_provider = _bootstrap_prepared(
+        bootstrap_root,
+        monkeypatch,
+    )
+    executable_case = project_prepared_task_evaluation_cases(parent_prepared)[0]
+    provider = _Provider(executable_case.provider_key)
+    registry = TaskEvaluationExecutionProviderRegistry(
+        parent_prepared,
+        (provider,),
+    )
+
+    registry.require_exact_prepared_authority(parent_prepared)
+    with pytest.raises(TaskEvaluationExecutionError, match="prepared authority"):
+        registry.require_exact_prepared_authority(bootstrap_prepared)
+
+    resolved = registry.resolve_all()[0]
+    assert not hasattr(resolved, "_execute_leg")
+    assert "executable_case" not in {
+        field.name for field in fields(TaskEvaluationLegInvocation)
+    }
+    with pytest.raises(TypeError):
+        TaskEvaluationLegInvocation()
+
+
+def test_provider_key_requires_exact_complete_identity():
+    with pytest.raises(TaskEvaluationExecutionError, match="digest"):
+        TaskEvaluationExecutionProviderKey(
+            execution_protocol_version="task_execution_v1",
+            execution_provider_id="provider",
+            execution_provider_version="provider_v1",
+            execution_provider_settings_digest="sha256:not-a-digest",
+            sandbox_policy_version="sandbox_v1",
+            task_adapter_runtime_protocol_version="adapter_runtime_v1",
+            task_evaluator_protocol_version="task_evaluator_v1",
+        )

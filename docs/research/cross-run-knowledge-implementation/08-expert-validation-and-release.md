@@ -789,6 +789,21 @@ counted package bytes. It also retains the exact typed current-release observati
 which preflight relied. This prepared object is still neither a durable reservation
 nor an execution capability.
 
+Provider resolution now begins from that exact prepared closure. Its executable-case
+projection removes plan, provenance, cell, and validation identities while retaining
+the signed context, fingerprints, selected fixture bytes, fixture-free adapter
+runtime, compute envelope, and semantic candidate/parent legs. Bootstrap projects
+only a candidate leg; parent mode binds each semantic leg to its exact verified tree
+and receipt. A full-key registry resolves every case and runs deterministic support
+checks before reservation. The key contains only implementation-selecting protocol,
+provider/settings, sandbox, adapter-runtime, and evaluator-protocol identities; mode,
+leg order, scientific identity, resource limits, image, and accelerator requirements
+remain exact case inputs. Missing, duplicate, or mutable provider identities fail
+closed. Resolved providers stay private. Leg invocation is seal-only, derives its
+complete canonical evaluator request and handle internally, carries only the selected
+expert leg, and has no provider-execution surface until the journal owns its one-shot
+spawn capability.
+
 `TaskEvaluationPreflightCoordinator` is the sole producer that turns a reserved plan
 into that byte-closed request. Its order is fixed:
 
