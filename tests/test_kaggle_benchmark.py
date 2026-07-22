@@ -47,8 +47,7 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     context = make_handler(tmp_path).get_problem_context()
     assert context.startswith("statement body")
     assert KAGGLE["competition"] in context
-    assert "operator approval" in context
-    assert "kaggle_submit_requests.log" in context
+    assert "operator approval" not in context
     # Competition framing, not a safety floor: highest expected score wins.
     assert "highest expected final score" in context
     assert "at least one" not in context

@@ -1,8 +1,7 @@
 """Kaggle code-competition problem handler (IOAI AI Models Track practice).
 
 Hands the coding agent the task statement plus the minimal kapso contract:
-paths, the scored-submission deliverable, the operator approval gate, and
-score reporting. best_score.log records PUBLIC leaderboard scores only.
+paths, the scored-submission deliverable, and score reporting. best_score.log records PUBLIC leaderboard scores only.
 """
 
 import os
@@ -77,16 +76,10 @@ itself); keep {self.submission_dir}/kernel/ holding the exact kernel
 (script + kernel-metadata.json) of your best submitted attempt.
 
 The job is END-TO-END within this run's time budget: develop → push the
-kernel → Kaggle runs it (~10–20 min round trip) → operator-approved
-submit → public score, all before the deadline. Budget those round trips
-into your plan from the start — an unsubmitted or unscored model counts
-for nothing, and the last kernel push must leave enough margin for its
-cloud run, the approval, and scoring.
-
-`kaggle competitions submit` requires operator approval: the CLI logs
-your exact command to ~/kaggle_submit_requests.log and the approved
-submission's full output appears in ~/kaggle_submit_executed.log — poll
-it and continue local work while waiting; never retry or bypass the gate.
+kernel → Kaggle runs it (~10–20 min round trip) → submit → public score,
+all before the deadline. Budget those round trips into your plan from
+the start — an unsubmitted or unscored model counts for nothing, and the
+last kernel push must leave enough margin for its cloud run and scoring.
 
 After a submission scores, append `<public_score> <iso-time> <label>` to
 {self.task_dir}/best_score.log (public scores only). Report each
