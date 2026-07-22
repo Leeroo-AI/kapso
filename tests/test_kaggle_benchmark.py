@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from benchmarks.kaggle.data.prepare_task1 import prepare
+from benchmarks.kaggle.data.prepare_task2 import prepare as prepare_task2
 from benchmarks.kaggle.handler import KaggleNotebookHandler
 from benchmarks.kaggle.runner import (
     audit_kernel,
@@ -167,6 +168,29 @@ def test_prepare_builds_runner_layout(tmp_path):
         assert os.path.exists(os.path.join(dataset, entry)), entry
     with open(os.path.join(root, "task", "kaggle.json")) as f:
         assert json.load(f) == {"competition": "some-competition"}
+
+
+def test_prepare_task2_builds_runner_layout(tmp_path):
+    import pickle
+
+    source = tmp_path / "src"
+    source.mkdir()
+    with open(source / "train_demos.pkl", "wb") as f:
+        pickle.dump({"trajectories": [{"layout_id": "train_0000"}]}, f)
+    for name in ("valid_scenarios.pkl", "test_scenarios.pkl"):
+        with open(source / name, "wb") as f:
+            pickle.dump([{"layout_id": "x", "episode_seed": 1}], f)
+
+    root = prepare_task2(str(tmp_path / "root"), str(source), "task2-comp")
+
+    dataset = os.path.join(root, "task", "dataset")
+    for entry in ("train_demos.pkl", "valid_scenarios.pkl",
+                  "test_scenarios.pkl", "statement.md"):
+        assert os.path.exists(os.path.join(dataset, entry)), entry
+    with open(os.path.join(root, "task", "kaggle.json")) as f:
+        assert json.load(f) == {"competition": "task2-comp"}
+    with pytest.raises(FileNotFoundError, match="train_demos"):
+        prepare_task2(str(tmp_path / "root2"), str(tmp_path), "c")
 
 
 def test_prepare_rejects_incomplete_source(tmp_path):
