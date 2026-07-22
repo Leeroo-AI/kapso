@@ -161,6 +161,17 @@ arguments; the registry binds both verified expert trees, while the capability
 passes only the exact parent or candidate byte closure selected by the allocated
 leg. Only its session-registered sealed completion may enter the journal.
 
+The Docker provider executes a digest-namespaced private copy of the pinned CLI
+against only the configured root-owned Unix socket, an empty private Docker
+configuration, and a minimal fixed host environment. Every leg freshly requires
+the exact client/server API, host platform, storage and cgroup authorities,
+default runtime, isolation capabilities, security-option set, and required local
+drivers. Local image admission permits no pull: manifest/config/platform and the
+adapter-declared environment must match exactly, while inherited commands,
+volumes, and healthchecks are forbidden. The host kernel, root-owned dynamic
+loader/libraries and daemon, and same-UID processes able to mutate the private
+provider root are explicit trusted computing base; evaluator code is not.
+
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
 `/kapso/input/request.json`, mounts the selected expert at
