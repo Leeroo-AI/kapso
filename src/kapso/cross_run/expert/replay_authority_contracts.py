@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from kapso.cross_run.canonical import (
     content_id,
@@ -18,7 +18,9 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.replay_protocol_contracts import (
     TaskEvaluatorInvocationAllocation,
 )
-from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
+
+if TYPE_CHECKING:
+    from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 
 _SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GITHUB_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")

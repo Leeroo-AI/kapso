@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from kapso.cross_run.canonical import require_content_id, require_identifier
 from kapso.cross_run.contracts import (
@@ -25,10 +25,12 @@ from kapso.cross_run.expert.replay_decision_contracts import (
     ExpertSourceReplayStageDecision,
 )
 from kapso.cross_run.expert.replay_decision import decide_expert_source_replay_stage
-from kapso.cross_run.expert.replay_execution_store import (
-    SourceReplayExecutionJournalEvent,
-)
-from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
+
+if TYPE_CHECKING:
+    from kapso.cross_run.expert.replay_execution_store import (
+        SourceReplayExecutionJournalEvent,
+    )
+    from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 
 
 class ExpertSourceReplayPublicationError(ValueError):

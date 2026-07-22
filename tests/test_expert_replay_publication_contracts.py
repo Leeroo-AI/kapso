@@ -3,6 +3,12 @@ from __future__ import annotations
 import pytest
 
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
+from kapso.cross_run.contracts import (
+    ExpertEvaluatorOutcome,
+    ExpertPromotionState,
+    ExpertSourceReplayExecutionLegKind,
+    ExpertValidationStage,
+)
 from kapso.cross_run.expert.replay_authority_contracts import (
     SourceReplayCurrentReleaseObservation,
     SourceReplaySecurityDenylistObservation,
@@ -16,7 +22,7 @@ from kapso.cross_run.expert.replay_decision import (
     decide_expert_source_replay_stage,
 )
 from kapso.cross_run.expert.replay_decision_contracts import (
-    ExpertSourceReplayDecisionError,
+    ExpertSourceReplayStageDecision,
 )
 from kapso.cross_run.expert.replay_execution_store import (
     SourceReplayExecutionJournalEventKind,
@@ -32,9 +38,10 @@ from test_expert_replay_execution_store import _remint
 from test_expert_source_replay_comparison import _complete_execution
 
 
-def _publication_evidence(tmp_path):
+def _publication_evidence(tmp_path, aggregate_by_leg_kind=None):
     fixture, prepared, reservation, execution_store, completed = _complete_execution(
-        tmp_path
+        tmp_path,
+        aggregate_by_leg_kind=aggregate_by_leg_kind,
     )
     receipt = build_expert_source_replay_paired_comparison_receipt(
         completed_execution=completed,
@@ -259,15 +266,100 @@ def test_source_stage_result_rejects_substituted_adapter_or_scientific_decision(
             publication_authority_fence=substituted_fence,
         )
 
-    substituted_receipt = _remint(
-        result.paired_comparison_receipt,
-        aggregate_recomputation_tolerance=0.1,
+
+def test_source_stage_reducer_passes_and_preserves_a_typed_history_prefix(tmp_path):
+    fixture, _, _, _, _, result = _publication_evidence(tmp_path)
+    snapshot = fixture.validation_store.snapshot(result.candidate_id)
+    assert snapshot is not None
+    assert snapshot.latest_attempt is not None
+    initial_count = len(snapshot.accepted_stage_results)
+
+    after_source = fixture.validation_store.reducer.advance_source_replay_stage(
+        state=snapshot.state,
+        attempt=snapshot.latest_attempt,
+        accepted_results=snapshot.accepted_stage_results,
+        result=result,
     )
-    with pytest.raises(ExpertSourceReplayDecisionError, match="tolerance"):
+
+    assert after_source.promotion_state is ExpertPromotionState.VALIDATING
+    assert len(after_source.accepted_stage_results) == initial_count + 1
+    assert after_source.accepted_stage_results[-1].stage is (
+        ExpertValidationStage.SOURCE_RUN_REPLAY
+    )
+    assert after_source.accepted_stage_results[-1].stage_result_record_id == (
+        result.stage_result_record_id
+    )
+    fixture.validation_store.reducer._validate_accepted_history(
+        state=after_source,
+        attempt=snapshot.latest_attempt,
+        accepted_results=(*snapshot.accepted_stage_results, result),
+    )
+    assert after_source.next_stage is ExpertValidationStage.AUTOMATED_REVIEW
+
+
+def test_source_stage_reducer_failure_preserves_the_accepted_prefix(tmp_path):
+    fixture, prepared, reservation, _, fence, result = _publication_evidence(
+        tmp_path,
+        aggregate_by_leg_kind={
+            ExpertSourceReplayExecutionLegKind.CONTROL_PARENT: 0.8,
+            ExpertSourceReplayExecutionLegKind.CANDIDATE: 0.0,
+        },
+    )
+    snapshot = fixture.validation_store.snapshot(result.candidate_id)
+    assert snapshot is not None
+    assert snapshot.latest_attempt is not None
+    assert result.outcome is ExpertEvaluatorOutcome.CANDIDATE_FAILED
+
+    forged_decision = ExpertSourceReplayStageDecision.mint(
+        paired_comparison_receipt_id=(
+            result.paired_comparison_receipt.paired_comparison_receipt_id
+        ),
+        validation_policy_id=result.validation_policy_id,
+        decision_policy_version=result.stage_decision.decision_policy_version,
+        outcome=ExpertEvaluatorOutcome.PASSED,
+        hard_regression_comparisons=(),
+        paired_comparison_dependency_ids=(
+            result.stage_decision.paired_comparison_dependency_ids
+        ),
+        exact_dependency_ids=result.stage_decision.exact_dependency_ids,
+    )
+    forged_subjects = tuple(
+        sorted(
+            {
+                *fence.security_subject_ids,
+                forged_decision.source_replay_stage_decision_id,
+            }
+        )
+    )
+    forged_fence = _remint(
+        fence,
+        source_replay_stage_decision_id=(
+            forged_decision.source_replay_stage_decision_id
+        ),
+        outcome=ExpertEvaluatorOutcome.PASSED,
+        security_denylist_observation=_remint(
+            fence.security_denylist_observation,
+            checked_subject_ids=forged_subjects,
+        ),
+    )
+    with pytest.raises(ExpertSourceReplayPublicationError, match="prepared authority"):
         _build_expert_source_replay_stage_result_record(
             reservation=reservation,
             prepared_request=prepared,
-            paired_comparison_receipt=substituted_receipt,
-            stage_decision=result.stage_decision,
-            publication_authority_fence=fence,
+            paired_comparison_receipt=result.paired_comparison_receipt,
+            stage_decision=forged_decision,
+            publication_authority_fence=forged_fence,
         )
+
+    failed = fixture.validation_store.reducer.advance_source_replay_stage(
+        state=snapshot.state,
+        attempt=snapshot.latest_attempt,
+        accepted_results=snapshot.accepted_stage_results,
+        result=result,
+    )
+
+    assert failed.promotion_state is ExpertPromotionState.FAILED
+    assert failed.accepted_stage_results == snapshot.state.accepted_stage_results
+    assert failed.next_stage is None
+    assert failed.terminal_evidence_ids == (result.stage_result_record_id,)
+    assert failed.transition_evidence_id == result.stage_result_record_id

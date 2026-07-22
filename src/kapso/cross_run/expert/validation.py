@@ -29,6 +29,9 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.store import StoredExpertCandidate
 from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
+from kapso.cross_run.expert.replay_publication_contracts import (
+    ExpertSourceReplayStageResultRecord,
+)
 from kapso.cross_run.settings import (
     ExpertEvaluatorSettings,
     ExpertValidationPolicy,
@@ -960,7 +963,9 @@ class ExpertValidationReducer:
         *,
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
-        accepted_results: tuple[ExpertEvaluatorResultRecord, ...],
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+        ],
         result: ExpertEvaluatorResultRecord,
     ) -> ExpertCandidateValidationState:
         if (
@@ -1048,6 +1053,99 @@ class ExpertValidationReducer:
             reason=f"stage_{run.stage.value}_passed",
         )
 
+    def advance_source_replay_stage(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+        ],
+        result: ExpertSourceReplayStageResultRecord,
+    ) -> ExpertCandidateValidationState:
+        if (
+            state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+        ):
+            raise ExpertValidationError("only the matching active attempt may advance")
+        policy = self.settings.policy.validation_policy()
+        if (
+            attempt.validation_policy_id != policy.validation_policy_id
+            or attempt.configuration_fingerprint
+            != self.settings.configuration_fingerprint
+        ):
+            raise ExpertValidationError(
+                "active attempt differs from reducer configuration"
+            )
+        self._validate_accepted_history(state, attempt, accepted_results)
+        accepted_count = len(state.accepted_stage_results)
+        if accepted_count >= len(attempt.required_stages):
+            raise ExpertValidationError("validation attempt has no remaining stage")
+        expected_stage = attempt.required_stages[accepted_count]
+        if type(result) is not ExpertSourceReplayStageResultRecord:
+            raise ExpertValidationError(
+                "source replay stage requires its typed result record"
+            )
+        fence = result.publication_authority_fence
+        if (
+            state.next_stage is not ExpertValidationStage.SOURCE_RUN_REPLAY
+            or expected_stage is not ExpertValidationStage.SOURCE_RUN_REPLAY
+            or result.validation_attempt_id != attempt.validation_attempt_id
+            or result.authorization_state_id != state.validation_state_id
+            or result.candidate_id != attempt.candidate_id
+            or result.candidate_tree_hash != attempt.candidate_tree_hash
+            or result.validation_policy_id != attempt.validation_policy_id
+            or result.configuration_fingerprint != attempt.configuration_fingerprint
+            or fence.scope_contract_id != attempt.scope_contract_id
+            or fence.expected_parent_release_id != attempt.parent_release_id
+        ):
+            raise ExpertValidationError(
+                "source replay result differs from the active configured stage"
+            )
+        if result.outcome is ExpertEvaluatorOutcome.CANDIDATE_FAILED:
+            return ExpertCandidateValidationState.mint(
+                validation_attempt_id=attempt.validation_attempt_id,
+                candidate_id=attempt.candidate_id,
+                candidate_tree_hash=attempt.candidate_tree_hash,
+                predecessor_state_id=state.validation_state_id,
+                promotion_state=ExpertPromotionState.FAILED,
+                accepted_stage_results=state.accepted_stage_results,
+                next_stage=None,
+                review_assertion_ids=state.review_assertion_ids,
+                terminal_evidence_ids=(result.stage_result_record_id,),
+                transition_evidence_id=result.stage_result_record_id,
+                reason="stage_source_run_replay_candidate_failed",
+            )
+        if result.outcome is not ExpertEvaluatorOutcome.PASSED:
+            raise ExpertValidationError("source replay result outcome is unsupported")
+        accepted = (
+            *state.accepted_stage_results,
+            ExpertAcceptedStageResultRef(
+                stage=ExpertValidationStage.SOURCE_RUN_REPLAY,
+                stage_result_record_id=result.stage_result_record_id,
+            ),
+        )
+        next_position = len(accepted)
+        if next_position >= len(attempt.required_stages):
+            raise ExpertValidationError(
+                "final promotion stages require a typed promotion decision"
+            )
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.VALIDATING,
+            accepted_stage_results=accepted,
+            next_stage=attempt.required_stages[next_position],
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=(),
+            transition_evidence_id=result.stage_result_record_id,
+            reason="stage_source_run_replay_passed",
+        )
+
     def _validate_result_closure(
         self,
         attempt: ExpertValidationAttempt,
@@ -1102,7 +1200,9 @@ class ExpertValidationReducer:
         self,
         state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
-        accepted_results: tuple[ExpertEvaluatorResultRecord, ...],
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord | ExpertSourceReplayStageResultRecord, ...
+        ],
     ) -> None:
         if len(accepted_results) != len(state.accepted_stage_results):
             raise ExpertValidationError("accepted evaluator history is incomplete")
@@ -1113,9 +1213,38 @@ class ExpertValidationReducer:
         for position, (evidence, accepted_result) in enumerate(
             zip(state.accepted_stage_results, accepted_results)
         ):
+            expected_stage = attempt.required_stages[position]
+            if expected_stage is ExpertValidationStage.SOURCE_RUN_REPLAY:
+                if (
+                    type(accepted_result) is not ExpertSourceReplayStageResultRecord
+                    or evidence.stage is not expected_stage
+                    or evidence.stage_result_record_id
+                    != accepted_result.stage_result_record_id
+                    or accepted_result.outcome is not ExpertEvaluatorOutcome.PASSED
+                    or accepted_result.validation_attempt_id
+                    != attempt.validation_attempt_id
+                    or accepted_result.candidate_id != attempt.candidate_id
+                    or accepted_result.candidate_tree_hash
+                    != attempt.candidate_tree_hash
+                    or accepted_result.validation_policy_id
+                    != attempt.validation_policy_id
+                    or accepted_result.configuration_fingerprint
+                    != attempt.configuration_fingerprint
+                    or accepted_result.publication_authority_fence.scope_contract_id
+                    != attempt.scope_contract_id
+                    or accepted_result.publication_authority_fence.expected_parent_release_id
+                    != attempt.parent_release_id
+                ):
+                    raise ExpertValidationError(
+                        "accepted source replay differs from the stage prefix"
+                    )
+                continue
+            if type(accepted_result) is not ExpertEvaluatorResultRecord:
+                raise ExpertValidationError(
+                    "accepted evaluator history uses another stage result type"
+                )
             run = accepted_result.evaluator_run
             envelope = accepted_result.attestation_envelope
-            expected_stage = attempt.required_stages[position]
             evaluator = ExpertEvaluatorRunBuilder(self.settings)._evaluator(
                 expected_stage
             )

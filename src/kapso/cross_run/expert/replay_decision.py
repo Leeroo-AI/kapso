@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
 )
@@ -13,7 +15,9 @@ from kapso.cross_run.expert.replay_decision_contracts import (
     ExpertSourceReplayDecisionError,
     ExpertSourceReplayStageDecision,
 )
-from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
+
+if TYPE_CHECKING:
+    from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
 
 
 def decide_expert_source_replay_stage(
