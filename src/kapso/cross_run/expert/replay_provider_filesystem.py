@@ -172,6 +172,61 @@ def materialize_source_replay_provider_inputs(
     )
 
 
+def cleanup_source_replay_provider_workspace(
+    *,
+    trusted_root: Path,
+    workspace_root: Path,
+) -> None:
+    """Remove one owned provider workspace without following filesystem links."""
+
+    _require_direct_child(trusted_root, workspace_root, "provider workspace")
+    with ExitStack() as descriptors_to_close:
+        trusted_descriptor = _open_trusted_root(trusted_root, descriptors_to_close)
+        if not os.access(
+            workspace_root.name,
+            os.F_OK,
+            dir_fd=trusted_descriptor,
+            follow_symlinks=False,
+        ):
+            return
+        workspace_metadata = os.stat(
+            workspace_root.name,
+            dir_fd=trusted_descriptor,
+            follow_symlinks=False,
+        )
+        _require_cleanup_directory_metadata(
+            workspace_metadata,
+            "provider workspace must be a real owned directory",
+        )
+        workspace_identity = (
+            workspace_metadata.st_dev,
+            workspace_metadata.st_ino,
+        )
+        workspace_descriptor = _open_cleanup_directory_at(
+            trusted_descriptor,
+            workspace_root.name,
+            workspace_identity,
+            descriptors_to_close,
+        )
+        _validate_cleanup_directory_tree(workspace_descriptor)
+        _remove_cleanup_directory_contents(workspace_descriptor)
+        current_workspace = os.stat(
+            workspace_root.name,
+            dir_fd=trusted_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISDIR(current_workspace.st_mode)
+            or (current_workspace.st_dev, current_workspace.st_ino)
+            != workspace_identity
+        ):
+            raise SourceReplayProviderFilesystemError(
+                "provider workspace changed before removal"
+            )
+        os.rmdir(workspace_root.name, dir_fd=trusted_descriptor)
+        os.fsync(trusted_descriptor)
+
+
 def parse_source_replay_result_snapshot(
     snapshot: bytes,
     *,
@@ -683,3 +738,156 @@ def _freeze_input_directory(root_descriptor: int) -> None:
             )
     os.fchmod(root_descriptor, 0o555)
     os.fsync(root_descriptor)
+
+
+def _validate_cleanup_directory_tree(directory_descriptor: int) -> None:
+    _require_cleanup_directory_metadata(
+        os.fstat(directory_descriptor),
+        "provider workspace contains an unowned directory",
+    )
+    with os.scandir(directory_descriptor) as entries:
+        observed_entries = tuple(
+            sorted(
+                ((entry.name, entry.stat(follow_symlinks=False)) for entry in entries),
+                key=lambda item: item[0],
+            )
+        )
+    for name, expected in observed_entries:
+        _require_cleanup_entry_identity(directory_descriptor, name, expected)
+        if stat.S_ISDIR(expected.st_mode):
+            _require_cleanup_directory_metadata(
+                expected,
+                "provider workspace contains an unowned directory",
+            )
+            with ExitStack() as descriptors_to_close:
+                child_descriptor = _open_cleanup_directory_at(
+                    directory_descriptor,
+                    name,
+                    (expected.st_dev, expected.st_ino),
+                    descriptors_to_close,
+                )
+                _validate_cleanup_directory_tree(child_descriptor)
+        elif (
+            not stat.S_ISREG(expected.st_mode)
+            or expected.st_nlink != 1
+            or expected.st_uid != os.geteuid()
+        ):
+            raise SourceReplayProviderFilesystemError(
+                "provider workspace contains a link, special, unowned, or linked entry"
+            )
+        else:
+            _require_cleanup_regular_file_at(
+                directory_descriptor,
+                name,
+                expected,
+            )
+
+
+def _remove_cleanup_directory_contents(directory_descriptor: int) -> None:
+    os.fchmod(directory_descriptor, 0o700)
+    with os.scandir(directory_descriptor) as entries:
+        observed_entries = tuple(
+            sorted(
+                ((entry.name, entry.stat(follow_symlinks=False)) for entry in entries),
+                key=lambda item: item[0],
+            )
+        )
+    for name, expected in observed_entries:
+        _require_cleanup_entry_identity(directory_descriptor, name, expected)
+        if stat.S_ISDIR(expected.st_mode):
+            _require_cleanup_directory_metadata(
+                expected,
+                "provider workspace contains an unowned directory",
+            )
+            with ExitStack() as descriptors_to_close:
+                child_descriptor = _open_cleanup_directory_at(
+                    directory_descriptor,
+                    name,
+                    (expected.st_dev, expected.st_ino),
+                    descriptors_to_close,
+                )
+                _remove_cleanup_directory_contents(child_descriptor)
+            _require_cleanup_entry_identity(directory_descriptor, name, expected)
+            os.rmdir(name, dir_fd=directory_descriptor)
+        elif (
+            not stat.S_ISREG(expected.st_mode)
+            or expected.st_nlink != 1
+            or expected.st_uid != os.geteuid()
+        ):
+            raise SourceReplayProviderFilesystemError(
+                "provider workspace contains a link, special, unowned, or linked entry"
+            )
+        else:
+            _require_cleanup_regular_file_at(
+                directory_descriptor,
+                name,
+                expected,
+            )
+            _require_cleanup_entry_identity(directory_descriptor, name, expected)
+            os.unlink(name, dir_fd=directory_descriptor)
+    os.fsync(directory_descriptor)
+
+
+def _open_cleanup_directory_at(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, int],
+    descriptors_to_close: ExitStack,
+) -> int:
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_descriptor,
+    )
+    descriptors_to_close.callback(os.close, descriptor)
+    metadata = os.fstat(descriptor)
+    if (metadata.st_dev, metadata.st_ino) != expected_identity:
+        raise SourceReplayProviderFilesystemError(
+            "provider workspace directory changed while opening"
+        )
+    _require_cleanup_directory_metadata(
+        metadata,
+        "provider workspace contains an unowned directory",
+    )
+    return descriptor
+
+
+def _require_cleanup_directory_metadata(metadata: os.stat_result, message: str) -> None:
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
+        raise SourceReplayProviderFilesystemError(message)
+
+
+def _require_cleanup_entry_identity(
+    parent_descriptor: int,
+    name: str,
+    expected: os.stat_result,
+) -> None:
+    current = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    if (current.st_dev, current.st_ino) != (expected.st_dev, expected.st_ino):
+        raise SourceReplayProviderFilesystemError(
+            "provider workspace entry changed during cleanup"
+        )
+
+
+def _require_cleanup_regular_file_at(
+    parent_descriptor: int,
+    name: str,
+    expected: os.stat_result,
+) -> None:
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_descriptor,
+    )
+    with ExitStack() as descriptors_to_close:
+        descriptors_to_close.callback(os.close, descriptor)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_uid != os.geteuid()
+            or (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino)
+        ):
+            raise SourceReplayProviderFilesystemError(
+                "provider workspace regular file changed during cleanup"
+            )

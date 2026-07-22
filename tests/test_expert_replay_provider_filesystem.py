@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from kapso.cross_run.expert import replay_provider_filesystem
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import SourceFileDescriptor
 from kapso.cross_run.expert.replay_execution import (
@@ -19,6 +20,7 @@ from kapso.cross_run.expert.replay_protocol import (
 )
 from kapso.cross_run.expert.replay_provider_filesystem import (
     SourceReplayProviderFilesystemError,
+    cleanup_source_replay_provider_workspace,
     materialize_source_replay_provider_inputs,
     materialize_verified_byte_tree,
     parse_source_replay_result_snapshot,
@@ -225,6 +227,145 @@ def test_verified_byte_tree_rejects_untrusted_or_existing_roots(tmp_path):
             descriptors=(descriptor,),
             source_contents={"file": b"payload"},
         )
+
+
+def test_provider_workspace_cleanup_removes_frozen_tree_and_is_idempotent(tmp_path):
+    trusted_root = (tmp_path / "trusted").resolve()
+    trusted_root.mkdir(mode=0o700)
+    workspace_root = trusted_root / "workspace"
+    workspace_root.mkdir(mode=0o700)
+    input_root = workspace_root / "input"
+    input_root.mkdir(mode=0o700)
+    nested_root = input_root / "nested"
+    nested_root.mkdir(mode=0o700)
+    frozen_file = nested_root / "source.py"
+    frozen_file.write_bytes(b"print('verified')\n")
+    frozen_file.chmod(0o444)
+    nested_root.chmod(0o555)
+    input_root.chmod(0o555)
+
+    cleanup_source_replay_provider_workspace(
+        trusted_root=trusted_root,
+        workspace_root=workspace_root,
+    )
+    cleanup_source_replay_provider_workspace(
+        trusted_root=trusted_root,
+        workspace_root=workspace_root,
+    )
+
+    assert not workspace_root.exists()
+    assert tuple(trusted_root.iterdir()) == ()
+
+
+def test_provider_workspace_cleanup_rejects_non_child_target(tmp_path):
+    trusted_root = (tmp_path / "trusted").resolve()
+    trusted_root.mkdir(mode=0o700)
+    outside_workspace = (tmp_path / "workspace").resolve()
+    outside_workspace.mkdir(mode=0o700)
+    outside_file = outside_workspace / "keep"
+    outside_file.write_bytes(b"outside")
+
+    with pytest.raises(SourceReplayProviderFilesystemError, match="direct child"):
+        cleanup_source_replay_provider_workspace(
+            trusted_root=trusted_root,
+            workspace_root=outside_workspace,
+        )
+
+    assert outside_file.read_bytes() == b"outside"
+
+
+@pytest.mark.parametrize("replacement_kind", ("file", "symlink"))
+def test_provider_workspace_cleanup_rejects_non_directory_without_following(
+    tmp_path,
+    replacement_kind,
+):
+    trusted_root = (tmp_path / "trusted").resolve()
+    trusted_root.mkdir(mode=0o700)
+    outside_root = (tmp_path / "outside").resolve()
+    outside_root.mkdir(mode=0o700)
+    outside_file = outside_root / "keep"
+    outside_file.write_bytes(b"outside")
+    workspace_root = trusted_root / "workspace"
+    if replacement_kind == "file":
+        workspace_root.write_bytes(b"not a workspace")
+    else:
+        workspace_root.symlink_to(outside_root, target_is_directory=True)
+
+    with pytest.raises(
+        SourceReplayProviderFilesystemError,
+        match="real owned directory",
+    ):
+        cleanup_source_replay_provider_workspace(
+            trusted_root=trusted_root,
+            workspace_root=workspace_root,
+        )
+
+    assert workspace_root.exists()
+    assert outside_file.read_bytes() == b"outside"
+
+
+def test_provider_workspace_cleanup_rejects_nested_symlink_without_deleting_outside(
+    tmp_path,
+):
+    trusted_root = (tmp_path / "trusted").resolve()
+    trusted_root.mkdir(mode=0o700)
+    workspace_root = trusted_root / "workspace"
+    workspace_root.mkdir(mode=0o700)
+    outside_root = (tmp_path / "outside").resolve()
+    outside_root.mkdir(mode=0o700)
+    outside_file = outside_root / "keep"
+    outside_file.write_bytes(b"outside")
+    nested_link = workspace_root / "escape"
+    nested_link.symlink_to(outside_root, target_is_directory=True)
+
+    with pytest.raises(SourceReplayProviderFilesystemError, match="link, special"):
+        cleanup_source_replay_provider_workspace(
+            trusted_root=trusted_root,
+            workspace_root=workspace_root,
+        )
+
+    assert nested_link.is_symlink()
+    assert outside_file.read_bytes() == b"outside"
+
+
+def test_provider_workspace_cleanup_rejects_workspace_replaced_while_opening(
+    tmp_path,
+    monkeypatch,
+):
+    trusted_root = (tmp_path / "trusted").resolve()
+    trusted_root.mkdir(mode=0o700)
+    workspace_root = trusted_root / "workspace"
+    workspace_root.mkdir(mode=0o700)
+    (workspace_root / "original").write_bytes(b"original")
+    moved_workspace = trusted_root / "moved-workspace"
+    real_open = replay_provider_filesystem.os.open
+    replaced = False
+
+    def replace_before_workspace_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal replaced
+        if path == workspace_root.name and dir_fd is not None and not replaced:
+            replaced = True
+            workspace_root.rename(moved_workspace)
+            workspace_root.mkdir(mode=0o700)
+            (workspace_root / "replacement").write_bytes(b"replacement")
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(
+        replay_provider_filesystem.os,
+        "open",
+        replace_before_workspace_open,
+    )
+
+    with pytest.raises(
+        SourceReplayProviderFilesystemError, match="changed while opening"
+    ):
+        cleanup_source_replay_provider_workspace(
+            trusted_root=trusted_root,
+            workspace_root=workspace_root,
+        )
+
+    assert (moved_workspace / "original").read_bytes() == b"original"
+    assert (workspace_root / "replacement").read_bytes() == b"replacement"
 
 
 @pytest.mark.parametrize("leg_name", ("control_leg", "candidate_leg"))
