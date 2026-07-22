@@ -120,6 +120,8 @@ def test_mixed_key_aggregate_fails_before_any_provider_revalidation(
         registry._resolve_cases(
             (replay_case, replay_case),
             (exact_key, missing_key),
+            prepared_replay_request.candidate,
+            prepared_replay_request.parent,
         )
 
     assert provider.dispatch_key_reads == 0
@@ -216,6 +218,25 @@ def test_resolved_provider_identity_is_fenced_again_before_execution(
         ResolvedExpertSourceReplayExecutionCase(
             materialized_case=replay_case,
             dispatch_key=exact_key,
+            candidate=prepared_replay_request.candidate,
+            parent=prepared_replay_request.parent,
+            provider=provider,
+        )
+
+
+def test_resolved_provider_requires_exact_typed_expert_sources(
+    prepared_replay_request,
+):
+    replay_case = prepared_replay_request.cases[0]
+    exact_key = expert_source_replay_execution_provider_key(replay_case)
+    provider = _Provider(exact_key)
+
+    with pytest.raises(ExpertSourceReplayExecutionError, match="expert sources"):
+        ResolvedExpertSourceReplayExecutionCase(
+            materialized_case=replay_case,
+            dispatch_key=exact_key,
+            candidate=prepared_replay_request.parent,
+            parent=prepared_replay_request.parent,
             provider=provider,
         )
 

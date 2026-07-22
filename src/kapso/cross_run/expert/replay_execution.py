@@ -7,7 +7,11 @@ from types import MappingProxyType
 from typing import Mapping, Protocol
 
 from kapso.cross_run.canonical import require_identifier
-from kapso.cross_run.contracts import StrictContract
+from kapso.cross_run.contracts import (
+    ExpertSourceReplayExecutionLeg,
+    ExpertSourceReplayExecutionLegKind,
+    StrictContract,
+)
 from kapso.cross_run.expert.replay_protocol import (
     TaskEvaluatorInvocationAllocation,
     TaskEvaluatorRequest,
@@ -16,6 +20,8 @@ from kapso.cross_run.expert.replay_protocol import (
 from kapso.cross_run.expert.replay_request import (
     MaterializedExpertSourceReplayCase,
     PreparedExpertSourceReplayRequest,
+    VerifiedExpertSourceReplayCandidate,
+    VerifiedExpertSourceReplayParent,
 )
 from kapso.cross_run.process import BoundedProcessResult
 
@@ -120,6 +126,9 @@ def source_replay_provider_execution_handle(
 @dataclass(frozen=True)
 class ExpertSourceReplayMatchedLegInvocation:
     materialized_case: MaterializedExpertSourceReplayCase
+    expert_source: (
+        VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent
+    )
     invocation_allocation: TaskEvaluatorInvocationAllocation
     task_evaluator_request: TaskEvaluatorRequest
     provider_handle: SourceReplayProviderExecutionHandle
@@ -133,7 +142,12 @@ class ExpertSourceReplayMatchedLegInvocation:
             self.materialized_case
         )
         if (
-            not isinstance(
+            not _expert_source_matches_leg(
+                self.materialized_case,
+                self.invocation_allocation,
+                self.expert_source,
+            )
+            or not isinstance(
                 self.invocation_allocation,
                 TaskEvaluatorInvocationAllocation,
             )
@@ -153,6 +167,69 @@ class ExpertSourceReplayMatchedLegInvocation:
             raise ExpertSourceReplayExecutionError(
                 "source replay invocation differs from its exact case authority"
             )
+
+
+def _expert_source_matches_leg(
+    materialized_case: MaterializedExpertSourceReplayCase,
+    invocation_allocation: TaskEvaluatorInvocationAllocation,
+    expert_source: (
+        VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent
+    ),
+) -> bool:
+    if not isinstance(
+        invocation_allocation,
+        TaskEvaluatorInvocationAllocation,
+    ):
+        return False
+    request_case = materialized_case.request_case
+    if (
+        invocation_allocation.execution_case_id != request_case.execution_case_id
+        or invocation_allocation.execution_leg_id
+        not in {
+            request_case.control_leg.execution_leg_id,
+            request_case.candidate_leg.execution_leg_id,
+        }
+    ):
+        return False
+    if (
+        invocation_allocation.execution_leg_id
+        == request_case.control_leg.execution_leg_id
+    ):
+        leg = request_case.control_leg
+    else:
+        leg = request_case.candidate_leg
+    return _expert_source_matches_execution_leg(leg, expert_source)
+
+
+def _expert_source_matches_execution_leg(
+    execution_leg: ExpertSourceReplayExecutionLeg,
+    expert_source: (
+        VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent
+    ),
+) -> bool:
+    if (
+        execution_leg.kind is ExpertSourceReplayExecutionLegKind.CONTROL_PARENT
+        and type(expert_source) is VerifiedExpertSourceReplayParent
+    ):
+        return (
+            expert_source.release_manifest.release_id
+            == execution_leg.expert_artifact_id
+            and expert_source.parent_tree_receipt.parent_tree_receipt_id
+            == execution_leg.expert_source_receipt_id
+            and expert_source.parent_tree_receipt.parent_tree_hash
+            == execution_leg.expert_tree_hash
+        )
+    if (
+        execution_leg.kind is ExpertSourceReplayExecutionLegKind.CANDIDATE
+        and type(expert_source) is VerifiedExpertSourceReplayCandidate
+    ):
+        return (
+            expert_source.manifest.candidate_id == execution_leg.expert_artifact_id
+            and expert_source.commit_record.commit_record_id
+            == execution_leg.expert_source_receipt_id
+            and expert_source.source_tree.tree_hash == execution_leg.expert_tree_hash
+        )
+    return False
 
 
 @dataclass(frozen=True)
@@ -182,12 +259,22 @@ class ResolvedExpertSourceReplayExecutionCase:
 
     materialized_case: MaterializedExpertSourceReplayCase
     dispatch_key: ExpertSourceReplayExecutionProviderKey
+    _candidate: VerifiedExpertSourceReplayCandidate = field(
+        repr=False,
+        compare=False,
+    )
+    _parent: VerifiedExpertSourceReplayParent = field(
+        repr=False,
+        compare=False,
+    )
     _provider: ExpertSourceReplayExecutionProvider = field(repr=False, compare=False)
 
     def __init__(
         self,
         materialized_case: MaterializedExpertSourceReplayCase,
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
+        candidate: VerifiedExpertSourceReplayCandidate,
+        parent: VerifiedExpertSourceReplayParent,
         provider: ExpertSourceReplayExecutionProvider,
     ) -> None:
         if not isinstance(materialized_case, MaterializedExpertSourceReplayCase):
@@ -203,6 +290,13 @@ class ResolvedExpertSourceReplayExecutionCase:
                 "resolved source replay provider cannot execute a matched leg"
             )
         if (
+            type(candidate) is not VerifiedExpertSourceReplayCandidate
+            or type(parent) is not VerifiedExpertSourceReplayParent
+        ):
+            raise ExpertSourceReplayExecutionError(
+                "resolved source replay execution requires exact expert sources"
+            )
+        if (
             expert_source_replay_execution_provider_key(materialized_case)
             != dispatch_key
         ):
@@ -211,8 +305,57 @@ class ResolvedExpertSourceReplayExecutionCase:
             )
         object.__setattr__(self, "materialized_case", materialized_case)
         object.__setattr__(self, "dispatch_key", dispatch_key)
+        object.__setattr__(self, "_candidate", candidate)
+        object.__setattr__(self, "_parent", parent)
         object.__setattr__(self, "_provider", provider)
+        self._require_bound_expert_sources()
         self.require_current_provider_identity()
+
+    def _require_bound_expert_sources(self) -> None:
+        request_case = self.materialized_case.request_case
+        for leg, source in (
+            (request_case.control_leg, self._parent),
+            (request_case.candidate_leg, self._candidate),
+        ):
+            if not _expert_source_matches_execution_leg(leg, source):
+                raise ExpertSourceReplayExecutionError(
+                    "resolved source replay expert source differs from its leg"
+                )
+
+    def require_exact_prepared_authority(
+        self,
+        prepared_request: PreparedExpertSourceReplayRequest,
+    ) -> None:
+        if (
+            not isinstance(prepared_request, PreparedExpertSourceReplayRequest)
+            or self._candidate != prepared_request.candidate
+            or self._parent != prepared_request.parent
+            or self.materialized_case not in prepared_request.cases
+        ):
+            raise ExpertSourceReplayExecutionError(
+                "resolved source replay execution differs from prepared authority"
+            )
+
+    def _expert_source_for(
+        self,
+        invocation_allocation: TaskEvaluatorInvocationAllocation,
+    ) -> VerifiedExpertSourceReplayCandidate | VerifiedExpertSourceReplayParent:
+        request_case = self.materialized_case.request_case
+        source = (
+            self._parent
+            if invocation_allocation.execution_leg_id
+            == request_case.control_leg.execution_leg_id
+            else self._candidate
+        )
+        if not _expert_source_matches_leg(
+            self.materialized_case,
+            invocation_allocation,
+            source,
+        ):
+            raise ExpertSourceReplayExecutionError(
+                "source replay allocation has no exact expert source"
+            )
+        return source
 
     def require_current_provider_identity(self) -> None:
         current_key = getattr(
@@ -230,6 +373,15 @@ class ResolvedExpertSourceReplayExecutionCase:
         invocation: ExpertSourceReplayMatchedLegInvocation,
     ) -> ExpertSourceReplayProviderCompletion:
         self.require_current_provider_identity()
+        if (
+            type(invocation) is not ExpertSourceReplayMatchedLegInvocation
+            or invocation.materialized_case != self.materialized_case
+            or invocation.expert_source
+            != self._expert_source_for(invocation.invocation_allocation)
+        ):
+            raise ExpertSourceReplayExecutionError(
+                "source replay invocation differs from its resolved authority"
+            )
         execute_leg = getattr(self._provider, "execute_leg", None)
         if not callable(execute_leg):
             raise ExpertSourceReplayExecutionError(
@@ -308,12 +460,19 @@ class ExpertSourceReplayExecutionProviderRegistry:
             expert_source_replay_execution_provider_key(materialized_case)
             for materialized_case in prepared.cases
         )
-        return self._resolve_cases(prepared.cases, case_keys)
+        return self._resolve_cases(
+            prepared.cases,
+            case_keys,
+            prepared.candidate,
+            prepared.parent,
+        )
 
     def _resolve_cases(
         self,
         materialized_cases: tuple[MaterializedExpertSourceReplayCase, ...],
         case_keys: tuple[ExpertSourceReplayExecutionProviderKey, ...],
+        candidate: VerifiedExpertSourceReplayCandidate,
+        parent: VerifiedExpertSourceReplayParent,
     ) -> tuple[ResolvedExpertSourceReplayExecutionCase, ...]:
         if (
             not isinstance(materialized_cases, tuple)
@@ -337,6 +496,8 @@ class ExpertSourceReplayExecutionProviderRegistry:
             ResolvedExpertSourceReplayExecutionCase(
                 materialized_case=materialized_case,
                 dispatch_key=key,
+                candidate=candidate,
+                parent=parent,
                 provider=self._providers_by_key[key],
             )
             for materialized_case, key in zip(

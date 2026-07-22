@@ -482,6 +482,9 @@ class SourceReplaySpawnPermit:
             "_invocation",
             ExpertSourceReplayMatchedLegInvocation(
                 materialized_case=resolved_case.materialized_case,
+                expert_source=resolved_case._expert_source_for(
+                    event.invocation_allocation
+                ),
                 invocation_allocation=event.invocation_allocation,
                 task_evaluator_request=event.task_evaluator_request,
                 provider_handle=event.provider_execution_handle,
@@ -1115,6 +1118,7 @@ class ExpertSourceReplayExecutionStore:
             raise ExpertSourceReplayExecutionStoreError(
                 "execution journal spawn resolution names another case"
             )
+        resolved_case.require_exact_prepared_authority(prepared_request)
         resolved_case.require_current_provider_identity()
         execution_provider_key = expert_source_replay_execution_provider_key(
             matching_cases[0]

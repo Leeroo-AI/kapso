@@ -553,6 +553,12 @@ def test_durable_spawn_result_acceptance_advances_the_exact_schedule(tmp_path):
             allocation_permit,
         )
         completion = execution.execute()
+        first_case = prepared.cases[0].request_case
+        expected_expert_source = (
+            prepared.parent
+            if schedule[0][1] == first_case.control_leg.execution_leg_id
+            else prepared.candidate
+        )
         expected_result = _result_payload(
             provider.invocations[0].task_evaluator_request
         )[1]
@@ -569,6 +575,7 @@ def test_durable_spawn_result_acceptance_advances_the_exact_schedule(tmp_path):
             "result_accepted",
         )
         assert received.result_blob is not None
+        assert provider.invocations[0].expert_source == expected_expert_source
         assert accepted_result == expected_result
         assert (
             next_allocation.execution_case_id,
@@ -736,6 +743,7 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
     fixture, prepared, reservation, store = _journal_fixture(tmp_path)
     schedule = source_replay_execution_schedule(reservation, prepared.request)
     observed_allocations = []
+    observed_expert_sources = []
 
     with store.reservation_session(
         reservation=reservation,
@@ -749,7 +757,7 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
                 expected_case_id,
                 expected_leg_id,
             )
-            execution, _provider = _commit_spawn(
+            execution, provider = _commit_spawn(
                 fixture,
                 prepared,
                 reservation,
@@ -757,6 +765,7 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
                 allocation_permit,
             )
             session.record_result_received(execution.execute())
+            observed_expert_sources.append(provider.invocations[0].expert_source)
             session.accept_received_result()
 
         with pytest.raises(ExpertSourceReplayExecutionStoreError, match="complete"):
@@ -768,6 +777,19 @@ def test_complete_schedule_never_reallocates_or_reuses_an_invocation(tmp_path):
     )
     assert len({item.opaque_invocation_id for item in observed_allocations}) == len(
         schedule
+    )
+    cases_by_id = {
+        item.request_case.execution_case_id: item.request_case
+        for item in prepared.cases
+    }
+    assert tuple(observed_expert_sources) == tuple(
+        (
+            prepared.parent
+            if execution_leg_id
+            == cases_by_id[execution_case_id].control_leg.execution_leg_id
+            else prepared.candidate
+        )
+        for execution_case_id, execution_leg_id in schedule
     )
 
     with store.reservation_session(

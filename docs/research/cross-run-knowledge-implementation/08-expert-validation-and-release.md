@@ -155,7 +155,9 @@ The resolved provider advertises the same full key again immediately before and
 after execution so registry mutation or provider substitution cannot bypass
 dispatch. Resolution keeps the provider private. After the durable spawn marker,
 a guarded one-shot capability invokes that exact provider with no caller-supplied
-arguments; only its session-registered sealed completion may enter the journal.
+arguments; the registry binds both verified expert trees, while the capability
+passes only the exact parent or candidate byte closure selected by the allocated
+leg. Only its session-registered sealed completion may enter the journal.
 
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Protocol v1 writes one canonical request to
