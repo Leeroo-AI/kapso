@@ -61,6 +61,8 @@ def test_handler_renders_submission_economics_from_config_values(tmp_path):
     assert "~40 minutes" in context
     assert "flock 9" in context
     assert "PUBLIC scores only" in context
+    assert "HUMAN OPERATOR APPROVAL" in context
+    assert "kaggle_submit_requests.log" in context
     assert "train inside the kernel" in context.lower() or (
         "TRAIN from the provided checkpoint" in context
     )

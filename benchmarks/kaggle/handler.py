@@ -106,6 +106,14 @@ scored Kaggle entry and a reproducible kernel on disk.
    weights the kernel cannot rebuild.
 
 ## Kaggle protocol (the CLI is installed and authenticated)
+- SUBMISSION APPROVAL GATE: every `kaggle competitions submit` requires
+  HUMAN OPERATOR APPROVAL. The CLI blocks the submit, logs your exact
+  command to ~/kaggle_submit_requests.log, and notifies the operator; the
+  approved submission is executed by the operator and its full output
+  appears in ~/kaggle_submit_executed.log — poll that file. When you
+  request, include a one-line rationale (local val score + expected gain)
+  via the -m message. Do not retry blocked submits or attempt to bypass
+  the gate; continue local work while waiting.
 - Submission flow, exactly this sequence (competition: `{competition}`):
   `kaggle kernels push -p {self.submission_dir}/kernel/` — push TWICE on
   first creation (the first run often starts before the data mounts) and
