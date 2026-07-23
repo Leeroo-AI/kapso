@@ -426,7 +426,6 @@ def test_task_binding_has_exact_three_fields_and_unknown_scope_fails():
     ("path", "value"),
     [
         (("github", "command_timeout_seconds"), 0),
-        (("github", "comparison_response_size_bytes"), 0),
         (("github", "control_blob_size_bytes"), 0),
         (("github", "content_write_budget_per_minute"), 1),
         (("github", "content_write_budget_per_minute"), 34),

@@ -125,6 +125,7 @@ from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewStageResultRecord,
 )
 from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseActivationReceipt,
     ExpertReleasePublicationIntent,
     ExpertReleasePublicationPlan,
     ExpertReleasePublicationStaleResolution,
@@ -138,6 +139,7 @@ from kapso.cross_run.git_refs import git_object_sha
 from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
+    GitHubArtifactActivationWitness,
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
@@ -344,6 +346,13 @@ class ExpertReleasePublicationReservationCommitResult:
     replayed: bool
 
 
+@dataclass(frozen=True)
+class ExpertReleaseActivationCommitResult:
+    receipt: ExpertReleaseActivationReceipt
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
 _RELEASE_PUBLICATION_PLAN_PERMIT_SEAL = object()
 
 
@@ -415,8 +424,10 @@ class ExpertReleasePublicationStalePermit:
     __slots__ = (
         "_consumed",
         "_observed_current",
+        "_observed_current_activation_witness",
         "_own_github_publication_intent",
         "_own_github_publication_pointer",
+        "_own_github_activation_preparation_commit_sha",
         "_owner_process_id",
         "_publisher",
         "_reservation",
@@ -431,8 +442,10 @@ class ExpertReleasePublicationStalePermit:
         publisher: object,
         reservation: ExpertReleasePublicationReservation,
         observed_current: TaskEvaluationCurrentReleaseObservation,
+        observed_current_activation_witness: GitHubArtifactActivationWitness,
         own_github_publication_intent: ArtifactPublicationIntent | None,
         own_github_publication_pointer: CurrentArtifactPointer | None,
+        own_github_activation_preparation_commit_sha: str | None,
         resolved_at: str,
     ) -> None:
         if seal is not _RELEASE_PUBLICATION_STALE_PERMIT_SEAL:
@@ -447,6 +460,11 @@ class ExpertReleasePublicationStalePermit:
         object.__setattr__(self, "_observed_current", observed_current)
         object.__setattr__(
             self,
+            "_observed_current_activation_witness",
+            observed_current_activation_witness,
+        )
+        object.__setattr__(
+            self,
             "_own_github_publication_intent",
             own_github_publication_intent,
         )
@@ -454,6 +472,11 @@ class ExpertReleasePublicationStalePermit:
             self,
             "_own_github_publication_pointer",
             own_github_publication_pointer,
+        )
+        object.__setattr__(
+            self,
+            "_own_github_activation_preparation_commit_sha",
+            own_github_activation_preparation_commit_sha,
         )
         object.__setattr__(self, "_resolved_at", resolved_at)
 
@@ -484,6 +507,80 @@ class ExpertReleasePublicationStalePermit:
             raise ExpertValidationStoreError(
                 "release publication stale permit is consumed or foreign"
             )
+
+
+_RELEASE_ACTIVATION_PERMIT_SEAL = object()
+
+
+class ExpertReleaseActivationPermit:
+    """One-shot authority over an exactly observed GitHub activation."""
+
+    __slots__ = (
+        "_activation_witness",
+        "_consumed",
+        "_github_publication_intent",
+        "_github_publication_pointer",
+        "_observed_current",
+        "_owner_process_id",
+        "_publisher",
+        "_reservation",
+        "_store",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        store: ExpertValidationStore,
+        publisher: object,
+        reservation: ExpertReleasePublicationReservation,
+        github_publication_intent: ArtifactPublicationIntent,
+        github_publication_pointer: CurrentArtifactPointer,
+        activation_witness: GitHubArtifactActivationWitness,
+        observed_current: TaskEvaluationCurrentReleaseObservation,
+    ) -> None:
+        if seal is not _RELEASE_ACTIVATION_PERMIT_SEAL:
+            raise ExpertValidationStoreError(
+                "release activation permit is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_publisher", publisher)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "_reservation", reservation)
+        object.__setattr__(
+            self, "_github_publication_intent", github_publication_intent
+        )
+        object.__setattr__(
+            self, "_github_publication_pointer", github_publication_pointer
+        )
+        object.__setattr__(self, "_activation_witness", activation_witness)
+        object.__setattr__(self, "_observed_current", observed_current)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertValidationStoreError("release activation permit is immutable")
+
+    def _require_bound(
+        self,
+        store: ExpertValidationStore,
+        publisher: object,
+    ) -> None:
+        if (
+            self._consumed
+            or self._store is not store
+            or self._publisher is not publisher
+            or self._owner_process_id != os.getpid()
+        ):
+            raise ExpertValidationStoreError(
+                "release activation permit is consumed or foreign"
+            )
+
+    def _consume(
+        self,
+        store: ExpertValidationStore,
+        publisher: object,
+    ) -> None:
+        self._require_bound(store, publisher)
+        object.__setattr__(self, "_consumed", True)
 
 
 @dataclass(frozen=True)
@@ -786,6 +883,8 @@ class ExpertValidationStore:
         own_pointer = stale_permit._own_github_publication_pointer
         if own_pointer is not None:
             dependencies.add(own_pointer.publication_record.publication_id)
+        winner_witness = stale_permit._observed_current_activation_witness
+        dependencies.add(winner_witness.witness_id)
         resolution = ExpertReleasePublicationStaleResolution.mint(
             publication_intent_id=reservation.intent.publication_intent_id,
             publication_plan_id=plan.publication_plan_id,
@@ -797,8 +896,12 @@ class ExpertValidationStore:
                 plan.current_release_observation.observation_id
             ),
             observed_current_release=observed,
+            observed_current_activation_witness=winner_witness,
             own_github_publication_intent=(stale_permit._own_github_publication_intent),
             own_github_publication_pointer=own_pointer,
+            own_github_activation_preparation_commit_sha=(
+                stale_permit._own_github_activation_preparation_commit_sha
+            ),
             resolved_at=stale_permit._resolved_at,
             exact_dependency_ids=tuple(sorted(dependencies)),
         )
@@ -858,6 +961,153 @@ class ExpertValidationStore:
                 resolution_id,
                 ExpertReleasePublicationStaleResolution,
             )
+
+    def commit_release_activation(
+        self,
+        activation_permit: ExpertReleaseActivationPermit,
+    ) -> ExpertReleaseActivationCommitResult:
+        """Atomically publish one APPROVED-to-RELEASED lifecycle transition."""
+
+        if type(activation_permit) is not ExpertReleaseActivationPermit:
+            raise ExpertValidationStoreError(
+                "release activation requires a publisher-sealed permit"
+            )
+        publisher = self._require_bound_release_publisher_authority(
+            self._release_publisher
+        )
+        activation_permit._require_bound(self, publisher)
+        reservation = activation_permit._reservation
+        plan = reservation.plan
+        observed = activation_permit._observed_current
+        github_intent = activation_permit._github_publication_intent
+        github_pointer = activation_permit._github_publication_pointer
+        activation_witness = activation_permit._activation_witness
+        dependencies = {
+            reservation.intent.publication_intent_id,
+            plan.publication_plan_id,
+            plan.release_id,
+            plan.candidate_id,
+            plan.approval_transition_id,
+            plan.approval_state_id,
+            plan.current_release_observation.observation_id,
+            github_pointer.publication_record.publication_id,
+            activation_witness.witness_id,
+            observed.observation_id,
+            *github_intent.validation_closure_ids,
+            *observed.validation_closure_ids,
+        }
+        if observed.release_id is not None:
+            dependencies.add(observed.release_id)
+        if observed.publication_id is not None:
+            dependencies.add(observed.publication_id)
+        receipt = ExpertReleaseActivationReceipt.mint(
+            publication_intent_id=reservation.intent.publication_intent_id,
+            publication_plan_id=plan.publication_plan_id,
+            release_id=plan.release_id,
+            candidate_id=plan.candidate_id,
+            approval_transition_id=plan.approval_transition_id,
+            approval_state_id=plan.approval_state_id,
+            planned_current_observation_id=(
+                plan.current_release_observation.observation_id
+            ),
+            github_publication_intent=github_intent,
+            github_publication_pointer=github_pointer,
+            activation_witness=activation_witness,
+            observed_current_release=observed,
+            exact_dependency_ids=tuple(sorted(dependencies)),
+        )
+        operation = ExpertValidationOperation.mint(
+            operation_kind=ExpertValidationOperationKind.RELEASE_ACTIVATION,
+            candidate_id=plan.candidate_id,
+            expected_transition_id=plan.approval_transition_id,
+            request_record_id=receipt.activation_receipt_id,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            replay = self._release_activation_result_unlocked(journal)
+            if replay is not None:
+                activation_permit._consume(self, publisher)
+                return replay
+            if journal.release_publication_stale_resolution_id is not None:
+                raise ExpertValidationCompareAndSwapError(
+                    "release publication already has a stale terminal outcome"
+                )
+            if journal.release_publication_intent_id != (
+                reservation.intent.publication_intent_id
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "release publication intent changed before activation commit"
+                )
+            current = self._current_from_journal_unlocked(journal)
+            if current is None or current.latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "release activation lost its approved validation head"
+                )
+            self._validate_release_publication_reservation_unlocked(
+                reservation.intent,
+                plan,
+                reservation.manifest,
+                current,
+            )
+            target_state = self.reducer.advance_release_activation(
+                state=current.state,
+                attempt=current.latest_attempt,
+                plan=plan,
+                receipt=receipt,
+            )
+            transition = ExpertValidationTransition.mint(
+                candidate_id=plan.candidate_id,
+                candidate_tree_hash=plan.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=current.transition.transition_id,
+                predecessor_state_id=current.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=current.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=current.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    current.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=(
+                    current.transition.accepted_stage_result_record_ids
+                ),
+                transition_stage_result_record_id=None,
+                transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=(
+                    receipt.activation_receipt_id
+                ),
+            )
+            activation_permit._consume(self, publisher)
+            self._write_contract_unlocked(receipt)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_release_activation_transition(
+                journal,
+                transition,
+            )
+            self._publish_journal_unlocked(updated)
+            return ExpertReleaseActivationCommitResult(
+                receipt=receipt,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
+                replayed=False,
+            )
+
+    def reopen_release_activation(
+        self,
+        candidate_id: str,
+    ) -> ExpertReleaseActivationCommitResult | None:
+        """Reopen the first durable RELEASED outcome without remote access."""
+
+        require_content_id(candidate_id, "release activation candidate_id")
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            return self._release_activation_result_unlocked(journal)
 
     def reopen_or_replay_automated_review(
         self,
@@ -1167,14 +1417,18 @@ class ExpertValidationStore:
         publisher: object,
         reservation: ExpertReleasePublicationReservation,
         observed_current: TaskEvaluationCurrentReleaseObservation,
+        observed_current_activation_witness: GitHubArtifactActivationWitness,
         own_github_publication_intent: ArtifactPublicationIntent | None,
         own_github_publication_pointer: CurrentArtifactPointer | None,
+        own_github_activation_preparation_commit_sha: str | None,
         resolved_at: str,
     ) -> ExpertReleasePublicationStalePermit:
         self._require_bound_release_publisher_authority(publisher)
         if (
             type(reservation) is not ExpertReleasePublicationReservation
             or type(observed_current) is not TaskEvaluationCurrentReleaseObservation
+            or type(observed_current_activation_witness)
+            is not GitHubArtifactActivationWitness
         ):
             raise ExpertValidationStoreError(
                 "stale publication sealing requires exact reservation and CURRENT"
@@ -1188,6 +1442,37 @@ class ExpertValidationStore:
             self._release_assembler.github_settings.publisher_login,
         )
         planned = plan.current_release_observation
+        repositories = publisher.resolver.repositories_for_scope(plan.scope_id)
+        if (
+            observed_current_activation_witness.scope_id != plan.scope_id
+            or observed_current_activation_witness.scope_repository_binding_hash
+            != repositories.binding_fingerprint
+            or observed_current_activation_witness.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or observed_current_activation_witness.artifact_id
+            != observed_current.release_id
+            or observed_current_activation_witness.repository_full_name
+            != repositories.expert_repository
+            or observed_current_activation_witness.activation_commit_sha
+            != observed_current.default_branch_head_commit_sha
+            or observed_current_activation_witness.current_pointer_digest
+            != observed_current.current_pointer_digest
+        ):
+            raise ExpertValidationStoreError(
+                "stale publication winner lacks its activation witness"
+            )
+        if own_github_activation_preparation_commit_sha is not None and (
+            own_github_publication_pointer is None
+            or not re.fullmatch(
+                r"[0-9a-f]{40}",
+                own_github_activation_preparation_commit_sha,
+            )
+            or own_github_activation_preparation_commit_sha
+            == observed_current_activation_witness.activation_commit_sha
+        ):
+            raise ExpertValidationStoreError(
+                "stale publication preparation is inconsistent"
+            )
         if (
             observed_current.scope_id != plan.scope_id
             or observed_current.repository_full_name != planned.repository_full_name
@@ -1224,9 +1509,100 @@ class ExpertValidationStore:
             publisher,
             reservation,
             observed_current,
+            observed_current_activation_witness,
             own_github_publication_intent,
             own_github_publication_pointer,
+            own_github_activation_preparation_commit_sha,
             resolved_at,
+        )
+
+    def _seal_release_activation(
+        self,
+        *,
+        publisher: object,
+        reservation: ExpertReleasePublicationReservation,
+        github_publication_intent: ArtifactPublicationIntent,
+        github_publication_pointer: CurrentArtifactPointer,
+        activation_witness: GitHubArtifactActivationWitness,
+        observed_current: TaskEvaluationCurrentReleaseObservation,
+    ) -> ExpertReleaseActivationPermit:
+        self._require_bound_release_publisher_authority(publisher)
+        if (
+            type(reservation) is not ExpertReleasePublicationReservation
+            or type(github_publication_intent) is not ArtifactPublicationIntent
+            or type(github_publication_pointer) is not CurrentArtifactPointer
+            or type(activation_witness) is not GitHubArtifactActivationWitness
+            or type(observed_current) is not TaskEvaluationCurrentReleaseObservation
+        ):
+            raise ExpertValidationStoreError(
+                "release activation sealing requires exact remote evidence"
+            )
+        plan = reservation.plan
+        self._validate_release_publication_remote_history(
+            reservation.intent,
+            plan,
+            github_publication_intent,
+            github_publication_pointer,
+            self._release_assembler.github_settings.publisher_login,
+        )
+        repositories = publisher.resolver.repositories_for_scope(plan.scope_id)
+        if (
+            github_publication_intent.artifact_id != plan.release_id
+            or not github_publication_intent.binds(github_publication_pointer)
+            or activation_witness.scope_id != plan.scope_id
+            or activation_witness.scope_repository_binding_hash
+            != repositories.binding_fingerprint
+            or activation_witness.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or activation_witness.artifact_id != plan.release_id
+            or activation_witness.repository_full_name != repositories.expert_repository
+            or activation_witness.publication_intent_digest
+            != github_publication_intent.digest
+            or activation_witness.current_pointer_digest
+            != tree_or_blob_digest(github_publication_pointer.to_json_bytes())
+            or observed_current.scope_id != plan.scope_id
+            or observed_current.repository_full_name != repositories.expert_repository
+            or observed_current.repository_node_id
+            != plan.current_release_observation.repository_node_id
+        ):
+            raise ExpertValidationStoreError(
+                "release activation evidence does not prove the reserved release"
+            )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(plan.candidate_id)
+            replay = self._release_activation_result_unlocked(journal)
+            if replay is not None:
+                if replay.receipt.publication_plan_id != plan.publication_plan_id:
+                    raise ExpertValidationCompareAndSwapError(
+                        "release activation conflicts with the durable outcome"
+                    )
+            else:
+                if journal.release_publication_intent_id != (
+                    reservation.intent.publication_intent_id
+                ):
+                    raise ExpertValidationCompareAndSwapError(
+                        "release publication intent changed before activation sealing"
+                    )
+                current = self._current_from_journal_unlocked(journal)
+                if current is None:
+                    raise ExpertValidationStoreError(
+                        "release activation reservation lost its validation head"
+                    )
+                self._validate_release_publication_reservation_unlocked(
+                    reservation.intent,
+                    plan,
+                    reservation.manifest,
+                    current,
+                )
+        return ExpertReleaseActivationPermit(
+            _RELEASE_ACTIVATION_PERMIT_SEAL,
+            self,
+            publisher,
+            reservation,
+            github_publication_intent,
+            github_publication_pointer,
+            activation_witness,
+            observed_current,
         )
 
     @staticmethod
@@ -1529,6 +1905,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=None,
             )
             self._write_contract_unlocked(result.paired_comparison_receipt)
             self._write_contract_unlocked(result.stage_decision)
@@ -1691,6 +2068,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=(result.evaluator_result_record_id),
                 transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=None,
             )
             self._write_contract_unlocked(result)
             self._write_contract_unlocked(target_state)
@@ -1782,6 +2160,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=None,
             )
             self._write_contract_unlocked(prepared.candidate_input)
             self._write_automated_review_derivation_unlocked(prepared)
@@ -2030,6 +2409,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=None,
             )
             self._write_contract_unlocked(report)
             self._write_contract_unlocked(result)
@@ -2230,6 +2610,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=None,
             )
             self._write_contract_unlocked(decision)
             if result.publication_authority_fence is not None:
@@ -3091,6 +3472,7 @@ class ExpertValidationStore:
                 transition_authority_invalidation_id=(
                     invalidation.authority_invalidation_id
                 ),
+                transition_release_activation_receipt_id=None,
             )
             self._write_contract_unlocked(invalidation)
             self._write_contract_unlocked(reduced.state)
@@ -3155,6 +3537,7 @@ class ExpertValidationStore:
             accepted_stage_result_record_ids=(),
             transition_stage_result_record_id=None,
             transition_authority_invalidation_id=None,
+            transition_release_activation_receipt_id=None,
         )
 
     @staticmethod
@@ -5209,6 +5592,81 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "validation accepted result prefix is not gap-free"
                 )
+        elif transition.transition_release_activation_receipt_id is not None:
+            if previous_transition is None or latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "release activation requires an approved predecessor"
+                )
+            predecessor_state = self._read_contract_unlocked(
+                previous_transition.target_state_id,
+                ExpertCandidateValidationState,
+            )
+            receipt = self._read_contract_unlocked(
+                transition.transition_release_activation_receipt_id,
+                ExpertReleaseActivationReceipt,
+            )
+            intent = self._read_contract_unlocked(
+                receipt.publication_intent_id,
+                ExpertReleasePublicationIntent,
+            )
+            plan = self._read_contract_unlocked(
+                receipt.publication_plan_id,
+                ExpertReleasePublicationPlan,
+            )
+            manifest = self._read_contract_unlocked(
+                receipt.release_id,
+                ExpertBaseReleaseManifest,
+            )
+            predecessor_snapshot = self._snapshot_at_unlocked(
+                journal,
+                previous_transition.transition_id,
+            )
+            self._validate_release_publication_reservation_unlocked(
+                intent,
+                plan,
+                manifest,
+                predecessor_snapshot,
+            )
+            self._validate_release_publication_remote_history(
+                intent,
+                plan,
+                receipt.github_publication_intent,
+                receipt.github_publication_pointer,
+                None,
+            )
+            historical_reducer = ExpertValidationReducer(
+                persisted_settings,
+                self.reducer.candidate_store,
+                self.reducer.attestation_verifier,
+                self.reducer.task_adapter_provider,
+                self.reducer.current_release_provider,
+                self.reducer.validation_state_provider,
+            )
+            expected_state = historical_reducer.advance_release_activation(
+                state=predecessor_state,
+                attempt=latest_attempt,
+                plan=plan,
+                receipt=receipt,
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.RELEASE_ACTIVATION
+                or operation.request_record_id != receipt.activation_receipt_id
+                or operation.expected_transition_id
+                != transition.predecessor_transition_id
+                or receipt.publication_plan_id != plan.publication_plan_id
+                or receipt.release_id != manifest.release_id
+                or receipt.candidate_id != transition.candidate_id
+                or receipt.approval_transition_id
+                != transition.predecessor_transition_id
+                or receipt.approval_state_id != transition.predecessor_state_id
+                or transition.accepted_stage_result_record_ids
+                != previous_transition.accepted_stage_result_record_ids
+                or state != expected_state
+            ):
+                raise ExpertValidationStoreError(
+                    "release activation transition closure is inconsistent"
+                )
         else:
             invalidation = self._read_contract_unlocked(
                 transition.transition_authority_invalidation_id,
@@ -5322,6 +5780,74 @@ class ExpertValidationStore:
             release_publication_stale_resolution_id=(
                 journal.release_publication_stale_resolution_id
             ),
+        )
+
+    @staticmethod
+    def _append_release_activation_transition(
+        journal: ExpertValidationJournal,
+        transition: ExpertValidationTransition,
+    ) -> ExpertValidationJournal:
+        if (
+            journal.release_publication_intent_id is None
+            or journal.release_publication_stale_resolution_id is not None
+            or transition.transition_release_activation_receipt_id is None
+        ):
+            raise ExpertValidationCompareAndSwapError(
+                "release activation lacks the frozen publication intent"
+            )
+        operations = dict(journal.operation_transition_ids)
+        operations[transition.operation_id] = transition.transition_id
+        return ExpertValidationJournal(
+            candidate_id=journal.candidate_id,
+            candidate_tree_hash=journal.candidate_tree_hash,
+            transition_ids=(*journal.transition_ids, transition.transition_id),
+            operation_transition_ids=operations,
+            release_publication_intent_id=None,
+            release_publication_stale_resolution_id=None,
+        )
+
+    def _release_activation_result_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+    ) -> ExpertReleaseActivationCommitResult | None:
+        activation_transitions = tuple(
+            transition
+            for transition in (
+                self._read_contract_unlocked(
+                    transition_id,
+                    ExpertValidationTransition,
+                )
+                for transition_id in journal.transition_ids
+            )
+            if transition.transition_release_activation_receipt_id is not None
+        )
+        if not activation_transitions:
+            return None
+        if len(activation_transitions) != 1:
+            raise ExpertValidationStoreError(
+                "candidate has multiple durable release activations"
+            )
+        transition = activation_transitions[0]
+        receipt_id = transition.transition_release_activation_receipt_id
+        if receipt_id is None:
+            raise ExpertValidationStoreError("release activation receipt is missing")
+        receipt = self._read_contract_unlocked(
+            receipt_id,
+            ExpertReleaseActivationReceipt,
+        )
+        snapshot = self._snapshot_at_unlocked(journal, transition.transition_id)
+        if (
+            snapshot.state.promotion_state is not ExpertPromotionState.RELEASED
+            or receipt.candidate_id != journal.candidate_id
+            or receipt.activation_receipt_id != snapshot.state.transition_evidence_id
+        ):
+            raise ExpertValidationStoreError(
+                "durable release activation outcome is inconsistent"
+            )
+        return ExpertReleaseActivationCommitResult(
+            receipt=receipt,
+            snapshot=snapshot,
+            replayed=True,
         )
 
     @staticmethod

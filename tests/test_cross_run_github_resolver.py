@@ -23,6 +23,7 @@ from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
     GitHubArtifactResolver,
+    GitHubArtifactActivationWitness,
     GitHubResolutionError,
     PublicationAssetIntent,
     PublicationSourceFile,
@@ -36,6 +37,7 @@ CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 REPOSITORY = "Leeroo-AI/kapso-knowledge"
 COMMIT_SHA = "a" * 40
 POINTER_SHA = "b" * 40
+ACTIVATION_SHA = "c" * 40
 IDENTITY_SHA = "d" * 40
 INTENT_SHA = "e" * 40
 PARENT_SHA = "9" * 40
@@ -228,8 +230,11 @@ class FakeResolverClient:
         self.release = release
         self.attestation = attestation
         self.noncanonical_control = None
-        self.comparison = None
-        self.comparison_size = None
+        self.activation_preparation_ref_sha = ACTIVATION_SHA
+        self.activation_witness_ref_sha = ACTIVATION_SHA
+        self.activation_commit_sha = ACTIVATION_SHA
+        self.activation_tree_sha = None
+        self.activation_parent_sha = None
 
     def _control_text(self, control, payload):
         prefix = " " if self.noncanonical_control == control else ""
@@ -258,8 +263,53 @@ class FakeResolverClient:
             }
         if endpoint == f"repos/{REPOSITORY}/git/commits/{COMMIT_SHA}":
             return {
+                "sha": COMMIT_SHA,
                 "tree": {"sha": TREE_SHA},
                 "parents": [{"sha": PARENT_SHA}],
+            }
+        if endpoint == f"repos/{REPOSITORY}/git/commits/{POINTER_SHA}":
+            return {
+                "sha": POINTER_SHA,
+                "tree": {"sha": TREE_SHA},
+                "parents": [{"sha": self.first_parent_by_commit[POINTER_SHA]}],
+            }
+        if endpoint == (
+            f"repos/{REPOSITORY}/git/commits/{self.activation_preparation_ref_sha}"
+        ):
+            pointer = (
+                self.pointer if self.pointer is not None else self.identity_pointer
+            )
+            pointer_blob_sha = git_object_sha("blob", pointer.to_json_bytes())
+            activation_tree_sha = git_tree_shas(
+                {
+                    **{
+                        source.relative_path: (
+                            source.git_blob_sha,
+                            source.mode,
+                        )
+                        for source in self.publication_intent.source_files
+                    },
+                    "CURRENT.json": (pointer_blob_sha, "100644"),
+                }
+            )[""]
+            return {
+                "sha": self.activation_commit_sha,
+                "tree": {
+                    "sha": (
+                        activation_tree_sha
+                        if self.activation_tree_sha is None
+                        else self.activation_tree_sha
+                    )
+                },
+                "parents": [
+                    {
+                        "sha": (
+                            self.publication_intent.source_commit_sha
+                            if self.activation_parent_sha is None
+                            else self.activation_parent_sha
+                        )
+                    }
+                ],
             }
         if endpoint == f"repos/{REPOSITORY}/git/trees/{TREE_SHA}":
             return {
@@ -279,7 +329,19 @@ class FakeResolverClient:
 
     def graphql(self, query, variables):
         if "qualifiedName" in variables:
-            if "publication-intents" in variables["qualifiedName"]:
+            if "kapso-activation-preparations" in variables["qualifiedName"]:
+                reference = (
+                    None
+                    if self.activation_preparation_ref_sha is None
+                    else {"target": {"oid": self.activation_preparation_ref_sha}}
+                )
+            elif "kapso-activations" in variables["qualifiedName"]:
+                reference = (
+                    None
+                    if self.activation_witness_ref_sha is None
+                    else {"target": {"oid": self.activation_witness_ref_sha}}
+                )
+            elif "publication-intents" in variables["qualifiedName"]:
                 reference = (
                     None
                     if self.publication_intent is None
@@ -341,15 +403,6 @@ class FakeResolverClient:
         }
 
     def api_json_bounded(self, method, endpoint, maximum_bytes):
-        if "/compare/" in endpoint:
-            assert method == "GET"
-            assert self.comparison is not None
-            payload_size = (
-                len(canonical_json_bytes(self.comparison))
-                if self.comparison_size is None
-                else self.comparison_size
-            )
-            return BoundedJsonResponse(self.comparison, payload_size)
         response = self.api_json(method, endpoint)
         payload_size = len(canonical_json_bytes(response))
         assert payload_size <= maximum_bytes
@@ -494,129 +547,140 @@ def test_resolver_requires_exact_write_once_intent_and_identity():
         )
 
 
-@pytest.mark.parametrize(
-    ("status", "ahead_by", "behind_by", "merge_base", "expected"),
-    (
-        ("ahead", 2, 0, COMMIT_SHA, True),
-        ("behind", 0, 2, POINTER_SHA, False),
-        ("diverged", 1, 1, PARENT_SHA, False),
-    ),
-)
-def test_resolver_classifies_commit_ancestry(
-    status, ahead_by, behind_by, merge_base, expected
-):
+def test_resolver_verifies_exact_prepared_activation_commit():
     pointer, release, attestation = publication_fixture()
     client = FakeResolverClient(pointer, release, attestation)
-    client.comparison = {
-        "status": status,
-        "ahead_by": ahead_by,
-        "behind_by": behind_by,
-        "base_commit": {"sha": COMMIT_SHA},
-        "head_commit": {"sha": POINTER_SHA},
-        "merge_base_commit": {"sha": merge_base},
-    }
     resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
 
-    assert (
-        resolver.is_commit_ancestor(
-            "ml_ai",
-            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
-            COMMIT_SHA,
-            POINTER_SHA,
-        )
-        is expected
-    )
-
-
-def test_resolver_requires_consistent_bounded_commit_ancestry():
-    pointer, release, attestation = publication_fixture()
-    client = FakeResolverClient(pointer, release, attestation)
-    client.comparison = {
-        "status": "ahead",
-        "ahead_by": 1,
-        "behind_by": 0,
-        "base_commit": {"sha": COMMIT_SHA},
-        "head_commit": {"sha": POINTER_SHA},
-        "merge_base_commit": {"sha": PARENT_SHA},
-    }
-    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
-
-    with pytest.raises(GitHubResolutionError, match="merge base"):
-        resolver.is_commit_ancestor(
-            "ml_ai",
-            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
-            COMMIT_SHA,
-            POINTER_SHA,
-        )
-
-    client.comparison["merge_base_commit"] = {"sha": COMMIT_SHA}
-    client.comparison_size = github_settings().comparison_response_size_bytes + 1
-    with pytest.raises(GitHubResolutionError, match="response is invalid"):
-        resolver.is_commit_ancestor(
-            "ml_ai",
-            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
-            COMMIT_SHA,
-            POINTER_SHA,
-        )
-
-
-def test_resolver_authenticates_identical_commit_ancestry_and_rejects_bad_sha():
-    pointer, release, attestation = publication_fixture()
-    client = FakeResolverClient(pointer, release, attestation)
-    client.comparison = {
-        "status": "identical",
-        "ahead_by": 0,
-        "behind_by": 0,
-        "base_commit": {"sha": COMMIT_SHA},
-        "head_commit": {"sha": COMMIT_SHA},
-        "merge_base_commit": {"sha": COMMIT_SHA},
-    }
-    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
-
-    assert resolver.is_commit_ancestor(
+    activation_commit_sha = resolver.resolve_artifact_activation_preparation(
         "ml_ai",
         PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
-        COMMIT_SHA,
-        COMMIT_SHA,
+        pointer.publication_record.artifact_id,
+        client.publication_intent,
+        pointer,
     )
-    with pytest.raises(GitHubResolutionError, match="ancestor commit"):
-        resolver.is_commit_ancestor(
+
+    assert activation_commit_sha == ACTIVATION_SHA
+
+
+def test_resolver_rejects_missing_prepared_activation_ref():
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    client.activation_preparation_ref_sha = None
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    with pytest.raises(GitHubResolutionError, match="preparation is missing"):
+        resolver.resolve_artifact_activation_preparation(
             "ml_ai",
             PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
-            "not-a-sha",
-            COMMIT_SHA,
+            pointer.publication_record.artifact_id,
+            client.publication_intent,
+            pointer,
         )
+    assert (
+        resolver.resolve_artifact_activation_preparation(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            pointer.publication_record.artifact_id,
+            client.publication_intent,
+            pointer,
+            allow_missing=True,
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(
-    ("status", "ahead_by", "behind_by", "merge_base", "message"),
+    ("corruption", "message"),
     (
-        ("behind", 0, 1, PARENT_SHA, "behind"),
-        ("diverged", 1, 1, COMMIT_SHA, "diverged"),
-        ("diverged", 1, 1, POINTER_SHA, "diverged"),
+        ("ref", "activation commit mismatch"),
+        ("tree", "activation commit mismatch"),
+        ("parent", "activation parent mismatch"),
     ),
 )
-def test_resolver_rejects_impossible_inactive_ancestry_responses(
-    status, ahead_by, behind_by, merge_base, message
+def test_resolver_rejects_mismatched_prepared_activation(
+    corruption,
+    message,
 ):
     pointer, release, attestation = publication_fixture()
     client = FakeResolverClient(pointer, release, attestation)
-    client.comparison = {
-        "status": status,
-        "ahead_by": ahead_by,
-        "behind_by": behind_by,
-        "base_commit": {"sha": COMMIT_SHA},
-        "head_commit": {"sha": POINTER_SHA},
-        "merge_base_commit": {"sha": merge_base},
-    }
+    if corruption == "ref":
+        client.activation_commit_sha = "f" * 40
+    elif corruption == "tree":
+        client.activation_tree_sha = "f" * 40
+    else:
+        client.activation_parent_sha = "f" * 40
     resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
 
     with pytest.raises(GitHubResolutionError, match=message):
-        resolver.is_commit_ancestor(
+        resolver.resolve_artifact_activation_preparation(
             "ml_ai",
             PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
-            COMMIT_SHA,
-            POINTER_SHA,
+            pointer.publication_record.artifact_id,
+            client.publication_intent,
+            pointer,
+        )
+
+
+def test_resolver_authenticates_post_cas_activation_witness():
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+
+    witness = resolver.resolve_artifact_activation_witness(
+        "ml_ai",
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        pointer.publication_record.artifact_id,
+        client.publication_intent,
+        pointer,
+    )
+
+    assert witness == GitHubArtifactActivationWitness.mint(
+        scope_id="ml_ai",
+        scope_repository_binding_hash=repositories().binding_fingerprint,
+        artifact_kind=PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        artifact_id=pointer.publication_record.artifact_id,
+        repository_full_name=REPOSITORY,
+        activation_commit_sha=ACTIVATION_SHA,
+        publication_intent_digest=client.publication_intent.digest,
+        current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+    )
+
+
+def test_resolver_distinguishes_missing_and_conflicting_activation_witness():
+    pointer, release, attestation = publication_fixture()
+    client = FakeResolverClient(pointer, release, attestation)
+    resolver = GitHubArtifactResolver(client, github_settings(), scope_registry())
+    client.activation_witness_ref_sha = None
+
+    assert (
+        resolver.resolve_artifact_activation_witness(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            pointer.publication_record.artifact_id,
+            client.publication_intent,
+            pointer,
+            allow_missing=True,
+        )
+        is None
+    )
+    with pytest.raises(GitHubResolutionError, match="witness is missing"):
+        resolver.resolve_artifact_activation_witness(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            pointer.publication_record.artifact_id,
+            client.publication_intent,
+            pointer,
+        )
+
+    client.activation_witness_ref_sha = "f" * 40
+    with pytest.raises(GitHubResolutionError, match="differs from its preparation"):
+        resolver.resolve_artifact_activation_witness(
+            "ml_ai",
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            pointer.publication_record.artifact_id,
+            client.publication_intent,
+            pointer,
         )
 
 

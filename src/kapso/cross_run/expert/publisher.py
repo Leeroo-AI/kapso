@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
+    ExpertPromotionState,
     PublicationArtifactKind,
     ScopeRepositorySettings,
 )
@@ -61,6 +62,7 @@ from kapso.cross_run.task_adapters import (
 
 if TYPE_CHECKING:
     from kapso.cross_run.expert.validation_store import (
+        ExpertReleaseActivationCommitResult,
         ExpertReleasePublicationReservation,
         ExpertReleasePublicationStalePermit,
         ExpertValidationStore,
@@ -73,42 +75,38 @@ class ExpertReleasePublicationError(ValueError):
 
 @dataclass(frozen=True)
 class ExpertReleasePublication:
-    """Exact local package, durable reservation, and immutable GitHub result."""
+    """Durable RELEASED outcome with optional telemetry from this invocation."""
 
-    package: ExpertReleasePackage
-    reservation: ExpertReleasePublicationReservation
-    telemetry: PublicationTelemetry
+    activation: ExpertReleaseActivationCommitResult
+    telemetry: PublicationTelemetry | None
 
     def __post_init__(self) -> None:
-        plan = self.reservation.plan
-        record = self.telemetry.publication_record
-        published_assets = tuple(
-            (asset.name, asset.media_type, asset.size, asset.sha256)
-            for asset in record.assets
-        )
-        planned_assets = tuple(
-            (asset.name, asset.media_type, asset.size, asset.sha256)
-            for asset in plan.assets
-        )
+        receipt = self.activation.receipt
         if (
-            type(self.package) is not ExpertReleasePackage
-            or type(self.telemetry) is not PublicationTelemetry
-            or self.package.manifest != self.reservation.manifest
-            or record.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
-            or record.artifact_id != plan.release_id
-            or record.repository_full_name
-            != plan.current_release_observation.repository_full_name
-            or record.repository_node_id
-            != plan.current_release_observation.repository_node_id
-            or record.tag != plan.tag
-            or published_assets != planned_assets
-            or self.telemetry.expected_parent_sha
-            != plan.current_release_observation.default_branch_head_commit_sha
-            or self.telemetry.source_tree_digest != plan.publication_source_tree_digest
-            or self.telemetry.validation_closure_ids != plan.validation_closure_ids
+            self.activation.snapshot.state.promotion_state
+            is not ExpertPromotionState.RELEASED
         ):
             raise ExpertReleasePublicationError(
-                "expert publication result differs from its reserved release"
+                "expert publication result is not durably RELEASED"
+            )
+        if self.telemetry is None:
+            return
+        record = self.telemetry.publication_record
+        pointer = receipt.github_publication_pointer
+        intent = receipt.github_publication_intent
+        if (
+            type(self.telemetry) is not PublicationTelemetry
+            or record != pointer.publication_record
+            or record.artifact_id != receipt.release_id
+            or self.telemetry.pointer_commit_sha
+            != receipt.activation_witness.activation_commit_sha
+            or self.telemetry.expected_parent_sha != intent.expected_parent_sha
+            or self.telemetry.source_commit_sha != intent.source_commit_sha
+            or self.telemetry.source_tree_digest != intent.source_tree_digest
+            or self.telemetry.validation_closure_ids != intent.validation_closure_ids
+        ):
+            raise ExpertReleasePublicationError(
+                "expert publication telemetry differs from its activation"
             )
 
 
@@ -465,11 +463,21 @@ class ExpertReleasePublisher:
         """Resume or complete the immutable transaction for one reservation."""
 
         require_content_id(candidate_id, "expert publication candidate_id")
+        self._require_bound_authority()
+        durable = self.validation_store.reopen_release_activation(candidate_id)
+        if durable is not None:
+            return ExpertReleasePublication(
+                activation=durable,
+                telemetry=None,
+            )
         reservation = self.validation_store.reopen_release_publication(candidate_id)
         if reservation is None:
             raise ExpertReleasePublicationError(
                 "expert publication has no active reservation"
             )
+        recovered = self._recover_release_activation(reservation)
+        if recovered is not None:
+            return ExpertReleasePublication(activation=recovered, telemetry=None)
         package = self.assembler.build(candidate_id=candidate_id)
         permit = self.assembler.authorize_publication_plan(
             package=package,
@@ -509,11 +517,170 @@ class ExpertReleasePublisher:
                     ExpertReleasePublicationGate(self, reservation),
                 ),
             )
-        return ExpertReleasePublication(
-            package=package,
-            reservation=reservation,
-            telemetry=telemetry,
+        activation = self.complete_release(candidate_id=candidate_id)
+        return ExpertReleasePublication(activation=activation, telemetry=telemetry)
+
+    def complete_release(
+        self,
+        *,
+        candidate_id: str,
+    ) -> ExpertReleaseActivationCommitResult:
+        """Recover and durably record an active or historically active release."""
+
+        require_content_id(candidate_id, "expert release activation candidate_id")
+        self._require_bound_authority()
+        durable = self.validation_store.reopen_release_activation(candidate_id)
+        if durable is not None:
+            return durable
+        reservation = self.validation_store.reopen_release_publication(candidate_id)
+        if reservation is None:
+            raise ExpertReleasePublicationError(
+                "expert release has no pending or durable activation"
+            )
+        recovered = self._recover_release_activation(reservation)
+        if recovered is None:
+            raise ExpertReleasePublicationError(
+                "prepared expert activation has not won CURRENT"
+            )
+        return recovered
+
+    def _recover_release_activation(
+        self,
+        reservation: ExpertReleasePublicationReservation,
+    ) -> ExpertReleaseActivationCommitResult | None:
+        plan = reservation.plan
+        artifact_kind = PublicationArtifactKind.EXPERT_BASE_RELEASE
+        github_intent = self.resolver.read_artifact_intent(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
         )
+        github_pointer = self.resolver.read_artifact_pointer(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
+        )
+        self.validation_store._validate_release_publication_remote_history(
+            reservation.intent,
+            plan,
+            github_intent,
+            github_pointer,
+            self.github_publisher.settings.publisher_login,
+        )
+        if github_intent is None or github_pointer is None:
+            return None
+        resolved = self.resolver.resolve_artifact(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
+        )
+        if resolved.pointer != github_pointer:
+            raise ExpertReleasePublicationError(
+                "expert release identity changed during activation recovery"
+            )
+        activation_commit_sha = self.resolver.resolve_artifact_activation_preparation(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
+            github_intent,
+            github_pointer,
+            allow_missing=True,
+        )
+        if activation_commit_sha is None:
+            return None
+        activation_witness = self.resolver.resolve_artifact_activation_witness(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
+            github_intent,
+            github_pointer,
+            allow_missing=True,
+        )
+        observed = self.current_release_authority.observe_task_evaluation_current(
+            plan.scope_id
+        )
+        if activation_witness is None and (
+            observed.release_id == plan.release_id
+            and observed.publication_id
+            == github_pointer.publication_record.publication_id
+            and observed.current_pointer_digest
+            == tree_or_blob_digest(github_pointer.to_json_bytes())
+            and observed.default_branch_head_commit_sha == activation_commit_sha
+        ):
+            activation_witness = (
+                self.github_publisher.finalize_artifact_activation_witness(
+                    plan.scope_id,
+                    artifact_kind,
+                    plan.release_id,
+                    github_intent,
+                    github_pointer,
+                )
+            )
+        if activation_witness is None:
+            activation_witness = self.resolver.resolve_artifact_activation_witness(
+                plan.scope_id,
+                artifact_kind,
+                plan.release_id,
+                github_intent,
+                github_pointer,
+                allow_missing=True,
+            )
+            if activation_witness is None:
+                return None
+        self.resolver.require_artifact_intent(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
+            github_intent,
+        )
+        self.resolver.require_artifact_pointer(
+            plan.scope_id,
+            artifact_kind,
+            plan.release_id,
+            github_pointer,
+        )
+        if (
+            self.resolver.resolve_artifact_activation_preparation(
+                plan.scope_id,
+                artifact_kind,
+                plan.release_id,
+                github_intent,
+                github_pointer,
+            )
+            != activation_commit_sha
+        ):
+            raise ExpertReleasePublicationError(
+                "expert activation identity changed during recovery"
+            )
+        if (
+            self.resolver.resolve_artifact_activation_witness(
+                plan.scope_id,
+                artifact_kind,
+                plan.release_id,
+                github_intent,
+                github_pointer,
+            )
+            != activation_witness
+        ):
+            raise ExpertReleasePublicationError(
+                "expert activation witness changed during recovery"
+            )
+        refreshed = self.current_release_authority.observe_task_evaluation_current(
+            plan.scope_id
+        )
+        if refreshed != observed:
+            raise ExpertReleasePublicationError(
+                "expert CURRENT changed during activation recovery"
+            )
+        permit = self.validation_store._seal_release_activation(
+            publisher=self,
+            reservation=reservation,
+            github_publication_intent=github_intent,
+            github_publication_pointer=github_pointer,
+            activation_witness=activation_witness,
+            observed_current=refreshed,
+        )
+        return self.validation_store.commit_release_activation(permit)
 
     def _require_reservation(
         self,
@@ -845,6 +1012,27 @@ class ExpertReleasePublisher:
             raise ExpertReleasePublicationError(
                 "expert CURRENT changed during stale publication classification"
             )
+        winner_intent = self.resolver.read_artifact_intent(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            active_release_id,
+        )
+        winner_identity = self.resolver.read_artifact_pointer(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            active_release_id,
+        )
+        if winner_intent is None or winner_identity != pointer:
+            raise ExpertReleasePublicationError(
+                "active winner lacks its exact publication identity"
+            )
+        winner_witness = self.github_publisher.finalize_artifact_activation_witness(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            active_release_id,
+            winner_intent,
+            winner_identity,
+        )
         own_intent = self.resolver.read_artifact_intent(
             plan.scope_id,
             PublicationArtifactKind.EXPERT_BASE_RELEASE,
@@ -862,6 +1050,7 @@ class ExpertReleasePublisher:
             own_identity,
             self.github_publisher.settings.publisher_login,
         )
+        activation_preparation_commit_sha = None
         if own_intent is not None:
             self.resolver.diagnose_repository(
                 plan.scope_id,
@@ -882,15 +1071,29 @@ class ExpertReleasePublisher:
                     raise ExpertReleasePublicationError(
                         "expert release identity changed during stale classification"
                     )
-            if self.resolver.is_commit_ancestor(
-                plan.scope_id,
-                PublicationArtifactKind.EXPERT_BASE_RELEASE,
-                own_intent.source_commit_sha,
-                state.head_commit_sha,
-            ):
-                raise ExpertReleasePublicationError(
-                    "historically active release requires RELEASED recovery"
+                activation_preparation_commit_sha = (
+                    self.resolver.resolve_artifact_activation_preparation(
+                        plan.scope_id,
+                        PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                        plan.release_id,
+                        own_intent,
+                        own_identity,
+                        allow_missing=True,
+                    )
                 )
+                if activation_preparation_commit_sha is not None:
+                    own_witness = self.resolver.resolve_artifact_activation_witness(
+                        plan.scope_id,
+                        PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                        plan.release_id,
+                        own_intent,
+                        own_identity,
+                        allow_missing=True,
+                    )
+                    if own_witness is not None:
+                        raise ExpertReleasePublicationError(
+                            "historically active release requires RELEASED recovery"
+                        )
         if (
             self.resolver.read_artifact_intent(
                 plan.scope_id,
@@ -904,6 +1107,37 @@ class ExpertReleasePublisher:
                 plan.release_id,
             )
             != own_identity
+            or (
+                activation_preparation_commit_sha is not None
+                and self.resolver.resolve_artifact_activation_preparation(
+                    plan.scope_id,
+                    PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                    plan.release_id,
+                    own_intent,
+                    own_identity,
+                )
+                != activation_preparation_commit_sha
+            )
+            or self.resolver.read_artifact_intent(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                active_release_id,
+            )
+            != winner_intent
+            or self.resolver.read_artifact_pointer(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                active_release_id,
+            )
+            != winner_identity
+            or self.resolver.resolve_artifact_activation_witness(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                active_release_id,
+                winner_intent,
+                winner_identity,
+            )
+            != winner_witness
         ):
             raise ExpertReleasePublicationError(
                 "expert release history changed during stale classification"
@@ -917,12 +1151,31 @@ class ExpertReleasePublisher:
             raise ExpertReleasePublicationError(
                 "expert CURRENT changed during stale publication classification"
             )
+        if (
+            activation_preparation_commit_sha is not None
+            and self.resolver.resolve_artifact_activation_witness(
+                plan.scope_id,
+                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+                plan.release_id,
+                own_intent,
+                own_identity,
+                allow_missing=True,
+            )
+            is not None
+        ):
+            raise ExpertReleasePublicationError(
+                "release activation witness appeared during stale classification"
+            )
         permit = self.validation_store._seal_stale_release_publication(
             publisher=self,
             reservation=reservation,
             observed_current=refreshed_observed,
+            observed_current_activation_witness=winner_witness,
             own_github_publication_intent=own_intent,
             own_github_publication_pointer=own_identity,
+            own_github_activation_preparation_commit_sha=(
+                activation_preparation_commit_sha
+            ),
             resolved_at=resolved_at,
         )
         return self.validation_store.resolve_stale_release_publication(permit)

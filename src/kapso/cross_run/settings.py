@@ -33,9 +33,9 @@ _SECRET_KEY_PATTERN = re.compile(
 )
 _CLI_NAMES = ("claude_code", "codex")
 _MINIMUM_ZSTD_WINDOW_SIZE_BYTES = 1024
-_PUBLICATION_NORMAL_FIXED_CONTENT_WRITES = 18
-_PUBLICATION_RECOVERY_FIXED_CONTENT_WRITES = 10
-_PUBLICATION_AND_RESOLUTION_FIXED_READS = 64
+_PUBLICATION_NORMAL_FIXED_CONTENT_WRITES = 20
+_PUBLICATION_RECOVERY_FIXED_CONTENT_WRITES = 12
+_PUBLICATION_AND_RESOLUTION_FIXED_READS = 96
 _CONTENT_WRITE_REQUEST_POINTS = 5
 
 
@@ -194,7 +194,6 @@ class GitHubSettings(StrictContract):
     cache_entry_limit: int
     git_tree_metadata_size_bytes: int
     control_blob_size_bytes: int
-    comparison_response_size_bytes: int
     cache_retention_releases: int
 
     def _validate(self) -> None:
@@ -298,10 +297,6 @@ class GitHubSettings(StrictContract):
         )
         _require_positive(
             self.control_blob_size_bytes, "github.control_blob_size_bytes"
-        )
-        _require_positive(
-            self.comparison_response_size_bytes,
-            "github.comparison_response_size_bytes",
         )
         _require_positive(
             self.cache_retention_releases, "github.cache_retention_releases"

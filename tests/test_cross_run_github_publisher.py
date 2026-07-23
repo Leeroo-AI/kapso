@@ -33,6 +33,7 @@ from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
     CurrentPointerState,
+    GitHubArtifactActivationWitness,
     GitHubResolutionError,
     PublicationAssetIntent,
     PublicationSourceFile,
@@ -303,6 +304,8 @@ class FakeResolver:
     existing: CurrentArtifactPointer | None = None
     identity: CurrentArtifactPointer | None = None
     intent: ArtifactPublicationIntent | None = None
+    activation_preparation: str | None = None
+    activation_witness: str | None = None
     release_id: int | None = None
     current_head: str = EXPECTED_PARENT
     artifact_kind: PublicationArtifactKind = PublicationArtifactKind.KNOWLEDGE_SNAPSHOT
@@ -311,12 +314,16 @@ class FakeResolver:
     current_state_observer: Callable[[], None] | None = None
     identity_payload_observer: Callable[[], bytes | None] | None = None
     intent_payload_observer: Callable[[], bytes | None] | None = None
+    activation_preparation_observer: Callable[[], str | None] | None = None
+    activation_witness_observer: Callable[[], str | None] | None = None
 
     def __post_init__(self):
         self.verified = []
         self.verified_source_intents = []
         self.required_pointers = []
         self.required_intents = []
+        self.required_activation_preparations = []
+        self.required_activation_witnesses = []
         self.policy = RepositoryPolicyReport(
             repository_full_name=self.repository,
             repository_node_id=self.repository_node_id,
@@ -388,6 +395,67 @@ class FakeResolver:
         assert observed == expected_intent
         self.required_intents.append(expected_intent)
 
+    def resolve_artifact_activation_preparation(
+        self,
+        scope_id,
+        artifact_kind,
+        artifact_id,
+        intent,
+        pointer,
+        *,
+        allow_missing=False,
+    ):
+        observed = self.activation_preparation
+        if self.activation_preparation_observer is not None:
+            remote = self.activation_preparation_observer()
+            if remote is not None:
+                observed = remote
+        assert scope_id == "ml_ai"
+        assert artifact_kind is self.artifact_kind
+        assert artifact_id == intent.artifact_id
+        assert intent.binds(pointer)
+        if observed is None and not allow_missing:
+            raise GitHubResolutionError("artifact activation preparation is missing")
+        if observed is not None:
+            self.required_activation_preparations.append(observed)
+        return observed
+
+    def resolve_artifact_activation_witness(
+        self,
+        scope_id,
+        artifact_kind,
+        artifact_id,
+        intent,
+        pointer,
+        *,
+        allow_missing=False,
+    ):
+        observed = self.activation_witness
+        if self.activation_witness_observer is not None:
+            remote = self.activation_witness_observer()
+            if remote is not None:
+                observed = remote
+        assert scope_id == "ml_ai"
+        assert artifact_kind is self.artifact_kind
+        assert artifact_id == intent.artifact_id
+        assert intent.binds(pointer)
+        if observed is None:
+            if allow_missing:
+                return None
+            raise GitHubResolutionError("artifact activation witness is missing")
+        witness = GitHubArtifactActivationWitness.mint(
+            scope_id=scope_id,
+            scope_repository_binding_hash=repositories().binding_fingerprint,
+            artifact_kind=artifact_kind,
+            artifact_id=artifact_id,
+            repository_full_name=self.repository,
+            activation_commit_sha=observed,
+            publication_intent_digest=intent.digest,
+            current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+        )
+        self.required_activation_witnesses.append(witness)
+        return witness
+
     def verify_pointer(
         self, repository_settings, artifact_kind, policy, pointer, intent
     ):
@@ -436,6 +504,8 @@ class FakePublisherClient:
         self.pointer_tree_sha = None
         self.intent_payload = None
         self.identity_payload = None
+        self.activation_preparation_target = None
+        self.activation_witness_target = None
         self.blob_contents_by_sha = {}
         self.tag_target = SOURCE_COMMIT
         self.release_author = "leeroo-coder"
@@ -635,6 +705,14 @@ class FakePublisherClient:
             assert commit_sha == INTENT_COMMIT
             self.intent_payload = self.blob_contents[-1]
             self._record("intent_ref")
+        elif qualified_ref.startswith("refs/kapso-activation-preparations/"):
+            assert commit_sha == POINTER_COMMIT
+            self.activation_preparation_target = commit_sha
+            self._record("activation_preparation_ref")
+        elif qualified_ref.startswith("refs/kapso-activations/"):
+            assert commit_sha == POINTER_COMMIT
+            self.activation_witness_target = commit_sha
+            self._record("activation_witness_ref")
         else:
             assert qualified_ref.startswith(
                 f"refs/kapso-artifacts/{self.artifact_kind.value}/"
@@ -667,6 +745,22 @@ def build_publisher(client, resolver, tmp_path, settings=None):
     github = settings or cross_run_settings().github
     resolver.identity_payload_observer = lambda: client.identity_payload
     resolver.intent_payload_observer = lambda: client.intent_payload
+    resolver.activation_preparation_observer = (
+        lambda: client.activation_preparation_target
+    )
+    resolver.activation_witness_observer = lambda: client.activation_witness_target
+    prior_head_observer = client.head_observer
+
+    def observe_head(commit_sha):
+        if prior_head_observer is not None:
+            prior_head_observer(commit_sha)
+        resolver.current_head = commit_sha
+        if commit_sha == POINTER_COMMIT and client.identity_payload is not None:
+            resolver.existing = CurrentArtifactPointer.from_json_bytes(
+                client.identity_payload
+            )
+
+    client.head_observer = observe_head
     materializer = GitHubArtifactMaterializer(client, github, tmp_path / "state")
     return AutonomousGitHubPublisher(client, resolver, materializer, github)
 
@@ -690,9 +784,12 @@ def test_publisher_runs_draft_verify_publish_attest_then_pointer_transaction(tmp
     assert client.events.index("intent_ref") < client.events.index("draft")
     assert client.events.index("upload") < client.events.index("publish")
     assert client.events.index("attestation") < client.events.index("pointer_commit")
-    assert client.events[-1] == "pointer_ref"
+    assert client.events[-2:] == ["pointer_ref", "activation_witness_ref"]
     assert resolver.required_intents
     assert resolver.required_pointers
+    assert resolver.required_activation_preparations
+    assert set(resolver.required_activation_preparations) == {POINTER_COMMIT}
+    assert resolver.required_activation_witnesses
 
 
 @pytest.mark.parametrize(
@@ -708,6 +805,7 @@ def test_publisher_runs_draft_verify_publish_attest_then_pointer_transaction(tmp
         "identity_commit",
         "identity_ref",
         "pointer_commit",
+        "activation_preparation_ref",
         "pointer_ref",
     ],
 )
@@ -722,6 +820,75 @@ def test_publication_failure_never_activates_current_early(tmp_path, failure_eve
     if failure_event != "pointer_ref":
         assert "pointer_ref" not in client.events
     assert client.events.index(failure_event) == len(client.events) - 1
+
+
+def test_post_cas_witness_failure_leaves_recoverable_current(tmp_path):
+    envelope, _ = build_envelope(tmp_path)
+    client = FakePublisherClient(
+        envelope.assets[0],
+        fail_event="activation_witness_ref",
+    )
+
+    with pytest.raises(InjectedFailure):
+        build_publisher(client, FakeResolver(), tmp_path).publish(envelope)
+
+    assert client.events[-2:] == ["pointer_ref", "activation_witness_ref"]
+    assert client.head == POINTER_COMMIT
+
+
+def test_successor_barrier_witnesses_exact_predecessor_before_cas(tmp_path):
+    envelope, _ = build_envelope(tmp_path)
+    seed_client = FakePublisherClient(envelope.assets[0])
+    seed_telemetry = build_publisher(
+        seed_client,
+        FakeResolver(),
+        tmp_path,
+    ).publish(envelope)
+    intent = ArtifactPublicationIntent.from_json_bytes(seed_client.intent_payload)
+    pointer = CurrentArtifactPointer.from_json_bytes(seed_client.identity_payload)
+    client = FakePublisherClient(envelope.assets[0])
+    client.head = POINTER_COMMIT
+    client.activation_preparation_target = POINTER_COMMIT
+    resolver = FakeResolver(
+        existing=pointer,
+        identity=pointer,
+        intent=intent,
+        activation_preparation=POINTER_COMMIT,
+        current_head=POINTER_COMMIT,
+    )
+    publisher = build_publisher(client, resolver, tmp_path)
+    successor = replace(
+        envelope,
+        expected_parent_sha=seed_telemetry.pointer_commit_sha,
+    )
+
+    publisher._finalize_expected_parent_witness(successor)
+
+    assert client.events == ["activation_witness_ref"]
+    assert client.activation_witness_target == POINTER_COMMIT
+
+    bypass_client = FakePublisherClient(envelope.assets[0])
+    bypass_client.head = "f" * 40
+    bypass_resolver = FakeResolver(
+        existing=pointer,
+        identity=pointer,
+        intent=intent,
+        activation_preparation=POINTER_COMMIT,
+        activation_witness=POINTER_COMMIT,
+        current_head="f" * 40,
+    )
+    bypass_publisher = build_publisher(
+        bypass_client,
+        bypass_resolver,
+        tmp_path,
+    )
+
+    with pytest.raises(GitHubPublicationError, match="predecessor head differs"):
+        bypass_publisher._finalize_expected_parent_witness(
+            replace(successor, expected_parent_sha="f" * 40)
+        )
+
+    assert bypass_client.events == []
 
 
 def test_retry_resumes_existing_immutable_release_without_duplicate_upload(tmp_path):
@@ -862,9 +1029,18 @@ def test_inactive_immutable_identity_replay_is_reread_before_activation(tmp_path
     intent = ArtifactPublicationIntent.from_json_bytes(first_client.intent_payload)
     identity = CurrentArtifactPointer.from_json_bytes(first_client.identity_payload)
     replay_client = FakePublisherClient(envelope.assets[0])
+    replay_client.head = POINTER_COMMIT
     replay_client.source_tree_sha = first_client.source_tree_sha
     replay_client.source_tree_files = first_client.source_tree_files
-    replay_resolver = FakeResolver(identity=identity, intent=intent, release_id=7)
+    replay_client.activation_preparation_target = POINTER_COMMIT
+    replay_resolver = FakeResolver(
+        existing=identity,
+        identity=identity,
+        intent=intent,
+        activation_preparation=POINTER_COMMIT,
+        release_id=7,
+        current_head=POINTER_COMMIT,
+    )
 
     telemetry = build_publisher(
         replay_client,
@@ -874,7 +1050,7 @@ def test_inactive_immutable_identity_replay_is_reread_before_activation(tmp_path
 
     assert telemetry.idempotent_replay
     assert replay_resolver.required_pointers == [identity]
-    assert replay_client.events[-1] == "pointer_ref"
+    assert replay_client.events == ["activation_witness_ref"]
 
 
 @pytest.mark.parametrize("corruption", ("sha", "tree", "parent"))
@@ -1066,6 +1242,8 @@ def test_identical_replay_is_idempotent_but_conflicting_bytes_fail(tmp_path):
         identity=existing,
         intent=intent,
         current_head=POINTER_COMMIT,
+        activation_preparation=POINTER_COMMIT,
+        activation_witness=POINTER_COMMIT,
     )
     replay_client = FakePublisherClient(envelope.assets[0])
     replay_client.head = POINTER_COMMIT
@@ -1123,7 +1301,7 @@ def test_identical_replay_is_idempotent_but_conflicting_bytes_fail(tmp_path):
         ).publish(replace(envelope, assets=(conflicting_asset,)))
 
 
-def test_replay_uses_one_pinned_current_state_and_rejects_superseded_identity(
+def test_replay_rejects_unwitnessed_and_recovers_witnessed_superseded_identity(
     tmp_path,
 ):
     envelope, _ = build_envelope(tmp_path)
@@ -1167,6 +1345,23 @@ def test_replay_uses_one_pinned_current_state_and_rejects_superseded_identity(
             tmp_path,
         ).publish(envelope)
 
+    assert replay_client.events == []
+
+    recovered = build_publisher(
+        replay_client,
+        FakeResolver(
+            existing=successor,
+            identity=identity,
+            intent=intent,
+            activation_preparation=POINTER_COMMIT,
+            activation_witness=POINTER_COMMIT,
+            current_head="f" * 40,
+        ),
+        tmp_path,
+    ).publish(envelope)
+
+    assert recovered.idempotent_replay is True
+    assert recovered.pointer_commit_sha == POINTER_COMMIT
     assert replay_client.events == []
 
 
@@ -1457,7 +1652,7 @@ def test_package_preflight_accepts_manifest_bound_asset_only_content(
     telemetry = build_publisher(client, FakeResolver(), tmp_path).publish(updated)
 
     assert telemetry.publication_record.artifact_id == manifest.snapshot_id
-    assert client.events[-1] == "pointer_ref"
+    assert client.events[-2:] == ["pointer_ref", "activation_witness_ref"]
 
 
 def test_expert_publication_requires_sealed_domain_authorization_before_writes(

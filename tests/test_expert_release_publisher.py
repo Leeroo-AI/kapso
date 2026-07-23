@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from kapso.core.config import load_config
-from kapso.cross_run.canonical import source_tree_digest, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    content_id,
+    source_tree_digest,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
     GitHubPublicationRecord,
@@ -33,10 +38,16 @@ from kapso.cross_run.github.publisher import (
 from kapso.cross_run.github.resolver import (
     CurrentArtifactPointer,
     CurrentPointerState,
+    GitHubArtifactActivationWitness,
     GitHubArtifactResolver,
 )
 from kapso.cross_run.settings import CrossRunSettings
-from test_expert_release_assembly import _approved_bootstrap, _publication_plan
+from test_expert_release_assembly import (
+    _approved_bootstrap,
+    _publication_intent,
+    _publication_plan,
+    _publication_pointer,
+)
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -89,9 +100,15 @@ def _source_file_projection(source_tree: Path):
     }
 
 
-def test_expert_publisher_derives_package_and_refreshes_activation_authority(
+@pytest.mark.parametrize(
+    ("crash_before_local_commit", "successor_wins_after_activation"),
+    ((False, False), (True, True)),
+)
+def test_expert_publisher_derives_package_and_recovers_activation(
     tmp_path,
     monkeypatch,
+    crash_before_local_commit,
+    successor_wins_after_activation,
 ):
     validation_store, _matrix, approval, authority = _approved_bootstrap(
         tmp_path,
@@ -148,14 +165,16 @@ def test_expert_publisher_derives_package_and_refreshes_activation_authority(
     resolver.read_current_pointer_state = (
         lambda scope_id, artifact_kind, allow_missing: current_state
     )
+    remote = {"observation": plan.current_release_observation}
     monkeypatch.setattr(
         GitHubExpertCurrentReleaseProvider,
         "observe_task_evaluation_current",
-        lambda self, scope_id: plan.current_release_observation,
+        lambda self, scope_id: remote["observation"],
     )
     captured = {}
 
     def publish(generic, envelope, *, activation_authorization=None):
+        captured["publish_calls"] = captured.get("publish_calls", 0) + 1
         manifest_payload = (
             envelope.source_tree / envelope.manifest_relative_path
         ).read_bytes()
@@ -187,7 +206,13 @@ def test_expert_publisher_derives_package_and_refreshes_activation_authority(
             ),
             manifest_digest=tree_or_blob_digest(manifest_payload),
         )
-        pointer = _release_pointer(plan, materialized_digest)
+        intent = _publication_intent(
+            package,
+            plan,
+            reservation.intent.committed_at,
+            "b" * 40,
+        )
+        pointer = _publication_pointer(plan, intent)
         gate.revalidate_before_activation(
             envelope=envelope,
             repositories=settings.scopes.resolve(plan.scope_id),
@@ -200,8 +225,32 @@ def test_expert_publisher_derives_package_and_refreshes_activation_authority(
                 "gate": gate,
                 "manifest": manifest,
                 "pointer": pointer,
+                "intent": intent,
                 "source_digest": plan.publication_source_tree_digest,
             }
+        )
+        observed_release_id = plan.release_id
+        observed_publication_id = pointer.publication_record.publication_id
+        observed_head = "c" * 40
+        observed_digest = tree_or_blob_digest(pointer.to_json_bytes())
+        if successor_wins_after_activation:
+            observed_release_id = content_id(
+                "expert-base-release", {"successor": plan.release_id}
+            )
+            observed_publication_id = content_id(
+                "github-publication", {"successor": plan.release_id}
+            )
+            observed_head = "d" * 40
+            observed_digest = tree_or_blob_digest(b"successor pointer")
+        remote["observation"] = TaskEvaluationCurrentReleaseObservation.mint(
+            scope_id=plan.scope_id,
+            release_id=observed_release_id,
+            publication_id=observed_publication_id,
+            repository_full_name=plan.current_release_observation.repository_full_name,
+            repository_node_id=plan.current_release_observation.repository_node_id,
+            default_branch_head_commit_sha=observed_head,
+            current_pointer_digest=observed_digest,
+            validation_closure_ids=plan.validation_closure_ids,
         )
         return PublicationTelemetry(
             publication_record=pointer.publication_record,
@@ -214,12 +263,90 @@ def test_expert_publisher_derives_package_and_refreshes_activation_authority(
         )
 
     monkeypatch.setattr(AutonomousGitHubPublisher, "publish", publish)
+    resolver.read_artifact_intent = (
+        lambda scope_id, artifact_kind, artifact_id: captured.get("intent")
+    )
+    resolver.read_artifact_pointer = (
+        lambda scope_id, artifact_kind, artifact_id: captured.get("pointer")
+    )
+    resolver.resolve_artifact = (
+        lambda scope_id, artifact_kind, artifact_id: SimpleNamespace(
+            pointer=captured["pointer"]
+        )
+    )
+    resolver.resolve_artifact_activation_preparation = (
+        lambda scope_id, artifact_kind, artifact_id, intent, pointer, allow_missing=False: "c"
+        * 40
+    )
 
-    result = publisher.publish(candidate_id=plan.candidate_id)
+    def resolve_activation_witness(
+        scope_id,
+        artifact_kind,
+        artifact_id,
+        intent,
+        pointer,
+        allow_missing=False,
+    ):
+        return GitHubArtifactActivationWitness.mint(
+            scope_id=plan.scope_id,
+            scope_repository_binding_hash=(
+                settings.scopes.resolve(plan.scope_id).binding_fingerprint
+            ),
+            artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            artifact_id=plan.release_id,
+            repository_full_name=(
+                plan.current_release_observation.repository_full_name
+            ),
+            activation_commit_sha="c" * 40,
+            publication_intent_digest=intent.digest,
+            current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+        )
 
-    assert result.reservation == reservation
-    assert result.package == package
-    assert result.telemetry.publication_record.artifact_id == plan.release_id
+    resolver.resolve_artifact_activation_witness = resolve_activation_witness
+    resolver.require_artifact_intent = lambda *args: None
+    resolver.require_artifact_pointer = lambda *args: None
+
+    if crash_before_local_commit:
+        commit_release_activation = validation_store.commit_release_activation
+        crashed_permits = []
+
+        def simulate_crash_after_remote_activation(activation_permit):
+            crashed_permits.append(activation_permit)
+            raise RuntimeError("simulated crash after remote activation")
+
+        monkeypatch.setattr(
+            validation_store,
+            "commit_release_activation",
+            simulate_crash_after_remote_activation,
+        )
+        with pytest.raises(RuntimeError, match="simulated crash"):
+            publisher.publish(candidate_id=plan.candidate_id)
+        monkeypatch.setattr(
+            validation_store,
+            "commit_release_activation",
+            commit_release_activation,
+        )
+        recovered_publication = publisher.publish(candidate_id=plan.candidate_id)
+        assert recovered_publication.telemetry is None
+        activation = recovered_publication.activation
+        competing_replay = validation_store.commit_release_activation(
+            crashed_permits[0]
+        )
+        assert competing_replay.replayed is True
+        assert competing_replay.receipt == activation.receipt
+        result = None
+    else:
+        result = publisher.publish(candidate_id=plan.candidate_id)
+        activation = result.activation
+
+    assert activation.receipt.publication_intent_id == (
+        reservation.intent.publication_intent_id
+    )
+    assert activation.snapshot.state.promotion_state.value == "released"
+    assert activation.receipt.observed_current_release == remote["observation"]
+    assert captured["publish_calls"] == 1
+    if result is not None:
+        assert result.telemetry.publication_record.artifact_id == plan.release_id
     assert captured["gate"].preflight_mode == "parent"
     assert tuple(asset.name for asset in captured["envelope"].assets) == tuple(
         asset.name for asset in plan.assets
@@ -228,36 +355,12 @@ def test_expert_publisher_derives_package_and_refreshes_activation_authority(
     assert captured["pointer"].publication_record.publication_id in (
         authority.denylist.checked_subject_ids
     )
+    replayed = publisher.publish(candidate_id=plan.candidate_id)
+    assert replayed.telemetry is None
+    assert replayed.activation.replayed is True
+    assert replayed.activation.receipt == activation.receipt
+    assert validation_store.reopen_release_publication(plan.candidate_id) is None
 
-    active_observation = TaskEvaluationCurrentReleaseObservation.mint(
-        scope_id=plan.scope_id,
-        release_id=plan.release_id,
-        publication_id=captured["pointer"].publication_record.publication_id,
-        repository_full_name=plan.current_release_observation.repository_full_name,
-        repository_node_id=plan.current_release_observation.repository_node_id,
-        default_branch_head_commit_sha="c" * 40,
-        current_pointer_digest=tree_or_blob_digest(captured["pointer"].to_json_bytes()),
-        validation_closure_ids=plan.validation_closure_ids,
-    )
-    monkeypatch.setattr(
-        GitHubExpertCurrentReleaseProvider,
-        "observe_task_evaluation_current",
-        lambda self, scope_id: active_observation,
-    )
-    active_gate = ExpertReleasePublicationGate(publisher, reservation)
-    active_gate.validate_before_publication(
-        envelope=captured["envelope"],
-        repositories=settings.scopes.resolve(plan.scope_id),
-        current_state=CurrentPointerState(
-            pointer=captured["pointer"],
-            head_commit_sha="c" * 40,
-        ),
-        manifest=captured["manifest"],
-        source_tree_digest=captured["source_digest"],
-        manifest_digest=plan.manifest_digest,
-    )
-
-    assert active_gate.preflight_mode == "active-release"
     assert authority.calls.count("denylist") == 3
 
     with pytest.raises(ExpertReleasePublicationError, match="immutable"):

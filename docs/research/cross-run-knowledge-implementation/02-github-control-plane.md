@@ -143,14 +143,21 @@ including security-denylist snapshots:
    complete pre-release intent, then read the ref back and require the exact pointer;
 10. create the `CURRENT.json` activation commit as a child of the source commit,
     recompute and verify its blob, complete tree, commit identity, and sole parent,
+    bind it to a content-derived write-once preparation ref and verify that ref,
     re-read the exact artifact identity after the final domain gate,
     then perform the transaction's only default-branch mutation: one exact-parent
-    fast-forward directly from the stable predecessor to that activation commit.
+    fast-forward directly from the stable predecessor to that activation commit;
+11. bind the exact activated commit to a distinct write-once success ref. Before a
+    later CAS can supersede a non-bootstrap predecessor, verify or finalize the
+    predecessor's success ref while it is still the exact pinned `CURRENT` head.
 
 - [x] Never update `CURRENT.json` before the immutable release verifies.
 - [x] A failure before step 10 leaves an inactive source commit or orphan release
       for audit while the default branch and prior pointer remain byte-for-byte
       stable for readers and competing publishers.
+- [x] A failure after step 10 but before step 11 leaves the exact release as
+      `CURRENT`; its retry or any compliant successor finalizes the success witness
+      before the branch can advance again.
 - [x] Never expose an intermediate source-only branch head: concurrent publishers
       may prepare immutable artifacts, but only one final expected-parent activation
       can win and no candidate can mistake another transaction for a stable base.
@@ -160,9 +167,13 @@ including security-denylist snapshots:
 - [x] Never mutate/delete a published release or move its tag; publish a successor.
 - [x] Validate GitHub's returned digest against the locally computed digest.
 - [x] Pin immutable release ID and asset IDs as well as human-readable tag/name.
-- [x] Bound and authenticate commit-ancestry comparisons used by domain recovery;
-      ancestry is evidence only under the required non-force, append-only branch
-      history.
+- [x] Never infer activation from commit ancestry. Resolve the exact preparation
+      and distinct post-CAS success ref as a typed content-addressed witness. A
+      missing witness may become terminal stale only after the exact competing
+      `CURRENT` is witnessed, remains unchanged, and the loser is rechecked absent.
+- [x] Treat the generic publisher as the sole authority for default-branch updates
+      and activation-success refs. Broad agent credentials do not authorize direct
+      writes that bypass this protocol.
 
 The Git source descriptor and materialized package descriptor are intentionally
 separate. M5 may add manifest-bound search/index assets that are not Git files, and

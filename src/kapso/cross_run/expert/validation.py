@@ -51,6 +51,10 @@ from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewOutcome,
     ExpertAutomatedReviewStageResultRecord,
 )
+from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseActivationReceipt,
+    ExpertReleasePublicationPlan,
+)
 from kapso.cross_run.settings import (
     ExpertEvaluatorSettings,
     ExpertValidationPolicy,
@@ -1505,6 +1509,60 @@ class ExpertValidationReducer:
             terminal_evidence_ids=(expected_decision.promotion_decision_id,),
             transition_evidence_id=result.stage_result_record_id,
             reason=f"publication_eligibility_{expected_decision.reason.value}",
+        )
+
+    def advance_release_activation(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        plan: ExpertReleasePublicationPlan,
+        receipt: ExpertReleaseActivationReceipt,
+    ) -> ExpertCandidateValidationState:
+        """Record the historical fact that an approved release won CURRENT."""
+
+        policy = self.settings.policy.validation_policy()
+        if (
+            type(plan) is not ExpertReleasePublicationPlan
+            or type(receipt) is not ExpertReleaseActivationReceipt
+            or state.promotion_state is not ExpertPromotionState.APPROVED
+            or state.next_stage is not None
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+            or attempt.validation_policy_id != policy.validation_policy_id
+            or attempt.configuration_fingerprint
+            != self.settings.configuration_fingerprint
+            or plan.validation_attempt_id != attempt.validation_attempt_id
+            or plan.candidate_id != state.candidate_id
+            or plan.candidate_tree_hash != state.candidate_tree_hash
+            or plan.approval_state_id != state.validation_state_id
+            or receipt.publication_plan_id != plan.publication_plan_id
+            or receipt.release_id != plan.release_id
+            or receipt.candidate_id != plan.candidate_id
+            or receipt.approval_state_id != state.validation_state_id
+            or receipt.planned_current_observation_id
+            != plan.current_release_observation.observation_id
+            or tuple(item.stage for item in state.accepted_stage_results)
+            != attempt.required_stages
+        ):
+            raise ExpertValidationError(
+                "release activation differs from its approved publication plan"
+            )
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.RELEASED,
+            accepted_stage_results=state.accepted_stage_results,
+            next_stage=None,
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=tuple(
+                sorted({*state.terminal_evidence_ids, receipt.activation_receipt_id})
+            ),
+            transition_evidence_id=receipt.activation_receipt_id,
+            reason="release_publication_activated",
         )
 
     def _validate_result_closure(

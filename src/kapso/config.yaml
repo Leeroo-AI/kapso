@@ -56,7 +56,6 @@ cross_run:
     cache_entry_limit: 10000
     git_tree_metadata_size_bytes: 67108864
     control_blob_size_bytes: 262144
-    comparison_response_size_bytes: 33554432
     cache_retention_releases: 3
   capture:
     state_path: ".kapso/cross_run/capture"

@@ -20,6 +20,7 @@ class ExpertValidationOperationKind(str, Enum):
     TASK_EVALUATION_RESERVATION = "task_evaluation_reservation"
     RELEASE_MATRIX_STAGE_RESULT = "release_matrix_stage_result"
     PUBLICATION_ELIGIBILITY_STAGE_RESULT = "publication_eligibility_stage_result"
+    RELEASE_ACTIVATION = "release_activation"
     AUTHORITY_INVALIDATION = "authority_invalidation"
 
 

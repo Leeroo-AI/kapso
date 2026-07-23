@@ -27,6 +27,7 @@ from kapso.cross_run.expert.task_evaluation_authority_contracts import (
 from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
+    GitHubArtifactActivationWitness,
 )
 
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -413,6 +414,132 @@ class ExpertReleasePublicationIntent(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertReleaseActivationReceipt(StrictContract):
+    """Durable proof that one release won CURRENT at least once."""
+
+    activation_receipt_id: str
+    publication_intent_id: str
+    publication_plan_id: str
+    release_id: str
+    candidate_id: str
+    approval_transition_id: str
+    approval_state_id: str
+    planned_current_observation_id: str
+    github_publication_intent: ArtifactPublicationIntent
+    github_publication_pointer: CurrentArtifactPointer
+    activation_witness: GitHubArtifactActivationWitness
+    observed_current_release: TaskEvaluationCurrentReleaseObservation
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-activation-receipt"
+    IDENTITY_FIELD: ClassVar[str] = "activation_receipt_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.publication_intent_id,
+                "expert-release-publication-intent",
+                "activation receipt publication intent",
+            ),
+            (
+                self.publication_plan_id,
+                "expert-release-publication-plan",
+                "activation receipt publication plan",
+            ),
+            (self.release_id, "expert-base-release", "activation receipt release"),
+            (self.candidate_id, "expert-candidate", "activation receipt candidate"),
+            (
+                self.approval_transition_id,
+                "expert-validation-transition",
+                "activation receipt approval transition",
+            ),
+            (
+                self.approval_state_id,
+                "expert-candidate-validation-state",
+                "activation receipt approval state",
+            ),
+            (
+                self.planned_current_observation_id,
+                "task-evaluation-current-release-observation",
+                "activation receipt planned CURRENT",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        intent = self.github_publication_intent
+        pointer = self.github_publication_pointer
+        observed = self.observed_current_release
+        witness = self.activation_witness
+        if (
+            type(intent) is not ArtifactPublicationIntent
+            or type(pointer) is not CurrentArtifactPointer
+            or not intent.binds(pointer)
+            or intent.scope_id != observed.scope_id
+            or intent.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or intent.artifact_id != self.release_id
+            or intent.repository_full_name != observed.repository_full_name
+            or pointer.publication_record.artifact_id != self.release_id
+        ):
+            raise ExpertReleaseContractError(
+                "activation receipt GitHub publication is inconsistent"
+            )
+        if (
+            type(witness) is not GitHubArtifactActivationWitness
+            or witness.scope_id != intent.scope_id
+            or witness.artifact_kind is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or witness.artifact_id != self.release_id
+            or witness.repository_full_name != intent.repository_full_name
+            or witness.publication_intent_digest != intent.digest
+            or witness.current_pointer_digest
+            != tree_or_blob_digest(pointer.to_json_bytes())
+        ):
+            raise ExpertReleaseContractError(
+                "activation receipt witness does not prove activation"
+            )
+        if observed.release_id == self.release_id and (
+            observed.publication_id != pointer.publication_record.publication_id
+            or observed.current_pointer_digest
+            != tree_or_blob_digest(pointer.to_json_bytes())
+            or observed.default_branch_head_commit_sha != witness.activation_commit_sha
+        ):
+            raise ExpertReleaseContractError(
+                "active activation receipt differs from its CURRENT pointer"
+            )
+        if (
+            observed.release_id != self.release_id
+            and observed.publication_id == pointer.publication_record.publication_id
+        ):
+            raise ExpertReleaseContractError(
+                "historical activation receipt reuses its publication identity"
+            )
+        _require_sorted_content_ids(
+            self.exact_dependency_ids,
+            "activation receipt exact dependencies",
+        )
+        required = {
+            self.publication_intent_id,
+            self.publication_plan_id,
+            self.release_id,
+            self.candidate_id,
+            self.approval_transition_id,
+            self.approval_state_id,
+            self.planned_current_observation_id,
+            pointer.publication_record.publication_id,
+            witness.witness_id,
+            observed.observation_id,
+            *intent.validation_closure_ids,
+            *observed.validation_closure_ids,
+        }
+        if observed.release_id is not None:
+            required.add(observed.release_id)
+        if observed.publication_id is not None:
+            required.add(observed.publication_id)
+        if set(self.exact_dependency_ids) != required:
+            raise ExpertReleaseContractError(
+                "activation receipt dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertReleasePublicationStaleResolution(StrictContract):
     """Durable proof that a reserved publication lost its CURRENT authority."""
 
@@ -425,8 +552,10 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
     approval_state_id: str
     planned_current_observation_id: str
     observed_current_release: TaskEvaluationCurrentReleaseObservation
+    observed_current_activation_witness: GitHubArtifactActivationWitness
     own_github_publication_intent: ArtifactPublicationIntent | None
     own_github_publication_pointer: CurrentArtifactPointer | None
+    own_github_activation_preparation_commit_sha: str | None
     resolved_at: str
     exact_dependency_ids: tuple[str, ...]
 
@@ -476,8 +605,32 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
             raise ExpertReleaseContractError(
                 "stale resolution must observe changed CURRENT authority"
             )
+        if (
+            self.observed_current_release.release_id is None
+            or self.observed_current_release.release_id == self.release_id
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution requires another active release"
+            )
         own_intent = self.own_github_publication_intent
         own_pointer = self.own_github_publication_pointer
+        preparation_commit = self.own_github_activation_preparation_commit_sha
+        winner_witness = self.observed_current_activation_witness
+        observed = self.observed_current_release
+        if (
+            type(winner_witness) is not GitHubArtifactActivationWitness
+            or winner_witness.scope_id != observed.scope_id
+            or winner_witness.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+            or winner_witness.artifact_id != observed.release_id
+            or winner_witness.repository_full_name != observed.repository_full_name
+            or winner_witness.activation_commit_sha
+            != observed.default_branch_head_commit_sha
+            or winner_witness.current_pointer_digest != observed.current_pointer_digest
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution winner lacks its activation witness"
+            )
         if own_pointer is not None and own_intent is None:
             raise ExpertReleaseContractError(
                 "stale resolution own pointer lacks its GitHub publication intent"
@@ -502,12 +655,19 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
             raise ExpertReleaseContractError(
                 "stale resolution own GitHub pointer is inconsistent"
             )
+        if preparation_commit is not None and (
+            own_pointer is None
+            or not re.fullmatch(r"[0-9a-f]{40}", preparation_commit)
+            or preparation_commit == winner_witness.activation_commit_sha
+        ):
+            raise ExpertReleaseContractError(
+                "stale resolution activation preparation is inconsistent"
+            )
         normalize_utc_timestamp(self.resolved_at, "resolved_at")
         _require_sorted_content_ids(
             self.exact_dependency_ids,
             "stale resolution exact dependencies",
         )
-        observed = self.observed_current_release
         required = {
             self.publication_intent_id,
             self.publication_plan_id,
@@ -517,6 +677,7 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
             self.approval_state_id,
             self.planned_current_observation_id,
             observed.observation_id,
+            winner_witness.witness_id,
             *observed.validation_closure_ids,
         }
         if observed.release_id is not None:
@@ -534,6 +695,7 @@ class ExpertReleasePublicationStaleResolution(StrictContract):
 __all__ = [
     "ExpertReleaseAssetDescriptor",
     "ExpertReleaseContractError",
+    "ExpertReleaseActivationReceipt",
     "ExpertReleaseEvidenceManifest",
     "ExpertReleaseMatrixSummary",
     "ExpertReleasePublicationIntent",

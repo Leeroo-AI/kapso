@@ -32,12 +32,15 @@ from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
     CurrentPointerState,
+    GitHubArtifactActivationWitness,
     GitHubArtifactResolver,
     GitHubResolutionError,
     PublicationAssetIntent,
     PublicationSourceFile,
     RepositoryPolicyReport,
     ResolvedGitHubArtifact,
+    artifact_activation_ref,
+    artifact_activation_preparation_ref,
 )
 
 __all__ = [
@@ -53,6 +56,7 @@ __all__ = [
     "CurrentArtifactPointer",
     "CurrentPointerState",
     "ExpertReleaseSourceSnapshot",
+    "GitHubArtifactActivationWitness",
     "GitHubArtifactMaterializer",
     "GitHubArtifactResolver",
     "GitHubCommandClient",
@@ -72,4 +76,6 @@ __all__ = [
     "RepositoryPolicyReport",
     "ResolvedGitHubArtifact",
     "SubprocessCommandRunner",
+    "artifact_activation_ref",
+    "artifact_activation_preparation_ref",
 ]

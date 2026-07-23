@@ -1209,14 +1209,21 @@ Before release:
       IDs/digests, and publication record.
 - [x] Publication retry with identical content is idempotent.
 - [x] CAS conflict requires re-resolution/revalidation, not force push. A durable
-      stale outcome retains an authenticated losing intent/identity, while commit
-      ancestry prevents historically active releases from being misclassified.
+      stale outcome retains an authenticated losing intent/identity and exact
+      prepared commit, while the post-CAS success witness prevents historically
+      active releases from being misclassified.
 
 Remote activation and local lifecycle completion are deliberately separate crash
-boundaries. The next release slice must persist the exact authenticated publication,
-advance `APPROVED -> RELEASED` idempotently after a successful or replayed activation,
-and recover a historically activated release that was superseded before its local
-transition committed.
+boundaries. The implemented recovery verifies the write-once preparation and
+distinct post-CAS success witness, authenticates the exact publication identity and
+a stable current observation, then persists that witness. Every successor must
+witness its exact predecessor before CAS, closing the post-CAS/local-crash gap
+without an ancestry horizon. One publisher/store-bound capability atomically writes
+the activation receipt, operation, `RELEASED` state, and lifecycle transition while
+clearing the reservation. Offline replay returns that first durable outcome. A
+witnessed release remains `RELEASED` after any number of successors; a prepared
+loser becomes stale only after a witnessed competitor remains stable and the loser
+witness is rechecked absent. Commit ancestry is intentionally insufficient.
 
 ## Revocation
 

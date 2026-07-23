@@ -48,9 +48,12 @@ from kapso.cross_run.github.resolver import (
     CurrentArtifactPointer,
     CurrentPointerState,
     GitHubArtifactResolver,
+    GitHubArtifactActivationWitness,
     PublicationAssetIntent,
     PublicationSourceFile,
     RepositoryPolicyReport,
+    artifact_activation_ref,
+    artifact_activation_preparation_ref,
     artifact_identity_ref,
     artifact_publication_intent_ref,
     release_attestation_reference,
@@ -312,15 +315,6 @@ class AutonomousGitHubPublisher:
         )
         existing = current_state.pointer
         observed_head = current_state.head_commit_sha
-        if activation_gate is not None:
-            activation_gate.validate_before_publication(
-                envelope=envelope,
-                repositories=repositories,
-                current_state=current_state,
-                manifest=manifest,
-                source_tree_digest=source_tree_digest,
-                manifest_digest=manifest_digest,
-            )
         preserved_current = (
             publication_intent.preserved_current
             if publication_intent is not None
@@ -369,8 +363,68 @@ class AutonomousGitHubPublisher:
                 published_identity,
                 publication_intent,
             )
+            activation_preparation = (
+                self.resolver.resolve_artifact_activation_preparation(
+                    envelope.scope_id,
+                    envelope.artifact_kind,
+                    envelope.artifact_id,
+                    publication_intent,
+                    published_identity,
+                    allow_missing=True,
+                )
+            )
+            if activation_preparation is not None:
+                activation_witness = self.resolver.resolve_artifact_activation_witness(
+                    envelope.scope_id,
+                    envelope.artifact_kind,
+                    envelope.artifact_id,
+                    publication_intent,
+                    published_identity,
+                    allow_missing=True,
+                )
+                if activation_witness is not None:
+                    return PublicationTelemetry(
+                        publication_record=published_identity.publication_record,
+                        expected_parent_sha=envelope.expected_parent_sha,
+                        source_commit_sha=(
+                            published_identity.publication_record.commit_sha
+                        ),
+                        pointer_commit_sha=(activation_witness.activation_commit_sha),
+                        source_tree_digest=source_tree_digest,
+                        validation_closure_ids=envelope.validation_closure_ids,
+                        idempotent_replay=True,
+                    )
+            if activation_gate is not None:
+                activation_gate.validate_before_publication(
+                    envelope=envelope,
+                    repositories=repositories,
+                    current_state=current_state,
+                    manifest=manifest,
+                    source_tree_digest=source_tree_digest,
+                    manifest_digest=manifest_digest,
+                )
             if existing == published_identity:
                 pointer_commit_sha = observed_head
+                activation_commit_sha = (
+                    self.resolver.resolve_artifact_activation_preparation(
+                        envelope.scope_id,
+                        envelope.artifact_kind,
+                        envelope.artifact_id,
+                        publication_intent,
+                        published_identity,
+                    )
+                )
+                if activation_commit_sha != pointer_commit_sha:
+                    raise GitHubPublicationError(
+                        "active CURRENT differs from its activation preparation"
+                    )
+                self.finalize_artifact_activation_witness(
+                    envelope.scope_id,
+                    envelope.artifact_kind,
+                    envelope.artifact_id,
+                    publication_intent,
+                    published_identity,
+                )
             elif observed_head == envelope.expected_parent_sha:
                 pointer_commit_sha = self._prepare_current_pointer_commit(
                     repository,
@@ -379,6 +433,14 @@ class AutonomousGitHubPublisher:
                     publication_intent,
                     envelope.committed_at,
                 )
+                self._commit_artifact_activation_preparation(
+                    repository,
+                    envelope,
+                    publication_intent,
+                    published_identity,
+                    pointer_commit_sha,
+                )
+                self._finalize_expected_parent_witness(envelope)
                 if activation_gate is not None:
                     self._validate_activation_pointer(
                         envelope,
@@ -403,6 +465,13 @@ class AutonomousGitHubPublisher:
                     envelope.expected_parent_sha,
                     pointer_commit_sha,
                 )
+                self.finalize_artifact_activation_witness(
+                    envelope.scope_id,
+                    envelope.artifact_kind,
+                    envelope.artifact_id,
+                    publication_intent,
+                    published_identity,
+                )
             else:
                 raise GitHubCompareAndSwapError(
                     "published artifact is immutable but is not the active CURRENT"
@@ -415,6 +484,15 @@ class AutonomousGitHubPublisher:
                 source_tree_digest=source_tree_digest,
                 validation_closure_ids=envelope.validation_closure_ids,
                 idempotent_replay=True,
+            )
+        if activation_gate is not None:
+            activation_gate.validate_before_publication(
+                envelope=envelope,
+                repositories=repositories,
+                current_state=current_state,
+                manifest=manifest,
+                source_tree_digest=source_tree_digest,
+                manifest_digest=manifest_digest,
             )
         if existing is not None and (
             existing.publication_record.artifact_id == envelope.artifact_id
@@ -574,6 +652,14 @@ class AutonomousGitHubPublisher:
             publication_intent,
             envelope.committed_at,
         )
+        self._commit_artifact_activation_preparation(
+            repository,
+            envelope,
+            publication_intent,
+            pointer,
+            pointer_commit_sha,
+        )
+        self._finalize_expected_parent_witness(envelope)
         if activation_gate is not None:
             self._validate_activation_pointer(envelope, pointer, manifest_digest)
             activation_gate.revalidate_before_activation(
@@ -593,6 +679,13 @@ class AutonomousGitHubPublisher:
             policy.repository_node_id,
             envelope.expected_parent_sha,
             pointer_commit_sha,
+        )
+        self.finalize_artifact_activation_witness(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            envelope.artifact_id,
+            publication_intent,
+            pointer,
         )
         return PublicationTelemetry(
             publication_record=record,
@@ -1699,3 +1792,153 @@ class AutonomousGitHubPublisher:
             expected_parent_sha,
             pointer_commit_sha,
         )
+
+    def finalize_artifact_activation_witness(
+        self,
+        scope_id: str,
+        artifact_kind: PublicationArtifactKind,
+        artifact_id: str,
+        intent: ArtifactPublicationIntent,
+        pointer: CurrentArtifactPointer,
+    ) -> GitHubArtifactActivationWitness:
+        """Seal a success ref only for the exact prepared CURRENT commit."""
+
+        activation_commit_sha = self.resolver.resolve_artifact_activation_preparation(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+        )
+        existing = self.resolver.resolve_artifact_activation_witness(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+            allow_missing=True,
+        )
+        if existing is not None:
+            return existing
+        current = self.resolver.read_current_pointer_state(
+            scope_id,
+            artifact_kind,
+            allow_missing=True,
+        )
+        if (
+            current.pointer != pointer
+            or current.head_commit_sha != activation_commit_sha
+        ):
+            raced = self.resolver.resolve_artifact_activation_witness(
+                scope_id,
+                artifact_kind,
+                artifact_id,
+                intent,
+                pointer,
+                allow_missing=True,
+            )
+            if raced is not None:
+                return raced
+            raise GitHubPublicationError(
+                "activation witness requires the exact prepared CURRENT head"
+            )
+        repositories = self.resolver.repositories_for_scope(scope_id)
+        repository = repository_for_artifact(repositories, artifact_kind)
+        self.resolver.require_artifact_intent(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+        )
+        self.resolver.require_artifact_pointer(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            pointer,
+        )
+        self.client.create_ref_if_absent(
+            repository,
+            artifact_activation_ref(artifact_kind, artifact_id),
+            activation_commit_sha,
+        )
+        witnessed = self.resolver.resolve_artifact_activation_witness(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+        )
+        if witnessed is None:
+            raise GitHubPublicationError("artifact activation witness is missing")
+        return witnessed
+
+    def _finalize_expected_parent_witness(
+        self,
+        envelope: PublicationEnvelope,
+    ) -> None:
+        current = self.resolver.read_current_pointer_state(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            allow_missing=True,
+        )
+        if current.head_commit_sha != envelope.expected_parent_sha:
+            raise GitHubCompareAndSwapError(
+                "default branch changed before predecessor witness finalization"
+            )
+        pointer = current.pointer
+        if pointer is None:
+            return
+        artifact_id = pointer.publication_record.artifact_id
+        intent = self.resolver.read_artifact_intent(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            artifact_id,
+        )
+        identity = self.resolver.read_artifact_pointer(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            artifact_id,
+        )
+        if intent is None or identity != pointer:
+            raise GitHubPublicationError(
+                "current predecessor lacks its exact publication identity"
+            )
+        witness = self.finalize_artifact_activation_witness(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+        )
+        if witness.activation_commit_sha != current.head_commit_sha:
+            raise GitHubPublicationError(
+                "current predecessor head differs from its activation witness"
+            )
+
+    def _commit_artifact_activation_preparation(
+        self,
+        repository: str,
+        envelope: PublicationEnvelope,
+        intent: ArtifactPublicationIntent,
+        pointer: CurrentArtifactPointer,
+        activation_commit_sha: str,
+    ) -> None:
+        self.client.create_ref_if_absent(
+            repository,
+            artifact_activation_preparation_ref(
+                envelope.artifact_kind,
+                envelope.artifact_id,
+            ),
+            activation_commit_sha,
+        )
+        observed = self.resolver.resolve_artifact_activation_preparation(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            envelope.artifact_id,
+            intent,
+            pointer,
+        )
+        if observed != activation_commit_sha:
+            raise GitHubPublicationError(
+                "artifact activation preparation differs from its commit"
+            )

@@ -21,6 +21,7 @@ from kapso.cross_run.expert.release import (
     ExpertReleasePackage,
 )
 from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseActivationReceipt,
     ExpertReleaseAssetDescriptor,
     ExpertReleaseContractError,
     ExpertReleaseEvidenceManifest,
@@ -308,6 +309,8 @@ from kapso.cross_run.expert.validation import (
 from kapso.cross_run.expert.validation_store import (
     ExpertAutomatedReviewStageCommitResult,
     ExpertPublicationEligibilityStageCommitResult,
+    ExpertReleaseActivationCommitResult,
+    ExpertReleaseActivationPermit,
     ExpertReleaseMatrixStageCommitResult,
     ExpertReleasePublicationPlanPermit,
     ExpertReleasePublicationReservation,
@@ -455,6 +458,9 @@ __all__ = [
     "ExpertReleaseMatrixStageExecution",
     "ExpertReleaseMatrixStageResultRecord",
     "ExpertReleaseAssembler",
+    "ExpertReleaseActivationCommitResult",
+    "ExpertReleaseActivationPermit",
+    "ExpertReleaseActivationReceipt",
     "ExpertReleaseAssetDescriptor",
     "ExpertReleaseAssemblyError",
     "ExpertReleaseContractError",

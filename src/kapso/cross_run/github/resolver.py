@@ -325,6 +325,40 @@ class CurrentPointerState:
 
 
 @dataclass(frozen=True)
+class GitHubArtifactActivationWitness(StrictContract):
+    witness_id: str
+    scope_id: str
+    scope_repository_binding_hash: str
+    artifact_kind: PublicationArtifactKind
+    artifact_id: str
+    repository_full_name: str
+    activation_commit_sha: str
+    publication_intent_digest: str
+    current_pointer_digest: str
+
+    CONTENT_NAMESPACE = "github-artifact-activation-witness"
+    IDENTITY_FIELD = "witness_id"
+
+    def _validate(self) -> None:
+        require_identifier(self.scope_id, "activation witness scope_id")
+        require_content_id(self.artifact_id, "activation witness artifact_id")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.scope_repository_binding_hash):
+            raise GitHubResolutionError(
+                "activation witness repository binding is invalid"
+            )
+        if self.repository_full_name.count("/") != 1:
+            raise GitHubResolutionError("activation witness repository is invalid")
+        if not re.fullmatch(r"[0-9a-f]{40}", self.activation_commit_sha):
+            raise GitHubResolutionError("activation witness commit is invalid")
+        for value in (
+            self.publication_intent_digest,
+            self.current_pointer_digest,
+        ):
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+                raise GitHubResolutionError("activation witness digest is invalid")
+
+
+@dataclass(frozen=True)
 class _ArtifactPointerState:
     pointer: CurrentArtifactPointer | None
     identity_commit_sha: str | None
@@ -376,6 +410,22 @@ def artifact_publication_intent_ref(
     require_content_id(artifact_id, "artifact_id")
     digest = artifact_id.rsplit(":", 1)[1]
     return f"refs/kapso-publication-intents/{artifact_kind.value}/{digest}"
+
+
+def artifact_activation_preparation_ref(
+    artifact_kind: PublicationArtifactKind, artifact_id: str
+) -> str:
+    require_content_id(artifact_id, "artifact_id")
+    digest = artifact_id.rsplit(":", 1)[1]
+    return f"refs/kapso-activation-preparations/{artifact_kind.value}/{digest}"
+
+
+def artifact_activation_ref(
+    artifact_kind: PublicationArtifactKind, artifact_id: str
+) -> str:
+    require_content_id(artifact_id, "artifact_id")
+    digest = artifact_id.rsplit(":", 1)[1]
+    return f"refs/kapso-activations/{artifact_kind.value}/{digest}"
 
 
 def release_attestation_reference(attestation: Any) -> str:
@@ -559,91 +609,6 @@ class GitHubArtifactResolver:
                 "artifact identity ref differs from the expected publication"
             )
 
-    def is_commit_ancestor(
-        self,
-        scope_id: str,
-        artifact_kind: PublicationArtifactKind,
-        ancestor_sha: str,
-        descendant_sha: str,
-    ) -> bool:
-        """Ask GitHub whether one exact commit is in another's history."""
-        for value, name in (
-            (ancestor_sha, "ancestor commit"),
-            (descendant_sha, "descendant commit"),
-        ):
-            if not re.fullmatch(r"[0-9a-f]{40}", value):
-                raise GitHubResolutionError(f"{name} is invalid")
-        repositories = self.repositories_for_scope(scope_id)
-        repository = repository_for_artifact(repositories, artifact_kind)
-        bounded = self.client.api_json_bounded(
-            "GET",
-            f"repos/{repository}/compare/{ancestor_sha}...{descendant_sha}?per_page=1",
-            self.settings.comparison_response_size_bytes,
-        )
-        if (
-            not isinstance(bounded, BoundedJsonResponse)
-            or type(bounded.size_bytes) is not int
-            or bounded.size_bytes <= 0
-            or bounded.size_bytes > self.settings.comparison_response_size_bytes
-        ):
-            raise GitHubResolutionError("commit ancestry response is invalid")
-        comparison = _require_mapping(
-            bounded.value,
-            "commit ancestry comparison",
-        )
-        status = comparison.get("status")
-        base_commit = _require_mapping(
-            comparison.get("base_commit"), "comparison base commit"
-        )
-        head_commit = _require_mapping(
-            comparison.get("head_commit"), "comparison head commit"
-        )
-        merge_base = _require_mapping(
-            comparison.get("merge_base_commit"), "comparison merge base"
-        )
-        ahead_by = comparison.get("ahead_by")
-        behind_by = comparison.get("behind_by")
-        if (
-            base_commit.get("sha") != ancestor_sha
-            or head_commit.get("sha") != descendant_sha
-            or not re.fullmatch(r"[0-9a-f]{40}", str(merge_base.get("sha")))
-            or type(ahead_by) is not int
-            or ahead_by < 0
-            or type(behind_by) is not int
-            or behind_by < 0
-        ):
-            raise GitHubResolutionError("commit ancestry comparison mismatch")
-        if status == "ahead":
-            if merge_base.get("sha") != ancestor_sha or ahead_by < 1 or behind_by != 0:
-                raise GitHubResolutionError("commit ancestry merge base mismatch")
-            return True
-        if status == "identical":
-            if (
-                ancestor_sha != descendant_sha
-                or merge_base.get("sha") != ancestor_sha
-                or ahead_by != 0
-                or behind_by != 0
-            ):
-                raise GitHubResolutionError("identical commit comparison mismatch")
-            return True
-        if status == "behind":
-            if (
-                merge_base.get("sha") != descendant_sha
-                or ahead_by != 0
-                or behind_by < 1
-            ):
-                raise GitHubResolutionError("behind commit comparison mismatch")
-            return False
-        if status == "diverged":
-            if (
-                merge_base.get("sha") in {ancestor_sha, descendant_sha}
-                or ahead_by < 1
-                or behind_by < 1
-            ):
-                raise GitHubResolutionError("diverged commit comparison mismatch")
-            return False
-        raise GitHubResolutionError("commit ancestry status is invalid")
-
     def _read_artifact_pointer_state(
         self,
         scope_id: str,
@@ -757,6 +722,156 @@ class GitHubArtifactResolver:
         ):
             raise GitHubResolutionError("artifact publication intent target mismatch")
         return intent
+
+    def resolve_artifact_activation_preparation(
+        self,
+        scope_id: str,
+        artifact_kind: PublicationArtifactKind,
+        artifact_id: str,
+        intent: ArtifactPublicationIntent,
+        pointer: CurrentArtifactPointer,
+        *,
+        allow_missing: bool = False,
+    ) -> str | None:
+        """Resolve and verify the write-once prepared activation commit."""
+        if (
+            type(intent) is not ArtifactPublicationIntent
+            or type(pointer) is not CurrentArtifactPointer
+            or intent.scope_id != scope_id
+            or intent.artifact_kind is not artifact_kind
+            or intent.artifact_id != artifact_id
+            or not intent.binds(pointer)
+        ):
+            raise GitHubResolutionError(
+                "artifact activation preparation inputs do not bind one publication"
+            )
+        repositories = self.repositories_for_scope(scope_id)
+        repository = repository_for_artifact(repositories, artifact_kind)
+        owner, name = repository.split("/", 1)
+        data = _require_graphql_data(
+            self.client.graphql(
+                _ARTIFACT_REF_QUERY,
+                {
+                    "owner": owner,
+                    "name": name,
+                    "qualifiedName": artifact_activation_preparation_ref(
+                        artifact_kind,
+                        artifact_id,
+                    ),
+                },
+            ),
+            "artifact activation preparation ref query",
+        )
+        repository_data = _require_mapping(
+            data.get("repository"), "artifact activation preparation repository"
+        )
+        reference = repository_data.get("ref")
+        if reference is None:
+            if allow_missing:
+                return None
+            raise GitHubResolutionError("artifact activation preparation is missing")
+        reference_data = _require_mapping(
+            reference, "artifact activation preparation ref"
+        )
+        target = _require_mapping(
+            reference_data.get("target"), "artifact activation preparation target"
+        )
+        activation_commit_sha = _require_text(
+            target.get("oid"), "artifact activation commit"
+        )
+        if not re.fullmatch(r"[0-9a-f]{40}", activation_commit_sha):
+            raise GitHubResolutionError("artifact activation commit is invalid")
+        pointer_payload = pointer.to_json_bytes()
+        pointer_blob_sha = git_object_sha("blob", pointer_payload)
+        expected_files = {
+            source.relative_path: (source.git_blob_sha, source.mode)
+            for source in intent.source_files
+        }
+        expected_files["CURRENT.json"] = (pointer_blob_sha, "100644")
+        expected_tree_sha = git_tree_shas(expected_files)[""]
+        commit = _require_mapping(
+            self.client.api_json(
+                "GET",
+                f"repos/{repository}/git/commits/{activation_commit_sha}",
+            ),
+            "artifact activation commit",
+        )
+        tree = _require_mapping(commit.get("tree"), "artifact activation tree")
+        parents = commit.get("parents")
+        if (
+            commit.get("sha") != activation_commit_sha
+            or tree.get("sha") != expected_tree_sha
+            or not isinstance(parents, list)
+            or len(parents) != 1
+        ):
+            raise GitHubResolutionError("artifact activation commit mismatch")
+        parent = _require_mapping(parents[0], "artifact activation parent")
+        if parent.get("sha") != intent.source_commit_sha:
+            raise GitHubResolutionError("artifact activation parent mismatch")
+        return activation_commit_sha
+
+    def resolve_artifact_activation_witness(
+        self,
+        scope_id: str,
+        artifact_kind: PublicationArtifactKind,
+        artifact_id: str,
+        intent: ArtifactPublicationIntent,
+        pointer: CurrentArtifactPointer,
+        *,
+        allow_missing: bool = False,
+    ) -> GitHubArtifactActivationWitness | None:
+        """Resolve the post-CAS proof that a prepared commit became CURRENT."""
+
+        activation_commit_sha = self.resolve_artifact_activation_preparation(
+            scope_id,
+            artifact_kind,
+            artifact_id,
+            intent,
+            pointer,
+        )
+        repositories = self.repositories_for_scope(scope_id)
+        repository = repository_for_artifact(repositories, artifact_kind)
+        owner, name = repository.split("/", 1)
+        data = _require_graphql_data(
+            self.client.graphql(
+                _ARTIFACT_REF_QUERY,
+                {
+                    "owner": owner,
+                    "name": name,
+                    "qualifiedName": artifact_activation_ref(
+                        artifact_kind,
+                        artifact_id,
+                    ),
+                },
+            ),
+            "artifact activation witness ref query",
+        )
+        repository_data = _require_mapping(
+            data.get("repository"), "artifact activation witness repository"
+        )
+        reference = repository_data.get("ref")
+        if reference is None:
+            if allow_missing:
+                return None
+            raise GitHubResolutionError("artifact activation witness is missing")
+        reference_data = _require_mapping(reference, "artifact activation witness ref")
+        target = _require_mapping(
+            reference_data.get("target"), "artifact activation witness target"
+        )
+        if target.get("oid") != activation_commit_sha:
+            raise GitHubResolutionError(
+                "artifact activation witness differs from its preparation"
+            )
+        return GitHubArtifactActivationWitness.mint(
+            scope_id=scope_id,
+            scope_repository_binding_hash=repositories.binding_fingerprint,
+            artifact_kind=artifact_kind,
+            artifact_id=artifact_id,
+            repository_full_name=repository,
+            activation_commit_sha=activation_commit_sha,
+            publication_intent_digest=intent.digest,
+            current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+        )
 
     def require_artifact_intent(
         self,

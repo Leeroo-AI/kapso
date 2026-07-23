@@ -51,6 +51,7 @@ from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
     CurrentArtifactPointer,
     CurrentPointerState,
+    GitHubArtifactActivationWitness,
     GitHubArtifactResolver,
     PublicationAssetIntent,
     PublicationSourceFile,
@@ -556,15 +557,91 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
         "d" * 40,
     )
     own_identity = _publication_pointer(plan, own_intent)
-    resolver.read_artifact_intent = lambda scope_id, kind, artifact_id: own_intent
-    resolver.read_artifact_pointer = lambda scope_id, kind, artifact_id: own_identity
+    winner_intent = replace(
+        own_intent,
+        artifact_id=other_release_id,
+        source_commit_sha=other_pointer.publication_record.commit_sha,
+        tag=other_pointer.publication_record.tag,
+        validation_closure_ids=other_pointer.validation_closure_ids,
+    )
+    winner_identity = replace(
+        other_pointer,
+        publication_intent_digest=winner_intent.digest,
+        source_tree_digest=winner_intent.source_tree_digest,
+        source_git_tree_sha=winner_intent.source_git_tree_sha,
+        materialized_tree_digest=winner_intent.materialized_tree_digest,
+        manifest_relative_path=winner_intent.manifest_relative_path,
+        manifest_digest=winner_intent.manifest_digest,
+        validation_closure_ids=winner_intent.validation_closure_ids,
+    )
+    remote["state"] = CurrentPointerState(
+        pointer=winner_identity,
+        head_commit_sha="f" * 40,
+    )
+    remote["observation"] = TaskEvaluationCurrentReleaseObservation.mint(
+        scope_id=plan.scope_id,
+        release_id=other_release_id,
+        publication_id=winner_identity.publication_record.publication_id,
+        repository_full_name=(winner_identity.publication_record.repository_full_name),
+        repository_node_id=winner_identity.publication_record.repository_node_id,
+        default_branch_head_commit_sha="f" * 40,
+        current_pointer_digest=tree_or_blob_digest(winner_identity.to_json_bytes()),
+        validation_closure_ids=winner_identity.validation_closure_ids,
+    )
+    resolver.read_artifact_intent = lambda scope_id, kind, artifact_id: (
+        winner_intent if artifact_id == other_release_id else own_intent
+    )
+    resolver.read_artifact_pointer = lambda scope_id, kind, artifact_id: (
+        winner_identity if artifact_id == other_release_id else own_identity
+    )
     resolver.diagnose_repository = lambda scope_id, kind: object()
     resolver.resolve_artifact = lambda scope_id, kind, artifact_id: SimpleNamespace(
-        pointer=own_identity
+        pointer=own_identity if artifact_id == plan.release_id else winner_identity
     )
-    ancestry = {"historically_active": True}
-    resolver.is_commit_ancestor = lambda scope_id, kind, ancestor_sha, descendant_sha: (
-        ancestry["historically_active"]
+    activation_preparation_commit_sha = "c" * 40
+    resolver.resolve_artifact_activation_preparation = (
+        lambda scope_id, kind, artifact_id, intent, pointer, allow_missing=False: (
+            activation_preparation_commit_sha
+        )
+    )
+    repository_binding = settings.scopes.resolve(plan.scope_id).binding_fingerprint
+    winner_witness = GitHubArtifactActivationWitness.mint(
+        scope_id=plan.scope_id,
+        scope_repository_binding_hash=repository_binding,
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=other_release_id,
+        repository_full_name=plan.current_release_observation.repository_full_name,
+        activation_commit_sha="f" * 40,
+        publication_intent_digest=winner_intent.digest,
+        current_pointer_digest=tree_or_blob_digest(winner_identity.to_json_bytes()),
+    )
+    own_witness = GitHubArtifactActivationWitness.mint(
+        scope_id=plan.scope_id,
+        scope_repository_binding_hash=repository_binding,
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=plan.release_id,
+        repository_full_name=plan.current_release_observation.repository_full_name,
+        activation_commit_sha=activation_preparation_commit_sha,
+        publication_intent_digest=own_intent.digest,
+        current_pointer_digest=tree_or_blob_digest(own_identity.to_json_bytes()),
+    )
+    witness_state = {"own": own_witness}
+
+    def resolve_activation_witness(
+        scope_id,
+        kind,
+        artifact_id,
+        intent,
+        pointer,
+        allow_missing=False,
+    ):
+        if artifact_id == other_release_id:
+            return winner_witness
+        return witness_state["own"]
+
+    resolver.resolve_artifact_activation_witness = resolve_activation_witness
+    generic_publisher.finalize_artifact_activation_witness = (
+        lambda scope_id, kind, artifact_id, intent, pointer: winner_witness
     )
     with pytest.raises(
         ExpertReleasePublicationError,
@@ -574,7 +651,7 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
             candidate_id=plan.candidate_id,
             resolved_at="2026-07-21T12:02:15Z",
         )
-    ancestry["historically_active"] = False
+    witness_state["own"] = None
     resolution = publisher.resolve_stale(
         candidate_id=plan.candidate_id,
         resolved_at="2026-07-21T12:02:20Z",
@@ -590,6 +667,10 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
     )
     assert resolution.own_github_publication_intent == own_intent
     assert resolution.own_github_publication_pointer == own_identity
+    assert resolution.own_github_activation_preparation_commit_sha == (
+        activation_preparation_commit_sha
+    )
+    assert resolution.observed_current_activation_witness == winner_witness
     assert own_identity.publication_record.publication_id in (
         resolution.exact_dependency_ids
     )

@@ -1549,12 +1549,15 @@ default branch; write a content-derived, write-once publication intent; bind the
 exact tag ref; create/resume a draft;
 upload and verify every asset; publish and verify the immutable release and
 attestation; write the publication record and pointer; bind a global write-once
-artifact-identity ref; create the activation commit as a child of the source; and
-only then fast-forward the default branch directly from the stable expected parent
-to that activation commit in the transaction's single compare-and-swap. A crash
-before the last step leaves an inactive but auditable artifact without exposing an
-intermediate branch head. It remains resolvable by artifact ID and cannot point
-current readers or another candidate at partial publication.
+artifact-identity ref; create the activation commit as a child of the source; bind
+that exact commit to a content-derived, write-once preparation ref; and only then
+fast-forward the default branch directly from the stable expected parent to that
+activation commit in the transaction's single compare-and-swap. After the CAS, bind
+the same commit to a distinct write-once activation-success ref. Before any later
+CAS may supersede a non-bootstrap `CURRENT`, the generic publisher must verify or
+finalize that exact predecessor witness. A crash before CAS leaves an inactive but
+auditable artifact; a crash after CAS is recoverable because the release is either
+still the exact head or a compliant successor had to witness it before advancing.
 
 If two publishers start from the same commit, only one expected-parent update can
 succeed. A loser before immutable publication reloads the new base; a loser at the
@@ -1566,11 +1569,20 @@ refs, and non-force updates, not a GitHub queue.
 
 Expert stale-resolution authenticates both the winning `CURRENT` and any losing
 intent/identity. The durable terminal outcome embeds that exact remote history.
-Before classifying an immutable CAS loser, it asks GitHub whether the losing source
-commit is an ancestor of the pinned winning head. Under the required append-only,
-non-force branch history, ancestry proves the release was previously active and
-must enter `RELEASED` recovery; non-ancestry proves the prepared artifact never won
-activation. A force rewrite invalidates that inference and is outside policy.
+Before classifying an immutable CAS loser, it verifies the losing preparation, the
+exact competing `CURRENT`, and the competitor's activation-success witness, then
+rechecks that the competing head is unchanged and that no losing witness appeared.
+An existing success witness always drives the content-addressed
+`APPROVED -> RELEASED` receipt/transition, independent of how many successors have
+since published; a stable missing witness proves the prepared CAS loser never
+activated. Commit ancestry is never activation evidence because Git history cannot
+prove that a branch ref once stopped at an intermediate commit.
+
+This proof depends on one explicit trusted-agent protocol rule: all default-branch
+updates and all activation-success ref creation go through the generic publisher.
+Agents may possess broad repository credentials, but direct pushes or direct
+success-ref writes are invalid operations. GitHub cannot atomically update two refs,
+so bypassing that authority would make a self-contained witness impossible.
 
 Archive retention and active-context budgeting remain separate. Immutable releases
 retain audit history; launch caches retain only pinned active packages under a
