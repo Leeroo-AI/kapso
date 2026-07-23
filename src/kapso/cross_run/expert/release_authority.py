@@ -19,6 +19,7 @@ from kapso.cross_run.github.materializer import (
 )
 from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
+    CurrentArtifactPointer,
     GitHubArtifactActivationWitness,
     GitHubArtifactResolver,
     ResolvedGitHubArtifact,
@@ -102,6 +103,11 @@ class AuthenticatedExpertReleaseActivation:
     def publication(self) -> GitHubPublicationRecord:
         self._require_owner_process()
         return self._publication
+
+    @property
+    def pointer(self) -> CurrentArtifactPointer:
+        self._require_owner_process()
+        return self._remote.resolved.pointer
 
     @property
     def witness(self) -> GitHubArtifactActivationWitness:

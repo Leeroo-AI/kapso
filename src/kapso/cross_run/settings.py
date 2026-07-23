@@ -1381,6 +1381,7 @@ class ExpertSettings(StrictContract):
     generalizer: CodingAgentSettings
     composition_policy_version: str
     composition_source_limit: int
+    recovery_lineage_limit: int
     release_archive_compression_level: int
     triggers: ExpertTriggerSettings
     task_adapters: TaskAdapterStoreSettings
@@ -1452,6 +1453,10 @@ class ExpertSettings(StrictContract):
         _require_positive(
             self.composition_source_limit,
             "expert.composition_source_limit",
+        )
+        _require_positive(
+            self.recovery_lineage_limit,
+            "expert.recovery_lineage_limit",
         )
         _require_positive(
             self.release_archive_compression_level,

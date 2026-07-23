@@ -75,6 +75,7 @@ def test_expert_proposers_and_trigger_policy_are_fully_typed():
     assert settings.generalizer.model == "gpt-5.6-sol"
     assert settings.composition_policy_version == "kapso.expert_composition.v1"
     assert settings.composition_source_limit == 16
+    assert settings.recovery_lineage_limit == 1000
     assert settings.workspace_path == ".kapso/cross_run/expert_workspaces"
     assert settings.triggers.inspector_id == "expert_trigger_inspector"
     assert settings.triggers.inspection_policy_version == "kapso.expert_inspection.v1"

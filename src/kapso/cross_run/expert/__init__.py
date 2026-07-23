@@ -115,6 +115,16 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertProposalContractError,
 )
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
+from kapso.cross_run.expert.recovery_base import (
+    ExpertRecoveryBaseError,
+    ExpertRecoveryBaseSelection,
+    ExpertRecoveryBaseSelector,
+)
+from kapso.cross_run.expert.recovery_contracts import (
+    ExpertCleanForwardRecoveryPlan,
+    ExpertRecoveryContractError,
+    ExpertRecoveryReleaseAssessment,
+)
 from kapso.cross_run.expert.release_authority import (
     AuthenticatedExpertReleaseActivation,
     ExpertReleaseActivationAuthorityError,
@@ -481,6 +491,12 @@ __all__ = [
     "ExpertPublicationEligibilityStageResultRecord",
     "ExpertPublicationSecurityDenylistAuthority",
     "ExpertProposalContractError",
+    "ExpertCleanForwardRecoveryPlan",
+    "ExpertRecoveryBaseError",
+    "ExpertRecoveryBaseSelection",
+    "ExpertRecoveryBaseSelector",
+    "ExpertRecoveryContractError",
+    "ExpertRecoveryReleaseAssessment",
     "ExpertRepositoryArchitect",
     "ExpertReleaseMatrixDecisionError",
     "ExpertReleaseMatrixDecisionOutcome",

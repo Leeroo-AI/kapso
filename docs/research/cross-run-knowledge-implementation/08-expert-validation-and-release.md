@@ -1278,17 +1278,26 @@ the first intent and timestamp without GitHub access; CURRENT movement after the
 local reservation remains safe because publication preflight, final revalidation,
 and expected-head CAS are still mandatory.
 
-Clean recovery will be a dedicated whole-tree rollback-as-forward path, not an
-exception in the normal zero-match gate. It separates the independently clean
-source/comparison base from the actual activation predecessor. Normal evolution
-requires those releases to be equal. Recovery selects the newest separately
-authenticated clean historical base, or the canonical empty tree, reruns the full
-applicable matrix, publishes a new immutable release, and CAS-advances from the
-durably revoked CURRENT release. A typed recovery plan and fresh authority fence
-must prove that every consumed subject is clear and that every allowed match is an
-exact control-only revocation of the publication barrier. Partial repair from
-revoked source bytes remains unsupported until content-level consuming-edge
-provenance can prove exclusion.
+Clean recovery is a dedicated whole-tree rollback-as-forward path, not an exception
+in the normal zero-match gate. Its first implemented boundary sandwiches a fresh
+CURRENT observation around an authenticated walk of immutable activation
+predecessors. Every release is reconstructed through the GitHub release-activation
+provider and checked against fresh emergency-security and release-use observations.
+The walk stops at the newest clean predecessor; canonical empty is selected only
+after a complete authenticated blocked lineage reaches bootstrap. Missing history,
+cycles, CURRENT movement, and the configured finite traversal horizon fail loud.
+The content-addressed recovery plan embeds the exact ordered assessments, selected
+source bytes, activation barrier, and complete authority dependency closure while
+classifying historical/barrier proof as control evidence.
+
+The remaining recovery path must consume that plan as production-owned authority,
+rerun the full applicable matrix, publish a new immutable release, and CAS-advance
+from the blocked CURRENT release. Normal evolution continues to require scientific
+source and activation predecessor to be equal. A fresh publication fence must prove
+that every consumed subject remains clear and that every allowed match is an exact
+control-only revocation of the publication barrier. Partial repair from revoked
+source bytes remains unsupported until content-level consuming-edge provenance can
+prove exclusion.
 
 ## Revocation
 
