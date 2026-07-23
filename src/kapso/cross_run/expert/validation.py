@@ -10,6 +10,7 @@ from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
     ExpertAcceptedStageResultRef,
+    ExpertBaseReleaseManifest,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
     ExpertEvaluatorAttestation,
@@ -54,6 +55,10 @@ from kapso.cross_run.expert.review_contracts import (
 from kapso.cross_run.expert.release_contracts import (
     ExpertReleaseActivationReceipt,
     ExpertReleasePublicationPlan,
+)
+from kapso.cross_run.expert.revocation_contracts import (
+    ExpertReleaseRevocationReceipt,
+    expert_release_revocation_security_subject_ids,
 )
 from kapso.cross_run.settings import (
     ExpertEvaluatorSettings,
@@ -1563,6 +1568,68 @@ class ExpertValidationReducer:
             ),
             transition_evidence_id=receipt.activation_receipt_id,
             reason="release_publication_activated",
+        )
+
+    def advance_release_revocation(
+        self,
+        *,
+        authorization_transition_id: str,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        activation_receipt: ExpertReleaseActivationReceipt,
+        release_manifest: ExpertBaseReleaseManifest,
+        revocation_receipt: ExpertReleaseRevocationReceipt,
+    ) -> ExpertCandidateValidationState:
+        """Withdraw future trust without rewriting historical activation."""
+
+        expected_subject_ids = expert_release_revocation_security_subject_ids(
+            authorization_transition_id=authorization_transition_id,
+            released_state=state,
+            validation_attempt=attempt,
+            activation_receipt=activation_receipt,
+            release_manifest=release_manifest,
+        )
+        observation = revocation_receipt.security_denylist_observation
+        if (
+            type(revocation_receipt) is not ExpertReleaseRevocationReceipt
+            or revocation_receipt.release_id != release_manifest.release_id
+            or revocation_receipt.candidate_id != state.candidate_id
+            or revocation_receipt.candidate_tree_hash != state.candidate_tree_hash
+            or revocation_receipt.validation_attempt_id != attempt.validation_attempt_id
+            or revocation_receipt.authorization_transition_id
+            != authorization_transition_id
+            or revocation_receipt.authorization_state_id != state.validation_state_id
+            or revocation_receipt.activation_receipt_id
+            != activation_receipt.activation_receipt_id
+            or observation.scope_id != release_manifest.scope_id
+            or observation.scope_contract_id != release_manifest.scope_contract_id
+            or observation.scope_repository_binding_hash
+            != activation_receipt.activation_witness.scope_repository_binding_hash
+            or observation.checked_subject_ids != expected_subject_ids
+            or not observation.matched_revocations
+        ):
+            raise ExpertValidationError(
+                "release revocation differs from its activated proof closure"
+            )
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.REVOKED,
+            accepted_stage_results=state.accepted_stage_results,
+            next_stage=None,
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=tuple(
+                sorted(
+                    {
+                        *state.terminal_evidence_ids,
+                        revocation_receipt.revocation_receipt_id,
+                    }
+                )
+            ),
+            transition_evidence_id=revocation_receipt.revocation_receipt_id,
+            reason="release_security_or_contamination_revoked",
         )
 
     def _validate_result_closure(

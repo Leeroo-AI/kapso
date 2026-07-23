@@ -121,6 +121,16 @@ from kapso.cross_run.expert.publisher import (
     ExpertReleasePublicationGate,
     ExpertReleasePublisher,
 )
+from kapso.cross_run.expert.revocation import (
+    ExpertReleaseRevocationCoordinator,
+    ExpertReleaseRevocationDenylistAuthority,
+    ExpertReleaseRevocationError,
+)
+from kapso.cross_run.expert.revocation_contracts import (
+    ExpertReleaseRevocationContractError,
+    ExpertReleaseRevocationReceipt,
+    expert_release_revocation_security_subject_ids,
+)
 from kapso.cross_run.expert.replay_context import (
     SourceReplayContextProvider,
     VerifiedSourceReplayContext,
@@ -311,6 +321,9 @@ from kapso.cross_run.expert.validation_store import (
     ExpertPublicationEligibilityStageCommitResult,
     ExpertReleaseActivationCommitResult,
     ExpertReleaseActivationPermit,
+    ExpertReleaseRevocationCommitResult,
+    ExpertReleaseRevocationPermit,
+    ExpertReleaseRevocationTarget,
     ExpertReleaseMatrixStageCommitResult,
     ExpertReleasePublicationPlanPermit,
     ExpertReleasePublicationReservation,
@@ -461,6 +474,14 @@ __all__ = [
     "ExpertReleaseActivationCommitResult",
     "ExpertReleaseActivationPermit",
     "ExpertReleaseActivationReceipt",
+    "ExpertReleaseRevocationCommitResult",
+    "ExpertReleaseRevocationContractError",
+    "ExpertReleaseRevocationCoordinator",
+    "ExpertReleaseRevocationDenylistAuthority",
+    "ExpertReleaseRevocationError",
+    "ExpertReleaseRevocationPermit",
+    "ExpertReleaseRevocationReceipt",
+    "ExpertReleaseRevocationTarget",
     "ExpertReleaseAssetDescriptor",
     "ExpertReleaseAssemblyError",
     "ExpertReleaseContractError",
@@ -474,6 +495,7 @@ __all__ = [
     "ExpertReleasePublicationError",
     "ExpertReleasePublicationGate",
     "ExpertReleasePublisher",
+    "expert_release_revocation_security_subject_ids",
     "ExpertReleasePublicationReservation",
     "ExpertReleasePublicationReservationCommitResult",
     "ExpertReleasePublicationStalePermit",

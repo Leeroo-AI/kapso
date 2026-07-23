@@ -27,6 +27,11 @@ from kapso.cross_run.expert.release import (
     EXPERT_RELEASE_MANIFEST_PATH,
     ExpertReleaseAssembler,
 )
+from kapso.cross_run.expert.revocation import (
+    ExpertReleaseRevocationCoordinator,
+    ExpertReleaseRevocationError,
+)
+from kapso.cross_run.expert.validation_store import ExpertValidationStoreError
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
@@ -40,6 +45,9 @@ from kapso.cross_run.github.resolver import (
     CurrentPointerState,
     GitHubArtifactActivationWitness,
     GitHubArtifactResolver,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
 )
 from kapso.cross_run.settings import CrossRunSettings
 from test_expert_release_assembly import (
@@ -362,9 +370,122 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     assert validation_store.reopen_release_publication(plan.candidate_id) is None
 
     assert authority.calls.count("denylist") == 3
+    revocation_coordinator = ExpertReleaseRevocationCoordinator(
+        validation_store=validation_store,
+        security_denylist_authority=authority.denylist,
+    )
+    with pytest.raises(ExpertReleaseRevocationError, match="emergency match"):
+        revocation_coordinator.revoke(
+            candidate_id=plan.candidate_id,
+            revoked_at="2026-07-21T12:30:00Z",
+        )
+    assert validation_store.snapshot(plan.candidate_id).state.promotion_state.value == (
+        "released"
+    )
+    authority.denylist.denied = True
+    revocation_target = validation_store.reopen_release_revocation_target(
+        plan.candidate_id
+    )
+    valid_observation = authority.denylist.observe_exact(
+        scope_id=plan.scope_id,
+        scope_contract_id=plan.scope_contract_id,
+        checked_subject_ids=revocation_target.security_subject_ids,
+    )
+    wrong_repository_observation = SecurityDenylistObservation.mint(
+        scope_id=valid_observation.scope_id,
+        scope_contract_id=valid_observation.scope_contract_id,
+        scope_repository_binding_hash=tree_or_blob_digest(b"wrong repository binding"),
+        snapshot_id=valid_observation.snapshot_id,
+        generation=valid_observation.generation,
+        publication_id=valid_observation.publication_id,
+        repository_full_name=valid_observation.repository_full_name,
+        repository_node_id=valid_observation.repository_node_id,
+        pointer_digest=valid_observation.pointer_digest,
+        authority_commit_sha=valid_observation.authority_commit_sha,
+        release_attestation_ref=valid_observation.release_attestation_ref,
+        checked_subject_ids=valid_observation.checked_subject_ids,
+        matched_revocations=valid_observation.matched_revocations,
+    )
+    with pytest.raises(ExpertValidationStoreError, match="exact emergency match"):
+        validation_store._seal_release_revocation(
+            coordinator=revocation_coordinator,
+            target=revocation_target,
+            security_denylist_observation=wrong_repository_observation,
+            revoked_at="2026-07-21T12:45:00Z",
+        )
+
+    commit_release_revocation = validation_store.commit_release_revocation
+    pending_revocation_permits = []
+
+    def simulate_crash_before_revocation_commit(revocation_permit):
+        pending_revocation_permits.append(revocation_permit)
+        raise RuntimeError("simulated crash before revocation commit")
+
+    monkeypatch.setattr(
+        validation_store,
+        "commit_release_revocation",
+        simulate_crash_before_revocation_commit,
+    )
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        revocation_coordinator.revoke(
+            candidate_id=plan.candidate_id,
+            revoked_at="2026-07-21T13:00:00Z",
+        )
+    monkeypatch.setattr(
+        validation_store,
+        "commit_release_revocation",
+        commit_release_revocation,
+    )
+    revoked = revocation_coordinator.revoke(
+        candidate_id=plan.candidate_id,
+        revoked_at="2026-07-21T14:00:00Z",
+    )
+    competing_revocation = validation_store.commit_release_revocation(
+        pending_revocation_permits[0]
+    )
+
+    assert revoked.replayed is False
+    assert competing_revocation.replayed is True
+    assert competing_revocation.receipt == revoked.receipt
+    assert revoked.snapshot.state.promotion_state.value == "revoked"
+    assert revoked.receipt.release_id == plan.release_id
+    assert revoked.receipt.security_denylist_observation.matched_revocations
+    checked_revocation_subjects = set(
+        revoked.receipt.security_denylist_observation.checked_subject_ids
+    )
+    assert set(package.manifest.dependency_closure_ids).issubset(
+        checked_revocation_subjects
+    )
+    assert set(activation.receipt.exact_dependency_ids).issubset(
+        checked_revocation_subjects
+    )
+    assert activation.receipt.activation_receipt_id in (
+        revoked.snapshot.state.terminal_evidence_ids
+    )
+    historical_activation = validation_store.reopen_release_activation(
+        plan.candidate_id
+    )
+    assert historical_activation.snapshot.state.promotion_state.value == "released"
+    denylist_call_count = authority.calls.count("denylist")
+    offline_replay = revocation_coordinator.revoke(
+        candidate_id=plan.candidate_id,
+        revoked_at="2026-07-21T15:00:00Z",
+    )
+    assert offline_replay.replayed is True
+    assert offline_replay.receipt == revoked.receipt
+    assert authority.calls.count("denylist") == denylist_call_count
+    with pytest.raises(ExpertReleasePublicationError, match="revoked"):
+        publisher.publish(candidate_id=plan.candidate_id)
 
     with pytest.raises(ExpertReleasePublicationError, match="immutable"):
         publisher.security_denylist_authority = object()
     generic_publisher.resolver = object()
     with pytest.raises(ExpertReleasePublicationError, match="binding changed"):
         publisher.publish(candidate_id=plan.candidate_id)
+    revocation_path = validation_store._object_path(
+        revoked.receipt.revocation_receipt_id,
+        create_namespace=False,
+    )
+    revocation_path.unlink()
+    with pytest.raises(ExpertValidationStoreError, match="regular file"):
+        validation_store.reopen_release_revocation(plan.candidate_id)

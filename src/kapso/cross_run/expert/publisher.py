@@ -464,6 +464,8 @@ class ExpertReleasePublisher:
 
         require_content_id(candidate_id, "expert publication candidate_id")
         self._require_bound_authority()
+        if self.validation_store.reopen_release_revocation(candidate_id) is not None:
+            raise ExpertReleasePublicationError("expert release is revoked")
         durable = self.validation_store.reopen_release_activation(candidate_id)
         if durable is not None:
             return ExpertReleasePublication(

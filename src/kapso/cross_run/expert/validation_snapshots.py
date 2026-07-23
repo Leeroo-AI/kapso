@@ -66,6 +66,7 @@ class ExpertValidationTransition(StrictContract):
     transition_stage_result_record_id: str | None
     transition_authority_invalidation_id: str | None
     transition_release_activation_receipt_id: str | None
+    transition_release_revocation_receipt_id: str | None
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-validation-transition"
     IDENTITY_FIELD: ClassVar[str] = "transition_id"
@@ -107,6 +108,10 @@ class ExpertValidationTransition(StrictContract):
                 self.transition_release_activation_receipt_id,
                 "transition_release_activation_receipt_id",
             ),
+            (
+                self.transition_release_revocation_receipt_id,
+                "transition_release_revocation_receipt_id",
+            ),
         ):
             if value is not None:
                 require_content_id(value, name)
@@ -138,6 +143,7 @@ class ExpertValidationTransition(StrictContract):
                 self.transition_stage_result_record_id,
                 self.transition_authority_invalidation_id,
                 self.transition_release_activation_receipt_id,
+                self.transition_release_revocation_receipt_id,
             )
         )
         if request_count != 1:

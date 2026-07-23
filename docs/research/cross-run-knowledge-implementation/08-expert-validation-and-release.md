@@ -1263,13 +1263,28 @@ arrays, so every policy-admitted snapshot remains checkpointable. The process UI
 is inside the trust boundary; hostile same-UID code remains outside this
 mechanism's threat model.
 
-- [ ] Append signed performance, security, contamination, or compatibility
-      revocation events.
+The expert lifecycle now consumes that authenticated emergency authority through
+`ExpertReleaseRevocationCoordinator`. It reopens the exact historical activation,
+projects the release's complete proof-consumption closure, performs one fresh
+denylist observation without holding the journal lock, and seals an owner-bound
+one-shot permit only if at least one security/contamination record matches. The
+store compare-and-swaps the unchanged `RELEASED` head and atomically appends the
+receipt, operation, `REVOKED` state, and transition. The activation transition is
+never rewritten: historical activation reopens as `RELEASED`, while the current
+lifecycle state reopens as `REVOKED`. Exact retry is offline and publication retry
+fails before touching GitHub.
+
+- [x] Append authenticated security/contamination revocation receipts from the
+      signed cumulative emergency lineage.
+- [ ] Append separately authenticated performance/compatibility revocation events;
+      they must not enter the fail-closed emergency lineage.
 - [ ] Performance revocation prevents new launch/promotion and marks existing run
       outputs ineligible while preserving offline reproducibility.
-- [ ] Security/contamination revocation enters the fresh emergency denylist checked
-      at launch, resume, before agent execution/evaluation/publication.
-- [ ] Propagate taint through module/candidate/release evidence dependencies.
+- [x] Security/contamination revocation is checked from the fresh emergency
+      denylist before M8 agent execution/evaluation/publication boundaries.
+- [ ] Extend the same fresh check to M9 launch and resume.
+- [x] Propagate emergency taint through exact module/candidate/release proof
+      dependencies and persist the matched root records in the release receipt.
 - [ ] Publish a clean successor/rollback pointer; never move or delete the old
       immutable release as the history mechanism.
 

@@ -135,6 +135,11 @@ from kapso.cross_run.expert.release import (
     ExpertReleaseAssembler,
 )
 from kapso.cross_run.expert.publisher import ExpertReleasePublisher
+from kapso.cross_run.expert.revocation import ExpertReleaseRevocationCoordinator
+from kapso.cross_run.expert.revocation_contracts import (
+    ExpertReleaseRevocationReceipt,
+    expert_release_revocation_security_subject_ids,
+)
 from kapso.cross_run.git_refs import git_object_sha
 from kapso.cross_run.github.resolver import (
     ArtifactPublicationIntent,
@@ -143,6 +148,9 @@ from kapso.cross_run.github.resolver import (
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.security_authority_contracts import (
+    SecurityDenylistObservation,
 )
 from kapso.cross_run.expert.task_evaluation_contracts import (
     TaskEvaluationRequest,
@@ -349,6 +357,45 @@ class ExpertReleasePublicationReservationCommitResult:
 @dataclass(frozen=True)
 class ExpertReleaseActivationCommitResult:
     receipt: ExpertReleaseActivationReceipt
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class ExpertReleaseRevocationTarget:
+    activation: ExpertReleaseActivationCommitResult
+    manifest: ExpertBaseReleaseManifest
+    security_subject_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.activation) is not ExpertReleaseActivationCommitResult
+            or type(self.manifest) is not ExpertBaseReleaseManifest
+        ):
+            raise ExpertValidationStoreError(
+                "release revocation target authority is not typed"
+            )
+        snapshot = self.activation.snapshot
+        attempt = snapshot.latest_attempt
+        if (
+            attempt is None
+            or self.security_subject_ids
+            != expert_release_revocation_security_subject_ids(
+                authorization_transition_id=snapshot.transition.transition_id,
+                released_state=snapshot.state,
+                validation_attempt=attempt,
+                activation_receipt=self.activation.receipt,
+                release_manifest=self.manifest,
+            )
+        ):
+            raise ExpertValidationStoreError(
+                "release revocation target authority is inconsistent"
+            )
+
+
+@dataclass(frozen=True)
+class ExpertReleaseRevocationCommitResult:
+    receipt: ExpertReleaseRevocationReceipt
     snapshot: ExpertValidationSnapshot
     replayed: bool
 
@@ -583,6 +630,70 @@ class ExpertReleaseActivationPermit:
         object.__setattr__(self, "_consumed", True)
 
 
+_RELEASE_REVOCATION_PERMIT_SEAL = object()
+
+
+class ExpertReleaseRevocationPermit:
+    """One-shot authority over one freshly matched activated release closure."""
+
+    __slots__ = (
+        "_consumed",
+        "_coordinator",
+        "_observation",
+        "_owner_process_id",
+        "_revoked_at",
+        "_store",
+        "_target",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        store: ExpertValidationStore,
+        coordinator: ExpertReleaseRevocationCoordinator,
+        target: ExpertReleaseRevocationTarget,
+        observation: SecurityDenylistObservation,
+        revoked_at: str,
+    ) -> None:
+        if seal is not _RELEASE_REVOCATION_PERMIT_SEAL:
+            raise ExpertValidationStoreError(
+                "release revocation permit is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_coordinator", coordinator)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "_target", target)
+        object.__setattr__(self, "_observation", observation)
+        object.__setattr__(self, "_revoked_at", revoked_at)
+
+    def __setattr__(self, name, value) -> None:
+        raise ExpertValidationStoreError("release revocation permit is immutable")
+
+    def _require_bound(
+        self,
+        store: ExpertValidationStore,
+        coordinator: ExpertReleaseRevocationCoordinator,
+    ) -> None:
+        if (
+            self._consumed
+            or self._store is not store
+            or self._coordinator is not coordinator
+            or self._owner_process_id != os.getpid()
+        ):
+            raise ExpertValidationStoreError(
+                "release revocation permit is consumed or foreign"
+            )
+
+    def _consume(
+        self,
+        store: ExpertValidationStore,
+        coordinator: ExpertReleaseRevocationCoordinator,
+    ) -> None:
+        self._require_bound(store, coordinator)
+        object.__setattr__(self, "_consumed", True)
+
+
 @dataclass(frozen=True)
 class ExpertReleaseMatrixPlanReservationCommitResult:
     reservation: ExpertReleaseMatrixPlanReservationSnapshot
@@ -698,6 +809,7 @@ class ExpertValidationStore:
         self._publication_eligibility_coordinator = None
         self._release_assembler = None
         self._release_publisher = None
+        self._release_revocation_coordinator = None
         initialization_lock = state_root / f".{root.name}.initialization.lock"
         with _ValidationStoreLock(initialization_lock, exclusive=True, create=True):
             self._prepare_layout()
@@ -1078,6 +1190,7 @@ class ExpertValidationStore:
                 transition_release_activation_receipt_id=(
                     receipt.activation_receipt_id
                 ),
+                transition_release_revocation_receipt_id=None,
             )
             activation_permit._consume(self, publisher)
             self._write_contract_unlocked(receipt)
@@ -1108,6 +1221,178 @@ class ExpertValidationStore:
         with self._lock(exclusive=False):
             journal = self._read_journal_unlocked(candidate_id)
             return self._release_activation_result_unlocked(journal)
+
+    def reopen_release_revocation_target(
+        self,
+        candidate_id: str,
+    ) -> ExpertReleaseRevocationTarget:
+        """Reopen the exact current RELEASED proof closure to check remotely."""
+
+        require_content_id(candidate_id, "release revocation candidate_id")
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            return self._release_revocation_target_unlocked(journal)
+
+    def _seal_release_revocation(
+        self,
+        *,
+        coordinator: object,
+        target: ExpertReleaseRevocationTarget,
+        security_denylist_observation: SecurityDenylistObservation,
+        revoked_at: str,
+    ) -> ExpertReleaseRevocationPermit:
+        authority = self._require_bound_release_revocation_authority(coordinator)
+        if (
+            type(target) is not ExpertReleaseRevocationTarget
+            or type(security_denylist_observation) is not SecurityDenylistObservation
+            or not security_denylist_observation.matched_revocations
+            or security_denylist_observation.scope_id != target.manifest.scope_id
+            or security_denylist_observation.scope_contract_id
+            != target.manifest.scope_contract_id
+            or security_denylist_observation.scope_repository_binding_hash
+            != target.activation.receipt.activation_witness.scope_repository_binding_hash
+            or security_denylist_observation.checked_subject_ids
+            != target.security_subject_ids
+        ):
+            raise ExpertValidationStoreError(
+                "release revocation sealing requires one exact emergency match"
+            )
+        self._mint_release_revocation_receipt(
+            target,
+            security_denylist_observation,
+            revoked_at,
+        )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(target.manifest.candidate_id)
+            current_target = self._release_revocation_target_unlocked(journal)
+            if current_target != target:
+                raise ExpertValidationCompareAndSwapError(
+                    "release revocation target changed during authority checks"
+                )
+        return ExpertReleaseRevocationPermit(
+            _RELEASE_REVOCATION_PERMIT_SEAL,
+            self,
+            authority,
+            target,
+            security_denylist_observation,
+            revoked_at,
+        )
+
+    def commit_release_revocation(
+        self,
+        revocation_permit: ExpertReleaseRevocationPermit,
+    ) -> ExpertReleaseRevocationCommitResult:
+        """Atomically append one RELEASED-to-REVOKED lifecycle transition."""
+
+        if type(revocation_permit) is not ExpertReleaseRevocationPermit:
+            raise ExpertValidationStoreError(
+                "release revocation requires an authority-sealed permit"
+            )
+        coordinator = self._require_bound_release_revocation_authority(
+            self._release_revocation_coordinator
+        )
+        revocation_permit._require_bound(self, coordinator)
+        target = revocation_permit._target
+        receipt = self._mint_release_revocation_receipt(
+            target,
+            revocation_permit._observation,
+            revocation_permit._revoked_at,
+        )
+        operation = ExpertValidationOperation.mint(
+            operation_kind=ExpertValidationOperationKind.RELEASE_REVOCATION,
+            candidate_id=target.manifest.candidate_id,
+            expected_transition_id=target.activation.snapshot.transition.transition_id,
+            request_record_id=receipt.revocation_receipt_id,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(target.manifest.candidate_id)
+            replay = self._release_revocation_result_unlocked(journal)
+            if replay is not None:
+                if (
+                    replay.receipt.release_id != target.manifest.release_id
+                    or replay.receipt.candidate_id != target.manifest.candidate_id
+                    or replay.receipt.activation_receipt_id
+                    != target.activation.receipt.activation_receipt_id
+                    or replay.receipt.authorization_transition_id
+                    != target.activation.snapshot.transition.transition_id
+                ):
+                    raise ExpertValidationCompareAndSwapError(
+                        "release revocation conflicts with the durable outcome"
+                    )
+                revocation_permit._consume(self, coordinator)
+                return replay
+            current_target = self._release_revocation_target_unlocked(journal)
+            if current_target != target:
+                raise ExpertValidationCompareAndSwapError(
+                    "release revocation target changed before commit"
+                )
+            activation_snapshot = target.activation.snapshot
+            attempt = activation_snapshot.latest_attempt
+            if attempt is None:
+                raise ExpertValidationStoreError(
+                    "release revocation target lacks its validation attempt"
+                )
+            target_state = self.reducer.advance_release_revocation(
+                authorization_transition_id=(
+                    activation_snapshot.transition.transition_id
+                ),
+                state=activation_snapshot.state,
+                attempt=attempt,
+                activation_receipt=target.activation.receipt,
+                release_manifest=target.manifest,
+                revocation_receipt=receipt,
+            )
+            transition = ExpertValidationTransition.mint(
+                candidate_id=target_state.candidate_id,
+                candidate_tree_hash=target_state.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=(
+                    activation_snapshot.transition.transition_id
+                ),
+                predecessor_state_id=activation_snapshot.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=attempt.validation_policy_id,
+                configuration_fingerprint=attempt.configuration_fingerprint,
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=(
+                    activation_snapshot.transition.accepted_stage_result_record_ids
+                ),
+                transition_stage_result_record_id=None,
+                transition_authority_invalidation_id=None,
+                transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=(
+                    receipt.revocation_receipt_id
+                ),
+            )
+            revocation_permit._consume(self, coordinator)
+            self._write_contract_unlocked(receipt)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertReleaseRevocationCommitResult(
+                receipt=receipt,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
+                replayed=False,
+            )
+
+    def reopen_release_revocation(
+        self,
+        candidate_id: str,
+    ) -> ExpertReleaseRevocationCommitResult | None:
+        """Reopen the first durable REVOKED outcome without remote access."""
+
+        require_content_id(candidate_id, "release revocation candidate_id")
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            return self._release_revocation_result_unlocked(journal)
 
     def reopen_or_replay_automated_review(
         self,
@@ -1410,6 +1695,37 @@ class ExpertValidationStore:
                 "release publication lacks its bound publisher authority"
             )
         return publisher
+
+    def _bind_release_revocation_authority(
+        self,
+        coordinator: ExpertReleaseRevocationCoordinator,
+    ) -> None:
+        if (
+            type(coordinator) is not ExpertReleaseRevocationCoordinator
+            or coordinator.validation_store is not self
+            or (
+                self._release_revocation_coordinator is not None
+                and self._release_revocation_coordinator is not coordinator
+            )
+        ):
+            raise ExpertValidationStoreError(
+                "validation store has invalid release revocation authority"
+            )
+        self._release_revocation_coordinator = coordinator
+
+    def _require_bound_release_revocation_authority(
+        self,
+        coordinator: object,
+    ) -> ExpertReleaseRevocationCoordinator:
+        if (
+            type(coordinator) is not ExpertReleaseRevocationCoordinator
+            or coordinator is not self._release_revocation_coordinator
+            or coordinator.validation_store is not self
+        ):
+            raise ExpertValidationStoreError(
+                "release revocation lacks its bound authority"
+            )
+        return coordinator
 
     def _seal_stale_release_publication(
         self,
@@ -1906,6 +2222,7 @@ class ExpertValidationStore:
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
                 transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(result.paired_comparison_receipt)
             self._write_contract_unlocked(result.stage_decision)
@@ -2069,6 +2386,7 @@ class ExpertValidationStore:
                 transition_stage_result_record_id=(result.evaluator_result_record_id),
                 transition_authority_invalidation_id=None,
                 transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(result)
             self._write_contract_unlocked(target_state)
@@ -2161,6 +2479,7 @@ class ExpertValidationStore:
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
                 transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(prepared.candidate_input)
             self._write_automated_review_derivation_unlocked(prepared)
@@ -2410,6 +2729,7 @@ class ExpertValidationStore:
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
                 transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(report)
             self._write_contract_unlocked(result)
@@ -2611,6 +2931,7 @@ class ExpertValidationStore:
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
                 transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(decision)
             if result.publication_authority_fence is not None:
@@ -3473,6 +3794,7 @@ class ExpertValidationStore:
                     invalidation.authority_invalidation_id
                 ),
                 transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(invalidation)
             self._write_contract_unlocked(reduced.state)
@@ -3538,6 +3860,7 @@ class ExpertValidationStore:
             transition_stage_result_record_id=None,
             transition_authority_invalidation_id=None,
             transition_release_activation_receipt_id=None,
+            transition_release_revocation_receipt_id=None,
         )
 
     @staticmethod
@@ -4104,6 +4427,8 @@ class ExpertValidationStore:
             transition.created_attempt_id is not None
             or transition.transition_stage_result_record_id is not None
             or transition.transition_authority_invalidation_id is not None
+            or transition.transition_release_activation_receipt_id is not None
+            or transition.transition_release_revocation_receipt_id is not None
         )
         if latest_attempt is not None and (
             latest_attempt.candidate_id != transition.candidate_id
@@ -5667,6 +5992,74 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "release activation transition closure is inconsistent"
                 )
+        elif transition.transition_release_revocation_receipt_id is not None:
+            if previous_transition is None or latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "release revocation requires a released predecessor"
+                )
+            predecessor_state = self._read_contract_unlocked(
+                previous_transition.target_state_id,
+                ExpertCandidateValidationState,
+            )
+            revocation_receipt = self._read_contract_unlocked(
+                transition.transition_release_revocation_receipt_id,
+                ExpertReleaseRevocationReceipt,
+            )
+            activation_receipt_id = (
+                previous_transition.transition_release_activation_receipt_id
+            )
+            if activation_receipt_id is None:
+                raise ExpertValidationStoreError(
+                    "release revocation predecessor lacks activation evidence"
+                )
+            activation_receipt = self._read_contract_unlocked(
+                activation_receipt_id,
+                ExpertReleaseActivationReceipt,
+            )
+            manifest = self._read_contract_unlocked(
+                activation_receipt.release_id,
+                ExpertBaseReleaseManifest,
+            )
+            historical_reducer = ExpertValidationReducer(
+                persisted_settings,
+                self.reducer.candidate_store,
+                self.reducer.attestation_verifier,
+                self.reducer.task_adapter_provider,
+                self.reducer.current_release_provider,
+                self.reducer.validation_state_provider,
+            )
+            expected_state = historical_reducer.advance_release_revocation(
+                authorization_transition_id=previous_transition.transition_id,
+                state=predecessor_state,
+                attempt=latest_attempt,
+                activation_receipt=activation_receipt,
+                release_manifest=manifest,
+                revocation_receipt=revocation_receipt,
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.RELEASE_REVOCATION
+                or operation.request_record_id
+                != revocation_receipt.revocation_receipt_id
+                or operation.expected_transition_id
+                != transition.predecessor_transition_id
+                or transition.predecessor_transition_id
+                != previous_transition.transition_id
+                or transition.predecessor_state_id
+                != predecessor_state.validation_state_id
+                or revocation_receipt.authorization_transition_id
+                != previous_transition.transition_id
+                or revocation_receipt.authorization_state_id
+                != predecessor_state.validation_state_id
+                or revocation_receipt.activation_receipt_id
+                != activation_receipt.activation_receipt_id
+                or transition.accepted_stage_result_record_ids
+                != previous_transition.accepted_stage_result_record_ids
+                or state != expected_state
+            ):
+                raise ExpertValidationStoreError(
+                    "release revocation transition closure is inconsistent"
+                )
         else:
             invalidation = self._read_contract_unlocked(
                 transition.transition_authority_invalidation_id,
@@ -5845,6 +6238,137 @@ class ExpertValidationStore:
                 "durable release activation outcome is inconsistent"
             )
         return ExpertReleaseActivationCommitResult(
+            receipt=receipt,
+            snapshot=snapshot,
+            replayed=True,
+        )
+
+    def _release_revocation_target_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+    ) -> ExpertReleaseRevocationTarget:
+        activation = self._release_activation_result_unlocked(journal)
+        current = self._current_from_journal_unlocked(journal)
+        if (
+            activation is None
+            or current is None
+            or current.transition.transition_id
+            != activation.snapshot.transition.transition_id
+            or current.state.promotion_state is not ExpertPromotionState.RELEASED
+        ):
+            raise ExpertValidationCompareAndSwapError(
+                "release revocation requires the current durable RELEASED head"
+            )
+        manifest = self._read_contract_unlocked(
+            activation.receipt.release_id,
+            ExpertBaseReleaseManifest,
+        )
+        attempt = activation.snapshot.latest_attempt
+        if attempt is None:
+            raise ExpertValidationStoreError(
+                "release revocation target lacks its validation attempt"
+            )
+        subjects = expert_release_revocation_security_subject_ids(
+            authorization_transition_id=activation.snapshot.transition.transition_id,
+            released_state=activation.snapshot.state,
+            validation_attempt=attempt,
+            activation_receipt=activation.receipt,
+            release_manifest=manifest,
+        )
+        return ExpertReleaseRevocationTarget(
+            activation=activation,
+            manifest=manifest,
+            security_subject_ids=subjects,
+        )
+
+    @staticmethod
+    def _mint_release_revocation_receipt(
+        target: ExpertReleaseRevocationTarget,
+        observation: SecurityDenylistObservation,
+        revoked_at: str,
+    ) -> ExpertReleaseRevocationReceipt:
+        snapshot = target.activation.snapshot
+        attempt = snapshot.latest_attempt
+        if attempt is None:
+            raise ExpertValidationStoreError(
+                "release revocation receipt lacks its validation attempt"
+            )
+        dependencies = {
+            target.manifest.release_id,
+            target.manifest.candidate_id,
+            attempt.validation_attempt_id,
+            snapshot.transition.transition_id,
+            snapshot.state.validation_state_id,
+            target.activation.receipt.activation_receipt_id,
+            observation.observation_id,
+            observation.scope_contract_id,
+            observation.snapshot_id,
+            observation.publication_id,
+            *observation.checked_subject_ids,
+            *(
+                revocation.revocation_id
+                for revocation in observation.matched_revocations
+            ),
+            *(revocation.subject_id for revocation in observation.matched_revocations),
+            *(
+                evidence_id
+                for revocation in observation.matched_revocations
+                for evidence_id in revocation.evidence_ids
+            ),
+        }
+        return ExpertReleaseRevocationReceipt.mint(
+            release_id=target.manifest.release_id,
+            candidate_id=target.manifest.candidate_id,
+            candidate_tree_hash=target.manifest.candidate_tree_hash,
+            validation_attempt_id=attempt.validation_attempt_id,
+            authorization_transition_id=snapshot.transition.transition_id,
+            authorization_state_id=snapshot.state.validation_state_id,
+            activation_receipt_id=(target.activation.receipt.activation_receipt_id),
+            security_denylist_observation=observation,
+            revoked_at=revoked_at,
+            exact_dependency_ids=tuple(sorted(dependencies)),
+        )
+
+    def _release_revocation_result_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+    ) -> ExpertReleaseRevocationCommitResult | None:
+        self._validate_journal_unlocked(journal)
+        revocation_transitions = tuple(
+            transition
+            for transition in (
+                self._read_contract_unlocked(
+                    transition_id,
+                    ExpertValidationTransition,
+                )
+                for transition_id in journal.transition_ids
+            )
+            if transition.transition_release_revocation_receipt_id is not None
+        )
+        if not revocation_transitions:
+            return None
+        if len(revocation_transitions) != 1:
+            raise ExpertValidationStoreError(
+                "candidate has multiple durable release revocations"
+            )
+        transition = revocation_transitions[0]
+        receipt_id = transition.transition_release_revocation_receipt_id
+        if receipt_id is None:
+            raise ExpertValidationStoreError("release revocation receipt is missing")
+        receipt = self._read_contract_unlocked(
+            receipt_id,
+            ExpertReleaseRevocationReceipt,
+        )
+        snapshot = self._snapshot_at_unlocked(journal, transition.transition_id)
+        if (
+            snapshot.state.promotion_state is not ExpertPromotionState.REVOKED
+            or receipt.candidate_id != journal.candidate_id
+            or receipt.revocation_receipt_id != snapshot.state.transition_evidence_id
+        ):
+            raise ExpertValidationStoreError(
+                "durable release revocation outcome is inconsistent"
+            )
+        return ExpertReleaseRevocationCommitResult(
             receipt=receipt,
             snapshot=snapshot,
             replayed=True,
