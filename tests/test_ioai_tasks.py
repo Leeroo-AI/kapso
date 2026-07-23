@@ -87,6 +87,39 @@ def test_codex_ideation_search_flag_gated_by_web_search():
     assert 'if web_search:' in src and '"--search"' in src
 
 
+def test_claude_adapter_bans_websearch_via_disallowed_tools():
+    # Under --dangerously-skip-permissions, --allowedTools does NOT restrict;
+    # web-off must go through --disallowedTools. The adapter reads
+    # disallowed_tools and merges it into the banned set.
+    from types import SimpleNamespace
+
+    from kapso.execution.coding_agents.adapters.claude_code_agent import (
+        ClaudeCodeCodingAgent,
+    )
+
+    cfg = SimpleNamespace(agent_specific={
+        "auth_mode": "oauth",
+        "allowed_tools": ["Read"],
+        "disallowed_tools": ["WebSearch", "WebFetch"],
+    })
+    agent = ClaudeCodeCodingAgent(cfg)
+    assert agent._disallowed_tools == ["WebSearch", "WebFetch"]
+    assert "WebSearch" in (agent.PRINT_MODE_DEAD_TOOLS + agent._disallowed_tools)
+
+
+def test_strategy_web_off_sets_disallowed_websearch():
+    import inspect
+
+    from kapso.execution.search_strategies.generic import strategy
+
+    src = inspect.getsource(strategy)
+    # web-off computes the WebSearch/WebFetch disallow set...
+    assert 'self._web_disallowed_tools = (' in src
+    assert '["WebSearch", "WebFetch"]' in src
+    # ...and threads it into ideation Claude sessions (member/single/lens).
+    assert src.count('"disallowed_tools": self._web_disallowed_tools') >= 3
+
+
 def test_bobai_acquire_manifests_sequester_answers():
     from benchmarks.ioai_tasks.data import acquire_bobai as a
 

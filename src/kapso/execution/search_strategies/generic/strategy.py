@@ -450,6 +450,12 @@ class GenericSearch(SearchStrategy):
         # implementation never had web). Set False for leakage-safe harvest
         # runs on past contests whose reference solutions are published online.
         self.ideation_web_search = self.params.get("web_search", True)
+        # Tools to hard-ban on every ideation Claude session when web is off
+        # (via --disallowedTools; --allowedTools does not restrict under
+        # skip-permissions). Empty when web is on.
+        self._web_disallowed_tools = (
+            [] if self.ideation_web_search else ["WebSearch", "WebFetch"]
+        )
         # Optional reasoning-effort for BOTH agent sessions (ideation and
         # implementation); None keeps the CLI's default.
         self.session_effort = self.params.get("effort")
@@ -924,6 +930,7 @@ class GenericSearch(SearchStrategy):
                     "aws_region": self.aws_region,
                     "mcp_servers": mcp_servers,
                     "allowed_tools": ideation_allowed_tools,
+                    "disallowed_tools": self._web_disallowed_tools,
                     "timeout": self._clamped_timeout(self.ideation_timeout),
                     "streaming": True,
                     "planning_mode": False,
@@ -1034,8 +1041,8 @@ class GenericSearch(SearchStrategy):
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
 
         print(
-            f"[GenericSearch] Lens planner starting: "
-            f"{planner['model']} (web-enabled)"
+            f"[GenericSearch] Lens planner starting: {planner['model']} "
+            f"({'web-enabled' if self.ideation_web_search else 'web-OFF'})"
         )
         config = CodingAgentConfig(
             agent_type="claude_code",
@@ -1046,8 +1053,8 @@ class GenericSearch(SearchStrategy):
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
-                "allowed_tools": (["Read", "WebSearch", "WebFetch"]
-                                  if self.ideation_web_search else ["Read"]),
+                "allowed_tools": ["Read", "WebSearch", "WebFetch"],
+                "disallowed_tools": self._web_disallowed_tools,
                 "timeout": planner.get("timeout", 600),
                 "streaming": True,
                 "planning_mode": False,
@@ -1192,6 +1199,7 @@ class GenericSearch(SearchStrategy):
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
                 "allowed_tools": ideation_allowed_tools,
+                "disallowed_tools": self._web_disallowed_tools,
                 "timeout": member_deadline,
                 "streaming": True,
                 "planning_mode": False,

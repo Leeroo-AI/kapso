@@ -128,9 +128,15 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         self._planning_mode = config.agent_specific.get("planning_mode", True)
         self._timeout = config.agent_specific.get("timeout", 3600)
         self._allowed_tools = config.agent_specific.get(
-            "allowed_tools", 
+            "allowed_tools",
             ["Edit", "Read", "Write", "Bash"]
         )
+        # Extra tools to BAN for this session, merged into --disallowedTools.
+        # Under --dangerously-skip-permissions, --allowedTools does NOT restrict
+        # (it only gates permission prompts); --disallowedTools is what actually
+        # removes a tool. Used to hard-disable WebSearch/WebFetch on web-off
+        # (leakage-safe) ideation.
+        self._disallowed_tools = config.agent_specific.get("disallowed_tools", [])
         # Optional environment overrides for the Claude Code subprocess.
         #
         # Why:
@@ -1058,7 +1064,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Ban tools that structurally cannot work in -p sessions (see
         # PRINT_MODE_DEAD_TOOLS). Verified on CLI 2.1.157: the flag removes
         # the tool from the session's tool list (init event).
-        cmd.extend(["--disallowedTools", ",".join(self.PRINT_MODE_DEAD_TOOLS)])
+        cmd.extend(["--disallowedTools",
+                    ",".join(self.PRINT_MODE_DEAD_TOOLS + self._disallowed_tools)])
         
         # Add MCP config if available
         if self._mcp_config_path and self._mcp_config_path.exists():
