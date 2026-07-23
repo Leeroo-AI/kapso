@@ -649,27 +649,45 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
     limited_release = ExpertBaseReleaseManifest.mint(
         scope_contract_id=release.scope_contract_id,
         scope_id=release.scope_id,
-        parent_release_ids=release.parent_release_ids,
+        parent_release_id=release.parent_release_id,
+        candidate_id=release.candidate_id,
+        candidate_commit_record_id=release.candidate_commit_record_id,
+        candidate_tree_ref=release.candidate_tree_ref,
+        candidate_tree_hash=release.candidate_tree_hash,
+        candidate_derivation_ref=release.candidate_derivation_ref,
+        candidate_validation_context_ref=release.candidate_validation_context_ref,
+        candidate_patch_ref=release.candidate_patch_ref,
+        candidate_sanitation_report_id=release.candidate_sanitation_report_id,
+        candidate_ancestor_ids=release.candidate_ancestor_ids,
+        candidate_source_dependency_ids=release.candidate_source_dependency_ids,
         repository_map_ref=limited_map.repository_map_id,
+        module_contract_refs=release.module_contract_refs,
         module_versions=release.module_versions,
         semantic_book_digest=release.semantic_book_digest,
+        validation_attempt_id=release.validation_attempt_id,
+        approval_transition_id=release.approval_transition_id,
+        approval_state_id=release.approval_state_id,
+        publication_eligibility_result_id=(release.publication_eligibility_result_id),
+        release_matrix_stage_result_id=release.release_matrix_stage_result_id,
+        release_matrix_report_id=release.release_matrix_report_id,
+        promotion_decision_id=release.promotion_decision_id,
+        approval_assertion_ids=release.approval_assertion_ids,
+        validation_policy_id=release.validation_policy_id,
         configuration_fingerprint=release.configuration_fingerprint,
         source_archive_ref=release.source_archive_ref,
+        evidence_archive_ref=release.evidence_archive_ref,
+        evidence_manifest_ref=release.evidence_manifest_ref,
+        test_matrix_summary_ref=release.test_matrix_summary_ref,
+        evidence_dependency_ids=release.evidence_dependency_ids,
         dependency_closure_ids=tuple(
             sorted(
                 {
+                    *release.dependency_closure_ids,
                     limited_map.repository_map_id,
-                    *release.approval_assertion_ids,
                 }
             )
         ),
         checksums=release.checksums,
-        test_matrix_results=release.test_matrix_results,
-        approval_assertion_ids=release.approval_assertion_ids,
-        contamination_scanner_version=release.contamination_scanner_version,
-        dependency_lock_hash=release.dependency_lock_hash,
-        compatibility_envelope=release.compatibility_envelope,
-        publisher_attestation=release.publisher_attestation,
     )
 
     inactive_packet = trigger_packet(

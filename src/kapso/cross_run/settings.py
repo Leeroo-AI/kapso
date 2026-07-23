@@ -1381,6 +1381,7 @@ class ExpertSettings(StrictContract):
     generalizer: CodingAgentSettings
     composition_policy_version: str
     composition_source_limit: int
+    release_archive_compression_level: int
     triggers: ExpertTriggerSettings
     task_adapters: TaskAdapterStoreSettings
     validation: ExpertValidationSettings
@@ -1452,6 +1453,14 @@ class ExpertSettings(StrictContract):
             self.composition_source_limit,
             "expert.composition_source_limit",
         )
+        _require_positive(
+            self.release_archive_compression_level,
+            "expert.release_archive_compression_level",
+        )
+        if self.release_archive_compression_level > 22:
+            raise CrossRunConfigurationError(
+                "expert.release_archive_compression_level exceeds the zstd maximum"
+            )
         for value, name in (
             (self.architect_id, "expert.architect_id"),
             (self.architect_role, "expert.architect_role"),

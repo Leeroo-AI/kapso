@@ -4461,33 +4461,175 @@ class ExpertBaseReleaseManifest(StrictContract):
     release_id: str
     scope_contract_id: str
     scope_id: str
-    parent_release_ids: tuple[str, ...]
+    parent_release_id: str | None
+    candidate_id: str
+    candidate_commit_record_id: str
+    candidate_tree_ref: str
+    candidate_tree_hash: str
+    candidate_derivation_ref: str
+    candidate_validation_context_ref: str
+    candidate_patch_ref: str
+    candidate_sanitation_report_id: str
+    candidate_ancestor_ids: tuple[str, ...]
+    candidate_source_dependency_ids: tuple[str, ...]
     repository_map_ref: str
+    module_contract_refs: tuple[str, ...]
     module_versions: Mapping[str, str]
     semantic_book_digest: str
+    validation_attempt_id: str
+    approval_transition_id: str
+    approval_state_id: str
+    publication_eligibility_result_id: str
+    release_matrix_stage_result_id: str
+    release_matrix_report_id: str
+    promotion_decision_id: str
+    approval_assertion_ids: tuple[str, ...]
+    validation_policy_id: str
     configuration_fingerprint: str
     source_archive_ref: str
+    evidence_archive_ref: str
+    evidence_manifest_ref: str
+    test_matrix_summary_ref: str
+    evidence_dependency_ids: tuple[str, ...]
     dependency_closure_ids: tuple[str, ...]
     checksums: Mapping[str, str]
-    test_matrix_results: Mapping[str, Any]
-    approval_assertion_ids: tuple[str, ...]
-    contamination_scanner_version: str
-    dependency_lock_hash: str
-    compatibility_envelope: Mapping[str, Any]
-    publisher_attestation: Mapping[str, Any]
 
     CONTENT_NAMESPACE: ClassVar[str] = "expert-base-release"
     IDENTITY_FIELD: ClassVar[str] = "release_id"
-    CONTENT_EXCLUDED_FIELDS: ClassVar[tuple[str, ...]] = ("publisher_attestation",)
 
     def _validate(self) -> None:
-        require_content_id(self.scope_contract_id, "scope_contract_id")
+        namespaced_ids = (
+            (self.scope_contract_id, "expert-scope-contract", "scope_contract_id"),
+            (self.candidate_id, "expert-candidate", "candidate_id"),
+            (
+                self.candidate_commit_record_id,
+                "expert-candidate-commit",
+                "candidate_commit_record_id",
+            ),
+            (self.candidate_tree_ref, "expert-source-tree", "candidate_tree_ref"),
+            (
+                self.candidate_validation_context_ref,
+                "expert-candidate-validation-context",
+                "candidate_validation_context_ref",
+            ),
+            (
+                self.candidate_patch_ref,
+                "expert-candidate-patch",
+                "candidate_patch_ref",
+            ),
+            (
+                self.candidate_sanitation_report_id,
+                "expert-candidate-sanitation",
+                "candidate_sanitation_report_id",
+            ),
+            (
+                self.repository_map_ref,
+                "expert-repository-map",
+                "repository_map_ref",
+            ),
+            (
+                self.validation_attempt_id,
+                "expert-validation-attempt",
+                "validation_attempt_id",
+            ),
+            (
+                self.approval_transition_id,
+                "expert-validation-transition",
+                "approval_transition_id",
+            ),
+            (
+                self.approval_state_id,
+                "expert-candidate-validation-state",
+                "approval_state_id",
+            ),
+            (
+                self.publication_eligibility_result_id,
+                "expert-publication-eligibility-stage-result",
+                "publication_eligibility_result_id",
+            ),
+            (
+                self.release_matrix_stage_result_id,
+                "expert-release-matrix-stage-result",
+                "release_matrix_stage_result_id",
+            ),
+            (
+                self.release_matrix_report_id,
+                "expert-release-matrix-report",
+                "release_matrix_report_id",
+            ),
+            (
+                self.promotion_decision_id,
+                "expert-release-matrix-promotion-decision",
+                "promotion_decision_id",
+            ),
+            (
+                self.validation_policy_id,
+                "expert-validation-policy",
+                "validation_policy_id",
+            ),
+            (
+                self.evidence_manifest_ref,
+                "expert-release-evidence-manifest",
+                "evidence_manifest_ref",
+            ),
+            (
+                self.test_matrix_summary_ref,
+                "expert-release-matrix-summary",
+                "test_matrix_summary_ref",
+            ),
+        )
+        for value, namespace, name in namespaced_ids:
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(f"{name} uses the wrong namespace")
+        require_content_id(self.candidate_derivation_ref, "candidate_derivation_ref")
+        if self.candidate_derivation_ref.split(":sha256:", 1)[0] not in {
+            "expert-agent-proposal-derivation",
+            "expert-deterministic-composition-derivation",
+        }:
+            raise ContractValidationError(
+                "candidate_derivation_ref uses the wrong namespace"
+            )
         require_identifier(self.scope_id, "scope_id")
-        if self.parent_release_ids:
-            _require_sorted_unique(self.parent_release_ids, "parent_release_ids")
-            for value in self.parent_release_ids:
-                require_content_id(value, "parent_release_ids")
-        require_content_id(self.repository_map_ref, "repository_map_ref")
+        if self.parent_release_id is not None:
+            require_content_id(self.parent_release_id, "parent_release_id")
+            if self.parent_release_id.split(":sha256:", 1)[0] != (
+                "expert-base-release"
+            ):
+                raise ContractValidationError(
+                    "parent_release_id uses the wrong namespace"
+                )
+        _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
+        for values, name, required in (
+            (self.candidate_ancestor_ids, "candidate_ancestor_ids", False),
+            (
+                self.candidate_source_dependency_ids,
+                "candidate_source_dependency_ids",
+                True,
+            ),
+            (self.module_contract_refs, "module_contract_refs", True),
+            (self.approval_assertion_ids, "approval_assertion_ids", True),
+        ):
+            if required and not values:
+                raise ContractValidationError(f"{name} must not be empty")
+            if values:
+                _require_sorted_unique(values, name)
+                for value in values:
+                    require_content_id(value, name)
+        if any(
+            value.split(":sha256:", 1)[0] != "expert-candidate"
+            for value in self.candidate_ancestor_ids
+        ):
+            raise ContractValidationError(
+                "candidate_ancestor_ids use the wrong namespace"
+            )
+        if any(
+            value.split(":sha256:", 1)[0] != "expert-module-contract"
+            for value in self.module_contract_refs
+        ):
+            raise ContractValidationError(
+                "module_contract_refs use the wrong namespace"
+            )
         if not self.module_versions:
             raise ContractValidationError("module_versions must not be empty")
         for module_id, version in self.module_versions.items():
@@ -4495,44 +4637,67 @@ class ExpertBaseReleaseManifest(StrictContract):
             require_identifier(version, "module_versions value")
         _require_digest(self.semantic_book_digest, "semantic_book_digest")
         _require_digest(self.configuration_fingerprint, "configuration_fingerprint")
-        _require_text(self.source_archive_ref, "source_archive_ref")
-        source_archive_path = PurePosixPath(self.source_archive_ref)
-        if (
-            source_archive_path.is_absolute()
-            or len(source_archive_path.parts) != 1
-            or source_archive_path.as_posix() != self.source_archive_ref
-            or not self.source_archive_ref.endswith((".tar", ".tar.zst"))
+        for archive_ref, name in (
+            (self.source_archive_ref, "source_archive_ref"),
+            (self.evidence_archive_ref, "evidence_archive_ref"),
         ):
-            raise ContractValidationError(
-                "source_archive_ref must name one supported release asset"
-            )
+            _require_text(archive_ref, name)
+            archive_path = PurePosixPath(archive_ref)
+            if (
+                archive_path.is_absolute()
+                or len(archive_path.parts) != 1
+                or archive_path.as_posix() != archive_ref
+                or not archive_ref.endswith((".tar", ".tar.zst"))
+            ):
+                raise ContractValidationError(
+                    f"{name} must name one supported release asset"
+                )
+        if self.source_archive_ref == self.evidence_archive_ref:
+            raise ContractValidationError("release archive names must differ")
+        _require_sorted_unique(self.evidence_dependency_ids, "evidence_dependency_ids")
+        for value in self.evidence_dependency_ids:
+            require_content_id(value, "evidence_dependency_ids")
         _require_sorted_unique(self.dependency_closure_ids, "dependency_closure_ids")
         for value in self.dependency_closure_ids:
             require_content_id(value, "dependency_closure_ids")
         required_dependencies = {
+            self.scope_contract_id,
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.candidate_tree_ref,
+            self.candidate_derivation_ref,
+            self.candidate_validation_context_ref,
+            self.candidate_patch_ref,
+            self.candidate_sanitation_report_id,
+            *self.candidate_ancestor_ids,
+            *self.candidate_source_dependency_ids,
             self.repository_map_ref,
+            *self.module_contract_refs,
+            self.validation_attempt_id,
+            self.approval_transition_id,
+            self.approval_state_id,
+            self.publication_eligibility_result_id,
+            self.release_matrix_stage_result_id,
+            self.release_matrix_report_id,
+            self.promotion_decision_id,
             *self.approval_assertion_ids,
+            self.validation_policy_id,
+            self.evidence_manifest_ref,
+            self.test_matrix_summary_ref,
         }
-        if not required_dependencies.issubset(self.dependency_closure_ids):
+        if self.parent_release_id is not None:
+            required_dependencies.add(self.parent_release_id)
+        required_dependencies.update(self.evidence_dependency_ids)
+        if set(self.dependency_closure_ids) != required_dependencies:
             raise MissingReferenceError(
-                "expert release dependency closure is incomplete"
+                "expert release dependency closure is not exact"
             )
         _require_checksum_mapping(self.checksums, "checksums")
-        if self.source_archive_ref not in self.checksums:
-            raise MissingReferenceError("expert source archive checksum is missing")
-        if not self.test_matrix_results:
-            raise ContractValidationError("test_matrix_results must not be empty")
-        _require_sorted_unique(self.approval_assertion_ids, "approval_assertion_ids")
-        for value in self.approval_assertion_ids:
-            require_content_id(value, "approval_assertion_ids")
-        _require_text(
-            self.contamination_scanner_version, "contamination_scanner_version"
-        )
-        _require_digest(self.dependency_lock_hash, "dependency_lock_hash")
-        if not self.compatibility_envelope or not self.publisher_attestation:
-            raise ContractValidationError(
-                "compatibility envelope and publisher attestation are required"
-            )
+        if not {
+            self.source_archive_ref,
+            self.evidence_archive_ref,
+        }.issubset(self.checksums):
+            raise MissingReferenceError("expert release archive checksum is missing")
 
 
 @dataclass(frozen=True)

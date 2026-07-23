@@ -341,36 +341,101 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
     expert_repository = "Leeroo-AI/kapso-expert"
     source_payload = b"def train():\n    return 'validated'\n"
     source_archive = tar_payload((("main.py", source_payload),))
+    evidence_payload = b'{"evidence":"approved"}'
+    evidence_archive = tar_payload(
+        (("release-evidence/manifest.json", evidence_payload),)
+    )
     test_summary = b'{"fresh_task":"passed"}'
-    repository_map_id = content_id("fixture", {"repository_map": 1})
+    repository_map_id = content_id("expert-repository-map", {"repository_map": 1})
     approval_id = content_id("fixture", {"approval": 1})
+    scope_contract_id = content_id("expert-scope-contract", {"scope": "ml_ai"})
+    release_ids = {
+        namespace: content_id(namespace, {"fixture": "expert-release"})
+        for namespace in (
+            "expert-candidate",
+            "expert-candidate-commit",
+            "expert-source-tree",
+            "expert-agent-proposal-derivation",
+            "expert-candidate-validation-context",
+            "expert-candidate-patch",
+            "expert-candidate-sanitation",
+            "expert-validation-attempt",
+            "expert-validation-transition",
+            "expert-candidate-validation-state",
+            "expert-publication-eligibility-stage-result",
+            "expert-release-matrix-stage-result",
+            "expert-release-matrix-report",
+            "expert-release-matrix-promotion-decision",
+            "expert-validation-policy",
+            "expert-release-evidence-manifest",
+            "expert-release-matrix-summary",
+            "expert-module-contract",
+        )
+    }
+    dependencies = tuple(
+        sorted(
+            {
+                scope_contract_id,
+                repository_map_id,
+                approval_id,
+                *release_ids.values(),
+            }
+        )
+    )
     manifest = ExpertBaseReleaseManifest.mint(
-        scope_contract_id=content_id("fixture", {"scope": "ml_ai"}),
+        scope_contract_id=scope_contract_id,
         scope_id="ml_ai",
-        parent_release_ids=(),
+        parent_release_id=None,
+        candidate_id=release_ids["expert-candidate"],
+        candidate_commit_record_id=release_ids["expert-candidate-commit"],
+        candidate_tree_ref=release_ids["expert-source-tree"],
+        candidate_tree_hash=tree_or_blob_digest(b"candidate-tree"),
+        candidate_derivation_ref=release_ids["expert-agent-proposal-derivation"],
+        candidate_validation_context_ref=release_ids[
+            "expert-candidate-validation-context"
+        ],
+        candidate_patch_ref=release_ids["expert-candidate-patch"],
+        candidate_sanitation_report_id=release_ids["expert-candidate-sanitation"],
+        candidate_ancestor_ids=(),
+        candidate_source_dependency_ids=(scope_contract_id,),
         repository_map_ref=repository_map_id,
+        module_contract_refs=(release_ids["expert-module-contract"],),
         module_versions={"shared.runner": "v1"},
         semantic_book_digest=tree_or_blob_digest(b"EXPERT_REPO.md"),
+        validation_attempt_id=release_ids["expert-validation-attempt"],
+        approval_transition_id=release_ids["expert-validation-transition"],
+        approval_state_id=release_ids["expert-candidate-validation-state"],
+        publication_eligibility_result_id=release_ids[
+            "expert-publication-eligibility-stage-result"
+        ],
+        release_matrix_stage_result_id=release_ids[
+            "expert-release-matrix-stage-result"
+        ],
+        release_matrix_report_id=release_ids["expert-release-matrix-report"],
+        promotion_decision_id=release_ids["expert-release-matrix-promotion-decision"],
+        approval_assertion_ids=(approval_id,),
+        validation_policy_id=release_ids["expert-validation-policy"],
         configuration_fingerprint=tree_or_blob_digest(b"expert-config"),
         source_archive_ref="expert-source.tar",
-        dependency_closure_ids=tuple(sorted((repository_map_id, approval_id))),
+        evidence_archive_ref="expert-evidence.tar",
+        evidence_manifest_ref=release_ids["expert-release-evidence-manifest"],
+        test_matrix_summary_ref=release_ids["expert-release-matrix-summary"],
+        evidence_dependency_ids=dependencies,
+        dependency_closure_ids=dependencies,
         checksums={
             "expert-source.tar": tree_or_blob_digest(source_archive),
+            "expert-evidence.tar": tree_or_blob_digest(evidence_archive),
             "main.py": tree_or_blob_digest(source_payload),
+            "release-evidence/manifest.json": tree_or_blob_digest(evidence_payload),
             "test-summary.json": tree_or_blob_digest(test_summary),
         },
-        test_matrix_results={"fresh_task": "passed"},
-        approval_assertion_ids=(approval_id,),
-        contamination_scanner_version="scanner-v1",
-        dependency_lock_hash=tree_or_blob_digest(b"lock"),
-        compatibility_envelope={"python": ">=3.10"},
-        publisher_attestation={"issuer": "fixture"},
     )
     manifest_payload = manifest.to_json_bytes()
     control_archive = tar_payload((("expert-release.json", manifest_payload),))
     asset_payloads = {
         "control.tar": control_archive,
         "expert-source.tar": source_archive,
+        "expert-evidence.tar": evidence_archive,
         "test-summary.json": test_summary,
     }
     assets = tuple(
@@ -419,6 +484,11 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
                 tree_or_blob_digest(source_payload),
                 "100644",
                 len(source_payload),
+            ),
+            "release-evidence/manifest.json": (
+                tree_or_blob_digest(evidence_payload),
+                "100644",
+                len(evidence_payload),
             ),
         }
     )

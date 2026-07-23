@@ -472,25 +472,83 @@ def build_records(
         validation_entrypoints=("tests/test_resume.py",),
         architecture_invariants=("No task identity defaults.",),
     )
+    release_ids = {
+        namespace: content_id(namespace, {"fixture": "expert-release"})
+        for namespace in (
+            "expert-candidate",
+            "expert-candidate-commit",
+            "expert-source-tree",
+            "expert-agent-proposal-derivation",
+            "expert-candidate-validation-context",
+            "expert-candidate-patch",
+            "expert-candidate-sanitation",
+            "expert-validation-attempt",
+            "expert-validation-transition",
+            "expert-candidate-validation-state",
+            "expert-publication-eligibility-stage-result",
+            "expert-release-matrix-stage-result",
+            "expert-release-matrix-report",
+            "expert-release-matrix-promotion-decision",
+            "expert-validation-policy",
+            "expert-release-evidence-manifest",
+            "expert-release-matrix-summary",
+        )
+    }
+    release_dependencies = tuple(
+        sorted(
+            {
+                scope.scope_contract_id,
+                repository_map.repository_map_id,
+                module.module_contract_id,
+                bootstrap_assertion.assertion_id,
+                *release_ids.values(),
+            }
+        )
+    )
     expert_release = ExpertBaseReleaseManifest.mint(
         scope_contract_id=scope.scope_contract_id,
         scope_id="ml_ai",
-        parent_release_ids=(),
+        parent_release_id=None,
+        candidate_id=release_ids["expert-candidate"],
+        candidate_commit_record_id=release_ids["expert-candidate-commit"],
+        candidate_tree_ref=release_ids["expert-source-tree"],
+        candidate_tree_hash=digest("candidate-tree"),
+        candidate_derivation_ref=release_ids["expert-agent-proposal-derivation"],
+        candidate_validation_context_ref=release_ids[
+            "expert-candidate-validation-context"
+        ],
+        candidate_patch_ref=release_ids["expert-candidate-patch"],
+        candidate_sanitation_report_id=release_ids["expert-candidate-sanitation"],
+        candidate_ancestor_ids=(),
+        candidate_source_dependency_ids=(scope.scope_contract_id,),
         repository_map_ref=repository_map.repository_map_id,
+        module_contract_refs=(module.module_contract_id,),
         module_versions={module.module_id: module.version},
         semantic_book_digest=digest("book"),
+        validation_attempt_id=release_ids["expert-validation-attempt"],
+        approval_transition_id=release_ids["expert-validation-transition"],
+        approval_state_id=release_ids["expert-candidate-validation-state"],
+        publication_eligibility_result_id=release_ids[
+            "expert-publication-eligibility-stage-result"
+        ],
+        release_matrix_stage_result_id=release_ids[
+            "expert-release-matrix-stage-result"
+        ],
+        release_matrix_report_id=release_ids["expert-release-matrix-report"],
+        promotion_decision_id=release_ids["expert-release-matrix-promotion-decision"],
+        approval_assertion_ids=(bootstrap_assertion.assertion_id,),
+        validation_policy_id=release_ids["expert-validation-policy"],
         configuration_fingerprint=digest("expert-config"),
         source_archive_ref="expert.tar.zst",
-        dependency_closure_ids=tuple(
-            sorted((repository_map.repository_map_id, bootstrap_assertion.assertion_id))
-        ),
-        checksums={"expert.tar.zst": digest("expert-archive")},
-        test_matrix_results={"fresh_task": "passed"},
-        approval_assertion_ids=(bootstrap_assertion.assertion_id,),
-        contamination_scanner_version="scanner-v1",
-        dependency_lock_hash=digest("lock"),
-        compatibility_envelope={"python": ">=3.10"},
-        publisher_attestation={"issuer": "test-publisher", "signature": "expert"},
+        evidence_archive_ref="expert-evidence.tar.zst",
+        evidence_manifest_ref=release_ids["expert-release-evidence-manifest"],
+        test_matrix_summary_ref=release_ids["expert-release-matrix-summary"],
+        evidence_dependency_ids=release_dependencies,
+        dependency_closure_ids=release_dependencies,
+        checksums={
+            "expert.tar.zst": digest("expert-archive"),
+            "expert-evidence.tar.zst": digest("expert-evidence"),
+        },
     )
     starting_artifact_payload = b"starting artifact:artifact/base"
     starting_artifact_file = SourceFileDescriptor(
@@ -1570,17 +1628,13 @@ def test_source_replay_compute_binding_rejects_invalid_envelopes(
         ExpertSourceReplayComputeBinding.mint(**payload)
 
 
-def test_content_mutation_is_detected_but_attestation_rotation_preserves_identity():
+def test_expert_release_identity_contains_all_scientific_fields():
     release = next(
         record
         for record in build_records()
         if isinstance(record, ExpertBaseReleaseManifest)
     )
-    rotated = replace(
-        release,
-        publisher_attestation={"issuer": "rotated", "signature": "new"},
-    )
-    assert rotated.release_id == release.release_id
+    assert "publisher_attestation" not in release.to_dict()
 
     with pytest.raises(CanonicalizationError):
         replace(release, semantic_book_digest=digest("changed-book"))

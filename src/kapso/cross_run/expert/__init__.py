@@ -9,6 +9,22 @@ from kapso.cross_run.expert.book import (
     compile_expert_semantic_book,
     expert_semantic_book_digest,
 )
+from kapso.cross_run.expert.release import (
+    EXPERT_RELEASE_CONTROL_ARCHIVE,
+    EXPERT_RELEASE_EVIDENCE_ARCHIVE,
+    EXPERT_RELEASE_EVIDENCE_MANIFEST_PATH,
+    EXPERT_RELEASE_MANIFEST_PATH,
+    EXPERT_RELEASE_MATRIX_SUMMARY_PATH,
+    EXPERT_RELEASE_SOURCE_ARCHIVE,
+    ExpertReleaseAssembler,
+    ExpertReleaseAssemblyError,
+    ExpertReleasePackage,
+)
+from kapso.cross_run.expert.release_contracts import (
+    ExpertReleaseContractError,
+    ExpertReleaseEvidenceManifest,
+    ExpertReleaseMatrixSummary,
+)
 from kapso.cross_run.expert.architect import ExpertRepositoryArchitect
 from kapso.cross_run.expert.candidates import (
     ExpertCandidateClosure,
@@ -315,6 +331,12 @@ from kapso.cross_run.task_adapters import (
 
 __all__ = [
     "EXPERT_BOOK_PATH",
+    "EXPERT_RELEASE_CONTROL_ARCHIVE",
+    "EXPERT_RELEASE_EVIDENCE_ARCHIVE",
+    "EXPERT_RELEASE_EVIDENCE_MANIFEST_PATH",
+    "EXPERT_RELEASE_MANIFEST_PATH",
+    "EXPERT_RELEASE_MATRIX_SUMMARY_PATH",
+    "EXPERT_RELEASE_SOURCE_ARCHIVE",
     "EXPERT_AUTOMATED_REVIEW_CONTRACT_VERSION",
     "EMPTY_EXPERT_TREE_DIGEST",
     "ExpertAutomatedReviewAdjudication",
@@ -418,6 +440,12 @@ __all__ = [
     "ExpertReleaseMatrixStageError",
     "ExpertReleaseMatrixStageExecution",
     "ExpertReleaseMatrixStageResultRecord",
+    "ExpertReleaseAssembler",
+    "ExpertReleaseAssemblyError",
+    "ExpertReleaseContractError",
+    "ExpertReleaseEvidenceManifest",
+    "ExpertReleaseMatrixSummary",
+    "ExpertReleasePackage",
     "ExpertSourceReplayBundleProvider",
     "ExpertSourceReplayCandidateReader",
     "ExpertSourceReplayDecisionPublicationCoordinator",

@@ -109,19 +109,24 @@ def _released_base(
         raise AssertionError("composition test source unexpectedly bootstraps")
     book = source_contents["EXPERT_REPO.md"]
     dependency_closure = set(parent_release.dependency_closure_ids)
-    dependency_closure.discard(parent_release.repository_map_ref)
     dependency_closure.add(repository_map.repository_map_id)
+    dependency_closure.add(parent_release.release_id)
+    dependency_closure.update(module.module_contract_id for module in module_contracts)
     release = _remint(
         parent_release,
-        parent_release_ids=(parent_release.release_id,),
+        parent_release_id=parent_release.release_id,
         repository_map_ref=repository_map.repository_map_id,
+        module_contract_refs=tuple(
+            sorted(module.module_contract_id for module in module_contracts)
+        ),
         module_versions={
             module.module_id: module.version for module in module_contracts
         },
         semantic_book_digest=tree_or_blob_digest(book),
         dependency_closure_ids=tuple(sorted(dependency_closure)),
         checksums={
-            parent_release.source_archive_ref: _digest(f"{label} source archive")
+            **parent_release.checksums,
+            parent_release.source_archive_ref: _digest(f"{label} source archive"),
         },
     )
     receipt = _parent_receipt(

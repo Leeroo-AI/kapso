@@ -39,11 +39,16 @@ def require_identifier(value: Any, name: str) -> str:
 
 def require_content_id(value: Any, name: str) -> str:
     """Return a structurally valid content identifier or fail loud."""
-    if not isinstance(value, str) or not _CONTENT_ID_PATTERN.fullmatch(value):
+    if not is_content_id(value):
         raise CanonicalizationError(
             f"{name} must have the form <namespace>:sha256:<64 lowercase hex>"
         )
     return value
+
+
+def is_content_id(value: object) -> bool:
+    """Return whether a value has the canonical content-identifier shape."""
+    return isinstance(value, str) and _CONTENT_ID_PATTERN.fullmatch(value) is not None
 
 
 def parse_utc_timestamp(value: Any, name: str) -> datetime:

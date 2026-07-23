@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -10,7 +11,7 @@ import tarfile
 import tempfile
 from io import DEFAULT_BUFFER_SIZE
 from pathlib import Path, PurePosixPath
-from typing import TypeVar
+from typing import Mapping, TypeVar
 
 import zstandard
 
@@ -28,6 +29,62 @@ _ArchiveError = TypeVar("_ArchiveError", bound=RuntimeError)
 
 class SourceArchiveError(RuntimeError):
     """A source archive is unsafe, noncanonical, or outside configured bounds."""
+
+
+def build_deterministic_tar_zst(
+    files: Mapping[str, tuple[bytes, str]],
+    *,
+    compression_level: int,
+    zstd_window_size_bytes: int,
+) -> bytes:
+    """Encode exact regular files as one reproducible canonical archive."""
+
+    if not files:
+        raise SourceArchiveError("source archive cannot be empty")
+    if compression_level <= 0 or compression_level > 22:
+        raise SourceArchiveError("source archive compression level is invalid")
+    if zstd_window_size_bytes <= 0:
+        raise SourceArchiveError("source archive zstd window is invalid")
+    paths = tuple(PurePosixPath(relative_path) for relative_path in sorted(files))
+    if any(
+        "\\" in relative_path
+        or path.is_absolute()
+        or path == PurePosixPath(".")
+        or ".." in path.parts
+        or path.as_posix() != relative_path
+        or ".git" in path.parts
+        or relative_path == ".gitmodules"
+        for relative_path, path in zip(sorted(files), paths, strict=True)
+    ) or any(
+        path in other.parents
+        for position, path in enumerate(paths)
+        for other in paths[position + 1 :]
+    ):
+        raise SourceArchiveError("source archive path closure is invalid")
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for relative_path, (payload, mode) in sorted(files.items()):
+            if not isinstance(payload, bytes) or mode not in {"100644", "100755"}:
+                raise SourceArchiveError("source archive entry is invalid")
+            member = tarfile.TarInfo(relative_path)
+            member.size = len(payload)
+            member.mode = int(mode[-3:], 8)
+            member.mtime = 0
+            member.uid = 0
+            member.gid = 0
+            member.uname = ""
+            member.gname = ""
+            tar.addfile(member, io.BytesIO(payload))
+    compression_parameters = zstandard.ZstdCompressionParameters.from_level(
+        compression_level,
+        window_log=zstd_window_size_bytes.bit_length() - 1,
+        write_checksum=1,
+        write_content_size=1,
+        write_dict_id=0,
+    )
+    return zstandard.ZstdCompressor(compression_params=compression_parameters).compress(
+        buffer.getvalue()
+    )
 
 
 class SourceArchiveExtractor:

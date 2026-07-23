@@ -139,7 +139,8 @@ def _case():
         original_release,
         semantic_book_digest=expert_semantic_book_digest(book),
         checksums={
-            original_release.source_archive_ref: _digest("verified source archive")
+            **original_release.checksums,
+            original_release.source_archive_ref: _digest("verified source archive"),
         },
     )
     parent_receipt = _parent_receipt(
@@ -213,16 +214,8 @@ def test_builds_immutable_process_local_verified_base():
 def test_reference_excludes_publication_cache_and_extraction_metadata():
     case = _case()
     first = _build(case)
-    republished_release = _remint(
-        case.release,
-        publisher_attestation={
-            "issuer": "another verified publisher",
-            "signature": "another attestation",
-        },
-    )
-    assert republished_release.release_id == case.release.release_id
     republished_receipt = _parent_receipt(
-        republished_release,
+        case.release,
         case.repository_map,
         case.modules,
         case.source_contents,
@@ -233,7 +226,7 @@ def test_reference_excludes_publication_cache_and_extraction_metadata():
 
     republished = _build(
         case,
-        release_manifest=republished_release,
+        release_manifest=case.release,
         parent_tree_receipt=republished_receipt,
     )
 
