@@ -538,6 +538,11 @@ def test_materializer_accepts_split_expert_source_and_release_assets(
         tmp_path / "expert-cache",
     )
     materialized = materializer.materialize(resolved)
+    assert materializer.inspect_expert_release_manifest(materialized) == manifest
+    with pytest.raises(CacheCorruptionError, match="outside the authorized cache"):
+        materializer.inspect_expert_release_manifest(
+            replace(materialized, root=tmp_path / "substituted-cache-entry")
+        )
     source_receipt = materializer.inspect_source_archive(
         materialized,
         manifest.source_archive_ref,

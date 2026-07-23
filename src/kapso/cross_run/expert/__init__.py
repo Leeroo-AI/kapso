@@ -115,6 +115,11 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertProposalContractError,
 )
 from kapso.cross_run.expert.providers import GitHubExpertCurrentReleaseProvider
+from kapso.cross_run.expert.release_authority import (
+    AuthenticatedExpertReleaseActivation,
+    ExpertReleaseActivationAuthorityError,
+    GitHubExpertReleaseActivationProvider,
+)
 from kapso.cross_run.expert.publisher import (
     ExpertReleasePublication,
     ExpertReleasePublicationError,
@@ -383,6 +388,7 @@ __all__ = [
     "EXPERT_COMPOSITION_BASE_PROVIDER_VERSION",
     "ExpertEvolutionTriggerDecision",
     "GitHubExpertCurrentReleaseProvider",
+    "GitHubExpertReleaseActivationProvider",
     "GitHubExpertCompositionBaseProvider",
     "ExpertAttestationVerifier",
     "ExpertCandidateEligibilityEvaluator",
@@ -430,6 +436,7 @@ __all__ = [
     "ExpertCompositionSourceReference",
     "ExpertCompositionSourceResolver",
     "CurrentExpertCompositionBase",
+    "AuthenticatedExpertReleaseActivation",
     "ApprovedExpertCompositionSource",
     "ExpertCapabilityGeneralizer",
     "ExpertEligibilityResult",
@@ -473,6 +480,7 @@ __all__ = [
     "ExpertReleaseActivationCommitResult",
     "ExpertReleaseActivationPermit",
     "ExpertReleaseActivationReceipt",
+    "ExpertReleaseActivationAuthorityError",
     "ExpertReleaseRevocationCommitResult",
     "ExpertReleaseRevocationContractError",
     "ExpertReleaseRevocationCoordinator",

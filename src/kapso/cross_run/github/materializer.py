@@ -410,40 +410,10 @@ class GitHubArtifactMaterializer:
             raise MaterializationError(
                 "expert source inspection bounds must be positive integers"
             )
-        if (
-            materialized.receipt.artifact_kind
-            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
-        ):
-            raise MaterializationError(
-                "expert source inspection requires an expert base release"
-            )
         with self._cache_lease():
-            receipt = self._read_and_verify_receipt(
-                materialized.root,
-                PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            _, manifest = self._inspect_expert_release_manifest_under_lease(
+                materialized
             )
-            if (
-                receipt != materialized.receipt
-                or materialized.content != materialized.root / "content"
-                or materialized.assets != materialized.root / "assets"
-            ):
-                raise CacheCorruptionError(
-                    "materialized expert release differs from its verified cache entry"
-                )
-            manifest_payload = self._read_control_file(
-                materialized.content / receipt.manifest_relative_path,
-                "expert release manifest",
-                error_type=CacheCorruptionError,
-            )
-            manifest = ExpertBaseReleaseManifest.from_json_bytes(manifest_payload)
-            if (
-                manifest_payload != manifest.to_json_bytes()
-                or tree_or_blob_digest(manifest_payload) != receipt.manifest_digest
-                or manifest.release_id != receipt.artifact_id
-            ):
-                raise CacheCorruptionError(
-                    "expert release manifest differs from its cache receipt"
-                )
             (
                 verified_receipt,
                 source_archive,
@@ -488,6 +458,67 @@ class GitHubArtifactMaterializer:
                     source_extraction_receipt=extraction_receipt,
                     source_contents=source_contents,
                 )
+
+    def inspect_expert_release_manifest(
+        self,
+        materialized: MaterializedArtifact,
+    ) -> ExpertBaseReleaseManifest:
+        """Read one canonical expert manifest without extracting its source."""
+
+        with self._cache_lease():
+            _, manifest = self._inspect_expert_release_manifest_under_lease(
+                materialized
+            )
+            return manifest
+
+    def _inspect_expert_release_manifest_under_lease(
+        self,
+        materialized: MaterializedArtifact,
+    ) -> tuple[CacheVerificationReceipt, ExpertBaseReleaseManifest]:
+        if (
+            type(materialized) is not MaterializedArtifact
+            or materialized.receipt.artifact_kind
+            is not PublicationArtifactKind.EXPERT_BASE_RELEASE
+        ):
+            raise MaterializationError(
+                "expert manifest inspection requires an expert base release"
+            )
+        expected_root = (
+            self.cache_root
+            / PublicationArtifactKind.EXPERT_BASE_RELEASE.value
+            / materialized.receipt.artifact_id.rsplit(":", 1)[1]
+        )
+        if materialized.root != expected_root:
+            raise CacheCorruptionError(
+                "materialized expert release is outside the authorized cache"
+            )
+        receipt = self._read_and_verify_receipt(
+            materialized.root,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        )
+        if (
+            receipt != materialized.receipt
+            or materialized.content != materialized.root / "content"
+            or materialized.assets != materialized.root / "assets"
+        ):
+            raise CacheCorruptionError(
+                "materialized expert release differs from its verified cache entry"
+            )
+        manifest_payload = self._read_control_file(
+            materialized.content / receipt.manifest_relative_path,
+            "expert release manifest",
+            error_type=CacheCorruptionError,
+        )
+        manifest = ExpertBaseReleaseManifest.from_json_bytes(manifest_payload)
+        if (
+            manifest_payload != manifest.to_json_bytes()
+            or tree_or_blob_digest(manifest_payload) != receipt.manifest_digest
+            or manifest.release_id != receipt.artifact_id
+        ):
+            raise CacheCorruptionError(
+                "expert release manifest differs from its cache receipt"
+            )
+        return receipt, manifest
 
     def extract_verified_source_archive(
         self,

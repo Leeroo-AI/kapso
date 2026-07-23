@@ -1366,6 +1366,10 @@ refresh must not replace its pinned scientific knowledge package.
 - [x] Define and project performance/compatibility release-use facts as a distinct,
       cumulative KnowledgeSnapshot field; they never enter retrieval, admission,
       taint, lifecycle, or the fail-closed emergency lineage.
+- [x] Authenticate any historical expert activation on a fresh host from its
+      write-once GitHub identity, publication intent, activation witness, verified
+      cache receipt, and exact scope-bound expert manifest; never require the local
+      validation store or extract the full source tree merely to read the manifest.
 - [ ] Author each event only after independently resolving its historical expert
       release, exact publication, write-once activation witness, and materialized
       scope contract; never trust a local activation receipt.
