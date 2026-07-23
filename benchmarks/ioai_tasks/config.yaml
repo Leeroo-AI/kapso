@@ -4,6 +4,15 @@
 
 default_mode: LOCAL
 
+# Learning-harvest agents (extract + aggregate) — run as claude_code CLI
+# sessions, NOT the run-stage ensemble. Fable 5 at max reasoning, OAuth
+# (the CLI reads CLAUDE_CODE_OAUTH_TOKEN from the environment itself).
+harvest:
+  model: "claude-fable-5"
+  effort: "max"
+  timeout_seconds: 2400
+  allowed_tools: ["Read", "Bash", "Grep", "Glob", "Write"]
+
 modes:
   LOCAL:
     search_strategy:

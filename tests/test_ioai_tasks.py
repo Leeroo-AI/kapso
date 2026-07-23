@@ -71,6 +71,16 @@ def test_config_has_ensemble_and_selector_for_k2():
     assert mode["budget"] == {"min_iteration_seconds": 900}
 
 
+def test_harvest_config_is_fable_max_and_single_sourced():
+    from benchmarks.ioai_tasks.harvest.harvest_runner import _harvest_config
+
+    cfg = _harvest_config()
+    assert cfg["model"] == "claude-fable-5"
+    assert cfg["effort"] == "max"
+    assert set(cfg["allowed_tools"]) >= {"Read", "Write", "Bash"}
+    assert isinstance(cfg["timeout_seconds"], int)
+
+
 def test_evaluator_fail_loud_on_bad_shape(tmp_path):
     torch = pytest.importorskip("torch")
     from benchmarks.ioai_tasks.data import bobai_evaluate

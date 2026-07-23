@@ -9,14 +9,20 @@ lessons into the **Night Watch** (audio class-incremental) shared-cache seed.
                  --node-expansion 2 [--shared-cache-dir <seed>]
               (LocalTaskHandler + generic runner; scores submission/solution.py
                on a PRIVATE held-out split via the task's evaluate.py)
-2. EXTRACT    one learning-extraction agent per finished run, briefed by
-              harvest/extract_prompt.md → a structured learning JSON
-              (what worked / failed+why / validation lessons /
-               transfer_to_night_watch tagged NEW|CONFIRMS / novelty)
-3. AGGREGATE  one agent briefed by harvest/aggregate_prompt.md merges the
-              per-task JSONs + the current Night Watch LEARNINGS.md → an
-              updated seed (keeps MISSION, adds only NEW bullets, notes
-              confirmations, ends with a HARVEST VERDICT)
+2. EXTRACT    per finished run, a claude_code CLI session (Fable 5, max
+              reasoning, OAuth) briefed by harvest/extract_prompt.md:
+                python -m benchmarks.ioai_tasks.harvest.harvest_runner extract \
+                    --run-root <run_root> --out <learning.json>
+              → a structured learning JSON (what worked / failed+why /
+               validation lessons / transfer tagged NEW|CONFIRMS / novelty)
+3. AGGREGATE  one claude_code CLI session briefed by harvest/aggregate_prompt.md:
+                python -m benchmarks.ioai_tasks.harvest.harvest_runner aggregate \
+                    --extractions a.json b.json \
+                    --current-learnings LEARNINGS.md --out LEARNINGS.new.md
+              merges per-task JSONs + current seed → updated LEARNINGS.md
+              (keeps MISSION, adds only NEW bullets, notes confirmations,
+               ends with a HARVEST VERDICT). Model/effort/timeout: config
+               `harvest` block. The CLI reads CLAUDE_CODE_OAUTH_TOKEN itself.
 4. INSTALL    drop the updated LEARNINGS.md into the Night Watch t1_seed_cache;
               (optional) re-run Night Watch to measure if it moved 0.86382
 ```
