@@ -10,6 +10,9 @@ from kapso.cross_run.contracts import (
     ExpertCandidateDerivationKind,
     ExpertCandidateManifest,
     ExpertEvaluatorResultRecord,
+    ExpertPromotionState,
+    ExpertScopeContract,
+    ExpertValidationAttempt,
 )
 from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
@@ -23,6 +26,8 @@ from kapso.cross_run.expert.promotion import (
     decide_expert_release_matrix_promotion,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertCandidateReleaseUseDecision,
+    ExpertCandidateReleaseUseOutcome,
     ExpertPublicationEligibilityAuthorityFence,
     ExpertPublicationEligibilityStageResultRecord,
 )
@@ -37,6 +42,9 @@ from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInpu
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
 )
+from kapso.cross_run.expert.release_use_policy_contracts import (
+    ExpertReleaseUsePolicyObservation,
+)
 from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewStageResultRecord,
 )
@@ -49,6 +57,7 @@ from kapso.cross_run.expert.task_evaluation_authority_contracts import (
 )
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertPublicationEligibilitySnapshot,
+    ExpertValidationSnapshot,
 )
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
@@ -86,6 +95,15 @@ class ExpertPublicationSecurityDenylistAuthority(Protocol):
         scope_contract_id: str,
         checked_subject_ids: tuple[str, ...],
     ) -> SecurityDenylistObservation: ...
+
+
+class ExpertPublicationReleaseUsePolicyAuthority(Protocol):
+    def observe_exact(
+        self,
+        *,
+        scope_contract: ExpertScopeContract,
+        checked_release_ids: tuple[str, ...],
+    ) -> ExpertReleaseUsePolicyObservation: ...
 
 
 _PUBLICATION_ELIGIBILITY_EXECUTION_SEAL = object()
@@ -168,6 +186,7 @@ class ExpertPublicationEligibilityCoordinator:
         current_release_authority: ExpertPublicationCurrentReleaseAuthority,
         task_adapter_authority: VerifiedTaskAdapterProvider,
         security_denylist_authority: ExpertPublicationSecurityDenylistAuthority,
+        release_use_policy_authority: ExpertPublicationReleaseUsePolicyAuthority,
     ) -> None:
         reducer = validation_store.reducer
         if (
@@ -181,6 +200,7 @@ class ExpertPublicationEligibilityCoordinator:
         self.current_release_authority = current_release_authority
         self.task_adapter_authority = task_adapter_authority
         self.security_denylist_authority = security_denylist_authority
+        self.release_use_policy_authority = release_use_policy_authority
         validation_store._bind_publication_eligibility_authority(self)
 
     def publish(
@@ -219,6 +239,7 @@ class ExpertPublicationEligibilityCoordinator:
         )
         stored_candidate = self._reopen_candidate(input_snapshot)
         fence = None
+        release_use_decision = None
         if decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
             current_before = self._observe_current(stored_candidate)
             if current_before.release_id != attempt.source_base_release_id:
@@ -247,6 +268,25 @@ class ExpertPublicationEligibilityCoordinator:
                 raise ExpertPublicationEligibilityError(
                     "publication eligibility denylist differs from exact authority"
                 )
+            manifest = stored_candidate.closure.manifest
+            release_use_observation = self.release_use_policy_authority.observe_exact(
+                scope_contract=(
+                    stored_candidate.closure.validation_context.scope_contract
+                ),
+                checked_release_ids=manifest.consumed_expert_release_ids,
+            )
+            if (
+                type(release_use_observation) is not ExpertReleaseUsePolicyObservation
+                or release_use_observation.scope_id
+                != stored_candidate.closure.validation_context.scope_id
+                or release_use_observation.scope_contract_id
+                != attempt.scope_contract_id
+                or release_use_observation.checked_release_ids
+                != manifest.consumed_expert_release_ids
+            ):
+                raise ExpertPublicationEligibilityError(
+                    "publication eligibility release-use policy differs from candidate inputs"
+                )
             current_after = self._observe_current(stored_candidate)
             if current_after.release_id != attempt.source_base_release_id:
                 return self._invalidate_current_authority(input_snapshot)
@@ -274,35 +314,46 @@ class ExpertPublicationEligibilityCoordinator:
                 raise ExpertPublicationEligibilityError(
                     "publication eligibility security projection changed"
                 )
-            fence = ExpertPublicationEligibilityAuthorityFence.mint(
-                release_matrix_acceptance_transition_id=(
-                    snapshot.transition.transition_id
-                ),
-                release_matrix_acceptance_state_id=(
-                    input_snapshot.snapshot.state.validation_state_id
-                ),
-                validation_attempt_id=attempt.validation_attempt_id,
-                candidate_id=attempt.candidate_id,
-                candidate_tree_hash=attempt.candidate_tree_hash,
-                candidate_commit_record_id=attempt.candidate_commit_record_id,
-                scope_contract_id=attempt.scope_contract_id,
-                scope_id=(stored_candidate.closure.validation_context.scope_id),
-                expected_current_release_id=attempt.source_base_release_id,
-                validation_policy_id=attempt.validation_policy_id,
-                configuration_fingerprint=attempt.configuration_fingerprint,
-                release_matrix_stage_result_id=(
-                    input_snapshot.release_matrix_stage_result.stage_result_record_id
-                ),
-                promotion_decision_id=decision.promotion_decision_id,
-                security_subject_ids=security_subject_ids,
-                current_release_observation=current_before,
-                task_adapter_trust_observations=adapter_observations,
-                security_denylist_observation=denylist,
+            release_use_decision = build_candidate_release_use_decision(
+                input_snapshot=reopened,
+                stored_candidate=stored_candidate,
+                decision=decision,
+                policy_observation=release_use_observation,
             )
+            if release_use_decision.outcome is ExpertCandidateReleaseUseOutcome.CLEARED:
+                fence = ExpertPublicationEligibilityAuthorityFence.mint(
+                    release_matrix_acceptance_transition_id=(
+                        snapshot.transition.transition_id
+                    ),
+                    release_matrix_acceptance_state_id=(
+                        input_snapshot.snapshot.state.validation_state_id
+                    ),
+                    validation_attempt_id=attempt.validation_attempt_id,
+                    candidate_id=attempt.candidate_id,
+                    candidate_tree_hash=attempt.candidate_tree_hash,
+                    candidate_commit_record_id=attempt.candidate_commit_record_id,
+                    scope_contract_id=attempt.scope_contract_id,
+                    scope_id=(stored_candidate.closure.validation_context.scope_id),
+                    expected_current_release_id=attempt.source_base_release_id,
+                    validation_policy_id=attempt.validation_policy_id,
+                    configuration_fingerprint=attempt.configuration_fingerprint,
+                    release_matrix_stage_result_id=(
+                        input_snapshot.release_matrix_stage_result.stage_result_record_id
+                    ),
+                    promotion_decision_id=decision.promotion_decision_id,
+                    release_use_decision_id=(
+                        release_use_decision.release_use_decision_id
+                    ),
+                    security_subject_ids=security_subject_ids,
+                    current_release_observation=current_before,
+                    task_adapter_trust_observations=adapter_observations,
+                    security_denylist_observation=denylist,
+                )
         stage_result = build_publication_eligibility_stage_result(
             input_snapshot=input_snapshot,
             stored_candidate=stored_candidate,
             decision=decision,
+            release_use_decision=release_use_decision,
             publication_authority_fence=fence,
         )
         execution = ExpertPublicationEligibilityExecution(
@@ -770,11 +821,144 @@ def _candidate_ancestor_security_subject_ids(
     return subjects
 
 
+def build_candidate_release_use_decision(
+    *,
+    input_snapshot: ExpertPublicationEligibilitySnapshot,
+    stored_candidate: StoredExpertCandidate,
+    decision: ExpertReleaseMatrixPromotionDecision,
+    policy_observation: ExpertReleaseUsePolicyObservation,
+) -> ExpertCandidateReleaseUseDecision:
+    """Bind one current policy observation to the exact approved candidate."""
+
+    snapshot = input_snapshot.snapshot
+    attempt = snapshot.latest_attempt
+    if (
+        attempt is None
+        or decision.outcome is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+    ):
+        raise ExpertPublicationEligibilityError(
+            "release-use decision differs from exact candidate authority"
+        )
+    return _build_candidate_release_use_decision(
+        attempt=attempt,
+        stored_candidate=stored_candidate,
+        release_matrix_stage_result_id=(
+            input_snapshot.release_matrix_stage_result.stage_result_record_id
+        ),
+        promotion_decision_id=decision.promotion_decision_id,
+        policy_observation=policy_observation,
+    )
+
+
+def build_approved_candidate_release_use_decision(
+    *,
+    approval_snapshot: ExpertValidationSnapshot,
+    stored_candidate: StoredExpertCandidate,
+    policy_observation: ExpertReleaseUsePolicyObservation,
+) -> ExpertCandidateReleaseUseDecision:
+    """Bind a late current-policy read to one unchanged terminal approval."""
+
+    attempt = approval_snapshot.latest_attempt
+    publication_result = (
+        None
+        if not approval_snapshot.accepted_stage_results
+        else approval_snapshot.accepted_stage_results[-1]
+    )
+    if (
+        approval_snapshot.state.promotion_state is not ExpertPromotionState.APPROVED
+        or attempt is None
+        or type(publication_result) is not ExpertPublicationEligibilityStageResultRecord
+        or publication_result.publication_authority_fence is None
+        or publication_result.promotion_decision.outcome
+        is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+    ):
+        raise ExpertPublicationEligibilityError(
+            "late release-use decision requires one exact terminal approval"
+        )
+    return _build_candidate_release_use_decision(
+        attempt=attempt,
+        stored_candidate=stored_candidate,
+        release_matrix_stage_result_id=(
+            publication_result.promotion_decision.release_matrix_stage_result_id
+        ),
+        promotion_decision_id=(
+            publication_result.promotion_decision.promotion_decision_id
+        ),
+        policy_observation=policy_observation,
+    )
+
+
+def _build_candidate_release_use_decision(
+    *,
+    attempt: ExpertValidationAttempt,
+    stored_candidate: StoredExpertCandidate,
+    release_matrix_stage_result_id: str,
+    promotion_decision_id: str,
+    policy_observation: ExpertReleaseUsePolicyObservation,
+) -> ExpertCandidateReleaseUseDecision:
+    manifest = stored_candidate.closure.manifest
+    if (
+        manifest.candidate_id != attempt.candidate_id
+        or manifest.candidate_tree_hash != attempt.candidate_tree_hash
+        or stored_candidate.commit_record.commit_record_id
+        != attempt.candidate_commit_record_id
+        or policy_observation.scope_id
+        != stored_candidate.closure.validation_context.scope_id
+        or policy_observation.scope_contract_id != attempt.scope_contract_id
+        or policy_observation.checked_release_ids
+        != manifest.consumed_expert_release_ids
+    ):
+        raise ExpertPublicationEligibilityError(
+            "release-use decision differs from exact candidate authority"
+        )
+    dependencies = {
+        attempt.validation_attempt_id,
+        attempt.candidate_id,
+        attempt.candidate_commit_record_id,
+        attempt.scope_contract_id,
+        release_matrix_stage_result_id,
+        promotion_decision_id,
+        policy_observation.observation_id,
+        policy_observation.knowledge_snapshot_id,
+        policy_observation.knowledge_publication_id,
+        *policy_observation.checked_release_ids,
+    }
+    for revocation in policy_observation.matched_revocations:
+        dependencies.update(
+            {
+                revocation.revocation_id,
+                revocation.release_id,
+                revocation.release_publication_id,
+                revocation.release_activation_witness_id,
+                *revocation.exact_evidence_refs,
+            }
+        )
+    outcome = (
+        ExpertCandidateReleaseUseOutcome.BLOCKED
+        if policy_observation.matched_revocations
+        else ExpertCandidateReleaseUseOutcome.CLEARED
+    )
+    return ExpertCandidateReleaseUseDecision.mint(
+        validation_attempt_id=attempt.validation_attempt_id,
+        candidate_id=attempt.candidate_id,
+        candidate_tree_hash=attempt.candidate_tree_hash,
+        candidate_commit_record_id=attempt.candidate_commit_record_id,
+        scope_contract_id=attempt.scope_contract_id,
+        scope_id=stored_candidate.closure.validation_context.scope_id,
+        release_matrix_stage_result_id=release_matrix_stage_result_id,
+        promotion_decision_id=promotion_decision_id,
+        policy_observation=policy_observation,
+        outcome=outcome,
+        exact_dependency_ids=tuple(sorted(dependencies)),
+    )
+
+
 def build_publication_eligibility_stage_result(
     *,
     input_snapshot: ExpertPublicationEligibilitySnapshot,
     stored_candidate: StoredExpertCandidate,
     decision: ExpertReleaseMatrixPromotionDecision,
+    release_use_decision: ExpertCandidateReleaseUseDecision | None,
     publication_authority_fence: ExpertPublicationEligibilityAuthorityFence | None,
 ) -> ExpertPublicationEligibilityStageResultRecord:
     snapshot = input_snapshot.snapshot
@@ -801,6 +985,13 @@ def build_publication_eligibility_stage_result(
     }
     if attempt.source_base_release_id is not None:
         dependencies.add(attempt.source_base_release_id)
+    if release_use_decision is not None:
+        dependencies.update(
+            {
+                release_use_decision.release_use_decision_id,
+                *release_use_decision.exact_dependency_ids,
+            }
+        )
     if publication_authority_fence is not None:
         dependencies.update(
             {
@@ -822,6 +1013,7 @@ def build_publication_eligibility_stage_result(
         configuration_fingerprint=attempt.configuration_fingerprint,
         accepted_stage_results=snapshot.state.accepted_stage_results,
         promotion_decision=decision,
+        release_use_decision=release_use_decision,
         publication_authority_fence=publication_authority_fence,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )

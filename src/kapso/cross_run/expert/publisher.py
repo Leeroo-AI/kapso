@@ -34,15 +34,19 @@ from kapso.cross_run.expert.release_contracts import (
 )
 from kapso.cross_run.expert.promotion_authority import (
     ExpertPublicationEligibilityCoordinator,
+    ExpertPublicationReleaseUsePolicyAuthority,
     ExpertPublicationSecurityDenylistAuthority,
+    build_approved_candidate_release_use_decision,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertCandidateReleaseUseOutcome,
     ExpertPublicationEligibilityAuthorityFence,
     ExpertPublicationEligibilityStageResultRecord,
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
+from kapso.cross_run.expert.validation_snapshots import ExpertValidationSnapshot
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
 from kapso.cross_run.github.publisher import (
     AutonomousGitHubPublisher,
@@ -382,6 +386,7 @@ class ExpertReleasePublisher:
         "current_release_authority",
         "task_adapter_authority",
         "security_denylist_authority",
+        "release_use_policy_authority",
         "_eligibility_coordinator",
         "_github_client",
         "_package_validator",
@@ -398,6 +403,7 @@ class ExpertReleasePublisher:
         current_release_authority: GitHubExpertCurrentReleaseProvider,
         task_adapter_authority: VerifiedTaskAdapterProvider,
         security_denylist_authority: ExpertPublicationSecurityDenylistAuthority,
+        release_use_policy_authority: ExpertPublicationReleaseUsePolicyAuthority,
     ) -> None:
         publication_eligibility_authority = (
             validation_store._publication_eligibility_coordinator
@@ -429,6 +435,8 @@ class ExpertReleasePublisher:
             is not task_adapter_authority
             or publication_eligibility_authority.security_denylist_authority
             is not security_denylist_authority
+            or publication_eligibility_authority.release_use_policy_authority
+            is not release_use_policy_authority
         ):
             raise ExpertReleasePublicationError(
                 "expert publisher authorities are not one concrete trust boundary"
@@ -447,6 +455,11 @@ class ExpertReleasePublisher:
             self,
             "security_denylist_authority",
             security_denylist_authority,
+        )
+        object.__setattr__(
+            self,
+            "release_use_policy_authority",
+            release_use_policy_authority,
         )
         object.__setattr__(
             self,
@@ -480,12 +493,23 @@ class ExpertReleasePublisher:
         require_content_id(candidate_id, "expert publication candidate_id")
         normalize_utc_timestamp(committed_at, "expert publication committed_at")
         self._require_bound_authority()
+        current_snapshot = self.validation_store.snapshot(candidate_id)
+        if (
+            current_snapshot is not None
+            and current_snapshot.state.promotion_state
+            is ExpertPromotionState.RELEASE_USE_BLOCKED
+        ):
+            raise ExpertReleasePublicationError(
+                "expert release is blocked by current release-use policy"
+            )
         if self.validation_store.reopen_release_revocation(candidate_id) is not None:
             raise ExpertReleasePublicationError("expert release is revoked")
         if self.validation_store.reopen_release_activation(candidate_id) is not None:
             raise ExpertReleasePublicationError("expert release is already active")
-        package = self.assembler.build(candidate_id=candidate_id)
         durable = self.validation_store.reopen_release_publication(candidate_id)
+        if durable is not None:
+            self._enforce_release_use_policy(durable.snapshot)
+        package = self.assembler.build(candidate_id=candidate_id)
         if durable is None:
             fence = self._approved_publication_fence(package)
             frozen_current = fence.current_release_observation
@@ -511,6 +535,12 @@ class ExpertReleasePublisher:
                 current_state=current_state,
                 observed_after=observed_after,
             )
+            approval_snapshot = self.validation_store.snapshot(candidate_id)
+            if approval_snapshot is None:
+                raise ExpertReleasePublicationError(
+                    "expert publication approval disappeared before reservation"
+                )
+            self._enforce_release_use_policy(approval_snapshot)
             plan = self.assembler._derive_publication_plan(
                 package=package,
                 current_release_observation=frozen_current,
@@ -519,9 +549,7 @@ class ExpertReleasePublisher:
         else:
             plan = self.assembler._derive_publication_plan(
                 package=package,
-                current_release_observation=(
-                    durable.plan.current_release_observation
-                ),
+                current_release_observation=(durable.plan.current_release_observation),
                 activation_predecessor_pointer=(
                     durable.plan.activation_predecessor_pointer
                 ),
@@ -556,13 +584,26 @@ class ExpertReleasePublisher:
                 activation=durable,
                 telemetry=None,
             )
-        reservation = self.reserve(
-            candidate_id=candidate_id,
-            committed_at=committed_at,
-        ).reservation
-        recovered = self._recover_release_activation(reservation)
-        if recovered is not None:
-            return ExpertReleasePublication(activation=recovered, telemetry=None)
+        reservation = self.validation_store.reopen_release_publication(candidate_id)
+        if reservation is not None:
+            recovered = self._recover_release_activation(reservation)
+            if recovered is not None:
+                return ExpertReleasePublication(activation=recovered, telemetry=None)
+            current_snapshot = self.validation_store.snapshot(candidate_id)
+            if (
+                current_snapshot is not None
+                and current_snapshot.state.promotion_state
+                is ExpertPromotionState.RELEASE_USE_BLOCKED
+            ):
+                raise ExpertReleasePublicationError(
+                    "expert release is blocked and has no witnessed activation"
+                )
+            self._enforce_release_use_policy(reservation.snapshot)
+        else:
+            reservation = self.reserve(
+                candidate_id=candidate_id,
+                committed_at=committed_at,
+            ).reservation
         package = self.assembler.build(candidate_id=candidate_id)
         with tempfile.TemporaryDirectory(prefix="kapso-expert-release-") as root:
             release_root = Path(root)
@@ -671,14 +712,12 @@ class ExpertReleasePublisher:
             != manifest.lineage.activation_predecessor_release_id
             or frozen_current.release_id != state_release_id
             or frozen_current.publication_id != state_publication_id
-            or frozen_current.repository_full_name
-            != repositories.expert_repository
+            or frozen_current.repository_full_name != repositories.expert_repository
             or frozen_current.repository_node_id != state_repository_node_id
             or frozen_current.default_branch_head_commit_sha
             != current_state.head_commit_sha
             or frozen_current.current_pointer_digest != state_pointer_digest
-            or frozen_current.validation_closure_ids
-            != state_validation_closure_ids
+            or frozen_current.validation_closure_ids != state_validation_closure_ids
         ):
             raise ExpertReleasePublicationError(
                 "expert publication CURRENT changed after approval"
@@ -854,7 +893,14 @@ class ExpertReleasePublisher:
         current = self.validation_store.reopen_release_publication(
             reservation.plan.candidate_id
         )
-        if current != reservation:
+        snapshot = self.validation_store.snapshot(reservation.plan.candidate_id)
+        if (
+            current != reservation
+            or snapshot is None
+            or snapshot.state.promotion_state is not ExpertPromotionState.APPROVED
+            or snapshot.transition.transition_id
+            != reservation.plan.approval_transition_id
+        ):
             raise ExpertReleasePublicationError(
                 "expert publication reservation is no longer active"
             )
@@ -895,6 +941,8 @@ class ExpertReleasePublisher:
             or coordinator.task_adapter_authority is not self.task_adapter_authority
             or coordinator.security_denylist_authority
             is not self.security_denylist_authority
+            or coordinator.release_use_policy_authority
+            is not self.release_use_policy_authority
             or self.github_publisher._activation_verifier_types.get(
                 PublicationArtifactKind.EXPERT_BASE_RELEASE
             )
@@ -954,8 +1002,43 @@ class ExpertReleasePublisher:
             raise ExpertReleasePublicationError(
                 "expert CURRENT changed during publication authority refresh"
             )
+        self._enforce_release_use_policy(reservation.snapshot)
         self._require_reservation(reservation)
         return current_after
+
+    def _enforce_release_use_policy(
+        self,
+        approval_snapshot: ExpertValidationSnapshot,
+    ) -> None:
+        if approval_snapshot.state.promotion_state is not ExpertPromotionState.APPROVED:
+            raise ExpertReleasePublicationError(
+                "expert publication lacks a release-use-eligible approval"
+            )
+        stored_candidate = self.validation_store.reducer.candidate_store.read(
+            approval_snapshot.state.candidate_id
+        )
+        observation = self.release_use_policy_authority.observe_exact(
+            scope_contract=stored_candidate.closure.validation_context.scope_contract,
+            checked_release_ids=(
+                stored_candidate.closure.manifest.consumed_expert_release_ids
+            ),
+        )
+        decision = build_approved_candidate_release_use_decision(
+            approval_snapshot=approval_snapshot,
+            stored_candidate=stored_candidate,
+            policy_observation=observation,
+        )
+        if decision.outcome is ExpertCandidateReleaseUseOutcome.CLEARED:
+            return
+        permit = self.validation_store._seal_release_use_block(
+            publisher=self,
+            approval_snapshot=approval_snapshot,
+            decision=decision,
+        )
+        self.validation_store.commit_release_use_block(permit)
+        raise ExpertReleasePublicationError(
+            "expert release is blocked by current release-use policy"
+        )
 
     def _reverify_task_adapters(
         self,

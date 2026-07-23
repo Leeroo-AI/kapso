@@ -65,6 +65,7 @@ class ExpertValidationTransition(StrictContract):
     accepted_stage_result_record_ids: tuple[str, ...]
     transition_stage_result_record_id: str | None
     transition_authority_invalidation_id: str | None
+    transition_release_use_block_decision_id: str | None
     transition_release_activation_receipt_id: str | None
     transition_release_revocation_receipt_id: str | None
 
@@ -105,6 +106,10 @@ class ExpertValidationTransition(StrictContract):
                 "transition_authority_invalidation_id",
             ),
             (
+                self.transition_release_use_block_decision_id,
+                "transition_release_use_block_decision_id",
+            ),
+            (
                 self.transition_release_activation_receipt_id,
                 "transition_release_activation_receipt_id",
             ),
@@ -142,6 +147,7 @@ class ExpertValidationTransition(StrictContract):
                 self.eligibility_decision_id,
                 self.transition_stage_result_record_id,
                 self.transition_authority_invalidation_id,
+                self.transition_release_use_block_decision_id,
                 self.transition_release_activation_receipt_id,
                 self.transition_release_revocation_receipt_id,
             )

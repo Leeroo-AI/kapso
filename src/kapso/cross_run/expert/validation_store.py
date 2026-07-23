@@ -98,6 +98,8 @@ from kapso.cross_run.expert.promotion_authority import (
     publication_eligibility_security_subject_ids,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertCandidateReleaseUseDecision,
+    ExpertCandidateReleaseUseOutcome,
     ExpertPublicationEligibilityAuthorityFence,
     ExpertPublicationEligibilityStageResultRecord,
 )
@@ -325,6 +327,13 @@ class ExpertPublicationEligibilityStageCommitResult:
 
 
 @dataclass(frozen=True)
+class ExpertReleaseUseBlockCommitResult:
+    decision: ExpertCandidateReleaseUseDecision
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class ExpertReleasePublicationReservation:
     intent: ExpertReleasePublicationIntent
     plan: ExpertReleasePublicationPlan
@@ -402,6 +411,65 @@ class ExpertReleaseRevocationCommitResult:
 
 
 _RELEASE_PUBLICATION_STALE_PERMIT_SEAL = object()
+_RELEASE_USE_BLOCK_PERMIT_SEAL = object()
+
+
+class ExpertReleaseUseBlockPermit:
+    """One-shot publisher authority for an approved-to-blocked policy transition."""
+
+    __slots__ = (
+        "_approval_snapshot",
+        "_consumed",
+        "_decision",
+        "_owner_process_id",
+        "_publisher",
+        "_store",
+    )
+
+    def __init__(
+        self,
+        seal: object,
+        store: ExpertValidationStore,
+        publisher: object,
+        approval_snapshot: ExpertValidationSnapshot,
+        decision: ExpertCandidateReleaseUseDecision,
+    ) -> None:
+        if seal is not _RELEASE_USE_BLOCK_PERMIT_SEAL:
+            raise ExpertValidationStoreError(
+                "release-use block permit is not store sealed"
+            )
+        object.__setattr__(self, "_store", store)
+        object.__setattr__(self, "_publisher", publisher)
+        object.__setattr__(self, "_owner_process_id", os.getpid())
+        object.__setattr__(self, "_consumed", False)
+        object.__setattr__(self, "_approval_snapshot", approval_snapshot)
+        object.__setattr__(self, "_decision", decision)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise ExpertValidationStoreError("release-use block permit is immutable")
+
+    def _require_bound(
+        self,
+        store: ExpertValidationStore,
+        publisher: object,
+    ) -> None:
+        if (
+            self._consumed
+            or self._store is not store
+            or self._publisher is not publisher
+            or self._owner_process_id != os.getpid()
+        ):
+            raise ExpertValidationStoreError(
+                "release-use block permit is consumed or foreign"
+            )
+
+    def _consume(
+        self,
+        store: ExpertValidationStore,
+        publisher: object,
+    ) -> None:
+        self._require_bound(store, publisher)
+        object.__setattr__(self, "_consumed", True)
 
 
 class ExpertReleasePublicationStalePermit:
@@ -780,9 +848,7 @@ class ExpertValidationStore:
             raise ExpertValidationStoreError(
                 "release publication reservation requires an exact plan and package"
             )
-        assembler = self._require_bound_release_assembly_authority(
-            publisher.assembler
-        )
+        assembler = self._require_bound_release_assembly_authority(publisher.assembler)
         expected_plan = assembler._derive_publication_plan(
             package=package,
             current_release_observation=plan.current_release_observation,
@@ -892,8 +958,11 @@ class ExpertValidationStore:
                 plan.release_id,
                 ExpertBaseReleaseManifest,
             )
-            current = self._current_from_journal_unlocked(journal)
-            if current is None:
+            approval = self._snapshot_at_unlocked(
+                journal,
+                plan.approval_transition_id,
+            )
+            if approval is None:
                 raise ExpertValidationStoreError(
                     "release publication reservation lost its validation head"
                 )
@@ -901,13 +970,13 @@ class ExpertValidationStore:
                 intent,
                 plan,
                 manifest,
-                current,
+                approval,
             )
             return ExpertReleasePublicationReservation(
                 intent=intent,
                 plan=plan,
                 manifest=manifest,
-                snapshot=current,
+                snapshot=approval,
             )
 
     def resolve_stale_release_publication(
@@ -1084,12 +1153,6 @@ class ExpertValidationStore:
             consumed_dependency_ids=tuple(sorted(consumed_dependencies)),
             control_dependency_ids=tuple(sorted(control_dependencies)),
         )
-        operation = ExpertValidationOperation.mint(
-            operation_kind=ExpertValidationOperationKind.RELEASE_ACTIVATION,
-            candidate_id=plan.candidate_id,
-            expected_transition_id=plan.approval_transition_id,
-            request_record_id=receipt.activation_receipt_id,
-        )
         with self._lock(exclusive=True):
             journal = self._read_journal_unlocked(plan.candidate_id)
             replay = self._release_activation_result_unlocked(journal)
@@ -1111,17 +1174,28 @@ class ExpertValidationStore:
                 raise ExpertValidationStoreError(
                     "release activation lost its approved validation head"
                 )
+            approval_snapshot = self._snapshot_at_unlocked(
+                journal,
+                plan.approval_transition_id,
+            )
             self._validate_release_publication_reservation_unlocked(
                 reservation.intent,
                 plan,
                 reservation.manifest,
-                current,
+                approval_snapshot,
             )
             target_state = self.reducer.advance_release_activation(
                 state=current.state,
+                approval_state=approval_snapshot.state,
                 attempt=current.latest_attempt,
                 plan=plan,
                 receipt=receipt,
+            )
+            operation = ExpertValidationOperation.mint(
+                operation_kind=ExpertValidationOperationKind.RELEASE_ACTIVATION,
+                candidate_id=plan.candidate_id,
+                expected_transition_id=current.transition.transition_id,
+                request_record_id=receipt.activation_receipt_id,
             )
             transition = ExpertValidationTransition.mint(
                 candidate_id=plan.candidate_id,
@@ -1143,6 +1217,7 @@ class ExpertValidationStore:
                 ),
                 transition_stage_result_record_id=None,
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=(
                     receipt.activation_receipt_id
                 ),
@@ -1318,6 +1393,7 @@ class ExpertValidationStore:
                 ),
                 transition_stage_result_record_id=None,
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=(
                     receipt.revocation_receipt_id
@@ -1610,6 +1686,8 @@ class ExpertValidationStore:
             is not self._publication_eligibility_coordinator.task_adapter_authority
             or publisher.security_denylist_authority
             is not self._publication_eligibility_coordinator.security_denylist_authority
+            or publisher.release_use_policy_authority
+            is not self._publication_eligibility_coordinator.release_use_policy_authority
         ):
             raise ExpertValidationStoreError(
                 "release publisher is not the concrete bound authority"
@@ -1646,6 +1724,8 @@ class ExpertValidationStore:
             is not self._publication_eligibility_coordinator.task_adapter_authority
             or publisher.security_denylist_authority
             is not self._publication_eligibility_coordinator.security_denylist_authority
+            or publisher.release_use_policy_authority
+            is not self._publication_eligibility_coordinator.release_use_policy_authority
         ):
             raise ExpertValidationStoreError(
                 "release publication lacks its bound publisher authority"
@@ -1861,11 +1941,22 @@ class ExpertValidationStore:
                     raise ExpertValidationStoreError(
                         "release activation reservation lost its validation head"
                     )
+                if current.state.promotion_state not in {
+                    ExpertPromotionState.APPROVED,
+                    ExpertPromotionState.RELEASE_USE_BLOCKED,
+                }:
+                    raise ExpertValidationStoreError(
+                        "release activation lacks approved or blocked recovery state"
+                    )
+                approval = self._snapshot_at_unlocked(
+                    journal,
+                    plan.approval_transition_id,
+                )
                 self._validate_release_publication_reservation_unlocked(
                     reservation.intent,
                     plan,
                     reservation.manifest,
-                    current,
+                    approval,
                 )
         return ExpertReleaseActivationPermit(
             _RELEASE_ACTIVATION_PERMIT_SEAL,
@@ -2000,6 +2091,7 @@ class ExpertValidationStore:
             is not self.reducer.current_release_provider
             or coordinator.task_adapter_authority
             is not self.reducer.task_adapter_provider
+            or coordinator.release_use_policy_authority is None
         ):
             raise ExpertValidationStoreError(
                 "publication eligibility lacks bound coordinator authority"
@@ -2156,6 +2248,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=None,
             )
@@ -2320,6 +2413,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=(result.evaluator_result_record_id),
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=None,
             )
@@ -2413,6 +2507,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=None,
             )
@@ -2663,6 +2758,7 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=None,
             )
@@ -2789,7 +2885,7 @@ class ExpertValidationStore:
         result = execution.stage_result
         operation = self._publication_eligibility_operation(
             input_snapshot,
-            decision,
+            result,
         )
         with self._lock(exclusive=False):
             journal = self._read_journal_unlocked(
@@ -2845,7 +2941,7 @@ class ExpertValidationStore:
                 )
             execution._consume(coordinator, self)
             accepted_ids = observed.transition.accepted_stage_result_record_ids
-            if decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+            if result.publication_authority_fence is not None:
                 accepted_ids = (*accepted_ids, result.stage_result_record_id)
             transition = ExpertValidationTransition.mint(
                 candidate_id=observed.state.candidate_id,
@@ -2865,10 +2961,20 @@ class ExpertValidationStore:
                 accepted_stage_result_record_ids=accepted_ids,
                 transition_stage_result_record_id=result.stage_result_record_id,
                 transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=None,
             )
             self._write_contract_unlocked(decision)
+            if result.release_use_decision is not None:
+                self._write_contract_unlocked(
+                    result.release_use_decision.policy_observation
+                )
+                for (
+                    revocation
+                ) in result.release_use_decision.policy_observation.matched_revocations:
+                    self._write_contract_unlocked(revocation)
+                self._write_contract_unlocked(result.release_use_decision)
             if result.publication_authority_fence is not None:
                 self._write_contract_unlocked(result.publication_authority_fence)
             self._write_contract_unlocked(result)
@@ -2885,6 +2991,166 @@ class ExpertValidationStore:
                 ),
                 replayed=False,
             )
+
+    def _seal_release_use_block(
+        self,
+        *,
+        publisher: object,
+        approval_snapshot: ExpertValidationSnapshot,
+        decision: ExpertCandidateReleaseUseDecision,
+    ) -> ExpertReleaseUseBlockPermit:
+        """Seal one fresh matched policy read against an unchanged approval."""
+
+        authority = self._require_bound_release_publisher_authority(publisher)
+        if (
+            type(approval_snapshot) is not ExpertValidationSnapshot
+            or type(decision) is not ExpertCandidateReleaseUseDecision
+            or decision.outcome is not ExpertCandidateReleaseUseOutcome.BLOCKED
+        ):
+            raise ExpertValidationStoreError(
+                "release-use block sealing requires exact matched authority"
+            )
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(decision.candidate_id)
+            current = self._current_from_journal_unlocked(journal)
+            if current != approval_snapshot or current.latest_attempt is None:
+                raise ExpertValidationCompareAndSwapError(
+                    "release-use block approval changed during policy checks"
+                )
+            publication_result = current.accepted_stage_results[-1]
+            if (
+                type(publication_result)
+                is not ExpertPublicationEligibilityStageResultRecord
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block lacks publication eligibility authority"
+                )
+            stored_candidate = self.reducer.candidate_store.read(
+                current.state.candidate_id
+            )
+            if (
+                decision.policy_observation.checked_release_ids
+                != stored_candidate.closure.manifest.consumed_expert_release_ids
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block checked another candidate release closure"
+                )
+            self.reducer.advance_release_use_block(
+                state=current.state,
+                attempt=current.latest_attempt,
+                publication_result=publication_result,
+                decision=decision,
+            )
+        return ExpertReleaseUseBlockPermit(
+            _RELEASE_USE_BLOCK_PERMIT_SEAL,
+            self,
+            authority,
+            approval_snapshot,
+            decision,
+        )
+
+    def commit_release_use_block(
+        self,
+        permit: ExpertReleaseUseBlockPermit,
+    ) -> ExpertReleaseUseBlockCommitResult:
+        """Atomically append the first permanent late release-use block."""
+
+        if type(permit) is not ExpertReleaseUseBlockPermit:
+            raise ExpertValidationStoreError(
+                "release-use block requires a publisher-sealed permit"
+            )
+        publisher = self._require_bound_release_publisher_authority(
+            self._release_publisher
+        )
+        permit._require_bound(self, publisher)
+        approval_snapshot = permit._approval_snapshot
+        decision = permit._decision
+        operation = ExpertValidationOperation.mint(
+            operation_kind=ExpertValidationOperationKind.RELEASE_USE_BLOCK,
+            candidate_id=decision.candidate_id,
+            expected_transition_id=approval_snapshot.transition.transition_id,
+            request_record_id=decision.release_use_decision_id,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(decision.candidate_id)
+            replay = self._release_use_block_result_unlocked(journal)
+            if replay is not None:
+                permit._consume(self, publisher)
+                return replay
+            current = self._current_from_journal_unlocked(journal)
+            if current != approval_snapshot or current.latest_attempt is None:
+                raise ExpertValidationCompareAndSwapError(
+                    "release-use block approval changed before commit"
+                )
+            publication_result = current.accepted_stage_results[-1]
+            if (
+                type(publication_result)
+                is not ExpertPublicationEligibilityStageResultRecord
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block lost publication eligibility authority"
+                )
+            target_state = self.reducer.advance_release_use_block(
+                state=current.state,
+                attempt=current.latest_attempt,
+                publication_result=publication_result,
+                decision=decision,
+            )
+            transition = ExpertValidationTransition.mint(
+                candidate_id=decision.candidate_id,
+                candidate_tree_hash=decision.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=current.transition.transition_id,
+                predecessor_state_id=current.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=current.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=current.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    current.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=(
+                    current.transition.accepted_stage_result_record_ids
+                ),
+                transition_stage_result_record_id=None,
+                transition_authority_invalidation_id=None,
+                transition_release_use_block_decision_id=(
+                    decision.release_use_decision_id
+                ),
+                transition_release_activation_receipt_id=None,
+                transition_release_revocation_receipt_id=None,
+            )
+            permit._consume(self, publisher)
+            self._write_contract_unlocked(decision.policy_observation)
+            for revocation in decision.policy_observation.matched_revocations:
+                self._write_contract_unlocked(revocation)
+            self._write_contract_unlocked(decision)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_release_use_block_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertReleaseUseBlockCommitResult(
+                decision=decision,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
+                replayed=False,
+            )
+
+    def reopen_release_use_block(
+        self,
+        candidate_id: str,
+    ) -> ExpertReleaseUseBlockCommitResult | None:
+        """Reopen the first durable release-use block without external reads."""
+
+        require_content_id(candidate_id, "release-use block candidate_id")
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(candidate_id)
+            return self._release_use_block_result_unlocked(journal)
 
     def reserve_source_replay(
         self,
@@ -3728,6 +3994,7 @@ class ExpertValidationStore:
                 transition_authority_invalidation_id=(
                     invalidation.authority_invalidation_id
                 ),
+                transition_release_use_block_decision_id=None,
                 transition_release_activation_receipt_id=None,
                 transition_release_revocation_receipt_id=None,
             )
@@ -3794,6 +4061,7 @@ class ExpertValidationStore:
             accepted_stage_result_record_ids=(),
             transition_stage_result_record_id=None,
             transition_authority_invalidation_id=None,
+            transition_release_use_block_decision_id=None,
             transition_release_activation_receipt_id=None,
             transition_release_revocation_receipt_id=None,
         )
@@ -3872,7 +4140,7 @@ class ExpertValidationStore:
     @staticmethod
     def _publication_eligibility_operation(
         input_snapshot: ExpertPublicationEligibilitySnapshot,
-        decision: ExpertReleaseMatrixPromotionDecision,
+        result: ExpertPublicationEligibilityStageResultRecord,
     ) -> ExpertValidationOperation:
         return ExpertValidationOperation.mint(
             operation_kind=(
@@ -3880,7 +4148,7 @@ class ExpertValidationStore:
             ),
             candidate_id=input_snapshot.snapshot.state.candidate_id,
             expected_transition_id=(input_snapshot.snapshot.transition.transition_id),
-            request_record_id=decision.promotion_decision_id,
+            request_record_id=result.stage_result_record_id,
         )
 
     def _validate_publication_eligibility_execution(
@@ -3913,35 +4181,53 @@ class ExpertValidationStore:
             raise ExpertValidationStoreError(
                 "publication eligibility execution differs from stored authority"
             )
+        release_use = execution.stage_result.release_use_decision
         fence = execution.stage_result.publication_authority_fence
         if expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
-            if fence is None:
+            if release_use is None:
                 raise ExpertValidationStoreError(
-                    "approved publication eligibility lacks fresh authority"
+                    "approved publication eligibility lacks release-use authority"
                 )
-            expected_security_subject_ids = (
-                publication_eligibility_security_subject_ids(
-                    input_snapshot=expected_input,
-                    stored_candidate=stored_candidate,
-                    decision=expected_decision,
-                    current_release_observation=(fence.current_release_observation),
-                    task_adapter_trust_observations=(
-                        fence.task_adapter_trust_observations
-                    ),
-                )
-            )
-            if fence.security_subject_ids != expected_security_subject_ids:
+            if (
+                release_use.policy_observation.checked_release_ids
+                != stored_candidate.closure.manifest.consumed_expert_release_ids
+            ):
                 raise ExpertValidationStoreError(
-                    "publication eligibility security closure is not exact"
+                    "publication eligibility checked another release-use closure"
                 )
-        elif fence is not None:
+            if release_use.outcome is ExpertCandidateReleaseUseOutcome.CLEARED:
+                if fence is None:
+                    raise ExpertValidationStoreError(
+                        "cleared publication eligibility lacks fresh authority"
+                    )
+                expected_security_subject_ids = (
+                    publication_eligibility_security_subject_ids(
+                        input_snapshot=expected_input,
+                        stored_candidate=stored_candidate,
+                        decision=expected_decision,
+                        current_release_observation=(fence.current_release_observation),
+                        task_adapter_trust_observations=(
+                            fence.task_adapter_trust_observations
+                        ),
+                    )
+                )
+                if fence.security_subject_ids != expected_security_subject_ids:
+                    raise ExpertValidationStoreError(
+                        "publication eligibility security closure is not exact"
+                    )
+            elif fence is not None:
+                raise ExpertValidationStoreError(
+                    "blocked publication eligibility cannot carry fresh authority"
+                )
+        elif release_use is not None or fence is not None:
             raise ExpertValidationStoreError(
-                "non-approved publication eligibility cannot carry fresh authority"
+                "non-approved publication eligibility cannot carry external authority"
             )
         expected_result = build_publication_eligibility_stage_result(
             input_snapshot=expected_input,
             stored_candidate=stored_candidate,
             decision=expected_decision,
+            release_use_decision=release_use,
             publication_authority_fence=fence,
         )
         if execution.stage_result != expected_result:
@@ -4362,6 +4648,7 @@ class ExpertValidationStore:
             transition.created_attempt_id is not None
             or transition.transition_stage_result_record_id is not None
             or transition.transition_authority_invalidation_id is not None
+            or transition.transition_release_use_block_decision_id is not None
             or transition.transition_release_activation_receipt_id is not None
             or transition.transition_release_revocation_receipt_id is not None
         )
@@ -4555,16 +4842,9 @@ class ExpertValidationStore:
                 plan.release_id,
                 ExpertBaseReleaseManifest,
             )
-            snapshot = ExpertValidationSnapshot(
-                transition=previous_transition,
-                state=previous_state,
-                latest_attempt=previous_latest_attempt,
-                accepted_stage_results=tuple(
-                    self._read_stage_result_unlocked(result_id)
-                    for result_id in (
-                        previous_transition.accepted_stage_result_record_ids
-                    )
-                ),
+            snapshot = self._snapshot_at_unlocked(
+                journal,
+                plan.approval_transition_id,
             )
             self._validate_release_publication_reservation_unlocked(
                 intent,
@@ -4572,6 +4852,13 @@ class ExpertValidationStore:
                 manifest,
                 snapshot,
             )
+            if previous_state.promotion_state not in {
+                ExpertPromotionState.APPROVED,
+                ExpertPromotionState.RELEASE_USE_BLOCKED,
+            }:
+                raise ExpertValidationStoreError(
+                    "release publication intent is not active or recoverable"
+                )
         if journal.release_publication_stale_resolution_id is not None:
             resolution = self._read_contract_unlocked(
                 journal.release_publication_stale_resolution_id,
@@ -5417,7 +5704,8 @@ class ExpertValidationStore:
             or result_record.candidate_id != transition.candidate_id
             or result_record.candidate_tree_hash != transition.candidate_tree_hash
             or result_record.scope_contract_id != latest_attempt.scope_contract_id
-            or result_record.source_base_release_id != latest_attempt.source_base_release_id
+            or result_record.source_base_release_id
+            != latest_attempt.source_base_release_id
             or result_record.validation_policy_id != latest_attempt.validation_policy_id
             or result_record.configuration_fingerprint
             != latest_attempt.configuration_fingerprint
@@ -5500,6 +5788,36 @@ class ExpertValidationStore:
         stored_candidate = self.reducer.candidate_store.read(
             latest_attempt.candidate_id
         )
+        release_use = result_record.release_use_decision
+        if release_use is not None:
+            stored_release_use = self._read_contract_unlocked(
+                release_use.release_use_decision_id,
+                ExpertCandidateReleaseUseDecision,
+            )
+            if (
+                stored_release_use != release_use
+                or self._read_contract_unlocked(
+                    release_use.policy_observation.observation_id,
+                    type(release_use.policy_observation),
+                )
+                != release_use.policy_observation
+                or release_use.policy_observation.checked_release_ids
+                != stored_candidate.closure.manifest.consumed_expert_release_ids
+            ):
+                raise ExpertValidationStoreError(
+                    "publication eligibility persisted release-use authority is invalid"
+                )
+            for revocation in release_use.policy_observation.matched_revocations:
+                if (
+                    self._read_contract_unlocked(
+                        revocation.revocation_id,
+                        type(revocation),
+                    )
+                    != revocation
+                ):
+                    raise ExpertValidationStoreError(
+                        "publication eligibility release-use event is invalid"
+                    )
         fence = result_record.publication_authority_fence
         if fence is not None:
             stored_fence = self._read_contract_unlocked(
@@ -5530,6 +5848,7 @@ class ExpertValidationStore:
             input_snapshot=input_snapshot,
             stored_candidate=stored_candidate,
             decision=expected_decision,
+            release_use_decision=release_use,
             publication_authority_fence=fence,
         )
         historical_reducer = ExpertValidationReducer(
@@ -5549,7 +5868,7 @@ class ExpertValidationStore:
         if (
             operation.operation_kind
             is not ExpertValidationOperationKind.PUBLICATION_ELIGIBILITY_STAGE_RESULT
-            or operation.request_record_id != decision.promotion_decision_id
+            or operation.request_record_id != result_record.stage_result_record_id
             or operation.expected_transition_id != transition.predecessor_transition_id
             or result_record != expected_result
             or result_record.promotion_decision != decision
@@ -5720,7 +6039,8 @@ class ExpertValidationStore:
                 or latest_attempt.candidate_commit_record_id
                 != decision.candidate_commit_record_id
                 or latest_attempt.scope_contract_id != decision.scope_contract_id
-                or latest_attempt.source_base_release_id != decision.source_base_release_id
+                or latest_attempt.source_base_release_id
+                != decision.source_base_release_id
                 or latest_attempt.validation_policy_id != decision.validation_policy_id
                 or latest_attempt.configuration_fingerprint
                 != decision.configuration_fingerprint
@@ -5841,7 +6161,7 @@ class ExpertValidationStore:
                     persisted_settings=persisted_settings,
                 )
                 expected_accepted = previous_accepted
-                if result_record.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+                if result_record.publication_authority_fence is not None:
                     expected_accepted = (
                         *previous_accepted,
                         result_record.stage_result_record_id,
@@ -5853,6 +6173,91 @@ class ExpertValidationStore:
             if transition.accepted_stage_result_record_ids != expected_accepted:
                 raise ExpertValidationStoreError(
                     "validation accepted result prefix is not gap-free"
+                )
+        elif transition.transition_release_use_block_decision_id is not None:
+            if previous_transition is None or latest_attempt is None:
+                raise ExpertValidationStoreError(
+                    "release-use block requires an approved predecessor"
+                )
+            predecessor_snapshot = self._snapshot_at_unlocked(
+                journal,
+                previous_transition.transition_id,
+            )
+            predecessor_state = predecessor_snapshot.state
+            publication_result = predecessor_snapshot.accepted_stage_results[-1]
+            if (
+                type(publication_result)
+                is not ExpertPublicationEligibilityStageResultRecord
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block predecessor lacks publication eligibility"
+                )
+            decision = self._read_contract_unlocked(
+                transition.transition_release_use_block_decision_id,
+                ExpertCandidateReleaseUseDecision,
+            )
+            observation = decision.policy_observation
+            if (
+                self._read_contract_unlocked(
+                    observation.observation_id,
+                    type(observation),
+                )
+                != observation
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block observation is inconsistent"
+                )
+            for revocation in observation.matched_revocations:
+                if (
+                    self._read_contract_unlocked(
+                        revocation.revocation_id,
+                        type(revocation),
+                    )
+                    != revocation
+                ):
+                    raise ExpertValidationStoreError(
+                        "release-use block event is inconsistent"
+                    )
+            stored_candidate = self.reducer.candidate_store.read(
+                latest_attempt.candidate_id
+            )
+            if (
+                observation.checked_release_ids
+                != stored_candidate.closure.manifest.consumed_expert_release_ids
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block checked another candidate closure"
+                )
+            historical_reducer = ExpertValidationReducer(
+                persisted_settings,
+                self.reducer.candidate_store,
+                self.reducer.attestation_verifier,
+                self.reducer.task_adapter_provider,
+                self.reducer.current_release_provider,
+                self.reducer.validation_state_provider,
+            )
+            expected_state = historical_reducer.advance_release_use_block(
+                state=predecessor_state,
+                attempt=latest_attempt,
+                publication_result=publication_result,
+                decision=decision,
+            )
+            if (
+                operation.operation_kind
+                is not ExpertValidationOperationKind.RELEASE_USE_BLOCK
+                or operation.request_record_id != decision.release_use_decision_id
+                or operation.expected_transition_id
+                != transition.predecessor_transition_id
+                or transition.predecessor_transition_id
+                != previous_transition.transition_id
+                or transition.predecessor_state_id
+                != predecessor_state.validation_state_id
+                or transition.accepted_stage_result_record_ids
+                != previous_transition.accepted_stage_result_record_ids
+                or state != expected_state
+            ):
+                raise ExpertValidationStoreError(
+                    "release-use block transition closure is inconsistent"
                 )
         elif transition.transition_release_activation_receipt_id is not None:
             if previous_transition is None or latest_attempt is None:
@@ -5883,11 +6288,15 @@ class ExpertValidationStore:
                 journal,
                 previous_transition.transition_id,
             )
+            approval_snapshot = self._snapshot_at_unlocked(
+                journal,
+                plan.approval_transition_id,
+            )
             self._validate_release_publication_reservation_unlocked(
                 intent,
                 plan,
                 manifest,
-                predecessor_snapshot,
+                approval_snapshot,
             )
             self._validate_release_publication_remote_history(
                 intent,
@@ -5906,6 +6315,7 @@ class ExpertValidationStore:
             )
             expected_state = historical_reducer.advance_release_activation(
                 state=predecessor_state,
+                approval_state=approval_snapshot.state,
                 attempt=latest_attempt,
                 plan=plan,
                 receipt=receipt,
@@ -5919,9 +6329,8 @@ class ExpertValidationStore:
                 or receipt.publication_plan_id != plan.publication_plan_id
                 or receipt.release_id != manifest.release_id
                 or receipt.candidate_id != transition.candidate_id
-                or receipt.approval_transition_id
-                != transition.predecessor_transition_id
-                or receipt.approval_state_id != transition.predecessor_state_id
+                or receipt.approval_transition_id != plan.approval_transition_id
+                or receipt.approval_state_id != plan.approval_state_id
                 or transition.accepted_stage_result_record_ids
                 != previous_transition.accepted_stage_result_record_ids
                 or state != expected_state
@@ -6113,6 +6522,28 @@ class ExpertValidationStore:
         )
 
     @staticmethod
+    def _append_release_use_block_transition(
+        journal: ExpertValidationJournal,
+        transition: ExpertValidationTransition,
+    ) -> ExpertValidationJournal:
+        if transition.transition_release_use_block_decision_id is None:
+            raise ExpertValidationCompareAndSwapError(
+                "release-use block transition lacks its decision"
+            )
+        operations = dict(journal.operation_transition_ids)
+        operations[transition.operation_id] = transition.transition_id
+        return ExpertValidationJournal(
+            candidate_id=journal.candidate_id,
+            candidate_tree_hash=journal.candidate_tree_hash,
+            transition_ids=(*journal.transition_ids, transition.transition_id),
+            operation_transition_ids=operations,
+            release_publication_intent_id=journal.release_publication_intent_id,
+            release_publication_stale_resolution_id=(
+                journal.release_publication_stale_resolution_id
+            ),
+        )
+
+    @staticmethod
     def _append_release_activation_transition(
         journal: ExpertValidationJournal,
         transition: ExpertValidationTransition,
@@ -6177,6 +6608,40 @@ class ExpertValidationStore:
         return ExpertReleaseActivationCommitResult(
             receipt=receipt,
             snapshot=snapshot,
+            replayed=True,
+        )
+
+    def _release_use_block_result_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+    ) -> ExpertReleaseUseBlockCommitResult | None:
+        transitions = tuple(
+            transition
+            for transition in (
+                self._read_contract_unlocked(
+                    transition_id,
+                    ExpertValidationTransition,
+                )
+                for transition_id in journal.transition_ids
+            )
+            if transition.transition_release_use_block_decision_id is not None
+        )
+        if not transitions:
+            return None
+        if len(transitions) != 1:
+            raise ExpertValidationStoreError(
+                "candidate has multiple durable release-use blocks"
+            )
+        transition = transitions[0]
+        decision_id = transition.transition_release_use_block_decision_id
+        if decision_id is None:
+            raise ExpertValidationStoreError("release-use block decision is missing")
+        return ExpertReleaseUseBlockCommitResult(
+            decision=self._read_contract_unlocked(
+                decision_id,
+                ExpertCandidateReleaseUseDecision,
+            ),
+            snapshot=self._snapshot_at_unlocked(journal, transition.transition_id),
             replayed=True,
         )
 

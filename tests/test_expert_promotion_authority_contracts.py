@@ -11,6 +11,8 @@ from kapso.cross_run.contracts import (
     ExpertValidationTrack,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertCandidateReleaseUseDecision,
+    ExpertCandidateReleaseUseOutcome,
     ExpertPublicationEligibilityAuthorityFence,
     ExpertPublicationEligibilityStageResultRecord,
 )
@@ -24,6 +26,9 @@ from kapso.cross_run.expert.promotion_decision_contracts import (
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
+)
+from kapso.cross_run.expert.release_use_policy_contracts import (
+    ExpertReleaseUsePolicyObservation,
 )
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
@@ -294,6 +299,7 @@ def _denylist(
 def _approved_fence(
     *,
     decision: ExpertReleaseMatrixPromotionDecision,
+    release_use_decision: ExpertCandidateReleaseUseDecision,
     accepted_stage_results: tuple[ExpertAcceptedStageResultRef, ...],
     expected_current_release_id: str | None,
 ) -> ExpertPublicationEligibilityAuthorityFence:
@@ -331,10 +337,65 @@ def _approved_fence(
         configuration_fingerprint=decision.configuration_fingerprint,
         release_matrix_stage_result_id=decision.release_matrix_stage_result_id,
         promotion_decision_id=decision.promotion_decision_id,
+        release_use_decision_id=release_use_decision.release_use_decision_id,
         security_subject_ids=security_subject_ids,
         current_release_observation=current,
         task_adapter_trust_observations=trust_observations,
         security_denylist_observation=_denylist(security_subject_ids),
+    )
+
+
+def _release_use_decision(
+    *,
+    decision: ExpertReleaseMatrixPromotionDecision,
+    checked_release_ids: tuple[str, ...],
+) -> ExpertCandidateReleaseUseDecision:
+    observation = ExpertReleaseUsePolicyObservation.mint(
+        scope_id="post-training",
+        scope_contract_id=_id("expert-scope-contract", "scope-contract"),
+        scope_repository_binding_hash=tree_or_blob_digest(b"repositories"),
+        repository_full_name="Leeroo-AI/kapso-knowledge",
+        repository_node_id="knowledge-repository-node",
+        knowledge_snapshot_id=_id("knowledge-snapshot", "snapshot"),
+        catalog_generation=3,
+        knowledge_publication_id=_id("github-publication", "knowledge-publication"),
+        current_pointer_digest=tree_or_blob_digest(b"knowledge-pointer"),
+        authority_commit_sha="c" * 40,
+        release_attestation_ref="refs/tags/knowledge-v3",
+        checked_release_ids=checked_release_ids,
+        matched_revocations=(),
+    )
+    dependencies = tuple(
+        sorted(
+            {
+                decision.validation_attempt_id,
+                _id("expert-candidate", "candidate"),
+                _id("expert-candidate-commit", "candidate-commit"),
+                _id("expert-scope-contract", "scope-contract"),
+                decision.release_matrix_stage_result_id,
+                decision.promotion_decision_id,
+                observation.observation_id,
+                observation.knowledge_snapshot_id,
+                observation.knowledge_publication_id,
+                *checked_release_ids,
+            }
+        )
+    )
+    return ExpertCandidateReleaseUseDecision.mint(
+        validation_attempt_id=decision.validation_attempt_id,
+        candidate_id=_id("expert-candidate", "candidate"),
+        candidate_tree_hash=tree_or_blob_digest(b"candidate-tree"),
+        candidate_commit_record_id=_id(
+            "expert-candidate-commit",
+            "candidate-commit",
+        ),
+        scope_contract_id=_id("expert-scope-contract", "scope-contract"),
+        scope_id="post-training",
+        release_matrix_stage_result_id=decision.release_matrix_stage_result_id,
+        promotion_decision_id=decision.promotion_decision_id,
+        policy_observation=observation,
+        outcome=ExpertCandidateReleaseUseOutcome.CLEARED,
+        exact_dependency_ids=dependencies,
     )
 
 
@@ -355,9 +416,22 @@ def _stage_result(
         if mode is ExpertReleaseMatrixMode.BOOTSTRAP
         else _id("expert-base-release", "parent")
     )
+    release_use_decision = (
+        _release_use_decision(
+            decision=decision,
+            checked_release_ids=(
+                ()
+                if expected_current_release_id is None
+                else (expected_current_release_id,)
+            ),
+        )
+        if outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
+        else None
+    )
     fence = (
         _approved_fence(
             decision=decision,
+            release_use_decision=release_use_decision,
             accepted_stage_results=accepted_stage_results,
             expected_current_release_id=expected_current_release_id,
         )
@@ -378,6 +452,13 @@ def _stage_result(
     }
     if expected_current_release_id is not None:
         dependencies.add(expected_current_release_id)
+    if release_use_decision is not None:
+        dependencies.update(
+            {
+                release_use_decision.release_use_decision_id,
+                *release_use_decision.exact_dependency_ids,
+            }
+        )
     if fence is not None:
         dependencies.update({fence.fence_id, *fence.exact_dependency_ids})
     return ExpertPublicationEligibilityStageResultRecord.mint(
@@ -403,6 +484,7 @@ def _stage_result(
         configuration_fingerprint=decision.configuration_fingerprint,
         accepted_stage_results=accepted_stage_results,
         promotion_decision=decision,
+        release_use_decision=release_use_decision,
         publication_authority_fence=fence,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )

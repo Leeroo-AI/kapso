@@ -221,6 +221,7 @@ def _publication_publisher(
         current_release_authority=current_authority,
         task_adapter_authority=validation_store.reducer.task_adapter_provider,
         security_denylist_authority=authority.denylist,
+        release_use_policy_authority=authority.release_use_policy,
     )
     current_state = CurrentPointerState(
         pointer=current_pointer,
@@ -632,6 +633,7 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
         current_release_authority=current_authority,
         task_adapter_authority=reopened_store.reducer.task_adapter_provider,
         security_denylist_authority=authority.denylist,
+        release_use_policy_authority=authority.release_use_policy,
     )
     publisher = ExpertReleasePublisher(
         assembler=reopened_assembler,
@@ -641,6 +643,7 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
         current_release_authority=current_authority,
         task_adapter_authority=reopened_store.reducer.task_adapter_provider,
         security_denylist_authority=authority.denylist,
+        release_use_policy_authority=authority.release_use_policy,
     )
     resolver.read_artifact_intent = lambda scope_id, kind, artifact_id: None
     resolver.read_artifact_pointer = lambda scope_id, kind, artifact_id: None

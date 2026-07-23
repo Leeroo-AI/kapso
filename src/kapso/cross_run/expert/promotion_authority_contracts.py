@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from typing import ClassVar
 
 from kapso.cross_run.canonical import require_content_id, require_identifier
@@ -16,6 +17,9 @@ from kapso.cross_run.expert.promotion_contracts import ExpertReleaseMatrixMode
 from kapso.cross_run.expert.promotion_decision_contracts import (
     ExpertReleaseMatrixDecisionOutcome,
     ExpertReleaseMatrixPromotionDecision,
+)
+from kapso.cross_run.expert.release_use_policy_contracts import (
+    ExpertReleaseUsePolicyObservation,
 )
 from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
@@ -56,6 +60,119 @@ def _require_sorted_content_ids(values: tuple[str, ...], name: str) -> None:
         require_content_id(value, name)
 
 
+class ExpertCandidateReleaseUseOutcome(str, Enum):
+    """Publication availability derived from one exact current policy read."""
+
+    CLEARED = "cleared"
+    BLOCKED = "blocked"
+
+
+@dataclass(frozen=True)
+class ExpertCandidateReleaseUseDecision(StrictContract):
+    """One candidate's exact release-use eligibility under current policy."""
+
+    release_use_decision_id: str
+    validation_attempt_id: str
+    candidate_id: str
+    candidate_tree_hash: str
+    candidate_commit_record_id: str
+    scope_contract_id: str
+    scope_id: str
+    release_matrix_stage_result_id: str
+    promotion_decision_id: str
+    policy_observation: ExpertReleaseUsePolicyObservation
+    outcome: ExpertCandidateReleaseUseOutcome
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-candidate-release-use-decision"
+    IDENTITY_FIELD: ClassVar[str] = "release_use_decision_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.validation_attempt_id,
+                "expert-validation-attempt",
+                "release-use decision validation attempt",
+            ),
+            (
+                self.candidate_id,
+                "expert-candidate",
+                "release-use decision candidate",
+            ),
+            (
+                self.candidate_commit_record_id,
+                "expert-candidate-commit",
+                "release-use decision candidate commit",
+            ),
+            (
+                self.scope_contract_id,
+                "expert-scope-contract",
+                "release-use decision scope contract",
+            ),
+            (
+                self.release_matrix_stage_result_id,
+                "expert-release-matrix-stage-result",
+                "release-use decision release matrix result",
+            ),
+            (
+                self.promotion_decision_id,
+                "expert-release-matrix-promotion-decision",
+                "release-use decision promotion decision",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        _require_digest(self.candidate_tree_hash, "release-use decision candidate tree")
+        require_identifier(self.scope_id, "release-use decision scope")
+        observation = self.policy_observation
+        if (
+            type(observation) is not ExpertReleaseUsePolicyObservation
+            or observation.scope_id != self.scope_id
+            or observation.scope_contract_id != self.scope_contract_id
+        ):
+            raise ExpertPublicationEligibilityContractError(
+                "release-use decision policy observation uses another scope"
+            )
+        expected_outcome = (
+            ExpertCandidateReleaseUseOutcome.BLOCKED
+            if observation.matched_revocations
+            else ExpertCandidateReleaseUseOutcome.CLEARED
+        )
+        if self.outcome is not expected_outcome:
+            raise ExpertPublicationEligibilityContractError(
+                "release-use decision outcome differs from current policy"
+            )
+        _require_sorted_content_ids(
+            self.exact_dependency_ids,
+            "release-use decision exact dependencies",
+        )
+        expected_dependencies = {
+            self.validation_attempt_id,
+            self.candidate_id,
+            self.candidate_commit_record_id,
+            self.scope_contract_id,
+            self.release_matrix_stage_result_id,
+            self.promotion_decision_id,
+            observation.observation_id,
+            observation.knowledge_snapshot_id,
+            observation.knowledge_publication_id,
+            *observation.checked_release_ids,
+        }
+        for revocation in observation.matched_revocations:
+            expected_dependencies.update(
+                {
+                    revocation.revocation_id,
+                    revocation.release_id,
+                    revocation.release_publication_id,
+                    revocation.release_activation_witness_id,
+                    *revocation.exact_evidence_refs,
+                }
+            )
+        if set(self.exact_dependency_ids) != expected_dependencies:
+            raise ExpertPublicationEligibilityContractError(
+                "release-use decision dependency closure is not exact"
+            )
+
+
 @dataclass(frozen=True)
 class ExpertPublicationEligibilityAuthorityFence(StrictContract):
     """Fresh CURRENT, adapter, and denylist authority for an approved decision."""
@@ -74,6 +191,7 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
     configuration_fingerprint: str
     release_matrix_stage_result_id: str
     promotion_decision_id: str
+    release_use_decision_id: str
     security_subject_ids: tuple[str, ...]
     current_release_observation: TaskEvaluationCurrentReleaseObservation
     task_adapter_trust_observations: tuple[TaskAdapterTrustObservation, ...]
@@ -128,6 +246,11 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
                 self.promotion_decision_id,
                 "expert-release-matrix-promotion-decision",
                 "publication eligibility promotion decision",
+            ),
+            (
+                self.release_use_decision_id,
+                "expert-candidate-release-use-decision",
+                "publication eligibility release-use decision",
             ),
         ):
             _require_namespaced_id(value, namespace, name)
@@ -224,6 +347,7 @@ class ExpertPublicationEligibilityAuthorityFence(StrictContract):
             self.validation_policy_id,
             self.release_matrix_stage_result_id,
             self.promotion_decision_id,
+            self.release_use_decision_id,
             *self.security_subject_ids,
             current.observation_id,
             *current.validation_closure_ids,
@@ -266,6 +390,7 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
     configuration_fingerprint: str
     accepted_stage_results: tuple[ExpertAcceptedStageResultRef, ...]
     promotion_decision: ExpertReleaseMatrixPromotionDecision
+    release_use_decision: ExpertCandidateReleaseUseDecision | None
     publication_authority_fence: ExpertPublicationEligibilityAuthorityFence | None
     exact_dependency_ids: tuple[str, ...]
 
@@ -346,12 +471,23 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             )
         fence = self.publication_authority_fence
         approved = decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
-        if approved != (fence is not None):
+        release_use = self.release_use_decision
+        if approved != (release_use is not None):
             raise ExpertPublicationEligibilityContractError(
-                "only an approved decision requires publication authority"
+                "only an approved decision requires release-use authority"
             )
+        cleared = (
+            release_use is not None
+            and release_use.outcome is ExpertCandidateReleaseUseOutcome.CLEARED
+        )
+        if cleared != (fence is not None):
+            raise ExpertPublicationEligibilityContractError(
+                "only a release-use-cleared decision permits publication authority"
+            )
+        if release_use is not None:
+            self._validate_release_use_decision(release_use)
         if fence is not None:
-            self._validate_approved_fence(fence)
+            self._validate_approved_fence(fence, release_use)
         _require_sorted_content_ids(
             self.exact_dependency_ids,
             "publication result exact dependencies",
@@ -370,6 +506,13 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
         }
         if self.expected_current_release_id is not None:
             expected_dependencies.add(self.expected_current_release_id)
+        if release_use is not None:
+            expected_dependencies.update(
+                {
+                    release_use.release_use_decision_id,
+                    *release_use.exact_dependency_ids,
+                }
+            )
         if fence is not None:
             expected_dependencies.update({fence.fence_id, *fence.exact_dependency_ids})
         if set(self.exact_dependency_ids) != expected_dependencies:
@@ -397,9 +540,31 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
                 "publication result accepted prefix must end in one release matrix"
             )
 
+    def _validate_release_use_decision(
+        self,
+        release_use: ExpertCandidateReleaseUseDecision,
+    ) -> None:
+        decision = self.promotion_decision
+        if (
+            type(release_use) is not ExpertCandidateReleaseUseDecision
+            or release_use.validation_attempt_id != self.validation_attempt_id
+            or release_use.candidate_id != self.candidate_id
+            or release_use.candidate_tree_hash != self.candidate_tree_hash
+            or release_use.candidate_commit_record_id != self.candidate_commit_record_id
+            or release_use.scope_contract_id != self.scope_contract_id
+            or release_use.scope_id != self.scope_id
+            or release_use.release_matrix_stage_result_id
+            != decision.release_matrix_stage_result_id
+            or release_use.promotion_decision_id != decision.promotion_decision_id
+        ):
+            raise ExpertPublicationEligibilityContractError(
+                "publication result release-use decision differs from terminal authority"
+            )
+
     def _validate_approved_fence(
         self,
         fence: ExpertPublicationEligibilityAuthorityFence,
+        release_use: ExpertCandidateReleaseUseDecision,
     ) -> None:
         decision = self.promotion_decision
         if (
@@ -420,6 +585,7 @@ class ExpertPublicationEligibilityStageResultRecord(StrictContract):
             or fence.release_matrix_stage_result_id
             != decision.release_matrix_stage_result_id
             or fence.promotion_decision_id != decision.promotion_decision_id
+            or fence.release_use_decision_id != release_use.release_use_decision_id
         ):
             raise ExpertPublicationEligibilityContractError(
                 "publication result fence differs from terminal authority"

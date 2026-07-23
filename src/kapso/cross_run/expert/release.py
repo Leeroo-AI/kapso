@@ -27,6 +27,7 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.book import EXPERT_BOOK_PATH
 from kapso.cross_run.expert.candidates import ExpertCandidateValidator
 from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertCandidateReleaseUseOutcome,
     ExpertPublicationEligibilityStageResultRecord,
 )
 from kapso.cross_run.expert.promotion_decision_contracts import (
@@ -864,6 +865,9 @@ class ExpertReleaseAssembler:
         decision = publication_result.promotion_decision
         if (
             decision.outcome is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+            or publication_result.release_use_decision is None
+            or publication_result.release_use_decision.outcome
+            is not ExpertCandidateReleaseUseOutcome.CLEARED
             or publication_result.publication_authority_fence is None
             or snapshot.transition.target_state_id != snapshot.state.validation_state_id
             or snapshot.transition.transition_stage_result_record_id

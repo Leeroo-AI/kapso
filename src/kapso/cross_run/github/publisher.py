@@ -441,6 +441,12 @@ class AutonomousGitHubPublisher:
                     pointer_commit_sha,
                 )
                 self._finalize_expected_parent_witness(envelope)
+                self.resolver.require_artifact_pointer(
+                    envelope.scope_id,
+                    envelope.artifact_kind,
+                    envelope.artifact_id,
+                    published_identity,
+                )
                 if activation_gate is not None:
                     self._validate_activation_pointer(
                         envelope,
@@ -453,12 +459,6 @@ class AutonomousGitHubPublisher:
                         pointer=published_identity,
                         manifest=manifest,
                     )
-                self.resolver.require_artifact_pointer(
-                    envelope.scope_id,
-                    envelope.artifact_kind,
-                    envelope.artifact_id,
-                    published_identity,
-                )
                 self._activate_current_pointer(
                     repository,
                     policy.repository_node_id,
@@ -660,6 +660,12 @@ class AutonomousGitHubPublisher:
             pointer_commit_sha,
         )
         self._finalize_expected_parent_witness(envelope)
+        self.resolver.require_artifact_pointer(
+            envelope.scope_id,
+            envelope.artifact_kind,
+            envelope.artifact_id,
+            pointer,
+        )
         if activation_gate is not None:
             self._validate_activation_pointer(envelope, pointer, manifest_digest)
             activation_gate.revalidate_before_activation(
@@ -668,12 +674,6 @@ class AutonomousGitHubPublisher:
                 pointer=pointer,
                 manifest=manifest,
             )
-        self.resolver.require_artifact_pointer(
-            envelope.scope_id,
-            envelope.artifact_kind,
-            envelope.artifact_id,
-            pointer,
-        )
         self._activate_current_pointer(
             repository,
             policy.repository_node_id,

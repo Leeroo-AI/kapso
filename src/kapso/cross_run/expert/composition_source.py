@@ -80,7 +80,10 @@ def project_expert_composition_source_reference(
         raise ExpertCompositionSourceError(
             "composition sources must be direct agent proposals"
         )
-    if manifest.source_base_release_id is None or manifest.source_base_repository_map_ref is None:
+    if (
+        manifest.source_base_release_id is None
+        or manifest.source_base_repository_map_ref is None
+    ):
         raise ExpertCompositionSourceError(
             "bootstrap candidate cannot be a composition source"
         )
@@ -456,7 +459,15 @@ class ExpertCompositionSourceResolver:
             or result.accepted_stage_results != state.accepted_stage_results[:-1]
             or state.transition_evidence_id != result.stage_result_record_id
             or state.terminal_evidence_ids
-            != (result.promotion_decision.promotion_decision_id,)
+            != tuple(
+                sorted(
+                    {
+                        result.promotion_decision.promotion_decision_id,
+                        result.release_use_decision.release_use_decision_id,
+                        result.release_use_decision.policy_observation.observation_id,
+                    }
+                )
+            )
             or result.release_matrix_acceptance_transition_id
             != transition.predecessor_transition_id
             or result.release_matrix_acceptance_state_id
@@ -501,7 +512,8 @@ class ExpertCompositionSourceResolver:
             or manifest.scope_contract_id != source_reference.scope_contract_id
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.scope_contract_id != publication_result.scope_contract_id
-            or manifest.source_base_release_id != source_reference.source_base_release_id
+            or manifest.source_base_release_id
+            != source_reference.source_base_release_id
             or manifest.source_base_release_id != attempt.source_base_release_id
             or manifest.source_base_release_id
             != publication_result.expected_current_release_id

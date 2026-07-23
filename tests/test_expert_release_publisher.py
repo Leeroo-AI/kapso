@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
+    ExpertPromotionState,
     GitHubPublicationRecord,
     GitHubReleaseAsset,
     PublicationArtifactKind,
@@ -40,6 +42,7 @@ from kapso.cross_run.expert.task_evaluation_authority_contracts import (
     TaskEvaluationCurrentReleaseObservation,
 )
 from kapso.cross_run.github.materializer import GitHubArtifactMaterializer
+from kapso.cross_run.git_refs import git_object_sha
 from kapso.cross_run.github.publisher import (
     AutonomousGitHubPublisher,
     PublicationTelemetry,
@@ -49,6 +52,7 @@ from kapso.cross_run.github.resolver import (
     CurrentPointerState,
     GitHubArtifactActivationWitness,
     GitHubArtifactResolver,
+    PublicationSourceFile,
 )
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
@@ -56,12 +60,262 @@ from kapso.cross_run.security_authority_contracts import (
 from kapso.cross_run.settings import CrossRunSettings
 from test_expert_release_assembly import (
     _approved_bootstrap,
+    _approved_normal,
     _publication_intent,
     _publication_publisher,
     _publication_pointer,
 )
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
+
+
+def test_late_release_use_match_blocks_before_first_reservation(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, approval, authority, predecessor_pointer = _approved_normal(
+        tmp_path,
+        monkeypatch,
+    )
+    candidate_store = validation_store.reducer.candidate_store
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    assembler = ExpertReleaseAssembler(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        expert_settings=candidate_store.validator.settings,
+        github_settings=settings.github,
+    )
+    frozen_current = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=frozen_current,
+        current_pointer=predecessor_pointer,
+    )
+    authority.release_use_policy.denied = True
+
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="blocked by current release-use policy",
+    ):
+        publisher.reserve(
+            candidate_id=approval.snapshot.state.candidate_id,
+            committed_at="2026-07-23T12:00:00Z",
+        )
+
+    blocked = validation_store.reopen_release_use_block(
+        approval.snapshot.state.candidate_id
+    )
+    assert blocked is not None
+    assert blocked.snapshot.state.promotion_state is (
+        ExpertPromotionState.RELEASE_USE_BLOCKED
+    )
+    assert (
+        validation_store.reopen_release_publication(
+            approval.snapshot.state.candidate_id
+        )
+        is None
+    )
+
+
+def test_late_release_use_block_retains_intent_for_recovery_only(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, approval, authority, predecessor_pointer = _approved_normal(
+        tmp_path,
+        monkeypatch,
+    )
+    candidate_store = validation_store.reducer.candidate_store
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    assembler = ExpertReleaseAssembler(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        expert_settings=candidate_store.validator.settings,
+        github_settings=settings.github,
+    )
+    frozen_current = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=frozen_current,
+        current_pointer=predecessor_pointer,
+    )
+    candidate_id = approval.snapshot.state.candidate_id
+    reserved = publisher.reserve(
+        candidate_id=candidate_id,
+        committed_at="2026-07-23T12:00:00Z",
+    ).reservation
+    authority.release_use_policy.denied = True
+
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="blocked by current release-use policy",
+    ):
+        publisher.reserve(
+            candidate_id=candidate_id,
+            committed_at="2026-07-23T12:00:00Z",
+        )
+
+    retained = validation_store.reopen_release_publication(candidate_id)
+    assert retained == reserved
+    assert validation_store.snapshot(candidate_id).state.promotion_state is (
+        ExpertPromotionState.RELEASE_USE_BLOCKED
+    )
+    publisher.resolver.read_artifact_intent = (
+        lambda scope_id, artifact_kind, artifact_id: None
+    )
+    publisher.resolver.read_artifact_pointer = (
+        lambda scope_id, artifact_kind, artifact_id: None
+    )
+    with pytest.raises(
+        ExpertReleasePublicationError,
+        match="blocked and has no witnessed activation",
+    ):
+        publisher.publish(
+            candidate_id=candidate_id,
+            committed_at="2026-07-23T12:00:00Z",
+        )
+    assert validation_store.reopen_release_publication(candidate_id) == reserved
+
+
+def test_witnessed_remote_activation_recovers_from_late_block(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, approval, authority, predecessor_pointer = _approved_normal(
+        tmp_path,
+        monkeypatch,
+    )
+    candidate_store = validation_store.reducer.candidate_store
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    assembler = ExpertReleaseAssembler(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        expert_settings=candidate_store.validator.settings,
+        github_settings=settings.github,
+    )
+    frozen_current = (
+        approval.stage_result.publication_authority_fence.current_release_observation
+    )
+    publisher = _publication_publisher(
+        validation_store=validation_store,
+        assembler=assembler,
+        authority=authority,
+        settings=settings,
+        tmp_path=tmp_path,
+        current_observation=frozen_current,
+        current_pointer=predecessor_pointer,
+    )
+    candidate_id = approval.snapshot.state.candidate_id
+    package = assembler.build(candidate_id=candidate_id)
+    reservation = publisher.reserve(
+        candidate_id=candidate_id,
+        committed_at="2026-07-23T12:00:00Z",
+    ).reservation
+    plan = reservation.plan
+    intent = _publication_intent(
+        package,
+        plan,
+        reservation.intent.committed_at,
+        "b" * 40,
+    )
+    predecessor_payload = predecessor_pointer.to_json_bytes()
+    intent = replace(
+        intent,
+        preserved_current=PublicationSourceFile(
+            relative_path="CURRENT.json",
+            mode="100644",
+            size=len(predecessor_payload),
+            sha256=tree_or_blob_digest(predecessor_payload),
+            git_blob_sha=git_object_sha("blob", predecessor_payload),
+        ),
+    )
+    pointer = _publication_pointer(plan, intent)
+    witness = GitHubArtifactActivationWitness.mint(
+        scope_id=plan.scope_id,
+        scope_repository_binding_hash=(
+            settings.scopes.resolve(plan.scope_id).binding_fingerprint
+        ),
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=plan.release_id,
+        repository_full_name=plan.current_release_observation.repository_full_name,
+        activation_commit_sha="c" * 40,
+        publication_intent_digest=intent.digest,
+        current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+    )
+    observed = TaskEvaluationCurrentReleaseObservation.mint(
+        scope_id=plan.scope_id,
+        release_id=plan.release_id,
+        publication_id=pointer.publication_record.publication_id,
+        repository_full_name=plan.current_release_observation.repository_full_name,
+        repository_node_id=plan.current_release_observation.repository_node_id,
+        default_branch_head_commit_sha=witness.activation_commit_sha,
+        current_pointer_digest=tree_or_blob_digest(pointer.to_json_bytes()),
+        validation_closure_ids=plan.validation_closure_ids,
+    )
+    authority.release_use_policy.denied = True
+    with pytest.raises(ExpertReleasePublicationError, match="blocked"):
+        publisher.reserve(
+            candidate_id=candidate_id,
+            committed_at=reservation.intent.committed_at,
+        )
+    blocked = validation_store.reopen_release_use_block(candidate_id)
+    assert blocked is not None
+
+    publisher.resolver.read_artifact_intent = lambda *_arguments: intent
+    publisher.resolver.read_artifact_pointer = lambda *_arguments: pointer
+    publisher.resolver.resolve_artifact = lambda *_arguments: SimpleNamespace(
+        pointer=pointer
+    )
+    publisher.resolver.resolve_artifact_activation_preparation = (
+        lambda *_arguments, **_keywords: witness.activation_commit_sha
+    )
+    publisher.resolver.resolve_artifact_activation_witness = (
+        lambda *_arguments, **_keywords: witness
+    )
+    publisher.resolver.require_artifact_intent = lambda *_arguments: None
+    publisher.resolver.require_artifact_pointer = lambda *_arguments: None
+    publisher.current_release_authority.observe_task_evaluation_current = (
+        lambda _scope_id: observed
+    )
+    release_use_reads = authority.calls.count("release-use")
+    generic_publication_calls = []
+    monkeypatch.setattr(
+        AutonomousGitHubPublisher,
+        "publish",
+        lambda *_arguments, **_keywords: generic_publication_calls.append(True),
+    )
+    publication = publisher.publish(
+        candidate_id=candidate_id,
+        committed_at=reservation.intent.committed_at,
+    )
+    activation = publication.activation
+
+    assert publication.telemetry is None
+    assert generic_publication_calls == []
+    assert authority.calls.count("release-use") == release_use_reads
+    assert activation.snapshot.state.promotion_state is ExpertPromotionState.RELEASED
+    assert blocked.decision.release_use_decision_id in (
+        activation.snapshot.state.terminal_evidence_ids
+    )
+    assert validation_store.reopen_release_publication(candidate_id) is None
 
 
 def _release_pointer(plan, materialized_tree_digest):
@@ -235,6 +489,7 @@ def test_expert_publisher_derives_package_and_recovers_activation(
         current_release_authority=current_authority,
         task_adapter_authority=validation_store.reducer.task_adapter_provider,
         security_denylist_authority=authority.denylist,
+        release_use_policy_authority=authority.release_use_policy,
     )
     current_state = CurrentPointerState(
         pointer=None,
@@ -255,6 +510,54 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     ).reservation
     plan = reservation.plan
     captured = {}
+    activation_trace = {"active": False, "events": []}
+    observe_current = (
+        publisher.current_release_authority.observe_task_evaluation_current
+    )
+    observe_denylist = publisher.security_denylist_authority.observe_exact
+    observe_release_use = publisher.release_use_policy_authority.observe_exact
+    reopen_publication = validation_store.reopen_release_publication
+
+    def traced_current(scope_id):
+        if activation_trace["active"]:
+            activation_trace["events"].append("current")
+        return observe_current(scope_id)
+
+    def traced_denylist(**keywords):
+        if activation_trace["active"]:
+            activation_trace["events"].append("denylist")
+        return observe_denylist(**keywords)
+
+    def traced_release_use(**keywords):
+        if activation_trace["active"]:
+            activation_trace["events"].append("release-use")
+        return observe_release_use(**keywords)
+
+    def traced_reopen_publication(candidate_id):
+        if activation_trace["active"]:
+            activation_trace["events"].append("reservation")
+        return reopen_publication(candidate_id)
+
+    monkeypatch.setattr(
+        publisher.current_release_authority,
+        "observe_task_evaluation_current",
+        traced_current,
+    )
+    monkeypatch.setattr(
+        publisher.security_denylist_authority,
+        "observe_exact",
+        traced_denylist,
+    )
+    monkeypatch.setattr(
+        publisher.release_use_policy_authority,
+        "observe_exact",
+        traced_release_use,
+    )
+    monkeypatch.setattr(
+        validation_store,
+        "reopen_release_publication",
+        traced_reopen_publication,
+    )
 
     def publish(generic, envelope, *, activation_authorization=None):
         captured["publish_calls"] = captured.get("publish_calls", 0) + 1
@@ -296,12 +599,22 @@ def test_expert_publisher_derives_package_and_recovers_activation(
             "b" * 40,
         )
         pointer = _publication_pointer(plan, intent)
+        activation_trace["active"] = True
+        activation_trace["events"].append("artifact-pointer")
+        generic.resolver.require_artifact_pointer(
+            plan.scope_id,
+            PublicationArtifactKind.EXPERT_BASE_RELEASE,
+            plan.release_id,
+            pointer,
+        )
         gate.revalidate_before_activation(
             envelope=envelope,
             repositories=settings.scopes.resolve(plan.scope_id),
             pointer=pointer,
             manifest=manifest,
         )
+        activation_trace["events"].append("cas")
+        activation_trace["active"] = False
         captured.update(
             {
                 "envelope": envelope,
@@ -481,6 +794,17 @@ def test_expert_publisher_derives_package_and_recovers_activation(
         asset.name for asset in plan.assets
     )
     assert authority.calls.count("denylist") == 3
+    assert activation_trace["events"][0] == "artifact-pointer"
+    assert activation_trace["events"][-4:] == [
+        "current",
+        "release-use",
+        "reservation",
+        "cas",
+    ]
+    assert (
+        activation_trace["events"].index("denylist")
+        < len(activation_trace["events"]) - 4
+    )
     assert captured["pointer"].publication_record.publication_id in (
         authority.denylist.checked_subject_ids
     )

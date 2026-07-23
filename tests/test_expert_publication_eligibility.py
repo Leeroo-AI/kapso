@@ -40,6 +40,9 @@ from kapso.cross_run.expert.promotion_authority import (
     publication_eligibility_candidate_security_subject_ids,
     publication_eligibility_security_subject_ids,
 )
+from kapso.cross_run.expert.release_use_policy_contracts import (
+    ExpertReleaseUsePolicyObservation,
+)
 from kapso.cross_run.expert.proposal_contract import (
     mint_expert_candidate_ancestor_input,
 )
@@ -66,6 +69,10 @@ from kapso.cross_run.expert.validation_store import (
 from kapso.cross_run.expert.store import ExpertCandidateStore, StoredExpertCandidate
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
+)
+from kapso.cross_run.record_contracts import (
+    ExpertReleaseUseRevocation,
+    ExpertReleaseUseRevocationKind,
 )
 from security_denylist_fixtures import matched_security_revocations
 from kapso.cross_run.settings import CrossRunSettings
@@ -146,6 +153,71 @@ class _DenylistAuthority:
             release_attestation_ref="attestations/security-denylist",
             checked_subject_ids=checked_subject_ids,
             matched_revocations=matched_security_revocations(matched_subject_ids),
+        )
+        if self.callback is not None:
+            self.callback()
+        return observation
+
+
+class _ReleaseUsePolicyAuthority:
+    def __init__(self, calls, *, denied=False, callback=None):
+        self.calls = calls
+        self.denied = denied
+        self.callback = callback
+        self.checked_release_ids = None
+
+    def observe_exact(self, *, scope_contract, checked_release_ids):
+        self.calls.append("release-use")
+        self.checked_release_ids = checked_release_ids
+        matched = ()
+        if self.denied:
+            release_id = checked_release_ids[0]
+            matched = (
+                ExpertReleaseUseRevocation.mint(
+                    scope_contract_id=scope_contract.scope_contract_id,
+                    scope_id=scope_contract.scope_id,
+                    release_id=release_id,
+                    release_publication_id=content_id(
+                        "github-publication",
+                        {"release_use": release_id},
+                    ),
+                    release_activation_witness_id=content_id(
+                        "github-artifact-activation-witness",
+                        {"release_use": release_id},
+                    ),
+                    kind=ExpertReleaseUseRevocationKind.PERFORMANCE,
+                    reason_code="release_wide_regression",
+                    rationale="Observed an authenticated release-wide regression.",
+                    exact_evidence_refs=(
+                        content_id("run-bundle", {"release_use": release_id}),
+                    ),
+                    recorded_at="2026-07-23T00:00:00Z",
+                ),
+            )
+        observation = ExpertReleaseUsePolicyObservation.mint(
+            scope_id=scope_contract.scope_id,
+            scope_contract_id=scope_contract.scope_contract_id,
+            scope_repository_binding_hash=(
+                CROSS_RUN_SETTINGS.scopes.resolve(
+                    scope_contract.scope_id
+                ).binding_fingerprint
+            ),
+            repository_full_name="Leeroo-AI/kapso-knowledge",
+            repository_node_id="knowledge_repo_node",
+            knowledge_snapshot_id=content_id(
+                "knowledge-snapshot",
+                {"generation": 7},
+            ),
+            catalog_generation=7,
+            knowledge_publication_id=content_id(
+                "github-publication",
+                {"knowledge_generation": 7},
+            ),
+            current_pointer_digest=tree_or_blob_digest(b"knowledge CURRENT"),
+            authority_commit_sha="e" * 40,
+            release_attestation_ref="attestations/knowledge",
+            checked_release_ids=checked_release_ids,
+            matched_revocations=matched,
         )
         if self.callback is not None:
             self.callback()
@@ -314,7 +386,13 @@ def terminal_cases(tmp_path_factory):
     )
 
 
-def _coordinator(case, current_observations=None, *, denylist=None):
+def _coordinator(
+    case,
+    current_observations=None,
+    *,
+    denylist=None,
+    release_use_policy=None,
+):
     calls = []
     prepared = case.prepared
     current = case.validation_store.reducer.current_release_provider
@@ -347,11 +425,17 @@ def _coordinator(case, current_observations=None, *, denylist=None):
 
     adapters.resolve_exact = resolve_exact
     security = _DenylistAuthority(calls) if denylist is None else denylist
+    release_use = (
+        _ReleaseUsePolicyAuthority(calls)
+        if release_use_policy is None
+        else release_use_policy
+    )
     coordinator = ExpertPublicationEligibilityCoordinator(
         validation_store=case.validation_store,
         current_release_authority=current,
         task_adapter_authority=adapters,
         security_denylist_authority=security,
+        release_use_policy_authority=release_use,
     )
     return SimpleNamespace(
         coordinator=coordinator,
@@ -360,6 +444,7 @@ def _coordinator(case, current_observations=None, *, denylist=None):
         current_sequence=current_sequence,
         adapters=adapters,
         denylist=security,
+        release_use_policy=release_use,
         original_resolve_exact=original_resolve_exact,
     )
 
@@ -401,11 +486,13 @@ def test_local_terminal_outcomes_preserve_matrix_prefix_without_external_calls(
     current.observe_task_evaluation_current = unexpected_current
     adapters.resolve_exact = unexpected_adapter
     denylist = _DenylistAuthority(external_calls)
+    release_use = _ReleaseUsePolicyAuthority(external_calls)
     coordinator = ExpertPublicationEligibilityCoordinator(
         validation_store=case.validation_store,
         current_release_authority=current,
         task_adapter_authority=adapters,
         security_denylist_authority=denylist,
+        release_use_policy_authority=release_use,
     )
     matrix = case.matrix_commit
 
@@ -462,6 +549,13 @@ def test_approved_parent_and_bootstrap_recheck_exact_external_authority(
     assert authority.calls[-1] == "current"
     assert authority.calls.count("current") == 2
     assert authority.calls.count("denylist") == 1
+    assert authority.calls.count("release-use") == 1
+    assert (
+        committed.stage_result.release_use_decision.policy_observation.checked_release_ids
+        == case.validation_store.reducer.candidate_store.read(
+            committed.stage_result.candidate_id
+        ).closure.manifest.consumed_expert_release_ids
+    )
     observed_adapter_keys = {
         call[1] for call in authority.calls if isinstance(call, tuple)
     }
@@ -537,6 +631,7 @@ def test_approved_parent_and_bootstrap_recheck_exact_external_authority(
             current_release_authority=authority.current,
             task_adapter_authority=authority.adapters,
             security_denylist_authority=authority.denylist,
+            release_use_policy_authority=authority.release_use_policy,
         ).publish(
             candidate_id=matrix.snapshot.state.candidate_id,
             release_matrix_stage_result_id=matrix.stage_result.stage_result_record_id,
@@ -547,6 +642,70 @@ def test_approved_parent_and_bootstrap_recheck_exact_external_authority(
             == committed.stage_result.to_json_bytes()
         )
         assert restarted.snapshot == committed.snapshot
+
+
+def test_release_use_match_terminalizes_blocked_and_replays_offline(
+    tmp_path,
+    monkeypatch,
+):
+    case = _publish_matrix(
+        tmp_path,
+        monkeypatch,
+        bootstrap=False,
+        settings=_settings(minimum_replicates=1, minimum_pairs=2),
+    )
+    authority = _coordinator(case)
+    authority.release_use_policy.denied = True
+    matrix = case.matrix_commit
+
+    committed = authority.coordinator.publish(
+        candidate_id=matrix.snapshot.state.candidate_id,
+        release_matrix_stage_result_id=matrix.stage_result.stage_result_record_id,
+    )
+
+    decision = committed.stage_result.release_use_decision
+    assert committed.snapshot.state.promotion_state is (
+        ExpertPromotionState.RELEASE_USE_BLOCKED
+    )
+    assert committed.stage_result.publication_authority_fence is None
+    assert decision is not None
+    assert decision.policy_observation.matched_revocations
+    assert committed.snapshot.state.accepted_stage_results == (
+        matrix.snapshot.state.accepted_stage_results
+    )
+    assert committed.snapshot.state.terminal_evidence_ids == tuple(
+        sorted(
+            {
+                committed.stage_result.promotion_decision.promotion_decision_id,
+                decision.release_use_decision_id,
+                decision.policy_observation.observation_id,
+                *(
+                    revocation.revocation_id
+                    for revocation in decision.policy_observation.matched_revocations
+                ),
+            }
+        )
+    )
+
+    authority.current.observe_task_evaluation_current = lambda _scope_id: (
+        pytest.fail("blocked replay must not observe CURRENT")
+    )
+    authority.adapters.resolve_exact = lambda **_request: pytest.fail(
+        "blocked replay must not resolve adapters"
+    )
+    authority.denylist.observe_exact = lambda **_request: pytest.fail(
+        "blocked replay must not observe the emergency denylist"
+    )
+    authority.release_use_policy.observe_exact = lambda **_request: pytest.fail(
+        "blocked replay must not observe release-use policy"
+    )
+    replayed = authority.coordinator.publish(
+        candidate_id=matrix.snapshot.state.candidate_id,
+        release_matrix_stage_result_id=matrix.stage_result.stage_result_record_id,
+    )
+    assert replayed.replayed is True
+    assert replayed.snapshot == committed.snapshot
+    assert replayed.stage_result == committed.stage_result
 
 
 def test_bootstrap_current_appearance_commits_generalized_authority_invalidation(

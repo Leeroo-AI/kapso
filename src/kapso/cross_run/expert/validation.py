@@ -43,6 +43,8 @@ from kapso.cross_run.expert.promotion import (
     decide_expert_release_matrix_promotion,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
+    ExpertCandidateReleaseUseDecision,
+    ExpertCandidateReleaseUseOutcome,
     ExpertPublicationEligibilityStageResultRecord,
 )
 from kapso.cross_run.expert.promotion_decision_contracts import (
@@ -332,15 +334,18 @@ class ExpertCandidateEligibilityEvaluator:
         stage_plan = self.settings.policy.required_stages(
             validation_track,
             configured_task_family_ids,
-            has_source_base_release=stored.closure.manifest.source_base_release_id is not None,
+            has_source_base_release=stored.closure.manifest.source_base_release_id
+            is not None,
         )
         source_base_is_current = (
-            stored.closure.manifest.source_base_release_id == observed_current_release_id
+            stored.closure.manifest.source_base_release_id
+            == observed_current_release_id
         )
         infrastructure_available = self.settings.policy.can_validate(
             validation_track,
             configured_task_family_ids,
-            has_source_base_release=stored.closure.manifest.source_base_release_id is not None,
+            has_source_base_release=stored.closure.manifest.source_base_release_id
+            is not None,
         )
         eligible = source_base_is_current and infrastructure_available
         if not source_base_is_current:
@@ -913,7 +918,9 @@ class ExpertValidationReducer:
             validation_context.scope_id
         )
         if observed_current_release_id is not None:
-            require_content_id(observed_current_release_id, "current source replay source-base release")
+            require_content_id(
+                observed_current_release_id, "current source replay source-base release"
+            )
         if (
             manifest.candidate_id != attempt.candidate_id
             or manifest.candidate_tree_hash != attempt.candidate_tree_hash
@@ -924,10 +931,12 @@ class ExpertValidationReducer:
             or manifest.scope_contract_id != attempt.scope_contract_id
             or manifest.source_base_release_id != attempt.source_base_release_id
             or source_base_receipt is None
-            or request.source_base_tree_receipt_id != source_base_receipt.source_base_tree_receipt_id
+            or request.source_base_tree_receipt_id
+            != source_base_receipt.source_base_tree_receipt_id
             or request.source_base_extraction_receipt_id
             != source_base_receipt.source_extraction_receipt.extraction_receipt_id
-            or request.source_base_tree_hash != source_base_receipt.source_base_tree_hash
+            or request.source_base_tree_hash
+            != source_base_receipt.source_base_tree_hash
             or observed_current_release_id != attempt.source_base_release_id
             or not set(stored_candidate_admission_dependency_ids(stored)).issubset(
                 attempt.eligibility_dependency_ids
@@ -1486,15 +1495,43 @@ class ExpertValidationReducer:
             raise ExpertValidationError(
                 "publication eligibility decision differs from deterministic reduction"
             )
+        release_use = result.release_use_decision
+        if (
+            expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
+            and release_use is None
+        ):
+            raise ExpertValidationError(
+                "approved publication eligibility requires release-use authority"
+            )
+        if (
+            expected_decision.outcome is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+            and release_use is not None
+        ):
+            raise ExpertValidationError(
+                "non-approved publication eligibility cannot carry release-use authority"
+            )
+        release_use_blocked = (
+            release_use is not None
+            and release_use.outcome is ExpertCandidateReleaseUseOutcome.BLOCKED
+        )
         promotion_state_by_outcome = {
-            ExpertReleaseMatrixDecisionOutcome.APPROVED: ExpertPromotionState.APPROVED,
             ExpertReleaseMatrixDecisionOutcome.PARETO_RETAINED: (
                 ExpertPromotionState.PARETO_RETAINED
             ),
             ExpertReleaseMatrixDecisionOutcome.FAILED: ExpertPromotionState.FAILED,
         }
-        accepted = state.accepted_stage_results
+        promotion_state = promotion_state_by_outcome.get(expected_decision.outcome)
         if expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED:
+            promotion_state = (
+                ExpertPromotionState.RELEASE_USE_BLOCKED
+                if release_use_blocked
+                else ExpertPromotionState.APPROVED
+            )
+        accepted = state.accepted_stage_results
+        if (
+            expected_decision.outcome is ExpertReleaseMatrixDecisionOutcome.APPROVED
+            and not release_use_blocked
+        ):
             accepted = (
                 *accepted,
                 ExpertAcceptedStageResultRef(
@@ -1502,24 +1539,43 @@ class ExpertValidationReducer:
                     stage_result_record_id=result.stage_result_record_id,
                 ),
             )
+        terminal_evidence = {expected_decision.promotion_decision_id}
+        if release_use is not None:
+            terminal_evidence.update(
+                {
+                    release_use.release_use_decision_id,
+                    release_use.policy_observation.observation_id,
+                    *(
+                        revocation.revocation_id
+                        for revocation in (
+                            release_use.policy_observation.matched_revocations
+                        )
+                    ),
+                }
+            )
         return ExpertCandidateValidationState.mint(
             validation_attempt_id=attempt.validation_attempt_id,
             candidate_id=attempt.candidate_id,
             candidate_tree_hash=attempt.candidate_tree_hash,
             predecessor_state_id=state.validation_state_id,
-            promotion_state=promotion_state_by_outcome[expected_decision.outcome],
+            promotion_state=promotion_state,
             accepted_stage_results=accepted,
             next_stage=None,
             review_assertion_ids=state.review_assertion_ids,
-            terminal_evidence_ids=(expected_decision.promotion_decision_id,),
+            terminal_evidence_ids=tuple(sorted(terminal_evidence)),
             transition_evidence_id=result.stage_result_record_id,
-            reason=f"publication_eligibility_{expected_decision.reason.value}",
+            reason=(
+                "publication_eligibility_release_use_blocked"
+                if release_use_blocked
+                else f"publication_eligibility_{expected_decision.reason.value}"
+            ),
         )
 
     def advance_release_activation(
         self,
         *,
         state: ExpertCandidateValidationState,
+        approval_state: ExpertCandidateValidationState,
         attempt: ExpertValidationAttempt,
         plan: ExpertReleasePublicationPlan,
         receipt: ExpertReleaseActivationReceipt,
@@ -1553,28 +1609,42 @@ class ExpertValidationReducer:
         if (
             type(plan) is not ExpertReleasePublicationPlan
             or type(receipt) is not ExpertReleaseActivationReceipt
-            or state.promotion_state is not ExpertPromotionState.APPROVED
+            or state.promotion_state
+            not in {
+                ExpertPromotionState.APPROVED,
+                ExpertPromotionState.RELEASE_USE_BLOCKED,
+            }
+            or approval_state.promotion_state is not ExpertPromotionState.APPROVED
             or state.next_stage is not None
+            or approval_state.next_stage is not None
             or state.validation_attempt_id != attempt.validation_attempt_id
+            or approval_state.validation_attempt_id != attempt.validation_attempt_id
             or state.candidate_id != attempt.candidate_id
+            or approval_state.candidate_id != attempt.candidate_id
             or state.candidate_tree_hash != attempt.candidate_tree_hash
+            or approval_state.candidate_tree_hash != attempt.candidate_tree_hash
             or attempt.validation_policy_id != policy.validation_policy_id
             or attempt.configuration_fingerprint
             != self.settings.configuration_fingerprint
             or plan.validation_attempt_id != attempt.validation_attempt_id
             or plan.candidate_id != state.candidate_id
             or plan.candidate_tree_hash != state.candidate_tree_hash
-            or plan.approval_state_id != state.validation_state_id
+            or plan.approval_state_id != approval_state.validation_state_id
             or receipt.publication_plan_id != plan.publication_plan_id
             or receipt.release_id != plan.release_id
             or receipt.candidate_id != plan.candidate_id
-            or receipt.approval_state_id != state.validation_state_id
+            or receipt.approval_state_id != approval_state.validation_state_id
             or receipt.planned_current_observation_id
             != plan.current_release_observation.observation_id
             or set(receipt.consumed_dependency_ids) != consumed_dependencies
             or set(receipt.control_dependency_ids) != control_dependencies
             or tuple(item.stage for item in state.accepted_stage_results)
             != attempt.required_stages
+            or state.accepted_stage_results != approval_state.accepted_stage_results
+            or (
+                state.promotion_state is ExpertPromotionState.RELEASE_USE_BLOCKED
+                and state.predecessor_state_id != approval_state.validation_state_id
+            )
         ):
             raise ExpertValidationError(
                 "release activation differs from its approved publication plan"
@@ -1593,6 +1663,73 @@ class ExpertValidationReducer:
             ),
             transition_evidence_id=receipt.activation_receipt_id,
             reason="release_publication_activated",
+        )
+
+    def advance_release_use_block(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        publication_result: ExpertPublicationEligibilityStageResultRecord,
+        decision: ExpertCandidateReleaseUseDecision,
+    ) -> ExpertCandidateValidationState:
+        """Permanently block one approved candidate under current release-use policy."""
+
+        observation = decision.policy_observation
+        if (
+            state.promotion_state is not ExpertPromotionState.APPROVED
+            or state.next_stage is not None
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+            or not state.accepted_stage_results
+            or state.accepted_stage_results[-1].stage
+            is not ExpertValidationStage.PUBLICATION_ELIGIBILITY
+            or state.accepted_stage_results[-1].stage_result_record_id
+            != publication_result.stage_result_record_id
+            or publication_result.release_use_decision is None
+            or publication_result.release_use_decision.outcome
+            is not ExpertCandidateReleaseUseOutcome.CLEARED
+            or publication_result.promotion_decision.outcome
+            is not ExpertReleaseMatrixDecisionOutcome.APPROVED
+            or type(decision) is not ExpertCandidateReleaseUseDecision
+            or decision.outcome is not ExpertCandidateReleaseUseOutcome.BLOCKED
+            or decision.validation_attempt_id != attempt.validation_attempt_id
+            or decision.candidate_id != attempt.candidate_id
+            or decision.candidate_tree_hash != attempt.candidate_tree_hash
+            or decision.candidate_commit_record_id != attempt.candidate_commit_record_id
+            or decision.scope_contract_id != attempt.scope_contract_id
+            or decision.scope_id != publication_result.scope_id
+            or decision.release_matrix_stage_result_id
+            != publication_result.promotion_decision.release_matrix_stage_result_id
+            or decision.promotion_decision_id
+            != publication_result.promotion_decision.promotion_decision_id
+            or not observation.matched_revocations
+        ):
+            raise ExpertValidationError(
+                "release-use block differs from terminal approval authority"
+            )
+        terminal_evidence = {
+            *state.terminal_evidence_ids,
+            decision.release_use_decision_id,
+            observation.observation_id,
+            *(
+                revocation.revocation_id
+                for revocation in observation.matched_revocations
+            ),
+        }
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.RELEASE_USE_BLOCKED,
+            accepted_stage_results=state.accepted_stage_results,
+            next_stage=None,
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=tuple(sorted(terminal_evidence)),
+            transition_evidence_id=decision.release_use_decision_id,
+            reason="release_use_policy_blocked",
         )
 
     def advance_release_revocation(
@@ -1765,7 +1902,8 @@ class ExpertValidationReducer:
                     or accepted_result.candidate_tree_hash
                     != attempt.candidate_tree_hash
                     or accepted_result.scope_contract_id != attempt.scope_contract_id
-                    or accepted_result.source_base_release_id != attempt.source_base_release_id
+                    or accepted_result.source_base_release_id
+                    != attempt.source_base_release_id
                     or accepted_result.validation_policy_id
                     != attempt.validation_policy_id
                     or accepted_result.configuration_fingerprint
@@ -1788,7 +1926,8 @@ class ExpertValidationReducer:
                     or accepted_result.candidate_tree_hash
                     != attempt.candidate_tree_hash
                     or accepted_result.scope_contract_id != attempt.scope_contract_id
-                    or accepted_result.source_base_release_id != attempt.source_base_release_id
+                    or accepted_result.source_base_release_id
+                    != attempt.source_base_release_id
                     or accepted_result.validation_policy_id
                     != attempt.validation_policy_id
                     or accepted_result.configuration_fingerprint

@@ -7,6 +7,7 @@ from typing import Callable
 
 import pytest
 
+import kapso.cross_run.github.publisher as github_publisher_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import (
     content_id,
@@ -50,6 +51,19 @@ SOURCE_COMMIT = "b" * 40
 POINTER_COMMIT = "c" * 40
 IDENTITY_COMMIT = "d" * 40
 INTENT_COMMIT = "e" * 40
+
+
+class _TracingPublicationGate:
+    def __init__(self, events):
+        self.events = events
+        self.preflight_complete = False
+
+    def validate_before_publication(self, **_arguments):
+        self.preflight_complete = True
+
+    def revalidate_before_activation(self, **_arguments):
+        assert self.preflight_complete
+        self.events.append("gate")
 
 
 def cross_run_settings():
@@ -803,6 +817,80 @@ def test_publisher_runs_draft_verify_publish_attest_then_pointer_transaction(tmp
     assert resolver.required_activation_preparations
     assert set(resolver.required_activation_preparations) == {POINTER_COMMIT}
     assert resolver.required_activation_witnesses
+
+
+@pytest.mark.parametrize("resume_immutable_identity", (False, True))
+def test_authorized_activation_orders_identity_readback_gate_then_branch_cas(
+    tmp_path,
+    monkeypatch,
+    resume_immutable_identity,
+):
+    envelope, _ = build_envelope(tmp_path)
+    authority = (
+        _TracingPublicationGate.__module__,
+        _TracingPublicationGate.__name__,
+    )
+    monkeypatch.setitem(
+        github_publisher_module._ACTIVATION_VERIFIER_AUTHORITIES,
+        PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+        authority,
+    )
+
+    def authorized_publish(client, resolver, events):
+        publisher = build_publisher(client, resolver, tmp_path)
+        publisher._bind_activation_verifier(
+            PublicationArtifactKind.KNOWLEDGE_SNAPSHOT,
+            _TracingPublicationGate,
+        )
+        gate = _TracingPublicationGate(events)
+        authorization = publisher._authorize_publication(envelope, gate)
+        require_pointer = resolver.require_artifact_pointer
+        compare_and_swap = client.update_ref_compare_and_swap
+
+        def traced_pointer(*arguments):
+            events.append("pointer")
+            return require_pointer(*arguments)
+
+        def traced_compare_and_swap(*arguments):
+            events.append("cas")
+            return compare_and_swap(*arguments)
+
+        resolver.require_artifact_pointer = traced_pointer
+        client.update_ref_compare_and_swap = traced_compare_and_swap
+        return publisher.publish(
+            envelope,
+            activation_authorization=authorization,
+        )
+
+    if resume_immutable_identity:
+        first_client = FakePublisherClient(
+            envelope.assets[0],
+            fail_event="pointer_ref",
+        )
+        with pytest.raises(InjectedFailure):
+            authorized_publish(first_client, FakeResolver(), [])
+        intent = ArtifactPublicationIntent.from_json_bytes(first_client.intent_payload)
+        identity = CurrentArtifactPointer.from_json_bytes(first_client.identity_payload)
+        client = FakePublisherClient(envelope.assets[0])
+        client.identity_payload = first_client.identity_payload
+        client.source_tree_sha = first_client.source_tree_sha
+        client.source_tree_files = first_client.source_tree_files
+        resolver = FakeResolver(
+            identity=identity,
+            intent=intent,
+            activation_preparation=POINTER_COMMIT,
+            release_id=7,
+        )
+    else:
+        client = FakePublisherClient(envelope.assets[0])
+        resolver = FakeResolver()
+
+    events = []
+    telemetry = authorized_publish(client, resolver, events)
+
+    assert telemetry.pointer_commit_sha == POINTER_COMMIT
+    assert events[:3] == ["pointer", "gate", "cas"]
+    assert events[3:] == ["pointer"]
 
 
 @pytest.mark.parametrize(

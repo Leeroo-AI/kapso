@@ -1377,6 +1377,34 @@ Direct-supersession candidates may remain immutable research inputs, but are not
 publishable until a protected catalog/snapshot policy-rollover protocol carries
 the complete grow-only event set across scope-contract epochs.
 
+Promotion now binds that observation through
+`ExpertCandidateReleaseUseDecision`. A clear decision is part of the terminal
+approval evidence and the publication fence; a matched decision retains the
+deterministic Pareto result as scientific evidence but enters the distinct
+`RELEASE_USE_BLOCKED` state, accepts no publication-eligibility stage, and creates
+no fence. It is neither `FAILED` nor lifecycle `REVOKED`.
+
+The release publisher repeats the exact check before first reservation, when
+reopening a durable reservation, before generic publication work, and immediately
+before the expert `CURRENT` CAS. The first late match appends a monotonic
+`APPROVED -> RELEASE_USE_BLOCKED` transition through a process-local,
+publisher-bound permit. A pending intent is retained only as recovery authority:
+normal publication stops, but an exact remote activation that already won the
+distributed race can still be recorded as historical `RELEASED`. The activation
+state preserves the block evidence, and current policy still denies future use.
+There is no unblock transition.
+
+The final policy read and expert-repository CAS cannot be atomic across two GitHub
+repositories. The implemented linearization is therefore explicit: a block
+persisted before the local final reservation recheck prevents activation; a
+KnowledgeSnapshot published after that final read is enforced at the next online
+use boundary. Moving artifact-pointer authentication before the final policy read
+ensures no GitHub operation occurs between that read and the expert `CURRENT` CAS.
+
+M8 intentionally has no release-wide waiver. An exact-output review waiver applies
+only to a pinned run output and therefore belongs to M9's launch/output-promotion
+contract; it can never reinstate a release or create an M8 publication fence.
+
 - [x] Append authenticated security/contamination revocation receipts from the
       signed cumulative emergency lineage.
 - [x] Define and project performance/compatibility release-use facts as a distinct,
@@ -1395,8 +1423,11 @@ the complete grow-only event set across scope-contract epochs.
 - [x] Read the current KnowledgeSnapshot into an exact release-use policy
       observation, externally authenticating every event that can affect the
       checked release while treating the local catalog fact as pending authority.
-- [ ] Performance revocation prevents new launch/promotion and marks existing run
-      outputs ineligible while preserving offline reproducibility.
+- [x] Performance/compatibility release-use findings prevent promotion and expert
+      publication while preserving offline reproducibility and historical
+      activation truth.
+- [ ] Apply current release-use policy to new launch/resume and mark existing run
+      outputs ineligible in M9.
 - [x] Security/contamination revocation is checked from the fresh emergency
       denylist before M8 agent execution/evaluation/publication boundaries.
 - [ ] Extend the same fresh check to M9 launch and resume.

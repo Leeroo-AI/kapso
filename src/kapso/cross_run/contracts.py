@@ -418,6 +418,7 @@ class ExpertPromotionState(str, Enum):
     DISPUTED = "disputed"
     PARETO_RETAINED = "pareto_retained"
     APPROVED = "approved"
+    RELEASE_USE_BLOCKED = "release_use_blocked"
     RELEASED = "released"
     REVOKED = "revoked"
 
@@ -4448,6 +4449,7 @@ class ExpertCandidateValidationState(StrictContract):
             ExpertPromotionState.DISPUTED,
             ExpertPromotionState.PARETO_RETAINED,
             ExpertPromotionState.APPROVED,
+            ExpertPromotionState.RELEASE_USE_BLOCKED,
             ExpertPromotionState.RELEASED,
             ExpertPromotionState.REVOKED,
         }
@@ -4457,6 +4459,7 @@ class ExpertCandidateValidationState(StrictContract):
             )
         if self.promotion_state in {
             ExpertPromotionState.APPROVED,
+            ExpertPromotionState.RELEASE_USE_BLOCKED,
             ExpertPromotionState.RELEASED,
         } and (
             not self.accepted_stage_results
@@ -4464,7 +4467,8 @@ class ExpertCandidateValidationState(StrictContract):
             or self.predecessor_state_id is None
         ):
             raise ContractValidationError(
-                "approved or released state requires evaluated reviewed lineage"
+                "approved, release-use-blocked, or released state requires "
+                "evaluated reviewed lineage"
             )
         if self.promotion_state is ExpertPromotionState.DISPUTED and (
             not self.accepted_stage_results
