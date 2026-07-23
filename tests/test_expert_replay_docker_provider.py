@@ -6,12 +6,14 @@ from types import MappingProxyType
 import pytest
 
 import kapso.cross_run.expert.replay_docker_provider as provider_module
-import kapso.cross_run.expert.replay_docker_runtime as runtime_module
+import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
 from kapso.cross_run.expert.replay_docker_provider import (
     SourceReplayDockerExecutionProvider,
     SourceReplayDockerProviderError,
 )
-from kapso.cross_run.expert.replay_docker_runtime import SourceReplayDockerRuntime
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
+)
 from kapso.cross_run.expert.replay_execution import (
     expert_source_replay_execution_provider_key,
 )
@@ -19,9 +21,9 @@ from kapso.cross_run.process import (
     BoundedProcessOutcome,
     BoundedProcessResult,
 )
-from test_expert_replay_docker_resources import _StatefulDockerRunner
-from test_expert_replay_docker_runtime import _image, _json_line
-from test_expert_replay_provider_filesystem import (
+from test_expert_task_evaluation_docker_resources import _StatefulDockerRunner
+from test_expert_task_evaluation_docker_runtime import _image, _json_line
+from test_expert_task_evaluation_provider_filesystem import (
     _RESULT_PAYLOAD,
     _matched_invocation,
     _valid_result_snapshot,
@@ -152,7 +154,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
         role = next(
             value.split("=", 1)[1]
             for value in _flag_values(arguments, "--label")
-            if value.startswith("io.kapso.source-replay.role=")
+            if value.startswith("io.kapso.task-evaluation.role=")
         )
         labels = {
             value.split("=", 1)[0]: value.split("=", 1)[1]
@@ -178,7 +180,7 @@ class _ProviderDockerRunner(_StatefulDockerRunner):
                 "Cmd": command or None,
                 "Entrypoint": [entrypoint],
                 "Env": [f"{key}={value}" for key, value in environment.items()],
-                "Hostname": "kapso-source-replay",
+                "Hostname": "kapso-task-evaluation",
                 "Image": self.adapter_runtime.image_reference,
                 "Labels": labels,
                 "StopTimeout": self.compute.termination_grace_seconds,
@@ -349,7 +351,7 @@ def provider(tmp_path, monkeypatch, prepared_replay_request):
     docker_config_root = tmp_path / "config"
     docker_config_root.mkdir(mode=0o700)
     runner = _ProviderDockerRunner(settings, adapter_runtime, compute)
-    runtime = object.__new__(SourceReplayDockerRuntime)
+    runtime = object.__new__(TaskEvaluationDockerRuntime)
     runtime._trusted_root = tmp_path.resolve()
     runtime._settings = settings
     runtime._process_runner = runner
@@ -429,7 +431,7 @@ def test_provider_runs_exact_isolated_lifecycle_and_cleans_everything(provider):
         command
         for command in commands
         if command[:2] == ("container", "create")
-        and "io.kapso.source-replay.role=evaluator" in command
+        and "io.kapso.task-evaluation.role=evaluator" in command
     )
     assert "--pull" in evaluator_create
     assert evaluator_create[evaluator_create.index("--pull") + 1] == "never"
@@ -439,7 +441,7 @@ def test_provider_runs_exact_isolated_lifecycle_and_cleans_everything(provider):
     assert evaluator_create[evaluator_create.index("--cap-drop") + 1] == "ALL"
     assert _flag_values(evaluator_create, "--env") == (
         "HOME=/kapso/home",
-        "HOSTNAME=kapso-source-replay",
+        "HOSTNAME=kapso-task-evaluation",
         "LANG=C.UTF-8",
         "PATH=/usr/bin:/bin",
     )
@@ -575,7 +577,9 @@ def test_provider_rejects_network_attached_during_execution(provider):
 
 def test_interrupted_cleanup_never_starts_or_executes(provider):
     execution_provider, runner, invocation = provider
-    identity = execution_provider._resources.identity(invocation.provider_handle)
+    identity = execution_provider._resources.identity(
+        invocation.provider_handle.provider_handle_id
+    )
     identity.workspace_root.mkdir(mode=0o700)
     runner.containers[identity.evaluator_name] = {
         "Config": {"Labels": dict(identity.labels_for("evaluator"))},

@@ -14,7 +14,9 @@ from kapso.cross_run.expert.replay_docker_provider import (
     require_source_replay_docker_provider_key,
     source_replay_docker_provider_key_is_supported,
 )
-from kapso.cross_run.expert.replay_docker_runtime import SourceReplayDockerRuntime
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
+)
 from kapso.cross_run.expert.replay_execution import (
     ExpertSourceReplayExecutionProviderKey,
     ExpertSourceReplayExecutionProviderRegistry,
@@ -75,7 +77,7 @@ def build_source_replay_docker_provider_registry(
         settings.task_evaluation_provider,
     )
     dispatch_keys = _distinct_supported_dispatch_keys(prepared_request)
-    runtime_authority = _LazySourceReplayDockerRuntime(
+    runtime_authority = _LazyTaskEvaluationDockerRuntime(
         trusted_root=trusted_root,
         provider_settings=settings.task_evaluation_provider,
     )
@@ -120,7 +122,7 @@ def _distinct_supported_dispatch_keys(
     return tuple(keys_by_identity[identity] for identity in sorted(keys_by_identity))
 
 
-class _LazySourceReplayDockerRuntime:
+class _LazyTaskEvaluationDockerRuntime:
     def __init__(
         self,
         *,
@@ -132,10 +134,10 @@ class _LazySourceReplayDockerRuntime:
         self._runtime = None
         self._lock = Lock()
 
-    def get(self) -> SourceReplayDockerRuntime:
+    def get(self) -> TaskEvaluationDockerRuntime:
         with self._lock:
             if self._runtime is None:
-                self._runtime = SourceReplayDockerRuntime.create(
+                self._runtime = TaskEvaluationDockerRuntime.create(
                     trusted_root=self.trusted_root,
                     settings=self.provider_settings,
                 )
@@ -149,7 +151,7 @@ class _LazySourceReplayDockerExecutionProvider:
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
         provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
-        runtime_authority: _LazySourceReplayDockerRuntime,
+        runtime_authority: _LazyTaskEvaluationDockerRuntime,
     ) -> None:
         require_source_replay_docker_provider_key(
             dispatch_key,

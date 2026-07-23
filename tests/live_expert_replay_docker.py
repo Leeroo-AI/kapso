@@ -34,7 +34,9 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.replay_docker_bootstrap import (
     build_source_replay_docker_provider_registry,
 )
-from kapso.cross_run.expert.replay_docker_runtime import read_verified_root_executable
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    read_verified_root_executable,
+)
 from kapso.cross_run.expert.replay_execution_store import (
     ExpertSourceReplayExecutionStore,
     SourceReplayExecutionJournalEventKind,
@@ -67,14 +69,14 @@ _ADAPTER_SOURCE = rb"""#!/bin/busybox sh
 set -eu
 
 [ "$(pwd)" = "/kapso/input/adapter" ] || exit 11
-[ "$(/bin/busybox hostname)" = "kapso-source-replay" ] || exit 12
+[ "$(/bin/busybox hostname)" = "kapso-task-evaluation" ] || exit 12
 [ "$(/bin/busybox cat requirements.lock)" = "python==3.11.9" ] || exit 13
 [ "$(/bin/busybox cat /kapso/input/task/inputs/base/artifact.bin)" = "starting artifact:artifact/base" ] || exit 14
 [ "$(/bin/busybox ls /sys/class/net)" = "lo" ] || exit 15
 
 actual_environment="$(/bin/busybox env | /bin/busybox sort)"
 expected_environment='HOME=/kapso/home
-HOSTNAME=kapso-source-replay
+HOSTNAME=kapso-task-evaluation
 LANG=C
 PATH=/bin
 PWD=/kapso/input/adapter
@@ -361,7 +363,7 @@ def _assert_no_daemon_resources(
                     "ls",
                     "--all",
                     "--filter",
-                    ("label=io.kapso.source-replay.handle=" f"{provider_handle_id}"),
+                    ("label=io.kapso.task-evaluation.handle=" f"{provider_handle_id}"),
                     "--format",
                     "{{.ID}}",
                 ),
@@ -372,7 +374,7 @@ def _assert_no_daemon_resources(
                     "volume",
                     "ls",
                     "--filter",
-                    ("label=io.kapso.source-replay.handle=" f"{provider_handle_id}"),
+                    ("label=io.kapso.task-evaluation.handle=" f"{provider_handle_id}"),
                     "--format",
                     "{{.Name}}",
                 ),

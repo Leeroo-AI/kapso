@@ -5,21 +5,23 @@ from dataclasses import replace
 
 import pytest
 
-import kapso.cross_run.expert.replay_docker_runtime as runtime_module
+import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
-from kapso.cross_run.expert.replay_docker_resources import (
-    SourceReplayDockerResourceError,
-    SourceReplayDockerResourceManager,
+from kapso.cross_run.expert.task_evaluation_docker_resources import (
+    TaskEvaluationDockerResourceError,
+    TaskEvaluationDockerResourceManager,
 )
-from kapso.cross_run.expert.replay_docker_runtime import SourceReplayDockerRuntime
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
+)
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
     BoundedProcessResult,
 )
 from kapso.cross_run.settings import CrossRunSettings
-from test_expert_replay_provider_filesystem import _matched_invocation
-from test_expert_replay_docker_runtime import _info, _json_line, _version
+from test_expert_task_evaluation_provider_filesystem import _matched_invocation
+from test_expert_task_evaluation_docker_runtime import _info, _json_line, _version
 from test_expert_source_replay_request import _prepared, _request_fixture
 
 _CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -126,12 +128,12 @@ def resources(tmp_path, monkeypatch):
     monkeypatch.setattr(runtime_module, "_require_runtime_socket", lambda _path: None)
     tmp_path.chmod(0o700)
     runner = _StatefulDockerRunner(provider_settings)
-    runtime = SourceReplayDockerRuntime(
+    runtime = TaskEvaluationDockerRuntime(
         trusted_root=tmp_path.resolve(),
         settings=provider_settings,
         process_runner=runner,
     )
-    manager = SourceReplayDockerResourceManager(runtime)
+    manager = TaskEvaluationDockerResourceManager(runtime)
     return manager, runner
 
 
@@ -164,18 +166,20 @@ def test_resource_identity_uses_the_full_unpredictable_handle_digest(
     replay_invocation,
 ):
     manager, _ = resources
-    identity = manager.identity(replay_invocation.provider_handle)
+    identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     suffix = replay_invocation.provider_handle.provider_handle_id.rsplit(":", 1)[-1]
 
-    assert identity.workspace_root == manager.runtime.trusted_root / f"replay-{suffix}"
+    assert (
+        identity.workspace_root == manager.runtime.trusted_root / f"execution-{suffix}"
+    )
     assert identity.evaluator_name.endswith(suffix)
     assert identity.keeper_name.endswith(suffix)
     assert identity.volume_name.endswith(suffix)
     assert identity.labels_for("evaluator") == {
-        "io.kapso.source-replay.handle": (
+        "io.kapso.task-evaluation.handle": (
             replay_invocation.provider_handle.provider_handle_id
         ),
-        "io.kapso.source-replay.role": "evaluator",
+        "io.kapso.task-evaluation.role": "evaluator",
     }
 
 
@@ -184,10 +188,16 @@ def test_writable_volume_is_fresh_exact_labelled_tmpfs(
     replay_invocation,
 ):
     manager, runner = resources
-    identity = manager.require_absent(replay_invocation.provider_handle)
+    identity = manager.require_absent(
+        replay_invocation.provider_handle.provider_handle_id
+    )
     compute = replay_invocation.materialized_case.request_case.compute_binding
 
-    observation = manager.create_writable_volume(identity, compute)
+    observation = manager.create_writable_volume(
+        identity,
+        writable_storage_byte_limit=compute.writable_storage_byte_limit,
+        writable_inode_limit=compute.writable_inode_limit,
+    )
 
     assert observation.name == identity.volume_name
     assert observation.payload["Options"] == {
@@ -209,8 +219,12 @@ def test_writable_volume_is_fresh_exact_labelled_tmpfs(
     )
     assert create_arguments[-1] == identity.volume_name
 
-    with pytest.raises(SourceReplayDockerResourceError, match="not fresh"):
-        manager.create_writable_volume(identity, compute)
+    with pytest.raises(TaskEvaluationDockerResourceError, match="not fresh"):
+        manager.create_writable_volume(
+            identity,
+            writable_storage_byte_limit=compute.writable_storage_byte_limit,
+            writable_inode_limit=compute.writable_inode_limit,
+        )
 
 
 def test_cleanup_removes_only_prevalidated_ids_and_is_repeatable(
@@ -218,7 +232,7 @@ def test_cleanup_removes_only_prevalidated_ids_and_is_repeatable(
     replay_invocation,
 ):
     manager, runner = resources
-    identity = manager.identity(replay_invocation.provider_handle)
+    identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     evaluator_id = "a" * 64
     keeper_id = "b" * 64
     runner.containers[identity.evaluator_name] = _container(
@@ -237,10 +251,16 @@ def test_cleanup_removes_only_prevalidated_ids_and_is_repeatable(
     )
 
     assert (
-        manager.cleanup_daemon_resources(replay_invocation.provider_handle) == identity
+        manager.cleanup_daemon_resources(
+            replay_invocation.provider_handle.provider_handle_id
+        )
+        == identity
     )
     assert (
-        manager.cleanup_daemon_resources(replay_invocation.provider_handle) == identity
+        manager.cleanup_daemon_resources(
+            replay_invocation.provider_handle.provider_handle_id
+        )
+        == identity
     )
 
     mutations = tuple(
@@ -269,18 +289,20 @@ def test_cleanup_rejects_substituted_labels_before_any_removal(
     replay_invocation,
 ):
     manager, runner = resources
-    identity = manager.identity(replay_invocation.provider_handle)
+    identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     runner.containers[identity.evaluator_name] = _container(
         identity.evaluator_name,
         "a" * 64,
         {
-            "io.kapso.source-replay.handle": "substituted",
-            "io.kapso.source-replay.role": "evaluator",
+            "io.kapso.task-evaluation.handle": "substituted",
+            "io.kapso.task-evaluation.role": "evaluator",
         },
     )
 
-    with pytest.raises(SourceReplayDockerResourceError, match="handle labels"):
-        manager.cleanup_daemon_resources(replay_invocation.provider_handle)
+    with pytest.raises(TaskEvaluationDockerResourceError, match="handle labels"):
+        manager.cleanup_daemon_resources(
+            replay_invocation.provider_handle.provider_handle_id
+        )
 
     assert identity.evaluator_name in runner.containers
     assert not any(
@@ -291,7 +313,7 @@ def test_cleanup_rejects_substituted_labels_before_any_removal(
 
 def test_ambiguous_resource_lookup_fails_loud(resources, replay_invocation):
     manager, runner = resources
-    identity = manager.identity(replay_invocation.provider_handle)
+    identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     original_dispatch = runner._dispatch
 
     def ambiguous(arguments):
@@ -301,7 +323,7 @@ def test_ambiguous_resource_lookup_fails_loud(resources, replay_invocation):
 
     runner._dispatch = ambiguous
 
-    with pytest.raises(SourceReplayDockerResourceError, match="ambiguous"):
+    with pytest.raises(TaskEvaluationDockerResourceError, match="ambiguous"):
         manager.observe(identity)
 
 
@@ -310,7 +332,7 @@ def test_container_removal_normalizes_only_mount_order(
     replay_invocation,
 ):
     manager, runner = resources
-    identity = manager.identity(replay_invocation.provider_handle)
+    identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     evaluator_id = "a" * 64
     runner.containers[identity.evaluator_name] = {
         **_container(
@@ -344,7 +366,7 @@ def test_container_removal_rejects_changed_mount_authority(
     replay_invocation,
 ):
     manager, runner = resources
-    identity = manager.identity(replay_invocation.provider_handle)
+    identity = manager.identity(replay_invocation.provider_handle.provider_handle_id)
     runner.containers[identity.evaluator_name] = {
         **_container(
             identity.evaluator_name,
@@ -362,7 +384,7 @@ def test_container_removal_rejects_changed_mount_authority(
     observation = manager.observe(identity)[0]
     runner.containers[identity.evaluator_name]["Mounts"][0]["RW"] = True
 
-    with pytest.raises(SourceReplayDockerResourceError, match="changed"):
+    with pytest.raises(TaskEvaluationDockerResourceError, match="changed"):
         manager.remove_container(identity, observation)
 
     assert identity.evaluator_name in runner.containers

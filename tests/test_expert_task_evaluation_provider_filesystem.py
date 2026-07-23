@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import stat
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 
 import pytest
 
-from kapso.cross_run.expert import replay_provider_filesystem
+from kapso.cross_run.expert import task_evaluation_provider_filesystem
 from kapso.cross_run.canonical import (
     content_id,
     source_tree_digest,
@@ -26,12 +27,13 @@ from kapso.cross_run.expert.replay_protocol import build_task_evaluator_request
 from kapso.cross_run.expert.replay_protocol_contracts import (
     ExpertSourceReplayInvocationAllocation,
 )
-from kapso.cross_run.expert.replay_provider_filesystem import (
-    SourceReplayProviderFilesystemError,
-    cleanup_source_replay_provider_workspace,
-    materialize_source_replay_provider_inputs,
+from kapso.cross_run.expert.task_evaluation_provider_filesystem import (
+    TaskEvaluationProviderArtifactInput,
+    TaskEvaluationProviderFilesystemError,
+    cleanup_task_evaluation_provider_workspace,
+    materialize_task_evaluation_provider_inputs,
     materialize_verified_byte_tree,
-    parse_source_replay_result_snapshot,
+    parse_task_evaluation_result_snapshot,
 )
 from test_cross_run_contracts import (
     build_records,
@@ -42,6 +44,26 @@ from test_expert_source_replay_request import _prepared, _request_fixture
 
 _TAR_BLOCK_SIZE = 512
 _RESULT_PAYLOAD = b'{"completed":true}'
+
+
+class _ChangingPayloadMapping(Mapping[str, bytes]):
+    def __init__(self, relative_path: str, verified: bytes, substituted: bytes) -> None:
+        self._relative_path = relative_path
+        self._verified = verified
+        self._substituted = substituted
+        self._access_count = 0
+
+    def __getitem__(self, key: str) -> bytes:
+        if key != self._relative_path:
+            raise KeyError(key)
+        self._access_count += 1
+        return self._verified if self._access_count == 1 else self._substituted
+
+    def __iter__(self) -> Iterator[str]:
+        return iter((self._relative_path,))
+
+    def __len__(self) -> int:
+        return 1
 
 
 @pytest.fixture(scope="module")
@@ -193,7 +215,7 @@ def _valid_result_snapshot(owner_id):
 
 
 def _parse(snapshot, owner_id):
-    return parse_source_replay_result_snapshot(
+    return parse_task_evaluation_result_snapshot(
         snapshot,
         expected_owner_id=owner_id,
         expected_group_id=owner_id,
@@ -237,7 +259,7 @@ def test_verified_byte_tree_validates_before_creating_any_destination(tmp_path):
     payload = b"trusted"
     descriptor = _source_file("file", payload, "100644")
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="path closure"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="path closure"):
         materialize_verified_byte_tree(
             trusted_root=trusted_root,
             destination_root=destination,
@@ -247,7 +269,7 @@ def test_verified_byte_tree_validates_before_creating_any_destination(tmp_path):
     assert not destination.exists()
 
     corrupt_descriptor = replace(descriptor, size=descriptor.size + 1)
-    with pytest.raises(SourceReplayProviderFilesystemError, match="descriptors"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="descriptors"):
         materialize_verified_byte_tree(
             trusted_root=trusted_root,
             destination_root=destination,
@@ -257,13 +279,50 @@ def test_verified_byte_tree_validates_before_creating_any_destination(tmp_path):
     assert not destination.exists()
 
 
+def test_provider_artifact_input_freezes_verified_contents():
+    payload = b"artifact"
+    descriptor = _source_file("artifact.bin", payload, "100644")
+    mutable_contents = {descriptor.relative_path: payload}
+
+    artifact = TaskEvaluationProviderArtifactInput(
+        mount_path="selected",
+        source_files=(descriptor,),
+        source_contents=mutable_contents,
+    )
+    mutable_contents[descriptor.relative_path] = b"substituted"
+
+    assert artifact.source_contents == {descriptor.relative_path: payload}
+
+
+def test_verified_byte_tree_materializes_one_immutable_mapping_snapshot(tmp_path):
+    trusted_root = (tmp_path / "trusted").resolve()
+    trusted_root.mkdir(mode=0o700)
+    verified_payload = b"verified"
+    descriptor = _source_file("artifact.bin", verified_payload, "100644")
+
+    materialize_verified_byte_tree(
+        trusted_root=trusted_root,
+        destination_root=trusted_root / "tree",
+        descriptors=(descriptor,),
+        source_contents=_ChangingPayloadMapping(
+            descriptor.relative_path,
+            verified_payload,
+            b"substituted",
+        ),
+    )
+
+    assert (trusted_root / "tree" / descriptor.relative_path).read_bytes() == (
+        verified_payload
+    )
+
+
 def test_verified_byte_tree_rejects_untrusted_or_existing_roots(tmp_path):
     public_root = (tmp_path / "public").resolve()
     public_root.mkdir(mode=0o755)
     public_root.chmod(0o755)
     descriptor = _source_file("file", b"payload", "100644")
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="owner-private"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="owner-private"):
         materialize_verified_byte_tree(
             trusted_root=public_root,
             destination_root=public_root / "tree",
@@ -298,11 +357,11 @@ def test_provider_workspace_cleanup_removes_frozen_tree_and_is_idempotent(tmp_pa
     nested_root.chmod(0o555)
     input_root.chmod(0o555)
 
-    cleanup_source_replay_provider_workspace(
+    cleanup_task_evaluation_provider_workspace(
         trusted_root=trusted_root,
         workspace_root=workspace_root,
     )
-    cleanup_source_replay_provider_workspace(
+    cleanup_task_evaluation_provider_workspace(
         trusted_root=trusted_root,
         workspace_root=workspace_root,
     )
@@ -319,8 +378,8 @@ def test_provider_workspace_cleanup_rejects_non_child_target(tmp_path):
     outside_file = outside_workspace / "keep"
     outside_file.write_bytes(b"outside")
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="direct child"):
-        cleanup_source_replay_provider_workspace(
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="direct child"):
+        cleanup_task_evaluation_provider_workspace(
             trusted_root=trusted_root,
             workspace_root=outside_workspace,
         )
@@ -346,10 +405,10 @@ def test_provider_workspace_cleanup_rejects_non_directory_without_following(
         workspace_root.symlink_to(outside_root, target_is_directory=True)
 
     with pytest.raises(
-        SourceReplayProviderFilesystemError,
+        TaskEvaluationProviderFilesystemError,
         match="real owned directory",
     ):
-        cleanup_source_replay_provider_workspace(
+        cleanup_task_evaluation_provider_workspace(
             trusted_root=trusted_root,
             workspace_root=workspace_root,
         )
@@ -372,8 +431,8 @@ def test_provider_workspace_cleanup_rejects_nested_symlink_without_deleting_outs
     nested_link = workspace_root / "escape"
     nested_link.symlink_to(outside_root, target_is_directory=True)
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="link, special"):
-        cleanup_source_replay_provider_workspace(
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="link, special"):
+        cleanup_task_evaluation_provider_workspace(
             trusted_root=trusted_root,
             workspace_root=workspace_root,
         )
@@ -392,7 +451,7 @@ def test_provider_workspace_cleanup_rejects_workspace_replaced_while_opening(
     workspace_root.mkdir(mode=0o700)
     (workspace_root / "original").write_bytes(b"original")
     moved_workspace = trusted_root / "moved-workspace"
-    real_open = replay_provider_filesystem.os.open
+    real_open = task_evaluation_provider_filesystem.os.open
     replaced = False
 
     def replace_before_workspace_open(path, flags, mode=0o777, *, dir_fd=None):
@@ -405,15 +464,15 @@ def test_provider_workspace_cleanup_rejects_workspace_replaced_while_opening(
         return real_open(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(
-        replay_provider_filesystem.os,
+        task_evaluation_provider_filesystem.os,
         "open",
         replace_before_workspace_open,
     )
 
     with pytest.raises(
-        SourceReplayProviderFilesystemError, match="changed while opening"
+        TaskEvaluationProviderFilesystemError, match="changed while opening"
     ):
-        cleanup_source_replay_provider_workspace(
+        cleanup_task_evaluation_provider_workspace(
             trusted_root=trusted_root,
             workspace_root=workspace_root,
         )
@@ -432,24 +491,41 @@ def test_matched_leg_inputs_materialize_exact_closures_and_freeze_read_only(
     trusted_root.mkdir(mode=0o700)
     invocation = _matched_invocation(prepared_replay_request, leg_name)
 
-    layout = materialize_source_replay_provider_inputs(
-        invocation=invocation,
-        trusted_root=trusted_root,
-        workspace_root=trusted_root / leg_name,
-    )
-
     expert = invocation.expert_source
     expert_descriptors = (
         expert.source_tree.files
         if leg_name == "candidate_leg"
         else expert.parent_tree_receipt.source_extraction_receipt.source_tree_files
     )
+    adapter = invocation.materialized_case.task_adapter
+    layout = materialize_task_evaluation_provider_inputs(
+        expert_source_files=expert_descriptors,
+        expert_source_contents=expert.source_contents,
+        adapter_source_files=adapter.evaluation_runtime_source_files,
+        adapter_source_contents=adapter.evaluation_runtime_source_contents,
+        task_artifacts=tuple(
+            sorted(
+                (
+                    TaskEvaluationProviderArtifactInput(
+                        mount_path=artifact.artifact.mount_path,
+                        source_files=artifact.artifact.source_files,
+                        source_contents=artifact.source_contents,
+                    )
+                    for artifact in invocation.materialized_case.task_context.starting_artifacts
+                ),
+                key=lambda artifact: artifact.mount_path,
+            )
+        ),
+        request_payload=invocation.task_evaluator_request.to_json_bytes(),
+        trusted_root=trusted_root,
+        workspace_root=trusted_root / leg_name,
+    )
+
     for descriptor in expert_descriptors:
         path = layout.expert_root / descriptor.relative_path
         assert path.read_bytes() == expert.source_contents[descriptor.relative_path]
         assert _mode(path) == (0o555 if descriptor.mode == "100755" else 0o444)
 
-    adapter = invocation.materialized_case.task_adapter
     assert any(
         descriptor.relative_path.startswith("release_matrix_assets/")
         for descriptor in adapter.source_extraction_receipt.source_tree_files
@@ -518,7 +594,7 @@ def test_result_snapshot_rejects_links_directories_and_special_results(type_flag
     )
 
     with pytest.raises(
-        SourceReplayProviderFilesystemError, match="link or special|regular"
+        TaskEvaluationProviderFilesystemError, match="link or special|regular"
     ):
         _parse(snapshot, owner_id)
 
@@ -540,9 +616,9 @@ def test_result_snapshot_rejects_extra_and_duplicate_entries():
         )
     )
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="extra"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="extra"):
         _parse(extra, owner_id)
-    with pytest.raises(SourceReplayProviderFilesystemError, match="duplicate"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="duplicate"):
         _parse(duplicate, owner_id)
 
 
@@ -554,11 +630,11 @@ def test_result_snapshot_rejects_missing_root_or_result_entries():
     missing_result = _tar_snapshot((("./", owner_id, b"5", b"", b""),))
 
     with pytest.raises(
-        SourceReplayProviderFilesystemError, match="exact result closure"
+        TaskEvaluationProviderFilesystemError, match="exact result closure"
     ):
         _parse(missing_root, owner_id)
     with pytest.raises(
-        SourceReplayProviderFilesystemError, match="exact result closure"
+        TaskEvaluationProviderFilesystemError, match="exact result closure"
     ):
         _parse(missing_result, owner_id)
 
@@ -567,26 +643,26 @@ def test_result_snapshot_rejects_owner_and_size_bound_mismatches():
     owner_id = os.geteuid()
     snapshot = _valid_result_snapshot(owner_id)
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="owner"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="owner"):
         _parse(snapshot, owner_id + 1)
-    with pytest.raises(SourceReplayProviderFilesystemError, match="group"):
-        parse_source_replay_result_snapshot(
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="group"):
+        parse_task_evaluation_result_snapshot(
             snapshot,
             expected_owner_id=owner_id,
             expected_group_id=owner_id + 1,
             maximum_result_bytes=len(_RESULT_PAYLOAD),
             maximum_snapshot_bytes=len(snapshot),
         )
-    with pytest.raises(SourceReplayProviderFilesystemError, match="result exceeds"):
-        parse_source_replay_result_snapshot(
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="result exceeds"):
+        parse_task_evaluation_result_snapshot(
             snapshot,
             expected_owner_id=owner_id,
             expected_group_id=owner_id,
             maximum_result_bytes=len(_RESULT_PAYLOAD) - 1,
             maximum_snapshot_bytes=len(snapshot),
         )
-    with pytest.raises(SourceReplayProviderFilesystemError, match="snapshot exceeds"):
-        parse_source_replay_result_snapshot(
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="snapshot exceeds"):
+        parse_task_evaluation_result_snapshot(
             snapshot,
             expected_owner_id=owner_id,
             expected_group_id=owner_id,
@@ -608,7 +684,7 @@ def test_result_snapshot_rejects_trailing_truncated_and_noncanonical_archives(mu
     owner_id = os.geteuid()
     snapshot = mutate(_valid_result_snapshot(owner_id))
 
-    with pytest.raises(SourceReplayProviderFilesystemError):
+    with pytest.raises(TaskEvaluationProviderFilesystemError):
         _parse(snapshot, owner_id)
 
 
@@ -620,7 +696,7 @@ def test_result_snapshot_rejects_nonzero_padding_and_another_tar_dialect():
     another_dialect = bytearray(_valid_result_snapshot(owner_id))
     another_dialect[257:265] = b"ustar\x0000"
 
-    with pytest.raises(SourceReplayProviderFilesystemError, match="padding"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="padding"):
         _parse(bytes(snapshot), owner_id)
-    with pytest.raises(SourceReplayProviderFilesystemError, match="pinned BusyBox"):
+    with pytest.raises(TaskEvaluationProviderFilesystemError, match="pinned BusyBox"):
         _parse(bytes(another_dialect), owner_id)

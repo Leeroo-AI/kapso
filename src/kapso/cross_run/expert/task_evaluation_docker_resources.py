@@ -1,4 +1,4 @@
-"""Handle-owned Docker resources for isolated expert source replay."""
+"""Handle-owned Docker resources for isolated expert task evaluation."""
 
 from __future__ import annotations
 
@@ -10,29 +10,28 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from kapso.cross_run.contracts import ExpertSourceReplayComputeBinding
-from kapso.cross_run.expert.replay_docker_runtime import SourceReplayDockerRuntime
-from kapso.cross_run.expert.replay_execution import (
-    SourceReplayProviderExecutionHandle,
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
 )
 from kapso.cross_run.settings import TaskEvaluationDockerProviderSettings
 
-_HANDLE_LABEL = "io.kapso.source-replay.handle"
-_ROLE_LABEL = "io.kapso.source-replay.role"
+_HANDLE_LABEL = "io.kapso.task-evaluation.handle"
+_ROLE_LABEL = "io.kapso.task-evaluation.role"
 _EVALUATOR_ROLE = "evaluator"
 _KEEPER_ROLE = "keeper"
 _VOLUME_ROLE = "volume"
-_RESOURCE_NAME_PREFIX = "kapso-source-replay"
-_WORKSPACE_NAME_PREFIX = "replay-"
+_RESOURCE_NAME_PREFIX = "kapso-task-evaluation"
+_WORKSPACE_NAME_PREFIX = "execution-"
 _CONTAINER_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME = "kapso-task-evaluation"
 
 
-class SourceReplayDockerResourceError(RuntimeError):
+class TaskEvaluationDockerResourceError(RuntimeError):
     """A handle-owned Docker resource is absent, substituted, or unsafe."""
 
 
 @dataclass(frozen=True)
-class SourceReplayDockerResourceIdentity:
+class TaskEvaluationDockerResourceIdentity:
     provider_handle_id: str
     workspace_root: Path
     evaluator_name: str
@@ -41,8 +40,8 @@ class SourceReplayDockerResourceIdentity:
 
     def labels_for(self, role: str) -> Mapping[str, str]:
         if role not in {_EVALUATOR_ROLE, _KEEPER_ROLE, _VOLUME_ROLE}:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker resource role is unsupported"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker resource role is unsupported"
             )
         return MappingProxyType(
             {
@@ -53,7 +52,7 @@ class SourceReplayDockerResourceIdentity:
 
 
 @dataclass(frozen=True)
-class SourceReplayDockerContainerObservation:
+class TaskEvaluationDockerContainerObservation:
     container_id: str
     name: str
     role: str
@@ -61,40 +60,45 @@ class SourceReplayDockerContainerObservation:
 
 
 @dataclass(frozen=True)
-class SourceReplayDockerVolumeObservation:
+class TaskEvaluationDockerVolumeObservation:
     name: str
     payload: Mapping[str, Any]
 
 
-class SourceReplayDockerResourceManager:
+class TaskEvaluationDockerResourceManager:
     """Create and reap only resources bearing one unpredictable handle label."""
 
-    def __init__(self, runtime: SourceReplayDockerRuntime) -> None:
-        if type(runtime) is not SourceReplayDockerRuntime:
-            raise SourceReplayDockerResourceError(
-                "source replay resources require the exact Docker runtime"
+    def __init__(self, runtime: TaskEvaluationDockerRuntime) -> None:
+        if type(runtime) is not TaskEvaluationDockerRuntime:
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation resources require the exact Docker runtime"
             )
         self._runtime = runtime
 
     @property
-    def runtime(self) -> SourceReplayDockerRuntime:
+    def runtime(self) -> TaskEvaluationDockerRuntime:
         return self._runtime
 
     def identity(
         self,
-        provider_handle: SourceReplayProviderExecutionHandle,
-    ) -> SourceReplayDockerResourceIdentity:
-        if type(provider_handle) is not SourceReplayProviderExecutionHandle:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker resources require an exact provider handle"
+        provider_handle_id: str,
+    ) -> TaskEvaluationDockerResourceIdentity:
+        if not isinstance(provider_handle_id, str):
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker resources require a provider handle ID"
             )
-        suffix = provider_handle.provider_handle_id.rsplit(":sha256:", 1)[-1]
-        if re.fullmatch(r"[0-9a-f]{64}", suffix) is None:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker provider handle digest is invalid"
+        handle_parts = provider_handle_id.rsplit(":sha256:", 1)
+        if (
+            len(handle_parts) != 2
+            or not handle_parts[0]
+            or re.fullmatch(r"[0-9a-f]{64}", handle_parts[1]) is None
+        ):
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker provider handle digest is invalid"
             )
-        return SourceReplayDockerResourceIdentity(
-            provider_handle_id=provider_handle.provider_handle_id,
+        suffix = handle_parts[1]
+        return TaskEvaluationDockerResourceIdentity(
+            provider_handle_id=provider_handle_id,
             workspace_root=(
                 self._runtime.trusted_root / f"{_WORKSPACE_NAME_PREFIX}{suffix}"
             ),
@@ -105,31 +109,31 @@ class SourceReplayDockerResourceManager:
 
     def require_absent(
         self,
-        provider_handle: SourceReplayProviderExecutionHandle,
-    ) -> SourceReplayDockerResourceIdentity:
-        identity = self.identity(provider_handle)
+        provider_handle_id: str,
+    ) -> TaskEvaluationDockerResourceIdentity:
+        identity = self.identity(provider_handle_id)
         observations = self.observe(identity)
         if any(observation is not None for observation in observations):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker handle already owns daemon resources"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker handle already owns daemon resources"
             )
         if os.path.lexists(identity.workspace_root):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker handle workspace already exists"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker handle workspace already exists"
             )
         return identity
 
     def observe(
         self,
-        identity: SourceReplayDockerResourceIdentity,
+        identity: TaskEvaluationDockerResourceIdentity,
     ) -> tuple[
-        SourceReplayDockerContainerObservation | None,
-        SourceReplayDockerContainerObservation | None,
-        SourceReplayDockerVolumeObservation | None,
+        TaskEvaluationDockerContainerObservation | None,
+        TaskEvaluationDockerContainerObservation | None,
+        TaskEvaluationDockerVolumeObservation | None,
     ]:
-        if type(identity) is not SourceReplayDockerResourceIdentity:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker observation requires exact resource identity"
+        if type(identity) is not TaskEvaluationDockerResourceIdentity:
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker observation requires exact resource identity"
             )
         evaluator = self._observe_container(
             identity.evaluator_name,
@@ -146,21 +150,32 @@ class SourceReplayDockerResourceManager:
 
     def create_writable_volume(
         self,
-        identity: SourceReplayDockerResourceIdentity,
-        compute: ExpertSourceReplayComputeBinding,
-    ) -> SourceReplayDockerVolumeObservation:
-        if type(identity) is not SourceReplayDockerResourceIdentity or not isinstance(
-            compute, ExpertSourceReplayComputeBinding
+        identity: TaskEvaluationDockerResourceIdentity,
+        *,
+        writable_storage_byte_limit: int,
+        writable_inode_limit: int,
+    ) -> TaskEvaluationDockerVolumeObservation:
+        if (
+            type(identity) is not TaskEvaluationDockerResourceIdentity
+            or type(writable_storage_byte_limit) is not int
+            or writable_storage_byte_limit <= 0
+            or type(writable_inode_limit) is not int
+            or writable_inode_limit <= 0
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay writable volume requires exact identity and compute"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation writable volume requires exact identity and limits"
             )
         if self._observe_volume(identity) is not None:
-            raise SourceReplayDockerResourceError(
-                "source replay writable volume is not fresh"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation writable volume is not fresh"
             )
         settings = self._runtime.settings
-        options = _writable_volume_options(identity, compute, settings)
+        options = _writable_volume_options(
+            identity,
+            writable_storage_byte_limit=writable_storage_byte_limit,
+            writable_inode_limit=writable_inode_limit,
+            settings=settings,
+        )
         labels = identity.labels_for(_VOLUME_ROLE)
         result = self._runtime.run_control(
             (
@@ -184,8 +199,8 @@ class SourceReplayDockerResourceManager:
         _require_exact_line(result.stdout, identity.volume_name)
         observation = self._observe_volume(identity)
         if observation is None:
-            raise SourceReplayDockerResourceError(
-                "source replay writable volume disappeared after creation"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation writable volume disappeared after creation"
             )
         payload = observation.payload
         if (
@@ -193,23 +208,23 @@ class SourceReplayDockerResourceManager:
             or payload.get("Scope") != "local"
             or payload.get("Options") != options
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay writable volume differs from exact tmpfs authority"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation writable volume differs from exact tmpfs authority"
             )
         return observation
 
     def remove_container(
         self,
-        identity: SourceReplayDockerResourceIdentity,
-        observation: SourceReplayDockerContainerObservation,
+        identity: TaskEvaluationDockerResourceIdentity,
+        observation: TaskEvaluationDockerContainerObservation,
     ) -> None:
         if (
-            type(identity) is not SourceReplayDockerResourceIdentity
-            or type(observation) is not SourceReplayDockerContainerObservation
+            type(identity) is not TaskEvaluationDockerResourceIdentity
+            or type(observation) is not TaskEvaluationDockerContainerObservation
             or observation.role not in {_EVALUATOR_ROLE, _KEEPER_ROLE}
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker removal requires an exact container observation"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker removal requires an exact container observation"
             )
         expected_name = (
             identity.evaluator_name
@@ -221,12 +236,12 @@ class SourceReplayDockerResourceManager:
             identity.labels_for(observation.role),
             observation.role,
         )
-        if not source_replay_docker_container_observations_match(
+        if not task_evaluation_docker_container_observations_match(
             current,
             observation,
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker container changed before removal"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker container changed before removal"
             )
         result = self._runtime.run_control(
             (
@@ -246,37 +261,37 @@ class SourceReplayDockerResourceManager:
             )
             is not None
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker container survived removal"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker container survived removal"
             )
 
     def stop_container(
         self,
-        identity: SourceReplayDockerResourceIdentity,
-        observation: SourceReplayDockerContainerObservation,
+        identity: TaskEvaluationDockerResourceIdentity,
+        observation: TaskEvaluationDockerContainerObservation,
         grace_seconds: int,
-    ) -> SourceReplayDockerContainerObservation:
+    ) -> TaskEvaluationDockerContainerObservation:
         if (
-            type(identity) is not SourceReplayDockerResourceIdentity
-            or type(observation) is not SourceReplayDockerContainerObservation
+            type(identity) is not TaskEvaluationDockerResourceIdentity
+            or type(observation) is not TaskEvaluationDockerContainerObservation
             or observation.role != _EVALUATOR_ROLE
             or type(grace_seconds) is not int
             or grace_seconds <= 0
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker stop requires an exact evaluator and grace"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker stop requires an exact evaluator and grace"
             )
         current = self._observe_container(
             identity.evaluator_name,
             identity.labels_for(_EVALUATOR_ROLE),
             _EVALUATOR_ROLE,
         )
-        if not source_replay_docker_container_observations_match(
+        if not task_evaluation_docker_container_observations_match(
             current,
             observation,
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker evaluator changed before stop"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker evaluator changed before stop"
             )
         result = self._runtime.run_control(
             (
@@ -294,16 +309,16 @@ class SourceReplayDockerResourceManager:
             _EVALUATOR_ROLE,
         )
         if stopped is None or stopped.container_id != observation.container_id:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker evaluator disappeared while stopping"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker evaluator disappeared while stopping"
             )
         return stopped
 
     def cleanup_daemon_resources(
         self,
-        provider_handle: SourceReplayProviderExecutionHandle,
-    ) -> SourceReplayDockerResourceIdentity:
-        identity = self.identity(provider_handle)
+        provider_handle_id: str,
+    ) -> TaskEvaluationDockerResourceIdentity:
+        identity = self.identity(provider_handle_id)
         self._runtime.require_live_authority()
         evaluator, keeper, volume = self.observe(identity)
         for container in (evaluator, keeper):
@@ -321,14 +336,14 @@ class SourceReplayDockerResourceManager:
         if volume is not None:
             current_volume = self._observe_volume(identity)
             if current_volume is None or current_volume != volume:
-                raise SourceReplayDockerResourceError(
-                    "source replay writable volume changed before removal"
+                raise TaskEvaluationDockerResourceError(
+                    "task evaluation writable volume changed before removal"
                 )
             result = self._runtime.run_control(("volume", "rm", current_volume.name))
             _require_exact_line(result.stdout, current_volume.name)
         if any(observation is not None for observation in self.observe(identity)):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker resources survived cleanup"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker resources survived cleanup"
             )
         return identity
 
@@ -337,7 +352,7 @@ class SourceReplayDockerResourceManager:
         name: str,
         expected_labels: Mapping[str, str],
         role: str,
-    ) -> SourceReplayDockerContainerObservation | None:
+    ) -> TaskEvaluationDockerContainerObservation | None:
         result = self._runtime.run_control(
             (
                 "container",
@@ -354,8 +369,8 @@ class SourceReplayDockerResourceManager:
         if observed_name is None:
             return None
         if observed_name != name:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker container lookup was not exact"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker container lookup was not exact"
             )
         payload = self._runtime.run_json_control(
             ("container", "inspect", "--format", "{{json .}}", name)
@@ -368,10 +383,10 @@ class SourceReplayDockerResourceManager:
             or payload.get("Name") != f"/{name}"
             or config.get("Labels") != dict(expected_labels)
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker container differs from its handle labels"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker container differs from its handle labels"
             )
-        return SourceReplayDockerContainerObservation(
+        return TaskEvaluationDockerContainerObservation(
             container_id=container_id,
             name=name,
             role=role,
@@ -380,8 +395,8 @@ class SourceReplayDockerResourceManager:
 
     def _observe_volume(
         self,
-        identity: SourceReplayDockerResourceIdentity,
-    ) -> SourceReplayDockerVolumeObservation | None:
+        identity: TaskEvaluationDockerResourceIdentity,
+    ) -> TaskEvaluationDockerVolumeObservation | None:
         result = self._runtime.run_control(
             (
                 "volume",
@@ -396,8 +411,8 @@ class SourceReplayDockerResourceManager:
         if observed_name is None:
             return None
         if observed_name != identity.volume_name:
-            raise SourceReplayDockerResourceError(
-                "source replay Docker volume lookup was not exact"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker volume lookup was not exact"
             )
         payload = self._runtime.run_json_control(
             ("volume", "inspect", "--format", "{{json .}}", identity.volume_name)
@@ -405,23 +420,25 @@ class SourceReplayDockerResourceManager:
         if payload.get("Name") != identity.volume_name or payload.get("Labels") != dict(
             identity.labels_for(_VOLUME_ROLE)
         ):
-            raise SourceReplayDockerResourceError(
-                "source replay Docker volume differs from its handle labels"
+            raise TaskEvaluationDockerResourceError(
+                "task evaluation Docker volume differs from its handle labels"
             )
-        return SourceReplayDockerVolumeObservation(
+        return TaskEvaluationDockerVolumeObservation(
             name=identity.volume_name,
             payload=payload,
         )
 
 
 def _writable_volume_options(
-    identity: SourceReplayDockerResourceIdentity,
-    compute: ExpertSourceReplayComputeBinding,
+    identity: TaskEvaluationDockerResourceIdentity,
+    *,
+    writable_storage_byte_limit: int,
+    writable_inode_limit: int,
     settings: TaskEvaluationDockerProviderSettings,
 ) -> dict[str, str]:
     if not identity.volume_name:
-        raise SourceReplayDockerResourceError(
-            "source replay writable volume identity is empty"
+        raise TaskEvaluationDockerResourceError(
+            "task evaluation writable volume identity is empty"
         )
     return {
         "device": "tmpfs",
@@ -429,20 +446,20 @@ def _writable_volume_options(
             f"uid={settings.container_user_id},"
             f"gid={settings.container_group_id},"
             "mode=0700,"
-            f"size={compute.writable_storage_byte_limit},"
-            f"nr_inodes={compute.writable_inode_limit},"
+            f"size={writable_storage_byte_limit},"
+            f"nr_inodes={writable_inode_limit},"
             "nosuid,nodev,noexec"
         ),
         "type": "tmpfs",
     }
 
 
-def source_replay_docker_container_observations_match(
-    current: SourceReplayDockerContainerObservation | None,
-    expected: SourceReplayDockerContainerObservation,
+def task_evaluation_docker_container_observations_match(
+    current: TaskEvaluationDockerContainerObservation | None,
+    expected: TaskEvaluationDockerContainerObservation,
 ) -> bool:
     if (
-        type(current) is not SourceReplayDockerContainerObservation
+        type(current) is not TaskEvaluationDockerContainerObservation
         or current.container_id != expected.container_id
         or current.name != expected.name
         or current.role != expected.role
@@ -472,26 +489,26 @@ def _parse_optional_json_string(payload: bytes) -> str | None:
     if payload == b"":
         return None
     if not isinstance(payload, bytes) or not payload.endswith(b"\n"):
-        raise SourceReplayDockerResourceError(
-            "source replay Docker resource lookup lacks an exact line ending"
+        raise TaskEvaluationDockerResourceError(
+            "task evaluation Docker resource lookup lacks an exact line ending"
         )
     encoded = payload[:-1]
     if not encoded or b"\n" in encoded or b"\r" in encoded:
-        raise SourceReplayDockerResourceError(
-            "source replay Docker resource lookup is ambiguous"
+        raise TaskEvaluationDockerResourceError(
+            "task evaluation Docker resource lookup is ambiguous"
         )
     decoded = json.loads(encoded.decode("utf-8"))
     if not isinstance(decoded, str) or not decoded:
-        raise SourceReplayDockerResourceError(
-            "source replay Docker resource lookup is not a name"
+        raise TaskEvaluationDockerResourceError(
+            "task evaluation Docker resource lookup is not a name"
         )
     return decoded
 
 
 def _require_exact_line(payload: bytes, expected: str) -> None:
     if payload != f"{expected}\n".encode():
-        raise SourceReplayDockerResourceError(
-            "source replay Docker mutation returned an unexpected identity"
+        raise TaskEvaluationDockerResourceError(
+            "task evaluation Docker mutation returned an unexpected identity"
         )
 
 
@@ -502,5 +519,5 @@ def _require_mapping(
 ) -> Mapping[str, Any]:
     value = payload.get(key)
     if not isinstance(value, dict):
-        raise SourceReplayDockerResourceError(f"{name} is not an object")
+        raise TaskEvaluationDockerResourceError(f"{name} is not an object")
     return value

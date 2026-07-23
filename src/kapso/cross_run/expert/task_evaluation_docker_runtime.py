@@ -1,4 +1,4 @@
-"""Pinned Docker CLI authority for isolated expert source replay."""
+"""Pinned Docker CLI authority for isolated expert task evaluation."""
 
 from __future__ import annotations
 
@@ -29,17 +29,17 @@ _EMPTY_DOCKER_CONFIG = b'{"auths":{}}\n'
 _DOCKER_HOST_PREFIX = "unix://"
 
 
-class SourceReplayDockerRuntimeError(RuntimeError):
+class TaskEvaluationDockerRuntimeError(RuntimeError):
     """The Docker client, daemon, image, or command violates pinned authority."""
 
 
-class SourceReplayDockerProcessRunner(Protocol):
+class TaskEvaluationDockerProcessRunner(Protocol):
     """The bounded host-process primitive used by the Docker runtime."""
 
     def run(self, request: BoundedProcessRequest) -> BoundedProcessResult: ...
 
 
-class SourceReplayDockerRuntime:
+class TaskEvaluationDockerRuntime:
     """Execute Docker only through privately pinned bytes and an exact daemon."""
 
     def __init__(
@@ -47,15 +47,15 @@ class SourceReplayDockerRuntime:
         *,
         trusted_root: Path,
         settings: TaskEvaluationDockerProviderSettings,
-        process_runner: SourceReplayDockerProcessRunner,
+        process_runner: TaskEvaluationDockerProcessRunner,
     ) -> None:
         if not isinstance(settings, TaskEvaluationDockerProviderSettings):
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker runtime requires exact provider settings"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker runtime requires exact provider settings"
             )
         if not callable(getattr(process_runner, "run", None)):
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker runtime requires a bounded process runner"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker runtime requires a bounded process runner"
             )
         _require_private_root(trusted_root)
         settings_digest_suffix = tree_or_blob_digest(
@@ -113,7 +113,7 @@ class SourceReplayDockerRuntime:
         *,
         trusted_root: Path,
         settings: TaskEvaluationDockerProviderSettings,
-    ) -> SourceReplayDockerRuntime:
+    ) -> TaskEvaluationDockerRuntime:
         return cls(
             trusted_root=trusted_root,
             settings=settings,
@@ -136,8 +136,8 @@ class SourceReplayDockerRuntime:
 
     def require_exact_image(self, runtime: TaskAdapterRuntimeContract) -> None:
         if not isinstance(runtime, TaskAdapterRuntimeContract):
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker image requires an exact runtime contract"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker image requires an exact runtime contract"
             )
         self.require_live_authority()
         image = self.run_json_control(
@@ -164,8 +164,8 @@ class SourceReplayDockerRuntime:
             or result.returncode != 0
             or result.stderr
         ):
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker control command failed or emitted stderr"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker control command failed or emitted stderr"
             )
         return result
 
@@ -189,8 +189,8 @@ class SourceReplayDockerRuntime:
                 for argument in arguments
             )
         ):
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker arguments must be non-empty strings"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker arguments must be non-empty strings"
             )
         self._require_local_authority()
         request = BoundedProcessRequest(
@@ -212,15 +212,15 @@ class SourceReplayDockerRuntime:
         )
         result = self._process_runner.run(request)
         if type(result) is not BoundedProcessResult or result.request != request:
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker runner changed its exact request"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker runner changed its exact request"
             )
         return result
 
     def _require_local_authority(self) -> None:
         if read_verified_private_executable(self._docker_path) != self._docker_digest:
-            raise SourceReplayDockerRuntimeError(
-                "source replay pinned Docker executable changed"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation pinned Docker executable changed"
             )
         _require_runtime_socket(Path(self._settings.runtime_socket_path))
 
@@ -234,8 +234,8 @@ def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay authority executable path must be absolute and normalized"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation authority executable path must be absolute and normalized"
         )
     descriptor = os.open(
         path,
@@ -250,8 +250,8 @@ def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:
             or stat.S_IMODE(metadata_before.st_mode) & 0o022
             or not metadata_before.st_mode & stat.S_IXUSR
         ):
-            raise SourceReplayDockerRuntimeError(
-                "source replay authority executable is not immutable root-owned code"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation authority executable is not immutable root-owned code"
             )
         payload = handle.read()
         metadata_after = os.fstat(handle.fileno())
@@ -261,8 +261,8 @@ def read_verified_root_executable(path: Path, expected_digest: str) -> bytes:
         or len(payload) != metadata_before.st_size
         or tree_or_blob_digest(payload) != expected_digest
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay authority executable differs from its pinned digest"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation authority executable differs from its pinned digest"
         )
     return payload
 
@@ -280,8 +280,8 @@ def read_verified_private_executable(path: Path) -> str:
             or metadata_before.st_uid != os.geteuid()
             or stat.S_IMODE(metadata_before.st_mode) != 0o500
         ):
-            raise SourceReplayDockerRuntimeError(
-                "source replay private executable is unsafe"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation private executable is unsafe"
             )
         payload = handle.read()
         metadata_after = os.fstat(handle.fileno())
@@ -290,8 +290,8 @@ def read_verified_private_executable(path: Path) -> str:
         metadata_after.st_ino,
         metadata_after.st_size,
     ) or len(payload) != metadata_before.st_size:
-        raise SourceReplayDockerRuntimeError(
-            "source replay private executable changed while reading"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation private executable changed while reading"
         )
     return tree_or_blob_digest(payload)
 
@@ -334,8 +334,8 @@ def _require_daemon_authority(
         or "null"
         not in _require_string_set(plugins.get("Network"), "Docker network plugins")
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker daemon differs from its exact authority"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker daemon differs from its exact authority"
         )
 
 
@@ -361,23 +361,24 @@ def _require_image_authority(
         or normalized_variant != runtime.architecture_variant
         or environment != expected_environment
         or command
+        or config.get("Entrypoint") is not None
         or (volumes is not None and volumes != {})
         or config.get("Healthcheck") is not None
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker image differs from its exact runtime contract"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker image differs from its exact runtime contract"
         )
 
 
 def _parse_single_json_object(payload: bytes) -> Mapping[str, Any]:
     if not isinstance(payload, bytes) or not payload.endswith(b"\n"):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker JSON output lacks its exact line ending"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker JSON output lacks its exact line ending"
         )
     encoded = payload[:-1]
     if not encoded or b"\n" in encoded or b"\r" in encoded:
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker JSON output is not one document"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker JSON output is not one document"
         )
     decoded = json.loads(
         encoded.decode("utf-8"),
@@ -385,8 +386,8 @@ def _parse_single_json_object(payload: bytes) -> Mapping[str, Any]:
         parse_constant=_reject_nonstandard_json_constant,
     )
     if not isinstance(decoded, dict):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker JSON output is not an object"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker JSON output is not an object"
         )
     return MappingProxyType(decoded)
 
@@ -395,16 +396,16 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     decoded: dict[str, Any] = {}
     for key, value in pairs:
         if key in decoded:
-            raise SourceReplayDockerRuntimeError(
-                "source replay Docker JSON output contains a duplicate key"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation Docker JSON output contains a duplicate key"
             )
         decoded[key] = value
     return decoded
 
 
 def _reject_nonstandard_json_constant(value: str) -> None:
-    raise SourceReplayDockerRuntimeError(
-        f"source replay Docker JSON output contains nonstandard constant {value}"
+    raise TaskEvaluationDockerRuntimeError(
+        f"task evaluation Docker JSON output contains nonstandard constant {value}"
     )
 
 
@@ -415,7 +416,7 @@ def _require_mapping(
 ) -> Mapping[str, Any]:
     child = value.get(key)
     if not isinstance(child, dict):
-        raise SourceReplayDockerRuntimeError(f"{name} is not an object")
+        raise TaskEvaluationDockerRuntimeError(f"{name} is not an object")
     return child
 
 
@@ -425,7 +426,7 @@ def _require_string_set(value: Any, name: str) -> frozenset[str]:
         or any(not isinstance(item, str) or not item for item in value)
         or len(value) != len(set(value))
     ):
-        raise SourceReplayDockerRuntimeError(f"{name} is not a string list")
+        raise TaskEvaluationDockerRuntimeError(f"{name} is not a string list")
     return frozenset(value)
 
 
@@ -433,7 +434,7 @@ def _optional_string_tuple(value: Any, name: str) -> tuple[str, ...]:
     if value is None:
         return ()
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-        raise SourceReplayDockerRuntimeError(f"{name} is not a string list")
+        raise TaskEvaluationDockerRuntimeError(f"{name} is not a string list")
     return tuple(value)
 
 
@@ -443,8 +444,8 @@ def _require_runtime_socket(path: Path) -> None:
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker socket path is not absolute and direct"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker socket path is not absolute and direct"
         )
     metadata = path.lstat()
     if (
@@ -453,8 +454,8 @@ def _require_runtime_socket(path: Path) -> None:
         or metadata.st_nlink != 1
         or stat.S_IMODE(metadata.st_mode) & 0o002
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker authority is not a root-owned Unix socket"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker authority is not a root-owned Unix socket"
         )
 
 
@@ -465,8 +466,8 @@ def _require_private_root(path: Path) -> None:
         or path != Path(os.path.abspath(path))
         or path.resolve() != path
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker trusted root must be absolute and resolved"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker trusted root must be absolute and resolved"
         )
     metadata = path.stat()
     if (
@@ -474,15 +475,15 @@ def _require_private_root(path: Path) -> None:
         or stat.S_IMODE(metadata.st_mode) != 0o700
         or metadata.st_uid != os.geteuid()
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker trusted root must be owner-private"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker trusted root must be owner-private"
         )
 
 
 def _ensure_private_directory(path: Path, parent: Path) -> None:
     if path.parent != parent:
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker private directory is outside its trusted parent"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker private directory is outside its trusted parent"
         )
     if not path.exists():
         os.mkdir(path, mode=0o700)
@@ -493,8 +494,8 @@ def _ensure_private_directory(path: Path, parent: Path) -> None:
         or stat.S_IMODE(metadata.st_mode) != 0o700
         or metadata.st_uid != os.geteuid()
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay Docker private directory is unsafe"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation Docker private directory is unsafe"
         )
 
 
@@ -502,8 +503,8 @@ def _publish_or_verify_private_executable(path: Path, payload: bytes) -> None:
     if not path.exists():
         _write_private_file(path, payload, 0o500)
     if read_verified_private_executable(path) != tree_or_blob_digest(payload):
-        raise SourceReplayDockerRuntimeError(
-            "source replay pinned Docker executable conflicts with authority"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation pinned Docker executable conflicts with authority"
         )
 
 
@@ -521,8 +522,8 @@ def _publish_or_verify_private_file(path: Path, payload: bytes) -> None:
         or stat.S_IMODE(metadata.st_mode) != 0o400
         or observed != payload
     ):
-        raise SourceReplayDockerRuntimeError(
-            "source replay private Docker configuration is unsafe"
+        raise TaskEvaluationDockerRuntimeError(
+            "task evaluation private Docker configuration is unsafe"
         )
 
 
@@ -540,8 +541,8 @@ def _write_private_file(path: Path, payload: bytes, mode: int) -> None:
             or metadata.st_nlink != 1
             or metadata.st_uid != os.geteuid()
         ):
-            raise SourceReplayDockerRuntimeError(
-                "source replay private Docker file is unsafe"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation private Docker file is unsafe"
             )
         handle.write(payload)
         handle.flush()

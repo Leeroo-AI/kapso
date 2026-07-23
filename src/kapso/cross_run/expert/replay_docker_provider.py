@@ -13,15 +13,16 @@ from kapso.cross_run.contracts import (
     SourceFileDescriptor,
     TaskAdapterRuntimeContract,
 )
-from kapso.cross_run.expert.replay_docker_resources import (
-    SourceReplayDockerContainerObservation,
-    SourceReplayDockerResourceIdentity,
-    SourceReplayDockerResourceManager,
-    SourceReplayDockerVolumeObservation,
-    source_replay_docker_container_observations_match,
+from kapso.cross_run.expert.task_evaluation_docker_resources import (
+    TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME,
+    TaskEvaluationDockerContainerObservation,
+    TaskEvaluationDockerResourceIdentity,
+    TaskEvaluationDockerResourceManager,
+    TaskEvaluationDockerVolumeObservation,
+    task_evaluation_docker_container_observations_match,
 )
-from kapso.cross_run.expert.replay_docker_runtime import (
-    SourceReplayDockerRuntime,
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
     read_verified_root_executable,
 )
 from kapso.cross_run.expert.replay_execution import (
@@ -31,17 +32,23 @@ from kapso.cross_run.expert.replay_execution import (
     SourceReplayProviderExecutionHandle,
     expert_source_replay_execution_provider_key,
 )
+from kapso.cross_run.expert.task_evaluation_materialization import (
+    VerifiedTaskEvaluationCandidate,
+    VerifiedTaskEvaluationParent,
+)
 from kapso.cross_run.expert.task_evaluator_protocol import (
     TASK_ADAPTER_RUNTIME_PROTOCOL_VERSION,
     TASK_EVALUATOR_ADAPTER_ROOT,
     TASK_EVALUATOR_PROTOCOL_VERSION,
     TASK_EVALUATOR_WRITABLE_ROOT,
 )
-from kapso.cross_run.expert.replay_provider_filesystem import (
-    cleanup_source_replay_provider_workspace,
-    materialize_source_replay_provider_inputs,
+from kapso.cross_run.expert.task_evaluation_provider_filesystem import (
+    TaskEvaluationProviderArtifactInput,
+    TaskEvaluationProviderInputLayout,
+    cleanup_task_evaluation_provider_workspace,
+    materialize_task_evaluation_provider_inputs,
     materialize_verified_byte_tree,
-    parse_source_replay_result_snapshot,
+    parse_task_evaluation_result_snapshot,
 )
 from kapso.cross_run.process import BoundedProcessOutcome, BoundedProcessResult
 from kapso.cross_run.settings import (
@@ -54,13 +61,12 @@ _HELPER_FILENAME = "busybox"
 _CONTAINER_HELPER_ROOT = "/kapso/provider"
 _CONTAINER_HELPER_PATH = f"{_CONTAINER_HELPER_ROOT}/{_HELPER_FILENAME}"
 _CONTAINER_INPUT_ROOT = "/kapso/input"
-_CONTAINER_HOSTNAME = "kapso-source-replay"
 _CONTAINER_HOME = "/kapso/home"
 _EVALUATOR_ROLE = "evaluator"
 _KEEPER_ROLE = "keeper"
 _PROVIDER_ENVIRONMENT = (
     ("HOME", _CONTAINER_HOME),
-    ("HOSTNAME", _CONTAINER_HOSTNAME),
+    ("HOSTNAME", TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME),
 )
 SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_ID = "kapso_task_evaluation_execution_provider"
 SOURCE_REPLAY_DOCKER_EXECUTION_PROVIDER_VERSION = (
@@ -140,12 +146,12 @@ class SourceReplayDockerExecutionProvider:
         dispatch_key: ExpertSourceReplayExecutionProviderKey,
         provider_settings: TaskEvaluationDockerProviderSettings,
         policy_settings: ExpertValidationPolicySettings,
-        runtime: SourceReplayDockerRuntime,
+        runtime: TaskEvaluationDockerRuntime,
     ) -> None:
         if (
             not isinstance(provider_settings, TaskEvaluationDockerProviderSettings)
             or not isinstance(policy_settings, ExpertValidationPolicySettings)
-            or type(runtime) is not SourceReplayDockerRuntime
+            or type(runtime) is not TaskEvaluationDockerRuntime
             or runtime.settings != provider_settings
         ):
             raise SourceReplayDockerProviderError(
@@ -175,7 +181,7 @@ class SourceReplayDockerExecutionProvider:
         self._provider_settings = provider_settings
         self._policy_settings = policy_settings
         self._runtime = runtime
-        self._resources = SourceReplayDockerResourceManager(runtime)
+        self._resources = TaskEvaluationDockerResourceManager(runtime)
 
     @classmethod
     def create(
@@ -190,7 +196,7 @@ class SourceReplayDockerExecutionProvider:
             dispatch_key=dispatch_key,
             provider_settings=provider_settings,
             policy_settings=policy_settings,
-            runtime=SourceReplayDockerRuntime.create(
+            runtime=TaskEvaluationDockerRuntime.create(
                 trusted_root=trusted_root,
                 settings=provider_settings,
             ),
@@ -216,7 +222,9 @@ class SourceReplayDockerExecutionProvider:
             )
         adapter_runtime = invocation.materialized_case.task_adapter.manifest.runtime
         self._runtime.require_exact_image(adapter_runtime)
-        identity = self._resources.require_absent(invocation.provider_handle)
+        identity = self._resources.require_absent(
+            invocation.provider_handle.provider_handle_id
+        )
 
         with ExitStack() as ownership:
             ownership.callback(
@@ -224,13 +232,17 @@ class SourceReplayDockerExecutionProvider:
                 invocation.provider_handle,
                 identity,
             )
-            layout = materialize_source_replay_provider_inputs(
+            layout = _materialize_source_replay_provider_inputs(
                 invocation=invocation,
                 trusted_root=self._runtime.trusted_root,
                 workspace_root=identity.workspace_root,
             )
             helper_root = self._materialize_helper(identity)
-            volume = self._resources.create_writable_volume(identity, compute)
+            volume = self._resources.create_writable_volume(
+                identity,
+                writable_storage_byte_limit=compute.writable_storage_byte_limit,
+                writable_inode_limit=compute.writable_inode_limit,
+            )
             keeper = self._create_keeper(
                 identity,
                 adapter_runtime,
@@ -292,15 +304,17 @@ class SourceReplayDockerExecutionProvider:
             raise SourceReplayDockerProviderError(
                 "source replay Docker cleanup differs from provider authority"
             )
-        identity = self._resources.cleanup_daemon_resources(provider_handle)
-        cleanup_source_replay_provider_workspace(
+        identity = self._resources.cleanup_daemon_resources(
+            provider_handle.provider_handle_id
+        )
+        cleanup_task_evaluation_provider_workspace(
             trusted_root=self._runtime.trusted_root,
             workspace_root=identity.workspace_root,
         )
 
     def _materialize_helper(
         self,
-        identity: SourceReplayDockerResourceIdentity,
+        identity: TaskEvaluationDockerResourceIdentity,
     ) -> Path:
         helper_bytes = read_verified_root_executable(
             Path(self._provider_settings.helper_executable_path),
@@ -324,12 +338,12 @@ class SourceReplayDockerExecutionProvider:
 
     def _create_keeper(
         self,
-        identity: SourceReplayDockerResourceIdentity,
+        identity: TaskEvaluationDockerResourceIdentity,
         adapter_runtime: TaskAdapterRuntimeContract,
         helper_root: Path,
-        volume: SourceReplayDockerVolumeObservation,
+        volume: TaskEvaluationDockerVolumeObservation,
         compute: ExpertSourceReplayComputeBinding,
-    ) -> SourceReplayDockerContainerObservation:
+    ) -> TaskEvaluationDockerContainerObservation:
         arguments = (
             *_container_create_prefix(
                 identity=identity,
@@ -382,13 +396,13 @@ class SourceReplayDockerExecutionProvider:
 
     def _start_keeper(
         self,
-        identity: SourceReplayDockerResourceIdentity,
-        keeper: SourceReplayDockerContainerObservation,
-        volume: SourceReplayDockerVolumeObservation,
+        identity: TaskEvaluationDockerResourceIdentity,
+        keeper: TaskEvaluationDockerContainerObservation,
+        volume: TaskEvaluationDockerVolumeObservation,
         compute: ExpertSourceReplayComputeBinding,
         adapter_runtime: TaskAdapterRuntimeContract,
         helper_root: Path,
-    ) -> SourceReplayDockerContainerObservation:
+    ) -> TaskEvaluationDockerContainerObservation:
         result = self._runtime.run_control(("container", "start", keeper.container_id))
         _require_exact_line(result.stdout, keeper.container_id)
         evaluator, running_keeper, observed_volume = self._resources.observe(identity)
@@ -421,13 +435,13 @@ class SourceReplayDockerExecutionProvider:
 
     def _create_evaluator(
         self,
-        identity: SourceReplayDockerResourceIdentity,
+        identity: TaskEvaluationDockerResourceIdentity,
         adapter_runtime: TaskAdapterRuntimeContract,
         input_root: Path,
-        volume: SourceReplayDockerVolumeObservation,
+        volume: TaskEvaluationDockerVolumeObservation,
         compute: ExpertSourceReplayComputeBinding,
         evaluator_relative_path: str,
-    ) -> SourceReplayDockerContainerObservation:
+    ) -> TaskEvaluationDockerContainerObservation:
         evaluator_path = f"{TASK_EVALUATOR_ADAPTER_ROOT}/{evaluator_relative_path}"
         arguments = (
             *_container_create_prefix(
@@ -478,10 +492,10 @@ class SourceReplayDockerExecutionProvider:
 
     def _finish_evaluator(
         self,
-        identity: SourceReplayDockerResourceIdentity,
-        evaluator: SourceReplayDockerContainerObservation,
-        keeper: SourceReplayDockerContainerObservation,
-        volume: SourceReplayDockerVolumeObservation,
+        identity: TaskEvaluationDockerResourceIdentity,
+        evaluator: TaskEvaluationDockerContainerObservation,
+        keeper: TaskEvaluationDockerContainerObservation,
+        volume: TaskEvaluationDockerVolumeObservation,
         compute: ExpertSourceReplayComputeBinding,
         process_result: BoundedProcessResult,
     ) -> bytes | None:
@@ -494,7 +508,7 @@ class SourceReplayDockerExecutionProvider:
                 evaluator,
             )
             or keeper_after is None
-            or not source_replay_docker_container_observations_match(
+            or not task_evaluation_docker_container_observations_match(
                 keeper_after,
                 keeper,
             )
@@ -528,7 +542,7 @@ class SourceReplayDockerExecutionProvider:
         )
         if (
             evaluator_absent is not None
-            or not source_replay_docker_container_observations_match(
+            or not task_evaluation_docker_container_observations_match(
                 current_keeper,
                 keeper_after,
             )
@@ -571,7 +585,7 @@ class SourceReplayDockerExecutionProvider:
             raise SourceReplayDockerProviderError(
                 "source replay result snapshot command failed"
             )
-        return parse_source_replay_result_snapshot(
+        return parse_task_evaluation_result_snapshot(
             snapshot.stdout,
             expected_owner_id=self._provider_settings.container_user_id,
             expected_group_id=self._provider_settings.container_group_id,
@@ -582,22 +596,79 @@ class SourceReplayDockerExecutionProvider:
     def _cleanup_owned_execution(
         self,
         provider_handle: SourceReplayProviderExecutionHandle,
-        identity: SourceReplayDockerResourceIdentity,
+        identity: TaskEvaluationDockerResourceIdentity,
     ) -> None:
-        cleaned_identity = self._resources.cleanup_daemon_resources(provider_handle)
+        cleaned_identity = self._resources.cleanup_daemon_resources(
+            provider_handle.provider_handle_id
+        )
         if cleaned_identity != identity:
             raise SourceReplayDockerProviderError(
                 "source replay Docker cleanup changed resource identity"
             )
-        cleanup_source_replay_provider_workspace(
+        cleanup_task_evaluation_provider_workspace(
             trusted_root=self._runtime.trusted_root,
             workspace_root=identity.workspace_root,
         )
 
 
+def _materialize_source_replay_provider_inputs(
+    *,
+    invocation: ExpertSourceReplayMatchedLegInvocation,
+    trusted_root: Path,
+    workspace_root: Path,
+) -> TaskEvaluationProviderInputLayout:
+    source = invocation.expert_source
+    if type(source) is VerifiedTaskEvaluationCandidate:
+        expert_source_files = source.source_tree.files
+    elif type(source) is VerifiedTaskEvaluationParent:
+        expert_source_files = (
+            source.parent_tree_receipt.source_extraction_receipt.source_tree_files
+        )
+    else:
+        raise SourceReplayDockerProviderError(
+            "source replay invocation contains an unverified expert source"
+        )
+    context = invocation.materialized_case.task_context
+    requested_mounts = {
+        mount.starting_artifact_ref: mount.mount_path
+        for mount in invocation.task_evaluator_request.starting_artifact_mounts
+    }
+    observed_mounts = {
+        artifact.artifact.starting_artifact_ref: artifact.artifact.mount_path
+        for artifact in context.starting_artifacts
+    }
+    if requested_mounts != observed_mounts:
+        raise SourceReplayDockerProviderError(
+            "source replay task artifacts differ from the evaluator request"
+        )
+    adapter = invocation.materialized_case.task_adapter
+    return materialize_task_evaluation_provider_inputs(
+        expert_source_files=expert_source_files,
+        expert_source_contents=source.source_contents,
+        adapter_source_files=adapter.evaluation_runtime_source_files,
+        adapter_source_contents=adapter.evaluation_runtime_source_contents,
+        task_artifacts=tuple(
+            sorted(
+                (
+                    TaskEvaluationProviderArtifactInput(
+                        mount_path=artifact.artifact.mount_path,
+                        source_files=artifact.artifact.source_files,
+                        source_contents=artifact.source_contents,
+                    )
+                    for artifact in context.starting_artifacts
+                ),
+                key=lambda artifact: artifact.mount_path,
+            )
+        ),
+        request_payload=invocation.task_evaluator_request.to_json_bytes(),
+        trusted_root=trusted_root,
+        workspace_root=workspace_root,
+    )
+
+
 def _container_create_prefix(
     *,
-    identity: SourceReplayDockerResourceIdentity,
+    identity: TaskEvaluationDockerResourceIdentity,
     role: str,
     compute: ExpertSourceReplayComputeBinding,
     settings: TaskEvaluationDockerProviderSettings,
@@ -605,16 +676,18 @@ def _container_create_prefix(
 ) -> tuple[str, ...]:
     name = identity.evaluator_name if role == _EVALUATOR_ROLE else identity.keeper_name
     labels = identity.labels_for(role)
+    label_arguments = tuple(
+        argument
+        for label, value in sorted(labels.items())
+        for argument in ("--label", f"{label}={value}")
+    )
     cpu_quota = compute.cpu_millicore_limit * settings.cpu_period_microseconds // 1000
     return (
         "container",
         "create",
         "--name",
         name,
-        "--label",
-        f"io.kapso.source-replay.handle={labels['io.kapso.source-replay.handle']}",
-        "--label",
-        f"io.kapso.source-replay.role={role}",
+        *label_arguments,
         "--pull",
         "never",
         "--network",
@@ -650,7 +723,7 @@ def _container_create_prefix(
         "--log-driver",
         "none",
         "--hostname",
-        _CONTAINER_HOSTNAME,
+        TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME,
         "--user",
         f"{settings.container_user_id}:{settings.container_group_id}",
         "--workdir",
@@ -717,8 +790,8 @@ def _expected_volume_mount(name: str, *, readonly: bool) -> dict[str, Any]:
 
 
 def _require_container_contract(
-    observation: SourceReplayDockerContainerObservation,
-    identity: SourceReplayDockerResourceIdentity,
+    observation: TaskEvaluationDockerContainerObservation,
+    identity: TaskEvaluationDockerResourceIdentity,
     runtime: TaskAdapterRuntimeContract,
     compute: ExpertSourceReplayComputeBinding,
     settings: TaskEvaluationDockerProviderSettings,
@@ -753,7 +826,7 @@ def _require_container_contract(
         or payload.get("Args") != list(command)
         or payload.get("RestartCount") != 0
         or config.get("Image") != runtime.image_reference
-        or config.get("Hostname") != _CONTAINER_HOSTNAME
+        or config.get("Hostname") != TASK_EVALUATION_DOCKER_CONTAINER_HOSTNAME
         or config.get("User")
         != f"{settings.container_user_id}:{settings.container_group_id}"
         or not _container_environment_is_exact(config.get("Env"), runtime)
@@ -846,8 +919,8 @@ def _container_environment_is_exact(
 
 
 def _container_execution_authority_matches_created(
-    current: SourceReplayDockerContainerObservation,
-    created: SourceReplayDockerContainerObservation,
+    current: TaskEvaluationDockerContainerObservation,
+    created: TaskEvaluationDockerContainerObservation,
 ) -> bool:
     current_host = current.payload.get("HostConfig")
     created_host = created.payload.get("HostConfig")
@@ -882,14 +955,14 @@ def _container_execution_authority_matches_created(
     created_authority_payload = {
         field: created.payload.get(field) for field in authority_fields
     }
-    return source_replay_docker_container_observations_match(
-        SourceReplayDockerContainerObservation(
+    return task_evaluation_docker_container_observations_match(
+        TaskEvaluationDockerContainerObservation(
             container_id=current.container_id,
             name=current.name,
             role=current.role,
             payload=normalized_current_payload,
         ),
-        SourceReplayDockerContainerObservation(
+        TaskEvaluationDockerContainerObservation(
             container_id=created.container_id,
             name=created.name,
             role=created.role,
@@ -1015,7 +1088,7 @@ def _normalized_mounts(payload: Mapping[str, Any]) -> tuple[dict[str, Any], ...]
 
 
 def _require_stopped_evaluator(
-    observation: SourceReplayDockerContainerObservation,
+    observation: TaskEvaluationDockerContainerObservation,
     expected_exit_code: int,
     *,
     require_no_oom: bool,
@@ -1044,7 +1117,7 @@ def _require_stopped_evaluator(
 
 
 def _require_stopped_evaluator_without_exit_authority(
-    observation: SourceReplayDockerContainerObservation,
+    observation: TaskEvaluationDockerContainerObservation,
 ) -> None:
     state = _require_mapping(
         observation.payload,

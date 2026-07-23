@@ -16,7 +16,9 @@ from kapso.cross_run.expert.replay_docker_provider import (
     SourceReplayDockerExecutionProvider,
     SourceReplayDockerProviderError,
 )
-from kapso.cross_run.expert.replay_docker_runtime import SourceReplayDockerRuntime
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
+)
 from kapso.cross_run.expert.replay_execution import (
     expert_source_replay_execution_provider_key,
 )
@@ -40,7 +42,7 @@ def other_prepared_replay_request(tmp_path_factory):
 
 
 def _runtime(trusted_root, settings):
-    runtime = object.__new__(SourceReplayDockerRuntime)
+    runtime = object.__new__(TaskEvaluationDockerRuntime)
     runtime._trusted_root = trusted_root
     runtime._settings = settings
     return runtime
@@ -71,7 +73,7 @@ def test_bootstrap_binds_request_keys_to_one_historical_runtime(
         return runtime
 
     monkeypatch.setattr(
-        bootstrap_module.SourceReplayDockerRuntime,
+        bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         create_runtime,
     )
@@ -163,7 +165,7 @@ def test_registry_rejects_another_prepared_request_without_docker(
         raise AssertionError("request-bound resolution contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.SourceReplayDockerRuntime,
+        bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -219,7 +221,7 @@ def test_bootstrap_rejects_every_unsupported_key_before_runtime_construction(
         raise AssertionError("unsupported protocol contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.SourceReplayDockerRuntime,
+        bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -268,7 +270,7 @@ def test_bootstrap_rejects_unprepared_input_before_runtime_construction(
         raise AssertionError("invalid request contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.SourceReplayDockerRuntime,
+        bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )
@@ -295,7 +297,7 @@ def test_bootstrap_rejects_a_symlinked_configured_workspace_before_runtime(
         raise AssertionError("unsafe workspace contacted Docker")
 
     monkeypatch.setattr(
-        bootstrap_module.SourceReplayDockerRuntime,
+        bootstrap_module.TaskEvaluationDockerRuntime,
         "create",
         reject_runtime_construction,
     )

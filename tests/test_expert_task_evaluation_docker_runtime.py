@@ -7,13 +7,13 @@ from dataclasses import replace
 
 import pytest
 
-import kapso.cross_run.expert.replay_docker_runtime as runtime_module
+import kapso.cross_run.expert.task_evaluation_docker_runtime as runtime_module
 from kapso.core.config import load_config
 from kapso.cross_run.canonical import tree_or_blob_digest
 from kapso.cross_run.contracts import TaskAdapterRuntimeContract
-from kapso.cross_run.expert.replay_docker_runtime import (
-    SourceReplayDockerRuntime,
-    SourceReplayDockerRuntimeError,
+from kapso.cross_run.expert.task_evaluation_docker_runtime import (
+    TaskEvaluationDockerRuntime,
+    TaskEvaluationDockerRuntimeError,
 )
 from kapso.cross_run.process import (
     BoundedProcessOutcome,
@@ -60,8 +60,8 @@ def provider_settings():
 def isolated_local_authority(monkeypatch, provider_settings):
     def read_executable(_path, expected_digest):
         if expected_digest != provider_settings.runtime_executable_digest:
-            raise SourceReplayDockerRuntimeError(
-                "source replay authority executable differs from its pinned digest"
+            raise TaskEvaluationDockerRuntimeError(
+                "task evaluation authority executable differs from its pinned digest"
             )
         return _TEST_EXECUTABLE_BYTES
 
@@ -128,6 +128,7 @@ def _image(runtime):
         "Architecture": runtime.architecture,
         "Config": {
             "Cmd": None,
+            "Entrypoint": None,
             "Env": [f"{key}={value}" for key, value in runtime.environment.items()],
             "Healthcheck": None,
             "Volumes": None,
@@ -156,7 +157,7 @@ def _make_runtime(tmp_path, settings, additional_outputs=()):
             *additional_outputs,
         ]
     )
-    runtime = SourceReplayDockerRuntime(
+    runtime = TaskEvaluationDockerRuntime(
         trusted_root=tmp_path.resolve(),
         settings=settings,
         process_runner=runner,
@@ -166,7 +167,7 @@ def _make_runtime(tmp_path, settings, additional_outputs=()):
 
 def _construct_runtime_after_signal(trusted_root, settings, start_signal):
     start_signal.wait()
-    SourceReplayDockerRuntime(
+    TaskEvaluationDockerRuntime(
         trusted_root=trusted_root,
         settings=settings,
         process_runner=_ScriptedProcessRunner([]),
@@ -244,7 +245,7 @@ def test_independent_process_runtimes_serialize_authority_publication(
         observe_private_directory,
     )
     monkeypatch.setattr(
-        runtime_module.SourceReplayDockerRuntime,
+        runtime_module.TaskEvaluationDockerRuntime,
         "require_live_authority",
         lambda _runtime: None,
     )
@@ -279,7 +280,7 @@ def test_runtime_client_version_is_bound_by_bytes_not_server_version(
         ]
     )
 
-    SourceReplayDockerRuntime(
+    TaskEvaluationDockerRuntime(
         trusted_root=tmp_path.resolve(),
         settings=provider_settings,
         process_runner=runner,
@@ -326,8 +327,8 @@ def test_runtime_rejects_changed_daemon_authority(
         ]
     )
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="daemon differs"):
-        SourceReplayDockerRuntime(
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="daemon differs"):
+        TaskEvaluationDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -349,8 +350,8 @@ def test_runtime_rejects_ambiguous_or_failed_control_output(
         ]
     )
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="failed"):
-        SourceReplayDockerRuntime(
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="failed"):
+        TaskEvaluationDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -365,8 +366,8 @@ def test_runtime_rejects_duplicate_json_keys(tmp_path, provider_settings):
         ]
     )
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="duplicate key"):
-        SourceReplayDockerRuntime(
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="duplicate key"):
+        TaskEvaluationDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -381,8 +382,8 @@ def test_runtime_rejects_nonstandard_json_constants(tmp_path, provider_settings)
         ]
     )
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="nonstandard constant"):
-        SourceReplayDockerRuntime(
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="nonstandard constant"):
+        TaskEvaluationDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=provider_settings,
             process_runner=runner,
@@ -418,6 +419,7 @@ def test_runtime_accepts_only_the_exact_local_image(tmp_path, provider_settings)
         (("Variant",), "v8"),
         (("Config", "Env"), ["LANG=C", "EXTRA=value"]),
         (("Config", "Cmd"), ["inherited"]),
+        (("Config", "Entrypoint"), ["/inherited-entrypoint"]),
         (("Config", "Volumes"), {"/kapso/writable": {}}),
         (("Config", "Healthcheck"), {"Test": ["NONE"]}),
     ),
@@ -440,7 +442,7 @@ def test_runtime_rejects_changed_image_authority(
         _fresh_image_outputs(provider_settings, image),
     )
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="image differs"):
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="image differs"):
         runtime.require_exact_image(runtime_contract)
 
 
@@ -452,7 +454,7 @@ def test_runtime_revalidates_pinned_cli_before_each_command(
     pinned_path = next((tmp_path / "authority").iterdir())
     pinned_path.chmod(0o700)
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="private executable"):
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="private executable"):
         runtime.require_live_authority()
 
 
@@ -467,8 +469,8 @@ def test_runtime_rejects_provider_settings_with_an_unpinned_cli_digest(
         runtime_executable_digest="sha256:" + "f" * 64,
     )
 
-    with pytest.raises(SourceReplayDockerRuntimeError, match="pinned digest"):
-        SourceReplayDockerRuntime(
+    with pytest.raises(TaskEvaluationDockerRuntimeError, match="pinned digest"):
+        TaskEvaluationDockerRuntime(
             trusted_root=tmp_path.resolve(),
             settings=changed,
             process_runner=runner,

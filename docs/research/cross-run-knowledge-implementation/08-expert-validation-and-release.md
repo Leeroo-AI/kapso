@@ -171,7 +171,7 @@ adapter-declared environment must match exactly, while inherited commands,
 volumes, and healthchecks are forbidden. The adapter contract must declare a
 non-empty `PATH`. Container creation explicitly passes every declared variable
 and overlays only the provider-owned `HOME=/kapso/home` and
-`HOSTNAME=kapso-source-replay`; exact container inspection therefore proves the
+`HOSTNAME=kapso-task-evaluation`; exact container inspection therefore proves the
 complete direct-evaluator environment without relying on Docker's implicit Linux
 defaults. The host kernel, root-owned dynamic
 loader/libraries and daemon, and same-UID processes able to mutate the private
@@ -510,6 +510,13 @@ Implemented validation substrate:
   provider handles support idempotent daemon-resource cleanup without reexecution;
   concurrent sessions serialize; and corrupt, forked, substituted, over-bound, or
   unsafe journal state fails loud without a mutable execution snapshot; and
+- source replay now consumes a neutral task-evaluation Docker substrate rather than
+  owning runtime machinery. Pinned CLI/daemon/image authority, handle-labelled
+  resources, owner-private workspaces, verified byte-tree publication, cleanup, and
+  strict BusyBox result-snapshot parsing live under task-evaluation names. Resource
+  ownership accepts only a content-addressed handle ID plus explicit writable limits,
+  so neither source-replay nor matrix contract types become Docker authority; the
+  source-named runtime, resource, filesystem modules and labels are removed; and
 - the task-evaluation journal now has its own minimal four-event contract and
   pure offline prefix reducer. Its sole schedule follows canonical request-case
   order and each case's semantic counterbalanced leg order, so repeated leg IDs
