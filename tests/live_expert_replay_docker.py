@@ -13,7 +13,6 @@ publisher verification remains at the synthetic test-provider boundary.
 from __future__ import annotations
 
 import os
-import subprocess
 import tarfile
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -23,6 +22,13 @@ from pathlib import Path
 from threading import Lock, Thread
 from urllib.parse import urlsplit
 
+from expert_live_docker_support import (
+    assert_no_daemon_resources,
+    cleanup_daemon_resources,
+    remove_exact_image,
+    require_setup_docker_success,
+    run_setup_docker,
+)
 from kapso.cross_run.canonical import canonical_json_bytes, tree_or_blob_digest
 from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
@@ -303,89 +309,27 @@ def _start_local_oci_registry(
     )
 
 
-def _run_setup_docker(settings, docker_config_root: Path, arguments: tuple[str, ...]):
-    return subprocess.run(
-        (
-            settings.runtime_executable_path,
-            "--host",
-            f"unix://{settings.runtime_socket_path}",
-            "--config",
-            str(docker_config_root),
-            *arguments,
-        ),
-        cwd=docker_config_root.parent,
-        env={
-            "DOCKER_API_VERSION": settings.runtime_api_version,
-            "DOCKER_CONFIG": str(docker_config_root),
-            "HOME": str(docker_config_root.parent),
-            "LANG": "C",
-            "LC_ALL": "C",
-        },
-        capture_output=True,
-        timeout=settings.command_timeout_seconds,
-        check=False,
-    )
-
-
-def _require_setup_docker_success(result: subprocess.CompletedProcess) -> None:
-    if result.returncode != 0:
-        raise AssertionError(
-            "real-Docker source-replay setup command failed:\n"
-            f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
-        )
-
-
-def _remove_exact_image(
+def _cleanup_replay_daemon_resources(
     settings,
     docker_config_root: Path,
-    image_reference: str,
+    execution_store: ExpertSourceReplayExecutionStore,
+    reservation,
+    prepared_request,
 ) -> None:
-    result = _run_setup_docker(
+    with execution_store.reservation_session(
+        reservation=reservation,
+        prepared_request=prepared_request,
+    ) as session:
+        provider_handle_ids = tuple(
+            event.provider_execution_handle.provider_handle_id
+            for event in session.events
+            if event.event_kind is SourceReplayExecutionJournalEventKind.SPAWN_COMMITTED
+        )
+    cleanup_daemon_resources(
         settings,
         docker_config_root,
-        ("image", "rm", image_reference),
+        provider_handle_ids,
     )
-    if result.returncode != 0 and b"No such image" not in result.stderr:
-        _require_setup_docker_success(result)
-
-
-def _assert_no_daemon_resources(
-    settings,
-    docker_config_root: Path,
-    provider_handle_ids: tuple[str, ...],
-) -> None:
-    for provider_handle_id in provider_handle_ids:
-        for resource_kind, command in (
-            (
-                "container",
-                (
-                    "container",
-                    "ls",
-                    "--all",
-                    "--filter",
-                    ("label=io.kapso.task-evaluation.handle=" f"{provider_handle_id}"),
-                    "--format",
-                    "{{.ID}}",
-                ),
-            ),
-            (
-                "volume",
-                (
-                    "volume",
-                    "ls",
-                    "--filter",
-                    ("label=io.kapso.task-evaluation.handle=" f"{provider_handle_id}"),
-                    "--format",
-                    "{{.Name}}",
-                ),
-            ),
-        ):
-            result = _run_setup_docker(settings, docker_config_root, command)
-            _require_setup_docker_success(result)
-            assert result.stdout == b"", (
-                f"source replay leaked a handle-owned {resource_kind}: "
-                f"{result.stdout!r}"
-            )
 
 
 def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> None:
@@ -439,12 +383,12 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         docker_config_path.write_bytes(b'{"auths":{}}\n')
         docker_config_path.chmod(0o400)
         cleanup.callback(
-            _remove_exact_image,
+            remove_exact_image,
             provider_settings,
             docker_config_root,
             local_registry.image_reference,
         )
-        pull_result = _run_setup_docker(
+        pull_result = run_setup_docker(
             provider_settings,
             docker_config_root,
             (
@@ -455,7 +399,7 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
                 local_registry.image_reference,
             ),
         )
-        _require_setup_docker_success(pull_result)
+        require_setup_docker_success(pull_result, "source-replay")
         assert local_registry.server.observed_violations == ()
         registry_requests_after_pull = local_registry.server.request_count
 
@@ -467,6 +411,18 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
             (fixture.validation_store.root / "source-replay-executions").resolve(),
             fixture.validation_store.root,
             prepared_request.settings.policy,
+        )
+        committed = fixture.validation_store.reserve_source_replay(
+            expected_transition_id=initial_snapshot.transition.transition_id,
+            prepared_request=prepared_request,
+        )
+        cleanup.callback(
+            _cleanup_replay_daemon_resources,
+            provider_settings,
+            docker_config_root,
+            execution_store,
+            committed.reservation,
+            prepared_request,
         )
         authority_coordinator = _coordinator(
             fixture,
@@ -502,10 +458,6 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         )
         final_snapshot = orchestrator.run(fixture.attempt)
         replayed_snapshot = orchestrator.run(fixture.attempt)
-        committed = fixture.validation_store.reserve_source_replay(
-            expected_transition_id=initial_snapshot.transition.transition_id,
-            prepared_request=prepared_request,
-        )
         with execution_store.reservation_session(
             reservation=committed.reservation,
             prepared_request=prepared_request,
@@ -535,10 +487,11 @@ def test_real_docker_executes_both_journal_owned_replay_legs(tmp_path: Path) -> 
         assert stage_result.stage_decision.hard_regression_comparisons == ()
         assert local_registry.server.request_count == registry_requests_after_pull
         assert local_registry.server.observed_violations == ()
-        _assert_no_daemon_resources(
+        assert_no_daemon_resources(
             provider_settings,
             docker_config_root,
             tuple(provider_handle_ids),
+            "source replay",
         )
         configured_provider_root = (
             tmp_path / provider_settings.workspace_path

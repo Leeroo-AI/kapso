@@ -217,6 +217,17 @@ proves that every handle-owned container, volume, and workspace is gone. The
 fixture synthesizes task-adapter, current-release, and denylist authority; it does
 not exercise their production GitHub transports.
 
+The corresponding task-matrix production check is
+`pytest -q tests/live_expert_task_evaluation_docker.py -s`. One digest-pinned
+loopback image executes both semantic legs of a parent comparison and the sole
+candidate leg of a bootstrap matrix through the request-bound concrete registry,
+double-reopen fresh authority, and four-event durable journal. It asserts the
+candidate/control values by semantic leg kind, reconstructs each completed store
+without a provider or Docker object, proves no registry traffic after the initial
+pull, and leaves no handle-labelled container, volume, or workspace. As above,
+the fixture synthesizes adapter, current-release, and denylist transports while
+exercising their production typed boundaries.
+
 The task evaluator is a blinded scientific ABI, not a view of validation
 authority. Its request/result contracts, canonical parser, stable aggregation,
 mount paths, and opaque `task_evaluation_invocation_*` namespace now live in the
