@@ -14,6 +14,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    ExpertReleaseLineage,
     PublicationArtifactKind,
     StrictContract,
 )
@@ -248,9 +249,9 @@ class ExpertReleasePublicationPlan(StrictContract):
     approval_transition_id: str
     approval_state_id: str
     publication_eligibility_result_id: str
-    parent_release_id: str | None
+    lineage: ExpertReleaseLineage
     current_release_observation: TaskEvaluationCurrentReleaseObservation
-    parent_pointer: CurrentArtifactPointer | None
+    activation_predecessor_pointer: CurrentArtifactPointer | None
     generation: int
     tag: str
     manifest_digest: str
@@ -297,48 +298,63 @@ class ExpertReleasePublicationPlan(StrictContract):
             self.publication_source_tree_digest,
             "release plan publication source tree",
         )
-        if self.parent_release_id is not None:
-            _require_namespaced_id(
-                self.parent_release_id,
-                "expert-base-release",
-                "release plan parent release",
+        source_base_release_id = self.lineage.source_base_release_id
+        activation_predecessor_release_id = (
+            self.lineage.activation_predecessor_release_id
+        )
+        if source_base_release_id != activation_predecessor_release_id:
+            raise ExpertReleaseContractError(
+                "ordinary release plan requires identical source base and "
+                "activation predecessor"
             )
         current = self.current_release_observation
         if (
             type(current) is not TaskEvaluationCurrentReleaseObservation
             or current.scope_id != self.scope_id
-            or current.release_id != self.parent_release_id
+            or current.release_id != activation_predecessor_release_id
         ):
             raise ExpertReleaseContractError(
-                "release plan CURRENT observation differs from its parent"
+                "release plan CURRENT observation differs from its activation "
+                "predecessor"
             )
-        if (self.parent_release_id is None) != (self.parent_pointer is None):
+        if (activation_predecessor_release_id is None) != (
+            self.activation_predecessor_pointer is None
+        ):
             raise ExpertReleaseContractError(
-                "release plan parent pointer presence is inconsistent"
+                "release plan activation predecessor pointer presence is "
+                "inconsistent"
             )
-        if self.parent_pointer is not None:
-            parent_record = self.parent_pointer.publication_record
+        if self.activation_predecessor_pointer is not None:
+            predecessor_record = (
+                self.activation_predecessor_pointer.publication_record
+            )
             if (
-                self.parent_pointer.scope_id != self.scope_id
-                or parent_record.artifact_kind
+                self.activation_predecessor_pointer.scope_id != self.scope_id
+                or predecessor_record.artifact_kind
                 is not PublicationArtifactKind.EXPERT_BASE_RELEASE
-                or parent_record.artifact_id != self.parent_release_id
-                or parent_record.publication_id != current.publication_id
-                or parent_record.repository_full_name != current.repository_full_name
-                or parent_record.repository_node_id != current.repository_node_id
-                or tree_or_blob_digest(self.parent_pointer.to_json_bytes())
+                or predecessor_record.artifact_id
+                != activation_predecessor_release_id
+                or predecessor_record.publication_id != current.publication_id
+                or predecessor_record.repository_full_name
+                != current.repository_full_name
+                or predecessor_record.repository_node_id
+                != current.repository_node_id
+                or tree_or_blob_digest(
+                    self.activation_predecessor_pointer.to_json_bytes()
+                )
                 != current.current_pointer_digest
-                or self.parent_pointer.validation_closure_ids
+                or self.activation_predecessor_pointer.validation_closure_ids
                 != current.validation_closure_ids
             ):
                 raise ExpertReleaseContractError(
-                    "release plan parent pointer differs from CURRENT observation"
+                    "release plan activation predecessor pointer differs from "
+                    "CURRENT observation"
                 )
         if type(self.generation) is not int or self.generation < 0:
             raise ExpertReleaseContractError(
                 "release plan generation must be non-negative"
             )
-        if (self.parent_release_id is None) != (self.generation == 0):
+        if (activation_predecessor_release_id is None) != (self.generation == 0):
             raise ExpertReleaseContractError(
                 "release plan bootstrap and generation disagree"
             )
@@ -348,14 +364,16 @@ class ExpertReleasePublicationPlan(StrictContract):
             raise ExpertReleaseContractError(
                 "release plan tag differs from its generation"
             )
-        if self.parent_pointer is not None:
-            parent_tag_match = re.fullmatch(r"(.*/E)([0-9]+)", parent_record.tag)
+        if self.activation_predecessor_pointer is not None:
+            predecessor_tag_match = re.fullmatch(
+                r"(.*/E)([0-9]+)", predecessor_record.tag
+            )
             new_tag_match = re.fullmatch(r"(.*/E)([0-9]+)", self.tag)
             if (
-                parent_tag_match is None
+                predecessor_tag_match is None
                 or new_tag_match is None
-                or parent_tag_match.group(1) != new_tag_match.group(1)
-                or int(parent_tag_match.group(2)) + 1 != self.generation
+                or predecessor_tag_match.group(1) != new_tag_match.group(1)
+                or int(predecessor_tag_match.group(2)) + 1 != self.generation
             ):
                 raise ExpertReleaseContractError(
                     "release plan generation is not the CURRENT successor"
@@ -375,11 +393,11 @@ class ExpertReleasePublicationPlan(StrictContract):
             self.manifest_consumed_dependency_ids,
             "release plan manifest consumed dependencies",
         )
-        if self.parent_release_id is not None and (
-            self.parent_release_id not in self.manifest_consumed_dependency_ids
+        if source_base_release_id is not None and (
+            source_base_release_id not in self.manifest_consumed_dependency_ids
         ):
             raise ExpertReleaseContractError(
-                "release plan consumed dependencies omit its parent"
+                "release plan consumed dependencies omit its source base"
             )
         _require_sorted_content_ids(
             self.manifest_control_dependency_ids,

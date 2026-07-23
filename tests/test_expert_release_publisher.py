@@ -396,7 +396,7 @@ def test_expert_publisher_derives_package_and_recovers_activation(
     assert captured["publish_calls"] == 1
     if result is not None:
         assert result.telemetry.publication_record.artifact_id == plan.release_id
-    assert captured["gate"].preflight_mode == "parent"
+    assert captured["gate"].preflight_mode == "activation-predecessor"
     assert tuple(asset.name for asset in captured["envelope"].assets) == tuple(
         asset.name for asset in plan.assets
     )

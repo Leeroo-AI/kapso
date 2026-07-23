@@ -17,6 +17,7 @@ from kapso.cross_run.contracts import (
     CodingAgentOperationReceipt,
     CrossRunTaskBindingSettings,
     ExpertBaseReleaseManifest,
+    ExpertReleaseLineage,
     ExpertCapabilityNode,
     ExpertModuleContract,
     ExpertRepositoryMap,
@@ -649,7 +650,7 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
     limited_release = ExpertBaseReleaseManifest.mint(
         scope_contract_id=release.scope_contract_id,
         scope_id=release.scope_id,
-        parent_release_id=release.parent_release_id,
+        lineage=release.lineage,
         candidate_id=release.candidate_id,
         candidate_commit_record_id=release.candidate_commit_record_id,
         candidate_tree_ref=release.candidate_tree_ref,

@@ -19,6 +19,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateSanitationStatus,
     ExpertEvaluatorResultRecord,
     ExpertPromotionState,
+    ExpertReleaseLineage,
     ExpertValidationAttempt,
     StrictContract,
 )
@@ -217,7 +218,7 @@ class ExpertReleaseAssembler:
             or plan.approval_state_id != manifest.approval_state_id
             or plan.publication_eligibility_result_id
             != manifest.publication_eligibility_result_id
-            or plan.parent_release_id != manifest.parent_release_id
+            or plan.lineage != manifest.lineage
             or plan.tag
             != f"{self.github_settings.expert_tag_prefix}E{plan.generation:06d}"
             or plan.manifest_digest != tree_or_blob_digest(manifest.to_json_bytes())
@@ -366,7 +367,12 @@ class ExpertReleaseAssembler:
         manifest = ExpertBaseReleaseManifest.mint(
             scope_contract_id=candidate.scope_contract_id,
             scope_id=closure.validation_context.scope_id,
-            parent_release_id=candidate.parent_release_id,
+            lineage=ExpertReleaseLineage(
+                source_base_release_id=candidate.parent_release_id,
+                activation_predecessor_release_id=(
+                    publication_result.expected_current_release_id
+                ),
+            ),
             candidate_id=candidate.candidate_id,
             candidate_commit_record_id=stored_candidate.commit_record.commit_record_id,
             candidate_tree_ref=candidate.candidate_tree_ref,
@@ -526,7 +532,11 @@ class ExpertReleaseAssembler:
                 manifest.evidence_manifest_ref,
                 manifest.test_matrix_summary_ref,
                 *manifest.evidence_dependency_ids,
-                *((manifest.parent_release_id,) if manifest.parent_release_id else ()),
+                *(
+                    (manifest.lineage.source_base_release_id,)
+                    if manifest.lineage.source_base_release_id
+                    else ()
+                ),
             }
             or manifest.control_dependency_ids
             or (

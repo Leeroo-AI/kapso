@@ -15,6 +15,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ExpertBaseReleaseManifest,
+    ExpertReleaseLineage,
     KnowledgeSnapshotManifest,
     PublicationArtifactKind,
     ScopeRepositorySettings,
@@ -174,7 +175,10 @@ def build_expert_envelope(tmp_path):
     manifest = ExpertBaseReleaseManifest.mint(
         scope_contract_id=scope_contract_id,
         scope_id="ml_ai",
-        parent_release_id=None,
+        lineage=ExpertReleaseLineage(
+            source_base_release_id=None,
+            activation_predecessor_release_id=None,
+        ),
         candidate_id=release_ids["expert-candidate"],
         candidate_commit_record_id=release_ids["expert-candidate-commit"],
         candidate_tree_ref=release_ids["expert-source-tree"],

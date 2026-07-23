@@ -1237,6 +1237,19 @@ content-addressed audit evidence. This is the required substrate for clean forwa
 recovery: a revoked CURRENT predecessor may later be retained as ordering evidence
 without being laundered into, or re-tainting, a clean source lineage.
 
+Release lineage is explicit and no longer encoded by an overloaded parent field.
+`ExpertReleaseLineage.source_base_release_id` names the immutable bytes and
+scientific comparison base; `activation_predecessor_release_id` names the exact
+authenticated GitHub `CURRENT` that publication is ordered after. The accepted
+publication-eligibility fence freezes the latter before deterministic assembly,
+so the manifest is self-contained and can be audited offline. The publication
+plan reproduces that exact lineage, binds `CURRENT` and its pointer only to the
+activation predecessor, and derives generation from that predecessor. Ordinary
+manifests and plans require both IDs to be equal; bootstrap requires both absent.
+The old `parent_release_id`/`parent_pointer` release fields are removed rather
+than retained as aliases. Candidate and evaluation parent fields still denote
+the scientific source base until their dedicated semantic-rename slice.
+
 Clean recovery will be a dedicated whole-tree rollback-as-forward path, not an
 exception in the normal zero-match gate. It separates the independently clean
 source/comparison base from the actual activation predecessor. Normal evolution
@@ -1311,6 +1324,8 @@ fails before touching GitHub.
       dependencies and persist the matched root records in the release receipt.
 - [x] Separate taint-propagating consumed dependencies from control-only activation
       evidence, with exact disjoint closures and fail-loud replay validation.
+- [x] Split release source-base lineage from activation-predecessor ordering while
+      retaining the ordinary equality invariant.
 - [ ] Publish a clean successor/rollback pointer; never move or delete the old
       immutable release as the history mechanism.
 

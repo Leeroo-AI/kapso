@@ -120,7 +120,9 @@ class ExpertReleasePublicationGate:
     ) -> None:
         self.publisher = publisher
         self.reservation = reservation
-        self.expected_parent_pointer: CurrentArtifactPointer | None = None
+        self.expected_activation_predecessor_pointer: CurrentArtifactPointer | None = (
+            None
+        )
         self.preflight_mode: str | None = None
 
     def validate_before_publication(
@@ -152,12 +154,12 @@ class ExpertReleasePublicationGate:
             reservation=reservation,
         )
         pointer = current_state.pointer
-        if pointer == plan.parent_pointer:
+        if pointer == plan.activation_predecessor_pointer:
             if current_state.head_commit_sha != (
                 plan.current_release_observation.default_branch_head_commit_sha
             ):
                 raise ExpertReleasePublicationError(
-                    "expert parent CURRENT is not at its reserved stable head"
+                    "expert activation predecessor is not at its reserved stable head"
                 )
             observed = self.publisher._refresh_publication_authority(
                 reservation=reservation,
@@ -169,8 +171,10 @@ class ExpertReleasePublicationGate:
                 current_state,
                 observed,
             )
-            self.expected_parent_pointer = plan.parent_pointer
-            self.preflight_mode = "parent"
+            self.expected_activation_predecessor_pointer = (
+                plan.activation_predecessor_pointer
+            )
+            self.preflight_mode = "activation-predecessor"
             return
         if pointer is not None and (
             pointer.publication_record.artifact_id == plan.release_id
@@ -188,7 +192,8 @@ class ExpertReleasePublicationGate:
             self.preflight_mode = "active-release"
             return
         raise ExpertReleasePublicationError(
-            "expert CURRENT is neither the reserved parent nor release"
+            "expert CURRENT is neither the reserved activation predecessor nor "
+            "release"
         )
 
     def revalidate_before_activation(
@@ -199,9 +204,9 @@ class ExpertReleasePublicationGate:
         pointer: CurrentArtifactPointer,
         manifest: ExpertBaseReleaseManifest,
     ) -> None:
-        if self.preflight_mode != "parent":
+        if self.preflight_mode != "activation-predecessor":
             raise ExpertReleasePublicationError(
-                "expert activation was not preauthorized from its parent"
+                "expert activation was not preauthorized from its predecessor"
             )
         reservation = self.publisher._require_reservation(self.reservation)
         plan = reservation.plan
@@ -216,7 +221,7 @@ class ExpertReleasePublicationGate:
             allow_missing=True,
         )
         if (
-            current_state.pointer != self.expected_parent_pointer
+            current_state.pointer != self.expected_activation_predecessor_pointer
             or current_state.head_commit_sha != envelope.expected_parent_sha
         ):
             raise ExpertReleasePublicationError(
@@ -1000,9 +1005,10 @@ class ExpertReleasePublisher:
             raise ExpertReleasePublicationError(
                 "active reserved release requires RELEASED recovery"
             )
-        if active_release_id == plan.parent_release_id:
+        if active_release_id == plan.lineage.activation_predecessor_release_id:
             raise ExpertReleasePublicationError(
-                "pending parent-preserving publication must resume before resolution"
+                "pending predecessor-preserving publication must resume before "
+                "resolution"
             )
         observed = self.current_release_authority.observe_task_evaluation_current(
             plan.scope_id

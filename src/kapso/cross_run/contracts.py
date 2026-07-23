@@ -4457,11 +4457,41 @@ class ExpertCandidateValidationState(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertReleaseLineage(StrictContract):
+    """Scientific source and remote activation ordering for one release."""
+
+    source_base_release_id: str | None
+    activation_predecessor_release_id: str | None
+
+    def _validate(self) -> None:
+        for value, name in (
+            (self.source_base_release_id, "source_base_release_id"),
+            (
+                self.activation_predecessor_release_id,
+                "activation_predecessor_release_id",
+            ),
+        ):
+            if value is None:
+                continue
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != "expert-base-release":
+                raise ContractValidationError(f"{name} uses the wrong namespace")
+        if (
+            self.activation_predecessor_release_id is None
+            and self.source_base_release_id is not None
+        ):
+            raise ContractValidationError(
+                "release lineage cannot consume a source base without an "
+                "activation predecessor"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertBaseReleaseManifest(StrictContract):
     release_id: str
     scope_contract_id: str
     scope_id: str
-    parent_release_id: str | None
+    lineage: ExpertReleaseLineage
     candidate_id: str
     candidate_commit_record_id: str
     candidate_tree_ref: str
@@ -4592,14 +4622,14 @@ class ExpertBaseReleaseManifest(StrictContract):
                 "candidate_derivation_ref uses the wrong namespace"
             )
         require_identifier(self.scope_id, "scope_id")
-        if self.parent_release_id is not None:
-            require_content_id(self.parent_release_id, "parent_release_id")
-            if self.parent_release_id.split(":sha256:", 1)[0] != (
-                "expert-base-release"
-            ):
-                raise ContractValidationError(
-                    "parent_release_id uses the wrong namespace"
-                )
+        if (
+            self.lineage.source_base_release_id
+            != self.lineage.activation_predecessor_release_id
+        ):
+            raise ContractValidationError(
+                "ordinary expert release requires identical source base and "
+                "activation predecessor"
+            )
         _require_digest(self.candidate_tree_hash, "candidate_tree_hash")
         for values, name, required in (
             (self.candidate_ancestor_ids, "candidate_ancestor_ids", False),
@@ -4702,8 +4732,8 @@ class ExpertBaseReleaseManifest(StrictContract):
             self.evidence_manifest_ref,
             self.test_matrix_summary_ref,
         }
-        if self.parent_release_id is not None:
-            required_dependencies.add(self.parent_release_id)
+        if self.lineage.source_base_release_id is not None:
+            required_dependencies.add(self.lineage.source_base_release_id)
         required_dependencies.update(self.evidence_dependency_ids)
         if set(self.consumed_dependency_ids) != required_dependencies:
             raise MissingReferenceError(

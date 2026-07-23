@@ -14,6 +14,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     ExpertPromotionState,
+    ExpertReleaseLineage,
     GitHubPublicationRecord,
     GitHubReleaseAsset,
     PublicationArtifactKind,
@@ -67,7 +68,7 @@ from kapso.cross_run.source_archives import (
 from test_expert_promotion_decision import _settings
 from test_expert_promotion_evidence import _bootstrap_prepared_with_store
 from test_expert_promotion_stage import _completed_runtime
-from test_expert_publication_eligibility import _coordinator
+from test_expert_publication_eligibility import _coordinator, _publish_matrix
 from kapso.cross_run.expert.promotion_stage import ExpertReleaseMatrixStageCoordinator
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
@@ -114,7 +115,52 @@ def _approved_bootstrap(tmp_path, monkeypatch):
     return validation_store, matrix, approval, authority
 
 
-def _publication_plan(package, approval, settings):
+def _approved_normal(tmp_path, monkeypatch):
+    validation_settings = _settings(minimum_replicates=1, minimum_pairs=2)
+    case = _publish_matrix(
+        tmp_path,
+        monkeypatch,
+        bootstrap=False,
+        settings=validation_settings,
+    )
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    release_id = case.prepared.current_release_observation.release_id
+    assert release_id is not None
+    predecessor_pointer = _activation_predecessor_pointer(release_id, settings)
+    predecessor_record = predecessor_pointer.publication_record
+    observation = TaskEvaluationCurrentReleaseObservation.mint(
+        scope_id=predecessor_pointer.scope_id,
+        release_id=release_id,
+        publication_id=predecessor_record.publication_id,
+        repository_full_name=predecessor_record.repository_full_name,
+        repository_node_id=predecessor_record.repository_node_id,
+        default_branch_head_commit_sha="c" * 40,
+        current_pointer_digest=tree_or_blob_digest(
+            predecessor_pointer.to_json_bytes()
+        ),
+        validation_closure_ids=predecessor_pointer.validation_closure_ids,
+    )
+    authority = _coordinator(
+        case,
+        current_observations=(observation, observation),
+    )
+    approval = authority.coordinator.publish(
+        candidate_id=case.matrix_commit.snapshot.state.candidate_id,
+        release_matrix_stage_result_id=(
+            case.matrix_commit.stage_result.stage_result_record_id
+        ),
+    )
+    return case.validation_store, approval, authority, predecessor_pointer
+
+
+def _publication_plan(
+    package,
+    approval,
+    settings,
+    activation_predecessor_pointer=None,
+):
     assets = tuple(
         sorted(
             (
@@ -134,6 +180,14 @@ def _publication_plan(package, approval, settings):
         )
     )
     publication_result = approval.stage_result
+    generation = (
+        0
+        if activation_predecessor_pointer is None
+        else int(
+            activation_predecessor_pointer.publication_record.tag.rsplit("E", 1)[1]
+        )
+        + 1
+    )
     return ExpertReleasePublicationPlan.mint(
         scope_contract_id=package.manifest.scope_contract_id,
         scope_id=package.manifest.scope_id,
@@ -146,13 +200,20 @@ def _publication_plan(package, approval, settings):
         publication_eligibility_result_id=(
             package.manifest.publication_eligibility_result_id
         ),
-        parent_release_id=package.manifest.parent_release_id,
+        lineage=ExpertReleaseLineage(
+            source_base_release_id=(
+                package.manifest.lineage.source_base_release_id
+            ),
+            activation_predecessor_release_id=(
+                publication_result.expected_current_release_id
+            ),
+        ),
         current_release_observation=(
             publication_result.publication_authority_fence.current_release_observation
         ),
-        parent_pointer=None,
-        generation=0,
-        tag=f"{settings.github.expert_tag_prefix}E000000",
+        activation_predecessor_pointer=activation_predecessor_pointer,
+        generation=generation,
+        tag=f"{settings.github.expert_tag_prefix}E{generation:06d}",
         manifest_digest=tree_or_blob_digest(package.manifest.to_json_bytes()),
         publication_source_tree_digest=source_tree_digest(
             {
@@ -172,6 +233,40 @@ def _publication_plan(package, approval, settings):
                 }
             )
         ),
+    )
+
+
+def _activation_predecessor_pointer(release_id, settings):
+    asset = GitHubReleaseAsset(
+        asset_id="predecessor-asset",
+        name="expert-source.tar.zst",
+        media_type="application/zstd",
+        size=1,
+        sha256=tree_or_blob_digest(b"predecessor"),
+    )
+    publication = GitHubPublicationRecord.mint(
+        artifact_kind=PublicationArtifactKind.EXPERT_BASE_RELEASE,
+        artifact_id=release_id,
+        repository_node_id="expert_repo_node",
+        repository_full_name="Leeroo-AI/kapso-expert",
+        commit_sha="a" * 40,
+        immutable_release_id="predecessor-release",
+        tag=f"{settings.github.expert_tag_prefix}E000000",
+        assets=(asset,),
+        release_attestation_ref="attestation-predecessor",
+        published_at="2026-07-21T11:00:00Z",
+        publisher_identity="leeroo-coder",
+    )
+    return CurrentArtifactPointer(
+        scope_id="ml_ai",
+        publication_record=publication,
+        publication_intent_digest=tree_or_blob_digest(b"predecessor-intent"),
+        source_tree_digest=tree_or_blob_digest(b"predecessor-source"),
+        source_git_tree_sha="b" * 40,
+        materialized_tree_digest=tree_or_blob_digest(b"predecessor-materialized"),
+        manifest_relative_path=EXPERT_RELEASE_MANIFEST_PATH,
+        manifest_digest=tree_or_blob_digest(b"predecessor-manifest"),
+        validation_closure_ids=(release_id,),
     )
 
 
@@ -366,6 +461,60 @@ def test_release_assembly_is_exact_deterministic_and_approval_only(
                 )
             ),
         )
+
+
+def test_normal_release_binds_source_base_and_activation_predecessor(
+    tmp_path,
+    monkeypatch,
+):
+    validation_store, approval, _authority, predecessor_pointer = _approved_normal(
+        tmp_path,
+        monkeypatch,
+    )
+    candidate_store = validation_store.reducer.candidate_store
+    settings = CrossRunSettings.from_dict(
+        load_config(CANONICAL_CONFIG_PATH)["cross_run"]
+    )
+    assembler = ExpertReleaseAssembler(
+        candidate_store=candidate_store,
+        validation_store=validation_store,
+        expert_settings=candidate_store.validator.settings,
+        github_settings=settings.github,
+    )
+    package = assembler.build(candidate_id=approval.snapshot.state.candidate_id)
+    plan = _publication_plan(
+        package,
+        approval,
+        settings,
+        predecessor_pointer,
+    )
+    source_base_id = package.manifest.lineage.source_base_release_id
+
+    assert source_base_id is not None
+    assert package.manifest.lineage.activation_predecessor_release_id == (
+        source_base_id
+    )
+    assert plan.lineage == package.manifest.lineage
+    assert plan.current_release_observation.release_id == source_base_id
+    assert plan.activation_predecessor_pointer == predecessor_pointer
+    assert plan.generation == 1
+    assert source_base_id in package.manifest.consumed_dependency_ids
+    assert package.manifest.control_dependency_ids == ()
+
+    permit = assembler.authorize_publication_plan(package=package, plan=plan)
+    committed = validation_store.reserve_release_publication(
+        permit,
+        committed_at="2026-07-21T12:00:00Z",
+    )
+    reopened = ExpertValidationStore(
+        validation_store.root,
+        validation_store.state_root,
+        validation_store.settings,
+        validation_store.reducer,
+    ).reopen_release_publication(plan.candidate_id)
+
+    assert committed.reservation.plan == plan
+    assert reopened == committed.reservation
 
 
 @pytest.mark.parametrize(
@@ -726,6 +875,24 @@ def test_release_publication_reservation_rejects_a_conflicting_plan(
     )
     package = assembler.build(candidate_id=approval.snapshot.state.candidate_id)
     plan = _publication_plan(package, approval, settings)
+    legacy_plan = plan.to_dict()
+    legacy_plan["parent_release_id"] = None
+    legacy_plan["parent_pointer"] = None
+    legacy_plan.pop("lineage")
+    legacy_plan.pop("activation_predecessor_pointer")
+    with pytest.raises(ValueError, match="fields mismatch"):
+        ExpertReleasePublicationPlan.from_dict(legacy_plan)
+    unequal_values = plan.to_dict()
+    unequal_values.pop("publication_plan_id")
+    unequal_values["lineage"] = ExpertReleaseLineage(
+        source_base_release_id=None,
+        activation_predecessor_release_id=content_id(
+            "expert-base-release",
+            {"release": "unexpected-current"},
+        ),
+    )
+    with pytest.raises(ValueError, match="identical source base"):
+        ExpertReleasePublicationPlan.mint(**unequal_values)
     permit = assembler.authorize_publication_plan(package=package, plan=plan)
     validation_store.reserve_release_publication(
         permit,

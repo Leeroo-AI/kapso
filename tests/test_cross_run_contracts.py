@@ -37,6 +37,7 @@ from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExecutionStatus,
     ExpertBaseReleaseManifest,
+    ExpertReleaseLineage,
     ExpertCandidateDerivationKind,
     ExpertCandidateOperationKind,
     ExpertCandidateOperationRecord,
@@ -508,7 +509,10 @@ def build_records(
     expert_release = ExpertBaseReleaseManifest.mint(
         scope_contract_id=scope.scope_contract_id,
         scope_id="ml_ai",
-        parent_release_id=None,
+        lineage=ExpertReleaseLineage(
+            source_base_release_id=None,
+            activation_predecessor_release_id=None,
+        ),
         candidate_id=release_ids["expert-candidate"],
         candidate_commit_record_id=release_ids["expert-candidate-commit"],
         candidate_tree_ref=release_ids["expert-source-tree"],
@@ -1641,6 +1645,61 @@ def test_expert_release_identity_contains_all_scientific_fields():
         replace(release, semantic_book_digest=digest("changed-book"))
     with pytest.raises(ContractValidationError, match="supported release asset"):
         replace(release, source_archive_ref="nested/expert.tar.zst")
+
+
+def test_expert_release_lineage_separates_source_from_activation_ordering():
+    source_base_id = content_id("expert-base-release", {"release": "source"})
+    predecessor_id = content_id("expert-base-release", {"release": "current"})
+
+    assert ExpertReleaseLineage(None, None) == ExpertReleaseLineage(None, None)
+    assert ExpertReleaseLineage(source_base_id, source_base_id) == (
+        ExpertReleaseLineage(source_base_id, source_base_id)
+    )
+    assert ExpertReleaseLineage(source_base_id, predecessor_id) == (
+        ExpertReleaseLineage(source_base_id, predecessor_id)
+    )
+    assert ExpertReleaseLineage(None, predecessor_id) == (
+        ExpertReleaseLineage(None, predecessor_id)
+    )
+    with pytest.raises(ContractValidationError, match="without an activation"):
+        ExpertReleaseLineage(source_base_id, None)
+    with pytest.raises(ContractValidationError, match="wrong namespace"):
+        ExpertReleaseLineage(
+            content_id("expert-candidate", {"candidate": "wrong"}),
+            predecessor_id,
+        )
+
+
+def test_ordinary_expert_release_requires_one_consumed_lineage_release():
+    bootstrap = next(
+        record
+        for record in build_records()
+        if isinstance(record, ExpertBaseReleaseManifest)
+    )
+    source_base_id = content_id("expert-base-release", {"release": "source"})
+    values = bootstrap.to_dict()
+    values.pop("release_id")
+    values["lineage"] = ExpertReleaseLineage(source_base_id, source_base_id)
+    values["consumed_dependency_ids"] = tuple(
+        sorted((*bootstrap.consumed_dependency_ids, source_base_id))
+    )
+    normal = ExpertBaseReleaseManifest.mint(**values)
+
+    assert source_base_id in normal.consumed_dependency_ids
+    assert normal.control_dependency_ids == ()
+    with pytest.raises(ContractValidationError, match="identical source base"):
+        replace(
+            normal,
+            lineage=ExpertReleaseLineage(
+                source_base_id,
+                content_id("expert-base-release", {"release": "other"}),
+            ),
+        )
+    legacy = normal.to_dict()
+    legacy["parent_release_id"] = source_base_id
+    legacy.pop("lineage")
+    with pytest.raises(ContractValidationError, match="fields mismatch"):
+        ExpertBaseReleaseManifest.from_dict(legacy)
 
 
 def test_scope_validates_both_families_without_domain_conditionals():

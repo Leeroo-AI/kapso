@@ -1801,7 +1801,8 @@ class ExpertValidationStore:
             or observed_current.repository_node_id != planned.repository_node_id
             or observed_current.release_id is None
             or observed_current.release_id == plan.release_id
-            or observed_current.release_id == plan.parent_release_id
+            or observed_current.release_id
+            == plan.lineage.activation_predecessor_release_id
             or observed_current == planned
         ):
             raise ExpertValidationStoreError(
@@ -1954,10 +1955,10 @@ class ExpertValidationStore:
             (asset.name, asset.media_type, asset.size, asset.sha256)
             for asset in own_intent.assets
         )
-        if plan.parent_pointer is None:
+        if plan.activation_predecessor_pointer is None:
             preserved_current_matches = own_intent.preserved_current is None
         else:
-            payload = plan.parent_pointer.to_json_bytes()
+            payload = plan.activation_predecessor_pointer.to_json_bytes()
             preserved = own_intent.preserved_current
             preserved_current_matches = preserved is not None and (
                 preserved.relative_path == "CURRENT.json"
@@ -4712,7 +4713,7 @@ class ExpertValidationStore:
             or plan.approval_state_id != manifest.approval_state_id
             or plan.publication_eligibility_result_id
             != manifest.publication_eligibility_result_id
-            or plan.parent_release_id != manifest.parent_release_id
+            or plan.lineage != manifest.lineage
             or plan.manifest_digest != tree_or_blob_digest(manifest.to_json_bytes())
             or plan.manifest_consumed_dependency_ids != manifest.consumed_dependency_ids
             or plan.manifest_control_dependency_ids != manifest.control_dependency_ids
@@ -4734,8 +4735,9 @@ class ExpertValidationStore:
             or plan.scope_contract_id != attempt.scope_contract_id
             or plan.scope_contract_id != publication_result.scope_contract_id
             or plan.scope_id != publication_result.scope_id
-            or plan.parent_release_id != attempt.parent_release_id
-            or plan.parent_release_id != publication_result.expected_current_release_id
+            or plan.lineage.source_base_release_id != attempt.parent_release_id
+            or plan.lineage.activation_predecessor_release_id
+            != publication_result.expected_current_release_id
             or plan.current_release_observation
             != publication_result.publication_authority_fence.current_release_observation
             or publication_result.validation_attempt_id != attempt.validation_attempt_id
