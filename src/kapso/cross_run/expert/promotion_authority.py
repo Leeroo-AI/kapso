@@ -582,6 +582,9 @@ def publication_eligibility_candidate_security_subject_ids(
             closure.validation_context.stable_dependency_ids
         ),
     )
+    source_base_release = closure.validation_context.source_base_release
+    if source_base_release is not None:
+        subjects.update(source_base_release.consumed_dependency_ids)
     derivation = closure.derivation
     if (
         manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL
@@ -640,6 +643,7 @@ def _candidate_manifest_security_subject_ids(
         manifest.proposed_repository_map_ref,
         manifest.sanitation_report_id,
         *manifest.module_contract_refs,
+        *manifest.consumed_expert_release_ids,
         *manifest.source_dependency_ids,
         *manifest.ancestor_candidate_ids,
         *validation_context_dependency_ids,
@@ -755,6 +759,7 @@ def _candidate_ancestor_security_subject_ids(
         manifest.proposed_repository_map_ref,
         manifest.sanitation_report_id,
         *manifest.module_contract_refs,
+        *manifest.consumed_expert_release_ids,
         *manifest.source_dependency_ids,
         *manifest.ancestor_candidate_ids,
     }

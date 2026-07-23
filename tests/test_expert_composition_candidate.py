@@ -86,6 +86,14 @@ def test_clean_composition_projects_one_valid_behavioral_candidate(reducer_case)
     assert closure.manifest.ancestor_candidate_ids == (
         source_closure.manifest.candidate_id,
     )
+    assert set(closure.manifest.consumed_expert_release_ids) == {
+        reducer_case.parent_base.release_manifest.release_id,
+        *source_closure.manifest.consumed_expert_release_ids,
+        *(
+            episode.artifact_environment.expert_base_release_id
+            for episode in closure.validation_context.replay_evidence.episodes
+        ),
+    }
     assert closure.validation_track is ExpertValidationTrack.BEHAVIORAL_CAPABILITY
     assert closure.patch == reduction.materialization.patch
     assert closure.candidate_tree == reduction.materialization.source_tree
@@ -97,6 +105,30 @@ def test_clean_composition_projects_one_valid_behavioral_candidate(reducer_case)
 
     _, _, replayed = _project(reducer_case)
     assert replayed == closure
+
+
+def test_composition_validator_rejects_release_lineage_substitution(reducer_case):
+    _, _, closure = _project(reducer_case)
+    forged_release = content_id(
+        "expert-base-release",
+        {"forged": "composition lineage"},
+    )
+    forged_manifest = _remint(
+        closure.manifest,
+        consumed_expert_release_ids=tuple(
+            sorted(
+                {
+                    *closure.manifest.consumed_expert_release_ids,
+                    forged_release,
+                }
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="materialization or provenance"):
+        reducer_case.source._resolver.candidate_store.validator.validate(
+            replace(closure, manifest=forged_manifest)
+        )
 
 
 def test_composition_candidate_package_codec_is_exact(reducer_case, tmp_path):

@@ -498,6 +498,14 @@ def bootstrap_candidate_closure(
         source_base_release_id=None,
         source_base_repository_map_ref=None,
         source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        consumed_expert_release_ids=tuple(
+            sorted(
+                {
+                    episode.artifact_environment.expert_base_release_id
+                    for episode in validation_context.replay_evidence.episodes
+                }
+            )
+        ),
         derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
         derivation_ref=(
             content_id(

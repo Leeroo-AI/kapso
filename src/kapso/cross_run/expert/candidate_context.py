@@ -239,6 +239,38 @@ class ExpertCandidateReplayEvidence(StrictContract):
                 )
 
 
+def candidate_consumed_expert_release_ids(
+    *,
+    source_base_release_id: str | None,
+    replay_evidence: ExpertCandidateReplayEvidence,
+    inherited_release_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Project the transitive releases whose code or run outputs shaped a candidate."""
+
+    if (
+        type(replay_evidence) is not ExpertCandidateReplayEvidence
+        or type(inherited_release_ids) is not tuple
+    ):
+        raise ExpertCandidateContextError(
+            "candidate release-use lineage requires exact typed inputs"
+        )
+    release_ids = set(inherited_release_ids)
+    if source_base_release_id is not None:
+        release_ids.add(source_base_release_id)
+    release_ids.update(
+        episode.artifact_environment.expert_base_release_id
+        for episode in replay_evidence.episodes
+    )
+    ordered = tuple(sorted(release_ids))
+    for release_id in ordered:
+        require_content_id(release_id, "candidate consumed expert release")
+        if release_id.split(":sha256:", 1)[0] != "expert-base-release":
+            raise ExpertCandidateContextError(
+                "candidate consumed expert release uses the wrong namespace"
+            )
+    return ordered
+
+
 @dataclass(frozen=True)
 class ExpertCandidateValidationContext(StrictContract):
     """Stable origin-neutral context consumed by the validation cascade."""
@@ -294,12 +326,15 @@ class ExpertCandidateValidationContext(StrictContract):
             or type(self.source_base_repository_map) is not ExpertRepositoryMap
             or self.source_base_release.scope_contract_id
             != self.source_base_scope_contract.scope_contract_id
-            or self.source_base_release.scope_id != self.source_base_scope_contract.scope_id
+            or self.source_base_release.scope_id
+            != self.source_base_scope_contract.scope_id
             or self.source_base_scope_contract.scope_id != self.scope_contract.scope_id
-            or self.source_base_release.release_id != self.source_base_tree_receipt.release_id
+            or self.source_base_release.release_id
+            != self.source_base_tree_receipt.release_id
             or self.source_base_release.repository_map_ref
             != self.source_base_repository_map.repository_map_id
-            or self.source_base_tree_hash != self.source_base_tree_receipt.source_base_tree_hash
+            or self.source_base_tree_hash
+            != self.source_base_tree_receipt.source_base_tree_hash
             or self.source_base_repository_map.scope_contract_id
             != self.source_base_scope_contract.scope_contract_id
             or dict(self.source_base_release.module_versions)
@@ -349,7 +384,8 @@ class ExpertCandidateValidationContext(StrictContract):
                     )
             module_contract_ids = tuple(
                 sorted(
-                    module.module_contract_id for module in self.source_base_module_contracts
+                    module.module_contract_id
+                    for module in self.source_base_module_contracts
                 )
             )
             map_contract_ids = tuple(
@@ -724,7 +760,10 @@ def project_agent_candidate_validation_context(
                 packet.source_base_tree_receipt.source_base_tree_receipt_id,
                 packet.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
                 packet.source_base_repository_map.repository_map_id,
-                *(module.module_contract_id for module in packet.source_base_module_contracts),
+                *(
+                    module.module_contract_id
+                    for module in packet.source_base_module_contracts
+                ),
             }
         )
     return ExpertCandidateValidationContext.mint(

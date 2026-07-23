@@ -134,9 +134,7 @@ def _approved_normal(tmp_path, monkeypatch):
         repository_full_name=predecessor_record.repository_full_name,
         repository_node_id=predecessor_record.repository_node_id,
         default_branch_head_commit_sha="c" * 40,
-        current_pointer_digest=tree_or_blob_digest(
-            predecessor_pointer.to_json_bytes()
-        ),
+        current_pointer_digest=tree_or_blob_digest(predecessor_pointer.to_json_bytes()),
         validation_closure_ids=predecessor_pointer.validation_closure_ids,
     )
     authority = _coordinator(
@@ -399,6 +397,12 @@ def test_release_assembly_is_exact_deterministic_and_approval_only(
     assert first.evidence_manifest.evidence_manifest_id in (
         first.manifest.consumed_dependency_ids
     )
+    assert first.manifest.candidate_consumed_expert_release_ids == (
+        stored_candidate.closure.manifest.consumed_expert_release_ids
+    )
+    assert set(first.manifest.candidate_consumed_expert_release_ids).issubset(
+        first.manifest.consumed_dependency_ids
+    )
     assert EXPERT_RELEASE_EVIDENCE_MANIFEST_PATH in first.evidence_files
     assert EXPERT_RELEASE_MANIFEST_PATH in first.publication_files
     assert not any(
@@ -477,6 +481,7 @@ def test_normal_release_binds_source_base_and_activation_predecessor(
     assert plan.activation_predecessor_pointer == predecessor_pointer
     assert plan.generation == 1
     assert source_base_id in package.manifest.consumed_dependency_ids
+    assert source_base_id in package.manifest.candidate_consumed_expert_release_ids
     assert package.manifest.control_dependency_ids == ()
 
     reopened = ExpertValidationStore(
@@ -555,9 +560,7 @@ def test_release_publication_reservation_is_durable_idempotent_and_freezes_head(
             )
         )
     committed = next(result for result in concurrent_results if not result.replayed)
-    concurrent_replay = next(
-        result for result in concurrent_results if result.replayed
-    )
+    concurrent_replay = next(result for result in concurrent_results if result.replayed)
     publisher.current_release_authority.observe_task_evaluation_current = (
         lambda scope_id: pytest.fail(
             "durable reservation replay must not read remote CURRENT"

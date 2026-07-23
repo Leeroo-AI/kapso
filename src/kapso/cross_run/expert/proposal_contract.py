@@ -28,6 +28,7 @@ from kapso.cross_run.contracts import (
     ExpertSourceTreeManifest,
     ExpertTaskAdapterBoundary,
     StrictContract,
+    TransferEpisode,
 )
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
@@ -41,6 +42,7 @@ from kapso.cross_run.expert.triggers import (
     ExpertTriggerEvidencePacket,
 )
 from kapso.cross_run.knowledge.access import PriorKnowledgeAccessMaterialization
+from kapso.cross_run.record_registry import parse_knowledge_record_payload
 
 EXPERT_PROPOSAL_CONTRACT_VERSION = "kapso.expert_proposal.v1"
 EXPERT_PROPOSAL_PACKET_MARKER = "EXPERT_PROPOSAL_PACKET_JSON"
@@ -402,6 +404,37 @@ def expert_candidate_source_dependency_ids(
     return tuple(sorted(dependencies))
 
 
+def expert_candidate_prior_knowledge_release_ids(
+    prior_knowledge: PriorKnowledgeAccessMaterialization | None,
+) -> tuple[str, ...]:
+    """Project expert releases from every prior episode visible to the proposer."""
+
+    if prior_knowledge is None:
+        return ()
+    snapshot = prior_knowledge.prior_knowledge_snapshot
+    envelopes = (*snapshot.selected_records, *prior_knowledge.proof_records)
+    episodes = tuple(
+        parse_knowledge_record_payload(
+            envelope["record_kind"],
+            envelope["payload"],
+        )
+        for envelope in envelopes
+        if envelope["record_kind"] == "transfer-episode"
+    )
+    if any(type(episode) is not TransferEpisode for episode in episodes):
+        raise ExpertProposalContractError(
+            "prior-knowledge episode uses another record type"
+        )
+    return tuple(
+        sorted(
+            {
+                episode.artifact_environment.expert_base_release_id
+                for episode in episodes
+            }
+        )
+    )
+
+
 def build_expert_proposal_packet(
     *,
     packet: ExpertTriggerEvidencePacket,
@@ -558,7 +591,9 @@ def _validate_restructure_authority(
         raise ExpertProposalContractError(
             "restructure requires a released source-base repository map"
         )
-    source_base_modules = {module.module_id: module for module in packet.source_base_module_contracts}
+    source_base_modules = {
+        module.module_id: module for module in packet.source_base_module_contracts
+    }
     current_modules = {module.module_id: module for module in modules}
     for module_id in sorted(set(source_base_modules) & set(current_modules)):
         source_base_module = source_base_modules[module_id]
@@ -642,7 +677,9 @@ def _derive_generalized_topology(
         raise ExpertProposalContractError(
             "generalization requires a released source-base repository map"
         )
-    source_base_modules = {module.module_id: module for module in packet.source_base_module_contracts}
+    source_base_modules = {
+        module.module_id: module for module in packet.source_base_module_contracts
+    }
     changed_modules = {
         module.module_id: module.mint_contract()
         for module in proposal.changed_module_contracts

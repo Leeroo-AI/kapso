@@ -192,6 +192,7 @@ def build_expert_envelope(tmp_path):
         candidate_sanitation_report_id=release_ids["expert-candidate-sanitation"],
         candidate_ancestor_ids=(),
         candidate_source_dependency_ids=(scope_contract_id,),
+        candidate_consumed_expert_release_ids=(),
         repository_map_ref=repository_map_id,
         module_contract_refs=(release_ids["expert-module-contract"],),
         module_versions={"shared.runner": "v1"},

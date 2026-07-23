@@ -10,6 +10,7 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
+    ArtifactEnvironment,
     CandidateChangeKind,
     ContractValidationError,
     ExpertCandidateDerivationKind,
@@ -29,6 +30,7 @@ from kapso.cross_run.contracts import (
     ExpertSanitationSeverity,
     ExpertSourceTreeManifest,
     IdentityConflictError,
+    MissingReferenceError,
     SourceFileDescriptor,
 )
 from test_cross_run_contracts import build_records
@@ -40,6 +42,19 @@ def digest(value: str) -> str:
 
 def record(record_type):
     return next(item for item in build_records() if isinstance(item, record_type))
+
+
+def remint_candidate(
+    candidate: ExpertCandidateManifest,
+    **changes,
+) -> ExpertCandidateManifest:
+    payload = {
+        key: value
+        for key, value in candidate.to_dict().items()
+        if key != candidate.IDENTITY_FIELD
+    }
+    payload.update(changes)
+    return ExpertCandidateManifest.mint(**payload)
 
 
 def test_module_contract_allows_honest_empty_conditions_but_requires_value():
@@ -189,12 +204,14 @@ def test_candidate_source_base_is_optional_only_as_one_complete_set():
                 "source_base_release_id",
                 "source_base_repository_map_ref",
                 "source_base_tree_hash",
+                "consumed_expert_release_ids",
             }
         },
         change_kind=CandidateChangeKind.CAPABILITY,
         source_base_release_id=release.release_id,
         source_base_repository_map_ref=repository_map.repository_map_id,
         source_base_tree_hash=digest("released-parent-tree"),
+        consumed_expert_release_ids=(release.release_id,),
     )
     assert non_bootstrap.source_base_release_id == release.release_id
 
@@ -217,6 +234,62 @@ def test_candidate_source_base_is_optional_only_as_one_complete_set():
     legacy_payload["parent_tree_hash"] = candidate.source_base_tree_hash
     with pytest.raises(ContractValidationError, match="unknown"):
         ExpertCandidateManifest.from_dict(legacy_payload)
+
+
+def test_candidate_consumed_release_lineage_is_exact_and_canonical():
+    candidate = record(ExpertCandidateManifest)
+    first = content_id("expert-base-release", {"release": "first"})
+    second = content_id("expert-base-release", {"release": "second"})
+    ordered = tuple(sorted((first, second)))
+
+    with pytest.raises(ContractValidationError, match="sorted and unique"):
+        remint_candidate(candidate, consumed_expert_release_ids=ordered[::-1])
+    with pytest.raises(ContractValidationError, match="sorted and unique"):
+        remint_candidate(candidate, consumed_expert_release_ids=(first, first))
+    with pytest.raises(ContractValidationError, match="wrong namespace"):
+        remint_candidate(
+            candidate,
+            consumed_expert_release_ids=(
+                content_id("expert-candidate", {"release": "wrong"}),
+            ),
+        )
+
+    release = record(ExpertBaseReleaseManifest)
+    repository_map = record(ExpertRepositoryMap)
+    with pytest.raises(MissingReferenceError, match="omit its source base"):
+        ExpertCandidateManifest.mint(
+            **{
+                key: value
+                for key, value in candidate.to_dict().items()
+                if key
+                not in {
+                    "candidate_id",
+                    "change_kind",
+                    "source_base_release_id",
+                    "source_base_repository_map_ref",
+                    "source_base_tree_hash",
+                    "consumed_expert_release_ids",
+                }
+            },
+            change_kind=CandidateChangeKind.CAPABILITY,
+            source_base_release_id=release.release_id,
+            source_base_repository_map_ref=repository_map.repository_map_id,
+            source_base_tree_hash=digest("released-parent-tree"),
+            consumed_expert_release_ids=(),
+        )
+
+
+def test_artifact_environment_requires_an_expert_release_identity():
+    environment = record(ArtifactEnvironment)
+
+    with pytest.raises(ContractValidationError, match="expert release"):
+        replace(
+            environment,
+            expert_base_release_id=content_id(
+                "expert-candidate",
+                {"environment": "wrong release namespace"},
+            ),
+        )
 
 
 def test_candidate_derivation_kind_requires_its_exact_namespace():

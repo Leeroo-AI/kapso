@@ -184,6 +184,11 @@ ancestors, and a proof-closed knowledge packet.
 - [x] Compute patch, full candidate tree hash, module-contract refs, proposed
       repository-map ref, dependencies, lineage, source evidence, sanitation report,
       and coding-agent provenance.
+- [x] Persist the sorted unique set of expert releases whose bytes or run outputs
+      were model-visible: the immediate source base, every trigger/prior-knowledge
+      episode, and the transitive lineage of every ancestor candidate. Reopen
+      recomputes the set, and persistence re-resolves each direct ancestor from the
+      immutable store under the candidate lock.
 - [x] Reject candidate changes outside allowed source/test/contract roots and
       configured aggregate entry/byte limits.
 - [x] Preserve validation attempts as later immutable attachments; do not mutate
@@ -252,6 +257,14 @@ Restructuring must make a real structural/path-interface change and applies the
 same protections to every preserved semantic capability; path-reference
 replacement remains legal only when removed refs are observed deletions and have
 same-kind replacements among observed changed paths.
+
+Release-use lineage is deliberately narrower than emergency taint. A published
+expert release is a new scientific checkpoint: a later candidate consumes that
+immediate release ID, not the unreleased inputs that once produced it. Before
+publication, however, lineage is transitive through agent ancestors and
+deterministic composition sources. Every episode shown to a coding agent counts,
+even when the trigger reducer did not classify it as causal, because model
+visibility itself is a consuming edge.
 
 ## Tests
 

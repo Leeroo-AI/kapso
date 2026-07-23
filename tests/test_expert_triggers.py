@@ -385,7 +385,8 @@ def test_bootstrap_requires_the_canonical_empty_tree_and_no_parent_topology():
         source_base_tree_hash=different_tree_hash,
         repository_map_id=released.source_base_repository_map.repository_map_id,
         module_contract_ids=tuple(
-            module.module_contract_id for module in released.source_base_module_contracts
+            module.module_contract_id
+            for module in released.source_base_module_contracts
         ),
         materializer_version="kapso.expert_materializer.v1",
     )
@@ -661,6 +662,9 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
         candidate_sanitation_report_id=release.candidate_sanitation_report_id,
         candidate_ancestor_ids=release.candidate_ancestor_ids,
         candidate_source_dependency_ids=release.candidate_source_dependency_ids,
+        candidate_consumed_expert_release_ids=(
+            release.candidate_consumed_expert_release_ids
+        ),
         repository_map_ref=limited_map.repository_map_id,
         module_contract_refs=release.module_contract_refs,
         module_versions=release.module_versions,
@@ -680,17 +684,17 @@ def test_uncovered_admitted_task_family_requests_an_architecture_candidate():
         evidence_manifest_ref=release.evidence_manifest_ref,
         test_matrix_summary_ref=release.test_matrix_summary_ref,
         evidence_dependency_ids=release.evidence_dependency_ids,
-            consumed_dependency_ids=tuple(
-                sorted(
-                    {
-                        *release.consumed_dependency_ids,
-                        limited_map.repository_map_id,
-                    }
-                )
-            ),
-            control_dependency_ids=release.control_dependency_ids,
-            checksums=release.checksums,
-        )
+        consumed_dependency_ids=tuple(
+            sorted(
+                {
+                    *release.consumed_dependency_ids,
+                    limited_map.repository_map_id,
+                }
+            )
+        ),
+        control_dependency_ids=release.control_dependency_ids,
+        checksums=release.checksums,
+    )
 
     inactive_packet = trigger_packet(
         settings=settings,

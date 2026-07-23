@@ -1361,6 +1361,22 @@ require a current online policy projection; an existing offline pin may continue
 reproducibly but cannot publish promotable output until refreshed. A narrow policy
 refresh must not replace its pinned scientific knowledge package.
 
+Promotion checks the exact `consumed_expert_release_ids` sealed in the candidate
+manifest. That set contains the immediate source-base checkpoint and every
+unreleased/model-visible release input, but does not recursively inherit the
+history of a published source-base release. Treating release-use withdrawal as
+permanent transitive taint would make a clean revalidated successor unusable and
+would violate the separation between scientific availability and emergency
+contamination.
+
+V1 policy coverage is exact-contract only. The reader authenticates every checked
+release—even when no event matches—against the current scope contract while the
+same knowledge `CURRENT` remains stable. A predecessor-contract release therefore
+fails closed instead of receiving false absence from a fresh successor catalog.
+Direct-supersession candidates may remain immutable research inputs, but are not
+publishable until a protected catalog/snapshot policy-rollover protocol carries
+the complete grow-only event set across scope-contract epochs.
+
 - [x] Append authenticated security/contamination revocation receipts from the
       signed cumulative emergency lineage.
 - [x] Define and project performance/compatibility release-use facts as a distinct,

@@ -525,6 +525,7 @@ def build_records(
         candidate_sanitation_report_id=release_ids["expert-candidate-sanitation"],
         candidate_ancestor_ids=(),
         candidate_source_dependency_ids=(scope.scope_contract_id,),
+        candidate_consumed_expert_release_ids=(),
         repository_map_ref=repository_map.repository_map_id,
         module_contract_refs=(module.module_contract_id,),
         module_versions={module.module_id: module.version},
@@ -1045,6 +1046,7 @@ def build_records(
         source_base_release_id=None,
         source_base_repository_map_ref=None,
         source_base_tree_hash=EMPTY_EXPERT_TREE_DIGEST,
+        consumed_expert_release_ids=(),
         derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
         derivation_ref=candidate_derivation_id,
         validation_context_ref=candidate_validation_context_id,
@@ -1678,16 +1680,31 @@ def test_ordinary_expert_release_requires_one_consumed_lineage_release():
         if isinstance(record, ExpertBaseReleaseManifest)
     )
     source_base_id = content_id("expert-base-release", {"release": "source"})
+    episode_release_id = content_id("expert-base-release", {"release": "episode"})
     values = bootstrap.to_dict()
     values.pop("release_id")
     values["lineage"] = ExpertReleaseLineage(source_base_id, source_base_id)
+    values["candidate_consumed_expert_release_ids"] = tuple(
+        sorted((source_base_id, episode_release_id))
+    )
     values["consumed_dependency_ids"] = tuple(
-        sorted((*bootstrap.consumed_dependency_ids, source_base_id))
+        sorted(
+            (
+                *bootstrap.consumed_dependency_ids,
+                source_base_id,
+                episode_release_id,
+            )
+        )
     )
     normal = ExpertBaseReleaseManifest.mint(**values)
 
     assert source_base_id in normal.consumed_dependency_ids
+    assert episode_release_id in normal.consumed_dependency_ids
     assert normal.control_dependency_ids == ()
+    omitted = dict(values)
+    omitted["consumed_dependency_ids"] = bootstrap.consumed_dependency_ids
+    with pytest.raises(MissingReferenceError, match="candidate release inputs"):
+        ExpertBaseReleaseManifest.mint(**omitted)
     with pytest.raises(ContractValidationError, match="identical source base"):
         replace(
             normal,

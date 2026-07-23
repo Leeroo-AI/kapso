@@ -35,6 +35,7 @@ from kapso.cross_run.expert.book import (
 )
 from kapso.cross_run.expert.candidates import ExpertCandidateClosure
 from kapso.cross_run.expert.candidate_context import (
+    candidate_consumed_expert_release_ids,
     project_agent_candidate_validation_context,
 )
 from kapso.cross_run.expert.candidate_derivations import (
@@ -48,6 +49,7 @@ from kapso.cross_run.expert.proposal_contract import (
     build_expert_proposal_packet,
     build_expert_proposal_prompt,
     derive_expert_proposal_topology,
+    expert_candidate_prior_knowledge_release_ids,
     expert_candidate_source_dependency_ids,
     expert_candidate_control_namespace,
     expert_candidate_operation_kind,
@@ -477,7 +479,9 @@ class ExpertCandidateProposalEngine:
             repository_map,
             modules,
         )
-        source_base_files = {file.relative_path: file for file in prepared.source_base_files}
+        source_base_files = {
+            file.relative_path: file for file in prepared.source_base_files
+        }
         candidate_files = {file.relative_path: file for file in candidate_tree.files}
         patch = ExpertCandidatePatch.mint(
             source_base_tree_hash=prepared.source_base_tree_hash,
@@ -538,6 +542,27 @@ class ExpertCandidateProposalEngine:
             packet=packet,
             decision=decision,
         )
+        source_base_release_id = (
+            None
+            if packet.source_base_release is None
+            else packet.source_base_release.release_id
+        )
+        consumed_expert_release_ids = candidate_consumed_expert_release_ids(
+            source_base_release_id=source_base_release_id,
+            replay_evidence=validation_context.replay_evidence,
+            inherited_release_ids=tuple(
+                sorted(
+                    {
+                        release_id
+                        for ancestor in ancestor_inputs
+                        for release_id in (
+                            ancestor.manifest.consumed_expert_release_ids
+                        )
+                    }
+                    | set(expert_candidate_prior_knowledge_release_ids(prior_knowledge))
+                )
+            ),
+        )
         derivation_record = ExpertAgentProposalDerivationRecord.mint(
             trigger_evidence_packet_id=packet.evidence_packet_id,
             trigger_decision_id=decision.trigger_decision_id,
@@ -565,17 +590,14 @@ class ExpertCandidateProposalEngine:
         manifest = ExpertCandidateManifest.mint(
             scope_contract_id=packet.scope_contract.scope_contract_id,
             change_kind=change_kind,
-            source_base_release_id=(
-                None
-                if packet.source_base_release is None
-                else packet.source_base_release.release_id
-            ),
+            source_base_release_id=source_base_release_id,
             source_base_repository_map_ref=(
                 None
                 if packet.source_base_repository_map is None
                 else packet.source_base_repository_map.repository_map_id
             ),
             source_base_tree_hash=prepared.source_base_tree_hash,
+            consumed_expert_release_ids=consumed_expert_release_ids,
             derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
             derivation_ref=derivation_record.derivation_id,
             validation_context_ref=validation_context.validation_context_id,

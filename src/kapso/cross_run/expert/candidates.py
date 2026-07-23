@@ -43,6 +43,7 @@ from kapso.cross_run.expert.book import (
 )
 from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
+    candidate_consumed_expert_release_ids,
     compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
 )
@@ -69,6 +70,7 @@ from kapso.cross_run.expert.proposal_contract import (
     build_expert_proposal_packet,
     build_expert_proposal_prompt,
     derive_expert_proposal_topology,
+    expert_candidate_prior_knowledge_release_ids,
     expert_candidate_source_dependency_ids,
     expert_proposal_packet_digest,
     expert_proposal_response_schema,
@@ -492,6 +494,26 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "agent derivation source dependencies differ from model-visible inputs"
             )
+        expected_consumed_releases = candidate_consumed_expert_release_ids(
+            source_base_release_id=closure.manifest.source_base_release_id,
+            replay_evidence=closure.validation_context.replay_evidence,
+            inherited_release_ids=tuple(
+                sorted(
+                    {
+                        release_id
+                        for ancestor in closure.derivation.ancestor_inputs
+                        for release_id in (
+                            ancestor.manifest.consumed_expert_release_ids
+                        )
+                    }
+                    | set(expert_candidate_prior_knowledge_release_ids(prior_knowledge))
+                )
+            ),
+        )
+        if closure.manifest.consumed_expert_release_ids != expected_consumed_releases:
+            raise ExpertCandidateValidationError(
+                "candidate consumed expert releases differ from model-visible inputs"
+            )
 
     def _validate_composition_parent(
         self,
@@ -533,7 +555,8 @@ class ExpertCandidateValidator:
             or context.source_base_release is None
             or context.source_base_release.release_id != base.release_id
             or context.source_base_repository_map is None
-            or context.source_base_repository_map.repository_map_id != base.repository_map_id
+            or context.source_base_repository_map.repository_map_id
+            != base.repository_map_id
             or context.source_base_tree_hash != base.source_tree_hash
             or tuple(
                 sorted(
@@ -590,6 +613,21 @@ class ExpertCandidateValidator:
             )
         )
         context = closure.validation_context
+        expected_consumed_releases = candidate_consumed_expert_release_ids(
+            source_base_release_id=manifest.source_base_release_id,
+            replay_evidence=expected_replay_evidence,
+            inherited_release_ids=tuple(
+                sorted(
+                    {
+                        release_id
+                        for provenance in derivation.source_provenance
+                        for release_id in (
+                            provenance.candidate_manifest.consumed_expert_release_ids
+                        )
+                    }
+                )
+            ),
+        )
         if (
             context.source_base_scope_contract is None
             or context.source_base_release is None
@@ -654,6 +692,7 @@ class ExpertCandidateValidator:
             != dict(closure.candidate_contents)
             or context.active_task_bindings != plan.active_task_bindings
             or context.replay_evidence != expected_replay_evidence
+            or manifest.consumed_expert_release_ids != expected_consumed_releases
             or manifest.source_dependency_ids != expected_dependencies
             or record.source_dependency_ids != expected_dependencies
             or manifest.ancestor_candidate_ids != expected_source_ids
@@ -831,7 +870,9 @@ class ExpertCandidateValidator:
         candidate_files: Mapping[str, SourceFileDescriptor],
     ) -> None:
         source_base_control = set(
-            expert_control_paths(closure.validation_context.source_base_module_contracts)
+            expert_control_paths(
+                closure.validation_context.source_base_module_contracts
+            )
         )
         candidate_control = set(expert_control_paths(closure.module_contracts))
         editable_parent = {
@@ -1020,9 +1061,12 @@ class ExpertCandidateValidator:
                 for capability_id in current_nodes
             )
             or source_base_map.dependency_edges != current_map.dependency_edges
-            or source_base_map.task_adapter_boundary != current_map.task_adapter_boundary
-            or source_base_map.validation_entrypoints != current_map.validation_entrypoints
-            or source_base_map.architecture_invariants != current_map.architecture_invariants
+            or source_base_map.task_adapter_boundary
+            != current_map.task_adapter_boundary
+            or source_base_map.validation_entrypoints
+            != current_map.validation_entrypoints
+            or source_base_map.architecture_invariants
+            != current_map.architecture_invariants
             or closure.manifest.capability_lineage
         ):
             raise ExpertCandidateValidationError(
@@ -1055,7 +1099,9 @@ class ExpertCandidateValidator:
                 )
         current_control = set(expert_control_paths(closure.module_contracts))
         source_base_control = set(
-            expert_control_paths(closure.validation_context.source_base_module_contracts)
+            expert_control_paths(
+                closure.validation_context.source_base_module_contracts
+            )
         )
         edited_capabilities: set[str] = set()
         for change in closure.patch.changes:

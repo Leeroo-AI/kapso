@@ -10,6 +10,7 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
+    candidate_consumed_expert_release_ids,
     compose_candidate_replay_evidence,
 )
 from kapso.cross_run.expert.candidate_derivations import (
@@ -87,6 +88,21 @@ def project_deterministic_composition_candidate(
     replay_evidence = compose_candidate_replay_evidence(
         tuple(provenance.validation_context for provenance in source_provenance)
     )
+    consumed_expert_release_ids = candidate_consumed_expert_release_ids(
+        source_base_release_id=current_base.release_manifest.release_id,
+        replay_evidence=replay_evidence,
+        inherited_release_ids=tuple(
+            sorted(
+                {
+                    release_id
+                    for provenance in source_provenance
+                    for release_id in (
+                        provenance.candidate_manifest.consumed_expert_release_ids
+                    )
+                }
+            )
+        ),
+    )
     context_dependencies = tuple(
         sorted(
             {
@@ -161,6 +177,7 @@ def project_deterministic_composition_candidate(
         source_base_release_id=current_base.release_manifest.release_id,
         source_base_repository_map_ref=current_base.repository_map.repository_map_id,
         source_base_tree_hash=current_base.reference.source_tree_hash,
+        consumed_expert_release_ids=consumed_expert_release_ids,
         derivation_kind=(ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION),
         derivation_ref=derivation_record.derivation_id,
         validation_context_ref=validation_context.validation_context_id,

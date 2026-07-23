@@ -304,6 +304,7 @@ def _composition_review_fixture(
         source_base_release_id=case.base.release_id,
         source_base_repository_map_ref=case.base.repository_map_id,
         source_base_tree_hash=case.base.source_tree_hash,
+        consumed_expert_release_ids=(case.base.release_id,),
         derivation_kind=ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION,
         derivation_ref=derivation_record.derivation_id,
         validation_context_ref=source.validation_context_ref,

@@ -91,7 +91,10 @@ from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionMaterialization,
     ExpertCompositionSourceReference,
 )
-from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
+from kapso.cross_run.expert.proposal_contract import (
+    ExpertCandidateAncestorInput,
+    mint_expert_candidate_ancestor_input,
+)
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
     ExpertTriggerEvidencePacket,
@@ -388,12 +391,45 @@ class ExpertCandidateStore:
             )
         with self._exclusive_lock():
             self._recover_staging()
+            self._validate_direct_ancestors_unlocked(snapshot)
             return self._persist_prepared_unlocked(
                 snapshot=snapshot,
                 package_files=package_files,
                 commit_record=commit_record,
                 composition_admission_fence=composition_admission_fence,
             )
+
+    def _validate_direct_ancestors_unlocked(
+        self,
+        closure: ExpertCandidateClosure,
+    ) -> None:
+        if type(closure.derivation) is not ExpertAgentProposalDerivation:
+            raise ExpertCandidateStoreError(
+                "direct ancestor validation requires an agent proposal"
+            )
+        for ancestor in closure.derivation.ancestor_inputs:
+            candidate_id = ancestor.manifest.candidate_id
+            candidate_root = self._candidate_path(candidate_id)
+            if not candidate_root.exists():
+                raise ExpertCandidateStoreError(
+                    "candidate ancestor does not exist in the immutable store"
+                )
+            stored = self._read_package(candidate_root, candidate_id)
+            source = stored.closure
+            expected = mint_expert_candidate_ancestor_input(
+                manifest=source.manifest,
+                scope_contract=source.validation_context.scope_contract,
+                patch=source.patch,
+                candidate_tree=source.candidate_tree,
+                repository_map=source.repository_map,
+                module_contracts=source.module_contracts,
+                sanitation_report=source.sanitation_report,
+                candidate_contents=source.candidate_contents,
+            )
+            if expected != ancestor:
+                raise ExpertCandidateStoreError(
+                    "candidate ancestor changed before locked persistence"
+                )
 
     def _persist_prepared_unlocked(
         self,
@@ -612,7 +648,9 @@ class ExpertCandidateStore:
             _VALIDATION_CONTEXT_PATH: closure.validation_context.to_json_bytes(),
             _PATCH_PATH: closure.patch.to_json_bytes(),
             _SOURCE_TREE_PATH: closure.candidate_tree.to_json_bytes(),
-            _SOURCE_BASE_FILES_PATH: contract_tuple_package_bytes(closure.source_base_files),
+            _SOURCE_BASE_FILES_PATH: contract_tuple_package_bytes(
+                closure.source_base_files
+            ),
             _REPOSITORY_MAP_PATH: closure.repository_map.to_json_bytes(),
             _SANITATION_PATH: closure.sanitation_report.to_json_bytes(),
         }

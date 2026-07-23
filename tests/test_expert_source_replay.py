@@ -134,6 +134,17 @@ def _stored_candidate(candidate_id, packet, decision, candidate_modules):
         source_base_release_id=packet.source_base_release_id,
         source_base_repository_map_ref=packet.source_base_repository_map.repository_map_id,
         source_base_tree_hash=packet.source_base_tree_hash,
+        consumed_expert_release_ids=tuple(
+            sorted(
+                {
+                    packet.source_base_release_id,
+                    *(
+                        episode.artifact_environment.expert_base_release_id
+                        for episode in validation_context.replay_evidence.episodes
+                    ),
+                }
+            )
+        ),
         change_kind=decision.change_kind,
         patch_ref=content_id("expert-candidate-patch", {"seed": candidate_id}),
         patch_digest=tree_or_blob_digest(f"patch:{candidate_id}".encode()),

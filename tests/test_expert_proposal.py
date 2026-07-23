@@ -26,6 +26,7 @@ from kapso.cross_run.expert import (
     ExpertCapabilityGeneralizer,
     ExpertCandidateProposalEngine,
     ExpertCandidateStore,
+    ExpertCandidateStoreError,
     ExpertCandidateValidationError,
     ExpertCandidateValidator,
     ExpertCandidateWorkspaceError,
@@ -44,6 +45,7 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertProposalContractError,
     _repository_architecture_signature,
     derive_expert_proposal_topology,
+    expert_candidate_prior_knowledge_release_ids,
     parse_expert_proposal,
 )
 from kapso.cross_run.expert.workspace import ExpertCandidateWorkspaceManager
@@ -334,6 +336,32 @@ def test_architect_bootstrap_seals_and_reopens_exact_candidate(tmp_path):
     assert tuple((tmp_path / "workspaces").iterdir()) == ()
 
 
+def test_architect_tracks_every_model_visible_episode_release(tmp_path):
+    _, _, episode, _, _, _, _ = source_fixture()
+    architect, store, _, _ = proposal_system(tmp_path)
+    packet = trigger_packet(
+        settings=trigger_settings(),
+        episodes=(episode,),
+        bootstrap=True,
+    )
+    decision = ExpertTriggerEvaluator(trigger_settings()).evaluate(packet)
+
+    result = architect.propose(
+        packet=packet,
+        decision=decision,
+        materialized_source_base=None,
+    )
+    closure = result.stored_candidate.closure
+
+    assert episode.episode_id not in (
+        closure.validation_context.replay_evidence.causal_episode_ids
+    )
+    assert closure.manifest.consumed_expert_release_ids == (
+        episode.artifact_environment.expert_base_release_id,
+    )
+    assert store.read(closure.manifest.candidate_id) == result.stored_candidate
+
+
 def test_architect_principal_rotation_changes_operation_identity(tmp_path):
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"
@@ -458,8 +486,13 @@ def test_bootstrap_rejects_speculative_inactive_task_family(tmp_path):
 
 
 def test_architect_persists_exact_ancestor_source_input(tmp_path):
+    _, _, episode, _, _, _, _ = source_fixture()
     architect, store, runner, _ = proposal_system(tmp_path)
-    packet = trigger_packet(settings=trigger_settings(), bootstrap=True)
+    packet = trigger_packet(
+        settings=trigger_settings(),
+        episodes=(episode,),
+        bootstrap=True,
+    )
     decision = ExpertTriggerEvaluator(trigger_settings()).evaluate(packet)
     first = architect.propose(
         packet=packet,
@@ -483,8 +516,21 @@ def test_architect_persists_exact_ancestor_source_input(tmp_path):
         "def execute"
     )
     assert "candidate_contents_base64" not in ancestor.to_dict()
+    assert second.closure.manifest.consumed_expert_release_ids == (
+        episode.artifact_environment.expert_base_release_id,
+    )
     assert store.read(second.closure.manifest.candidate_id) == second
     assert len(runner.calls) == 2
+
+    isolated_root = tmp_path / "isolated"
+    isolated_root.mkdir(mode=0o700)
+    isolated_store = ExpertCandidateStore(
+        isolated_root / "candidates",
+        isolated_root,
+        ExpertCandidateValidator(expert_settings(), sanitation_settings()),
+    )
+    with pytest.raises(ExpertCandidateStoreError, match="does not exist"):
+        isolated_store.persist(second.closure)
 
 
 def test_architect_rejects_foreign_prior_snapshot_before_agent_call(tmp_path):
@@ -575,6 +621,9 @@ def test_architect_binds_every_model_visible_knowledge_record_as_dependency(tmp_
     prior_knowledge = PriorKnowledgeAccessMaterialization.mint(
         prior_knowledge_snapshot=prior_snapshot,
         proof_records=(proof_record,),
+    )
+    assert expert_candidate_prior_knowledge_release_ids(prior_knowledge) == (
+        episode.artifact_environment.expert_base_release_id,
     )
     architect, store, runner, _ = proposal_system(tmp_path)
     decision = ExpertTriggerEvaluator(trigger_settings()).evaluate(packet)

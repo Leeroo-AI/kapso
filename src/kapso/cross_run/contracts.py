@@ -820,6 +820,12 @@ class ArtifactEnvironment(StrictContract):
     def _validate(self) -> None:
         _require_text(self.kapso_commit, "kapso_commit")
         require_content_id(self.expert_base_release_id, "expert_base_release_id")
+        if self.expert_base_release_id.split(":sha256:", 1)[0] != (
+            "expert-base-release"
+        ):
+            raise ContractValidationError(
+                "expert_base_release_id must name an expert release"
+            )
         require_content_id(
             self.task_adapter_manifest_id,
             "task_adapter_manifest_id",
@@ -2632,6 +2638,7 @@ class ExpertCandidateManifest(StrictContract):
     source_base_release_id: str | None
     source_base_repository_map_ref: str | None
     source_base_tree_hash: str
+    consumed_expert_release_ids: tuple[str, ...]
     derivation_kind: ExpertCandidateDerivationKind
     derivation_ref: str
     validation_context_ref: str
@@ -2670,6 +2677,24 @@ class ExpertCandidateManifest(StrictContract):
         elif self.source_base_tree_hash == EMPTY_EXPERT_TREE_DIGEST:
             raise ContractValidationError(
                 "released parent candidate cannot use the canonical empty tree"
+            )
+        if self.consumed_expert_release_ids != tuple(
+            sorted(set(self.consumed_expert_release_ids))
+        ):
+            raise ContractValidationError(
+                "candidate consumed expert releases must be sorted and unique"
+            )
+        for release_id in self.consumed_expert_release_ids:
+            require_content_id(release_id, "candidate consumed expert release")
+            if release_id.split(":sha256:", 1)[0] != "expert-base-release":
+                raise ContractValidationError(
+                    "candidate consumed expert release uses the wrong namespace"
+                )
+        if self.source_base_release_id is not None and (
+            self.source_base_release_id not in self.consumed_expert_release_ids
+        ):
+            raise MissingReferenceError(
+                "candidate consumed expert releases omit its source base"
             )
         for value, name in (
             (self.source_base_release_id, "source_base_release_id"),
@@ -4512,6 +4537,7 @@ class ExpertBaseReleaseManifest(StrictContract):
     candidate_sanitation_report_id: str
     candidate_ancestor_ids: tuple[str, ...]
     candidate_source_dependency_ids: tuple[str, ...]
+    candidate_consumed_expert_release_ids: tuple[str, ...]
     repository_map_ref: str
     module_contract_refs: tuple[str, ...]
     module_versions: Mapping[str, str]
@@ -4648,6 +4674,11 @@ class ExpertBaseReleaseManifest(StrictContract):
                 "candidate_source_dependency_ids",
                 True,
             ),
+            (
+                self.candidate_consumed_expert_release_ids,
+                "candidate_consumed_expert_release_ids",
+                False,
+            ),
             (self.module_contract_refs, "module_contract_refs", True),
             (self.approval_assertion_ids, "approval_assertion_ids", True),
         ):
@@ -4663,6 +4694,20 @@ class ExpertBaseReleaseManifest(StrictContract):
         ):
             raise ContractValidationError(
                 "candidate_ancestor_ids use the wrong namespace"
+            )
+        if any(
+            value.split(":sha256:", 1)[0] != "expert-base-release"
+            for value in self.candidate_consumed_expert_release_ids
+        ):
+            raise ContractValidationError(
+                "candidate_consumed_expert_release_ids use the wrong namespace"
+            )
+        if self.lineage.source_base_release_id is not None and (
+            self.lineage.source_base_release_id
+            not in self.candidate_consumed_expert_release_ids
+        ):
+            raise MissingReferenceError(
+                "release candidate consumption omits its source base"
             )
         if any(
             value.split(":sha256:", 1)[0] != "expert-module-contract"
@@ -4702,6 +4747,12 @@ class ExpertBaseReleaseManifest(StrictContract):
             self.consumed_dependency_ids,
             "consumed_dependency_ids",
         )
+        if not set(self.candidate_consumed_expert_release_ids).issubset(
+            self.consumed_dependency_ids
+        ):
+            raise MissingReferenceError(
+                "release consumed dependencies omit candidate release inputs"
+            )
         if self.control_dependency_ids != tuple(
             sorted(set(self.control_dependency_ids))
         ):
@@ -4728,6 +4779,7 @@ class ExpertBaseReleaseManifest(StrictContract):
             self.candidate_sanitation_report_id,
             *self.candidate_ancestor_ids,
             *self.candidate_source_dependency_ids,
+            *self.candidate_consumed_expert_release_ids,
             self.repository_map_ref,
             *self.module_contract_refs,
             self.validation_attempt_id,

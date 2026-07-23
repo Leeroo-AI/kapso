@@ -182,9 +182,11 @@ class ExpertReleaseAssembler:
     ) -> ExpertReleasePublicationPlan:
         """Derive the sole publication plan for an approved package."""
 
-        if type(package) is not ExpertReleasePackage or type(
-            current_release_observation
-        ) is not TaskEvaluationCurrentReleaseObservation:
+        if (
+            type(package) is not ExpertReleasePackage
+            or type(current_release_observation)
+            is not TaskEvaluationCurrentReleaseObservation
+        ):
             raise ExpertReleaseAssemblyError(
                 "publication planning requires an exact package and CURRENT "
                 "observation"
@@ -367,6 +369,7 @@ class ExpertReleaseAssembler:
             *candidate.module_contract_refs,
             *candidate.ancestor_candidate_ids,
             *candidate.source_dependency_ids,
+            *candidate.consumed_expert_release_ids,
             attempt.validation_attempt_id,
             approved_snapshot.transition.transition_id,
             approved_snapshot.state.validation_state_id,
@@ -400,6 +403,9 @@ class ExpertReleaseAssembler:
             candidate_sanitation_report_id=candidate.sanitation_report_id,
             candidate_ancestor_ids=candidate.ancestor_candidate_ids,
             candidate_source_dependency_ids=candidate.source_dependency_ids,
+            candidate_consumed_expert_release_ids=(
+                candidate.consumed_expert_release_ids
+            ),
             repository_map_ref=candidate.proposed_repository_map_ref,
             module_contract_refs=candidate.module_contract_refs,
             module_versions={
@@ -535,6 +541,7 @@ class ExpertReleaseAssembler:
                 manifest.candidate_sanitation_report_id,
                 *manifest.candidate_ancestor_ids,
                 *manifest.candidate_source_dependency_ids,
+                *manifest.candidate_consumed_expert_release_ids,
                 manifest.repository_map_ref,
                 *manifest.module_contract_refs,
                 manifest.validation_attempt_id,
@@ -718,6 +725,8 @@ class ExpertReleaseAssembler:
             == manifest.candidate_ancestor_ids
             and tuple(candidate.get("source_dependency_ids", ()))
             == manifest.candidate_source_dependency_ids
+            and tuple(candidate.get("consumed_expert_release_ids", ()))
+            == manifest.candidate_consumed_expert_release_ids
             and commit.get("candidate_id") == manifest.candidate_id
             and attempt.get("candidate_id") == manifest.candidate_id
             and attempt.get("candidate_tree_hash") == manifest.candidate_tree_hash

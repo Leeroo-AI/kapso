@@ -691,6 +691,7 @@ def test_direct_agent_candidate_security_subjects_remain_exact(terminal_cases):
         manifest.proposed_repository_map_ref,
         manifest.sanitation_report_id,
         *manifest.module_contract_refs,
+        *manifest.consumed_expert_release_ids,
         *manifest.source_dependency_ids,
         *manifest.ancestor_candidate_ids,
         operation.operation_record_id,
@@ -704,6 +705,10 @@ def test_direct_agent_candidate_security_subjects_remain_exact(terminal_cases):
         *closure.validation_context.stable_dependency_ids,
         derivation.workspace_delta.workspace_delta_id,
     }
+    if closure.validation_context.source_base_release is not None:
+        expected.update(
+            closure.validation_context.source_base_release.consumed_dependency_ids
+        )
 
     assert publication_eligibility_candidate_security_subject_ids(stored) == tuple(
         sorted(expected)
@@ -944,6 +949,7 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
         nested_operation.workspace_receipt.workspace_receipt_id,
         nested_derivation.workspace_delta.workspace_delta_id,
         *nested_manifest.ancestor_candidate_ids,
+        *nested_manifest.consumed_expert_release_ids,
         *nested_manifest.source_dependency_ids,
         *nested_derivation.record.source_dependency_ids,
     }
@@ -971,7 +977,10 @@ def test_composition_candidate_security_subjects_cover_outer_and_source_authorit
     )
     ancestor_subjects = _candidate_ancestor_security_subject_ids(retained_ancestor)
     assert provenance.candidate_manifest.source_base_release_id in ancestor_subjects
-    assert provenance.candidate_manifest.source_base_repository_map_ref in ancestor_subjects
+    assert (
+        provenance.candidate_manifest.source_base_repository_map_ref
+        in ancestor_subjects
+    )
     with pytest.raises(
         ExpertPublicationEligibilityError,
         match="does not recognize its derivation",
