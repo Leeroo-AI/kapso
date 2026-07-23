@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixComparisonRow,
     ExpertReleaseMatrixMode,
@@ -15,6 +17,7 @@ from kapso.cross_run.expert.promotion_plan import (
 )
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
+    ExpertReleaseMatrixSourceEvidenceSnapshot,
 )
 from kapso.cross_run.expert.task_evaluation_contracts import (
     TaskEvaluationCase,
@@ -35,19 +38,33 @@ from kapso.cross_run.expert.task_evaluation_reservation import (
     ExpertTaskEvaluationReservationSnapshot,
 )
 from kapso.cross_run.expert.task_evaluator_protocol import TaskEvaluatorResult
-from kapso.cross_run.expert.validation_store import (
-    ExpertReleaseMatrixSourceEvidenceSnapshot,
-    ExpertValidationStore,
-)
 
 
 class ExpertReleaseMatrixEvidenceError(ValueError):
     """Accepted evidence cannot cover its precommitted release-matrix cells."""
 
 
+@runtime_checkable
+class ExpertReleaseMatrixEvidenceStore(Protocol):
+    """Narrow durable authority needed by factual release-matrix reduction."""
+
+    def reopen_task_evaluation_reservation(
+        self,
+        *,
+        reservation_id: str,
+        prepared_request: PreparedTaskEvaluationRequest,
+    ) -> ExpertTaskEvaluationReservationSnapshot: ...
+
+    def reopen_release_matrix_source_evidence(
+        self,
+        *,
+        plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot,
+    ) -> ExpertReleaseMatrixSourceEvidenceSnapshot: ...
+
+
 def derive_expert_release_matrix_report(
     *,
-    validation_store: ExpertValidationStore,
+    validation_store: ExpertReleaseMatrixEvidenceStore,
     execution_store: ExpertTaskEvaluationExecutionStore,
     completed_execution: CompletedTaskEvaluationExecution,
     reservation_snapshot: ExpertTaskEvaluationReservationSnapshot,
@@ -55,7 +72,7 @@ def derive_expert_release_matrix_report(
 ) -> ExpertReleaseMatrixReport:
     """Reduce one completed task journal and accepted source facts into a report."""
 
-    if type(validation_store) is not ExpertValidationStore:
+    if not isinstance(validation_store, ExpertReleaseMatrixEvidenceStore):
         raise ExpertReleaseMatrixEvidenceError(
             "release matrix report requires the canonical validation store"
         )
@@ -184,12 +201,12 @@ def derive_expert_release_matrix_report(
 
 def derive_expert_release_matrix_source_rows(
     *,
-    validation_store: ExpertValidationStore,
+    validation_store: ExpertReleaseMatrixEvidenceStore,
     plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot,
 ) -> tuple[ExpertReleaseMatrixComparisonRow, ...]:
     """Project accepted source-stage results without invoking an evaluator again."""
 
-    if type(validation_store) is not ExpertValidationStore:
+    if not isinstance(validation_store, ExpertReleaseMatrixEvidenceStore):
         raise ExpertReleaseMatrixEvidenceError(
             "release matrix source rows require the canonical validation store"
         )

@@ -145,6 +145,15 @@ from kapso.cross_run.expert.review_stage import (
     ExpertAutomatedReviewStageError,
     ExpertAutomatedReviewStageOrchestrator,
 )
+from kapso.cross_run.expert.promotion_stage import (
+    ExpertReleaseMatrixStageCoordinator,
+    ExpertReleaseMatrixStageError,
+    ExpertReleaseMatrixStageExecution,
+)
+from kapso.cross_run.expert.promotion_stage_contracts import (
+    ExpertReleaseMatrixStageContractError,
+    ExpertReleaseMatrixStageResultRecord,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -176,6 +185,7 @@ from kapso.cross_run.expert.validation import (
 )
 from kapso.cross_run.expert.validation_store import (
     ExpertAutomatedReviewStageCommitResult,
+    ExpertReleaseMatrixStageCommitResult,
     ExpertSourceReplayStageCommitResult,
     ExpertTaskEvaluationReservationCommitResult,
     ExpertValidationCommitResult,
@@ -190,6 +200,7 @@ from kapso.cross_run.expert.validation_operation_contracts import (
 )
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
+    ExpertReleaseMatrixSourceEvidenceSnapshot,
     ExpertValidationSnapshot,
     ExpertValidationTransition,
 )
@@ -245,6 +256,13 @@ __all__ = [
     "ExpertProposalContractError",
     "ExpertRepositoryArchitect",
     "ExpertReleaseMatrixPlanReservationSnapshot",
+    "ExpertReleaseMatrixSourceEvidenceSnapshot",
+    "ExpertReleaseMatrixStageCommitResult",
+    "ExpertReleaseMatrixStageContractError",
+    "ExpertReleaseMatrixStageCoordinator",
+    "ExpertReleaseMatrixStageError",
+    "ExpertReleaseMatrixStageExecution",
+    "ExpertReleaseMatrixStageResultRecord",
     "ExpertSourceReplayBundleProvider",
     "ExpertSourceReplayCandidateReader",
     "ExpertSourceReplayDecisionPublicationCoordinator",

@@ -32,6 +32,9 @@ from kapso.cross_run.expert.replay import _derive_expert_source_replay_selection
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
 )
+from kapso.cross_run.expert.promotion_stage_contracts import (
+    ExpertReleaseMatrixStageResultRecord,
+)
 from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewOutcome,
     ExpertAutomatedReviewStageResultRecord,
@@ -989,7 +992,8 @@ class ExpertValidationReducer:
         accepted_results: tuple[
             ExpertEvaluatorResultRecord
             | ExpertSourceReplayStageResultRecord
-            | ExpertAutomatedReviewStageResultRecord,
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
             ...,
         ],
         result: ExpertEvaluatorResultRecord,
@@ -1101,7 +1105,8 @@ class ExpertValidationReducer:
         accepted_results: tuple[
             ExpertEvaluatorResultRecord
             | ExpertSourceReplayStageResultRecord
-            | ExpertAutomatedReviewStageResultRecord,
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
             ...,
         ],
         result: ExpertSourceReplayStageResultRecord,
@@ -1197,7 +1202,8 @@ class ExpertValidationReducer:
         accepted_results: tuple[
             ExpertEvaluatorResultRecord
             | ExpertSourceReplayStageResultRecord
-            | ExpertAutomatedReviewStageResultRecord,
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
             ...,
         ],
         result: ExpertAutomatedReviewStageResultRecord,
@@ -1300,6 +1306,91 @@ class ExpertValidationReducer:
             reason="stage_automated_review_passed",
         )
 
+    def advance_release_matrix_stage(
+        self,
+        *,
+        state: ExpertCandidateValidationState,
+        attempt: ExpertValidationAttempt,
+        accepted_results: tuple[
+            ExpertEvaluatorResultRecord
+            | ExpertSourceReplayStageResultRecord
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
+            ...,
+        ],
+        result: ExpertReleaseMatrixStageResultRecord,
+    ) -> ExpertCandidateValidationState:
+        """Accept complete factual matrix evidence before terminal promotion."""
+
+        if (
+            state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.validation_attempt_id != attempt.validation_attempt_id
+            or state.candidate_id != attempt.candidate_id
+            or state.candidate_tree_hash != attempt.candidate_tree_hash
+        ):
+            raise ExpertValidationError("only the matching active attempt may advance")
+        policy = self.settings.policy.validation_policy()
+        if (
+            attempt.validation_policy_id != policy.validation_policy_id
+            or attempt.configuration_fingerprint
+            != self.settings.configuration_fingerprint
+        ):
+            raise ExpertValidationError(
+                "active attempt differs from reducer configuration"
+            )
+        self._validate_accepted_history(state, attempt, accepted_results)
+        accepted_count = len(state.accepted_stage_results)
+        if accepted_count >= len(attempt.required_stages):
+            raise ExpertValidationError("validation attempt has no remaining stage")
+        expected_stage = attempt.required_stages[accepted_count]
+        report = result.release_matrix_report
+        if (
+            type(result) is not ExpertReleaseMatrixStageResultRecord
+            or state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+            or expected_stage is not ExpertValidationStage.RELEASE_MATRIX
+            or result.authorization_state_id != state.validation_state_id
+            or result.validation_attempt_id != attempt.validation_attempt_id
+            or result.candidate_id != attempt.candidate_id
+            or result.candidate_tree_hash != attempt.candidate_tree_hash
+            or result.scope_contract_id != attempt.scope_contract_id
+            or result.parent_release_id != attempt.parent_release_id
+            or result.validation_policy_id != attempt.validation_policy_id
+            or result.configuration_fingerprint != attempt.configuration_fingerprint
+            or report.candidate_commit_record_id != attempt.candidate_commit_record_id
+        ):
+            raise ExpertValidationError(
+                "release matrix result differs from the active configured stage"
+            )
+        accepted = (
+            *state.accepted_stage_results,
+            ExpertAcceptedStageResultRef(
+                stage=ExpertValidationStage.RELEASE_MATRIX,
+                stage_result_record_id=result.stage_result_record_id,
+            ),
+        )
+        next_position = len(accepted)
+        if (
+            next_position >= len(attempt.required_stages)
+            or attempt.required_stages[next_position]
+            is not ExpertValidationStage.PUBLICATION_ELIGIBILITY
+        ):
+            raise ExpertValidationError(
+                "release matrix must be followed by publication eligibility"
+            )
+        return ExpertCandidateValidationState.mint(
+            validation_attempt_id=attempt.validation_attempt_id,
+            candidate_id=attempt.candidate_id,
+            candidate_tree_hash=attempt.candidate_tree_hash,
+            predecessor_state_id=state.validation_state_id,
+            promotion_state=ExpertPromotionState.VALIDATING,
+            accepted_stage_results=accepted,
+            next_stage=ExpertValidationStage.PUBLICATION_ELIGIBILITY,
+            review_assertion_ids=state.review_assertion_ids,
+            terminal_evidence_ids=(),
+            transition_evidence_id=result.stage_result_record_id,
+            reason="stage_release_matrix_passed",
+        )
+
     def _validate_result_closure(
         self,
         attempt: ExpertValidationAttempt,
@@ -1354,7 +1445,8 @@ class ExpertValidationReducer:
         accepted_results: tuple[
             ExpertEvaluatorResultRecord
             | ExpertSourceReplayStageResultRecord
-            | ExpertAutomatedReviewStageResultRecord,
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
             ...,
         ],
     ) -> None:
@@ -1416,6 +1508,30 @@ class ExpertValidationReducer:
                 ):
                     raise ExpertValidationError(
                         "accepted automated review differs from the stage prefix"
+                    )
+                continue
+            if expected_stage is ExpertValidationStage.RELEASE_MATRIX:
+                if (
+                    type(accepted_result) is not ExpertReleaseMatrixStageResultRecord
+                    or evidence.stage is not expected_stage
+                    or evidence.stage_result_record_id
+                    != accepted_result.stage_result_record_id
+                    or accepted_result.validation_attempt_id
+                    != attempt.validation_attempt_id
+                    or accepted_result.candidate_id != attempt.candidate_id
+                    or accepted_result.candidate_tree_hash
+                    != attempt.candidate_tree_hash
+                    or accepted_result.scope_contract_id != attempt.scope_contract_id
+                    or accepted_result.parent_release_id != attempt.parent_release_id
+                    or accepted_result.validation_policy_id
+                    != attempt.validation_policy_id
+                    or accepted_result.configuration_fingerprint
+                    != attempt.configuration_fingerprint
+                    or accepted_result.release_matrix_report.candidate_commit_record_id
+                    != attempt.candidate_commit_record_id
+                ):
+                    raise ExpertValidationError(
+                        "accepted release matrix differs from the stage prefix"
                     )
                 continue
             if type(accepted_result) is not ExpertEvaluatorResultRecord:

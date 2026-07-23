@@ -43,6 +43,7 @@ from kapso.cross_run.expert.validation_operation_contracts import (
 )
 from kapso.cross_run.expert.validation_snapshots import (
     ExpertReleaseMatrixPlanReservationSnapshot,
+    ExpertReleaseMatrixSourceEvidenceSnapshot,
     ExpertValidationSnapshot,
     ExpertValidationTransition,
 )
@@ -63,13 +64,19 @@ from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequ
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixEvaluationPlan,
-    ExpertReleaseMatrixMode,
-    ExpertReleaseMatrixProvenanceKind,
+    ExpertReleaseMatrixReport,
 )
 from kapso.cross_run.expert.promotion_plan import (
     PreparedExpertReleaseMatrixPlan,
     prepare_expert_release_matrix_plan_for_admission,
     validate_expert_release_matrix_plan_store_shape,
+)
+from kapso.cross_run.expert.promotion_stage import (
+    ExpertReleaseMatrixStageCoordinator,
+    ExpertReleaseMatrixStageExecution,
+)
+from kapso.cross_run.expert.promotion_stage_contracts import (
+    ExpertReleaseMatrixStageResultRecord,
 )
 from kapso.cross_run.expert.review import (
     ExpertAutomatedReviewCoordinator,
@@ -96,6 +103,9 @@ from kapso.cross_run.expert.task_evaluation_contracts import (
 )
 from kapso.cross_run.expert.task_evaluation_preflight import (
     PreparedTaskEvaluationRequest,
+)
+from kapso.cross_run.expert.task_evaluation_execution_store import (
+    ExpertTaskEvaluationExecutionStore,
 )
 from kapso.cross_run.expert.task_evaluation_reservation import (
     ExpertTaskEvaluationReservationSnapshot,
@@ -213,6 +223,13 @@ class ExpertAutomatedReviewStageCommitResult:
 
 
 @dataclass(frozen=True)
+class ExpertReleaseMatrixStageCommitResult:
+    stage_result: ExpertReleaseMatrixStageResultRecord
+    snapshot: ExpertValidationSnapshot
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class ExpertReleaseMatrixPlanReservationCommitResult:
     reservation: ExpertReleaseMatrixPlanReservationSnapshot
     replayed: bool
@@ -222,97 +239,6 @@ class ExpertReleaseMatrixPlanReservationCommitResult:
 class ExpertTaskEvaluationReservationCommitResult:
     reservation: ExpertTaskEvaluationReservationSnapshot
     replayed: bool
-
-
-@dataclass(frozen=True)
-class ExpertReleaseMatrixSourceEvidenceSnapshot:
-    """Accepted source facts reopened under one unchanged matrix-plan head."""
-
-    plan_reservation: ExpertReleaseMatrixPlanReservationSnapshot
-    stage_result: ExpertSourceReplayStageResultRecord
-    reservation: ExpertSourceReplayExecutionReservation
-    request: ExpertSourceReplayExecutionRequest
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.plan_reservation)
-            is not ExpertReleaseMatrixPlanReservationSnapshot
-            or type(self.stage_result) is not ExpertSourceReplayStageResultRecord
-            or not isinstance(
-                self.reservation,
-                ExpertSourceReplayExecutionReservation,
-            )
-            or not isinstance(self.request, ExpertSourceReplayExecutionRequest)
-        ):
-            raise ExpertValidationStoreError(
-                "release matrix source evidence snapshot is not typed"
-            )
-        plan = self.plan_reservation.evaluation_plan
-        attempt = self.plan_reservation.snapshot.latest_attempt
-        accepted_source_results = tuple(
-            result
-            for result in self.plan_reservation.snapshot.accepted_stage_results
-            if type(result) is ExpertSourceReplayStageResultRecord
-        )
-        source_provenances = tuple(
-            provenance
-            for provenance in plan.provenance_bindings
-            if provenance.provenance_kind
-            is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
-        )
-        if (
-            attempt is None
-            or plan.mode is not ExpertReleaseMatrixMode.PARENT_COMPARISON
-            or accepted_source_results != (self.stage_result,)
-            or self.stage_result.outcome is not ExpertEvaluatorOutcome.PASSED
-            or not source_provenances
-            or {
-                provenance.source_replay_stage_result_id
-                for provenance in source_provenances
-            }
-            != {self.stage_result.stage_result_record_id}
-            or {
-                provenance.paired_comparison_receipt_id
-                for provenance in source_provenances
-            }
-            != {
-                self.stage_result.paired_comparison_receipt.paired_comparison_receipt_id
-            }
-            or self.stage_result.validation_attempt_id != plan.validation_attempt_id
-            or self.stage_result.candidate_id != plan.candidate_id
-            or self.stage_result.candidate_tree_hash != plan.candidate_tree_hash
-            or self.stage_result.validation_policy_id != plan.validation_policy_id
-            or self.stage_result.configuration_fingerprint
-            != plan.configuration_fingerprint
-            or self.stage_result.reservation_id != self.reservation.reservation_id
-            or self.stage_result.execution_request_id
-            != self.request.execution_request_id
-            or self.stage_result.paired_comparison_receipt.reservation_id
-            != self.reservation.reservation_id
-            or self.stage_result.paired_comparison_receipt.execution_request_id
-            != self.request.execution_request_id
-            or self.reservation.execution_request_id
-            != self.request.execution_request_id
-            or self.reservation.validation_attempt_id
-            != self.request.validation_attempt_id
-            or self.reservation.candidate_id != self.request.candidate_id
-            or self.reservation.candidate_tree_hash != self.request.candidate_tree_hash
-            or self.reservation.observed_parent_release_id
-            != self.request.parent_release_id
-            or self.request.validation_attempt_id != plan.validation_attempt_id
-            or self.request.candidate_id != plan.candidate_id
-            or self.request.candidate_tree_hash != plan.candidate_tree_hash
-            or self.request.candidate_commit_record_id
-            != plan.candidate_commit_record_id
-            or self.request.scope_contract_id != plan.scope_contract_id
-            or self.request.parent_release_id != plan.parent_release_id
-            or self.request.parent_tree_hash != plan.parent_tree_hash
-            or self.request.validation_policy_id != plan.validation_policy_id
-            or self.request.configuration_fingerprint != plan.configuration_fingerprint
-        ):
-            raise ExpertValidationStoreError(
-                "release matrix source evidence closure is inconsistent"
-            )
 
 
 _SOURCE_REPLAY_PUBLICATION_PERMIT_SEAL = object()
@@ -414,6 +340,7 @@ class ExpertValidationStore:
         self.staging_root = root / "staging"
         self._source_replay_publication_coordinator = None
         self._automated_review_coordinator = None
+        self._release_matrix_stage_coordinator = None
         initialization_lock = state_root / f".{root.name}.initialization.lock"
         with _ValidationStoreLock(initialization_lock, exclusive=True, create=True):
             self._prepare_layout()
@@ -583,6 +510,57 @@ class ExpertValidationStore:
         ):
             raise ExpertValidationStoreError(
                 "automated review publication authority changed after binding"
+            )
+        return coordinator
+
+    def _bind_release_matrix_stage_authority(
+        self,
+        coordinator: ExpertReleaseMatrixStageCoordinator,
+    ) -> None:
+        if type(coordinator) is not ExpertReleaseMatrixStageCoordinator:
+            raise ExpertValidationStoreError(
+                "release matrix stage coordinator type is invalid"
+            )
+        execution_store = coordinator.execution_store
+        if (
+            coordinator.validation_store is not self
+            or type(execution_store) is not ExpertTaskEvaluationExecutionStore
+            or execution_store.root
+            != ExpertTaskEvaluationExecutionStore.canonical_root(self.root).resolve()
+            or execution_store.trusted_root != self.root
+            or execution_store.policy_settings != self.settings.policy
+            or (
+                self._release_matrix_stage_coordinator is not None
+                and self._release_matrix_stage_coordinator is not coordinator
+            )
+        ):
+            raise ExpertValidationStoreError(
+                "validation store has invalid or conflicting release matrix authority"
+            )
+        self._release_matrix_stage_coordinator = coordinator
+
+    def _require_bound_release_matrix_stage_authority(
+        self,
+        coordinator: object,
+    ) -> ExpertReleaseMatrixStageCoordinator:
+        if (
+            type(coordinator) is not ExpertReleaseMatrixStageCoordinator
+            or coordinator is not self._release_matrix_stage_coordinator
+            or coordinator.validation_store is not self
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix stage publication lacks bound coordinator authority"
+            )
+        execution_store = coordinator.execution_store
+        if (
+            type(execution_store) is not ExpertTaskEvaluationExecutionStore
+            or execution_store.root
+            != ExpertTaskEvaluationExecutionStore.canonical_root(self.root).resolve()
+            or execution_store.trusted_root != self.root
+            or execution_store.policy_settings != self.settings.policy
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix stage publication authority changed after binding"
             )
         return coordinator
 
@@ -1006,6 +984,246 @@ class ExpertValidationStore:
             updated = self._append_transition(journal, transition)
             self._publish_journal_unlocked(updated)
             return ExpertAutomatedReviewStageCommitResult(
+                stage_result=result,
+                snapshot=self._snapshot_at_unlocked(
+                    updated,
+                    transition.transition_id,
+                ),
+                replayed=False,
+            )
+
+    def reopen_or_replay_release_matrix_stage(
+        self,
+        *,
+        reservation_snapshot: ExpertTaskEvaluationReservationSnapshot,
+        prepared_request: PreparedTaskEvaluationRequest,
+    ) -> ExpertReleaseMatrixStageCommitResult | None:
+        """Validate the reserved head or return its committed matrix result."""
+
+        if (
+            type(reservation_snapshot) is not ExpertTaskEvaluationReservationSnapshot
+            or type(prepared_request) is not PreparedTaskEvaluationRequest
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix stage replay requires exact task authorities"
+            )
+        prepared = PreparedTaskEvaluationRequest(
+            plan_join=prepared_request.plan_join,
+            stored_candidate=prepared_request.stored_candidate,
+            candidate=prepared_request.candidate,
+            parent=prepared_request.parent,
+            current_release_observation=(prepared_request.current_release_observation),
+            cases=prepared_request.cases,
+        )
+        reservation = reservation_snapshot.reservation
+        operation = self._release_matrix_stage_operation(reservation)
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(reservation.candidate_id)
+            observed_reservation = (
+                self._release_matrix_task_reservation_snapshot_unlocked(
+                    journal,
+                    reservation.authorization_transition_id,
+                )
+            )
+            if (
+                observed_reservation != reservation_snapshot
+                or observed_reservation.request != prepared.plan_join.request
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "release matrix stage task reservation authority changed"
+                )
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertReleaseMatrixStageCommitResult(
+                    stage_result=(
+                        self._release_matrix_stage_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(
+                current,
+                reservation.authorization_transition_id,
+            )
+            if (
+                current != observed_reservation.plan_reservation.snapshot
+                or current.state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+            ):
+                raise ExpertValidationStoreError(
+                    "release matrix stage lacks the current reserved stage head"
+                )
+        return None
+
+    def publish_release_matrix_stage(
+        self,
+        execution: ExpertReleaseMatrixStageExecution,
+    ) -> ExpertReleaseMatrixStageCommitResult:
+        """CAS one sealed factual matrix into the accepted validation prefix."""
+
+        if type(execution) is not ExpertReleaseMatrixStageExecution:
+            raise ExpertValidationStoreError(
+                "release matrix stage publication requires its sealed execution"
+            )
+        reservation_snapshot = execution.reservation_snapshot
+        prepared = execution.prepared_request
+        reservation = reservation_snapshot.reservation
+        operation = self._release_matrix_stage_operation(reservation)
+        with self._lock(exclusive=False):
+            journal = self._read_journal_unlocked(reservation.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertReleaseMatrixStageCommitResult(
+                    stage_result=(
+                        self._release_matrix_stage_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            observed_reservation = (
+                self._release_matrix_task_reservation_snapshot_unlocked(
+                    journal,
+                    reservation.authorization_transition_id,
+                )
+            )
+            if (
+                observed_reservation != reservation_snapshot
+                or observed_reservation.request != prepared.plan_join.request
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "release matrix task reservation changed before publication"
+                )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(
+                current,
+                reservation.authorization_transition_id,
+            )
+            if current != observed_reservation.plan_reservation.snapshot:
+                raise ExpertValidationCompareAndSwapError(
+                    "release matrix validation head differs from its reservation"
+                )
+        coordinator = self._require_bound_release_matrix_stage_authority(
+            self._release_matrix_stage_coordinator
+        )
+        execution._require_bound(
+            coordinator,
+            self,
+            coordinator.execution_store,
+        )
+        execution.completed_execution.require_exact(
+            coordinator.execution_store,
+            reservation_snapshot,
+            prepared,
+        )
+        result = execution.stage_result
+        report = result.release_matrix_report
+        if (
+            result.task_evaluation_reservation_id != reservation.reservation_id
+            or result.authorization_transition_id
+            != reservation.authorization_transition_id
+            or result.authorization_state_id != reservation.authorization_state_id
+            or result.validation_attempt_id != reservation.validation_attempt_id
+            or result.candidate_id != reservation.candidate_id
+            or result.candidate_tree_hash != reservation.candidate_tree_hash
+            or result.scope_contract_id != reservation.scope_contract_id
+            or result.parent_release_id != reservation.observed_current_release_id
+            or result.plan_reservation_operation_id
+            != reservation.plan_reservation_operation_id
+            or result.validation_policy_id
+            != reservation_snapshot.request.validation_policy_id
+            or result.configuration_fingerprint
+            != reservation_snapshot.request.configuration_fingerprint
+            or report.evaluation_plan
+            != reservation_snapshot.plan_reservation.evaluation_plan
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix stage result differs from its sealed reservation"
+            )
+        attempt = observed_reservation.plan_reservation.snapshot.latest_attempt
+        if attempt is None:
+            raise ExpertValidationStoreError(
+                "release matrix stage publication has no active attempt"
+            )
+        target_state = self.reducer.advance_release_matrix_stage(
+            state=observed_reservation.plan_reservation.snapshot.state,
+            attempt=attempt,
+            accepted_results=(
+                observed_reservation.plan_reservation.snapshot.accepted_stage_results
+            ),
+            result=result,
+        )
+        with self._lock(exclusive=True):
+            journal = self._read_journal_unlocked(reservation.candidate_id)
+            replay = self._resolved_operation_unlocked(journal, operation)
+            if replay is not None:
+                return ExpertReleaseMatrixStageCommitResult(
+                    stage_result=(
+                        self._release_matrix_stage_result_for_transition_unlocked(
+                            replay.transition
+                        )
+                    ),
+                    snapshot=replay,
+                    replayed=True,
+                )
+            current_reservation = (
+                self._release_matrix_task_reservation_snapshot_unlocked(
+                    journal,
+                    reservation.authorization_transition_id,
+                )
+            )
+            current = self._current_from_journal_unlocked(journal)
+            self._require_expected_head(
+                current,
+                reservation.authorization_transition_id,
+            )
+            if (
+                current_reservation != observed_reservation
+                or current != observed_reservation.plan_reservation.snapshot
+                or current.latest_attempt is None
+            ):
+                raise ExpertValidationCompareAndSwapError(
+                    "validation head changed during release matrix reduction"
+                )
+            execution._consume(
+                coordinator,
+                self,
+                coordinator.execution_store,
+            )
+            accepted_ids = (
+                *current.transition.accepted_stage_result_record_ids,
+                result.stage_result_record_id,
+            )
+            transition = ExpertValidationTransition.mint(
+                candidate_id=reservation.candidate_id,
+                candidate_tree_hash=reservation.candidate_tree_hash,
+                transition_number=len(journal.transition_ids) + 1,
+                predecessor_transition_id=current.transition.transition_id,
+                predecessor_state_id=current.state.validation_state_id,
+                target_state_id=target_state.validation_state_id,
+                latest_attempt_id=current.latest_attempt.validation_attempt_id,
+                operation_id=operation.operation_id,
+                validation_policy_id=current.latest_attempt.validation_policy_id,
+                configuration_fingerprint=(
+                    current.latest_attempt.configuration_fingerprint
+                ),
+                eligibility_decision_id=None,
+                created_attempt_id=None,
+                accepted_stage_result_record_ids=accepted_ids,
+                transition_stage_result_record_id=result.stage_result_record_id,
+                transition_authority_invalidation_id=None,
+            )
+            self._write_contract_unlocked(report)
+            self._write_contract_unlocked(result)
+            self._write_contract_unlocked(target_state)
+            self._write_contract_unlocked(operation)
+            self._write_contract_unlocked(transition)
+            updated = self._append_transition(journal, transition)
+            self._publish_journal_unlocked(updated)
+            return ExpertReleaseMatrixStageCommitResult(
                 stage_result=result,
                 snapshot=self._snapshot_at_unlocked(
                     updated,
@@ -1982,6 +2200,17 @@ class ExpertValidationStore:
             request_record_id=packet.review_packet_id,
         )
 
+    @staticmethod
+    def _release_matrix_stage_operation(
+        reservation: TaskEvaluationReservation,
+    ) -> ExpertValidationOperation:
+        return ExpertValidationOperation.mint(
+            operation_kind=(ExpertValidationOperationKind.RELEASE_MATRIX_STAGE_RESULT),
+            candidate_id=reservation.candidate_id,
+            expected_transition_id=reservation.authorization_transition_id,
+            request_record_id=reservation.reservation_id,
+        )
+
     def _validate_automated_review_execution(
         self,
         execution: ExpertAutomatedReviewExecution,
@@ -2079,6 +2308,40 @@ class ExpertValidationStore:
             snapshot=current,
         )
 
+    def _release_matrix_task_reservation_snapshot_unlocked(
+        self,
+        journal: ExpertValidationJournal,
+        authorization_transition_id: str,
+    ) -> ExpertTaskEvaluationReservationSnapshot:
+        stored = self._task_evaluation_reservation_unlocked(
+            journal,
+            authorization_transition_id,
+        )
+        plan_alias = self._release_matrix_plan_reservation_unlocked(
+            journal,
+            authorization_transition_id,
+        )
+        if stored is None or plan_alias is None:
+            raise ExpertValidationStoreError(
+                "release matrix stage lacks its task and plan reservations"
+            )
+        operation, reservation, request, observation = stored
+        snapshot = self._snapshot_at_unlocked(
+            journal,
+            authorization_transition_id,
+        )
+        return ExpertTaskEvaluationReservationSnapshot(
+            operation=operation,
+            reservation=reservation,
+            request=request,
+            current_release_observation=observation,
+            plan_reservation=ExpertReleaseMatrixPlanReservationSnapshot(
+                operation=plan_alias[0],
+                evaluation_plan=plan_alias[1],
+                snapshot=snapshot,
+            ),
+        )
+
     def _source_stage_result_for_transition_unlocked(
         self,
         transition: ExpertValidationTransition,
@@ -2115,6 +2378,24 @@ class ExpertValidationStore:
             ExpertAutomatedReviewStageResultRecord,
         )
 
+    def _release_matrix_stage_result_for_transition_unlocked(
+        self,
+        transition: ExpertValidationTransition,
+    ) -> ExpertReleaseMatrixStageResultRecord:
+        result_record_id = transition.transition_stage_result_record_id
+        if (
+            result_record_id is None
+            or result_record_id.split(":sha256:", 1)[0]
+            != "expert-release-matrix-stage-result"
+        ):
+            raise ExpertValidationStoreError(
+                "validation transition does not contain a release matrix result"
+            )
+        return self._read_contract_unlocked(
+            result_record_id,
+            ExpertReleaseMatrixStageResultRecord,
+        )
+
     def _read_stage_result_unlocked(
         self,
         result_record_id: str,
@@ -2122,6 +2403,7 @@ class ExpertValidationStore:
         ExpertEvaluatorResultRecord
         | ExpertSourceReplayStageResultRecord
         | ExpertAutomatedReviewStageResultRecord
+        | ExpertReleaseMatrixStageResultRecord
     ):
         namespace = result_record_id.split(":sha256:", 1)[0]
         if namespace == "expert-evaluator-result-record":
@@ -2144,6 +2426,11 @@ class ExpertValidationStore:
                 result_record_id,
                 ExpertAutomatedReviewStageResultRecord,
             )
+        if namespace == "expert-release-matrix-stage-result":
+            return self._read_contract_unlocked(
+                result_record_id,
+                ExpertReleaseMatrixStageResultRecord,
+            )
         raise ExpertValidationStoreError(
             "validation stage result uses an unsupported namespace"
         )
@@ -2154,6 +2441,7 @@ class ExpertValidationStore:
             ExpertEvaluatorResultRecord
             | ExpertSourceReplayStageResultRecord
             | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord
         ),
     ) -> tuple[
         ExpertValidationStage,
@@ -2191,6 +2479,15 @@ class ExpertValidationStore:
                 ExpertValidationStage.AUTOMATED_REVIEW,
                 result.stage_result_record_id,
                 result.outcome is ExpertAutomatedReviewOutcome.PASSED,
+                result.validation_attempt_id,
+                result.candidate_id,
+                result.candidate_tree_hash,
+            )
+        if type(result) is ExpertReleaseMatrixStageResultRecord:
+            return (
+                ExpertValidationStage.RELEASE_MATRIX,
+                result.stage_result_record_id,
+                True,
                 result.validation_attempt_id,
                 result.candidate_id,
                 result.candidate_tree_hash,
@@ -2471,7 +2768,8 @@ class ExpertValidationStore:
         accepted_results: tuple[
             ExpertEvaluatorResultRecord
             | ExpertSourceReplayStageResultRecord
-            | ExpertAutomatedReviewStageResultRecord,
+            | ExpertAutomatedReviewStageResultRecord
+            | ExpertReleaseMatrixStageResultRecord,
             ...,
         ],
     ) -> ExpertSourceReplayExecutionRequest | None:
@@ -3028,6 +3326,114 @@ class ExpertValidationStore:
                 "automated review state semantics are inconsistent"
             )
 
+    def _validate_release_matrix_stage_transition_unlocked(
+        self,
+        *,
+        journal: ExpertValidationJournal,
+        transition: ExpertValidationTransition,
+        state: ExpertCandidateValidationState,
+        operation: ExpertValidationOperation,
+        latest_attempt: ExpertValidationAttempt | None,
+        previous_accepted: tuple[str, ...],
+        result_record: ExpertReleaseMatrixStageResultRecord,
+    ) -> None:
+        if (
+            transition.predecessor_transition_id is None
+            or transition.predecessor_state_id is None
+            or latest_attempt is None
+        ):
+            raise ExpertValidationStoreError(
+                "release matrix result requires its active predecessor"
+            )
+        predecessor_transition = self._read_contract_unlocked(
+            transition.predecessor_transition_id,
+            ExpertValidationTransition,
+        )
+        predecessor_state = self._read_contract_unlocked(
+            transition.predecessor_state_id,
+            ExpertCandidateValidationState,
+        )
+        report = self._read_contract_unlocked(
+            result_record.release_matrix_report.release_matrix_report_id,
+            ExpertReleaseMatrixReport,
+        )
+        task_alias = self._task_evaluation_reservation_unlocked(
+            journal,
+            result_record.authorization_transition_id,
+        )
+        plan_alias = self._release_matrix_plan_reservation_unlocked(
+            journal,
+            result_record.authorization_transition_id,
+        )
+        if task_alias is None or plan_alias is None:
+            raise ExpertValidationStoreError(
+                "release matrix result lacks its durable reservations"
+            )
+        _reservation_operation, reservation, request, _observation = task_alias
+        common_invalid = (
+            operation.operation_kind
+            is not ExpertValidationOperationKind.RELEASE_MATRIX_STAGE_RESULT
+            or operation.request_record_id != reservation.reservation_id
+            or operation.expected_transition_id
+            != reservation.authorization_transition_id
+            or transition.predecessor_transition_id
+            != reservation.authorization_transition_id
+            or predecessor_transition.accepted_stage_result_record_ids
+            != previous_accepted
+            or predecessor_state.promotion_state is not ExpertPromotionState.VALIDATING
+            or predecessor_state.next_stage is not ExpertValidationStage.RELEASE_MATRIX
+            or predecessor_state.validation_attempt_id
+            != latest_attempt.validation_attempt_id
+            or tuple(
+                item.stage_result_record_id
+                for item in predecessor_state.accepted_stage_results
+            )
+            != previous_accepted
+            or result_record.authorization_transition_id
+            != transition.predecessor_transition_id
+            or result_record.authorization_state_id
+            != predecessor_state.validation_state_id
+            or result_record.validation_attempt_id
+            != latest_attempt.validation_attempt_id
+            or result_record.candidate_id != transition.candidate_id
+            or result_record.candidate_tree_hash != transition.candidate_tree_hash
+            or result_record.scope_contract_id != latest_attempt.scope_contract_id
+            or result_record.parent_release_id != latest_attempt.parent_release_id
+            or result_record.validation_policy_id != latest_attempt.validation_policy_id
+            or result_record.configuration_fingerprint
+            != latest_attempt.configuration_fingerprint
+            or report != result_record.release_matrix_report
+            or report.candidate_commit_record_id
+            != latest_attempt.candidate_commit_record_id
+            or result_record.task_evaluation_reservation_id
+            != reservation.reservation_id
+            or result_record.plan_reservation_operation_id != plan_alias[0].operation_id
+            or report.evaluation_plan != plan_alias[1]
+            or request.authorization_transition_id
+            != transition.predecessor_transition_id
+            or request.authorization_state_id != predecessor_state.validation_state_id
+            or request.validation_attempt_id != latest_attempt.validation_attempt_id
+            or request.candidate_id != transition.candidate_id
+            or request.candidate_tree_hash != transition.candidate_tree_hash
+            or request.candidate_commit_record_id
+            != latest_attempt.candidate_commit_record_id
+            or request.scope_contract_id != latest_attempt.scope_contract_id
+            or request.parent_release_id != latest_attempt.parent_release_id
+            or request.validation_policy_id != latest_attempt.validation_policy_id
+            or request.configuration_fingerprint
+            != latest_attempt.configuration_fingerprint
+            or state.promotion_state is not ExpertPromotionState.VALIDATING
+            or state.next_stage is not ExpertValidationStage.PUBLICATION_ELIGIBILITY
+            or state.review_assertion_ids != predecessor_state.review_assertion_ids
+            or state.terminal_evidence_ids
+            or state.transition_evidence_id != result_record.stage_result_record_id
+            or state.reason != "stage_release_matrix_passed"
+        )
+        if common_invalid:
+            raise ExpertValidationStoreError(
+                "release matrix result transition closure is inconsistent"
+            )
+
     def _validate_transition_closure_unlocked(
         self,
         journal: ExpertValidationJournal,
@@ -3256,6 +3662,20 @@ class ExpertValidationStore:
                         *previous_accepted,
                         result_record.stage_result_record_id,
                     )
+            elif type(result_record) is ExpertReleaseMatrixStageResultRecord:
+                self._validate_release_matrix_stage_transition_unlocked(
+                    journal=journal,
+                    transition=transition,
+                    state=state,
+                    operation=operation,
+                    latest_attempt=latest_attempt,
+                    previous_accepted=previous_accepted,
+                    result_record=result_record,
+                )
+                expected_accepted = (
+                    *previous_accepted,
+                    result_record.stage_result_record_id,
+                )
             else:
                 raise ExpertValidationStoreError(
                     "validation stage result type is unsupported"
