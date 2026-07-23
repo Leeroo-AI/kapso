@@ -1653,6 +1653,7 @@ class KnowledgeSnapshotManifest(StrictContract):
     entry_state_refs: tuple[str, ...]
     included_assertion_ids: tuple[str, ...]
     included_revocation_ids: tuple[str, ...]
+    active_expert_release_use_revocation_ids: tuple[str, ...]
     proof_dependency_closure_ids: tuple[str, ...]
     sanitation_policy_version: str
     retrieval_policy_version: str
@@ -1681,6 +1682,7 @@ class KnowledgeSnapshotManifest(StrictContract):
             "entry_state_refs",
             "included_assertion_ids",
             "included_revocation_ids",
+            "active_expert_release_use_revocation_ids",
             "proof_dependency_closure_ids",
         ):
             values = getattr(self, name)
@@ -1694,6 +1696,7 @@ class KnowledgeSnapshotManifest(StrictContract):
         required_proof_ids.update(self.entry_state_refs)
         required_proof_ids.update(self.included_assertion_ids)
         required_proof_ids.update(self.included_revocation_ids)
+        required_proof_ids.update(self.active_expert_release_use_revocation_ids)
         if not required_proof_ids.issubset(self.proof_dependency_closure_ids):
             raise MissingReferenceError("snapshot proof closure is incomplete")
         _require_text(self.sanitation_policy_version, "sanitation_policy_version")
@@ -2221,7 +2224,9 @@ class ExpertCandidatePatch(StrictContract):
     IDENTITY_FIELD: ClassVar[str] = "patch_id"
 
     def _validate(self) -> None:
-        _require_digest(self.source_base_tree_hash, "candidate patch source_base_tree_hash")
+        _require_digest(
+            self.source_base_tree_hash, "candidate patch source_base_tree_hash"
+        )
         _require_digest(self.candidate_tree_hash, "candidate patch candidate_tree_hash")
         if self.source_base_tree_hash == self.candidate_tree_hash:
             raise ContractValidationError("candidate patch must change the tree")
@@ -2493,7 +2498,8 @@ class ExpertCandidateOperationRecord(StrictContract):
             != self.operation_receipt.operation_receipt_id
             or self.workspace_receipt.operation_id
             != self.operation_receipt.operation_id
-            or self.workspace_receipt.source_base_tree_hash != self.source_base_tree_hash
+            or self.workspace_receipt.source_base_tree_hash
+            != self.source_base_tree_hash
         ):
             raise ContractValidationError(
                 "candidate workspace receipt differs from its operation"
@@ -2647,7 +2653,9 @@ class ExpertCandidateManifest(StrictContract):
 
     def _validate(self) -> None:
         require_content_id(self.scope_contract_id, "scope_contract_id")
-        if (self.source_base_release_id is None) != (self.source_base_repository_map_ref is None):
+        if (self.source_base_release_id is None) != (
+            self.source_base_repository_map_ref is None
+        ):
             raise ContractValidationError(
                 "candidate source-base release and repository map must appear together"
             )
@@ -3616,7 +3624,9 @@ class ExpertSourceReplayExecutionRequest(StrictContract):
             if value.split(":sha256:", 1)[0] != namespace:
                 raise ContractValidationError(f"{name} must name a {namespace} record")
         _require_digest(self.candidate_tree_hash, "source replay candidate_tree_hash")
-        _require_digest(self.source_base_tree_hash, "source replay source_base_tree_hash")
+        _require_digest(
+            self.source_base_tree_hash, "source replay source_base_tree_hash"
+        )
         _require_digest(
             self.configuration_fingerprint,
             "source replay configuration_fingerprint",

@@ -39,6 +39,7 @@ from kapso.cross_run.record_contracts import (
     CatalogRevocation,
     CatalogTaint,
     ClaimEvidenceClosure,
+    ExpertReleaseUseRevocation,
     ExecutionRevisionEvent,
     SanitationReport,
 )
@@ -90,12 +91,14 @@ class CatalogFactSet:
     claim_evidence_closures: tuple[ClaimEvidenceClosure, ...]
     revocations: tuple[CatalogRevocation, ...]
     taints: tuple[CatalogTaint, ...]
+    release_use_revocations: tuple[ExpertReleaseUseRevocation, ...]
 
     _FIELD_BY_TYPE: ClassVar[dict[type[StrictContract], str]] = {
         BundleProjectionManifest: "projection_manifests",
         CatalogRevocation: "revocations",
         CatalogTaint: "taints",
         ClaimEvidenceClosure: "claim_evidence_closures",
+        ExpertReleaseUseRevocation: "release_use_revocations",
         CodingAgentOperationReceipt: "operation_receipts",
         CatalogAgentOperationRecord: "agent_operation_records",
         ExecutionRevisionEvent: "derivation_events",
@@ -157,6 +160,7 @@ class CatalogGenerationReducer:
                 "catalog reduction settings do not match the input configuration"
             )
         facts = CatalogFactSet.read(request)
+        self._validate_release_use_revocations(request, facts)
         self._validate_agent_operation_packets(request, facts)
         bundle_frontier = self._validate_projection_history(
             request.scope_contract_id,
@@ -170,6 +174,9 @@ class CatalogGenerationReducer:
             CatalogEntryState.from_json_bytes(request.read_object_bytes(state_id))
             for state_id in predecessor_states
         )
+        release_use_revocation_ids = {
+            revocation.revocation_id for revocation in facts.release_use_revocations
+        }
         reduced = self._admission.reduce(
             catalog_generation=request.generation_number,
             episodes=facts.episodes,
@@ -180,7 +187,11 @@ class CatalogGenerationReducer:
             operation_records=facts.agent_operation_records,
             claim_evidence_closures=facts.claim_evidence_closures,
             sanitation_reports=facts.sanitation_reports,
-            proof_object_ids=request.fact_object_ids,
+            proof_object_ids=tuple(
+                object_id
+                for object_id in request.fact_object_ids
+                if object_id not in release_use_revocation_ids
+            ),
             revocations=facts.revocations,
             taints=facts.taints,
             predecessor_states=predecessor_records,
@@ -193,6 +204,29 @@ class CatalogGenerationReducer:
             },
             derived_objects=reduced.states,
         )
+
+    def _validate_release_use_revocations(
+        self,
+        request: CatalogReductionRequest,
+        facts: CatalogFactSet,
+    ) -> None:
+        fact_object_ids = set(request.fact_object_ids)
+        for revocation in facts.release_use_revocations:
+            if (
+                revocation.scope_contract_id != self._scope_contract.scope_contract_id
+                or revocation.scope_id != self._scope_contract.scope_id
+            ):
+                raise CatalogFactError(
+                    "release-use revocation leaves the catalog scope"
+                )
+            if revocation.revocation_id in revocation.exact_evidence_refs:
+                raise CatalogFactError(
+                    "release-use revocation cannot cite itself as evidence"
+                )
+            if not set(revocation.exact_evidence_refs).issubset(fact_object_ids):
+                raise CatalogFactError(
+                    "release-use revocation evidence closure is incomplete"
+                )
 
     def _validate_agent_operation_packets(
         self,

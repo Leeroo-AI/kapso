@@ -803,6 +803,7 @@ def build_records(
         entry_state_refs=(catalog_state.catalog_entry_state_id,),
         included_assertion_ids=(claim_assertion.assertion_id,),
         included_revocation_ids=(),
+        active_expert_release_use_revocation_ids=(),
         proof_dependency_closure_ids=proof_ids,
         sanitation_policy_version="kapso.sanitation.v1",
         retrieval_policy_version="kapso.retrieval.v1",
@@ -2155,4 +2156,24 @@ def test_knowledge_snapshot_rejects_incomplete_proof_closure():
         KnowledgeSnapshotManifest.mint(
             **payload,
             proof_dependency_closure_ids=snapshot.proof_dependency_closure_ids[1:],
+        )
+
+
+def test_knowledge_snapshot_requires_release_use_revocations_in_proof_closure():
+    snapshot = next(
+        record
+        for record in build_records()
+        if isinstance(record, KnowledgeSnapshotManifest)
+    )
+    release_use_revocation_id = fixture_id("expert-release-use-revocation")
+    payload = {
+        key: value
+        for key, value in snapshot.to_dict().items()
+        if key not in {"snapshot_id", "active_expert_release_use_revocation_ids"}
+    }
+
+    with pytest.raises(MissingReferenceError):
+        KnowledgeSnapshotManifest.mint(
+            **payload,
+            active_expert_release_use_revocation_ids=(release_use_revocation_id,),
         )

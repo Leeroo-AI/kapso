@@ -120,6 +120,7 @@ def snapshot_manifest(data, generation=1, additional_checksums=None):
         entry_state_refs=(),
         included_assertion_ids=(),
         included_revocation_ids=(),
+        active_expert_release_use_revocation_ids=(),
         proof_dependency_closure_ids=(),
         sanitation_policy_version="kapso.sanitation.v1",
         retrieval_policy_version="kapso.retrieval.v1",

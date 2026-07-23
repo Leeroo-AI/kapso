@@ -1341,9 +1341,11 @@ fails before touching GitHub.
 
 Performance and compatibility findings use a separate scientific availability
 plane. `ExpertReleaseUseRevocation` is an irreversible, release-wide catalog fact;
-it binds the exact activated release/publication, reason, evidence, and time, and
-accepts only `performance` or `compatibility`. It never enters `CatalogRevocation`,
-the emergency denylist, taint propagation, or `ExpertPromotionState.REVOKED`.
+it binds the exact release, publication, remotely reconstructable activation
+witness, reason, evidence, and time, and accepts only `performance` or
+`compatibility`. A local validation-store activation receipt is not cross-host
+authority and is never referenced. The event never enters `CatalogRevocation`, the
+emergency denylist, taint propagation, or `ExpertPromotionState.REVOKED`.
 All findings remain active, including multiple findings of either kind for one
 release. The policy linearization point is the successor KnowledgeSnapshot
 `CURRENT` CAS—not the local catalog commit. The attested snapshot authenticates
@@ -1361,9 +1363,12 @@ refresh must not replace its pinned scientific knowledge package.
 
 - [x] Append authenticated security/contamination revocation receipts from the
       signed cumulative emergency lineage.
-- [ ] Append separately authenticated performance/compatibility revocation events
-      to the active KnowledgeSnapshot release-use projection;
-      they must not enter the fail-closed emergency lineage.
+- [x] Define and project performance/compatibility release-use facts as a distinct,
+      cumulative KnowledgeSnapshot field; they never enter retrieval, admission,
+      taint, lifecycle, or the fail-closed emergency lineage.
+- [ ] Author each event only after independently resolving its historical expert
+      release, exact publication, write-once activation witness, and materialized
+      scope contract; never trust a local activation receipt.
 - [ ] Performance revocation prevents new launch/promotion and marks existing run
       outputs ineligible while preserving offline reproducibility.
 - [x] Security/contamination revocation is checked from the fresh emergency

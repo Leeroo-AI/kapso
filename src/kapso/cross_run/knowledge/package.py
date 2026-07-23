@@ -187,6 +187,7 @@ class PreparedKnowledgeSnapshot:
     entry_state_ids: tuple[str, ...]
     included_assertion_ids: tuple[str, ...]
     included_revocation_ids: tuple[str, ...]
+    active_expert_release_use_revocation_ids: tuple[str, ...]
     included_bundle_ids: tuple[str, ...]
     record_closure_digest: str
     proof_dependencies: Mapping[str, tuple[str, ...]]
@@ -232,6 +233,7 @@ class PreparedKnowledgeSnapshot:
             "entry_state_ids",
             "included_assertion_ids",
             "included_revocation_ids",
+            "active_expert_release_use_revocation_ids",
             "included_bundle_ids",
         ):
             values = getattr(self, name)
@@ -287,6 +289,7 @@ class PreparedKnowledgeSnapshot:
             *self.entry_state_ids,
             *self.included_assertion_ids,
             *self.included_revocation_ids,
+            *self.active_expert_release_use_revocation_ids,
             *self.included_bundle_ids,
         }
         if not declared_ids.issubset(envelope_ids):
@@ -577,6 +580,9 @@ class KnowledgeSnapshotPackageBuilder:
             entry_state_refs=prepared.entry_state_ids,
             included_assertion_ids=prepared.included_assertion_ids,
             included_revocation_ids=prepared.included_revocation_ids,
+            active_expert_release_use_revocation_ids=(
+                prepared.active_expert_release_use_revocation_ids
+            ),
             proof_dependency_closure_ids=tuple(
                 record["record_id"] for record in prepared.record_envelopes
             ),
@@ -698,6 +704,11 @@ def _typed_required_references(envelope: Mapping[str, Any]) -> tuple[str, ...]:
     elif kind == "catalog-revocation":
         references = (
             payload["subject_id"],
+            *_reference_tuple(payload, "exact_evidence_refs"),
+        )
+    elif kind == "expert-release-use-revocation":
+        references = (
+            payload["scope_contract_id"],
             *_reference_tuple(payload, "exact_evidence_refs"),
         )
     elif kind == "catalog-taint":
@@ -960,6 +971,11 @@ def _prepare_snapshot(
             for record_id in sorted(catalog_generation.fact_object_ids)
             if _record_kind(record_id) == "catalog-revocation"
         ),
+        active_expert_release_use_revocation_ids=tuple(
+            record_id
+            for record_id in sorted(catalog_generation.fact_object_ids)
+            if _record_kind(record_id) == "expert-release-use-revocation"
+        ),
         included_bundle_ids=tuple(
             record_id
             for record_id in sorted(catalog_generation.fact_object_ids)
@@ -1060,6 +1076,8 @@ def _verify_package_files(
         or manifest.entry_state_refs != prepared.entry_state_ids
         or manifest.included_assertion_ids != prepared.included_assertion_ids
         or manifest.included_revocation_ids != prepared.included_revocation_ids
+        or manifest.active_expert_release_use_revocation_ids
+        != prepared.active_expert_release_use_revocation_ids
         or manifest.proof_dependency_closure_ids != expected_proof_ids
     ):
         raise KnowledgeSnapshotPackageError(

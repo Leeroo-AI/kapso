@@ -82,7 +82,7 @@ From one exact catalog generation, `KnowledgeSnapshotPublisher`:
       policy.
 - [x] Includes every claim/relative-effect proof dependency, assertion, active
       state, revocation, and sanitation reference required for audit.
-- [ ] Projects every performance/compatibility release-use event as a distinct,
+- [x] Projects every performance/compatibility release-use event as a distinct,
       sorted, proof-closed manifest field; never mixes it with scientific catalog
       revocation or retrieval roots.
 - [x] Includes complete canonical JSON records; IDs-only placeholders are not
@@ -103,6 +103,13 @@ From one exact catalog generation, `KnowledgeSnapshotPublisher`:
 
 An explicit `EMPTY` snapshot is built and validated through the same path; missing
 remote state is never interpreted as empty.
+
+The release, publication, and activation-witness identities inside each event are
+external GitHub authority references, not local package dependencies. The policy
+reader must resolve the historical release identity, compare the exact publication
+ID, reconstruct and compare the write-once activation witness, and match the
+materialized expert manifest's scope before using the projection. A syntactically
+valid event alone grants no release-use decision authority.
 
 ## Search sidecars
 

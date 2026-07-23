@@ -29,6 +29,7 @@ from kapso.cross_run.record_contracts import (
     CatalogRevocation,
     CatalogTaint,
     ClaimEvidenceClosure,
+    ExpertReleaseUseRevocation,
     ExecutionRevisionEvent,
     SanitationReport,
 )
@@ -59,6 +60,7 @@ CATALOG_FACT_RECORD_TYPES = _typed_registry(
         CatalogRevocation,
         CatalogTaint,
         ClaimEvidenceClosure,
+        ExpertReleaseUseRevocation,
         CatalogAgentOperationRecord,
         CodingAgentOperationReceipt,
         ExecutionRevisionEvent,

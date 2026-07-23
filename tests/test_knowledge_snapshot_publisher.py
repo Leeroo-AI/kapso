@@ -37,6 +37,7 @@ from kapso.cross_run.settings import CrossRunSettings
 from test_knowledge_snapshot_package import (
     empty_generation,
     populated_generation,
+    populated_generation_with_release_use_revocations,
     scope_contract,
 )
 
@@ -250,6 +251,54 @@ def test_publisher_keeps_indexes_out_of_git_and_release_contains_exact_package(
                 package.manifest.scope_contract_id,
             )
         )
+    )
+
+
+def test_publisher_validates_the_release_use_revocation_projection():
+    (
+        scope,
+        _,
+        _,
+        generation,
+        objects,
+        revocations,
+    ) = populated_generation_with_release_use_revocations()
+    parent_snapshot_id = content_id("knowledge-snapshot", {"parent": 1})
+    prepared = KnowledgeSnapshotPackageBuilder.prepare(
+        scope,
+        generation,
+        objects.__getitem__,
+    )
+    package = KnowledgeSnapshotPackageBuilder.finalize(
+        prepared,
+        parent_snapshot_ids=(parent_snapshot_id,),
+        sanitation_policy_version="kapso.sanitation.v1",
+        retrieval_policy_version="kapso.retrieval.v1",
+        configuration_fingerprint=tree_or_blob_digest(b"knowledge-config"),
+        prompt_budget_policy={"maximum_records": 24},
+        published_at=COMMITTED_AT,
+        publisher_attestation={"issuer": "test-publisher"},
+    )
+    configured = settings()
+    authority = RecordingPublicationAuthority()
+    publisher = KnowledgeSnapshotPublisher(
+        authority,
+        configured.github,
+        configured.knowledge,
+    )
+
+    publisher.publish(
+        package,
+        expected_parent_sha="a" * 40,
+        expected_current_snapshot_id=parent_snapshot_id,
+        committed_at=COMMITTED_AT,
+        validation_closure_ids=(),
+    )
+
+    expected_revocation_ids = {revocation.revocation_id for revocation in revocations}
+    assert package.manifest.included_revocation_ids == ()
+    assert expected_revocation_ids.issubset(
+        authority.envelopes[0].validation_closure_ids
     )
 
 

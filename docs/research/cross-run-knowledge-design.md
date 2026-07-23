@@ -1259,6 +1259,16 @@ but never reinstates the release for new launches; recovery publishes a new rele
 identity. Existing runs remain reproducible, and an offline pin may continue, but
 its output is not promotable without a current online policy observation.
 
+Each event names the exact `release_id`, `release_publication_id`, and deterministic
+`release_activation_witness_id`. The latter is reconstructed on any host from the
+release's write-once publication intent and pointer plus its write-once GitHub
+activation ref; the local validation-store activation receipt is deliberately not
+part of this authority. Before enforcing an event, the policy reader resolves the
+historical release, matches its publication and activation witness identities, and
+matches the materialized expert manifest to the event's scope contract. These three
+external authority references are content-bound by the event but are not local
+KnowledgeSnapshot proof objects.
+
 These events are neither scientific `CatalogRevocation` records nor expert
 lifecycle/security transitions. Their presence and exact absence are authenticated
 by the observed KnowledgeSnapshot package; a local catalog commit is pending until

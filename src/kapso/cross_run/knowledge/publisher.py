@@ -281,6 +281,7 @@ class KnowledgeSnapshotPublisher:
                     *package.manifest.entry_state_refs,
                     *package.manifest.included_assertion_ids,
                     *package.manifest.included_revocation_ids,
+                    *package.manifest.active_expert_release_use_revocation_ids,
                     *validation_closure_ids,
                 }
             )

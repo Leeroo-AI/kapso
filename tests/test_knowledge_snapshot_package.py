@@ -22,7 +22,11 @@ from kapso.cross_run.contracts import (
     PriorIdea,
     RunBundle,
 )
-from kapso.cross_run.record_contracts import BundleProjectionManifest
+from kapso.cross_run.record_contracts import (
+    BundleProjectionManifest,
+    ExpertReleaseUseRevocation,
+    ExpertReleaseUseRevocationKind,
+)
 from kapso.cross_run.record_registry import (
     CATALOG_FACT_RECORD_TYPES,
     KNOWLEDGE_RECORD_TYPES,
@@ -148,6 +152,87 @@ def populated_generation():
     return scope, idea, state, generation, objects
 
 
+def populated_generation_with_release_use_revocations():
+    scope, idea, state, generation, objects = populated_generation()
+    evidence_id = next(
+        object_id
+        for object_id in generation.fact_object_ids
+        if object_id.startswith("run-bundle:")
+    )
+    revocations = tuple(
+        ExpertReleaseUseRevocation.mint(
+            scope_contract_id=scope.scope_contract_id,
+            scope_id=scope.scope_id,
+            release_id=content_id("expert-base-release", {"kind": kind.value}),
+            release_publication_id=content_id(
+                "github-publication",
+                {"kind": kind.value},
+            ),
+            release_activation_witness_id=content_id(
+                "github-artifact-activation-witness",
+                {"kind": kind.value},
+            ),
+            kind=kind,
+            reason_code=f"{kind.value}_regression",
+            rationale=f"Observed a release-wide {kind.value} regression.",
+            exact_evidence_refs=(evidence_id,),
+            recorded_at="2026-07-23T00:00:00Z",
+        )
+        for kind in (
+            ExpertReleaseUseRevocationKind.COMPATIBILITY,
+            ExpertReleaseUseRevocationKind.PERFORMANCE,
+        )
+    )
+    fact_ids = tuple(
+        sorted(
+            (
+                *generation.fact_object_ids,
+                *(revocation.revocation_id for revocation in revocations),
+            )
+        )
+    )
+    input_delta = CatalogInputDelta.mint(
+        scope_contract_id=scope.scope_contract_id,
+        operation_id="snapshot-release-use-revocations-test",
+        configuration_fingerprint=generation.configuration_fingerprint,
+        added_object_ids=fact_ids,
+        dependency_closure_ids=fact_ids,
+    )
+    generation_with_revocations = CatalogGenerationManifest.mint(
+        scope_contract_id=generation.scope_contract_id,
+        generation_number=generation.generation_number,
+        parent_generation_id=generation.parent_generation_id,
+        configuration_fingerprint=generation.configuration_fingerprint,
+        fact_object_ids=fact_ids,
+        derived_object_ids=generation.derived_object_ids,
+        applied_input_delta_ids=(input_delta.input_delta_id,),
+        bundle_frontier=generation.bundle_frontier,
+        active_entry_state_ids=generation.active_entry_state_ids,
+    )
+    objects_with_revocations = {
+        object_id: payload
+        for object_id, payload in objects.items()
+        if object_id not in generation.applied_input_delta_ids
+    }
+    objects_with_revocations.update(
+        {
+            input_delta.input_delta_id: input_delta.to_json_bytes(),
+            **{
+                revocation.revocation_id: revocation.to_json_bytes()
+                for revocation in revocations
+            },
+        }
+    )
+    return (
+        scope,
+        idea,
+        state,
+        generation_with_revocations,
+        objects_with_revocations,
+        revocations,
+    )
+
+
 def finalize(prepared, **overrides):
     fields = {
         "parent_snapshot_ids": (),
@@ -208,6 +293,90 @@ def test_snapshot_is_order_independent_and_contains_complete_catalog_records():
         canonical_json_bytes(first.record_by_id(idea.prior_idea_id)["payload"])
         == idea.to_json_bytes()
     )
+
+
+def test_release_use_revocations_are_a_complete_nonretrieval_policy_projection(
+    tmp_path,
+):
+    (
+        scope,
+        idea,
+        _,
+        generation,
+        objects,
+        revocations,
+    ) = populated_generation_with_release_use_revocations()
+    expected_revocation_ids = tuple(
+        sorted(revocation.revocation_id for revocation in revocations)
+    )
+    prepared = KnowledgeSnapshotPackageBuilder.prepare(
+        scope,
+        generation,
+        objects.__getitem__,
+    )
+    reverse = KnowledgeSnapshotPackageBuilder.prepare(
+        scope,
+        generation,
+        dict(reversed(tuple(objects.items()))).__getitem__,
+    )
+
+    assert prepared.active_expert_release_use_revocation_ids == (
+        expected_revocation_ids
+    )
+    assert reverse.active_expert_release_use_revocation_ids == (expected_revocation_ids)
+    assert prepared.included_revocation_ids == ()
+    assert prepared.retrieval_root_ids == (idea.prior_idea_id,)
+    assert set(expected_revocation_ids).isdisjoint(prepared.retrieval_root_ids)
+    for revocation in revocations:
+        assert prepared.proof_dependencies[revocation.revocation_id] == tuple(
+            sorted(
+                (
+                    scope.scope_contract_id,
+                    *revocation.exact_evidence_refs,
+                )
+            )
+        )
+
+    package = finalize(prepared)
+    reverse_package = finalize(reverse)
+
+    assert package.files == reverse_package.files
+    assert package.manifest.active_expert_release_use_revocation_ids == (
+        expected_revocation_ids
+    )
+    assert set(expected_revocation_ids).issubset(
+        package.manifest.proof_dependency_closure_ids
+    )
+
+    destination = (tmp_path / "release-use-policy").absolute()
+    package.materialize(destination)
+    reopened = KnowledgeSnapshotPackage.open(destination)
+
+    assert reopened.manifest.active_expert_release_use_revocation_ids == (
+        expected_revocation_ids
+    )
+    assert reopened.prepared.active_expert_release_use_revocation_ids == (
+        expected_revocation_ids
+    )
+
+    forged_payload = {
+        key: value
+        for key, value in package.manifest.to_dict().items()
+        if key not in {"snapshot_id", "active_expert_release_use_revocation_ids"}
+    }
+    forged_manifest = type(package.manifest).mint(
+        **forged_payload,
+        active_expert_release_use_revocation_ids=(expected_revocation_ids[0],),
+    )
+    manifest_path = destination / "snapshot.json"
+    manifest_path.chmod(0o644)
+    manifest_path.write_bytes(forged_manifest.to_json_bytes())
+
+    with pytest.raises(
+        KnowledgeSnapshotPackageError,
+        match="manifest differs from its exact catalog closure",
+    ):
+        KnowledgeSnapshotPackage.open(destination)
 
 
 def test_snapshot_rejects_self_consistent_record_with_unknown_schema_field():

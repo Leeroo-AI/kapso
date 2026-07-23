@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any, ClassVar, Mapping
 
@@ -285,6 +286,78 @@ class CatalogRevocation(StrictContract):
         _require_sorted_content_ids(
             self.exact_evidence_refs,
             "revocation exact_evidence_refs",
+        )
+
+
+class ExpertReleaseUseRevocationKind(str, Enum):
+    """Non-emergency reasons an immutable expert release is ineligible for use."""
+
+    PERFORMANCE = "performance"
+    COMPATIBILITY = "compatibility"
+
+
+@dataclass(frozen=True)
+class ExpertReleaseUseRevocation(StrictContract):
+    """Grow-only performance or compatibility withdrawal for one expert release."""
+
+    revocation_id: str
+    scope_contract_id: str
+    scope_id: str
+    release_id: str
+    release_publication_id: str
+    release_activation_witness_id: str
+    kind: ExpertReleaseUseRevocationKind
+    reason_code: str
+    rationale: str
+    exact_evidence_refs: tuple[str, ...]
+    recorded_at: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-use-revocation"
+    IDENTITY_FIELD: ClassVar[str] = "revocation_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.scope_contract_id,
+                "expert-scope-contract",
+                "release-use revocation scope_contract_id",
+            ),
+            (
+                self.release_id,
+                "expert-base-release",
+                "release-use revocation release_id",
+            ),
+            (
+                self.release_publication_id,
+                "github-publication",
+                "release-use revocation release_publication_id",
+            ),
+            (
+                self.release_activation_witness_id,
+                "github-artifact-activation-witness",
+                "release-use revocation release_activation_witness_id",
+            ),
+        ):
+            require_content_id(value, name)
+            if value.split(":sha256:", 1)[0] != namespace:
+                raise ContractValidationError(f"{name} uses the wrong namespace")
+        require_identifier(self.scope_id, "release-use revocation scope_id")
+        require_identifier(self.reason_code, "release-use revocation reason_code")
+        if not self.rationale.strip():
+            raise ContractValidationError(
+                "release-use revocation rationale must not be empty"
+            )
+        _require_sorted_content_ids(
+            self.exact_evidence_refs,
+            "release-use revocation exact_evidence_refs",
+        )
+        if self.revocation_id in self.exact_evidence_refs:
+            raise ContractValidationError(
+                "release-use revocation cannot cite itself as evidence"
+            )
+        normalize_utc_timestamp(
+            self.recorded_at,
+            "release-use revocation recorded_at",
         )
 
 
