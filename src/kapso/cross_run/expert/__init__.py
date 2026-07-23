@@ -154,6 +154,18 @@ from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageContractError,
     ExpertReleaseMatrixStageResultRecord,
 )
+from kapso.cross_run.expert.promotion import (
+    ExpertReleaseMatrixPromotionError,
+    decide_expert_release_matrix_promotion,
+)
+from kapso.cross_run.expert.promotion_decision_contracts import (
+    ExpertReleaseMatrixDecisionError,
+    ExpertReleaseMatrixDecisionOutcome,
+    ExpertReleaseMatrixDecisionReason,
+    ExpertReleaseMatrixPromotionDecision,
+    ExpertReleaseMatrixReplicateAssessment,
+    ExpertReleaseMatrixReplicateClassification,
+)
 from kapso.cross_run.expert.store import (
     ExpertCandidateStore,
     ExpertCandidateStoreError,
@@ -255,7 +267,14 @@ __all__ = [
     "ExpertParentTreeReceipt",
     "ExpertProposalContractError",
     "ExpertRepositoryArchitect",
+    "ExpertReleaseMatrixDecisionError",
+    "ExpertReleaseMatrixDecisionOutcome",
+    "ExpertReleaseMatrixDecisionReason",
     "ExpertReleaseMatrixPlanReservationSnapshot",
+    "ExpertReleaseMatrixPromotionDecision",
+    "ExpertReleaseMatrixPromotionError",
+    "ExpertReleaseMatrixReplicateAssessment",
+    "ExpertReleaseMatrixReplicateClassification",
     "ExpertReleaseMatrixSourceEvidenceSnapshot",
     "ExpertReleaseMatrixStageCommitResult",
     "ExpertReleaseMatrixStageContractError",
@@ -364,6 +383,7 @@ __all__ = [
     "build_task_evaluation_evaluator_request",
     "build_task_evaluation_spawn_authority_fence",
     "compile_expert_semantic_book",
+    "decide_expert_release_matrix_promotion",
     "expert_semantic_book_digest",
     "source_replay_publication_security_subject_ids",
 ]

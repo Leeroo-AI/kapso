@@ -687,9 +687,9 @@ contract/schema
       against identity-disjoint public/synthetic adapters.
 - [ ] Keep sealed examples/details outside proposer/reviewer prompts; consume only a
       signed aggregate attestation from the promotion service.
-- [ ] Use the configured Pareto dimensions and hard regression bounds across
+- [x] Use the configured Pareto dimensions and hard regression bounds across
       quality, robustness, cost, portability, reproducibility, and security.
-- [ ] Treat noise-floor gains as inconclusive until configured repeat evidence
+- [x] Treat noise-floor gains as inconclusive until configured repeat evidence
       exists.
 
 Stage applicability is deterministic. Bootstrap omits replay, anchors, transfer,
@@ -724,8 +724,10 @@ immutable release referenced by `CURRENT.json` is active.
 The final Pareto decision must not consume `ExpertEvaluatorRun.measurements`
 directly. That generic map has no control pairing, adapter-owned scale/direction,
 context lineage, repeat identity, or comparability authority. The release matrix
-now reduces into one typed factual comparative closure. The next slice implements
-`PUBLICATION_ELIGIBILITY` as a pure derived decision and atomic terminal transition.
+now reduces into one typed factual comparative closure and is accepted as its own
+validation stage before Pareto reduction. The pure decision is implemented; the
+next slice wraps it in fresh `PUBLICATION_ELIGIBILITY` authority and an atomic
+terminal transition.
 
 Minimal ownership:
 
@@ -743,19 +745,30 @@ Minimal ownership:
   accepted event, reuses a source comparison only on exact
   candidate/parent/adapter/context/fingerprint identity, and mints the report; it
   never accepts evaluator-authored rows or effects;
+- `promotion_stage_contracts.py` embeds that report in the exact accepted-stage
+  authority, while `promotion_stage.py` preserves the process-local execution
+  capability through one validation-store CAS. Raw reports and caller-minted
+  result records cannot publish; after acceptance, restart and audit reopen only
+  the self-contained stored result and do not depend on the disposable task
+  journal;
 - `promotion.py` re-derives per-replicate direction-aligned normalized effects and
-  computes the Pareto decision without weighted scores;
+  computes a content-addressed Pareto decision without weighted scores. This pure
+  decision has no transition authority by itself; terminal publication consumes
+  the exact accepted stage reference from the validation store;
 - `promotion_authority.py` proves fresh `CURRENT` or authenticated bootstrap
   absence plus exact adapter/verifier/denylist authority and seals publication;
   and
-- `promotion_stage.py` reopens deterministic work, while `validation.py` and
-  `validation_store.py` reduce and persist the terminal transition through one
-  journal compare-and-swap.
+- the terminal promotion coordinator, `validation.py`, and `validation_store.py`
+  will reduce and persist `PUBLICATION_ELIGIBILITY` through one journal
+  compare-and-swap.
 
 The generic `ExpertEvaluatorRun.measurements` route is fail-closed for
 `RELEASE_MATRIX`; there is no legacy flat-payload admission path. Durable plan
 reservation, rather than merely embedding a plan in the later report, supplies
 temporal precommit authority.
+Operational stage publication additionally requires adapter-owned task evidence;
+therefore a structurally valid source-only factual report remains useful for
+analysis but cannot become the accepted `RELEASE_MATRIX` result.
 The plan binds the exact candidate and optional parent trees, full verified adapter
 packages, task contexts, source lineage or adapter-owned case, complete
 `EvaluationFingerprint` including every seed/replicate, metric authority, and exact
@@ -963,22 +976,52 @@ values; metric direction/scale substitution; stale packages; or omitted dependen
 fail loud. Effects, thresholds, winner labels, and promotion state are absent from
 the factual report and derived only by the trusted decision reducer.
 
+For a parent-backed cell and exact replicate ID, the decision reducer computes
+`raw = candidate - parent`, multiplies by `+1` for maximize or `-1` for minimize,
+then divides by the adapter-owned positive comparison scale. It normalizes
+mathematical zero to positive zero and rejects nonfinite arithmetic. It never uses
+the control value as a denominator, reapplies direction, or aggregates before the
+hard gate.
+
 Decision order is fixed:
 
-1. prove exact dimension/adapter/context/repeat coverage and comparability;
-2. apply every hard-regression bound before aggregation (`effect < -bound`; equality
-   passes);
+1. prove exact dimension/adapter/context/replicate coverage and comparability;
+2. apply every per-replicate hard-regression bound (`effect < -bound`; equality
+   passes), before power or benefit analysis;
 3. classify strict `effect > noise_floor` gains, strict `effect < -noise_floor`
-   material regressions, and the inclusive interval as ties;
-4. require configured repeat sufficiency and distinct independent lineages per
-   dimension, with no averaging away a bad repeat; and
-5. approve only complete parent-backed evidence with no hard/material regression
-   and at least one confirmed benefit (or a policy-authorized deterministic
-   mechanical fix with complete non-regression).
+   material regressions, and the inclusive interval as ties, using exact comparison
+   rather than floating-point closeness;
+4. require at least `minimum_replicates_per_cell` in every governed cell. An
+   independent evidence unit is one edge between a task-context ID and an
+   independence-lineage ID; the dimension must admit a maximum one-to-one matching
+   of at least `minimum_distinct_context_lineage_pairs`, so repeated metrics,
+   contexts, or lineages cannot manufacture power;
+5. call a cell gain-supporting only when every one of its precommitted replicates is
+   a strict gain. A dimension is confirmed only when its gain-supporting cells admit
+   the same configured context-lineage matching; and
+6. approve parent-backed evidence only with no material regression and at least one
+   confirmed dimension. A trusted `MECHANICAL_GENERAL_FIX` attempt is the sole
+   exception: once fully powered, complete non-regression is sufficient.
 
-A hard regression or sufficiently powered no-benefit candidate is `FAILED`.
-Explicit incomparability, underpowered/noisy evidence, or a permitted non-hard
-gain/regression trade-off is terminal `PARETO_RETAINED`. Only `APPROVED` appends an
+Any hard regression is `FAILED`, even when the rest of the matrix is underpowered.
+After the hard gate, underpowered evidence is `PARETO_RETAINED`; a non-hard
+gain/regression trade-off or partial/inconsistent gain is also retained. Fully
+powered material regression without gain, or fully powered all-tie evidence, is
+`FAILED`. Malformed or noncomparable input raises and produces no decision; it is
+not converted into a retained candidate.
+
+Bootstrap never fabricates a parent, zero control, delta, or effect. It establishes
+the first baseline only when every candidate-only cell meets the replicate minimum
+and every dimension meets the same independent context-lineage matching, yielding
+`APPROVED` with an explicit standalone-coverage reason; insufficient bootstrap
+coverage is `PARETO_RETAINED`. Absolute-quality floors remain upstream evaluator
+and reviewer authority until an adapter contract explicitly defines them.
+
+With the current `hard_regression_ratio = 0` and positive noise floor, every
+negative effect is a hard failure, including a negative value inside the noise
+interval. This strict precedence is intentional and tested.
+
+Only `APPROVED` appends an
 accepted `PUBLICATION_ELIGIBILITY` reference; retained/failed candidates preserve
 the accepted prefix and cite the decision as terminal evidence. `PARETO_RETAINED`
 means retained relative to the named parent and matrix, never membership in a

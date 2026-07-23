@@ -292,7 +292,7 @@ def test_hard_regression_bound_is_strict_and_never_uses_noise_floor(tmp_path):
             settings.policy,
             promotion=replace(
                 settings.policy.promotion,
-                minimum_repeat_evaluations=10,
+                minimum_replicates_per_cell=10,
                 pareto_dimensions=changed_dimensions,
             ),
         ),

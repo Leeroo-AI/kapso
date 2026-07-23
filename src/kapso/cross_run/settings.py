@@ -791,8 +791,8 @@ class ExpertPromotionPolicySettings(StrictContract):
     rejection_judgment: str
     required_approvals: int
     required_rejections: int
-    minimum_independent_contexts: int
-    minimum_repeat_evaluations: int
+    minimum_distinct_context_lineage_pairs: int
+    minimum_replicates_per_cell: int
     pareto_dimensions: tuple[ExpertParetoDimensionSettings, ...]
 
     def _validate(self) -> None:
@@ -809,8 +809,11 @@ class ExpertPromotionPolicySettings(StrictContract):
         for value, name in (
             (self.required_approvals, "required_approvals"),
             (self.required_rejections, "required_rejections"),
-            (self.minimum_independent_contexts, "minimum_independent_contexts"),
-            (self.minimum_repeat_evaluations, "minimum_repeat_evaluations"),
+            (
+                self.minimum_distinct_context_lineage_pairs,
+                "minimum_distinct_context_lineage_pairs",
+            ),
+            (self.minimum_replicates_per_cell, "minimum_replicates_per_cell"),
         ):
             _require_positive(value, f"expert.validation.promotion.{name}")
         if not self.pareto_dimensions:

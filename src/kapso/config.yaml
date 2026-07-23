@@ -329,8 +329,8 @@ cross_run:
           rejection_judgment: "rejected"
           required_approvals: 2
           required_rejections: 1
-          minimum_independent_contexts: 2
-          minimum_repeat_evaluations: 2
+          minimum_distinct_context_lineage_pairs: 2
+          minimum_replicates_per_cell: 2
           pareto_dimensions:
             - dimension_id: "cost"
               direction: "minimize"
