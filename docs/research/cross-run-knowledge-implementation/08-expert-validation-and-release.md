@@ -571,10 +571,12 @@ Implemented validation substrate:
   provider selection and returns a spawn permit only after the store fsyncs the
   at-most-once marker; and
 - a complete journal can mint only one deterministic store/process-bound completed
-  capability, from which the factual reducer produces a canonical paired receipt
-  with semantic control/candidate assignment, adapter-declared dimension/scale,
-  direction-aligned and normalized effects, accepted-event lineage, and exact
-  expanded dependency closure but no scientific or promotion decision; and
+  capability. The factual reducer reopens the exact durable task reservation,
+  resolves accepted results by case plus semantic leg, and emits the task-owned
+  rows in global plan order. The report embeds a content-addressed proof projection
+  of the request, reservation, complete chronological journal, case/fingerprint
+  coverage, accepted-event lineage, and exact expanded dependency closure, but no
+  effects, winner, threshold, or promotion decision; and
 - fresh spawn authority performs the exact double reopen around rich GitHub
   `CURRENT`, complete historical-adapter trust, transitive denylist, and verifier
   authority observations and returns one invocation-bound typed fence; and
@@ -604,7 +606,8 @@ Implemented validation substrate:
   and makes stale attempts recoverable without accepting their remaining work.
 
 The Pareto promotion-decision, composition, and release paths remain separate
-later slices; automated review cannot synthesize their authority.
+later slices; neither automated review nor the factual matrix reducer can
+synthesize their authority.
 
 The shared adapter trust boundary now separates stable scientific manifest
 identity from exact verified package identity. A typed verification receipt binds
@@ -720,10 +723,9 @@ immutable release referenced by `CURRENT.json` is active.
 
 The final Pareto decision must not consume `ExpertEvaluatorRun.measurements`
 directly. That generic map has no control pairing, adapter-owned scale/direction,
-context lineage, repeat identity, or comparability authority. The next slice first
-replaces the `RELEASE_MATRIX` payload with one typed comparative closure, then
-implements `PUBLICATION_ELIGIBILITY` as a pure derived decision and atomic terminal
-transition.
+context lineage, repeat identity, or comparability authority. The release matrix
+now reduces into one typed factual comparative closure. The next slice implements
+`PUBLICATION_ELIGIBILITY` as a pure derived decision and atomic terminal transition.
 
 Minimal ownership:
 
@@ -736,9 +738,11 @@ Minimal ownership:
 - the task-evaluation substrate generalizes source replay's request, journal,
   bounded execution, accepted-result, and fresh-adapter-authority machinery for
   cells that cannot reuse exact accepted replay evidence;
-- the factual reducer resolves every referenced accepted event, reuses a source
-  comparison only on exact candidate/parent/adapter/context/fingerprint identity,
-  and mints the report; it never accepts evaluator-authored rows or effects;
+- `promotion_evidence.py` requires a store/process-sealed completed task journal,
+  independently reopens its exact durable reservation, resolves every referenced
+  accepted event, reuses a source comparison only on exact
+  candidate/parent/adapter/context/fingerprint identity, and mints the report; it
+  never accepts evaluator-authored rows or effects;
 - `promotion.py` re-derives per-replicate direction-aligned normalized effects and
   computes the Pareto decision without weighted scores;
 - `promotion_authority.py` proves fresh `CURRENT` or authenticated bootstrap
@@ -749,8 +753,9 @@ Minimal ownership:
   journal compare-and-swap.
 
 The generic `ExpertEvaluatorRun.measurements` route is fail-closed for
-`RELEASE_MATRIX`; there is no legacy flat-payload admission path. Plan persistence,
-not embedding a plan in a later report, supplies temporal precommit authority.
+`RELEASE_MATRIX`; there is no legacy flat-payload admission path. Durable plan
+reservation, rather than merely embedding a plan in the later report, supplies
+temporal precommit authority.
 The plan binds the exact candidate and optional parent trees, full verified adapter
 packages, task contexts, source lineage or adapter-owned case, complete
 `EvaluationFingerprint` including every seed/replicate, metric authority, and exact
@@ -946,7 +951,13 @@ The report covers reserved cells exactly once and in canonical order, with compl
 candidate and, when parent-backed, control replicate maps. Observation-event
 namespaces must match their provenance channel. Every fingerprint from one case
 shares the case's single candidate/control accepted-event pair; an event cannot be
-reused by another case or leg role. Missing/extra dimensions, contexts,
+reused by another case or leg role. Adapter-owned rows additionally retain the
+exact reservation and request IDs, both dependency projections, aggregate
+recomputation tolerance, every chronological journal-event ID, globally unique
+request-exact case IDs, complete case/fingerprint coverage, and the semantic
+candidate/control accepted-event mapping. A source-only factual contract omits
+that task projection; every operational plan containing adapter cases requires it.
+Missing/extra dimensions, contexts,
 fingerprints or replicates; reused lineage authority; nonfinite or signed-zero
 values; metric direction/scale substitution; stale packages; or omitted dependencies
 fail loud. Effects, thresholds, winner labels, and promotion state are absent from

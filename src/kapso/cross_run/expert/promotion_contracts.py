@@ -81,7 +81,7 @@ def _require_observation_event_id(value: str, name: str) -> None:
     require_content_id(value, name)
     if value.split(":sha256:", 1)[0] not in {
         "source-replay-execution-journal-event",
-        "task-evaluation-journal-event",
+        "task-evaluation-execution-journal-event",
     }:
         raise ExpertReleaseMatrixContractError(f"{name} uses the wrong namespace")
 
@@ -893,6 +893,193 @@ class ExpertReleaseMatrixComparisonRow(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertReleaseMatrixTaskCaseEvidence(StrictContract):
+    """Semantic accepted-event projection for one adapter-owned task case."""
+
+    evaluation_case_id: str
+    provenance_binding_id: str
+    candidate_result_accepted_event_id: str
+    parent_result_accepted_event_id: str | None
+    evaluation_fingerprint_ids: tuple[str, ...]
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.evaluation_case_id,
+                "task-evaluation-case",
+                "release matrix task evidence case",
+            ),
+            (
+                self.provenance_binding_id,
+                "expert-release-matrix-provenance-binding",
+                "release matrix task evidence provenance",
+            ),
+            (
+                self.candidate_result_accepted_event_id,
+                "task-evaluation-execution-journal-event",
+                "release matrix task evidence candidate event",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        if self.parent_result_accepted_event_id is not None:
+            _require_namespaced_id(
+                self.parent_result_accepted_event_id,
+                "task-evaluation-execution-journal-event",
+                "release matrix task evidence parent event",
+            )
+            if (
+                self.parent_result_accepted_event_id
+                == self.candidate_result_accepted_event_id
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "release matrix task evidence must use distinct semantic events"
+                )
+        _require_sorted_content_ids(
+            self.evaluation_fingerprint_ids,
+            "release matrix task evidence fingerprints",
+        )
+        for fingerprint_id in self.evaluation_fingerprint_ids:
+            _require_namespaced_id(
+                fingerprint_id,
+                "evaluation-fingerprint",
+                "release matrix task evidence fingerprint",
+            )
+
+    @property
+    def canonical_key(self) -> tuple[str, str]:
+        return self.provenance_binding_id, self.evaluation_case_id
+
+
+@dataclass(frozen=True)
+class ExpertReleaseMatrixTaskExecutionEvidence(StrictContract):
+    """Complete factual proof projection of one accepted task journal."""
+
+    task_execution_evidence_id: str
+    mode: ExpertReleaseMatrixMode
+    reservation_id: str
+    request_id: str
+    aggregate_recomputation_tolerance: float
+    execution_journal_event_ids: tuple[str, ...]
+    reservation_dependency_ids: tuple[str, ...]
+    request_dependency_ids: tuple[str, ...]
+    case_evidence: tuple[ExpertReleaseMatrixTaskCaseEvidence, ...]
+    exact_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-matrix-task-execution-evidence"
+    IDENTITY_FIELD: ClassVar[str] = "task_execution_evidence_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.reservation_id,
+                "task-evaluation-reservation",
+                "release matrix task evidence reservation",
+            ),
+            (
+                self.request_id,
+                "task-evaluation-request",
+                "release matrix task evidence request",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        if (
+            type(self.aggregate_recomputation_tolerance) is not float
+            or not math.isfinite(self.aggregate_recomputation_tolerance)
+            or self.aggregate_recomputation_tolerance < 0.0
+        ):
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task evidence tolerance is invalid"
+            )
+        if not self.execution_journal_event_ids or len(
+            self.execution_journal_event_ids
+        ) != len(set(self.execution_journal_event_ids)):
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task journal event IDs must be non-empty and unique"
+            )
+        for event_id in self.execution_journal_event_ids:
+            _require_namespaced_id(
+                event_id,
+                "task-evaluation-execution-journal-event",
+                "release matrix task journal event",
+            )
+        case_keys = tuple(case.canonical_key for case in self.case_evidence)
+        case_ids = tuple(case.evaluation_case_id for case in self.case_evidence)
+        if (
+            not case_keys
+            or case_keys != tuple(sorted(set(case_keys)))
+            or len(case_ids) != len(set(case_ids))
+        ):
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task case evidence must be canonical and unique"
+            )
+        accepted_event_ids = tuple(
+            event_id
+            for case in self.case_evidence
+            for event_id in (
+                case.candidate_result_accepted_event_id,
+                case.parent_result_accepted_event_id,
+            )
+            if event_id is not None
+        )
+        if len(accepted_event_ids) != len(set(accepted_event_ids)) or not set(
+            accepted_event_ids
+        ).issubset(self.execution_journal_event_ids):
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task accepted events differ from the journal"
+            )
+        if self.mode is ExpertReleaseMatrixMode.BOOTSTRAP:
+            if any(
+                case.parent_result_accepted_event_id is not None
+                for case in self.case_evidence
+            ) or len(self.execution_journal_event_ids) != 4 * len(self.case_evidence):
+                raise ExpertReleaseMatrixContractError(
+                    "bootstrap task evidence requires one complete candidate leg per case"
+                )
+        elif any(
+            case.parent_result_accepted_event_id is None for case in self.case_evidence
+        ) or len(self.execution_journal_event_ids) != 8 * len(self.case_evidence):
+            raise ExpertReleaseMatrixContractError(
+                "parent task evidence requires two complete semantic legs per case"
+            )
+        for dependency_ids, name in (
+            (
+                self.reservation_dependency_ids,
+                "release matrix task reservation dependencies",
+            ),
+            (
+                self.request_dependency_ids,
+                "release matrix task request dependencies",
+            ),
+            (self.exact_dependency_ids, "release matrix task exact dependencies"),
+        ):
+            _require_sorted_content_ids(dependency_ids, name)
+        if self.request_id not in self.reservation_dependency_ids:
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task reservation dependencies omit the request"
+            )
+        request_case_ids = {
+            dependency_id
+            for dependency_id in self.request_dependency_ids
+            if dependency_id.split(":sha256:", 1)[0] == "task-evaluation-case"
+        }
+        if set(case_ids) != request_case_ids:
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task cases differ from request dependencies"
+            )
+        expected_dependencies = {
+            self.reservation_id,
+            self.request_id,
+            *self.reservation_dependency_ids,
+            *self.request_dependency_ids,
+            *self.execution_journal_event_ids,
+        }
+        if set(self.exact_dependency_ids) != expected_dependencies:
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task evidence dependency closure is not exact"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertReleaseMatrixReport(StrictContract):
     """Observed matrix values bound exactly to one embedded precommitted plan."""
 
@@ -909,6 +1096,7 @@ class ExpertReleaseMatrixReport(StrictContract):
     configuration_fingerprint: str
     plan_reservation_operation_id: str
     evaluation_plan: ExpertReleaseMatrixEvaluationPlan
+    task_execution_evidence: ExpertReleaseMatrixTaskExecutionEvidence | None
     evidence_rows: tuple[ExpertReleaseMatrixComparisonRow, ...]
     exact_dependency_ids: tuple[str, ...]
 
@@ -1042,6 +1230,56 @@ class ExpertReleaseMatrixReport(StrictContract):
                         "release matrix observation event is shared across provenance "
                         "or leg roles"
                     )
+        adapter_provenances = tuple(
+            provenance
+            for provenance in plan.provenance_bindings
+            if provenance.provenance_kind
+            is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+        )
+        if (self.task_execution_evidence is None) != (not adapter_provenances):
+            raise ExpertReleaseMatrixContractError(
+                "release matrix task evidence must exactly match adapter provenance"
+            )
+        if self.task_execution_evidence is not None:
+            task_evidence = self.task_execution_evidence
+            case_evidence_by_provenance = {
+                case.provenance_binding_id: case for case in task_evidence.case_evidence
+            }
+            if (
+                task_evidence.mode is not self.mode
+                or len(case_evidence_by_provenance) != len(task_evidence.case_evidence)
+                or set(case_evidence_by_provenance)
+                != {
+                    provenance.provenance_binding_id
+                    for provenance in adapter_provenances
+                }
+                or self.plan_reservation_operation_id
+                not in task_evidence.reservation_dependency_ids
+                or self.plan_reservation_operation_id
+                not in task_evidence.request_dependency_ids
+                or plan.evaluation_plan_id
+                not in task_evidence.reservation_dependency_ids
+                or plan.evaluation_plan_id not in task_evidence.request_dependency_ids
+            ):
+                raise ExpertReleaseMatrixContractError(
+                    "release matrix task evidence differs from plan authority"
+                )
+            for provenance in adapter_provenances:
+                case_evidence = case_evidence_by_provenance[
+                    provenance.provenance_binding_id
+                ]
+                if (
+                    case_evidence.evaluation_fingerprint_ids
+                    != provenance.evaluation_fingerprint_ids
+                    or (
+                        case_evidence.candidate_result_accepted_event_id,
+                        case_evidence.parent_result_accepted_event_id,
+                    )
+                    != event_pairs_by_provenance[provenance.provenance_binding_id]
+                ):
+                    raise ExpertReleaseMatrixContractError(
+                        "release matrix task case evidence differs from its provenance"
+                    )
         _require_sorted_content_ids(
             self.exact_dependency_ids,
             "release matrix report dependencies",
@@ -1064,6 +1302,13 @@ class ExpertReleaseMatrixReport(StrictContract):
         }
         if self.parent_release_id is not None:
             expected_dependencies.add(self.parent_release_id)
+        if self.task_execution_evidence is not None:
+            expected_dependencies.update(
+                {
+                    self.task_execution_evidence.task_execution_evidence_id,
+                    *self.task_execution_evidence.exact_dependency_ids,
+                }
+            )
         if set(self.exact_dependency_ids) != expected_dependencies:
             raise ExpertReleaseMatrixContractError(
                 "release matrix report dependency closure is not exact"
@@ -1079,7 +1324,7 @@ class ExpertReleaseMatrixReport(StrictContract):
             "source-replay-execution-journal-event"
             if provenance.provenance_kind
             is ExpertReleaseMatrixProvenanceKind.SOURCE_REPLAY
-            else "task-evaluation-journal-event"
+            else "task-evaluation-execution-journal-event"
         )
         if row.candidate_observation_event_id.split(":sha256:", 1)[0] != (
             expected_event_namespace

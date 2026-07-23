@@ -30,6 +30,8 @@ from kapso.cross_run.expert.promotion_contracts import (
     ExpertReleaseMatrixProvenanceBinding,
     ExpertReleaseMatrixProvenanceKind,
     ExpertReleaseMatrixReport,
+    ExpertReleaseMatrixTaskCaseEvidence,
+    ExpertReleaseMatrixTaskExecutionEvidence,
 )
 from kapso.cross_run.task_adapters import (
     TaskAdapterVerificationReceipt,
@@ -459,7 +461,7 @@ def _row(
         evaluation_cell_id=cell.evaluation_cell_id,
         candidate_observation_event_id=_id(
             (
-                "task-evaluation-journal-event"
+                "task-evaluation-execution-journal-event"
                 if provenance.provenance_kind
                 is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
                 else "source-replay-execution-journal-event"
@@ -471,7 +473,7 @@ def _row(
             if cell.mode is ExpertReleaseMatrixMode.BOOTSTRAP
             else _id(
                 (
-                    "task-evaluation-journal-event"
+                    "task-evaluation-execution-journal-event"
                     if provenance.provenance_kind
                     is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
                     else "source-replay-execution-journal-event"
@@ -493,6 +495,97 @@ def _report(
         "expert-validation-operation",
         "plan-reservation",
     )
+    provenance_by_id = {
+        provenance.provenance_binding_id: provenance
+        for provenance in plan.provenance_bindings
+    }
+    rows_by_provenance_id = {
+        provenance.provenance_binding_id: tuple(
+            row
+            for cell, row in zip(plan.evaluation_cells, rows)
+            if cell.provenance_binding_id == provenance.provenance_binding_id
+        )
+        for provenance in plan.provenance_bindings
+        if provenance.provenance_kind is ExpertReleaseMatrixProvenanceKind.ADAPTER_CASE
+    }
+    task_case_evidence = []
+    task_event_ids = []
+    for provenance_id, provenance_rows in rows_by_provenance_id.items():
+        candidate_event_id = provenance_rows[0].candidate_observation_event_id
+        parent_event_id = provenance_rows[0].parent_observation_event_id
+        task_case_evidence.append(
+            ExpertReleaseMatrixTaskCaseEvidence(
+                evaluation_case_id=_id("task-evaluation-case", provenance_id),
+                provenance_binding_id=provenance_id,
+                candidate_result_accepted_event_id=candidate_event_id,
+                parent_result_accepted_event_id=parent_event_id,
+                evaluation_fingerprint_ids=(
+                    provenance_by_id[provenance_id].evaluation_fingerprint_ids
+                ),
+            )
+        )
+        for role, accepted_event_id in (
+            ("candidate", candidate_event_id),
+            ("parent", parent_event_id),
+        ):
+            if accepted_event_id is None:
+                continue
+            task_event_ids.extend(
+                (
+                    _id(
+                        "task-evaluation-execution-journal-event",
+                        f"{provenance_id}-{role}-{phase}",
+                    )
+                    for phase in ("allocated", "spawned", "received")
+                )
+            )
+            task_event_ids.append(accepted_event_id)
+    task_execution_evidence = None
+    if task_case_evidence:
+        request_id = _id("task-evaluation-request", plan.evaluation_plan_id)
+        reservation_id = _id(
+            "task-evaluation-reservation",
+            plan.evaluation_plan_id,
+        )
+        reservation_dependencies = tuple(
+            sorted((request_id, reservation_operation_id, plan.evaluation_plan_id))
+        )
+        request_dependencies = tuple(
+            sorted(
+                (
+                    reservation_operation_id,
+                    plan.evaluation_plan_id,
+                    *(evidence.evaluation_case_id for evidence in task_case_evidence),
+                )
+            )
+        )
+        task_dependencies = tuple(
+            sorted(
+                {
+                    reservation_id,
+                    request_id,
+                    *reservation_dependencies,
+                    *request_dependencies,
+                    *task_event_ids,
+                }
+            )
+        )
+        task_execution_evidence = ExpertReleaseMatrixTaskExecutionEvidence.mint(
+            mode=plan.mode,
+            reservation_id=reservation_id,
+            request_id=request_id,
+            aggregate_recomputation_tolerance=0.0,
+            execution_journal_event_ids=tuple(task_event_ids),
+            reservation_dependency_ids=reservation_dependencies,
+            request_dependency_ids=request_dependencies,
+            case_evidence=tuple(
+                sorted(
+                    task_case_evidence,
+                    key=lambda evidence: evidence.canonical_key,
+                )
+            ),
+            exact_dependency_ids=task_dependencies,
+        )
     dependencies = {
         first_cell.validation_attempt_id,
         first_cell.candidate_id,
@@ -505,6 +598,13 @@ def _report(
         *(row.comparison_row_id for row in rows),
         *(dependency_id for row in rows for dependency_id in row.exact_dependency_ids),
     }
+    if task_execution_evidence is not None:
+        dependencies.update(
+            {
+                task_execution_evidence.task_execution_evidence_id,
+                *task_execution_evidence.exact_dependency_ids,
+            }
+        )
     if first_cell.parent_release_id is not None:
         dependencies.add(first_cell.parent_release_id)
     return ExpertReleaseMatrixReport.mint(
@@ -520,6 +620,7 @@ def _report(
         configuration_fingerprint=_digest("configuration"),
         plan_reservation_operation_id=reservation_operation_id,
         evaluation_plan=plan,
+        task_execution_evidence=task_execution_evidence,
         evidence_rows=rows,
         exact_dependency_ids=tuple(sorted(dependencies)),
     )
@@ -584,7 +685,9 @@ def test_bootstrap_plan_and_rows_forbid_parent_authority():
     )
     assert provenance.independence_identity_id != provenance.provenance_case_id
     assert all(
-        row.candidate_observation_event_id.startswith("task-evaluation-journal-event:")
+        row.candidate_observation_event_id.startswith(
+            "task-evaluation-execution-journal-event:"
+        )
         for row in report.evidence_rows
     )
     assert all(row.parent_replicate_values is None for row in report.evidence_rows)
@@ -630,7 +733,7 @@ def test_parent_plan_mixes_source_replay_and_adapter_owned_cases():
     substituted_channel = _remint(
         rows[source_row_position],
         candidate_observation_event_id=_id(
-            "task-evaluation-journal-event",
+            "task-evaluation-execution-journal-event",
             "substituted-channel",
         ),
     )
