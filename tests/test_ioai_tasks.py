@@ -62,13 +62,30 @@ def test_parse_metric_reads_the_evaluator_line():
         parse_metric("no metric here", "Macro-F1")
 
 
-def test_config_has_ensemble_and_selector_for_k2():
+def test_config_is_web_off_with_selector_for_k2():
     with open(CONFIG_PATH) as f:
         mode = yaml.safe_load(f)["modes"]["LOCAL"]
     params = mode["search_strategy"]["params"]
-    assert len(params["ideation_ensemble"]) == 2
+    # Web-off harvest: single web-free Claude member, NO lens planner, NO codex.
+    assert [m["cli"] for m in params["ideation_ensemble"]] == ["claude_code"]
+    assert "ideation_lens_planner" not in params
+    assert all(m["cli"] != "codex" for m in params["ideation_ensemble"])
     assert params["ideation_selector"]["cli"] == "claude_code"
     assert mode["budget"] == {"min_iteration_seconds": 900}
+
+
+def test_bobai_acquire_manifests_sequester_answers():
+    from benchmarks.ioai_tasks.data import acquire_bobai as a
+
+    # contest/ must never carry the reference solution or test labels;
+    # gold/ must carry exactly the answer material.
+    assert not (set(a.CONTEST) & set(a.GOLD))
+    assert any(v.lower().endswith(".ipynb") for v in a.GOLD.values())  # ref soln
+    assert any("test_set" in v.lower() and "label" in v.lower()
+               for v in a.GOLD.values())                                # test key
+    for v in a.CONTEST.values():
+        assert not v.lower().endswith(".ipynb")   # no reference solution
+        assert "/test_set/" not in v.lower()      # no test answer material
 
 
 def test_harvest_config_is_fable_max_and_single_sourced():

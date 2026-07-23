@@ -28,18 +28,17 @@ modes:
         implementation_timeout: 7200
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # WEB-OFF for harvest runs on PAST-contest tasks: the reference
+        # solution is published online (and in-repo), so web access would leak
+        # the answer. The Claude ensemble member and implementation use no web
+        # (Read + MCP only); the two web vectors — the lens planner
+        # (WebSearch/WebFetch) and the codex member (--search) — are omitted
+        # here. Ideation is the single web-free Claude member; K>1 still works
+        # (it emits >=2 candidates for the selector's top-K).
         ideation_ensemble:
-          - cli: "codex"
-            model: "gpt-5.6-sol"
-            effort: "xhigh"
           - cli: "claude_code"
             model: "claude-fable-5"
             effort: "xhigh"
-        ideation_lens_planner:
-          cli: "claude_code"
-          model: "claude-fable-5"
-          effort: "max"
-          timeout: 600
         ideation_selector:
           cli: "claude_code"
           model: "claude-opus-4-8"

@@ -7,6 +7,13 @@ Synthesize the per-task extraction JSONs into a SINGLE updated Night Watch
 - The current Night Watch `LEARNINGS.md` (the MISSION block + measured task-1
   findings).
 - One extraction JSON per harvested related task (from the extraction agent).
+- The GOLD REFERENCE SOLUTION for each task (the contest designers' official
+  answer, e.g. `reference_solution.ipynb`) — a first-class input, not just
+  context. Read each one and mine it for canonical techniques the designers
+  endorsed: how they extend a frozen model to new classes, how they validate,
+  what they deliberately avoid. These were provided AS the gold standard, so
+  we should learn from them directly — not only from what our own run
+  discovered.
 
 ## Output — write the FULL updated `LEARNINGS.md` (not a diff) to the given path
 1. **Preserve the MISSION block verbatim** at the very top.
@@ -19,6 +26,11 @@ Synthesize the per-task extraction JSONs into a SINGLE updated Night Watch
    - Then ONE compact line — `Confirmed by related tasks: <task> → <existing
      finding>, …` — capturing the CONFIRMS bullets so the confirmation is
      recorded without bloating the seed.
+   - Then a short `### From the gold reference solutions` block: the canonical
+     techniques the contest designers used that transfer to Night Watch, each
+     tagged NEW|CONFIRMS with the `(task gold)` source. Only include what is
+     genuinely transferable; a gold solution that just uses our known recipe is
+     a CONFIRMS one-liner.
 4. Re-rank the merged headroom directions (existing + any NEW) by expected value
    for beating 0.86382, as a short ordered list.
 5. End with exactly one line:

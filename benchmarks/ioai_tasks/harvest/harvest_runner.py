@@ -91,17 +91,24 @@ def extract(run_root: str, out_path: str) -> str:
     return out_path
 
 
-def aggregate(extraction_paths, current_learnings: str, out_path: str) -> str:
-    for path in [current_learnings, *extraction_paths]:
+def aggregate(extraction_paths, current_learnings: str, out_path: str,
+              reference_solutions=None) -> str:
+    reference_solutions = reference_solutions or []
+    for path in [current_learnings, *extraction_paths, *reference_solutions]:
         if not os.path.isfile(path):
             raise FileNotFoundError(f"{path} missing")
     out_path = os.path.abspath(out_path)
     brief = open(AGGREGATE_BRIEF, encoding="utf-8").read()
     listed = "\n".join(f"  - {os.path.abspath(p)}" for p in extraction_paths)
+    refs = "\n".join(f"  - {os.path.abspath(p)}" for p in reference_solutions)
+    refs_block = (f"Gold reference solutions to mine directly:\n{refs}\n"
+                  if reference_solutions else
+                  "Gold reference solutions: none supplied.\n")
     prompt = (
         f"{brief}\n\n---\n"
         f"Current Night Watch LEARNINGS.md: {os.path.abspath(current_learnings)}\n"
         f"Per-task extraction JSONs to merge:\n{listed}\n"
+        f"{refs_block}"
         "Read them all, then WRITE the full updated LEARNINGS.md to: "
         f"{out_path}\nPrint a one-line confirmation to stdout."
     )
@@ -120,6 +127,8 @@ def main():
     a = sub.add_parser("aggregate")
     a.add_argument("--extractions", nargs="+", required=True)
     a.add_argument("--current-learnings", required=True)
+    a.add_argument("--reference-solutions", nargs="*", default=[],
+                   help="gold reference-solution files to mine directly")
     a.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -127,7 +136,8 @@ def main():
         path = extract(args.run_root, args.out)
         print(f"[harvest] extraction written: {path}")
     else:
-        path = aggregate(args.extractions, args.current_learnings, args.out)
+        path = aggregate(args.extractions, args.current_learnings, args.out,
+                         reference_solutions=args.reference_solutions)
         print(f"[harvest] aggregated LEARNINGS written: {path}")
 
 
