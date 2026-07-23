@@ -608,6 +608,60 @@ def compose_candidate_replay_evidence(
     )
 
 
+def project_recovery_replay_evidence(
+    packet: ExpertTriggerEvidencePacket,
+) -> ExpertCandidateReplayEvidence:
+    """Treat every current packet episode as applicable recovery evidence."""
+
+    if type(packet) is not ExpertTriggerEvidencePacket:
+        raise ExpertCandidateContextError(
+            "recovery replay projection requires one exact trigger packet"
+        )
+    evidence_scope_contract = (
+        packet.scope_contract
+        if packet.knowledge_snapshot_manifest.scope_contract_id
+        == packet.scope_contract.scope_contract_id
+        else packet.source_base_scope_contract
+    )
+    if evidence_scope_contract is None:
+        raise ExpertCandidateContextError(
+            "recovery replay packet has no knowledge scope authority"
+        )
+    episode_ids = tuple(episode.episode_id for episode in packet.episodes)
+    evidence_authority_ids = tuple(
+        sorted(
+            {
+                packet.knowledge_snapshot_manifest.snapshot_id,
+                packet.evidence_packet_id,
+            }
+        )
+    )
+    dependencies = tuple(
+        sorted(
+            {
+                packet.knowledge_snapshot_manifest.snapshot_id,
+                evidence_scope_contract.scope_contract_id,
+                *episode_ids,
+                *(episode.source_bundle_id for episode in packet.episodes),
+                *evidence_authority_ids,
+                *packet.proof_reference_ids,
+            }
+        )
+    )
+    return ExpertCandidateReplayEvidence.mint(
+        knowledge_snapshot_manifests=(packet.knowledge_snapshot_manifest,),
+        scope_contracts=(evidence_scope_contract,),
+        episodes=packet.episodes,
+        causal_episode_ids=episode_ids,
+        causal_episode_reason_codes={
+            episode_id: ("clean_forward_recovery",) for episode_id in episode_ids
+        },
+        evidence_authority_ids=evidence_authority_ids,
+        proof_reference_ids=packet.proof_reference_ids,
+        stable_dependency_ids=dependencies,
+    )
+
+
 def project_agent_candidate_validation_context(
     *,
     packet: ExpertTriggerEvidencePacket,

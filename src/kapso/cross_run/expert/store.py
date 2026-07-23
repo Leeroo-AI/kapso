@@ -38,6 +38,7 @@ from kapso.cross_run.contracts import (
     ExpertCandidateSanitationReport,
     ExpertModuleContract,
     ExpertRepositoryMap,
+    ExpertRecoveryRestorePatch,
     ExpertSourceTreeManifest,
     SourceFileDescriptor,
     StrictContract,
@@ -72,11 +73,15 @@ from kapso.cross_run.expert.candidate_derivations import (
     CANDIDATE_SOURCE_TREE_PACKAGE_PATH,
     CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH,
     COMPOSITION_DERIVATION_RECORD_PACKAGE_PATH,
+    RECOVERY_RESTORE_DERIVATION_RECORD_PACKAGE_PATH,
+    RECOVERY_RESTORE_REPLAY_BASIS_PACKAGE_PATH,
     ExpertAgentProposalDerivation,
     ExpertAgentProposalDerivationRecord,
     ExpertCompositionSourceProvenance,
     ExpertDeterministicCompositionDerivation,
     ExpertDeterministicCompositionDerivationRecord,
+    ExpertDeterministicRecoveryRestoreDerivation,
+    ExpertDeterministicRecoveryRestoreDerivationRecord,
 )
 from kapso.cross_run.expert.composition import ExpertCompositionReductionSource
 from kapso.cross_run.expert.composition_admission_contracts import (
@@ -95,6 +100,14 @@ from kapso.cross_run.expert.proposal_contract import (
     ExpertCandidateAncestorInput,
     mint_expert_candidate_ancestor_input,
 )
+from kapso.cross_run.expert.recovery_candidate_authority import (
+    ExpertRecoveryCandidateAuthority,
+)
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+    validate_recovery_candidate_admission,
+)
+from kapso.cross_run.expert.recovery_base import ExpertRecoveryBaseSelection
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
     ExpertTriggerEvidencePacket,
@@ -128,6 +141,7 @@ _COMPOSITION_SOURCE_PROVENANCE_ROOT = (
     f"{_COMPOSITION_DERIVATION_ROOT}/source-provenance"
 )
 _COMPOSITION_ADMISSION_PATH = "ADMISSION.json"
+_RECOVERY_ADMISSION_PATH = "RECOVERY_ADMISSION.json"
 _SEALED_COMPOSITION_ADMISSION = object()
 _RENAME_NOREPLACE = 1
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -144,6 +158,7 @@ class StoredExpertCandidate:
     closure: ExpertCandidateClosure
     commit_record: ExpertCandidateCommitRecord
     composition_admission_fence: ExpertCompositionAdmissionFence | None = None
+    recovery_admission: ExpertRecoveryCandidateAdmission | None = None
 
 
 def stored_candidate_admission_dependency_ids(
@@ -156,14 +171,18 @@ def stored_candidate_admission_dependency_ids(
             "candidate admission dependency projection requires one stored candidate"
         )
     fence = stored_candidate.composition_admission_fence
+    recovery = stored_candidate.recovery_admission
     if fence is not None and type(fence) is not ExpertCompositionAdmissionFence:
         raise ExpertCandidateStoreError(
             "stored candidate admission authority uses another type"
         )
-    if fence is None:
-        return ()
-    return tuple(
-        sorted(
+    if recovery is not None and type(recovery) is not ExpertRecoveryCandidateAdmission:
+        raise ExpertCandidateStoreError(
+            "stored recovery admission authority uses another type"
+        )
+    dependencies = set()
+    if fence is not None:
+        dependencies.update(
             {
                 fence.admission_fence_id,
                 fence.security_denylist_observation.observation_id,
@@ -171,7 +190,15 @@ def stored_candidate_admission_dependency_ids(
                 *fence.security_subject_ids,
             }
         )
-    )
+    if recovery is not None:
+        dependencies.update(
+            {
+                recovery.admission_id,
+                recovery.recovery_plan.recovery_plan_id,
+                *recovery.exact_dependency_ids,
+            }
+        )
+    return tuple(sorted(dependencies))
 
 
 class ExpertCandidateStore:
@@ -197,6 +224,7 @@ class ExpertCandidateStore:
         self.state_root = state_root
         self.validator = validator
         self._composition_admission_authority = None
+        self._recovery_candidate_authority = None
         self.object_root = root / "objects"
         self.staging_root = root / "staging"
         initialization_lock = state_root / f".{root.name}.initialization.lock"
@@ -210,9 +238,12 @@ class ExpertCandidateStore:
             self._recover_staging()
 
     def persist(self, closure: ExpertCandidateClosure) -> StoredExpertCandidate:
-        if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
+        if type(closure.derivation) in {
+            ExpertDeterministicCompositionDerivation,
+            ExpertDeterministicRecoveryRestoreDerivation,
+        }:
             raise ExpertCandidateStoreError(
-                "composition persistence requires sealed admission authority"
+                "deterministic persistence requires sealed admission authority"
             )
         snapshot, package_files, commit_record = self._prepare_candidate(closure)
         return self._persist_prepared(
@@ -220,6 +251,7 @@ class ExpertCandidateStore:
             package_files=package_files,
             commit_record=commit_record,
             composition_admission_fence=None,
+            recovery_admission=None,
         )
 
     def preview_composition_commit(
@@ -253,6 +285,77 @@ class ExpertCandidateStore:
                     "candidate store already has another composition admission authority"
                 )
             self._composition_admission_authority = authority
+
+    def _bind_recovery_candidate_authority(
+        self,
+        authority: ExpertRecoveryCandidateAuthority,
+    ) -> None:
+        if type(authority) is not ExpertRecoveryCandidateAuthority:
+            raise ExpertCandidateStoreError(
+                "candidate store requires its exact recovery authority"
+            )
+        authority._require_bound(candidate_store=self)
+        with self._exclusive_lock():
+            if (
+                self._recovery_candidate_authority is not None
+                and self._recovery_candidate_authority is not authority
+            ):
+                raise ExpertCandidateStoreError(
+                    "candidate store already has another recovery authority"
+                )
+            self._recovery_candidate_authority = authority
+
+    def _commit_recovery_candidate(
+        self,
+        *,
+        authority: ExpertRecoveryCandidateAuthority,
+        selection: ExpertRecoveryBaseSelection,
+        closure: ExpertCandidateClosure,
+    ) -> StoredExpertCandidate:
+        if (
+            type(authority) is not ExpertRecoveryCandidateAuthority
+            or authority is not self._recovery_candidate_authority
+            or type(selection) is not ExpertRecoveryBaseSelection
+            or type(closure.derivation)
+            is not ExpertDeterministicRecoveryRestoreDerivation
+        ):
+            raise ExpertCandidateStoreError(
+                "recovery candidate commit uses foreign authority"
+            )
+        snapshot, package_files, commit_record = self._prepare_candidate(closure)
+        with self._exclusive_lock():
+            self._recover_staging()
+            (
+                validated_snapshot,
+                validated_package_files,
+                validated_commit_record,
+            ) = self._prepare_candidate(snapshot)
+            if (
+                validated_snapshot != snapshot
+                or validated_package_files != package_files
+                or validated_commit_record != commit_record
+            ):
+                raise ExpertCandidateStoreError(
+                    "recovery candidate changed before locked persistence"
+                )
+            admission = authority._finalize_under_store_lock(
+                candidate_store=self,
+                selection=selection,
+                closure=snapshot,
+                commit_record=commit_record,
+            )
+            validate_recovery_candidate_admission(
+                admission=admission,
+                closure=snapshot,
+                commit_record=commit_record,
+            )
+            return self._persist_prepared_unlocked(
+                snapshot=snapshot,
+                package_files=package_files,
+                commit_record=commit_record,
+                composition_admission_fence=None,
+                recovery_admission=admission,
+            )
 
     def _seal_composition_admission(
         self,
@@ -352,6 +455,7 @@ class ExpertCandidateStore:
                 package_files=package_files,
                 commit_record=commit_record,
                 composition_admission_fence=fence,
+                recovery_admission=None,
             )
 
     def _prepare_candidate(
@@ -381,13 +485,19 @@ class ExpertCandidateStore:
         package_files: dict[str, bytes],
         commit_record: ExpertCandidateCommitRecord,
         composition_admission_fence: ExpertCompositionAdmissionFence | None,
+        recovery_admission: ExpertRecoveryCandidateAdmission | None,
     ) -> StoredExpertCandidate:
         if (
-            type(snapshot.derivation) is ExpertDeterministicCompositionDerivation
+            type(snapshot.derivation)
+            in {
+                ExpertDeterministicCompositionDerivation,
+                ExpertDeterministicRecoveryRestoreDerivation,
+            }
             or composition_admission_fence is not None
+            or recovery_admission is not None
         ):
             raise ExpertCandidateStoreError(
-                "generic candidate persistence cannot store composition authority"
+                "generic candidate persistence cannot store admission authority"
             )
         with self._exclusive_lock():
             self._recover_staging()
@@ -397,6 +507,7 @@ class ExpertCandidateStore:
                 package_files=package_files,
                 commit_record=commit_record,
                 composition_admission_fence=composition_admission_fence,
+                recovery_admission=recovery_admission,
             )
 
     def _validate_direct_ancestors_unlocked(
@@ -438,11 +549,17 @@ class ExpertCandidateStore:
         package_files: dict[str, bytes],
         commit_record: ExpertCandidateCommitRecord,
         composition_admission_fence: ExpertCompositionAdmissionFence | None,
+        recovery_admission: ExpertRecoveryCandidateAdmission | None,
     ) -> StoredExpertCandidate:
         destination = self._candidate_path(snapshot.manifest.candidate_id)
         if os.path.lexists(destination):
             stored = self._read_unlocked(snapshot.manifest.candidate_id)
-            if stored.closure != snapshot or stored.commit_record != commit_record:
+            if (
+                stored.closure != snapshot
+                or stored.commit_record != commit_record
+                or stored.composition_admission_fence != composition_admission_fence
+                or stored.recovery_admission != recovery_admission
+            ):
                 raise ExpertCandidateStoreError(
                     "candidate identity conflicts with persisted closure"
                 )
@@ -466,6 +583,12 @@ class ExpertCandidateStore:
                     _COMPOSITION_ADMISSION_PATH,
                     composition_admission_fence.to_json_bytes(),
                 )
+            if recovery_admission is not None:
+                self._write_private_file(
+                    staging,
+                    _RECOVERY_ADMISSION_PATH,
+                    recovery_admission.to_json_bytes(),
+                )
             self._fsync_tree(staging)
             staged = self._read_package(
                 staging,
@@ -475,6 +598,7 @@ class ExpertCandidateStore:
                 staged.closure != snapshot
                 or staged.commit_record != commit_record
                 or staged.composition_admission_fence != composition_admission_fence
+                or staged.recovery_admission != recovery_admission
             ):
                 raise ExpertCandidateStoreError(
                     "staged candidate differs from its validated snapshot"
@@ -500,6 +624,7 @@ class ExpertCandidateStore:
                 stored_source.closure != expected_source
                 or stored_source.commit_record != provenance.candidate_commit_record
                 or stored_source.composition_admission_fence is not None
+                or stored_source.recovery_admission is not None
             ):
                 raise ExpertCandidateStoreError(
                     "composition source changed before locked persistence"
@@ -538,6 +663,8 @@ class ExpertCandidateStore:
                     for provenance in derivation.source_provenance
                 ),
             )
+        elif type(derivation) is ExpertDeterministicRecoveryRestoreDerivation:
+            snapshot_derivation = replace(derivation)
         else:
             raise ExpertCandidateStoreError(
                 "candidate store does not recognize the derivation closure"
@@ -564,6 +691,7 @@ class ExpertCandidateStore:
         files = self._read_private_tree(candidate_root)
         commit_payload = files.get(_COMMIT_PATH)
         composition_admission_payload = files.get(_COMPOSITION_ADMISSION_PATH)
+        recovery_admission_payload = files.get(_RECOVERY_ADMISSION_PATH)
         if commit_payload is None:
             raise ExpertCandidateStoreError("candidate package is not committed")
         commit = ExpertCandidateCommitRecord.from_json_bytes(commit_payload)
@@ -572,7 +700,12 @@ class ExpertCandidateStore:
         payloads = {
             path: payload
             for path, payload in files.items()
-            if path not in {_COMMIT_PATH, _COMPOSITION_ADMISSION_PATH}
+            if path
+            not in {
+                _COMMIT_PATH,
+                _COMPOSITION_ADMISSION_PATH,
+                _RECOVERY_ADMISSION_PATH,
+            }
         }
         if commit.candidate_id != candidate_id or set(payloads) != set(
             commit.file_checksums
@@ -592,6 +725,7 @@ class ExpertCandidateStore:
             )
         self.validator.validate_persisted(closure)
         composition_admission_fence = None
+        recovery_admission = None
         if (
             closure.manifest.derivation_kind
             is ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
@@ -619,13 +753,38 @@ class ExpertCandidateStore:
             )
         elif composition_admission_payload is not None:
             raise ExpertCandidateStoreError(
-                "agent candidate cannot contain composition admission authority"
+                "non-composition candidate contains composition admission authority"
+            )
+        if (
+            closure.manifest.derivation_kind
+            is ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+        ):
+            if recovery_admission_payload is None:
+                raise ExpertCandidateStoreError(
+                    "recovery candidate lacks its admission"
+                )
+            recovery_admission = ExpertRecoveryCandidateAdmission.from_json_bytes(
+                recovery_admission_payload
+            )
+            if recovery_admission_payload != recovery_admission.to_json_bytes():
+                raise ExpertCandidateStoreError(
+                    "recovery candidate admission is not canonical"
+                )
+            validate_recovery_candidate_admission(
+                admission=recovery_admission,
+                closure=closure,
+                commit_record=commit,
+            )
+        elif recovery_admission_payload is not None:
+            raise ExpertCandidateStoreError(
+                "non-recovery candidate contains recovery admission authority"
             )
         return StoredExpertCandidate(
             root=candidate_root,
             closure=closure,
             commit_record=commit,
             composition_admission_fence=composition_admission_fence,
+            recovery_admission=recovery_admission,
         )
 
     @staticmethod
@@ -661,6 +820,17 @@ class ExpertCandidateStore:
             files[f"{_SOURCE_ROOT}/{relative_path}"] = payload
         if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
             files.update(ExpertCandidateStore._composition_derivation_files(closure))
+        elif type(closure.derivation) is ExpertDeterministicRecoveryRestoreDerivation:
+            files.update(
+                {
+                    RECOVERY_RESTORE_DERIVATION_RECORD_PACKAGE_PATH: (
+                        closure.derivation.record.to_json_bytes()
+                    ),
+                    RECOVERY_RESTORE_REPLAY_BASIS_PACKAGE_PATH: (
+                        closure.derivation.replay_basis_packet.to_json_bytes()
+                    ),
+                }
+            )
         else:
             raise ExpertCandidateStoreError(
                 "candidate package uses an unknown derivation closure"
@@ -727,7 +897,12 @@ class ExpertCandidateStore:
             validation_context=ExpertCandidateValidationContext.from_json_bytes(
                 payloads[_VALIDATION_CONTEXT_PATH]
             ),
-            patch=ExpertCandidatePatch.from_json_bytes(payloads[_PATCH_PATH]),
+            patch=(
+                ExpertRecoveryRestorePatch.from_json_bytes(payloads[_PATCH_PATH])
+                if manifest.derivation_kind
+                is ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+                else ExpertCandidatePatch.from_json_bytes(payloads[_PATCH_PATH])
+            ),
             candidate_tree=tree,
             source_base_files=source_base_files,
             repository_map=ExpertRepositoryMap.from_json_bytes(
@@ -786,6 +961,19 @@ class ExpertCandidateStore:
             ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
         ):
             return ExpertCandidateStore._parse_composition_derivation(payloads)
+        if manifest.derivation_kind is (
+            ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+        ):
+            return ExpertDeterministicRecoveryRestoreDerivation(
+                record=(
+                    ExpertDeterministicRecoveryRestoreDerivationRecord.from_json_bytes(
+                        payloads[RECOVERY_RESTORE_DERIVATION_RECORD_PACKAGE_PATH]
+                    )
+                ),
+                replay_basis_packet=ExpertTriggerEvidencePacket.from_json_bytes(
+                    payloads[RECOVERY_RESTORE_REPLAY_BASIS_PACKAGE_PATH]
+                ),
+            )
         raise ExpertCandidateStoreError(
             "candidate store does not recognize the derivation package"
         )

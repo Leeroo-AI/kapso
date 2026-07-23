@@ -12,7 +12,11 @@ from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
     coding_agent_artifact_filenames,
 )
-from kapso.cross_run.canonical import source_tree_digest, tree_or_blob_digest
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    source_tree_digest,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     CandidateChangeKind,
@@ -29,6 +33,7 @@ from kapso.cross_run.contracts import (
     ExpertModuleContract,
     ExpertProposerAuthority,
     ExpertRepositoryMap,
+    ExpertRecoveryRestorePatch,
     ExpertSourceTreeManifest,
     ExpertValidationTrack,
     SourceFileDescriptor,
@@ -46,6 +51,7 @@ from kapso.cross_run.expert.candidate_context import (
     candidate_consumed_expert_release_ids,
     compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
+    project_recovery_replay_evidence,
 )
 from kapso.cross_run.expert.candidate_package import (
     direct_agent_candidate_package_files,
@@ -55,6 +61,8 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertCandidateDerivation,
     ExpertCompositionSourceProvenance,
     ExpertDeterministicCompositionDerivation,
+    ExpertDeterministicRecoveryRestoreDerivation,
+    RECOVERY_RESTORE_PRINCIPAL_ID,
 )
 from kapso.cross_run.expert.composition import ExpertCompositionReducer
 from kapso.cross_run.expert.composition_base import (
@@ -107,7 +115,7 @@ class ExpertCandidateValidationError(ValueError):
 class ExpertCandidateClosure:
     manifest: ExpertCandidateManifest
     validation_context: ExpertCandidateValidationContext
-    patch: ExpertCandidatePatch
+    patch: ExpertCandidatePatch | ExpertRecoveryRestorePatch
     candidate_tree: ExpertSourceTreeManifest
     source_base_files: tuple[SourceFileDescriptor, ...]
     repository_map: ExpertRepositoryMap
@@ -203,8 +211,10 @@ class ExpertCandidateValidator:
                 source_base_files,
                 candidate_files,
             )
-        else:
+        elif type(closure.derivation) is ExpertDeterministicCompositionDerivation:
             self._validate_composition_derivation(closure)
+        else:
+            self._validate_recovery_restore_derivation(closure)
         self._validate_patch(closure, source_base_files, candidate_files)
         self._validate_sanitation(closure)
         modules = self._validate_topology(closure, candidate_files)
@@ -224,6 +234,12 @@ class ExpertCandidateValidator:
             return
         if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
             self._validate_composition_parent(
+                closure,
+                require_active_authority=require_active_authority,
+            )
+            return
+        if type(closure.derivation) is ExpertDeterministicRecoveryRestoreDerivation:
+            self._validate_recovery_restore_parent(
                 closure,
                 require_active_authority=require_active_authority,
             )
@@ -294,6 +310,120 @@ class ExpertCandidateValidator:
         ):
             raise ExpertCandidateValidationError(
                 "candidate source base differs from the verified trigger source base"
+            )
+
+    def _validate_recovery_restore_parent(
+        self,
+        closure: ExpertCandidateClosure,
+        *,
+        require_active_authority: bool,
+    ) -> None:
+        manifest = closure.manifest
+        context = closure.validation_context
+        derivation = closure.derivation
+        packet = derivation.replay_basis_packet
+        record = derivation.record
+        if (
+            context.source_base_scope_contract is None
+            or context.source_base_release is None
+            or context.source_base_tree_receipt is None
+            or context.source_base_repository_map is None
+        ):
+            raise ExpertCandidateValidationError(
+                "recovery restore requires a complete historical source"
+            )
+        expected_replay = project_recovery_replay_evidence(packet)
+        expected_dependencies = tuple(
+            sorted(
+                {
+                    context.scope_contract.scope_contract_id,
+                    context.source_base_scope_contract.scope_contract_id,
+                    context.source_base_release.release_id,
+                    context.source_base_tree_receipt.source_base_tree_receipt_id,
+                    context.source_base_tree_receipt.source_extraction_receipt.extraction_receipt_id,
+                    context.source_base_repository_map.repository_map_id,
+                    *(
+                        module.module_contract_id
+                        for module in context.source_base_module_contracts
+                    ),
+                    expected_replay.replay_evidence_id,
+                    *expected_replay.stable_dependency_ids,
+                }
+            )
+        )
+        active_trigger_fingerprint = tree_or_blob_digest(
+            canonical_json_bytes(self.settings.triggers.to_dict())
+        )
+        if (
+            manifest.derivation_kind
+            is not ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+            or manifest.derivation_ref != record.derivation_id
+            or manifest.validation_context_ref != context.validation_context_id
+            or manifest.change_kind is not CandidateChangeKind.CAPABILITY
+            or manifest.scope_contract_id != packet.scope_contract.scope_contract_id
+            or manifest.configuration_fingerprint != packet.configuration_fingerprint
+            or context.scope_contract != packet.scope_contract
+            or context.source_base_scope_contract != packet.scope_contract
+            or record.replay_basis_packet_id != packet.evidence_packet_id
+            or record.source_base_release_id != context.source_base_release.release_id
+            or record.source_base_tree_receipt_id
+            != context.source_base_tree_receipt.source_base_tree_receipt_id
+            or record.origin_principal_ids != (RECOVERY_RESTORE_PRINCIPAL_ID,)
+            or context.active_task_bindings != packet.active_task_bindings
+            or context.replay_evidence != expected_replay
+            or context.stable_dependency_ids != expected_dependencies
+            or record.source_dependency_ids != expected_dependencies
+            or manifest.source_dependency_ids != expected_dependencies
+            or (
+                require_active_authority
+                and packet.configuration_fingerprint != active_trigger_fingerprint
+            )
+        ):
+            raise ExpertCandidateValidationError(
+                "recovery restore source or replay authority differs"
+            )
+
+    @staticmethod
+    def _validate_recovery_restore_derivation(
+        closure: ExpertCandidateClosure,
+    ) -> None:
+        manifest = closure.manifest
+        context = closure.validation_context
+        expected_consumed_releases = candidate_consumed_expert_release_ids(
+            source_base_release_id=manifest.source_base_release_id,
+            replay_evidence=context.replay_evidence,
+            inherited_release_ids=(),
+        )
+        if (
+            type(closure.derivation) is not ExpertDeterministicRecoveryRestoreDerivation
+            or manifest.source_base_release_id != context.source_base_release.release_id
+            or manifest.source_base_repository_map_ref
+            != context.source_base_repository_map.repository_map_id
+            or manifest.source_base_tree_hash != context.source_base_tree_hash
+            or manifest.candidate_tree_hash != context.source_base_tree_hash
+            or closure.source_base_files != closure.candidate_tree.files
+            or type(closure.patch) is not ExpertRecoveryRestorePatch
+            or closure.patch.restored_release_id != manifest.source_base_release_id
+            or closure.patch.changes
+            or closure.repository_map != context.source_base_repository_map
+            or closure.module_contracts != context.source_base_module_contracts
+            or manifest.proposed_repository_map_ref
+            != context.source_base_repository_map.repository_map_id
+            or manifest.module_contract_refs
+            != tuple(
+                sorted(
+                    module.module_contract_id
+                    for module in context.source_base_module_contracts
+                )
+            )
+            or manifest.semantic_book_digest
+            != context.source_base_release.semantic_book_digest
+            or manifest.consumed_expert_release_ids != expected_consumed_releases
+            or manifest.ancestor_candidate_ids
+            or manifest.capability_lineage
+        ):
+            raise ExpertCandidateValidationError(
+                "recovery restore candidate is not byte-identical to its clean source"
             )
 
     def _validate_operation(
@@ -840,8 +970,23 @@ class ExpertCandidateValidator:
     ) -> None:
         manifest = closure.manifest
         patch = closure.patch
+        if type(closure.derivation) is ExpertDeterministicRecoveryRestoreDerivation:
+            if (
+                type(patch) is not ExpertRecoveryRestorePatch
+                or manifest.patch_ref != patch.patch_id
+                or manifest.patch_digest != tree_or_blob_digest(patch.to_json_bytes())
+                or patch.restored_release_id != manifest.source_base_release_id
+                or patch.source_base_tree_hash != manifest.source_base_tree_hash
+                or patch.candidate_tree_hash != manifest.candidate_tree_hash
+                or source_base_files != candidate_files
+            ):
+                raise ExpertCandidateValidationError(
+                    "recovery restore patch differs from its identity transform"
+                )
+            return
         if (
-            manifest.patch_ref != patch.patch_id
+            type(patch) is not ExpertCandidatePatch
+            or manifest.patch_ref != patch.patch_id
             or manifest.patch_digest != tree_or_blob_digest(patch.to_json_bytes())
             or patch.source_base_tree_hash != manifest.source_base_tree_hash
             or patch.candidate_tree_hash != manifest.candidate_tree_hash
@@ -1027,7 +1172,11 @@ class ExpertCandidateValidator:
             candidate_files,
             validation_error_type=ExpertCandidateValidationError,
         )
-        if manifest.change_kind is CandidateChangeKind.CAPABILITY:
+        if (
+            manifest.change_kind is CandidateChangeKind.CAPABILITY
+            and type(closure.derivation)
+            is not ExpertDeterministicRecoveryRestoreDerivation
+        ):
             ExpertCandidateValidator._validate_capability_change_boundary(closure)
         return modules
 

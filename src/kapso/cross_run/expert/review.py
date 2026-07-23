@@ -23,6 +23,7 @@ from kapso.cross_run.contracts import (
     ExpertEvaluatorOutcome,
     ExpertEvaluatorResultRecord,
     ExpertPromotionState,
+    ExpertRecoveryRestorePatch,
     ExpertReviewDisposition,
     ExpertSealedCanaryAggregate,
     ExpertValidationAttempt,
@@ -34,6 +35,8 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertCandidateDerivationRecord,
     ExpertDeterministicCompositionDerivation,
     ExpertDeterministicCompositionDerivationRecord,
+    ExpertDeterministicRecoveryRestoreDerivation,
+    ExpertDeterministicRecoveryRestoreDerivationRecord,
 )
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionMaterialization,
@@ -56,6 +59,7 @@ from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewStageResultRecord,
 )
 from kapso.cross_run.expert.store import StoredExpertCandidate
+from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacket
 from kapso.cross_run.settings import (
     ExpertPromotionPolicySettings,
     ExpertReviewerSettings,
@@ -91,6 +95,7 @@ def expert_candidate_review_derivation_evidence_ids(
     derivation_record: ExpertCandidateDerivationRecord,
     candidate_operation: ExpertCandidateOperationRecord | None,
     composition_materialization: ExpertCompositionMaterialization | None,
+    recovery_replay_basis: ExpertTriggerEvidencePacket | None,
 ) -> tuple[str, ...]:
     """Project the exact derivation authority rendered into a review packet."""
 
@@ -98,6 +103,7 @@ def expert_candidate_review_derivation_evidence_ids(
         if (
             type(candidate_operation) is not ExpertCandidateOperationRecord
             or composition_materialization is not None
+            or recovery_replay_basis is not None
             or derivation_record.operation_record_id
             != candidate_operation.operation_record_id
             or derivation_record.trigger_evidence_packet_id
@@ -134,6 +140,7 @@ def expert_candidate_review_derivation_evidence_ids(
         if (
             candidate_operation is not None
             or type(composition_materialization) is not ExpertCompositionMaterialization
+            or recovery_replay_basis is not None
             or derivation_record.composition_materialization_id
             != composition_materialization.materialization_id
         ):
@@ -158,6 +165,28 @@ def expert_candidate_review_derivation_evidence_ids(
                 }
             )
         )
+    if type(derivation_record) is ExpertDeterministicRecoveryRestoreDerivationRecord:
+        if (
+            candidate_operation is not None
+            or composition_materialization is not None
+            or type(recovery_replay_basis) is not ExpertTriggerEvidencePacket
+            or derivation_record.replay_basis_packet_id
+            != recovery_replay_basis.evidence_packet_id
+        ):
+            raise ExpertAutomatedReviewError(
+                "recovery review derivation evidence is inconsistent"
+            )
+        return tuple(
+            sorted(
+                {
+                    derivation_record.derivation_id,
+                    derivation_record.replay_basis_packet_id,
+                    derivation_record.source_base_release_id,
+                    derivation_record.source_base_tree_receipt_id,
+                    *derivation_record.source_dependency_ids,
+                }
+            )
+        )
     raise ExpertAutomatedReviewError(
         "review derivation uses an unsupported record type"
     )
@@ -172,6 +201,7 @@ class PreparedExpertAutomatedReviewPacket:
     candidate_derivation_record: ExpertCandidateDerivationRecord
     candidate_operation: ExpertCandidateOperationRecord | None
     composition_materialization: ExpertCompositionMaterialization | None
+    recovery_replay_basis: ExpertTriggerEvidencePacket | None
     validation_attempt: ExpertValidationAttempt
     authorization_state: ExpertCandidateValidationState
     validation_policy: ExpertValidationPolicy
@@ -190,6 +220,7 @@ class PreparedExpertAutomatedReviewPacket:
                 derivation_record=self.candidate_derivation_record,
                 candidate_operation=self.candidate_operation,
                 composition_materialization=self.composition_materialization,
+                recovery_replay_basis=self.recovery_replay_basis,
             )
         )
         if (
@@ -290,6 +321,27 @@ class PreparedExpertAutomatedReviewPacket:
             ):
                 raise ExpertAutomatedReviewError(
                     "composition review materialization differs from its candidate"
+                )
+            return
+        if type(record) is ExpertDeterministicRecoveryRestoreDerivationRecord:
+            replay_basis = self.recovery_replay_basis
+            manifest = self.candidate_input.manifest
+            patch = self.candidate_input.patch
+            if (
+                type(replay_basis) is not ExpertTriggerEvidencePacket
+                or self.candidate_operation is not None
+                or self.composition_materialization is not None
+                or manifest.derivation_kind
+                is not ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+                or manifest.derivation_ref != record.derivation_id
+                or manifest.source_base_release_id != record.source_base_release_id
+                or manifest.source_dependency_ids != record.source_dependency_ids
+                or record.replay_basis_packet_id != replay_basis.evidence_packet_id
+                or type(patch) is not ExpertRecoveryRestorePatch
+                or patch.restored_release_id != record.source_base_release_id
+            ):
+                raise ExpertAutomatedReviewError(
+                    "recovery review derivation differs from its candidate"
                 )
             return
         raise ExpertAutomatedReviewError(
@@ -418,10 +470,17 @@ class ExpertAutomatedReviewCoordinator:
             derivation_record = derivation.record
             candidate_operation = derivation.operation
             composition_materialization = None
+            recovery_replay_basis = None
         elif type(derivation) is ExpertDeterministicCompositionDerivation:
             derivation_record = derivation.record
             candidate_operation = None
             composition_materialization = derivation.materialization
+            recovery_replay_basis = None
+        elif type(derivation) is ExpertDeterministicRecoveryRestoreDerivation:
+            derivation_record = derivation.record
+            candidate_operation = None
+            composition_materialization = None
+            recovery_replay_basis = derivation.replay_basis_packet
         else:
             raise ExpertAutomatedReviewError(
                 "candidate review uses an unsupported derivation"
@@ -430,6 +489,7 @@ class ExpertAutomatedReviewCoordinator:
             derivation_record=derivation_record,
             candidate_operation=candidate_operation,
             composition_materialization=composition_materialization,
+            recovery_replay_basis=recovery_replay_basis,
         )
         dependencies = {
             validation_attempt.validation_attempt_id,
@@ -475,6 +535,7 @@ class ExpertAutomatedReviewCoordinator:
             candidate_derivation_record=derivation_record,
             candidate_operation=candidate_operation,
             composition_materialization=composition_materialization,
+            recovery_replay_basis=recovery_replay_basis,
             validation_attempt=validation_attempt,
             authorization_state=authorization_state,
             validation_policy=policy,
@@ -985,10 +1046,12 @@ def expert_automated_review_prompt_payload(
     derivation_record = prepared.candidate_derivation_record
     candidate_operation = prepared.candidate_operation
     composition_materialization = prepared.composition_materialization
+    recovery_replay_basis = prepared.recovery_replay_basis
     if type(derivation_record) is ExpertAgentProposalDerivationRecord:
         if (
             type(candidate_operation) is not ExpertCandidateOperationRecord
             or composition_materialization is not None
+            or recovery_replay_basis is not None
         ):
             raise ExpertAutomatedReviewError(
                 "agent review prompt lacks exact derivation evidence"
@@ -1009,6 +1072,7 @@ def expert_automated_review_prompt_payload(
         if (
             candidate_operation is not None
             or type(composition_materialization) is not ExpertCompositionMaterialization
+            or recovery_replay_basis is not None
         ):
             raise ExpertAutomatedReviewError(
                 "composition review prompt lacks exact derivation evidence"
@@ -1020,6 +1084,23 @@ def expert_automated_review_prompt_payload(
             "derivation_record": derivation_record.to_dict(),
             "origin_principal_ids": prepared.packet.candidate_origin_principal_ids,
             "composition_materialization": composition_materialization.to_dict(),
+        }
+    elif type(derivation_record) is ExpertDeterministicRecoveryRestoreDerivationRecord:
+        if (
+            candidate_operation is not None
+            or composition_materialization is not None
+            or type(recovery_replay_basis) is not ExpertTriggerEvidencePacket
+        ):
+            raise ExpertAutomatedReviewError(
+                "recovery review prompt lacks exact derivation evidence"
+            )
+        derivation_payload = {
+            "derivation_kind": (
+                ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE.value
+            ),
+            "derivation_record": derivation_record.to_dict(),
+            "origin_principal_ids": prepared.packet.candidate_origin_principal_ids,
+            "replay_basis_packet": recovery_replay_basis.to_dict(),
         }
     else:
         raise ExpertAutomatedReviewError(

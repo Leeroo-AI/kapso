@@ -57,7 +57,10 @@ from kapso.cross_run.expert.proposal_contract import (
     mint_expert_candidate_ancestor_input,
 )
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
-from kapso.cross_run.expert.store import ExpertCandidateStore
+from kapso.cross_run.expert.store import (
+    ExpertCandidateStore,
+    stored_candidate_admission_dependency_ids,
+)
 from kapso.cross_run.expert.validation_store import (
     ExpertValidationStore,
     ExpertValidationStoreError,
@@ -74,6 +77,7 @@ from test_expert_composition_contracts import (
     _source_reference,
     composition_case,
 )
+from test_expert_clean_recovery import _historical_candidate_system
 from test_expert_validation import (
     _eligibility_evaluator,
     _task_adapter,
@@ -408,6 +412,7 @@ def _composition_review_fixture(
         derivation_record=derivation_record,
         candidate_operation=None,
         composition_materialization=materialization,
+        recovery_replay_basis=None,
     )
     authorization_transition_id = content_id(
         "expert-validation-transition",
@@ -453,6 +458,7 @@ def _composition_review_fixture(
         candidate_derivation_record=derivation_record,
         candidate_operation=None,
         composition_materialization=materialization,
+        recovery_replay_basis=None,
         validation_attempt=attempt,
         authorization_state=authorization_state,
         validation_policy=policy,
@@ -625,13 +631,14 @@ def test_composition_review_derivation_persists_reopens_and_detects_tampering(
 
     reopened = _reopen_validation_store(store)
     with reopened._lock(exclusive=False):
-        derivation_record, operation, materialization = (
+        derivation_record, operation, materialization, recovery_replay_basis = (
             reopened._read_automated_review_derivation_unlocked(prepared.packet)
         )
 
     assert derivation_record == prepared.candidate_derivation_record
     assert operation is None
     assert materialization == prepared.composition_materialization
+    assert recovery_replay_basis is None
     assert (
         replace(
             prepared,
@@ -648,6 +655,148 @@ def test_composition_review_derivation_persists_reopens_and_detects_tampering(
         create_namespace=False,
     )
     materialization_path.write_bytes(b"{}\n")
+    with reopened._lock(exclusive=False):
+        with pytest.raises(ContractValidationError):
+            reopened._read_automated_review_derivation_unlocked(prepared.packet)
+
+
+def test_recovery_review_derivation_persists_reopens_and_detects_tampering(
+    tmp_path,
+    monkeypatch,
+):
+    (
+        coordinator,
+        direct_prepared,
+        _workspace,
+        _runner,
+        _snapshot,
+        store,
+    ) = _review_fixture(tmp_path / "review", monkeypatch)
+    recovery = _historical_candidate_system(tmp_path / "recovery")
+    stored = recovery.coordinator.restore_historical(
+        scope_contract=recovery.fixture.case.scope,
+        replay_basis_packet=recovery.replay_basis,
+    )
+    manifest = stored.closure.manifest
+    commit = stored.commit_record
+    policy = coordinator.settings.validation.policy.validation_policy()
+    eligibility_id = content_id(
+        "expert-candidate-eligibility",
+        {"candidate_id": manifest.candidate_id, "recovery": True},
+    )
+    pins = direct_prepared.validation_attempt.task_adapter_pins
+    eligibility_dependencies = {
+        manifest.candidate_id,
+        commit.commit_record_id,
+        manifest.scope_contract_id,
+        manifest.source_base_release_id,
+        eligibility_id,
+        policy.validation_policy_id,
+        *(pin.task_adapter_manifest_id for pin in pins),
+        *(pin.verification_receipt_id for pin in pins),
+        *stored_candidate_admission_dependency_ids(stored),
+    }
+    attempt = ExpertValidationAttempt.mint(
+        candidate_id=manifest.candidate_id,
+        candidate_tree_hash=manifest.candidate_tree_hash,
+        candidate_commit_record_id=commit.commit_record_id,
+        scope_contract_id=manifest.scope_contract_id,
+        source_base_release_id=manifest.source_base_release_id,
+        eligibility_decision_id=eligibility_id,
+        validation_policy_id=policy.validation_policy_id,
+        configuration_fingerprint=(
+            coordinator.settings.validation.configuration_fingerprint
+        ),
+        validation_track=ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
+        attempt_number=1,
+        predecessor_attempt_id=None,
+        required_stages=(
+            ExpertValidationStage.CONTRACT_SCHEMA,
+            ExpertValidationStage.AUTOMATED_REVIEW,
+        ),
+        configured_task_family_ids=tuple(
+            sorted(
+                {
+                    binding.task_family_id
+                    for binding in recovery.replay_basis.active_task_bindings
+                }
+            )
+        ),
+        task_adapter_pins=pins,
+        source_replay_selection=None,
+        eligibility_dependency_ids=tuple(sorted(eligibility_dependencies)),
+    )
+    accepted_result = _result(
+        coordinator.settings.validation,
+        attempt,
+        ExpertValidationStage.CONTRACT_SCHEMA,
+        ExpertEvaluatorOutcome.PASSED,
+    )
+    accepted_reference = ExpertAcceptedStageResultRef(
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        stage_result_record_id=accepted_result.evaluator_result_record_id,
+    )
+    authorization_state = ExpertCandidateValidationState.mint(
+        validation_attempt_id=attempt.validation_attempt_id,
+        candidate_id=attempt.candidate_id,
+        candidate_tree_hash=attempt.candidate_tree_hash,
+        predecessor_state_id=None,
+        promotion_state=ExpertPromotionState.VALIDATING,
+        accepted_stage_results=(accepted_reference,),
+        next_stage=ExpertValidationStage.AUTOMATED_REVIEW,
+        review_assertion_ids=(),
+        terminal_evidence_ids=(),
+        transition_evidence_id=accepted_result.evaluator_result_record_id,
+        reason="recovery_ready_for_automated_review",
+    )
+    prepared = coordinator.prepare(
+        stored_candidate=stored,
+        validation_attempt=attempt,
+        authorization_transition_id=content_id(
+            "expert-validation-transition",
+            {"candidate_id": manifest.candidate_id, "recovery": True},
+        ),
+        authorization_state=authorization_state,
+        accepted_stage_results=(accepted_result,),
+    )
+    prompt_payload = coordinator._prompt_payload(
+        prepared,
+        coordinator.settings.validation.policy.reviewers[0],
+    )
+    assert prompt_payload["candidate_derivation"]["derivation_kind"] == (
+        ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE.value
+    )
+    assert prompt_payload["candidate_derivation"]["replay_basis_packet"] == (
+        recovery.replay_basis.to_dict()
+    )
+    with store._lock(exclusive=True):
+        store._write_automated_review_derivation_unlocked(prepared)
+
+    reopened = _reopen_validation_store(store)
+    with reopened._lock(exclusive=False):
+        derivation_record, operation, materialization, replay_basis = (
+            reopened._read_automated_review_derivation_unlocked(prepared.packet)
+        )
+    assert derivation_record == prepared.candidate_derivation_record
+    assert operation is None
+    assert materialization is None
+    assert replay_basis == recovery.replay_basis
+    assert (
+        replace(
+            prepared,
+            candidate_derivation_record=derivation_record,
+            candidate_operation=operation,
+            composition_materialization=materialization,
+            recovery_replay_basis=replay_basis,
+        )
+        == prepared
+    )
+
+    replay_path = reopened._object_path(
+        recovery.replay_basis.evidence_packet_id,
+        create_namespace=False,
+    )
+    replay_path.write_bytes(b"{}\n")
     with reopened._lock(exclusive=False):
         with pytest.raises(ContractValidationError):
             reopened._read_automated_review_derivation_unlocked(prepared.packet)

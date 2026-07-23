@@ -294,7 +294,7 @@ def test_released_context_accepts_only_equal_or_directly_superseding_scope():
     packet = trigger_packet(
         settings=settings,
         current_scope_contract=successor,
-        released_scope_contract=source_base_scope,
+        source_base_scope_contract=source_base_scope,
     )
     decision = ExpertTriggerEvaluator(settings).evaluate(packet)
     context = project_agent_candidate_validation_context(

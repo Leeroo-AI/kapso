@@ -38,10 +38,12 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivationRecord,
     ExpertDeterministicCompositionDerivationRecord,
+    ExpertDeterministicRecoveryRestoreDerivationRecord,
 )
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionMaterialization,
 )
+from kapso.cross_run.expert.triggers import ExpertTriggerEvidencePacket
 from kapso.cross_run.expert.validation import (
     ExpertEligibilityResult,
     ExpertValidationPredecessor,
@@ -4255,6 +4257,7 @@ class ExpertValidationStore:
             candidate_derivation_record=supplied.candidate_derivation_record,
             candidate_operation=supplied.candidate_operation,
             composition_materialization=supplied.composition_materialization,
+            recovery_replay_basis=supplied.recovery_replay_basis,
             validation_attempt=supplied.validation_attempt,
             authorization_state=supplied.authorization_state,
             validation_policy=supplied.validation_policy,
@@ -5400,15 +5403,19 @@ class ExpertValidationStore:
             self._write_contract_unlocked(prepared.candidate_operation)
         if prepared.composition_materialization is not None:
             self._write_contract_unlocked(prepared.composition_materialization)
+        if prepared.recovery_replay_basis is not None:
+            self._write_contract_unlocked(prepared.recovery_replay_basis)
 
     def _read_automated_review_derivation_unlocked(
         self,
         packet: ExpertAutomatedReviewPacket,
     ) -> tuple[
         ExpertAgentProposalDerivationRecord
-        | ExpertDeterministicCompositionDerivationRecord,
+        | ExpertDeterministicCompositionDerivationRecord
+        | ExpertDeterministicRecoveryRestoreDerivationRecord,
         ExpertCandidateOperationRecord | None,
         ExpertCompositionMaterialization | None,
+        ExpertTriggerEvidencePacket | None,
     ]:
         if packet.candidate_derivation_kind is (
             ExpertCandidateDerivationKind.AGENT_PROPOSAL
@@ -5421,7 +5428,7 @@ class ExpertValidationStore:
                 derivation_record.operation_record_id,
                 ExpertCandidateOperationRecord,
             )
-            return derivation_record, operation, None
+            return derivation_record, operation, None, None
         if packet.candidate_derivation_kind is (
             ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
         ):
@@ -5433,7 +5440,19 @@ class ExpertValidationStore:
                 derivation_record.composition_materialization_id,
                 ExpertCompositionMaterialization,
             )
-            return derivation_record, None, materialization
+            return derivation_record, None, materialization, None
+        if packet.candidate_derivation_kind is (
+            ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE
+        ):
+            derivation_record = self._read_contract_unlocked(
+                packet.candidate_derivation_ref,
+                ExpertDeterministicRecoveryRestoreDerivationRecord,
+            )
+            replay_basis = self._read_contract_unlocked(
+                derivation_record.replay_basis_packet_id,
+                ExpertTriggerEvidencePacket,
+            )
+            return derivation_record, None, None, replay_basis
         raise ExpertValidationStoreError(
             "automated review packet uses an unknown candidate derivation"
         )
@@ -5477,6 +5496,7 @@ class ExpertValidationStore:
             candidate_derivation_record,
             candidate_operation,
             composition_materialization,
+            recovery_replay_basis,
         ) = self._read_automated_review_derivation_unlocked(packet)
         accepted_results = tuple(
             self._read_stage_result_unlocked(result_id)
@@ -5488,6 +5508,7 @@ class ExpertValidationStore:
             candidate_derivation_record=candidate_derivation_record,
             candidate_operation=candidate_operation,
             composition_materialization=composition_materialization,
+            recovery_replay_basis=recovery_replay_basis,
             validation_attempt=latest_attempt,
             authorization_state=predecessor_state,
             validation_policy=validation_policy,

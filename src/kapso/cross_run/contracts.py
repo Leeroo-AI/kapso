@@ -148,7 +148,40 @@ def _decode_value(annotation: Any, value: Any, name: str) -> Any:
             argument for argument in arguments if argument is not type(None)
         )
         if len(non_null) != 1:
-            raise ContractValidationError(f"{name} has unsupported union annotation")
+            contract_types = tuple(
+                argument
+                for argument in non_null
+                if isinstance(argument, type) and issubclass(argument, StrictContract)
+            )
+            if len(contract_types) != len(non_null):
+                raise ContractValidationError(
+                    f"{name} has unsupported union annotation"
+                )
+            matching_instances = tuple(
+                contract_type
+                for contract_type in contract_types
+                if type(value) is contract_type
+            )
+            if len(matching_instances) == 1:
+                return value
+            if not isinstance(value, MappingABC):
+                raise ContractValidationError(
+                    f"{name} must be one recognized contract object"
+                )
+            matching_contracts = tuple(
+                contract_type
+                for contract_type in contract_types
+                if contract_type.CONTENT_NAMESPACE is not None
+                and contract_type.IDENTITY_FIELD is not None
+                and isinstance(value.get(contract_type.IDENTITY_FIELD), str)
+                and value[contract_type.IDENTITY_FIELD].split(":sha256:", 1)[0]
+                == contract_type.CONTENT_NAMESPACE
+            )
+            if len(matching_contracts) != 1:
+                raise ContractValidationError(
+                    f"{name} does not identify one supported contract"
+                )
+            return _decode_value(matching_contracts[0], value, name)
         return _decode_value(non_null[0], value, name)
     if origin is tuple:
         if not isinstance(value, (list, tuple)):
@@ -391,6 +424,7 @@ class ExpertCandidateOperationKind(str, Enum):
 class ExpertCandidateDerivationKind(str, Enum):
     AGENT_PROPOSAL = "agent_proposal"
     DETERMINISTIC_COMPOSITION = "deterministic_composition"
+    DETERMINISTIC_RECOVERY_RESTORE = "deterministic_recovery_restore"
 
 
 class ExpertCandidateSanitationStatus(str, Enum):
@@ -2245,6 +2279,42 @@ class ExpertCandidatePatch(StrictContract):
 
 
 @dataclass(frozen=True)
+class ExpertRecoveryRestorePatch(StrictContract):
+    """Typed identity transform used only for whole-tree recovery."""
+
+    patch_id: str
+    restored_release_id: str
+    source_base_tree_hash: str
+    candidate_tree_hash: str
+    changes: tuple[ExpertCandidatePatchChange, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-recovery-restore-patch"
+    IDENTITY_FIELD: ClassVar[str] = "patch_id"
+
+    def _validate(self) -> None:
+        require_content_id(
+            self.restored_release_id,
+            "recovery restore patch release",
+        )
+        if self.restored_release_id.split(":sha256:", 1)[0] != "expert-base-release":
+            raise ContractValidationError(
+                "recovery restore patch release uses the wrong namespace"
+            )
+        _require_digest(
+            self.source_base_tree_hash,
+            "recovery restore source tree",
+        )
+        _require_digest(
+            self.candidate_tree_hash,
+            "recovery restore candidate tree",
+        )
+        if self.source_base_tree_hash != self.candidate_tree_hash or self.changes:
+            raise ContractValidationError(
+                "recovery restore patch must be an exact identity transform"
+            )
+
+
+@dataclass(frozen=True)
 class ExpertCandidateCommitRecord(StrictContract):
     """Create-only package checksum closure for one expert candidate."""
 
@@ -2725,6 +2795,9 @@ class ExpertCandidateManifest(StrictContract):
             ),
             ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION: (
                 "expert-deterministic-composition-derivation"
+            ),
+            ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE: (
+                "expert-deterministic-recovery-restore-derivation"
             ),
         }[self.derivation_kind]
         if self.derivation_ref.split(":sha256:", 1)[0] != (
@@ -4585,7 +4658,12 @@ class ExpertBaseReleaseManifest(StrictContract):
             ),
             (
                 self.candidate_patch_ref,
-                "expert-candidate-patch",
+                (
+                    "expert-recovery-restore-patch"
+                    if self.candidate_derivation_ref.split(":sha256:", 1)[0]
+                    == "expert-deterministic-recovery-restore-derivation"
+                    else "expert-candidate-patch"
+                ),
                 "candidate_patch_ref",
             ),
             (
@@ -4657,6 +4735,7 @@ class ExpertBaseReleaseManifest(StrictContract):
         if self.candidate_derivation_ref.split(":sha256:", 1)[0] not in {
             "expert-agent-proposal-derivation",
             "expert-deterministic-composition-derivation",
+            "expert-deterministic-recovery-restore-derivation",
         }:
             raise ContractValidationError(
                 "candidate_derivation_ref uses the wrong namespace"

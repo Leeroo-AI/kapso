@@ -127,6 +127,14 @@ def _released_base(
             module.module_id: module.version for module in module_contracts
         },
         semantic_book_digest=tree_or_blob_digest(book),
+        candidate_consumed_expert_release_ids=tuple(
+            sorted(
+                {
+                    *source_base_release.candidate_consumed_expert_release_ids,
+                    source_base_release.release_id,
+                }
+            )
+        ),
         consumed_dependency_ids=tuple(sorted(dependency_closure)),
         checksums={
             **source_base_release.checksums,
@@ -248,7 +256,9 @@ def test_partially_present_source_applies_only_missing_module_effect(reducer_cas
     case = reducer_case
     closure = case.source.stored_candidate.closure
     controls = set(
-        expert_control_paths(closure.derivation.trigger_packet.source_base_module_contracts)
+        expert_control_paths(
+            closure.derivation.trigger_packet.source_base_module_contracts
+        )
     )
     controls.update(expert_control_paths(closure.module_contracts))
     partially_installed_contents = dict(case.parent_base.source_contents)

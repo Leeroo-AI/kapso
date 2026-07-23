@@ -123,6 +123,9 @@ class ExpertAutomatedReviewPacket(StrictContract):
             ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION: (
                 "expert-deterministic-composition-derivation"
             ),
+            ExpertCandidateDerivationKind.DETERMINISTIC_RECOVERY_RESTORE: (
+                "expert-deterministic-recovery-restore-derivation"
+            ),
         }[self.candidate_derivation_kind]
         if (
             self.candidate_derivation_ref.split(":sha256:", 1)[0]

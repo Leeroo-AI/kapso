@@ -44,6 +44,13 @@ CANDIDATE_MANIFEST_PACKAGE_PATH = "candidate.json"
 CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH = "validation-context.json"
 AGENT_DERIVATION_RECORD_PACKAGE_PATH = "derivations/agent/derivation.json"
 COMPOSITION_DERIVATION_RECORD_PACKAGE_PATH = "derivations/composition/derivation.json"
+RECOVERY_RESTORE_DERIVATION_RECORD_PACKAGE_PATH = (
+    "derivations/recovery-restore/derivation.json"
+)
+RECOVERY_RESTORE_REPLAY_BASIS_PACKAGE_PATH = (
+    "derivations/recovery-restore/replay-basis.json"
+)
+RECOVERY_RESTORE_PRINCIPAL_ID = "kapso_clean_forward_recovery"
 CANDIDATE_PATCH_PACKAGE_PATH = "patch.json"
 CANDIDATE_SOURCE_TREE_PACKAGE_PATH = "source-tree.json"
 CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH = "repository-map.json"
@@ -509,9 +516,91 @@ class ExpertDeterministicCompositionDerivation:
             )
 
 
+@dataclass(frozen=True)
+class ExpertDeterministicRecoveryRestoreDerivationRecord(StrictContract):
+    """Stable provenance of one byte-identical historical restore."""
+
+    derivation_id: str
+    replay_basis_packet_id: str
+    source_base_release_id: str
+    source_base_tree_receipt_id: str
+    origin_principal_ids: tuple[str, ...]
+    source_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = (
+        "expert-deterministic-recovery-restore-derivation"
+    )
+    IDENTITY_FIELD: ClassVar[str] = "derivation_id"
+
+    def _validate(self) -> None:
+        for value, namespace, name in (
+            (
+                self.replay_basis_packet_id,
+                "expert-trigger-evidence-packet",
+                "recovery replay basis",
+            ),
+            (
+                self.source_base_release_id,
+                "expert-base-release",
+                "recovery restore source release",
+            ),
+            (
+                self.source_base_tree_receipt_id,
+                "expert-source-base-tree-receipt",
+                "recovery restore source receipt",
+            ),
+        ):
+            _require_namespaced_id(value, namespace, name)
+        if not self.origin_principal_ids or self.origin_principal_ids != tuple(
+            sorted(set(self.origin_principal_ids))
+        ):
+            raise ExpertCandidateDerivationError(
+                "recovery restore origin principals must be canonical and non-empty"
+            )
+        for principal_id in self.origin_principal_ids:
+            require_identifier(
+                principal_id,
+                "recovery restore origin principal",
+            )
+        if not self.source_dependency_ids or self.source_dependency_ids != tuple(
+            sorted(set(self.source_dependency_ids))
+        ):
+            raise ExpertCandidateDerivationError(
+                "recovery restore dependencies must be canonical and non-empty"
+            )
+        for dependency_id in self.source_dependency_ids:
+            require_content_id(
+                dependency_id,
+                "recovery restore dependency",
+            )
+
+
+@dataclass(frozen=True)
+class ExpertDeterministicRecoveryRestoreDerivation:
+    """Runtime closure for one deterministic historical restore."""
+
+    record: ExpertDeterministicRecoveryRestoreDerivationRecord
+    replay_basis_packet: ExpertTriggerEvidencePacket
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.record) is not ExpertDeterministicRecoveryRestoreDerivationRecord
+            or type(self.replay_basis_packet) is not ExpertTriggerEvidencePacket
+            or self.record.replay_basis_packet_id
+            != self.replay_basis_packet.evidence_packet_id
+        ):
+            raise ExpertCandidateDerivationError(
+                "recovery restore derivation differs from its replay basis"
+            )
+
+
 ExpertCandidateDerivationRecord = (
-    ExpertAgentProposalDerivationRecord | ExpertDeterministicCompositionDerivationRecord
+    ExpertAgentProposalDerivationRecord
+    | ExpertDeterministicCompositionDerivationRecord
+    | ExpertDeterministicRecoveryRestoreDerivationRecord
 )
 ExpertCandidateDerivation = (
-    ExpertAgentProposalDerivation | ExpertDeterministicCompositionDerivation
+    ExpertAgentProposalDerivation
+    | ExpertDeterministicCompositionDerivation
+    | ExpertDeterministicRecoveryRestoreDerivation
 )

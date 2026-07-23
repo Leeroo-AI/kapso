@@ -439,11 +439,14 @@ def test_clean_composition_admission_is_fenced_atomic_and_reopenable(
         )
 
     current_state["observation"] = refreshed_observation
-    replayed = coordinator.compose_and_persist(
-        scope_contract=case.parent_base.scope_contract,
-        source_candidate_ids=(case.source.source_reference.candidate_id,),
-    )
-    assert replayed == stored
+    with pytest.raises(
+        ExpertCandidateStoreError,
+        match="identity conflicts",
+    ):
+        coordinator.compose_and_persist(
+            scope_contract=case.parent_base.scope_contract,
+            source_candidate_ids=(case.source.source_reference.candidate_id,),
+        )
     current_state["observation"] = original_observation
     moved_observation = SourceReplayCurrentReleaseObservation.mint(
         scope_id=original_observation.scope_id,

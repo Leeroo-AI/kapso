@@ -241,6 +241,32 @@ class ExpertRecoveryBaseSelector:
             "recovery activation history exceeds the configured lineage limit"
         )
 
+    def require_fresh(
+        self,
+        selection: ExpertRecoveryBaseSelection,
+    ) -> ExpertRecoveryBaseSelection:
+        """Re-run every authority read before a recovery admission commits."""
+
+        if type(selection) is not ExpertRecoveryBaseSelection:
+            raise ExpertRecoveryBaseError(
+                "recovery freshness requires one selector-owned selection"
+            )
+        selection._require_bound(self)
+        original_plan = selection.plan
+        current = self._current_authority.observe_task_evaluation_current(
+            original_plan.scope_contract.scope_id
+        )
+        if current != original_plan.current_release_observation:
+            raise ExpertRecoveryBaseError(
+                "recovery selection became stale before admission"
+            )
+        refreshed = self.select(original_plan.scope_contract)
+        if refreshed.plan != original_plan:
+            raise ExpertRecoveryBaseError(
+                "recovery source authority changed before admission"
+            )
+        return refreshed
+
     def _assess(
         self,
         *,

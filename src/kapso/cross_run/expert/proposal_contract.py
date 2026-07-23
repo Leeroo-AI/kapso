@@ -24,6 +24,7 @@ from kapso.cross_run.contracts import (
     ExpertDependencyEdge,
     ExpertModuleContract,
     ExpertRepositoryMap,
+    ExpertRecoveryRestorePatch,
     ExpertScopeContract,
     ExpertSourceTreeManifest,
     ExpertTaskAdapterBoundary,
@@ -189,7 +190,7 @@ class ExpertCandidateAncestorInput(StrictContract):
     ancestor_input_id: str
     manifest: ExpertCandidateManifest
     scope_contract: ExpertScopeContract
-    patch: ExpertCandidatePatch
+    patch: ExpertCandidatePatch | ExpertRecoveryRestorePatch
     candidate_tree: ExpertSourceTreeManifest
     repository_map: ExpertRepositoryMap
     module_contracts: tuple[ExpertModuleContract, ...]
@@ -315,7 +316,7 @@ def mint_expert_candidate_ancestor_input(
     *,
     manifest: ExpertCandidateManifest,
     scope_contract: ExpertScopeContract,
-    patch: ExpertCandidatePatch,
+    patch: ExpertCandidatePatch | ExpertRecoveryRestorePatch,
     candidate_tree: ExpertSourceTreeManifest,
     repository_map: ExpertRepositoryMap,
     module_contracts: tuple[ExpertModuleContract, ...],

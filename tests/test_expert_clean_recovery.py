@@ -17,6 +17,7 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import (
     EMPTY_EXPERT_TREE_DIGEST,
     ExpertReleaseLineage,
+    ExpertSourceTreeManifest,
     GitHubPublicationRecord,
     GitHubReleaseAsset,
     PublicationArtifactKind,
@@ -25,6 +26,20 @@ from kapso.cross_run.expert.recovery_base import (
     ExpertRecoveryBaseError,
     ExpertRecoveryBaseSelection,
     ExpertRecoveryBaseSelector,
+)
+from kapso.cross_run.expert.candidates import (
+    ExpertCandidateValidationError,
+    ExpertCandidateValidator,
+)
+from kapso.cross_run.expert.composition_base_provider import (
+    GitHubExpertCompositionBaseProvider,
+)
+from kapso.cross_run.expert.recovery_candidate_coordinator import (
+    ExpertCleanForwardRecoveryCandidateCoordinator,
+)
+from kapso.cross_run.expert.store import (
+    ExpertCandidateStore,
+    ExpertCandidateStoreError,
 )
 from kapso.cross_run.expert.recovery_contracts import ExpertRecoveryContractError
 from kapso.cross_run.expert.release_authority import (
@@ -39,6 +54,7 @@ from kapso.cross_run.expert.task_evaluation_authority_contracts import (
 from kapso.cross_run.git_refs import git_object_sha, git_tree_shas
 from kapso.cross_run.github.materializer import (
     CacheVerificationReceipt,
+    ExpertReleaseSourceSnapshot,
     MaterializedArtifact,
 )
 from kapso.cross_run.github.resolver import (
@@ -59,7 +75,8 @@ from kapso.cross_run.security_authority_contracts import (
 )
 from kapso.cross_run.settings import CrossRunSettings
 from security_denylist_fixtures import matched_security_revocations
-from test_expert_composition_base import _case, _remint
+from test_expert_composition_base import _case, _parent_receipt, _remint
+from test_expert_triggers import trigger_packet
 
 CANONICAL_CONFIG_PATH = "src/kapso/config.yaml"
 
@@ -74,6 +91,45 @@ def _settings() -> CrossRunSettings:
 
 def _release_chain(length: int):
     case = _case()
+    source_tree = ExpertSourceTreeManifest.mint(
+        tree_hash=case.source_base_receipt.source_base_tree_hash,
+        files=case.source_base_receipt.source_extraction_receipt.source_tree_files,
+    )
+    release = _remint(
+        case.release,
+        candidate_tree_ref=source_tree.source_tree_manifest_id,
+        candidate_tree_hash=source_tree.tree_hash,
+        evidence_dependency_ids=tuple(
+            sorted(
+                {
+                    *case.release.evidence_dependency_ids,
+                    source_tree.source_tree_manifest_id,
+                }
+                - {case.release.candidate_tree_ref}
+            )
+        ),
+        consumed_dependency_ids=tuple(
+            sorted(
+                {
+                    *case.release.consumed_dependency_ids,
+                    source_tree.source_tree_manifest_id,
+                }
+                - {case.release.candidate_tree_ref}
+            )
+        ),
+    )
+    case = SimpleNamespace(
+        **{
+            **vars(case),
+            "release": release,
+            "source_base_receipt": _parent_receipt(
+                release,
+                case.repository_map,
+                case.modules,
+                case.source_contents,
+            ),
+        }
+    )
     releases = [case.release]
     for position in range(1, length):
         predecessor = releases[-1]
@@ -265,8 +321,12 @@ class _Resolver:
 
 
 class _Materializer:
-    def __init__(self, remotes):
+    def __init__(self, case, remotes):
+        self.case = case
         self.remotes = {remote.release.release_id: remote for remote in remotes}
+        self.source_contents_by_release_id = {
+            remote.release.release_id: case.source_contents for remote in remotes
+        }
 
     def materialize(self, resolved):
         release_id = resolved.pointer.publication_record.artifact_id
@@ -275,16 +335,37 @@ class _Materializer:
     def inspect_expert_release_manifest(self, materialized):
         return self.remotes[materialized.receipt.artifact_id].release
 
+    def inspect_expert_release_source(
+        self,
+        materialized,
+        *,
+        maximum_entries,
+        maximum_bytes,
+    ):
+        release = self.remotes[materialized.receipt.artifact_id].release
+        source_contents = self.source_contents_by_release_id[release.release_id]
+        receipt = _parent_receipt(
+            release,
+            self.case.repository_map,
+            self.case.modules,
+            source_contents,
+        )
+        return ExpertReleaseSourceSnapshot(
+            release_manifest=release,
+            source_extraction_receipt=receipt.source_extraction_receipt,
+            source_contents=source_contents,
+        )
+
 
 class _CurrentAuthority:
-    def __init__(self, observation, *, move=False):
+    def __init__(self, observation, *, move_after=None):
         self.observation = observation
-        self.move = move
+        self.move_after = move_after
         self.calls = 0
 
     def observe_task_evaluation_current(self, scope_id):
         self.calls += 1
-        if self.move and self.calls > 1:
+        if self.move_after is not None and self.calls > self.move_after:
             return TaskEvaluationCurrentReleaseObservation.mint(
                 scope_id=self.observation.scope_id,
                 release_id=self.observation.release_id,
@@ -302,6 +383,7 @@ class _SecurityAuthority:
     def __init__(self, settings, blocked_release_ids):
         self.settings = settings
         self.blocked_release_ids = set(blocked_release_ids)
+        self.revision = 7
         self.calls = []
 
     def observe_exact(
@@ -324,16 +406,22 @@ class _SecurityAuthority:
             scope_repository_binding_hash=repositories.binding_fingerprint,
             snapshot_id=content_id(
                 "security-denylist-snapshot",
-                {"blocked": tuple(sorted(self.blocked_release_ids))},
+                {
+                    "blocked": tuple(sorted(self.blocked_release_ids)),
+                    "revision": self.revision,
+                },
             ),
-            generation=7,
+            generation=self.revision,
             publication_id=content_id(
                 "github-publication",
-                {"security": tuple(sorted(self.blocked_release_ids))},
+                {
+                    "security": tuple(sorted(self.blocked_release_ids)),
+                    "revision": self.revision,
+                },
             ),
             repository_full_name=repositories.security_repository,
             repository_node_id="security_repository_node",
-            pointer_digest=_digest("security-current"),
+            pointer_digest=_digest(f"security-current-{self.revision}"),
             authority_commit_sha="d" * 40,
             release_attestation_ref="security-attestation",
             checked_subject_ids=checked_subject_ids,
@@ -402,7 +490,7 @@ def _fixture(
     security_blocked=(),
     release_use_blocked=(),
     lineage_limit=None,
-    move_current=False,
+    current_move_after=None,
 ):
     case, releases = _release_chain(length)
     settings = _settings()
@@ -419,9 +507,10 @@ def _fixture(
         for position, release in enumerate(releases)
     )
     resolver = _Resolver(remotes)
+    materializer = _Materializer(case, remotes)
     provider = GitHubExpertReleaseActivationProvider(
         resolver,
-        _Materializer(remotes),
+        materializer,
     )
     barrier = remotes[0]
     current = TaskEvaluationCurrentReleaseObservation.mint(
@@ -434,7 +523,10 @@ def _fixture(
         current_pointer_digest=tree_or_blob_digest(barrier.pointer.to_json_bytes()),
         validation_closure_ids=barrier.pointer.validation_closure_ids,
     )
-    current_authority = _CurrentAuthority(current, move=move_current)
+    current_authority = _CurrentAuthority(
+        current,
+        move_after=current_move_after,
+    )
     security = _SecurityAuthority(settings, security_blocked)
     release_use = _ReleaseUseAuthority(
         settings,
@@ -453,10 +545,86 @@ def _fixture(
         releases=releases,
         remotes=remotes,
         resolver=resolver,
+        materializer=materializer,
         current=current_authority,
         security=security,
         release_use=release_use,
         selector=selector,
+    )
+
+
+def _historical_candidate_system(tmp_path, *, current_move_after=None):
+    tmp_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fixture = _fixture(
+        length=2,
+        current_move_after=current_move_after,
+    )
+    settings = _settings()
+    barrier, selected = fixture.releases
+    fixture.release_use.blocked_release_ids.add(barrier.release_id)
+    barrier_contents = dict(fixture.case.source_contents)
+    barrier_contents["src/reproducible_execution/__init__.py"] = (
+        b"def resume():\n    raise RuntimeError('blocked current')\n"
+    )
+    fixture.materializer.source_contents_by_release_id[barrier.release_id] = (
+        barrier_contents
+    )
+    barrier_receipt = _parent_receipt(
+        barrier,
+        fixture.case.repository_map,
+        fixture.case.modules,
+        barrier_contents,
+    )
+    selected_receipt = _parent_receipt(
+        selected,
+        fixture.case.repository_map,
+        fixture.case.modules,
+        fixture.case.source_contents,
+    )
+    replay_basis = trigger_packet(
+        settings=settings.expert.triggers,
+        source_base_repository_map=fixture.case.repository_map,
+        source_base_module_contracts=fixture.case.modules,
+        source_base_release=barrier,
+        current_scope_contract=fixture.case.scope,
+        source_base_scope_contract=fixture.case.scope,
+    )
+    replay_basis = _remint(
+        replay_basis,
+        source_base_tree_receipt=barrier_receipt,
+        source_base_tree_hash=barrier_receipt.source_base_tree_hash,
+    )
+    validator = ExpertCandidateValidator(
+        settings.expert,
+        settings.sanitation,
+    )
+    candidate_store = ExpertCandidateStore(
+        tmp_path / "candidates",
+        tmp_path,
+        validator,
+    )
+    base_provider = GitHubExpertCompositionBaseProvider(
+        fixture.resolver,
+        fixture.materializer,
+        settings.expert,
+    )
+    coordinator = ExpertCleanForwardRecoveryCandidateCoordinator(
+        selector=fixture.selector,
+        base_provider=base_provider,
+        candidate_store=candidate_store,
+    )
+    return SimpleNamespace(
+        fixture=fixture,
+        settings=settings,
+        barrier=barrier,
+        selected=selected,
+        barrier_receipt=barrier_receipt,
+        selected_receipt=selected_receipt,
+        barrier_contents=barrier_contents,
+        replay_basis=replay_basis,
+        validator=validator,
+        candidate_store=candidate_store,
+        coordinator=coordinator,
     )
 
 
@@ -591,11 +759,84 @@ def test_recovery_selection_cannot_be_reconstructed_from_its_durable_plan():
         )
 
 
+def test_historical_recovery_candidate_is_exact_admitted_restore(tmp_path):
+    system = _historical_candidate_system(tmp_path)
+
+    stored = system.coordinator.restore_historical(
+        scope_contract=system.fixture.case.scope,
+        replay_basis_packet=system.replay_basis,
+    )
+
+    assert stored.closure.manifest.source_base_release_id == system.selected.release_id
+    assert stored.closure.manifest.candidate_tree_hash == (
+        system.selected_receipt.source_base_tree_hash
+    )
+    assert stored.closure.patch.changes == ()
+    assert stored.closure.candidate_contents == system.fixture.case.source_contents
+    assert stored.closure.candidate_contents != system.barrier_contents
+    assert stored.recovery_admission.recovery_plan.source_base_release_id == (
+        system.selected.release_id
+    )
+    assert (
+        stored.recovery_admission.recovery_plan.activation_predecessor_release_id
+        == (system.barrier.release_id)
+    )
+    assert system.candidate_store.read(stored.closure.manifest.candidate_id) == stored
+    with pytest.raises(
+        ExpertCandidateStoreError,
+        match="sealed admission authority",
+    ):
+        system.candidate_store.persist(stored.closure)
+    system.fixture.security.revision += 1
+    with pytest.raises(
+        ExpertCandidateStoreError,
+        match="identity conflicts",
+    ):
+        system.coordinator.restore_historical(
+            scope_contract=system.fixture.case.scope,
+            replay_basis_packet=system.replay_basis,
+        )
+    contents = dict(stored.closure.candidate_contents)
+    changed_path = sorted(contents)[0]
+    contents[changed_path] += b"\nsubstitution"
+    substituted = replace(stored.closure, candidate_contents=contents)
+    with pytest.raises(
+        ExpertCandidateValidationError,
+        match="candidate bytes differ",
+    ):
+        system.validator.validate_persisted(substituted)
+    admission_path = stored.root / "RECOVERY_ADMISSION.json"
+    admission_path.write_bytes(stored.recovery_admission.to_json_bytes() + b"\n")
+    with pytest.raises(
+        ExpertCandidateStoreError,
+        match="admission is not canonical",
+    ):
+        system.candidate_store.read(stored.closure.manifest.candidate_id)
+
+
+def test_recovery_candidate_final_admission_rejects_current_movement(tmp_path):
+    system = _historical_candidate_system(
+        tmp_path,
+        current_move_after=2,
+    )
+
+    with pytest.raises(
+        ExpertRecoveryBaseError,
+        match="selection became stale",
+    ):
+        system.coordinator.restore_historical(
+            scope_contract=system.fixture.case.scope,
+            replay_basis_packet=system.replay_basis,
+        )
+
+    assert not tuple(system.candidate_store.object_root.iterdir())
+
+
 @pytest.mark.parametrize("failure", ("depth", "current_movement", "clear_current"))
 def test_recovery_fails_loud_without_complete_stable_barrier_authority(failure):
     fixture = _fixture(
         lineage_limit=2 if failure == "depth" else None,
-        move_current=failure == "current_movement",
+        current_move_after=1 if failure == "current_movement" else None,
     )
     if failure == "clear_current":
         expected = "CURRENT is clear"

@@ -42,6 +42,7 @@ from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
     compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
+    project_recovery_replay_evidence,
 )
 from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
@@ -50,6 +51,8 @@ from kapso.cross_run.expert.candidate_derivations import (
     ExpertCompositionSourceProvenance,
     ExpertDeterministicCompositionDerivation,
     ExpertDeterministicCompositionDerivationRecord,
+    ExpertDeterministicRecoveryRestoreDerivation,
+    ExpertDeterministicRecoveryRestoreDerivationRecord,
 )
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionAssessment,
@@ -124,6 +127,19 @@ from kapso.cross_run.expert.recovery_contracts import (
     ExpertCleanForwardRecoveryPlan,
     ExpertRecoveryContractError,
     ExpertRecoveryReleaseAssessment,
+)
+from kapso.cross_run.expert.recovery_candidate import (
+    ExpertRecoveryCandidateError,
+    project_historical_recovery_candidate,
+)
+from kapso.cross_run.expert.recovery_candidate_contracts import (
+    ExpertRecoveryCandidateAdmission,
+    ExpertRecoveryCandidateContractError,
+    validate_recovery_candidate_admission,
+)
+from kapso.cross_run.expert.recovery_candidate_coordinator import (
+    ExpertCleanForwardRecoveryCandidateCoordinator,
+    ExpertRecoveryCandidateCoordinatorError,
 )
 from kapso.cross_run.expert.release_authority import (
     AuthenticatedExpertReleaseActivation,
@@ -435,6 +451,8 @@ __all__ = [
     "ExpertCompositionSourceProvenance",
     "ExpertDeterministicCompositionDerivation",
     "ExpertDeterministicCompositionDerivationRecord",
+    "ExpertDeterministicRecoveryRestoreDerivation",
+    "ExpertDeterministicRecoveryRestoreDerivationRecord",
     "ExpertCandidateAncestorInput",
     "ExpertCandidateProposalEngine",
     "ExpertCandidateProposalResult",
@@ -492,6 +510,11 @@ __all__ = [
     "ExpertPublicationSecurityDenylistAuthority",
     "ExpertProposalContractError",
     "ExpertCleanForwardRecoveryPlan",
+    "ExpertCleanForwardRecoveryCandidateCoordinator",
+    "ExpertRecoveryCandidateAdmission",
+    "ExpertRecoveryCandidateContractError",
+    "ExpertRecoveryCandidateCoordinatorError",
+    "ExpertRecoveryCandidateError",
     "ExpertRecoveryBaseError",
     "ExpertRecoveryBaseSelection",
     "ExpertRecoveryBaseSelector",
@@ -646,6 +669,8 @@ __all__ = [
     "publication_eligibility_task_adapter_trust_observations",
     "project_expert_composition_source_reference",
     "project_agent_candidate_validation_context",
+    "project_historical_recovery_candidate",
+    "project_recovery_replay_evidence",
     "project_deterministic_composition_candidate",
     "project_prepared_task_evaluation_cases",
     "task_evaluation_adapter_trust_observations",
@@ -665,4 +690,5 @@ __all__ = [
     "source_replay_publication_security_subject_ids",
     "stored_candidate_admission_dependency_ids",
     "validate_expert_composition_admission_fence",
+    "validate_recovery_candidate_admission",
 ]

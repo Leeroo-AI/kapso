@@ -1295,9 +1295,21 @@ fresh capability. The selected activation also retains its verified materializat
 the historical composition-base provider reconstructs and revalidates the exact
 source/map/module/book closure directly from those authenticated release bytes.
 
-The remaining recovery path must consume that plan as production-owned authority,
-rerun the full applicable matrix, publish a new immutable release, and CAS-advance
-from the blocked CURRENT release. Normal evolution continues to require scientific
+Historical recovery candidate admission now consumes that selection through a
+production-owned coordinator. It materializes the selected historical activation,
+projects the source tree byte-for-byte with a dedicated identity-transform patch,
+and persists it only through a process-local, store-bound authority. The candidate
+package retains its replay basis and deterministic recovery derivation; a separate
+canonical `RECOVERY_ADMISSION.json` binds the exact source plan, blocked CURRENT
+barrier, candidate commit, and dependency closure. Generic persistence,
+composition authority, foreign capabilities, one-byte source substitution, and
+noncanonical reopen all fail loud. Immediately before the atomic candidate rename,
+the store-owned path rechecks CURRENT and reruns the full selection while holding
+the store lock. The durable plan alone never authorizes admission.
+
+The remaining recovery path must implement canonical-empty agent bootstrap, rerun
+the full applicable matrix, publish a new immutable release, and CAS-advance from
+the blocked CURRENT release. Normal evolution continues to require scientific
 source and activation predecessor to be equal. A fresh publication fence must prove
 that every consumed subject remains clear and that every allowed match is an exact
 control-only revocation of the publication barrier. Partial repair from revoked
