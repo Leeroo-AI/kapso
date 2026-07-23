@@ -111,6 +111,15 @@ ID, reconstruct and compare the write-once activation witness, and match the
 materialized expert manifest's scope before using the projection. A syntactically
 valid event alone grants no release-use decision authority.
 
+- [x] Resolve the current KnowledgeSnapshot twice around materialization and
+      historical matching, rejecting a `CURRENT` race or missing `CURRENT`.
+- [x] Authenticate exact absence from the complete package projection, including
+      the empty-expert bootstrap case.
+- [x] Group matching events by release and authenticate each historical activation
+      once; unrelated broken external references cannot deny another release.
+- [x] Return a content-addressed policy observation binding the current knowledge
+      publication, pointer, repository, scope, checked releases, and exact matches.
+
 ## Search sidecars
 
 Canonical JSON is truth. Search artifacts are rebuildable:

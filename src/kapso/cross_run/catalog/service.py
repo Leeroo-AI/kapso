@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from kapso.cross_run.canonical import content_id
 from kapso.cross_run.catalog.claims import ClaimProposalPacket, ClaimProposalResult
 from kapso.cross_run.catalog.projector import ProjectionResult
+from kapso.cross_run.catalog.release_use_authority import (
+    CatalogReleaseUseRevocationAuthority,
+)
 from kapso.cross_run.catalog.reducer import CatalogFactSet, CatalogGenerationReducer
 from kapso.cross_run.catalog.reviews import CatalogReviewPacket, CatalogReviewResult
 from kapso.cross_run.catalog.store import (
@@ -15,6 +19,7 @@ from kapso.cross_run.catalog.store import (
     CatalogGenerationManifest,
     CatalogInputDelta,
     CatalogStore,
+    EXPERT_RELEASE_USE_REVOCATION_NAMESPACE,
 )
 from kapso.cross_run.contracts import (
     CatalogEntryState,
@@ -23,6 +28,7 @@ from kapso.cross_run.contracts import (
     ReviewAssertion,
     StrictContract,
 )
+from kapso.cross_run.record_contracts import ExpertReleaseUseRevocation
 from kapso.cross_run.settings import CatalogSettings
 
 
@@ -67,6 +73,10 @@ class CrossRunCatalog:
         self.settings = settings
         self.store = CatalogStore(root)
         self.reducer = CatalogGenerationReducer(settings, scope_contract)
+        self._release_use_revocation_authority: (
+            CatalogReleaseUseRevocationAuthority | None
+        ) = None
+        self._release_use_authority_lock = threading.Lock()
         self.store.initialize(
             scope_contract_id=scope_contract.scope_contract_id,
             configuration_fingerprint=settings.configuration_fingerprint,
@@ -103,6 +113,7 @@ class CrossRunCatalog:
         objects: tuple[StrictContract, ...],
         dependency_closure_ids: tuple[str, ...],
     ) -> CatalogCommitResult:
+        self._reject_release_use_revocations(objects)
         ordered_objects = tuple(sorted(objects, key=_record_id))
         object_ids = tuple(_record_id(record) for record in ordered_objects)
         dependencies = tuple(sorted(set(dependency_closure_ids) | set(object_ids)))
@@ -128,6 +139,7 @@ class CrossRunCatalog:
         objects: tuple[StrictContract, ...],
         dependency_closure_ids: tuple[str, ...],
     ) -> CatalogCommitResult:
+        self._reject_release_use_revocations(objects)
         ordered_objects = tuple(sorted(objects, key=_record_id))
         object_ids = tuple(_record_id(record) for record in ordered_objects)
         delta = CatalogInputDelta.mint(
@@ -144,6 +156,122 @@ class CrossRunCatalog:
             objects=ordered_objects,
             reducer=self.reducer,
         )
+
+    def _bind_release_use_revocation_authority(
+        self,
+        authority: CatalogReleaseUseRevocationAuthority,
+    ) -> None:
+        if type(authority) is not CatalogReleaseUseRevocationAuthority:
+            raise CrossRunCatalogError(
+                "catalog requires its exact release-use revocation authority"
+            )
+        authority._require_bound(catalog=self)
+        with self._release_use_authority_lock:
+            if (
+                self._release_use_revocation_authority is not None
+                and self._release_use_revocation_authority is not authority
+            ):
+                raise CrossRunCatalogError(
+                    "catalog already has another release-use revocation authority"
+                )
+            self._release_use_revocation_authority = authority
+            self.store._bind_protected_namespace_authority(
+                namespace=EXPERT_RELEASE_USE_REVOCATION_NAMESPACE,
+                authority=authority,
+            )
+
+    def _publish_authenticated_release_use_revocation(
+        self,
+        *,
+        authority: CatalogReleaseUseRevocationAuthority,
+        historical_activation: object,
+        expected_generation: CatalogGenerationManifest,
+        event: ExpertReleaseUseRevocation,
+    ) -> CatalogCommitResult:
+        if (
+            type(authority) is not CatalogReleaseUseRevocationAuthority
+            or authority is not self._release_use_revocation_authority
+        ):
+            raise CrossRunCatalogError(
+                "release-use revocation was prepared by a foreign authority"
+            )
+        if type(event) is not ExpertReleaseUseRevocation:
+            raise CrossRunCatalogError(
+                "authenticated release-use publication requires one exact event"
+            )
+        self._require_release_use_evidence_generation(
+            expected_generation=expected_generation,
+            exact_evidence_refs=event.exact_evidence_refs,
+        )
+        if (
+            event.scope_contract_id != self.scope_contract.scope_contract_id
+            or event.scope_id != self.scope_contract.scope_id
+        ):
+            raise CrossRunCatalogError(
+                "release-use revocation leaves the catalog scope"
+            )
+        authority._require_authenticated_event(
+            catalog=self,
+            historical_activation=historical_activation,
+            event=event,
+        )
+        operation_id = content_id(
+            "expert-release-use-revocation-operation",
+            {"revocation_id": event.revocation_id},
+        )
+        input_delta = CatalogInputDelta.mint(
+            scope_contract_id=self.scope_contract.scope_contract_id,
+            operation_id=operation_id,
+            configuration_fingerprint=self.settings.configuration_fingerprint,
+            added_object_ids=(event.revocation_id,),
+            dependency_closure_ids=tuple(
+                sorted((*event.exact_evidence_refs, event.revocation_id))
+            ),
+        )
+        return self.store._publish_protected_namespace(
+            namespace=EXPERT_RELEASE_USE_REVOCATION_NAMESPACE,
+            authority=authority,
+            expected_generation_id=expected_generation.catalog_generation_id,
+            expected_generation_number=expected_generation.generation_number,
+            input_delta=input_delta,
+            objects=(event,),
+            reducer=self.reducer,
+        )
+
+    def _require_release_use_evidence_generation(
+        self,
+        *,
+        expected_generation: CatalogGenerationManifest,
+        exact_evidence_refs: tuple[str, ...],
+    ) -> None:
+        if type(expected_generation) is not CatalogGenerationManifest:
+            raise CrossRunCatalogError(
+                "release-use revocation requires one exact catalog generation"
+            )
+        if self.store.read_current() != expected_generation:
+            raise CrossRunCatalogError(
+                "release-use revocation expected generation is no longer current"
+            )
+        self.read_generation(expected_generation)
+        if not exact_evidence_refs or not set(exact_evidence_refs).issubset(
+            expected_generation.fact_object_ids
+        ):
+            raise CrossRunCatalogError(
+                "release-use revocation evidence is absent from the expected generation"
+            )
+
+    @staticmethod
+    def _reject_release_use_revocations(
+        objects: tuple[StrictContract, ...],
+    ) -> None:
+        if any(
+            _record_id(record).split(":sha256:", 1)[0]
+            == EXPERT_RELEASE_USE_REVOCATION_NAMESPACE
+            for record in objects
+        ):
+            raise CrossRunCatalogError(
+                "release-use revocation requires its authenticated author"
+            )
 
     def publish_projection(
         self,

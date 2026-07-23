@@ -31,6 +31,8 @@ from kapso.cross_run.contracts import (
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _OPERATION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 _CONTENT_ID_SEPARATOR = ":sha256:"
+EXPERT_RELEASE_USE_REVOCATION_NAMESPACE = "expert-release-use-revocation"
+_PROTECTED_FACT_NAMESPACES = (EXPERT_RELEASE_USE_REVOCATION_NAMESPACE,)
 
 
 class CatalogStoreError(RuntimeError):
@@ -81,6 +83,10 @@ class CatalogClosureError(CatalogStoreError):
 
 class CatalogReducerError(CatalogStoreError):
     """A reducer returned a structurally impossible projection."""
+
+
+class CatalogProtectedNamespaceError(CatalogStoreError):
+    """A reserved fact namespace was submitted without its bound authority."""
 
 
 def _require_digest(value: Any, name: str) -> None:
@@ -370,7 +376,27 @@ class CatalogStore:
         self.staging_path = self.root / "staging"
         self.current_path = self.root / "current.json"
         self.lock_path = self.root / "catalog.lock"
+        self._protected_namespace_authorities: dict[str, object | None] = {
+            namespace: None for namespace in _PROTECTED_FACT_NAMESPACES
+        }
         self._prepare_layout()
+
+    def _bind_protected_namespace_authority(
+        self,
+        *,
+        namespace: str,
+        authority: object,
+    ) -> None:
+        if namespace not in self._protected_namespace_authorities:
+            raise CatalogProtectedNamespaceError(
+                "catalog namespace was not reserved for protected publication"
+            )
+        current = self._protected_namespace_authorities[namespace]
+        if current is not None and current is not authority:
+            raise CatalogProtectedNamespaceError(
+                "catalog namespace already has another publication authority"
+            )
+        self._protected_namespace_authorities[namespace] = authority
 
     def initialize(
         self,
@@ -447,11 +473,63 @@ class CatalogStore:
         crash_injector: CatalogCrashInjector | None = None,
     ) -> CatalogCommitResult:
         """Publish only if the exact expected pointer remains current."""
+        return self._publish_compare_and_swap(
+            expected_generation_id=expected_generation_id,
+            expected_generation_number=expected_generation_number,
+            input_delta=input_delta,
+            objects=objects,
+            reducer=reducer,
+            crash_injector=crash_injector,
+            protected_namespace=None,
+            protected_authority=None,
+        )
+
+    def _publish_protected_namespace(
+        self,
+        *,
+        namespace: str,
+        authority: object,
+        expected_generation_id: str,
+        expected_generation_number: int,
+        input_delta: CatalogInputDelta,
+        objects: tuple[StrictContract, ...],
+        reducer: CatalogReducer,
+        crash_injector: CatalogCrashInjector | None = None,
+    ) -> CatalogCommitResult:
+        """Publish one reserved-namespace delta under its process-local authority."""
+        return self._publish_compare_and_swap(
+            expected_generation_id=expected_generation_id,
+            expected_generation_number=expected_generation_number,
+            input_delta=input_delta,
+            objects=objects,
+            reducer=reducer,
+            crash_injector=crash_injector,
+            protected_namespace=namespace,
+            protected_authority=authority,
+        )
+
+    def _publish_compare_and_swap(
+        self,
+        *,
+        expected_generation_id: str,
+        expected_generation_number: int,
+        input_delta: CatalogInputDelta,
+        objects: tuple[StrictContract, ...],
+        reducer: CatalogReducer,
+        crash_injector: CatalogCrashInjector | None,
+        protected_namespace: str | None,
+        protected_authority: object | None,
+    ) -> CatalogCommitResult:
         require_content_id(expected_generation_id, "expected_generation_id")
         if expected_generation_number < 0:
             raise ContractValidationError(
                 "expected_generation_number must be non-negative"
             )
+        self._require_namespace_publication(
+            input_delta=input_delta,
+            protected_namespace=protected_namespace,
+            protected_authority=protected_authority,
+        )
         prepared = self._prepare_objects(input_delta, objects)
         with self._locked():
             current = self._read_current_locked()
@@ -485,6 +563,11 @@ class CatalogStore:
         crash_injector: CatalogCrashInjector | None = None,
     ) -> CatalogCommitResult:
         """Union additive input with the winner and fully reduce the new closure."""
+        self._require_namespace_publication(
+            input_delta=input_delta,
+            protected_namespace=None,
+            protected_authority=None,
+        )
         prepared = self._prepare_objects(input_delta, objects)
         with self._locked():
             current = self._read_current_locked()
@@ -497,6 +580,37 @@ class CatalogStore:
                 prepared_objects=prepared,
                 reducer=reducer,
                 crash_injector=crash_injector,
+            )
+
+    def _require_namespace_publication(
+        self,
+        *,
+        input_delta: CatalogInputDelta,
+        protected_namespace: str | None,
+        protected_authority: object | None,
+    ) -> None:
+        if type(input_delta) is not CatalogInputDelta:
+            raise ContractValidationError("input_delta must be CatalogInputDelta")
+        namespaces = {
+            object_id.split(_CONTENT_ID_SEPARATOR, 1)[0]
+            for object_id in input_delta.added_object_ids
+        }
+        protected = namespaces & set(self._protected_namespace_authorities)
+        if protected_namespace is None:
+            if protected:
+                raise CatalogProtectedNamespaceError(
+                    "protected catalog facts require their bound publication authority"
+                )
+            return
+        if (
+            protected_authority is None
+            or protected != {protected_namespace}
+            or namespaces != {protected_namespace}
+            or self._protected_namespace_authorities.get(protected_namespace)
+            is not protected_authority
+        ):
+            raise CatalogProtectedNamespaceError(
+                "protected catalog publication is unbound or mixes namespaces"
             )
 
     def _commit_locked(

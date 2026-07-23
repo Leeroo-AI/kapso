@@ -1370,9 +1370,15 @@ refresh must not replace its pinned scientific knowledge package.
       write-once GitHub identity, publication intent, activation witness, verified
       cache receipt, and exact scope-bound expert manifest; never require the local
       validation store or extract the full source tree merely to read the manifest.
-- [ ] Author each event only after independently resolving its historical expert
+- [x] Author each event only after independently resolving its historical expert
       release, exact publication, write-once activation witness, and materialized
-      scope contract; never trust a local activation receipt.
+      scope contract; every catalog-store handle intrinsically reserves the event
+      namespace, generic publication/rebase rejects it by content identity, and the
+      bound authenticated path performs one deterministic CAS without implicit
+      rebase.
+- [x] Read the current KnowledgeSnapshot into an exact release-use policy
+      observation, externally authenticating every event that can affect the
+      checked release while treating the local catalog fact as pending authority.
 - [ ] Performance revocation prevents new launch/promotion and marks existing run
       outputs ineligible while preserving offline reproducibility.
 - [x] Security/contamination revocation is checked from the fresh emergency

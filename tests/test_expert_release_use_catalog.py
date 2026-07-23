@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
 from kapso.cross_run.canonical import CanonicalizationError, content_id
-from kapso.cross_run.catalog.reducer import CatalogFactError
-from kapso.cross_run.catalog.service import CrossRunCatalog
-from kapso.cross_run.catalog.store import CatalogGenerationManifest
+from kapso.cross_run.catalog.service import CrossRunCatalog, CrossRunCatalogError
+from kapso.cross_run.catalog.store import (
+    CatalogGenerationManifest,
+    CatalogInputDelta,
+    CatalogProtectedNamespaceError,
+    CatalogStore,
+)
 from kapso.cross_run.contracts import (
     ContractValidationError,
-    MissingReferenceError,
+    StrictContract,
     TransferEpisode,
 )
 from kapso.cross_run.record_contracts import (
@@ -29,6 +34,31 @@ from kapso.cross_run.record_registry import (
     parse_knowledge_record_payload,
 )
 from test_cross_run_catalog_service import _project_real_bundle, _scope_contract
+
+
+class _ReleaseUseRevocationSubclass(ExpertReleaseUseRevocation):
+    pass
+
+
+@dataclass(frozen=True)
+class _NamespaceEquivalentReleaseUseRevocation(StrictContract):
+    revocation_id: str
+    scope_contract_id: str
+    scope_id: str
+    release_id: str
+    release_publication_id: str
+    release_activation_witness_id: str
+    kind: ExpertReleaseUseRevocationKind
+    reason_code: str
+    rationale: str
+    exact_evidence_refs: tuple[str, ...]
+    recorded_at: str
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-release-use-revocation"
+    IDENTITY_FIELD: ClassVar[str] = "revocation_id"
+
+    def _validate(self) -> None:
+        return
 
 
 def _external_id(namespace: str, label: str) -> str:
@@ -75,6 +105,41 @@ def _projected_catalog(
         projection,
     ).generation
     return catalog, projected, projection.source_bundle.bundle_id
+
+
+def _publish_through_store(
+    catalog: CrossRunCatalog,
+    *,
+    expected_generation: CatalogGenerationManifest,
+    operation_id: str,
+    objects: tuple,
+    dependency_closure_ids: tuple[str, ...],
+):
+    ordered_objects = tuple(
+        sorted(
+            objects,
+            key=lambda record: getattr(record, record.IDENTITY_FIELD),
+        )
+    )
+    object_ids = tuple(
+        getattr(record, record.IDENTITY_FIELD) for record in ordered_objects
+    )
+    delta = CatalogInputDelta.mint(
+        scope_contract_id=catalog.scope_contract.scope_contract_id,
+        operation_id=operation_id,
+        configuration_fingerprint=catalog.settings.configuration_fingerprint,
+        added_object_ids=object_ids,
+        dependency_closure_ids=tuple(
+            sorted(set(dependency_closure_ids) | set(object_ids))
+        ),
+    )
+    return catalog.store.publish(
+        expected_generation_id=expected_generation.catalog_generation_id,
+        expected_generation_number=expected_generation.generation_number,
+        input_delta=delta,
+        objects=ordered_objects,
+        reducer=catalog.reducer,
+    )
 
 
 def test_release_use_revocation_is_a_strict_registered_catalog_fact() -> None:
@@ -191,44 +256,31 @@ def test_release_use_revocation_rejects_invalid_contract_fields(
         replace(event, **{field_name: invalid_value})
 
 
-def test_catalog_accumulates_release_use_events_without_admission_or_taint(
+@pytest.mark.parametrize("method_name", ("publish", "rebase"))
+def test_generic_catalog_paths_reject_release_use_event_before_mixed_mutation(
     tmp_path: Path,
+    method_name: str,
 ) -> None:
     catalog, projected, evidence_id = _projected_catalog(tmp_path)
-    performance = _revocation(evidence_id=evidence_id, label="performance")
-    compatibility = _revocation(
-        evidence_id=evidence_id,
-        kind=ExpertReleaseUseRevocationKind.COMPATIBILITY,
-        label="compatibility",
-    )
+    event = _revocation(evidence_id=evidence_id)
+    if method_name == "rebase":
+        event = _ReleaseUseRevocationSubclass(**event.to_dict())
+    existing_bundle = catalog.read_generation(projected).facts.bundles[0]
+    arguments = {
+        "operation_id": f"reject_generic_release_use_{method_name}",
+        "objects": (existing_bundle, event),
+        "dependency_closure_ids": (evidence_id,),
+    }
+    if method_name == "publish":
+        arguments["expected_generation"] = projected
 
-    first = catalog.publish(
-        expected_generation=projected,
-        operation_id="publish_performance_release_use_revocation",
-        objects=(performance,),
-        dependency_closure_ids=(evidence_id,),
-    ).generation
-    committed = catalog.rebase(
-        operation_id="publish_compatibility_release_use_revocation",
-        objects=(compatibility,),
-        dependency_closure_ids=(evidence_id,),
-    ).generation
-    view = catalog.read_generation(committed)
+    with pytest.raises(
+        CrossRunCatalogError,
+        match="requires its authenticated author",
+    ):
+        getattr(catalog, method_name)(**arguments)
 
-    assert view.facts.release_use_revocations == tuple(
-        sorted((performance, compatibility), key=lambda event: event.revocation_id)
-    )
-    assert set(committed.active_entry_state_ids) == set(
-        projected.active_entry_state_ids
-    )
-    assert all(
-        event.revocation_id not in committed.active_entry_state_ids
-        for event in (performance, compatibility)
-    )
-    assert all(
-        not state.revocation_ids and not state.taint_source_ids
-        for state in view.entry_states
-    )
+    assert catalog.store.read_current() == projected
 
 
 @pytest.mark.parametrize(
@@ -238,7 +290,7 @@ def test_catalog_accumulates_release_use_events_without_admission_or_taint(
         (None, "another_scope"),
     ),
 )
-def test_catalog_rejects_release_use_event_outside_exact_scope(
+def test_direct_store_rejects_protected_event_regardless_of_claimed_scope(
     tmp_path: Path,
     scope_contract_id: str | None,
     scope_id: str,
@@ -250,8 +302,12 @@ def test_catalog_rejects_release_use_event_outside_exact_scope(
         scope_id=scope_id,
     )
 
-    with pytest.raises(CatalogFactError, match="leaves the catalog scope"):
-        catalog.publish(
+    with pytest.raises(
+        CatalogProtectedNamespaceError,
+        match="protected catalog facts",
+    ):
+        _publish_through_store(
+            catalog,
             expected_generation=projected,
             operation_id="wrong_scope_release_use_revocation",
             objects=(event,),
@@ -261,13 +317,19 @@ def test_catalog_rejects_release_use_event_outside_exact_scope(
     assert catalog.store.read_current() == projected
 
 
-def test_catalog_rejects_missing_release_use_evidence(tmp_path: Path) -> None:
+def test_direct_store_rejects_protected_event_before_evidence_reduction(
+    tmp_path: Path,
+) -> None:
     catalog, projected, _ = _projected_catalog(tmp_path)
     missing_evidence_id = _external_id("run-bundle", "missing")
     event = _revocation(evidence_id=missing_evidence_id)
 
-    with pytest.raises(CatalogFactError, match="evidence closure is incomplete"):
-        catalog.publish(
+    with pytest.raises(
+        CatalogProtectedNamespaceError,
+        match="protected catalog facts",
+    ):
+        _publish_through_store(
+            catalog,
             expected_generation=projected,
             operation_id="missing_release_use_evidence",
             objects=(event,),
@@ -278,7 +340,7 @@ def test_catalog_rejects_missing_release_use_evidence(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("finding_kind", ("revocation", "taint"))
-def test_scientific_findings_cannot_target_release_use_events(
+def test_direct_store_rejects_mixed_scientific_and_release_use_delta(
     tmp_path: Path,
     finding_kind: str,
 ) -> None:
@@ -291,7 +353,6 @@ def test_scientific_findings_cannot_target_release_use_events(
             rationale="Scientific revocation must not target release-use policy.",
             exact_evidence_refs=(evidence_id,),
         )
-        message = "revocation subject is absent"
     else:
         finding = CatalogTaint.mint(
             subject_id=evidence_id,
@@ -300,10 +361,13 @@ def test_scientific_findings_cannot_target_release_use_events(
             rationale="Scientific taint must not originate in release-use policy.",
             exact_evidence_refs=(evidence_id,),
         )
-        message = "taint subject or source is absent"
 
-    with pytest.raises(MissingReferenceError, match=message):
-        catalog.publish(
+    with pytest.raises(
+        CatalogProtectedNamespaceError,
+        match="protected catalog facts",
+    ):
+        _publish_through_store(
+            catalog,
             expected_generation=projected,
             operation_id=f"reject_release_use_{finding_kind}_crossing",
             objects=(event, finding),
@@ -313,7 +377,7 @@ def test_scientific_findings_cannot_target_release_use_events(
     assert catalog.store.read_current() == projected
 
 
-def test_projection_cannot_use_release_use_event_as_episode_derivation(
+def test_direct_store_rejects_release_use_derivation_injection(
     tmp_path: Path,
 ) -> None:
     fixture, projection = _project_real_bundle(tmp_path)
@@ -361,8 +425,12 @@ def test_projection_cannot_use_release_use_event_as_episode_derivation(
         for record in projection.catalog_facts
     )
 
-    with pytest.raises(CatalogFactError, match="projection derivation event is absent"):
-        catalog.publish(
+    with pytest.raises(
+        CatalogProtectedNamespaceError,
+        match="protected catalog facts",
+    ):
+        _publish_through_store(
+            catalog,
             expected_generation=catalog.store.read_current(),
             operation_id="reject_release_use_derivation_crossing",
             objects=(*forged_facts, event),
@@ -370,3 +438,56 @@ def test_projection_cannot_use_release_use_event_as_episode_derivation(
         )
 
     assert catalog.store.read_current().generation_number == 0
+
+
+def test_namespace_equivalent_contract_cannot_bypass_catalog_facade(
+    tmp_path: Path,
+) -> None:
+    catalog, projected, evidence_id = _projected_catalog(tmp_path)
+    event = _revocation(evidence_id=evidence_id)
+    payload = event.to_dict()
+    payload.pop("revocation_id")
+    alternate = _NamespaceEquivalentReleaseUseRevocation.mint(**payload)
+
+    assert alternate.revocation_id == event.revocation_id
+    with pytest.raises(
+        CrossRunCatalogError,
+        match="requires its authenticated author",
+    ):
+        catalog.publish(
+            expected_generation=projected,
+            operation_id="alternate_release_use_contract",
+            objects=(alternate,),
+            dependency_closure_ids=(evidence_id,),
+        )
+
+    assert catalog.store.read_current() == projected
+
+
+def test_fresh_store_handle_cannot_bypass_intrinsic_namespace_protection(
+    tmp_path: Path,
+) -> None:
+    catalog, projected, evidence_id = _projected_catalog(tmp_path)
+    event = _revocation(evidence_id=evidence_id)
+    alternate_store = CatalogStore(catalog.store.root)
+    input_delta = CatalogInputDelta.mint(
+        scope_contract_id=catalog.scope_contract.scope_contract_id,
+        operation_id="alternate_store_release_use_contract",
+        configuration_fingerprint=catalog.settings.configuration_fingerprint,
+        added_object_ids=(event.revocation_id,),
+        dependency_closure_ids=tuple(sorted((evidence_id, event.revocation_id))),
+    )
+
+    with pytest.raises(
+        CatalogProtectedNamespaceError,
+        match="protected catalog facts",
+    ):
+        alternate_store.publish(
+            expected_generation_id=projected.catalog_generation_id,
+            expected_generation_number=projected.generation_number,
+            input_delta=input_delta,
+            objects=(event,),
+            reducer=catalog.reducer,
+        )
+
+    assert catalog.store.read_current() == projected

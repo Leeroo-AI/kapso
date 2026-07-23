@@ -120,6 +120,19 @@ from kapso.cross_run.expert.release_authority import (
     ExpertReleaseActivationAuthorityError,
     GitHubExpertReleaseActivationProvider,
 )
+from kapso.cross_run.expert.release_use import (
+    ExpertReleaseUseRevocationAuthor,
+    ExpertReleaseUseRevocationAuthorError,
+    PendingExpertReleaseUseRevocation,
+)
+from kapso.cross_run.expert.release_use_policy import (
+    ExpertReleaseUsePolicyError,
+    GitHubExpertReleaseUsePolicyAuthority,
+)
+from kapso.cross_run.expert.release_use_policy_contracts import (
+    ExpertReleaseUsePolicyContractError,
+    ExpertReleaseUsePolicyObservation,
+)
 from kapso.cross_run.expert.publisher import (
     ExpertReleasePublication,
     ExpertReleasePublicationError,
@@ -389,6 +402,7 @@ __all__ = [
     "ExpertEvolutionTriggerDecision",
     "GitHubExpertCurrentReleaseProvider",
     "GitHubExpertReleaseActivationProvider",
+    "GitHubExpertReleaseUsePolicyAuthority",
     "GitHubExpertCompositionBaseProvider",
     "ExpertAttestationVerifier",
     "ExpertCandidateEligibilityEvaluator",
@@ -481,6 +495,11 @@ __all__ = [
     "ExpertReleaseActivationPermit",
     "ExpertReleaseActivationReceipt",
     "ExpertReleaseActivationAuthorityError",
+    "ExpertReleaseUseRevocationAuthor",
+    "ExpertReleaseUseRevocationAuthorError",
+    "ExpertReleaseUsePolicyContractError",
+    "ExpertReleaseUsePolicyError",
+    "ExpertReleaseUsePolicyObservation",
     "ExpertReleaseRevocationCommitResult",
     "ExpertReleaseRevocationContractError",
     "ExpertReleaseRevocationCoordinator",
@@ -552,6 +571,7 @@ __all__ = [
     "VerifiedTaskAdapter",
     "VerifiedTaskAdapterProvider",
     "PreparedExpertCandidateWorkspace",
+    "PendingExpertReleaseUseRevocation",
     "PreparedExpertAutomatedReviewPacket",
     "MaterializedExpertSourceReplayCase",
     "MaterializedTaskEvaluationCase",
