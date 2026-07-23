@@ -1,7 +1,7 @@
 import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -9,29 +9,54 @@ import pytest
 from kapso.cross_run.agent_artifacts import (
     CodingAgentWorkspaceAccess,
 )
-from kapso.cross_run.canonical import canonical_json_bytes
+from kapso.cross_run.canonical import (
+    canonical_json_bytes,
+    content_id,
+    tree_or_blob_digest,
+)
 from kapso.cross_run.contracts import (
+    CandidateChangeKind,
     ContractValidationError,
+    ExpertAcceptedStageResultRef,
+    ExpertCandidateCommitRecord,
+    ExpertCandidateDerivationKind,
+    ExpertCandidateManifest,
+    ExpertCandidateValidationState,
     ExpertEvaluatorOutcome,
     ExpertPromotionState,
     ExpertReviewDisposition,
+    ExpertValidationAttempt,
     ExpertValidationStage,
+    ExpertValidationTrack,
 )
 from kapso.cross_run.expert.review import (
     ExpertAutomatedReviewCoordinator,
     ExpertAutomatedReviewError,
     ExpertAutomatedReviewExecution,
+    PreparedExpertAutomatedReviewPacket,
     build_expert_automated_review_stage_result,
+    expert_candidate_review_derivation_evidence_ids,
+)
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionDisposition,
 )
 from kapso.cross_run.expert.review_contracts import (
     ExpertAutomatedReviewAdjudication,
     ExpertAutomatedReviewOperationRecord,
     ExpertAutomatedReviewOutcome,
+    ExpertAutomatedReviewPacket,
 )
 from kapso.cross_run.expert.review_stage import (
     ExpertAutomatedReviewStageOrchestrator,
 )
 from kapso.cross_run.expert.candidates import ExpertCandidateValidator
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertDeterministicCompositionDerivationRecord,
+)
+from kapso.cross_run.expert.proposal_contract import (
+    mint_expert_candidate_ancestor_input,
+)
+from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.store import ExpertCandidateStore
 from kapso.cross_run.expert.validation_store import (
     ExpertValidationStore,
@@ -41,6 +66,13 @@ from test_expert_candidates import (
     bootstrap_candidate_closure,
     expert_settings,
     sanitation_settings,
+)
+from test_expert_composition_contracts import (
+    _assessment,
+    _materialization,
+    _plan,
+    _source_reference,
+    composition_case,
 )
 from test_expert_validation import (
     _eligibility_evaluator,
@@ -77,9 +109,7 @@ class AutomatedReviewProcess:
         assert pass_fds == ()
         assert env
         reviewer_roles = tuple(
-            role
-            for role in self.outputs
-            if f'"reviewer_role":"{role}"' in input
+            role for role in self.outputs if f'"reviewer_role":"{role}"' in input
         )
         assert len(reviewer_roles) == 1
         output = json.dumps(self.outputs[reviewer_roles[0]], sort_keys=True)
@@ -104,6 +134,16 @@ class AutomatedReviewProcess:
             stdout=stdout + "\n",
             stderr="",
         )
+
+
+def _remint(record, **changes):
+    payload = {
+        field.name: getattr(record, field.name)
+        for field in fields(record)
+        if field.name != record.IDENTITY_FIELD
+    }
+    payload.update(changes)
+    return type(record).mint(**payload)
 
 
 def _review_fixture(
@@ -209,6 +249,224 @@ def _reopen_validation_store(store):
     )
 
 
+def _composition_review_fixture(
+    tmp_path,
+    monkeypatch,
+):
+    review_root = tmp_path / "review"
+    (
+        coordinator,
+        direct_prepared,
+        workspace,
+        runner,
+        _snapshot,
+        direct_store,
+    ) = _review_fixture(review_root, monkeypatch)
+    case = composition_case.__wrapped__()
+    source = _source_reference(case.scope, case.module, label="review composition")
+    plan = _plan(case.scope, case.base, (source,))
+    assessment = _assessment(
+        plan,
+        ExpertCompositionDisposition.CLEAN,
+        applicable=(source.source_reference_id,),
+    )
+    materialization = _materialization(case, assessment)
+    source_context_ids = {
+        source.candidate_id: source.validation_context_ref,
+    }
+    source_dependencies = tuple(
+        sorted(
+            {
+                plan.composition_plan_id,
+                *plan.stable_authority_ids,
+                *source_context_ids.values(),
+            }
+        )
+    )
+    derivation_record = ExpertDeterministicCompositionDerivationRecord.mint(
+        composition_materialization_id=materialization.materialization_id,
+        source_validation_context_ids=source_context_ids,
+        source_origin_principal_ids={
+            source.candidate_id: source.origin_principal_ids,
+        },
+        source_dependency_ids=source_dependencies,
+    )
+    candidate_contents = dict(case.parent_contents)
+    candidate_contents["src/reproducible_execution/__init__.py"] = b"changed source"
+    sanitation = ExpertCandidateSanitizer(sanitation_settings()).scan(
+        case.scope.scope_contract_id,
+        materialization.source_tree,
+        candidate_contents,
+    )
+    manifest = ExpertCandidateManifest.mint(
+        scope_contract_id=case.scope.scope_contract_id,
+        change_kind=CandidateChangeKind.CAPABILITY,
+        parent_release_id=case.base.release_id,
+        parent_repository_map_ref=case.base.repository_map_id,
+        parent_tree_hash=case.base.source_tree_hash,
+        derivation_kind=ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION,
+        derivation_ref=derivation_record.derivation_id,
+        validation_context_ref=source.validation_context_ref,
+        patch_ref=materialization.patch.patch_id,
+        patch_digest=tree_or_blob_digest(materialization.patch.to_json_bytes()),
+        candidate_tree_ref=materialization.source_tree.source_tree_manifest_id,
+        candidate_tree_hash=materialization.source_tree.tree_hash,
+        configuration_fingerprint=plan.configuration_fingerprint,
+        module_contract_refs=tuple(
+            module.module_contract_id for module in materialization.module_contracts
+        ),
+        proposed_repository_map_ref=(materialization.repository_map.repository_map_id),
+        semantic_book_digest=materialization.semantic_book_digest,
+        source_dependency_ids=source_dependencies,
+        ancestor_candidate_ids=(source.candidate_id,),
+        capability_lineage=(),
+        sanitation_report_id=sanitation.sanitation_report_id,
+    )
+    candidate_input = mint_expert_candidate_ancestor_input(
+        manifest=manifest,
+        scope_contract=case.scope,
+        patch=materialization.patch,
+        candidate_tree=materialization.source_tree,
+        repository_map=materialization.repository_map,
+        module_contracts=materialization.module_contracts,
+        sanitation_report=sanitation,
+        candidate_contents=candidate_contents,
+    )
+    commit = ExpertCandidateCommitRecord.mint(
+        candidate_id=manifest.candidate_id,
+        file_checksums={
+            "candidate.json": tree_or_blob_digest(manifest.to_json_bytes()),
+            "review-input.json": tree_or_blob_digest(candidate_input.to_json_bytes()),
+        },
+    )
+    policy = coordinator.settings.validation.policy.validation_policy()
+    eligibility_id = content_id(
+        "expert-candidate-eligibility",
+        {"candidate_id": manifest.candidate_id},
+    )
+    task_adapter_pins = direct_prepared.validation_attempt.task_adapter_pins
+    eligibility_dependencies = {
+        manifest.candidate_id,
+        commit.commit_record_id,
+        manifest.scope_contract_id,
+        eligibility_id,
+        policy.validation_policy_id,
+        manifest.parent_release_id,
+        *(pin.task_adapter_manifest_id for pin in task_adapter_pins),
+        *(pin.verification_receipt_id for pin in task_adapter_pins),
+    }
+    attempt = ExpertValidationAttempt.mint(
+        candidate_id=manifest.candidate_id,
+        candidate_tree_hash=manifest.candidate_tree_hash,
+        candidate_commit_record_id=commit.commit_record_id,
+        scope_contract_id=manifest.scope_contract_id,
+        parent_release_id=manifest.parent_release_id,
+        eligibility_decision_id=eligibility_id,
+        validation_policy_id=policy.validation_policy_id,
+        configuration_fingerprint=(
+            coordinator.settings.validation.configuration_fingerprint
+        ),
+        validation_track=ExpertValidationTrack.BEHAVIORAL_CAPABILITY,
+        attempt_number=1,
+        predecessor_attempt_id=None,
+        required_stages=(
+            ExpertValidationStage.CONTRACT_SCHEMA,
+            ExpertValidationStage.AUTOMATED_REVIEW,
+        ),
+        configured_task_family_ids=tuple(
+            sorted({binding.task_family_id for binding in plan.active_task_bindings})
+        ),
+        task_adapter_pins=task_adapter_pins,
+        source_replay_selection=None,
+        eligibility_dependency_ids=tuple(sorted(eligibility_dependencies)),
+    )
+    accepted_result = _result(
+        coordinator.settings.validation,
+        attempt,
+        ExpertValidationStage.CONTRACT_SCHEMA,
+        ExpertEvaluatorOutcome.PASSED,
+    )
+    accepted_reference = ExpertAcceptedStageResultRef(
+        stage=ExpertValidationStage.CONTRACT_SCHEMA,
+        stage_result_record_id=accepted_result.evaluator_result_record_id,
+    )
+    authorization_state = ExpertCandidateValidationState.mint(
+        validation_attempt_id=attempt.validation_attempt_id,
+        candidate_id=attempt.candidate_id,
+        candidate_tree_hash=attempt.candidate_tree_hash,
+        predecessor_state_id=None,
+        promotion_state=ExpertPromotionState.VALIDATING,
+        accepted_stage_results=(accepted_reference,),
+        next_stage=ExpertValidationStage.AUTOMATED_REVIEW,
+        review_assertion_ids=(),
+        terminal_evidence_ids=(),
+        transition_evidence_id=accepted_result.evaluator_result_record_id,
+        reason="composition_ready_for_automated_review",
+    )
+    derivation_evidence_ids = expert_candidate_review_derivation_evidence_ids(
+        derivation_record=derivation_record,
+        candidate_operation=None,
+        composition_materialization=materialization,
+    )
+    authorization_transition_id = content_id(
+        "expert-validation-transition",
+        {"candidate_id": manifest.candidate_id},
+    )
+    packet_dependencies = {
+        attempt.validation_attempt_id,
+        authorization_transition_id,
+        authorization_state.validation_state_id,
+        manifest.candidate_id,
+        commit.commit_record_id,
+        candidate_input.ancestor_input_id,
+        derivation_record.derivation_id,
+        manifest.scope_contract_id,
+        policy.validation_policy_id,
+        manifest.parent_release_id,
+        accepted_result.evaluator_result_record_id,
+        *derivation_evidence_ids,
+    }
+    packet = ExpertAutomatedReviewPacket.mint(
+        validation_attempt_id=attempt.validation_attempt_id,
+        authorization_transition_id=authorization_transition_id,
+        authorization_state_id=authorization_state.validation_state_id,
+        candidate_id=manifest.candidate_id,
+        candidate_tree_hash=manifest.candidate_tree_hash,
+        candidate_commit_record_id=commit.commit_record_id,
+        candidate_input_id=candidate_input.ancestor_input_id,
+        candidate_derivation_kind=manifest.derivation_kind,
+        candidate_derivation_ref=manifest.derivation_ref,
+        candidate_origin_principal_ids=derivation_record.origin_principal_ids,
+        candidate_derivation_evidence_ids=derivation_evidence_ids,
+        scope_contract_id=manifest.scope_contract_id,
+        parent_release_id=manifest.parent_release_id,
+        validation_policy_id=policy.validation_policy_id,
+        configuration_fingerprint=attempt.configuration_fingerprint,
+        agent_artifact_byte_limit=coordinator.settings.agent_artifact_byte_limit,
+        accepted_stage_results=(accepted_reference,),
+        exact_dependency_ids=tuple(sorted(packet_dependencies)),
+    )
+    prepared = PreparedExpertAutomatedReviewPacket(
+        packet=packet,
+        candidate_input=candidate_input,
+        candidate_derivation_record=derivation_record,
+        candidate_operation=None,
+        composition_materialization=materialization,
+        validation_attempt=attempt,
+        authorization_state=authorization_state,
+        validation_policy=policy,
+        accepted_stage_results=(accepted_result,),
+    )
+    return (
+        coordinator,
+        prepared,
+        workspace,
+        runner,
+        direct_prepared.candidate_operation,
+        direct_store,
+    )
+
+
 def test_review_packet_is_complete_and_passes_only_unanimous_clean_review(
     tmp_path,
     monkeypatch,
@@ -222,6 +480,15 @@ def test_review_packet_is_complete_and_passes_only_unanimous_clean_review(
 
     assert execution.stage_result.outcome is ExpertAutomatedReviewOutcome.PASSED
     assert execution.adjudication.outcome is ExpertAutomatedReviewOutcome.PASSED
+    assert prepared.packet.candidate_derivation_kind is (
+        ExpertCandidateDerivationKind.AGENT_PROPOSAL
+    )
+    assert prepared.candidate_operation is not None
+    assert prepared.composition_materialization is None
+    assert (
+        prepared.packet.candidate_derivation_ref
+        == prepared.candidate_derivation_record.derivation_id
+    )
     assert len(execution.assertions) == len(
         coordinator.settings.validation.policy.reviewers
     )
@@ -249,6 +516,140 @@ def test_review_packet_is_complete_and_passes_only_unanimous_clean_review(
     assert len(snapshot.accepted_stage_results) == len(
         prepared.packet.accepted_stage_results
     )
+
+
+def test_composition_review_uses_materialization_without_fake_agent_proposal(
+    tmp_path,
+    monkeypatch,
+):
+    coordinator, prepared, workspace, runner, _source_operation, _store = (
+        _composition_review_fixture(
+            tmp_path,
+            monkeypatch,
+        )
+    )
+
+    execution = coordinator.execute(prepared, workspace=workspace)
+    prompt_payload = coordinator._prompt_payload(
+        prepared,
+        coordinator.settings.validation.policy.reviewers[0],
+    )
+    derivation_payload = prompt_payload["candidate_derivation"]
+    materialization = prepared.composition_materialization
+
+    assert prepared.packet.candidate_derivation_kind is (
+        ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+    )
+    assert (
+        ExpertAutomatedReviewPacket.from_json_bytes(prepared.packet.to_json_bytes())
+        == prepared.packet
+    )
+    assert prepared.candidate_operation is None
+    assert materialization is not None
+    assert derivation_payload["derivation_kind"] == "deterministic_composition"
+    assert derivation_payload["composition_materialization"] == (
+        materialization.to_dict()
+    )
+    assert "authoring_operation" not in derivation_payload
+    assert "candidate_proposer" not in prompt_payload
+    assert prepared.packet.candidate_origin_principal_ids == (
+        prepared.candidate_derivation_record.origin_principal_ids
+    )
+    assert {
+        source.candidate_commit_record_id
+        for source in (materialization.composition_assessment.composition_plan.sources)
+    }.issubset(prepared.packet.candidate_derivation_evidence_ids)
+    assert execution.stage_result.outcome is ExpertAutomatedReviewOutcome.PASSED
+    assert len(runner.calls) == len(coordinator.settings.validation.policy.reviewers)
+    assert all("candidate_proposer" not in call["prompt"] for call in runner.calls)
+
+
+def test_composition_review_rejects_agent_operation_substitution(
+    tmp_path,
+    monkeypatch,
+):
+    _coordinator, prepared, _workspace, _runner, source_operation, _store = (
+        _composition_review_fixture(
+            tmp_path,
+            monkeypatch,
+        )
+    )
+    assert source_operation is not None
+
+    with pytest.raises(
+        ExpertAutomatedReviewError,
+        match="composition review derivation evidence is inconsistent",
+    ):
+        replace(prepared, candidate_operation=source_operation)
+
+
+def test_composition_review_rejects_source_authority_substitution(
+    tmp_path,
+    monkeypatch,
+):
+    _coordinator, prepared, _workspace, _runner, _source_operation, _store = (
+        _composition_review_fixture(
+            tmp_path,
+            monkeypatch,
+        )
+    )
+    record = prepared.candidate_derivation_record
+    source_candidate_id = record.ancestor_candidate_ids[0]
+    forged_record = _remint(
+        record,
+        source_origin_principal_ids={
+            source_candidate_id: ("forged.origin.author",),
+        },
+    )
+
+    with pytest.raises(
+        ExpertAutomatedReviewError,
+        match="prepared automated review packet closure is inconsistent",
+    ):
+        replace(prepared, candidate_derivation_record=forged_record)
+
+
+def test_composition_review_derivation_persists_reopens_and_detects_tampering(
+    tmp_path,
+    monkeypatch,
+):
+    _coordinator, prepared, _workspace, _runner, _source_operation, store = (
+        _composition_review_fixture(
+            tmp_path,
+            monkeypatch,
+        )
+    )
+    with store._lock(exclusive=True):
+        store._write_automated_review_derivation_unlocked(prepared)
+
+    reopened = _reopen_validation_store(store)
+    with reopened._lock(exclusive=False):
+        derivation_record, operation, materialization = (
+            reopened._read_automated_review_derivation_unlocked(prepared.packet)
+        )
+
+    assert derivation_record == prepared.candidate_derivation_record
+    assert operation is None
+    assert materialization == prepared.composition_materialization
+    assert (
+        replace(
+            prepared,
+            candidate_derivation_record=derivation_record,
+            candidate_operation=operation,
+            composition_materialization=materialization,
+        )
+        == prepared
+    )
+
+    assert materialization is not None
+    materialization_path = reopened._object_path(
+        materialization.materialization_id,
+        create_namespace=False,
+    )
+    materialization_path.write_bytes(b"{}\n")
+    with reopened._lock(exclusive=False):
+        with pytest.raises(ContractValidationError):
+            reopened._read_automated_review_derivation_unlocked(prepared.packet)
 
 
 def test_mixed_review_is_disputed_even_when_rejection_quorum_is_met(
@@ -476,9 +877,7 @@ def test_review_publication_rechecks_bound_workspace_settings(
     execution = coordinator.execute(prepared, workspace=workspace)
     coordinator.settings = replace(
         coordinator.settings,
-        agent_artifact_byte_limit=(
-            coordinator.settings.agent_artifact_byte_limit + 1
-        ),
+        agent_artifact_byte_limit=(coordinator.settings.agent_artifact_byte_limit + 1),
     )
 
     with pytest.raises(
@@ -496,9 +895,7 @@ def test_review_rejects_incomplete_or_out_of_order_accepted_evidence(
         tmp_path,
         monkeypatch,
     )
-    stored_candidate = store.reducer.candidate_store.read(
-        prepared.packet.candidate_id
-    )
+    stored_candidate = store.reducer.candidate_store.read(prepared.packet.candidate_id)
 
     with pytest.raises(ExpertAutomatedReviewError, match="incomplete"):
         coordinator.prepare(

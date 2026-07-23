@@ -17,6 +17,7 @@ from kapso.cross_run.canonical import (
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
+    ExpertCandidateDerivationKind,
     ExpertCandidateOperationRecord,
     ExpertCandidateValidationState,
     ExpertEvaluatorOutcome,
@@ -26,6 +27,16 @@ from kapso.cross_run.contracts import (
     ExpertSealedCanaryAggregate,
     ExpertValidationAttempt,
     ExpertValidationStage,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
+    ExpertAgentProposalDerivationRecord,
+    ExpertCandidateDerivationRecord,
+    ExpertDeterministicCompositionDerivation,
+    ExpertDeterministicCompositionDerivationRecord,
+)
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionMaterialization,
 )
 from kapso.cross_run.expert.proposal_contract import (
     ExpertCandidateAncestorInput,
@@ -75,13 +86,92 @@ ExpertAcceptedReviewInput = (
 )
 
 
+def expert_candidate_review_derivation_evidence_ids(
+    *,
+    derivation_record: ExpertCandidateDerivationRecord,
+    candidate_operation: ExpertCandidateOperationRecord | None,
+    composition_materialization: ExpertCompositionMaterialization | None,
+) -> tuple[str, ...]:
+    """Project the exact derivation authority rendered into a review packet."""
+
+    if type(derivation_record) is ExpertAgentProposalDerivationRecord:
+        if (
+            type(candidate_operation) is not ExpertCandidateOperationRecord
+            or composition_materialization is not None
+            or derivation_record.operation_record_id
+            != candidate_operation.operation_record_id
+            or derivation_record.trigger_evidence_packet_id
+            != candidate_operation.trigger_evidence_packet_id
+            or derivation_record.trigger_decision_id
+            != candidate_operation.trigger_decision_id
+            or derivation_record.workspace_delta_id
+            != candidate_operation.workspace_delta_ref
+            or derivation_record.ancestor_candidate_ids
+            != candidate_operation.ancestor_candidate_ids
+            or derivation_record.origin_principal_ids
+            != (candidate_operation.proposer_authority.principal_id,)
+        ):
+            raise ExpertAutomatedReviewError(
+                "agent review derivation evidence is inconsistent"
+            )
+        return tuple(
+            sorted(
+                {
+                    derivation_record.derivation_id,
+                    derivation_record.trigger_evidence_packet_id,
+                    derivation_record.trigger_decision_id,
+                    derivation_record.operation_record_id,
+                    derivation_record.workspace_delta_id,
+                    candidate_operation.operation_receipt.operation_receipt_id,
+                    candidate_operation.workspace_receipt.workspace_receipt_id,
+                    candidate_operation.proposer_authority.authority_id,
+                    *derivation_record.ancestor_candidate_ids,
+                    *derivation_record.source_dependency_ids,
+                }
+            )
+        )
+    if type(derivation_record) is ExpertDeterministicCompositionDerivationRecord:
+        if (
+            candidate_operation is not None
+            or type(composition_materialization) is not ExpertCompositionMaterialization
+            or derivation_record.composition_materialization_id
+            != composition_materialization.materialization_id
+        ):
+            raise ExpertAutomatedReviewError(
+                "composition review derivation evidence is inconsistent"
+            )
+        assessment = composition_materialization.composition_assessment
+        plan = assessment.composition_plan
+        return tuple(
+            sorted(
+                {
+                    derivation_record.derivation_id,
+                    composition_materialization.materialization_id,
+                    assessment.assessment_id,
+                    plan.composition_plan_id,
+                    *composition_materialization.stable_authority_ids,
+                    *assessment.stable_authority_ids,
+                    *plan.stable_authority_ids,
+                    *derivation_record.ancestor_candidate_ids,
+                    *derivation_record.source_validation_context_ids.values(),
+                    *derivation_record.source_dependency_ids,
+                }
+            )
+        )
+    raise ExpertAutomatedReviewError(
+        "review derivation uses an unsupported record type"
+    )
+
+
 @dataclass(frozen=True)
 class PreparedExpertAutomatedReviewPacket:
     """Verified packet plus the complete records rendered for reviewers."""
 
     packet: ExpertAutomatedReviewPacket
     candidate_input: ExpertCandidateAncestorInput
-    candidate_operation: ExpertCandidateOperationRecord
+    candidate_derivation_record: ExpertCandidateDerivationRecord
+    candidate_operation: ExpertCandidateOperationRecord | None
+    composition_materialization: ExpertCompositionMaterialization | None
     validation_attempt: ExpertValidationAttempt
     authorization_state: ExpertCandidateValidationState
     validation_policy: ExpertValidationPolicy
@@ -92,10 +182,18 @@ class PreparedExpertAutomatedReviewPacket:
         attempt = self.validation_attempt
         state = self.authorization_state
         candidate_manifest = self.candidate_input.manifest
+        reviewer_ids = {
+            reviewer.reviewer_id for reviewer in self.validation_policy.policy.reviewers
+        }
+        expected_derivation_evidence_ids = (
+            expert_candidate_review_derivation_evidence_ids(
+                derivation_record=self.candidate_derivation_record,
+                candidate_operation=self.candidate_operation,
+                composition_materialization=self.composition_materialization,
+            )
+        )
         if (
             packet.candidate_input_id != self.candidate_input.ancestor_input_id
-            or packet.proposer_operation_record_id
-            != self.candidate_operation.operation_record_id
             or packet.validation_attempt_id != attempt.validation_attempt_id
             or packet.authorization_state_id != state.validation_state_id
             or packet.validation_policy_id
@@ -116,15 +214,87 @@ class PreparedExpertAutomatedReviewPacket:
             or candidate_manifest.candidate_tree_hash != packet.candidate_tree_hash
             or candidate_manifest.scope_contract_id != packet.scope_contract_id
             or candidate_manifest.parent_release_id != packet.parent_release_id
-            or self.candidate_operation.trigger_evidence_packet_id
-            != packet.trigger_evidence_packet_id
-            or self.candidate_operation.trigger_decision_id
-            != packet.trigger_decision_id
+            or candidate_manifest.derivation_kind
+            is not packet.candidate_derivation_kind
+            or candidate_manifest.derivation_ref != packet.candidate_derivation_ref
+            or self.candidate_derivation_record.derivation_id
+            != packet.candidate_derivation_ref
+            or self.candidate_derivation_record.origin_principal_ids
+            != packet.candidate_origin_principal_ids
+            or packet.candidate_derivation_evidence_ids
+            != expected_derivation_evidence_ids
+            or bool(set(packet.candidate_origin_principal_ids) & reviewer_ids)
         ):
             raise ExpertAutomatedReviewError(
                 "prepared automated review packet closure is inconsistent"
             )
+        self._validate_candidate_materialization()
         _validate_prepared_review_stage_results(self)
+
+    def _validate_candidate_materialization(self) -> None:
+        manifest = self.candidate_input.manifest
+        record = self.candidate_derivation_record
+        if type(record) is ExpertAgentProposalDerivationRecord:
+            if (
+                manifest.derivation_kind
+                is not ExpertCandidateDerivationKind.AGENT_PROPOSAL
+                or manifest.ancestor_candidate_ids != record.ancestor_candidate_ids
+                or manifest.source_dependency_ids != record.source_dependency_ids
+            ):
+                raise ExpertAutomatedReviewError(
+                    "agent review derivation differs from its candidate"
+                )
+            return
+        if type(record) is ExpertDeterministicCompositionDerivationRecord:
+            materialization = self.composition_materialization
+            if type(materialization) is not ExpertCompositionMaterialization:
+                raise ExpertAutomatedReviewError(
+                    "composition review lacks its materialization"
+                )
+            plan = materialization.composition_assessment.composition_plan
+            source_candidate_ids = tuple(source.candidate_id for source in plan.sources)
+            expected_source_context_ids = {
+                source.candidate_id: source.validation_context_ref
+                for source in plan.sources
+            }
+            expected_source_principals = {
+                source.candidate_id: source.origin_principal_ids
+                for source in plan.sources
+            }
+            expected_source_dependencies = tuple(
+                sorted(
+                    {
+                        plan.composition_plan_id,
+                        *plan.stable_authority_ids,
+                        *expected_source_context_ids.values(),
+                    }
+                )
+            )
+            if (
+                manifest.derivation_kind
+                is not ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+                or manifest.ancestor_candidate_ids != record.ancestor_candidate_ids
+                or manifest.source_dependency_ids != record.source_dependency_ids
+                or record.ancestor_candidate_ids != source_candidate_ids
+                or dict(record.source_validation_context_ids)
+                != expected_source_context_ids
+                or dict(record.source_origin_principal_ids)
+                != expected_source_principals
+                or record.source_dependency_ids != expected_source_dependencies
+                or self.candidate_input.patch != materialization.patch
+                or self.candidate_input.candidate_tree != materialization.source_tree
+                or self.candidate_input.repository_map != materialization.repository_map
+                or self.candidate_input.module_contracts
+                != materialization.module_contracts
+                or manifest.semantic_book_digest != materialization.semantic_book_digest
+            ):
+                raise ExpertAutomatedReviewError(
+                    "composition review materialization differs from its candidate"
+                )
+            return
+        raise ExpertAutomatedReviewError(
+            "review candidate uses an unsupported derivation record"
+        )
 
 
 class ExpertAutomatedReviewExecution:
@@ -243,6 +413,24 @@ class ExpertAutomatedReviewCoordinator:
             accepted_stage_results=accepted_stage_results,
             policy=policy,
         )
+        derivation = closure.derivation
+        if type(derivation) is ExpertAgentProposalDerivation:
+            derivation_record = derivation.record
+            candidate_operation = derivation.operation
+            composition_materialization = None
+        elif type(derivation) is ExpertDeterministicCompositionDerivation:
+            derivation_record = derivation.record
+            candidate_operation = None
+            composition_materialization = derivation.materialization
+        else:
+            raise ExpertAutomatedReviewError(
+                "candidate review uses an unsupported derivation"
+            )
+        derivation_evidence_ids = expert_candidate_review_derivation_evidence_ids(
+            derivation_record=derivation_record,
+            candidate_operation=candidate_operation,
+            composition_materialization=composition_materialization,
+        )
         dependencies = {
             validation_attempt.validation_attempt_id,
             authorization_transition_id,
@@ -250,11 +438,10 @@ class ExpertAutomatedReviewCoordinator:
             validation_attempt.candidate_id,
             validation_attempt.candidate_commit_record_id,
             candidate_input.ancestor_input_id,
-            closure.derivation.operation.operation_record_id,
-            closure.derivation.trigger_packet.evidence_packet_id,
-            closure.derivation.trigger_decision.trigger_decision_id,
+            closure.manifest.derivation_ref,
             validation_attempt.scope_contract_id,
             validation_attempt.validation_policy_id,
+            *derivation_evidence_ids,
             *(
                 result.stage_result_record_id
                 for result in authorization_state.accepted_stage_results
@@ -270,9 +457,10 @@ class ExpertAutomatedReviewCoordinator:
             candidate_tree_hash=validation_attempt.candidate_tree_hash,
             candidate_commit_record_id=(validation_attempt.candidate_commit_record_id),
             candidate_input_id=candidate_input.ancestor_input_id,
-            proposer_operation_record_id=closure.derivation.operation.operation_record_id,
-            trigger_evidence_packet_id=closure.derivation.trigger_packet.evidence_packet_id,
-            trigger_decision_id=closure.derivation.trigger_decision.trigger_decision_id,
+            candidate_derivation_kind=closure.manifest.derivation_kind,
+            candidate_derivation_ref=closure.manifest.derivation_ref,
+            candidate_origin_principal_ids=closure.origin_principal_ids,
+            candidate_derivation_evidence_ids=derivation_evidence_ids,
             scope_contract_id=validation_attempt.scope_contract_id,
             parent_release_id=validation_attempt.parent_release_id,
             validation_policy_id=validation_attempt.validation_policy_id,
@@ -284,7 +472,9 @@ class ExpertAutomatedReviewCoordinator:
         return PreparedExpertAutomatedReviewPacket(
             packet=packet,
             candidate_input=candidate_input,
-            candidate_operation=closure.derivation.operation,
+            candidate_derivation_record=derivation_record,
+            candidate_operation=candidate_operation,
+            composition_materialization=composition_materialization,
             validation_attempt=validation_attempt,
             authorization_state=authorization_state,
             validation_policy=policy,
@@ -372,12 +562,9 @@ class ExpertAutomatedReviewCoordinator:
         }
         if configured.get(reviewer.reviewer_id) != reviewer:
             raise ExpertAutomatedReviewError("reviewer slot is not configured")
-        if (
-            reviewer.reviewer_id
-            == prepared.candidate_operation.proposer_authority.principal_id
-        ):
+        if reviewer.reviewer_id in set(prepared.packet.candidate_origin_principal_ids):
             raise ExpertAutomatedReviewError(
-                "candidate proposer cannot review its own output"
+                "candidate origin author cannot review its own output"
             )
         template = self.operation_template()
         schema = self.response_schema(
@@ -680,7 +867,7 @@ class ExpertAutomatedReviewCoordinator:
         }
         if set(closure.origin_principal_ids) & reviewer_ids:
             raise ExpertAutomatedReviewError(
-                "historical candidate proposer conflicts with a reviewer"
+                "candidate origin author conflicts with a reviewer"
             )
         if len(accepted_stage_results) != len(
             authorization_state.accepted_stage_results
@@ -795,21 +982,56 @@ def expert_automated_review_prompt_payload(
     prepared: PreparedExpertAutomatedReviewPacket,
     reviewer: ExpertReviewerSettings,
 ) -> Mapping[str, Any]:
+    derivation_record = prepared.candidate_derivation_record
+    candidate_operation = prepared.candidate_operation
+    composition_materialization = prepared.composition_materialization
+    if type(derivation_record) is ExpertAgentProposalDerivationRecord:
+        if (
+            type(candidate_operation) is not ExpertCandidateOperationRecord
+            or composition_materialization is not None
+        ):
+            raise ExpertAutomatedReviewError(
+                "agent review prompt lacks exact derivation evidence"
+            )
+        derivation_payload = {
+            "derivation_kind": ExpertCandidateDerivationKind.AGENT_PROPOSAL.value,
+            "derivation_record": derivation_record.to_dict(),
+            "origin_principal_ids": prepared.packet.candidate_origin_principal_ids,
+            "authoring_operation": {
+                "operation_record_id": candidate_operation.operation_record_id,
+                "operation_receipt_id": (
+                    candidate_operation.operation_receipt.operation_receipt_id
+                ),
+                "proposer_authority": candidate_operation.proposer_authority.to_dict(),
+            },
+        }
+    elif type(derivation_record) is ExpertDeterministicCompositionDerivationRecord:
+        if (
+            candidate_operation is not None
+            or type(composition_materialization) is not ExpertCompositionMaterialization
+        ):
+            raise ExpertAutomatedReviewError(
+                "composition review prompt lacks exact derivation evidence"
+            )
+        derivation_payload = {
+            "derivation_kind": (
+                ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION.value
+            ),
+            "derivation_record": derivation_record.to_dict(),
+            "origin_principal_ids": prepared.packet.candidate_origin_principal_ids,
+            "composition_materialization": composition_materialization.to_dict(),
+        }
+    else:
+        raise ExpertAutomatedReviewError(
+            "review prompt uses an unsupported derivation record"
+        )
     return {
         "accepted_stage_evidence": tuple(
             ExpertAutomatedReviewCoordinator._review_stage_evidence(result)
             for result in prepared.accepted_stage_results
         ),
+        "candidate_derivation": derivation_payload,
         "candidate_input": prepared.candidate_input.to_dict(),
-        "candidate_proposer": {
-            "operation_record_id": prepared.candidate_operation.operation_record_id,
-            "operation_receipt_id": (
-                prepared.candidate_operation.operation_receipt.operation_receipt_id
-            ),
-            "proposer_authority": (
-                prepared.candidate_operation.proposer_authority.to_dict()
-            ),
-        },
         "promotion_policy": prepared.validation_policy.policy.promotion.to_dict(),
         "review_packet": prepared.packet.to_dict(),
         "reviewer_slot": reviewer.to_dict(),

@@ -7,7 +7,14 @@ from typing import TYPE_CHECKING, Protocol
 
 from kapso.cross_run.canonical import require_content_id
 from kapso.cross_run.contracts import (
+    ExpertCandidateDerivationKind,
+    ExpertCandidateManifest,
     ExpertEvaluatorResultRecord,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivation,
+    ExpertCompositionSourceProvenance,
+    ExpertDeterministicCompositionDerivation,
 )
 from kapso.cross_run.expert.promotion import (
     decide_expert_release_matrix_promotion,
@@ -23,6 +30,7 @@ from kapso.cross_run.expert.promotion_decision_contracts import (
 from kapso.cross_run.expert.promotion_stage_contracts import (
     ExpertReleaseMatrixStageResultRecord,
 )
+from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.replay_publication_contracts import (
     ExpertSourceReplayStageResultRecord,
 )
@@ -483,9 +491,6 @@ def publication_eligibility_security_subject_ids(
         raise ExpertPublicationEligibilityError(
             "publication eligibility security inputs do not share one authority"
         )
-    manifest = stored_candidate.closure.manifest
-    derivation = stored_candidate.closure.derivation
-    operation = derivation.operation
     validation_context = stored_candidate.closure.validation_context
     subjects = {
         snapshot.transition.transition_id,
@@ -494,27 +499,7 @@ def publication_eligibility_security_subject_ids(
         *attempt.eligibility_dependency_ids,
         decision.promotion_decision_id,
         *decision.exact_dependency_ids,
-        manifest.candidate_id,
-        stored_candidate.commit_record.commit_record_id,
-        manifest.scope_contract_id,
-        manifest.derivation_ref,
-        manifest.validation_context_ref,
-        manifest.patch_ref,
-        manifest.candidate_tree_ref,
-        manifest.proposed_repository_map_ref,
-        manifest.sanitation_report_id,
-        *manifest.module_contract_refs,
-        *manifest.source_dependency_ids,
-        *manifest.ancestor_candidate_ids,
-        operation.operation_record_id,
-        operation.operation_receipt.operation_receipt_id,
-        operation.workspace_receipt.workspace_receipt_id,
-        operation.workspace_delta_ref,
-        derivation.record.trigger_evidence_packet_id,
-        derivation.record.trigger_decision_id,
-        *derivation.record.source_dependency_ids,
-        *validation_context.stable_dependency_ids,
-        derivation.workspace_delta.workspace_delta_id,
+        *publication_eligibility_candidate_security_subject_ids(stored_candidate),
         current_release_observation.observation_id,
         *current_release_observation.validation_closure_ids,
     }
@@ -564,6 +549,192 @@ def publication_eligibility_security_subject_ids(
     for subject_id in ordered:
         require_content_id(subject_id, "publication eligibility security subject")
     return ordered
+
+
+def publication_eligibility_candidate_security_subject_ids(
+    stored_candidate: StoredExpertCandidate,
+) -> tuple[str, ...]:
+    """Project the complete derivation-neutral candidate revocation closure."""
+
+    if type(stored_candidate) is not StoredExpertCandidate:
+        raise ExpertPublicationEligibilityError(
+            "candidate security projection requires one exact stored candidate"
+        )
+    closure = stored_candidate.closure
+    manifest = closure.manifest
+    if stored_candidate.commit_record.candidate_id != manifest.candidate_id:
+        raise ExpertPublicationEligibilityError(
+            "candidate security projection commit names another candidate"
+        )
+    subjects = _candidate_manifest_security_subject_ids(
+        manifest=manifest,
+        candidate_commit_record_id=stored_candidate.commit_record.commit_record_id,
+        validation_context_dependency_ids=(
+            closure.validation_context.stable_dependency_ids
+        ),
+    )
+    derivation = closure.derivation
+    if (
+        manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL
+        and type(derivation) is ExpertAgentProposalDerivation
+    ):
+        subjects.update(_agent_derivation_security_subject_ids(derivation))
+    elif (
+        manifest.derivation_kind
+        is ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+        and type(derivation) is ExpertDeterministicCompositionDerivation
+    ):
+        subjects.update(_composition_derivation_security_subject_ids(derivation))
+    else:
+        raise ExpertPublicationEligibilityError(
+            "candidate security projection does not recognize its derivation"
+        )
+    ordered = tuple(sorted(subjects))
+    for subject_id in ordered:
+        require_content_id(subject_id, "candidate security subject")
+    return ordered
+
+
+def _candidate_manifest_security_subject_ids(
+    *,
+    manifest: ExpertCandidateManifest,
+    candidate_commit_record_id: str,
+    validation_context_dependency_ids: tuple[str, ...],
+) -> set[str]:
+    return {
+        manifest.candidate_id,
+        candidate_commit_record_id,
+        manifest.scope_contract_id,
+        manifest.derivation_ref,
+        manifest.validation_context_ref,
+        manifest.patch_ref,
+        manifest.candidate_tree_ref,
+        manifest.proposed_repository_map_ref,
+        manifest.sanitation_report_id,
+        *manifest.module_contract_refs,
+        *manifest.source_dependency_ids,
+        *manifest.ancestor_candidate_ids,
+        *validation_context_dependency_ids,
+    }
+
+
+def _agent_derivation_security_subject_ids(
+    derivation: ExpertAgentProposalDerivation,
+) -> set[str]:
+    if type(derivation) is not ExpertAgentProposalDerivation:
+        raise ExpertPublicationEligibilityError(
+            "agent security projection requires one direct agent derivation"
+        )
+    operation = derivation.operation
+    return {
+        derivation.record.derivation_id,
+        derivation.record.trigger_evidence_packet_id,
+        derivation.record.trigger_decision_id,
+        *derivation.record.source_dependency_ids,
+        operation.operation_record_id,
+        operation.proposer_authority.authority_id,
+        operation.operation_receipt.operation_receipt_id,
+        operation.workspace_receipt.workspace_receipt_id,
+        operation.workspace_delta_ref,
+        derivation.workspace_delta.workspace_delta_id,
+    }
+
+
+def _composition_derivation_security_subject_ids(
+    derivation: ExpertDeterministicCompositionDerivation,
+) -> set[str]:
+    if type(derivation) is not ExpertDeterministicCompositionDerivation:
+        raise ExpertPublicationEligibilityError(
+            "composition security projection requires its exact derivation"
+        )
+    materialization = derivation.materialization
+    assessment = materialization.composition_assessment
+    plan = assessment.composition_plan
+    subjects = {
+        derivation.record.derivation_id,
+        derivation.record.composition_materialization_id,
+        *derivation.record.source_validation_context_ids,
+        *derivation.record.source_validation_context_ids.values(),
+        *derivation.record.source_dependency_ids,
+        materialization.materialization_id,
+        *materialization.stable_authority_ids,
+        assessment.assessment_id,
+        *assessment.stable_authority_ids,
+        plan.composition_plan_id,
+        *plan.stable_authority_ids,
+    }
+    for provenance in derivation.source_provenance:
+        subjects.update(_composition_source_security_subject_ids(provenance))
+    return subjects
+
+
+def _composition_source_security_subject_ids(
+    provenance: ExpertCompositionSourceProvenance,
+) -> set[str]:
+    if (
+        type(provenance) is not ExpertCompositionSourceProvenance
+        or provenance.candidate_manifest.derivation_kind
+        is not ExpertCandidateDerivationKind.AGENT_PROPOSAL
+        or type(provenance.agent_derivation) is not ExpertAgentProposalDerivation
+    ):
+        raise ExpertPublicationEligibilityError(
+            "composition security projection rejects unknown or nested sources"
+        )
+    source_reference = provenance.reduction_source.source_reference
+    parent_release = provenance.validation_context.parent_release
+    if parent_release is None:
+        raise ExpertPublicationEligibilityError(
+            "composition security source lacks its parent release"
+        )
+    subjects = _candidate_manifest_security_subject_ids(
+        manifest=provenance.candidate_manifest,
+        candidate_commit_record_id=(
+            provenance.candidate_commit_record.commit_record_id
+        ),
+        validation_context_dependency_ids=(
+            provenance.validation_context.stable_dependency_ids
+        ),
+    )
+    subjects.update(
+        {
+            source_reference.source_reference_id,
+            *source_reference.stable_authority_ids,
+            *parent_release.dependency_closure_ids,
+            *_agent_derivation_security_subject_ids(provenance.agent_derivation),
+        }
+    )
+    for ancestor in provenance.agent_derivation.ancestor_inputs:
+        subjects.update(_candidate_ancestor_security_subject_ids(ancestor))
+    return subjects
+
+
+def _candidate_ancestor_security_subject_ids(
+    ancestor: ExpertCandidateAncestorInput,
+) -> set[str]:
+    if type(ancestor) is not ExpertCandidateAncestorInput:
+        raise ExpertPublicationEligibilityError(
+            "candidate ancestor security projection requires an exact input"
+        )
+    manifest = ancestor.manifest
+    subjects = {
+        ancestor.ancestor_input_id,
+        ancestor.scope_contract.scope_contract_id,
+        manifest.candidate_id,
+        manifest.derivation_ref,
+        manifest.validation_context_ref,
+        manifest.patch_ref,
+        manifest.candidate_tree_ref,
+        manifest.proposed_repository_map_ref,
+        manifest.sanitation_report_id,
+        *manifest.module_contract_refs,
+        *manifest.source_dependency_ids,
+        *manifest.ancestor_candidate_ids,
+    }
+    if manifest.parent_release_id is not None:
+        subjects.add(manifest.parent_release_id)
+    if manifest.parent_repository_map_ref is not None:
+        subjects.add(manifest.parent_repository_map_ref)
+    return subjects
 
 
 def build_publication_eligibility_stage_result(

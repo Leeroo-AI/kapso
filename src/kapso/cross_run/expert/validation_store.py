@@ -18,6 +18,7 @@ from kapso.cross_run.canonical import (
 from kapso.cross_run.contracts import (
     CodingAgentOperationReceipt,
     ContractValidationError,
+    ExpertCandidateDerivationKind,
     ExpertCandidateOperationRecord,
     ExpertCandidateEligibilityDecision,
     ExpertCandidateValidationState,
@@ -31,6 +32,13 @@ from kapso.cross_run.contracts import (
     ExpertValidationAttempt,
     ExpertValidationStage,
     StrictContract,
+)
+from kapso.cross_run.expert.candidate_derivations import (
+    ExpertAgentProposalDerivationRecord,
+    ExpertDeterministicCompositionDerivationRecord,
+)
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionMaterialization,
 )
 from kapso.cross_run.expert.validation import (
     ExpertEligibilityResult,
@@ -1032,7 +1040,7 @@ class ExpertValidationStore:
                 transition_authority_invalidation_id=None,
             )
             self._write_contract_unlocked(prepared.candidate_input)
-            self._write_contract_unlocked(prepared.candidate_operation)
+            self._write_automated_review_derivation_unlocked(prepared)
             self._write_contract_unlocked(packet)
             for review_operation in execution.operation_records:
                 self._write_contract_unlocked(review_operation.operation_receipt)
@@ -2573,7 +2581,9 @@ class ExpertValidationStore:
         prepared = PreparedExpertAutomatedReviewPacket(
             packet=supplied.packet,
             candidate_input=supplied.candidate_input,
+            candidate_derivation_record=supplied.candidate_derivation_record,
             candidate_operation=supplied.candidate_operation,
+            composition_materialization=supplied.composition_materialization,
             validation_attempt=supplied.validation_attempt,
             authorization_state=supplied.authorization_state,
             validation_policy=supplied.validation_policy,
@@ -3563,6 +3573,53 @@ class ExpertValidationStore:
                 "source replay result state semantics are inconsistent"
             )
 
+    def _write_automated_review_derivation_unlocked(
+        self,
+        prepared: PreparedExpertAutomatedReviewPacket,
+    ) -> None:
+        self._write_contract_unlocked(prepared.candidate_derivation_record)
+        if prepared.candidate_operation is not None:
+            self._write_contract_unlocked(prepared.candidate_operation)
+        if prepared.composition_materialization is not None:
+            self._write_contract_unlocked(prepared.composition_materialization)
+
+    def _read_automated_review_derivation_unlocked(
+        self,
+        packet: ExpertAutomatedReviewPacket,
+    ) -> tuple[
+        ExpertAgentProposalDerivationRecord
+        | ExpertDeterministicCompositionDerivationRecord,
+        ExpertCandidateOperationRecord | None,
+        ExpertCompositionMaterialization | None,
+    ]:
+        if packet.candidate_derivation_kind is (
+            ExpertCandidateDerivationKind.AGENT_PROPOSAL
+        ):
+            derivation_record = self._read_contract_unlocked(
+                packet.candidate_derivation_ref,
+                ExpertAgentProposalDerivationRecord,
+            )
+            operation = self._read_contract_unlocked(
+                derivation_record.operation_record_id,
+                ExpertCandidateOperationRecord,
+            )
+            return derivation_record, operation, None
+        if packet.candidate_derivation_kind is (
+            ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+        ):
+            derivation_record = self._read_contract_unlocked(
+                packet.candidate_derivation_ref,
+                ExpertDeterministicCompositionDerivationRecord,
+            )
+            materialization = self._read_contract_unlocked(
+                derivation_record.composition_materialization_id,
+                ExpertCompositionMaterialization,
+            )
+            return derivation_record, None, materialization
+        raise ExpertValidationStoreError(
+            "automated review packet uses an unknown candidate derivation"
+        )
+
     def _validate_automated_review_transition_unlocked(
         self,
         *,
@@ -3598,10 +3655,11 @@ class ExpertValidationStore:
             packet.candidate_input_id,
             ExpertCandidateAncestorInput,
         )
-        candidate_operation = self._read_contract_unlocked(
-            packet.proposer_operation_record_id,
-            ExpertCandidateOperationRecord,
-        )
+        (
+            candidate_derivation_record,
+            candidate_operation,
+            composition_materialization,
+        ) = self._read_automated_review_derivation_unlocked(packet)
         accepted_results = tuple(
             self._read_stage_result_unlocked(result_id)
             for result_id in previous_accepted
@@ -3609,7 +3667,9 @@ class ExpertValidationStore:
         prepared = PreparedExpertAutomatedReviewPacket(
             packet=packet,
             candidate_input=candidate_input,
+            candidate_derivation_record=candidate_derivation_record,
             candidate_operation=candidate_operation,
+            composition_materialization=composition_materialization,
             validation_attempt=latest_attempt,
             authorization_state=predecessor_state,
             validation_policy=validation_policy,

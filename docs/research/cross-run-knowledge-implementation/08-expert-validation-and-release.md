@@ -593,6 +593,11 @@ Implemented validation substrate:
   alias. A self-contained candidate source input and the complete ordered accepted
   evidence prefix are rendered without truncation to every configured independent
   reviewer in an empty read-only workspace with no tools or prior-knowledge MCP.
+  The v2 packet dispatches on the candidate derivation: direct proposals retain
+  their real authoring operation, while deterministic compositions retain their
+  materialization, plan, source authorities, and origin-principal union without
+  inventing an outer proposer invocation. Durable replay stores and reopens that
+  same discriminated union.
   The coordinator constructs the configured CLI runner from the authorized
   workspace root and rejects runner, configured-path, prompt-budget, or sealed
   artifact-budget substitution. Deterministic operation identities make paid calls
@@ -710,6 +715,8 @@ ineligible; it is never treated as a skipped or passed stage.
 - [x] Preserve conflicting reviews as disputed; do not overwrite by time.
 - [x] A separate coding-agent/service role reviews each proposal; the proposing
       invocation cannot review its own output or transition state.
+- [x] Review direct proposals and deterministic compositions through their real,
+      mutually exclusive derivation evidence; compositions have no fake proposer.
 - [ ] Supported task-specific improvements remain knowledge/task-adapter candidates,
       never expert core.
 - [ ] Failed or non-dominated candidates stay immutable in the candidate archive;
@@ -775,6 +782,11 @@ observes the identical CURRENT authority again, and reopens the unchanged local
 head before the sealed store CAS. A changed release identity produces the durable
 generalized CURRENT-authority invalidation; same-release metadata movement,
 substitution, denial, or a local-head race fails closed without eligibility.
+For a composed candidate, the denylist projection includes the outer derivation,
+materialization, assessment, and plan plus every direct source candidate, commit,
+validation-context dependency, trigger, operation, receipt, workspace record,
+sanitation report, ancestor closure, and source dependency. Composition therefore
+cannot launder a denied source through a new outer candidate identity.
 
 The authority fence, decision, result, operation, state, and transition are
 content-addressed and journaled atomically. The store independently re-derives the

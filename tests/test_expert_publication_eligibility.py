@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import fields, replace
 from types import SimpleNamespace
 
 import pytest
@@ -8,13 +9,33 @@ import pytest
 import test_expert_release_matrix_reservation as reservation_fixture_module
 from kapso.cross_run.canonical import content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
+    ExpertCandidateCommitRecord,
     ExpertPromotionState,
     ExpertValidationStage,
+)
+from kapso.cross_run.expert.composition import ExpertCompositionReducer
+from kapso.cross_run.expert.composition_base import (
+    build_expert_composition_base_closure,
+)
+from kapso.cross_run.expert.composition_candidate import (
+    project_deterministic_composition_candidate,
+)
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionPlan,
+    expert_composition_configuration_fingerprint,
+)
+from kapso.cross_run.expert.composition_source import (
+    ExpertCompositionSourceResolver,
 )
 from kapso.cross_run.expert.promotion_authority import (
     ExpertPublicationEligibilityCoordinator,
     ExpertPublicationEligibilityError,
+    _candidate_ancestor_security_subject_ids,
+    publication_eligibility_candidate_security_subject_ids,
     publication_eligibility_security_subject_ids,
+)
+from kapso.cross_run.expert.proposal_contract import (
+    mint_expert_candidate_ancestor_input,
 )
 from kapso.cross_run.expert.promotion_decision_contracts import (
     ExpertReleaseMatrixDecisionOutcome,
@@ -33,10 +54,12 @@ from kapso.cross_run.expert.validation_store import (
     ExpertValidationStore,
     ExpertValidationStoreError,
 )
+from kapso.cross_run.expert.store import ExpertCandidateStore, StoredExpertCandidate
 from kapso.cross_run.security_authority_contracts import (
     SecurityDenylistObservation,
 )
 from test_expert_promotion_decision import _settings
+from test_expert_composition_base import _parent_receipt
 from test_expert_promotion_evidence import (
     _SemanticProvider,
     _bootstrap_prepared_with_store,
@@ -138,6 +161,16 @@ def _moved_current(observation, *, release_id=None, head_commit_sha="c" * 40):
             else ()
         ),
     )
+
+
+def _remint(record, **changes):
+    payload = {
+        field.name: getattr(record, field.name)
+        for field in fields(record)
+        if field.name != record.IDENTITY_FIELD
+    }
+    payload.update(changes)
+    return type(record).mint(**payload)
 
 
 def _publish_matrix(
@@ -620,3 +653,201 @@ def test_approved_path_fails_closed_for_substitution_denial_and_local_head_race(
         final_snapshot.transition.accepted_stage_result_record_ids
         == matrix.snapshot.transition.accepted_stage_result_record_ids
     )
+
+
+def test_direct_agent_candidate_security_subjects_remain_exact(terminal_cases):
+    case = terminal_cases.parent_approved
+    candidate_id = case.matrix_commit.snapshot.state.candidate_id
+    stored = case.validation_store.reducer.candidate_store.read(candidate_id)
+    closure = stored.closure
+    manifest = closure.manifest
+    derivation = closure.derivation
+    operation = derivation.operation
+    expected = {
+        manifest.candidate_id,
+        stored.commit_record.commit_record_id,
+        manifest.scope_contract_id,
+        manifest.derivation_ref,
+        manifest.validation_context_ref,
+        manifest.patch_ref,
+        manifest.candidate_tree_ref,
+        manifest.proposed_repository_map_ref,
+        manifest.sanitation_report_id,
+        *manifest.module_contract_refs,
+        *manifest.source_dependency_ids,
+        *manifest.ancestor_candidate_ids,
+        operation.operation_record_id,
+        operation.proposer_authority.authority_id,
+        operation.operation_receipt.operation_receipt_id,
+        operation.workspace_receipt.workspace_receipt_id,
+        operation.workspace_delta_ref,
+        derivation.record.trigger_evidence_packet_id,
+        derivation.record.trigger_decision_id,
+        *derivation.record.source_dependency_ids,
+        *closure.validation_context.stable_dependency_ids,
+        derivation.workspace_delta.workspace_delta_id,
+    }
+
+    assert publication_eligibility_candidate_security_subject_ids(stored) == tuple(
+        sorted(expected)
+    )
+
+
+def test_composition_candidate_security_subjects_cover_outer_and_source_authority(
+    terminal_cases,
+    tmp_path,
+):
+    case = terminal_cases.parent_approved
+    matrix = case.matrix_commit
+    coordinator = case.validation_store._publication_eligibility_coordinator
+    if coordinator is None:
+        coordinator = _coordinator(case).coordinator
+    terminal = coordinator.publish(
+        candidate_id=matrix.snapshot.state.candidate_id,
+        release_matrix_stage_result_id=matrix.stage_result.stage_result_record_id,
+    )
+    source = ExpertCompositionSourceResolver(case.validation_store).resolve(
+        terminal.snapshot.state.candidate_id
+    )
+    source_closure = source.stored_candidate.closure
+    prepared_parent = case.prepared.parent
+    assert prepared_parent is not None
+    parent_release = _remint(
+        prepared_parent.release_manifest,
+        semantic_book_digest=tree_or_blob_digest(
+            prepared_parent.source_contents["EXPERT_REPO.md"]
+        ),
+    )
+    parent_receipt = _parent_receipt(
+        parent_release,
+        source_closure.derivation.trigger_packet.repository_map,
+        source_closure.derivation.trigger_packet.module_contracts,
+        prepared_parent.source_contents,
+        cache_label="publication composition security",
+    )
+    parent_base = build_expert_composition_base_closure(
+        scope_contract=source_closure.derivation.trigger_packet.scope_contract,
+        release_manifest=parent_release,
+        parent_tree_receipt=parent_receipt,
+        repository_map=source_closure.derivation.trigger_packet.repository_map,
+        module_contracts=source_closure.derivation.trigger_packet.module_contracts,
+        source_contents=prepared_parent.source_contents,
+    )
+    expert_settings = case.validation_store.reducer.candidate_store.validator.settings
+    source_reference = source.source_reference
+    authorities = {
+        parent_base.scope_contract.scope_contract_id,
+        parent_base.reference.base_reference_id,
+        *parent_base.reference.stable_authority_ids,
+        source_reference.source_reference_id,
+        *source_reference.stable_authority_ids,
+    }
+    superseded = parent_base.scope_contract.supersedes_scope_contract_id
+    if superseded is not None:
+        authorities.add(superseded)
+    plan = ExpertCompositionPlan.mint(
+        scope_contract=parent_base.scope_contract,
+        current_base=parent_base.reference,
+        sources=(source_reference,),
+        active_task_bindings=(source_closure.validation_context.active_task_bindings),
+        composition_policy_version=expert_settings.composition_policy_version,
+        composition_source_limit=expert_settings.composition_source_limit,
+        candidate_entry_limit=expert_settings.candidate_entry_limit,
+        candidate_byte_limit=expert_settings.candidate_byte_limit,
+        configuration_fingerprint=expert_composition_configuration_fingerprint(
+            composition_policy_version=expert_settings.composition_policy_version,
+            composition_source_limit=expert_settings.composition_source_limit,
+            candidate_entry_limit=expert_settings.candidate_entry_limit,
+            candidate_byte_limit=expert_settings.candidate_byte_limit,
+        ),
+        stable_authority_ids=tuple(sorted(authorities)),
+    )
+    reduction = ExpertCompositionReducer(
+        candidate_entry_limit=expert_settings.candidate_entry_limit,
+        candidate_byte_limit=expert_settings.candidate_byte_limit,
+    ).reduce(
+        plan=plan,
+        current_base=parent_base,
+        sources=(source.reduction_source,),
+    )
+    closure = project_deterministic_composition_candidate(
+        reduction=reduction,
+        current_base=parent_base,
+        approved_sources=(source,),
+        sanitizer=case.validation_store.reducer.candidate_store.validator.sanitizer,
+    )
+    payloads = ExpertCandidateStore._package_files(closure)
+    stored = StoredExpertCandidate(
+        root=tmp_path,
+        closure=closure,
+        commit_record=ExpertCandidateCommitRecord.mint(
+            candidate_id=closure.manifest.candidate_id,
+            file_checksums={
+                path: tree_or_blob_digest(payload) for path, payload in payloads.items()
+            },
+        ),
+    )
+    derivation = closure.derivation
+    provenance = derivation.source_provenance[0]
+    nested_manifest = provenance.candidate_manifest
+    nested_derivation = provenance.agent_derivation
+    nested_operation = nested_derivation.operation
+    expected = {
+        closure.manifest.candidate_id,
+        stored.commit_record.commit_record_id,
+        derivation.record.derivation_id,
+        derivation.record.composition_materialization_id,
+        derivation.materialization.materialization_id,
+        derivation.materialization.composition_assessment.assessment_id,
+        plan.composition_plan_id,
+        nested_manifest.candidate_id,
+        provenance.candidate_commit_record.commit_record_id,
+        nested_manifest.validation_context_ref,
+        nested_manifest.derivation_ref,
+        nested_manifest.sanitation_report_id,
+        nested_derivation.record.trigger_evidence_packet_id,
+        nested_derivation.record.trigger_decision_id,
+        nested_operation.operation_record_id,
+        nested_operation.proposer_authority.authority_id,
+        nested_operation.operation_receipt.operation_receipt_id,
+        nested_operation.workspace_receipt.workspace_receipt_id,
+        nested_derivation.workspace_delta.workspace_delta_id,
+        *nested_manifest.ancestor_candidate_ids,
+        *nested_manifest.source_dependency_ids,
+        *nested_derivation.record.source_dependency_ids,
+    }
+
+    subjects = set(publication_eligibility_candidate_security_subject_ids(stored))
+
+    assert expected.issubset(subjects)
+    assert set(plan.stable_authority_ids).issubset(subjects)
+    assert set(provenance.validation_context.stable_dependency_ids).issubset(subjects)
+    assert provenance.validation_context.parent_release is not None
+    assert set(
+        provenance.validation_context.parent_release.dependency_closure_ids
+    ).issubset(subjects)
+
+    source = provenance.reduction_source
+    retained_ancestor = mint_expert_candidate_ancestor_input(
+        manifest=provenance.candidate_manifest,
+        scope_contract=provenance.validation_context.scope_contract,
+        patch=source.patch,
+        candidate_tree=source.candidate_tree,
+        repository_map=source.repository_map,
+        module_contracts=source.module_contracts,
+        sanitation_report=provenance.sanitation_report,
+        candidate_contents=source.candidate_contents,
+    )
+    ancestor_subjects = _candidate_ancestor_security_subject_ids(retained_ancestor)
+    assert provenance.candidate_manifest.parent_release_id in ancestor_subjects
+    assert provenance.candidate_manifest.parent_repository_map_ref in ancestor_subjects
+    with pytest.raises(
+        ExpertPublicationEligibilityError,
+        match="does not recognize its derivation",
+    ):
+        publication_eligibility_candidate_security_subject_ids(
+            replace(
+                stored,
+                closure=replace(stored.closure, derivation=object()),
+            )
+        )

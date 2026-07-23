@@ -21,6 +21,7 @@ from kapso.cross_run.contracts import (
     CodingAgentOperationReceipt,
     ContractValidationError,
     ExpertAcceptedStageResultRef,
+    ExpertCandidateDerivationKind,
     ExpertReviewDisposition,
     StrictContract,
 )
@@ -29,7 +30,7 @@ from kapso.execution.coding_agents.operation_receipt import (
     verify_coding_agent_operation_artifacts,
 )
 
-EXPERT_AUTOMATED_REVIEW_CONTRACT_VERSION = "kapso.expert_automated_review.v1"
+EXPERT_AUTOMATED_REVIEW_CONTRACT_VERSION = "kapso.expert_automated_review.v2"
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _OPERATION_PREIMAGE_FIELDS = {
     "input_artifact_checksums",
@@ -82,9 +83,10 @@ class ExpertAutomatedReviewPacket(StrictContract):
     candidate_tree_hash: str
     candidate_commit_record_id: str
     candidate_input_id: str
-    proposer_operation_record_id: str
-    trigger_evidence_packet_id: str
-    trigger_decision_id: str
+    candidate_derivation_kind: ExpertCandidateDerivationKind
+    candidate_derivation_ref: str
+    candidate_origin_principal_ids: tuple[str, ...]
+    candidate_derivation_evidence_ids: tuple[str, ...]
     scope_contract_id: str
     parent_release_id: str | None
     validation_policy_id: str
@@ -105,15 +107,50 @@ class ExpertAutomatedReviewPacket(StrictContract):
             (self.candidate_commit_record_id, "review candidate_commit_record_id"),
             (self.candidate_input_id, "review candidate_input_id"),
             (
-                self.proposer_operation_record_id,
-                "review proposer_operation_record_id",
+                self.candidate_derivation_ref,
+                "review candidate_derivation_ref",
             ),
-            (self.trigger_evidence_packet_id, "review trigger_evidence_packet_id"),
-            (self.trigger_decision_id, "review trigger_decision_id"),
             (self.scope_contract_id, "review scope_contract_id"),
             (self.validation_policy_id, "review validation_policy_id"),
         ):
             require_content_id(value, name)
+        if type(self.candidate_derivation_kind) is not ExpertCandidateDerivationKind:
+            raise ContractValidationError("review candidate derivation kind is invalid")
+        expected_derivation_namespace = {
+            ExpertCandidateDerivationKind.AGENT_PROPOSAL: (
+                "expert-agent-proposal-derivation"
+            ),
+            ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION: (
+                "expert-deterministic-composition-derivation"
+            ),
+        }[self.candidate_derivation_kind]
+        if (
+            self.candidate_derivation_ref.split(":sha256:", 1)[0]
+            != expected_derivation_namespace
+        ):
+            raise ContractValidationError(
+                "review candidate derivation uses the wrong namespace"
+            )
+        if (
+            not self.candidate_origin_principal_ids
+            or self.candidate_origin_principal_ids
+            != tuple(sorted(set(self.candidate_origin_principal_ids)))
+        ):
+            raise ContractValidationError(
+                "review candidate origin principals must be canonical and non-empty"
+            )
+        for principal_id in self.candidate_origin_principal_ids:
+            require_identifier(principal_id, "review candidate origin principal")
+        _require_sorted_content_ids(
+            self.candidate_derivation_evidence_ids,
+            "review candidate derivation evidence",
+        )
+        if self.candidate_derivation_ref not in set(
+            self.candidate_derivation_evidence_ids
+        ):
+            raise ContractValidationError(
+                "review derivation evidence omits the candidate derivation"
+            )
         if self.parent_release_id is not None:
             require_content_id(self.parent_release_id, "review parent_release_id")
         _require_digest(self.candidate_tree_hash, "review candidate_tree_hash")
@@ -143,11 +180,10 @@ class ExpertAutomatedReviewPacket(StrictContract):
             self.candidate_id,
             self.candidate_commit_record_id,
             self.candidate_input_id,
-            self.proposer_operation_record_id,
-            self.trigger_evidence_packet_id,
-            self.trigger_decision_id,
+            self.candidate_derivation_ref,
             self.scope_contract_id,
             self.validation_policy_id,
+            *self.candidate_derivation_evidence_ids,
             *(result.stage_result_record_id for result in self.accepted_stage_results),
         }
         if self.parent_release_id is not None:
