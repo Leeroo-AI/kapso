@@ -12,6 +12,8 @@ from kapso.cross_run.process import (
     BoundedProcessOutcome,
     BoundedProcessRequest,
     BoundedProcessRunner,
+    bounded_process_stream_observations_are_canonical,
+    canonicalize_bounded_process_stream_observations,
 )
 
 
@@ -117,6 +119,28 @@ def test_process_enforces_each_stream_limit_independently(
     assert result.outcome is outcome
     assert len(result.stdout) <= stdout_limit
     assert len(result.stderr) <= stderr_limit
+    canonical_stdout, canonical_stderr = (
+        canonicalize_bounded_process_stream_observations(
+            outcome=result.outcome,
+            stdout_bytes_observed=result.stdout_bytes_observed,
+            stderr_bytes_observed=result.stderr_bytes_observed,
+            stdout_byte_limit=stdout_limit,
+            stderr_byte_limit=stderr_limit,
+        )
+    )
+    assert bounded_process_stream_observations_are_canonical(
+        outcome=result.outcome,
+        stdout_bytes_observed=canonical_stdout,
+        stderr_bytes_observed=canonical_stderr,
+        stdout_byte_limit=stdout_limit,
+        stderr_byte_limit=stderr_limit,
+    )
+    if outcome is BoundedProcessOutcome.STDOUT_LIMIT_EXCEEDED:
+        assert result.stdout_bytes_observed > stdout_limit
+        assert canonical_stdout == stdout_limit + 1
+    else:
+        assert result.stderr_bytes_observed > stderr_limit
+        assert canonical_stderr == stderr_limit + 1
 
 
 def test_process_timeout_is_a_typed_terminal_outcome(tmp_path):

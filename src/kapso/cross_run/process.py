@@ -35,6 +35,108 @@ class BoundedProcessOutcome(str, Enum):
     STDERR_LIMIT_EXCEEDED = "stderr_limit_exceeded"
 
 
+def canonicalize_bounded_process_stream_observations(
+    *,
+    outcome: BoundedProcessOutcome,
+    stdout_bytes_observed: int,
+    stderr_bytes_observed: int,
+    stdout_byte_limit: int,
+    stderr_byte_limit: int,
+) -> tuple[int, int]:
+    """Bound a raw stream-limit observation while preserving which limit fired."""
+
+    if not bounded_process_stream_observations_match_outcome(
+        outcome=outcome,
+        stdout_bytes_observed=stdout_bytes_observed,
+        stderr_bytes_observed=stderr_bytes_observed,
+        stdout_byte_limit=stdout_byte_limit,
+        stderr_byte_limit=stderr_byte_limit,
+    ):
+        raise BoundedProcessError(
+            "process stream observations differ from their terminal outcome"
+        )
+    return (
+        (
+            stdout_byte_limit + 1
+            if stdout_bytes_observed > stdout_byte_limit
+            else stdout_bytes_observed
+        ),
+        (
+            stderr_byte_limit + 1
+            if stderr_bytes_observed > stderr_byte_limit
+            else stderr_bytes_observed
+        ),
+    )
+
+
+def bounded_process_stream_observations_match_outcome(
+    *,
+    outcome: BoundedProcessOutcome,
+    stdout_bytes_observed: int,
+    stderr_bytes_observed: int,
+    stdout_byte_limit: int,
+    stderr_byte_limit: int,
+) -> bool:
+    """Check raw observations against the exact outcome emitted by the runner."""
+
+    if (
+        type(outcome) is not BoundedProcessOutcome
+        or type(stdout_bytes_observed) is not int
+        or stdout_bytes_observed < 0
+        or type(stderr_bytes_observed) is not int
+        or stderr_bytes_observed < 0
+        or type(stdout_byte_limit) is not int
+        or stdout_byte_limit <= 0
+        or type(stderr_byte_limit) is not int
+        or stderr_byte_limit <= 0
+    ):
+        return False
+    stdout_exceeded = stdout_bytes_observed > stdout_byte_limit
+    stderr_exceeded = stderr_bytes_observed > stderr_byte_limit
+    return not (
+        stdout_exceeded != (outcome is BoundedProcessOutcome.STDOUT_LIMIT_EXCEEDED)
+        or stderr_exceeded != (outcome is BoundedProcessOutcome.STDERR_LIMIT_EXCEEDED)
+    )
+
+
+def bounded_process_stream_observations_are_canonical(
+    *,
+    outcome: BoundedProcessOutcome,
+    stdout_bytes_observed: int,
+    stderr_bytes_observed: int,
+    stdout_byte_limit: int,
+    stderr_byte_limit: int,
+) -> bool:
+    """Check the exact bounded representation used in durable process records."""
+
+    if (
+        type(outcome) is not BoundedProcessOutcome
+        or type(stdout_bytes_observed) is not int
+        or stdout_bytes_observed < 0
+        or type(stderr_bytes_observed) is not int
+        or stderr_bytes_observed < 0
+        or type(stdout_byte_limit) is not int
+        or stdout_byte_limit <= 0
+        or type(stderr_byte_limit) is not int
+        or stderr_byte_limit <= 0
+    ):
+        return False
+    if outcome is BoundedProcessOutcome.STDOUT_LIMIT_EXCEEDED:
+        return (
+            stdout_bytes_observed == stdout_byte_limit + 1
+            and stderr_bytes_observed <= stderr_byte_limit
+        )
+    if outcome is BoundedProcessOutcome.STDERR_LIMIT_EXCEEDED:
+        return (
+            stderr_bytes_observed == stderr_byte_limit + 1
+            and stdout_bytes_observed <= stdout_byte_limit
+        )
+    return (
+        stdout_bytes_observed <= stdout_byte_limit
+        and stderr_bytes_observed <= stderr_byte_limit
+    )
+
+
 @dataclass(frozen=True)
 class BoundedProcessRequest:
     argv: tuple[str, ...]

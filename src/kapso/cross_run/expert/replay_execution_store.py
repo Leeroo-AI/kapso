@@ -50,7 +50,12 @@ from kapso.cross_run.expert.replay_execution import (
     source_replay_provider_execution_handle,
 )
 from kapso.cross_run.expert.replay_request import PreparedExpertSourceReplayRequest
-from kapso.cross_run.process import BoundedProcessOutcome
+from kapso.cross_run.process import (
+    BoundedProcessOutcome,
+    bounded_process_stream_observations_are_canonical,
+    bounded_process_stream_observations_match_outcome,
+    canonicalize_bounded_process_stream_observations,
+)
 from kapso.cross_run.settings import ExpertValidationPolicySettings
 
 _EXECUTION_JOURNAL_SCHEMA_VERSION = "kapso.source_replay_execution_journal.v2"
@@ -834,8 +839,13 @@ class _SourceReplayReservationSession:
             != compute.termination_grace_seconds
             or process_request.stdout_byte_limit != compute.stdout_byte_limit
             or process_request.stderr_byte_limit != compute.stderr_byte_limit
-            or process_result.stdout_bytes_observed > compute.stdout_byte_limit
-            or process_result.stderr_bytes_observed > compute.stderr_byte_limit
+            or not bounded_process_stream_observations_match_outcome(
+                outcome=process_result.outcome,
+                stdout_bytes_observed=process_result.stdout_bytes_observed,
+                stderr_bytes_observed=process_result.stderr_bytes_observed,
+                stdout_byte_limit=compute.stdout_byte_limit,
+                stderr_byte_limit=compute.stderr_byte_limit,
+            )
             or process_result.stdout_bytes_observed < len(process_result.stdout)
             or process_result.stderr_bytes_observed < len(process_result.stderr)
             or len(process_result.stdout) > compute.stdout_byte_limit
@@ -880,6 +890,18 @@ class _SourceReplayReservationSession:
         provider_completion = completion._consume(self)
         process_result = provider_completion.process_result
         result_payload = provider_completion.result_payload
+        compute = (
+            completion._spawn_permit._resolved_case.materialized_case.request_case.compute_binding
+        )
+        stdout_bytes_observed, stderr_bytes_observed = (
+            canonicalize_bounded_process_stream_observations(
+                outcome=process_result.outcome,
+                stdout_bytes_observed=process_result.stdout_bytes_observed,
+                stderr_bytes_observed=process_result.stderr_bytes_observed,
+                stdout_byte_limit=compute.stdout_byte_limit,
+                stderr_byte_limit=compute.stderr_byte_limit,
+            )
+        )
         self._poison_for_append()
         result_blob = (
             None
@@ -908,8 +930,8 @@ class _SourceReplayReservationSession:
             process_observation=SourceReplayProcessObservation(
                 outcome=process_result.outcome,
                 returncode=process_result.returncode,
-                stdout_bytes_observed=process_result.stdout_bytes_observed,
-                stderr_bytes_observed=process_result.stderr_bytes_observed,
+                stdout_bytes_observed=stdout_bytes_observed,
+                stderr_bytes_observed=stderr_bytes_observed,
                 duration_seconds=process_result.duration_seconds,
             ),
             result_blob=result_blob,
@@ -1459,16 +1481,20 @@ class ExpertSourceReplayExecutionStore:
                     for case in request.cases
                     if case.execution_case_id == expected_case_id
                 )
-                if (
-                    event.process_observation.stdout_bytes_observed
-                    > request_case.compute_binding.stdout_byte_limit
-                    or event.process_observation.stderr_bytes_observed
-                    > request_case.compute_binding.stderr_byte_limit
-                    or (
-                        event.result_blob is not None
-                        and event.result_blob.size
-                        > request_case.compute_binding.output_byte_limit
-                    )
+                if not bounded_process_stream_observations_are_canonical(
+                    outcome=event.process_observation.outcome,
+                    stdout_bytes_observed=(
+                        event.process_observation.stdout_bytes_observed
+                    ),
+                    stderr_bytes_observed=(
+                        event.process_observation.stderr_bytes_observed
+                    ),
+                    stdout_byte_limit=(request_case.compute_binding.stdout_byte_limit),
+                    stderr_byte_limit=(request_case.compute_binding.stderr_byte_limit),
+                ) or (
+                    event.result_blob is not None
+                    and event.result_blob.size
+                    > request_case.compute_binding.output_byte_limit
                 ):
                     raise ExecutionJournalStoreError(
                         "execution journal result exceeds its persisted compute bounds"

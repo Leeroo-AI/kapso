@@ -43,7 +43,10 @@ from kapso.cross_run.expert.task_evaluator_protocol import (
     TaskEvaluatorResult,
     parse_task_evaluator_result,
 )
-from kapso.cross_run.process import BoundedProcessOutcome
+from kapso.cross_run.process import (
+    BoundedProcessOutcome,
+    bounded_process_stream_observations_are_canonical,
+)
 
 TASK_EVALUATION_EXECUTION_JOURNAL_SCHEMA_VERSION = (
     "kapso.task_evaluation_execution_journal.v1"
@@ -538,14 +541,16 @@ def _validate_received_event(
     maximum_result_size_bytes: int,
 ) -> None:
     observation = event.process_observation
-    if (
-        observation.stdout_bytes_observed > compute.stdout_byte_limit
-        or observation.stderr_bytes_observed > compute.stderr_byte_limit
-        or (
-            event.result_blob is not None
-            and event.result_blob.size
-            > min(compute.output_byte_limit, maximum_result_size_bytes)
-        )
+    if not bounded_process_stream_observations_are_canonical(
+        outcome=observation.outcome,
+        stdout_bytes_observed=observation.stdout_bytes_observed,
+        stderr_bytes_observed=observation.stderr_bytes_observed,
+        stdout_byte_limit=compute.stdout_byte_limit,
+        stderr_byte_limit=compute.stderr_byte_limit,
+    ) or (
+        event.result_blob is not None
+        and event.result_blob.size
+        > min(compute.output_byte_limit, maximum_result_size_bytes)
     ):
         raise TaskEvaluationExecutionJournalError(
             "task evaluation result exceeds persisted compute bounds"

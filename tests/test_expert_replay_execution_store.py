@@ -954,6 +954,81 @@ def test_technical_completion_is_durable_and_cannot_advance(tmp_path):
             session.allocate_expected_leg()
 
 
+@pytest.mark.parametrize(
+    ("outcome", "observation_field", "limit_field"),
+    (
+        (
+            BoundedProcessOutcome.STDOUT_LIMIT_EXCEEDED,
+            "stdout_bytes_observed",
+            "stdout_byte_limit",
+        ),
+        (
+            BoundedProcessOutcome.STDERR_LIMIT_EXCEEDED,
+            "stderr_bytes_observed",
+            "stderr_byte_limit",
+        ),
+    ),
+)
+def test_stream_limit_completion_is_saturated_durable_and_terminal(
+    tmp_path,
+    outcome,
+    observation_field,
+    limit_field,
+):
+    fixture, prepared, reservation, store = _journal_fixture(tmp_path)
+    compute = prepared.request.cases[0].compute_binding
+    stdout_bytes_observed = (
+        compute.stdout_byte_limit + 17
+        if outcome is BoundedProcessOutcome.STDOUT_LIMIT_EXCEEDED
+        else 0
+    )
+    stderr_bytes_observed = (
+        compute.stderr_byte_limit + 17
+        if outcome is BoundedProcessOutcome.STDERR_LIMIT_EXCEEDED
+        else 0
+    )
+    with store.reservation_session(
+        reservation=reservation,
+        prepared_request=prepared,
+    ) as session:
+        provider = _MatchedLegProvider(
+            fixture.validation_store.root,
+            expert_source_replay_execution_provider_key(prepared.cases[0]),
+            outcome=outcome,
+            returncode=-15,
+            result_payload=None,
+            stdout_bytes_observed=stdout_bytes_observed,
+            stderr_bytes_observed=stderr_bytes_observed,
+        )
+        execution, _provider = _commit_spawn(
+            fixture,
+            prepared,
+            reservation,
+            store,
+            session.allocate_expected_leg(),
+            provider,
+        )
+        received = session.record_result_received(execution.execute())
+
+    assert received.result_blob is None
+    assert received.process_observation.outcome is outcome
+    assert getattr(received.process_observation, observation_field) == (
+        getattr(compute, limit_field) + 1
+    )
+    recovered_store = ExpertSourceReplayExecutionStore(
+        store.root,
+        store.trusted_root,
+        prepared.settings.policy,
+    )
+    with recovered_store.reservation_session(
+        reservation=reservation,
+        prepared_request=prepared,
+    ) as recovered:
+        assert recovered.events[-1] == received
+        with pytest.raises(ExecutionJournalStoreError, match="no acceptable result"):
+            recovered.accept_received_result()
+
+
 def test_result_and_process_observation_bounds_consume_the_spawn(tmp_path):
     fixture, prepared, reservation, store = _journal_fixture(tmp_path)
     with store.reservation_session(

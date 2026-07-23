@@ -527,6 +527,26 @@ Implemented validation substrate:
   flock ownership. Source replay retains its own schedule, event reducer, permits,
   and completed capability; no generic callback state machine or legacy store
   error/result-blob alias remains; and
+- task evaluation now has a concrete task-specific store on that filesystem.
+  It owns the exact case-scoped schedule, same-nonce allocation restart,
+  coordinator-sealed spawn append, one-shot provider capability, sealed-completion-
+  only result admission, deterministic received-result acceptance, cleanup-only
+  interrupted spawns, and store/process/live-lock-bound completed proof. The exact
+  registry alone resolves `(case_id, leg_id)`, constructs the provenance-erased
+  invocation under its private seal, checks provider identity before and after one
+  call, and requires the exact completion handle. Every append is validated by the
+  pure reducer before publication and poisons its session across an uncertain
+  create-only response. Both task evaluation and source replay validate raw
+  stream-limit counts against the exact runner outcome, then persist only the
+  canonical `limit + 1` sentinel for the triggering stream; offline replay
+  requires that exact bounded representation; and
+- fresh task-evaluation spawn authority is one non-splittable
+  `R0 → C0 → adapters → denylist → C1 → R1 → spawn` operation. `R0`
+  must equal the live allocation's complete reservation snapshot, every distinct
+  prepared adapter is reverified once in canonical order, `C1` must equal `C0` in
+  full, and `R1` must equal `R0`. The coordinator exposes neither the fence nor a
+  provider selection and returns a spawn permit only after the store fsyncs the
+  at-most-once marker; and
 - a complete journal can mint only one deterministic store/process-bound completed
   capability, from which the factual reducer produces a canonical paired receipt
   with semantic control/candidate assignment, adapter-declared dimension/scale,
