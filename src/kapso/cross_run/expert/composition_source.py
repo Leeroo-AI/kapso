@@ -8,6 +8,7 @@ from types import MappingProxyType
 
 from kapso.cross_run.canonical import require_content_id, tree_or_blob_digest
 from kapso.cross_run.contracts import (
+    ExpertCandidateDerivationKind,
     ExpertCandidateValidationState,
     ExpertPromotionState,
     ExpertValidationAttempt,
@@ -15,6 +16,9 @@ from kapso.cross_run.contracts import (
 )
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionSourceReference,
+)
+from kapso.cross_run.expert.composition import (
+    ExpertCompositionReductionSource,
 )
 from kapso.cross_run.expert.promotion_authority_contracts import (
     ExpertPublicationEligibilityStageResultRecord,
@@ -66,6 +70,10 @@ def project_expert_composition_source_reference(
             "composition source projection requires one stored candidate"
         )
     manifest = stored_candidate.closure.manifest
+    if manifest.derivation_kind is not ExpertCandidateDerivationKind.AGENT_PROPOSAL:
+        raise ExpertCompositionSourceError(
+            "composition sources must be direct agent proposals"
+        )
     if manifest.parent_release_id is None or manifest.parent_repository_map_ref is None:
         raise ExpertCompositionSourceError(
             "bootstrap candidate cannot be a composition source"
@@ -99,6 +107,8 @@ def project_expert_composition_source_reference(
                 manifest.candidate_id,
                 stored_candidate.commit_record.commit_record_id,
                 manifest.scope_contract_id,
+                manifest.derivation_ref,
+                manifest.validation_context_ref,
                 manifest.parent_release_id,
                 manifest.parent_repository_map_ref,
                 patch.patch_id,
@@ -112,6 +122,10 @@ def project_expert_composition_source_reference(
         candidate_commit_record_id=(stored_candidate.commit_record.commit_record_id),
         scope_contract_id=manifest.scope_contract_id,
         change_kind=manifest.change_kind,
+        derivation_kind=manifest.derivation_kind,
+        derivation_ref=manifest.derivation_ref,
+        validation_context_ref=manifest.validation_context_ref,
+        origin_principal_ids=stored_candidate.closure.origin_principal_ids,
         parent_release_id=manifest.parent_release_id,
         parent_repository_map_id=manifest.parent_repository_map_ref,
         parent_tree_hash=manifest.parent_tree_hash,
@@ -229,6 +243,20 @@ class ApprovedExpertCompositionSource:
     def security_subject_ids(self) -> tuple[str, ...]:
         self._require_owner_process()
         return self._security_subject_ids
+
+    @property
+    def reduction_source(self) -> ExpertCompositionReductionSource:
+        self._require_owner_process()
+        closure = self._stored_candidate.closure
+        return ExpertCompositionReductionSource(
+            source_reference=self._source_reference,
+            validation_context=closure.validation_context,
+            patch=closure.patch,
+            candidate_tree=closure.candidate_tree,
+            repository_map=closure.repository_map,
+            module_contracts=closure.module_contracts,
+            candidate_contents=closure.candidate_contents,
+        )
 
     def _require_owner_process(self) -> None:
         if self._owner_process_id != os.getpid():

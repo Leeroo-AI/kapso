@@ -23,6 +23,7 @@ from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionConflictKind,
     ExpertCompositionDisposition,
     ExpertCompositionPlan,
+    expert_composition_configuration_fingerprint,
 )
 from kapso.cross_run.expert.composition_source import (
     ExpertCompositionSourceResolver,
@@ -72,12 +73,24 @@ def _plan(current_base, sources):
     superseded = current_base.scope_contract.supersedes_scope_contract_id
     if superseded is not None:
         authorities.add(superseded)
+    expert_settings = sources[0]._resolver.candidate_store.validator.settings
     return ExpertCompositionPlan.mint(
         scope_contract=current_base.scope_contract,
         current_base=current_base.reference,
         sources=source_references,
-        composition_policy_version="kapso.expert_composition.v1",
-        configuration_fingerprint=_digest("composition reducer test settings"),
+        active_task_bindings=(
+            sources[0].stored_candidate.closure.validation_context.active_task_bindings
+        ),
+        composition_policy_version=expert_settings.composition_policy_version,
+        composition_source_limit=expert_settings.composition_source_limit,
+        candidate_entry_limit=expert_settings.candidate_entry_limit,
+        candidate_byte_limit=expert_settings.candidate_byte_limit,
+        configuration_fingerprint=expert_composition_configuration_fingerprint(
+            composition_policy_version=expert_settings.composition_policy_version,
+            composition_source_limit=expert_settings.composition_source_limit,
+            candidate_entry_limit=expert_settings.candidate_entry_limit,
+            candidate_byte_limit=expert_settings.candidate_byte_limit,
+        ),
         stable_authority_ids=tuple(sorted(authorities)),
     )
 
@@ -182,7 +195,7 @@ def test_clean_reduction_recreates_exact_candidate_without_merging_controls(
     reduction = case.reducer.reduce(
         plan=plan,
         current_base=case.parent_base,
-        approved_sources=(case.source,),
+        sources=(case.source.reduction_source,),
     )
     closure = case.source.stored_candidate.closure
 
@@ -212,7 +225,7 @@ def test_exact_installed_candidate_is_already_present_and_has_no_materialization
     reduction = case.reducer.reduce(
         plan=plan,
         current_base=installed_base,
-        approved_sources=(case.source,),
+        sources=(case.source.reduction_source,),
     )
 
     assert (
@@ -251,7 +264,7 @@ def test_partially_present_source_applies_only_missing_module_effect(reducer_cas
     reduction = case.reducer.reduce(
         plan=plan,
         current_base=partially_installed_base,
-        approved_sources=(case.source,),
+        sources=(case.source.reduction_source,),
     )
 
     assert reduction.assessment.disposition is ExpertCompositionDisposition.CLEAN
@@ -290,7 +303,7 @@ def test_third_current_path_value_conflicts_without_partial_materialization(
     reduction = case.reducer.reduce(
         plan=plan,
         current_base=divergent_base,
-        approved_sources=(case.source,),
+        sources=(case.source.reduction_source,),
     )
 
     assert reduction.assessment.disposition is ExpertCompositionDisposition.CONFLICTED
@@ -318,7 +331,7 @@ def test_aggregate_candidate_limit_is_a_closed_conflict(reducer_case):
     reduction = reducer.reduce(
         plan=plan,
         current_base=case.parent_base,
-        approved_sources=(case.source,),
+        sources=(case.source.reduction_source,),
     )
 
     assert reduction.assessment.disposition is ExpertCompositionDisposition.CONFLICTED
@@ -344,7 +357,7 @@ def test_runtime_closure_must_equal_the_plan(reducer_case):
         case.reducer.reduce(
             plan=plan,
             current_base=case.parent_base,
-            approved_sources=(case.source,),
+            sources=(case.source.reduction_source,),
         )
 
 

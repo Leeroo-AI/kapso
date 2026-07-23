@@ -14,10 +14,22 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     CodingAgentWorkspaceDelta,
+    ExpertCandidateCommitRecord,
+    ExpertCandidateDerivationKind,
+    ExpertCandidateManifest,
     ExpertCandidateOperationRecord,
+    ExpertCandidateSanitationReport,
+    SourceFileDescriptor,
     StrictContract,
 )
+from kapso.cross_run.expert.candidate_context import (
+    ExpertCandidateValidationContext,
+)
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionMaterialization,
+)
+from kapso.cross_run.expert.composition import ExpertCompositionReductionSource
 from kapso.cross_run.expert.triggers import (
     ExpertEvolutionTriggerDecision,
     ExpertTriggerEvidencePacket,
@@ -26,6 +38,17 @@ from kapso.cross_run.expert.triggers import (
 
 class ExpertCandidateDerivationError(ValueError):
     """Candidate derivation provenance is incomplete or inconsistent."""
+
+
+CANDIDATE_MANIFEST_PACKAGE_PATH = "candidate.json"
+CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH = "validation-context.json"
+AGENT_DERIVATION_RECORD_PACKAGE_PATH = "derivations/agent/derivation.json"
+COMPOSITION_DERIVATION_RECORD_PACKAGE_PATH = "derivations/composition/derivation.json"
+CANDIDATE_PATCH_PACKAGE_PATH = "patch.json"
+CANDIDATE_SOURCE_TREE_PACKAGE_PATH = "source-tree.json"
+CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH = "repository-map.json"
+CANDIDATE_MODULE_PACKAGE_ROOT = "module-contracts"
+CANDIDATE_SOURCE_PACKAGE_ROOT = "source"
 
 
 def _require_namespaced_id(value: str, namespace: str, name: str) -> None:
@@ -166,3 +189,329 @@ class ExpertAgentProposalDerivation:
             raise ExpertCandidateDerivationError(
                 "agent proposal derivation record differs from its exact closure"
             )
+
+
+@dataclass(frozen=True)
+class ExpertDeterministicCompositionDerivationRecord(StrictContract):
+    """Stable provenance of one mechanically composed candidate."""
+
+    derivation_id: str
+    composition_materialization_id: str
+    source_validation_context_ids: Mapping[str, str]
+    source_origin_principal_ids: Mapping[str, tuple[str, ...]]
+    source_dependency_ids: tuple[str, ...]
+
+    CONTENT_NAMESPACE: ClassVar[str] = "expert-deterministic-composition-derivation"
+    IDENTITY_FIELD: ClassVar[str] = "derivation_id"
+
+    def _validate(self) -> None:
+        object.__setattr__(
+            self,
+            "source_validation_context_ids",
+            MappingProxyType(dict(self.source_validation_context_ids)),
+        )
+        object.__setattr__(
+            self,
+            "source_origin_principal_ids",
+            MappingProxyType(dict(self.source_origin_principal_ids)),
+        )
+        _require_namespaced_id(
+            self.composition_materialization_id,
+            "expert-composition-materialization",
+            "composition derivation materialization",
+        )
+        validation_context_keys = tuple(sorted(self.source_validation_context_ids))
+        origin_keys = tuple(sorted(self.source_origin_principal_ids))
+        if not validation_context_keys or validation_context_keys != origin_keys:
+            raise ExpertCandidateDerivationError(
+                "composition derivation source provenance keys must be exact"
+            )
+        for candidate_id in validation_context_keys:
+            _require_namespaced_id(
+                candidate_id,
+                "expert-candidate",
+                "composition derivation source candidate",
+            )
+            _require_namespaced_id(
+                self.source_validation_context_ids[candidate_id],
+                "expert-candidate-validation-context",
+                "composition derivation source validation context",
+            )
+            principal_ids = self.source_origin_principal_ids[candidate_id]
+            if not principal_ids or principal_ids != tuple(sorted(set(principal_ids))):
+                raise ExpertCandidateDerivationError(
+                    "composition derivation source principals must be canonical "
+                    "and non-empty"
+                )
+            for principal_id in principal_ids:
+                require_identifier(
+                    principal_id,
+                    "composition derivation source principal",
+                )
+        if not self.source_dependency_ids or self.source_dependency_ids != tuple(
+            sorted(set(self.source_dependency_ids))
+        ):
+            raise ExpertCandidateDerivationError(
+                "composition derivation source dependencies must be canonical "
+                "and non-empty"
+            )
+        for dependency_id in self.source_dependency_ids:
+            require_content_id(
+                dependency_id,
+                "composition derivation source dependency",
+            )
+
+    @property
+    def ancestor_candidate_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self.source_validation_context_ids))
+
+    @property
+    def origin_principal_ids(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    principal_id
+                    for principal_ids in self.source_origin_principal_ids.values()
+                    for principal_id in principal_ids
+                }
+            )
+        )
+
+
+@dataclass(frozen=True)
+class ExpertCompositionSourceProvenance:
+    """Commit-authenticated stable records retained for one composition source."""
+
+    candidate_manifest: ExpertCandidateManifest
+    candidate_commit_record: ExpertCandidateCommitRecord
+    validation_context: ExpertCandidateValidationContext
+    reduction_source: ExpertCompositionReductionSource
+    parent_files: tuple[SourceFileDescriptor, ...]
+    agent_derivation: ExpertAgentProposalDerivation
+    sanitation_report: ExpertCandidateSanitationReport
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.candidate_manifest) is not ExpertCandidateManifest
+            or type(self.candidate_commit_record) is not ExpertCandidateCommitRecord
+            or type(self.validation_context) is not ExpertCandidateValidationContext
+            or type(self.reduction_source) is not ExpertCompositionReductionSource
+            or type(self.parent_files) is not tuple
+            or any(
+                type(descriptor) is not SourceFileDescriptor
+                for descriptor in self.parent_files
+            )
+            or type(self.agent_derivation) is not ExpertAgentProposalDerivation
+            or type(self.sanitation_report) is not ExpertCandidateSanitationReport
+        ):
+            raise ExpertCandidateDerivationError(
+                "composition source provenance requires exact agent records"
+            )
+        manifest = self.candidate_manifest
+        commit = self.candidate_commit_record
+        reduction_source = self.reduction_source
+        required_checksums = {
+            CANDIDATE_MANIFEST_PACKAGE_PATH: tree_or_blob_digest(
+                manifest.to_json_bytes()
+            ),
+            CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH: tree_or_blob_digest(
+                self.validation_context.to_json_bytes()
+            ),
+            AGENT_DERIVATION_RECORD_PACKAGE_PATH: tree_or_blob_digest(
+                self.agent_derivation.record.to_json_bytes()
+            ),
+            CANDIDATE_PATCH_PACKAGE_PATH: tree_or_blob_digest(
+                reduction_source.patch.to_json_bytes()
+            ),
+            CANDIDATE_SOURCE_TREE_PACKAGE_PATH: tree_or_blob_digest(
+                reduction_source.candidate_tree.to_json_bytes()
+            ),
+            CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH: tree_or_blob_digest(
+                reduction_source.repository_map.to_json_bytes()
+            ),
+            **{
+                f"{CANDIDATE_MODULE_PACKAGE_ROOT}/"
+                f"{module.module_contract_id.rsplit(':', 1)[1]}.json": (
+                    tree_or_blob_digest(module.to_json_bytes())
+                )
+                for module in reduction_source.module_contracts
+            },
+            **{
+                f"{CANDIDATE_SOURCE_PACKAGE_ROOT}/{path}": tree_or_blob_digest(payload)
+                for path, payload in reduction_source.candidate_contents.items()
+            },
+        }
+        if (
+            commit.candidate_id != manifest.candidate_id
+            or manifest.validation_context_ref
+            != self.validation_context.validation_context_id
+            or manifest.derivation_kind
+            is not ExpertCandidateDerivationKind.AGENT_PROPOSAL
+            or manifest.derivation_ref != self.agent_derivation.record.derivation_id
+            or self.agent_derivation.record.origin_principal_ids
+            != self.reduction_source.source_reference.origin_principal_ids
+            or self.reduction_source.validation_context != self.validation_context
+            or self.reduction_source.source_reference.validation_context_ref
+            != self.validation_context.validation_context_id
+            or manifest.sanitation_report_id
+            != self.sanitation_report.sanitation_report_id
+            or reduction_source.source_reference.candidate_id != manifest.candidate_id
+            or reduction_source.source_reference.change_kind is not manifest.change_kind
+            or reduction_source.source_reference.derivation_ref
+            != manifest.derivation_ref
+            or reduction_source.source_reference.validation_context_ref
+            != manifest.validation_context_ref
+            or reduction_source.source_reference.origin_principal_ids
+            != self.derivation_record.origin_principal_ids
+            or reduction_source.source_reference.candidate_configuration_fingerprint
+            != manifest.configuration_fingerprint
+            or reduction_source.source_reference.parent_release_id
+            != manifest.parent_release_id
+            or reduction_source.source_reference.parent_repository_map_id
+            != manifest.parent_repository_map_ref
+            or reduction_source.source_reference.parent_tree_hash
+            != manifest.parent_tree_hash
+            or reduction_source.source_reference.candidate_tree_hash
+            != manifest.candidate_tree_hash
+            or reduction_source.candidate_tree.source_tree_manifest_id
+            != manifest.candidate_tree_ref
+            or reduction_source.source_reference.patch_id != manifest.patch_ref
+            or reduction_source.source_reference.patch_digest != manifest.patch_digest
+            or reduction_source.source_reference.proposed_repository_map_id
+            != manifest.proposed_repository_map_ref
+            or reduction_source.source_reference.module_contract_ids
+            != manifest.module_contract_refs
+            or any(
+                commit.file_checksums.get(path) != digest
+                for path, digest in required_checksums.items()
+            )
+        ):
+            raise ExpertCandidateDerivationError(
+                "composition source provenance differs from its candidate commit"
+            )
+
+    @property
+    def candidate_id(self) -> str:
+        return self.candidate_manifest.candidate_id
+
+    @property
+    def origin_principal_ids(self) -> tuple[str, ...]:
+        return self.agent_derivation.record.origin_principal_ids
+
+    @property
+    def derivation_record(self) -> ExpertAgentProposalDerivationRecord:
+        return self.agent_derivation.record
+
+
+@dataclass(frozen=True)
+class ExpertDeterministicCompositionDerivation:
+    """Runtime closure for one deterministic composition derivation."""
+
+    record: ExpertDeterministicCompositionDerivationRecord
+    materialization: ExpertCompositionMaterialization
+    source_provenance: tuple[ExpertCompositionSourceProvenance, ...]
+    parent_contents: Mapping[str, bytes]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.record) is not ExpertDeterministicCompositionDerivationRecord
+            or type(self.materialization) is not ExpertCompositionMaterialization
+            or type(self.source_provenance) is not tuple
+            or any(
+                type(provenance) is not ExpertCompositionSourceProvenance
+                for provenance in self.source_provenance
+            )
+            or not isinstance(self.parent_contents, Mapping)
+        ):
+            raise ExpertCandidateDerivationError(
+                "composition derivation requires exact typed authorities"
+            )
+        frozen_parent_contents = MappingProxyType(dict(self.parent_contents))
+        object.__setattr__(self, "parent_contents", frozen_parent_contents)
+        parent_descriptors = {
+            descriptor.relative_path: descriptor
+            for descriptor in self.materialization.parent_tree.files
+        }
+        if set(frozen_parent_contents) != set(parent_descriptors):
+            raise ExpertCandidateDerivationError(
+                "composition derivation parent bytes differ from its tree closure"
+            )
+        for path, descriptor in parent_descriptors.items():
+            payload = frozen_parent_contents[path]
+            if (
+                type(payload) is not bytes
+                or len(payload) != descriptor.size
+                or tree_or_blob_digest(payload) != descriptor.digest
+            ):
+                raise ExpertCandidateDerivationError(
+                    f"composition derivation parent bytes differ: {path}"
+                )
+        plan = self.materialization.composition_assessment.composition_plan
+        source_candidate_ids = tuple(source.candidate_id for source in plan.sources)
+        provenance_candidate_ids = tuple(
+            provenance.candidate_id for provenance in self.source_provenance
+        )
+        source_context_ids = {
+            provenance.candidate_id: provenance.validation_context.validation_context_id
+            for provenance in self.source_provenance
+        }
+        source_origin_principal_ids = {
+            provenance.candidate_id: provenance.origin_principal_ids
+            for provenance in self.source_provenance
+        }
+        source_commit_ids = {
+            provenance.candidate_id: provenance.candidate_commit_record.commit_record_id
+            for provenance in self.source_provenance
+        }
+        planned_commit_ids = {
+            source.candidate_id: source.candidate_commit_record_id
+            for source in plan.sources
+        }
+        provenance_by_candidate = {
+            provenance.candidate_id: provenance for provenance in self.source_provenance
+        }
+        source_references_match = all(
+            source.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL
+            and source.derivation_ref
+            == provenance_by_candidate[
+                source.candidate_id
+            ].derivation_record.derivation_id
+            and source.validation_context_ref
+            == provenance_by_candidate[
+                source.candidate_id
+            ].validation_context.validation_context_id
+            and source.origin_principal_ids
+            == provenance_by_candidate[source.candidate_id].origin_principal_ids
+            for source in plan.sources
+        )
+        expected_dependencies = {
+            plan.composition_plan_id,
+            *plan.stable_authority_ids,
+            *self.record.source_validation_context_ids.values(),
+        }
+        if (
+            self.record.composition_materialization_id
+            != self.materialization.materialization_id
+            or provenance_candidate_ids != source_candidate_ids
+            or tuple(sorted(self.record.source_validation_context_ids))
+            != source_candidate_ids
+            or tuple(sorted(self.record.source_origin_principal_ids))
+            != source_candidate_ids
+            or dict(self.record.source_validation_context_ids) != source_context_ids
+            or dict(self.record.source_origin_principal_ids)
+            != source_origin_principal_ids
+            or source_commit_ids != planned_commit_ids
+            or not source_references_match
+            or set(self.record.source_dependency_ids) != expected_dependencies
+        ):
+            raise ExpertCandidateDerivationError(
+                "composition derivation record differs from its exact materialization"
+            )
+
+
+ExpertCandidateDerivationRecord = (
+    ExpertAgentProposalDerivationRecord | ExpertDeterministicCompositionDerivationRecord
+)
+ExpertCandidateDerivation = (
+    ExpertAgentProposalDerivation | ExpertDeterministicCompositionDerivation
+)

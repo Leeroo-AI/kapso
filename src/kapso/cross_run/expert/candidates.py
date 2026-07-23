@@ -43,10 +43,24 @@ from kapso.cross_run.expert.book import (
 )
 from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
+    compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
+)
+from kapso.cross_run.expert.candidate_package import (
+    direct_agent_candidate_package_files,
 )
 from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
+    ExpertCandidateDerivation,
+    ExpertCompositionSourceProvenance,
+    ExpertDeterministicCompositionDerivation,
+)
+from kapso.cross_run.expert.composition import ExpertCompositionReducer
+from kapso.cross_run.expert.composition_base import (
+    build_expert_composition_base_closure,
+)
+from kapso.cross_run.expert.composition_contracts import (
+    expert_composition_configuration_fingerprint,
 )
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.proposal_contract import (
@@ -96,7 +110,7 @@ class ExpertCandidateClosure:
     parent_files: tuple[SourceFileDescriptor, ...]
     repository_map: ExpertRepositoryMap
     module_contracts: tuple[ExpertModuleContract, ...]
-    derivation: ExpertAgentProposalDerivation
+    derivation: ExpertCandidateDerivation
     sanitation_report: ExpertCandidateSanitationReport
     candidate_contents: Mapping[str, bytes]
 
@@ -108,13 +122,43 @@ class ExpertCandidateClosure:
     def validation_track(self) -> ExpertValidationTrack:
         if self.manifest.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
             return ExpertValidationTrack.REPOSITORY_ARCHITECTURE
-        if self.derivation.trigger_decision.reason_code == "mechanically_general_fix":
+        if (
+            type(self.derivation) is ExpertAgentProposalDerivation
+            and self.derivation.trigger_decision.reason_code
+            == "mechanically_general_fix"
+        ):
             return ExpertValidationTrack.MECHANICAL_GENERAL_FIX
         return ExpertValidationTrack.BEHAVIORAL_CAPABILITY
 
     @property
     def ancestor_inputs(self) -> tuple[ExpertCandidateAncestorInput, ...]:
-        return self.derivation.ancestor_inputs
+        if type(self.derivation) is ExpertAgentProposalDerivation:
+            return self.derivation.ancestor_inputs
+        return ()
+
+
+def composition_source_candidate_closure(
+    provenance: ExpertCompositionSourceProvenance,
+) -> ExpertCandidateClosure:
+    """Reconstruct one complete direct-agent source from composed provenance."""
+
+    if type(provenance) is not ExpertCompositionSourceProvenance:
+        raise ExpertCandidateValidationError(
+            "composition source reconstruction requires exact provenance"
+        )
+    source = provenance.reduction_source
+    return ExpertCandidateClosure(
+        manifest=provenance.candidate_manifest,
+        validation_context=provenance.validation_context,
+        patch=source.patch,
+        candidate_tree=source.candidate_tree,
+        parent_files=provenance.parent_files,
+        repository_map=source.repository_map,
+        module_contracts=source.module_contracts,
+        derivation=provenance.agent_derivation,
+        sanitation_report=provenance.sanitation_report,
+        candidate_contents=source.candidate_contents,
+    )
 
 
 class ExpertCandidateValidator:
@@ -140,15 +184,25 @@ class ExpertCandidateValidator:
         *,
         require_active_authority: bool,
     ) -> bytes:
-        self._validate_trigger_and_parent(closure)
-        candidate_files = self._validate_candidate_tree(closure)
-        parent_files = self._validate_parent_tree(closure)
-        prior_knowledge = self._validate_operation(
+        self._validate_derivation_and_parent(
             closure,
             require_active_authority=require_active_authority,
         )
-        self._validate_source_dependencies(closure, prior_knowledge)
-        self._validate_operation_tree_delta(closure, parent_files, candidate_files)
+        candidate_files = self._validate_candidate_tree(closure)
+        parent_files = self._validate_parent_tree(closure)
+        if type(closure.derivation) is ExpertAgentProposalDerivation:
+            prior_knowledge = self._validate_operation(
+                closure,
+                require_active_authority=require_active_authority,
+            )
+            self._validate_agent_source_dependencies(closure, prior_knowledge)
+            self._validate_operation_tree_delta(
+                closure,
+                parent_files,
+                candidate_files,
+            )
+        else:
+            self._validate_composition_derivation(closure)
         self._validate_patch(closure, parent_files, candidate_files)
         self._validate_sanitation(closure)
         modules = self._validate_topology(closure, candidate_files)
@@ -157,13 +211,28 @@ class ExpertCandidateValidator:
         book = self._validate_control_files_and_book(closure, modules)
         return book
 
+    def _validate_derivation_and_parent(
+        self,
+        closure: ExpertCandidateClosure,
+        *,
+        require_active_authority: bool,
+    ) -> None:
+        if type(closure.derivation) is ExpertAgentProposalDerivation:
+            self._validate_trigger_and_parent(closure)
+            return
+        if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
+            self._validate_composition_parent(
+                closure,
+                require_active_authority=require_active_authority,
+            )
+            return
+        raise ExpertCandidateValidationError(
+            "candidate uses an unsupported derivation type"
+        )
+
     def _validate_trigger_and_parent(self, closure: ExpertCandidateClosure) -> None:
         manifest = closure.manifest
         derivation = closure.derivation
-        if type(derivation) is not ExpertAgentProposalDerivation:
-            raise ExpertCandidateValidationError(
-                "candidate uses an unsupported derivation type"
-            )
         packet = derivation.trigger_packet
         decision = derivation.trigger_decision
         expected_decision = ExpertTriggerEvaluator(self.settings.triggers).evaluate(
@@ -405,7 +474,7 @@ class ExpertCandidateValidator:
         return verified.prior_knowledge
 
     @staticmethod
-    def _validate_source_dependencies(
+    def _validate_agent_source_dependencies(
         closure: ExpertCandidateClosure,
         prior_knowledge: PriorKnowledgeAccessMaterialization | None,
     ) -> None:
@@ -422,6 +491,186 @@ class ExpertCandidateValidator:
         if closure.derivation.record.source_dependency_ids != expected_dependencies:
             raise ExpertCandidateValidationError(
                 "agent derivation source dependencies differ from model-visible inputs"
+            )
+
+    def _validate_composition_parent(
+        self,
+        closure: ExpertCandidateClosure,
+        *,
+        require_active_authority: bool,
+    ) -> None:
+        manifest = closure.manifest
+        derivation = closure.derivation
+        if type(derivation) is not ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateValidationError(
+                "composition candidate lacks its exact derivation"
+            )
+        materialization = derivation.materialization
+        plan = materialization.composition_assessment.composition_plan
+        context = closure.validation_context
+        base = plan.current_base
+        expected_configuration_fingerprint = (
+            expert_composition_configuration_fingerprint(
+                composition_policy_version=plan.composition_policy_version,
+                composition_source_limit=plan.composition_source_limit,
+                candidate_entry_limit=plan.candidate_entry_limit,
+                candidate_byte_limit=plan.candidate_byte_limit,
+            )
+        )
+        if (
+            manifest.derivation_kind
+            is not ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+            or manifest.derivation_ref != derivation.record.derivation_id
+            or manifest.validation_context_ref != context.validation_context_id
+            or manifest.scope_contract_id != plan.scope_contract.scope_contract_id
+            or manifest.configuration_fingerprint != plan.configuration_fingerprint
+            or manifest.change_kind is not CandidateChangeKind.CAPABILITY
+            or manifest.parent_release_id != base.release_id
+            or manifest.parent_repository_map_ref != base.repository_map_id
+            or manifest.parent_tree_hash != base.source_tree_hash
+            or context.scope_contract != plan.scope_contract
+            or context.parent_scope_contract != plan.scope_contract
+            or context.parent_release is None
+            or context.parent_release.release_id != base.release_id
+            or context.parent_repository_map is None
+            or context.parent_repository_map.repository_map_id != base.repository_map_id
+            or context.parent_tree_hash != base.source_tree_hash
+            or tuple(
+                sorted(
+                    module.module_contract_id
+                    for module in context.parent_module_contracts
+                )
+            )
+            != base.module_contract_ids
+            or plan.configuration_fingerprint != expected_configuration_fingerprint
+        ):
+            raise ExpertCandidateValidationError(
+                "composition candidate parent differs from its exact plan"
+            )
+        if require_active_authority and (
+            plan.composition_policy_version != self.settings.composition_policy_version
+            or plan.composition_source_limit != self.settings.composition_source_limit
+            or plan.candidate_entry_limit != self.settings.candidate_entry_limit
+            or plan.candidate_byte_limit != self.settings.candidate_byte_limit
+        ):
+            raise ExpertCandidateValidationError(
+                "composition candidate lacks active configured policy authority"
+            )
+
+    def _validate_composition_derivation(
+        self,
+        closure: ExpertCandidateClosure,
+    ) -> None:
+        manifest = closure.manifest
+        derivation = closure.derivation
+        if type(derivation) is not ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateValidationError(
+                "composition candidate lacks its exact derivation"
+            )
+        record = derivation.record
+        materialization = derivation.materialization
+        plan = materialization.composition_assessment.composition_plan
+        expected_source_ids = tuple(source.candidate_id for source in plan.sources)
+        expected_dependencies = tuple(
+            sorted(
+                {
+                    plan.composition_plan_id,
+                    *plan.stable_authority_ids,
+                    *record.source_validation_context_ids.values(),
+                }
+            )
+        )
+        replay_authorities = set(
+            closure.validation_context.replay_evidence.evidence_authority_ids
+        )
+        expected_replay_evidence = compose_candidate_replay_evidence(
+            tuple(
+                provenance.validation_context
+                for provenance in derivation.source_provenance
+            )
+        )
+        context = closure.validation_context
+        if (
+            context.parent_scope_contract is None
+            or context.parent_release is None
+            or context.parent_tree_receipt is None
+            or context.parent_repository_map is None
+        ):
+            raise ExpertCandidateValidationError(
+                "composition candidate requires a released parent closure"
+            )
+        reconstructed_base = build_expert_composition_base_closure(
+            scope_contract=context.parent_scope_contract,
+            release_manifest=context.parent_release,
+            parent_tree_receipt=context.parent_tree_receipt,
+            repository_map=context.parent_repository_map,
+            module_contracts=context.parent_module_contracts,
+            source_contents=derivation.parent_contents,
+        )
+        recomputed_reduction = ExpertCompositionReducer(
+            candidate_entry_limit=plan.candidate_entry_limit,
+            candidate_byte_limit=plan.candidate_byte_limit,
+        ).reduce(
+            plan=plan,
+            current_base=reconstructed_base,
+            sources=tuple(
+                provenance.reduction_source
+                for provenance in derivation.source_provenance
+            ),
+        )
+        for provenance in derivation.source_provenance:
+            source_closure = composition_source_candidate_closure(provenance)
+            self._validate(
+                source_closure,
+                require_active_authority=False,
+            )
+            source_package = direct_agent_candidate_package_files(
+                manifest=source_closure.manifest,
+                validation_context=source_closure.validation_context,
+                patch=source_closure.patch,
+                candidate_tree=source_closure.candidate_tree,
+                parent_files=source_closure.parent_files,
+                repository_map=source_closure.repository_map,
+                module_contracts=source_closure.module_contracts,
+                derivation=provenance.agent_derivation,
+                sanitation_report=source_closure.sanitation_report,
+                candidate_contents=source_closure.candidate_contents,
+            )
+            source_checksums = {
+                path: tree_or_blob_digest(payload)
+                for path, payload in source_package.items()
+            }
+            if dict(provenance.candidate_commit_record.file_checksums) != (
+                source_checksums
+            ):
+                raise ExpertCandidateValidationError(
+                    "composition source package differs from its candidate commit"
+                )
+        if (
+            reconstructed_base.reference != plan.current_base
+            or recomputed_reduction.assessment != materialization.composition_assessment
+            or recomputed_reduction.materialization != materialization
+            or dict(recomputed_reduction.source_contents)
+            != dict(closure.candidate_contents)
+            or context.active_task_bindings != plan.active_task_bindings
+            or context.replay_evidence != expected_replay_evidence
+            or manifest.source_dependency_ids != expected_dependencies
+            or record.source_dependency_ids != expected_dependencies
+            or manifest.ancestor_candidate_ids != expected_source_ids
+            or record.ancestor_candidate_ids != expected_source_ids
+            or not set(record.source_validation_context_ids.values()).issubset(
+                replay_authorities
+            )
+            or manifest.capability_lineage
+            or closure.patch != materialization.patch
+            or closure.candidate_tree != materialization.source_tree
+            or closure.parent_files != materialization.parent_tree.files
+            or closure.repository_map != materialization.repository_map
+            or closure.module_contracts != materialization.module_contracts
+            or manifest.semantic_book_digest != materialization.semantic_book_digest
+        ):
+            raise ExpertCandidateValidationError(
+                "composition candidate differs from its materialization or provenance"
             )
 
     def _configured_proposer_authority(
@@ -831,19 +1080,22 @@ class ExpertCandidateValidator:
             raise ExpertCandidateValidationError(
                 "changed capability must own an edited or deleted source path"
             )
-        triggering_capabilities = {
-            capability_id
-            for observation in closure.derivation.trigger_packet.trigger_observations
-            if observation.observation_id
-            in closure.derivation.trigger_decision.trigger_evidence_ids
-            for capability_id in observation.affected_capability_ids
-        }
-        if triggering_capabilities and not changed_capabilities.issubset(
-            triggering_capabilities
-        ):
-            raise ExpertCandidateValidationError(
-                "capability candidate leaves the triggering observation scope"
-            )
+        if type(closure.derivation) is not ExpertDeterministicCompositionDerivation:
+            triggering_capabilities = {
+                capability_id
+                for observation in (
+                    closure.derivation.trigger_packet.trigger_observations
+                )
+                if observation.observation_id
+                in closure.derivation.trigger_decision.trigger_evidence_ids
+                for capability_id in observation.affected_capability_ids
+            }
+            if triggering_capabilities and not changed_capabilities.issubset(
+                triggering_capabilities
+            ):
+                raise ExpertCandidateValidationError(
+                    "capability candidate leaves the triggering observation scope"
+                )
 
     @staticmethod
     def _validate_evidence_and_lineage(
@@ -913,6 +1165,16 @@ class ExpertCandidateValidator:
 
     def _validate_ancestors(self, closure: ExpertCandidateClosure) -> None:
         manifest = closure.manifest
+        if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
+            if (
+                manifest.ancestor_candidate_ids
+                != closure.derivation.record.ancestor_candidate_ids
+                or manifest.candidate_id in manifest.ancestor_candidate_ids
+            ):
+                raise ExpertCandidateValidationError(
+                    "composition candidate ancestry is invalid"
+                )
+            return
         ancestor_ids = tuple(
             ancestor.manifest.candidate_id for ancestor in closure.ancestor_inputs
         )

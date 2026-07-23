@@ -1107,6 +1107,19 @@ the shared topology and ownership validators. Module resource-bound maps remain 
 domain contracts; the generic reducer enforces configured aggregate tree limits rather
 than inventing arithmetic across unrelated schemas.
 
+Clean reductions now project to a distinct deterministic-composition candidate
+derivation; they never fabricate a coding-agent invocation. The composition plan owns
+the active task-binding set and a distinct bounded source count, and every source reference binds its agent derivation,
+validation context, and origin principal. The candidate package codec retains exact
+commit-checked source packages plus the current parent bytes. Reopen recomputes the full
+replay-evidence union, reconstructs the verified base, reruns the pure reducer, and
+requires its assessment, materialization, and successor bytes to match exactly. This
+also makes arbitrary sanitized edits and causal-evidence omission fail closed. Sources
+are deliberately limited to directly approved agent proposals for now; composed-source
+recursion remains rejected until a bounded flattening contract is designed. Generic
+store persistence rejects composition candidates; only the pending sealed admission
+capability may cross that side-effect boundary.
+
 Before release:
 
 - [x] Define stable base/source references, composition-plan identity, typed conflict,
@@ -1120,10 +1133,11 @@ Before release:
 - [x] Detect overlapping paths, module-contract conflicts, topology drift, adapter
       leakage, cross-source capability incompatibility, and configured aggregate tree
       limits.
+- [x] Project clean reductions into origin-neutral composition candidates, retain
+      complete commit-checked source packages, rerun reduction during validation, and
+      round-trip the exact package codec without fake agent history.
 - [ ] Seal the authenticated GitHub `CURRENT` base and consume fresh source/denylist/
       adapter/current observations atomically when persisting the composed candidate.
-- [ ] Persist the clean materialization as a new candidate with new proposal and
-      validation identities.
 - [ ] Route conflicts and architecture changes through a fresh architect/generalizer
       proposal rather than treating them as reducer output.
 - [ ] Rerun the complete cascade/release matrix on the exact composed tree.

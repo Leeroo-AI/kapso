@@ -19,7 +19,6 @@ from kapso.cross_run.agent_artifacts import (
     coding_agent_artifact_filenames,
 )
 from kapso.cross_run.canonical import (
-    canonical_json_bytes,
     parse_json_bytes,
     require_content_id,
     tree_or_blob_digest,
@@ -46,13 +45,43 @@ from kapso.cross_run.contracts import (
 from kapso.cross_run.expert.candidates import (
     ExpertCandidateClosure,
     ExpertCandidateValidator,
+    composition_source_candidate_closure,
 )
 from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateValidationContext,
 )
+from kapso.cross_run.expert.candidate_package import (
+    AGENT_ANCESTORS_PACKAGE_PATH,
+    AGENT_ARTIFACT_PACKAGE_ROOT,
+    AGENT_OPERATION_PACKAGE_PATH,
+    AGENT_TRIGGER_DECISION_PACKAGE_PATH,
+    AGENT_TRIGGER_PACKET_PACKAGE_PATH,
+    AGENT_WORKSPACE_DELTA_PACKAGE_PATH,
+    PARENT_FILES_PACKAGE_PATH,
+    SANITATION_REPORT_PACKAGE_PATH,
+    contract_tuple_package_bytes,
+    direct_agent_candidate_package_files,
+)
 from kapso.cross_run.expert.candidate_derivations import (
+    AGENT_DERIVATION_RECORD_PACKAGE_PATH,
+    CANDIDATE_MANIFEST_PACKAGE_PATH,
+    CANDIDATE_MODULE_PACKAGE_ROOT,
+    CANDIDATE_PATCH_PACKAGE_PATH,
+    CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH,
+    CANDIDATE_SOURCE_PACKAGE_ROOT,
+    CANDIDATE_SOURCE_TREE_PACKAGE_PATH,
+    CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH,
+    COMPOSITION_DERIVATION_RECORD_PACKAGE_PATH,
     ExpertAgentProposalDerivation,
     ExpertAgentProposalDerivationRecord,
+    ExpertCompositionSourceProvenance,
+    ExpertDeterministicCompositionDerivation,
+    ExpertDeterministicCompositionDerivationRecord,
+)
+from kapso.cross_run.expert.composition import ExpertCompositionReductionSource
+from kapso.cross_run.expert.composition_contracts import (
+    ExpertCompositionMaterialization,
+    ExpertCompositionSourceReference,
 )
 from kapso.cross_run.expert.proposal_contract import ExpertCandidateAncestorInput
 from kapso.cross_run.expert.triggers import (
@@ -61,23 +90,32 @@ from kapso.cross_run.expert.triggers import (
 )
 
 _COMMIT_PATH = EXPERT_CANDIDATE_COMMIT_PATH
-_MANIFEST_PATH = "candidate.json"
-_VALIDATION_CONTEXT_PATH = "validation-context.json"
-_PATCH_PATH = "patch.json"
-_SOURCE_TREE_PATH = "source-tree.json"
-_PARENT_FILES_PATH = "parent-files.json"
-_REPOSITORY_MAP_PATH = "repository-map.json"
-_SANITATION_PATH = "sanitation.json"
-_MODULE_ROOT = "module-contracts"
-_SOURCE_ROOT = "source"
+_MANIFEST_PATH = CANDIDATE_MANIFEST_PACKAGE_PATH
+_VALIDATION_CONTEXT_PATH = CANDIDATE_VALIDATION_CONTEXT_PACKAGE_PATH
+_PATCH_PATH = CANDIDATE_PATCH_PACKAGE_PATH
+_SOURCE_TREE_PATH = CANDIDATE_SOURCE_TREE_PACKAGE_PATH
+_PARENT_FILES_PATH = PARENT_FILES_PACKAGE_PATH
+_REPOSITORY_MAP_PATH = CANDIDATE_REPOSITORY_MAP_PACKAGE_PATH
+_SANITATION_PATH = SANITATION_REPORT_PACKAGE_PATH
+_MODULE_ROOT = CANDIDATE_MODULE_PACKAGE_ROOT
+_SOURCE_ROOT = CANDIDATE_SOURCE_PACKAGE_ROOT
 _AGENT_DERIVATION_ROOT = "derivations/agent"
-_AGENT_DERIVATION_RECORD_PATH = f"{_AGENT_DERIVATION_ROOT}/derivation.json"
-_TRIGGER_PACKET_PATH = f"{_AGENT_DERIVATION_ROOT}/trigger-packet.json"
-_TRIGGER_DECISION_PATH = f"{_AGENT_DERIVATION_ROOT}/trigger-decision.json"
-_OPERATION_PATH = f"{_AGENT_DERIVATION_ROOT}/operation.json"
-_WORKSPACE_DELTA_PATH = f"{_AGENT_DERIVATION_ROOT}/workspace-delta.json"
-_ANCESTORS_PATH = f"{_AGENT_DERIVATION_ROOT}/ancestors.json"
-_AGENT_ARTIFACT_ROOT = f"{_AGENT_DERIVATION_ROOT}/artifacts"
+_AGENT_DERIVATION_RECORD_PATH = AGENT_DERIVATION_RECORD_PACKAGE_PATH
+_TRIGGER_PACKET_PATH = AGENT_TRIGGER_PACKET_PACKAGE_PATH
+_TRIGGER_DECISION_PATH = AGENT_TRIGGER_DECISION_PACKAGE_PATH
+_OPERATION_PATH = AGENT_OPERATION_PACKAGE_PATH
+_WORKSPACE_DELTA_PATH = AGENT_WORKSPACE_DELTA_PACKAGE_PATH
+_ANCESTORS_PATH = AGENT_ANCESTORS_PACKAGE_PATH
+_AGENT_ARTIFACT_ROOT = AGENT_ARTIFACT_PACKAGE_ROOT
+_COMPOSITION_DERIVATION_ROOT = "derivations/composition"
+_COMPOSITION_DERIVATION_RECORD_PATH = COMPOSITION_DERIVATION_RECORD_PACKAGE_PATH
+_COMPOSITION_MATERIALIZATION_PATH = (
+    f"{_COMPOSITION_DERIVATION_ROOT}/materialization.json"
+)
+_COMPOSITION_PARENT_SOURCE_ROOT = f"{_COMPOSITION_DERIVATION_ROOT}/parent-source"
+_COMPOSITION_SOURCE_PROVENANCE_ROOT = (
+    f"{_COMPOSITION_DERIVATION_ROOT}/source-provenance"
+)
 _RENAME_NOREPLACE = 1
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _STAGING_PATTERN = re.compile(r"^\.candidate-[A-Za-z0-9_-]+$")
@@ -129,14 +167,11 @@ class ExpertCandidateStore:
             self._recover_staging()
 
     def persist(self, closure: ExpertCandidateClosure) -> StoredExpertCandidate:
-        snapshot = replace(
-            closure,
-            candidate_contents=dict(closure.candidate_contents),
-            derivation=replace(
-                closure.derivation,
-                operation_artifacts=dict(closure.derivation.operation_artifacts),
-            ),
-        )
+        if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateStoreError(
+                "composition persistence requires sealed admission authority"
+            )
+        snapshot = self._snapshot_closure(closure)
         self.validator.validate(snapshot)
         package_files = self._package_files(snapshot)
         commit_record = ExpertCandidateCommitRecord.mint(
@@ -182,6 +217,49 @@ class ExpertCandidateStore:
                 self._fsync_directory(self.staging_root)
                 self._fsync_directory(self.object_root)
             return self._read_unlocked(snapshot.manifest.candidate_id)
+
+    @staticmethod
+    def _snapshot_closure(
+        closure: ExpertCandidateClosure,
+    ) -> ExpertCandidateClosure:
+        derivation = closure.derivation
+        if type(derivation) is ExpertAgentProposalDerivation:
+            snapshot_derivation = replace(
+                derivation,
+                operation_artifacts=dict(derivation.operation_artifacts),
+            )
+        elif type(derivation) is ExpertDeterministicCompositionDerivation:
+            snapshot_derivation = replace(
+                derivation,
+                parent_contents=dict(derivation.parent_contents),
+                source_provenance=tuple(
+                    replace(
+                        provenance,
+                        reduction_source=replace(
+                            provenance.reduction_source,
+                            candidate_contents=dict(
+                                provenance.reduction_source.candidate_contents
+                            ),
+                        ),
+                        agent_derivation=replace(
+                            provenance.agent_derivation,
+                            operation_artifacts=dict(
+                                provenance.agent_derivation.operation_artifacts
+                            ),
+                        ),
+                    )
+                    for provenance in derivation.source_provenance
+                ),
+            )
+        else:
+            raise ExpertCandidateStoreError(
+                "candidate store does not recognize the derivation closure"
+            )
+        return replace(
+            closure,
+            candidate_contents=dict(closure.candidate_contents),
+            derivation=snapshot_derivation,
+        )
 
     def read(self, candidate_id: str) -> StoredExpertCandidate:
         require_content_id(candidate_id, "candidate_id")
@@ -231,41 +309,75 @@ class ExpertCandidateStore:
 
     @staticmethod
     def _package_files(closure: ExpertCandidateClosure) -> dict[str, bytes]:
+        if type(closure.derivation) is ExpertAgentProposalDerivation:
+            return direct_agent_candidate_package_files(
+                manifest=closure.manifest,
+                validation_context=closure.validation_context,
+                patch=closure.patch,
+                candidate_tree=closure.candidate_tree,
+                parent_files=closure.parent_files,
+                repository_map=closure.repository_map,
+                module_contracts=closure.module_contracts,
+                derivation=closure.derivation,
+                sanitation_report=closure.sanitation_report,
+                candidate_contents=closure.candidate_contents,
+            )
         files = {
             _MANIFEST_PATH: closure.manifest.to_json_bytes(),
             _VALIDATION_CONTEXT_PATH: closure.validation_context.to_json_bytes(),
-            _AGENT_DERIVATION_RECORD_PATH: closure.derivation.record.to_json_bytes(),
-            _TRIGGER_PACKET_PATH: closure.derivation.trigger_packet.to_json_bytes(),
-            _TRIGGER_DECISION_PATH: closure.derivation.trigger_decision.to_json_bytes(),
             _PATCH_PATH: closure.patch.to_json_bytes(),
             _SOURCE_TREE_PATH: closure.candidate_tree.to_json_bytes(),
-            _PARENT_FILES_PATH: ExpertCandidateStore._contract_tuple_bytes(
-                closure.parent_files
-            ),
+            _PARENT_FILES_PATH: contract_tuple_package_bytes(closure.parent_files),
             _REPOSITORY_MAP_PATH: closure.repository_map.to_json_bytes(),
-            _OPERATION_PATH: closure.derivation.operation.to_json_bytes(),
-            _WORKSPACE_DELTA_PATH: closure.derivation.workspace_delta.to_json_bytes(),
             _SANITATION_PATH: closure.sanitation_report.to_json_bytes(),
-            _ANCESTORS_PATH: ExpertCandidateStore._contract_tuple_bytes(
-                closure.derivation.ancestor_inputs
-            ),
         }
         for module in closure.module_contracts:
             digest = module.module_contract_id.rsplit(":", 1)[1]
             files[f"{_MODULE_ROOT}/{digest}.json"] = module.to_json_bytes()
         for relative_path, payload in closure.candidate_contents.items():
             files[f"{_SOURCE_ROOT}/{relative_path}"] = payload
-        for name, payload in closure.derivation.operation_artifacts.items():
-            files[f"{_AGENT_ARTIFACT_ROOT}/{name}"] = payload
+        if type(closure.derivation) is ExpertDeterministicCompositionDerivation:
+            files.update(ExpertCandidateStore._composition_derivation_files(closure))
+        else:
+            raise ExpertCandidateStoreError(
+                "candidate package uses an unknown derivation closure"
+            )
         return dict(sorted(files.items()))
+
+    @staticmethod
+    def _composition_derivation_files(
+        closure: ExpertCandidateClosure,
+    ) -> dict[str, bytes]:
+        derivation = closure.derivation
+        if type(derivation) is not ExpertDeterministicCompositionDerivation:
+            raise ExpertCandidateStoreError(
+                "composition package requires a composition derivation"
+            )
+        files = {
+            _COMPOSITION_DERIVATION_RECORD_PATH: derivation.record.to_json_bytes(),
+            _COMPOSITION_MATERIALIZATION_PATH: (
+                derivation.materialization.to_json_bytes()
+            ),
+        }
+        for path, payload in derivation.parent_contents.items():
+            files[f"{_COMPOSITION_PARENT_SOURCE_ROOT}/{path}"] = payload
+        for provenance in derivation.source_provenance:
+            root = ExpertCandidateStore._composition_source_root(
+                provenance.candidate_id
+            )
+            files[f"{root}/commit.json"] = (
+                provenance.candidate_commit_record.to_json_bytes()
+            )
+            source_closure = composition_source_candidate_closure(provenance)
+            for path, payload in ExpertCandidateStore._package_files(
+                source_closure
+            ).items():
+                files[f"{root}/package/{path}"] = payload
+        return files
 
     @staticmethod
     def _parse_closure(payloads: Mapping[str, bytes]) -> ExpertCandidateClosure:
         manifest = ExpertCandidateManifest.from_json_bytes(payloads[_MANIFEST_PATH])
-        if manifest.derivation_kind is not ExpertCandidateDerivationKind.AGENT_PROPOSAL:
-            raise ExpertCandidateStoreError(
-                "candidate store does not recognize the derivation package"
-            )
         tree = ExpertSourceTreeManifest.from_json_bytes(payloads[_SOURCE_TREE_PATH])
         modules = tuple(
             sorted(
@@ -287,11 +399,6 @@ class ExpertCandidateStore:
             SourceFileDescriptor,
             "parent files",
         )
-        ancestors = ExpertCandidateStore._parse_contract_tuple(
-            payloads[_ANCESTORS_PATH],
-            ExpertCandidateAncestorInput,
-            "ancestor inputs",
-        )
         closure = ExpertCandidateClosure(
             manifest=manifest,
             validation_context=ExpertCandidateValidationContext.from_json_bytes(
@@ -304,7 +411,31 @@ class ExpertCandidateStore:
                 payloads[_REPOSITORY_MAP_PATH]
             ),
             module_contracts=modules,
-            derivation=ExpertAgentProposalDerivation(
+            derivation=ExpertCandidateStore._parse_derivation(manifest, payloads),
+            sanitation_report=ExpertCandidateSanitationReport.from_json_bytes(
+                payloads[_SANITATION_PATH]
+            ),
+            candidate_contents=candidate_contents,
+        )
+        expected_payloads = ExpertCandidateStore._package_files(closure)
+        if dict(payloads) != expected_payloads:
+            raise ExpertCandidateStoreError(
+                "candidate package differs from its canonical closure"
+            )
+        return closure
+
+    @staticmethod
+    def _parse_derivation(
+        manifest: ExpertCandidateManifest,
+        payloads: Mapping[str, bytes],
+    ):
+        if manifest.derivation_kind is ExpertCandidateDerivationKind.AGENT_PROPOSAL:
+            ancestors = ExpertCandidateStore._parse_contract_tuple(
+                payloads[_ANCESTORS_PATH],
+                ExpertCandidateAncestorInput,
+                "ancestor inputs",
+            )
+            return ExpertAgentProposalDerivation(
                 record=ExpertAgentProposalDerivationRecord.from_json_bytes(
                     payloads[_AGENT_DERIVATION_RECORD_PATH]
                 ),
@@ -327,22 +458,94 @@ class ExpertCandidateStore:
                     )
                 },
                 ancestor_inputs=ancestors,
-            ),
-            sanitation_report=ExpertCandidateSanitationReport.from_json_bytes(
-                payloads[_SANITATION_PATH]
-            ),
-            candidate_contents=candidate_contents,
-        )
-        expected_payloads = ExpertCandidateStore._package_files(closure)
-        if dict(payloads) != expected_payloads:
-            raise ExpertCandidateStoreError(
-                "candidate package differs from its canonical closure"
             )
-        return closure
+        if manifest.derivation_kind is (
+            ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION
+        ):
+            return ExpertCandidateStore._parse_composition_derivation(payloads)
+        raise ExpertCandidateStoreError(
+            "candidate store does not recognize the derivation package"
+        )
 
     @staticmethod
-    def _contract_tuple_bytes(contracts: tuple[StrictContract, ...]) -> bytes:
-        return canonical_json_bytes(tuple(contract.to_dict() for contract in contracts))
+    def _parse_composition_derivation(
+        payloads: Mapping[str, bytes],
+    ) -> ExpertDeterministicCompositionDerivation:
+        materialization = ExpertCompositionMaterialization.from_json_bytes(
+            payloads[_COMPOSITION_MATERIALIZATION_PATH]
+        )
+        plan = materialization.composition_assessment.composition_plan
+        provenance = tuple(
+            ExpertCandidateStore._parse_composition_source_provenance(
+                source_reference,
+                payloads,
+            )
+            for source_reference in plan.sources
+        )
+        parent_contents = {
+            descriptor.relative_path: payloads[
+                f"{_COMPOSITION_PARENT_SOURCE_ROOT}/{descriptor.relative_path}"
+            ]
+            for descriptor in materialization.parent_tree.files
+        }
+        return ExpertDeterministicCompositionDerivation(
+            record=ExpertDeterministicCompositionDerivationRecord.from_json_bytes(
+                payloads[_COMPOSITION_DERIVATION_RECORD_PATH]
+            ),
+            materialization=materialization,
+            source_provenance=provenance,
+            parent_contents=parent_contents,
+        )
+
+    @staticmethod
+    def _parse_composition_source_provenance(
+        source_reference: ExpertCompositionSourceReference,
+        payloads: Mapping[str, bytes],
+    ) -> ExpertCompositionSourceProvenance:
+        root = ExpertCandidateStore._composition_source_root(
+            source_reference.candidate_id
+        )
+        commit = ExpertCandidateCommitRecord.from_json_bytes(
+            payloads[f"{root}/commit.json"]
+        )
+        source_payloads = {
+            path: payloads[f"{root}/package/{path}"] for path in commit.file_checksums
+        }
+        if any(
+            tree_or_blob_digest(payload) != commit.file_checksums[path]
+            for path, payload in source_payloads.items()
+        ):
+            raise ExpertCandidateStoreError(
+                "composition source package differs from its candidate commit"
+            )
+        source_closure = ExpertCandidateStore._parse_closure(source_payloads)
+        if commit.candidate_id != source_closure.manifest.candidate_id:
+            raise ExpertCandidateStoreError(
+                "composition source commit names another candidate"
+            )
+        reduction_source = ExpertCompositionReductionSource(
+            source_reference=source_reference,
+            validation_context=source_closure.validation_context,
+            patch=source_closure.patch,
+            candidate_tree=source_closure.candidate_tree,
+            repository_map=source_closure.repository_map,
+            module_contracts=source_closure.module_contracts,
+            candidate_contents=source_closure.candidate_contents,
+        )
+        return ExpertCompositionSourceProvenance(
+            candidate_manifest=source_closure.manifest,
+            candidate_commit_record=commit,
+            validation_context=source_closure.validation_context,
+            reduction_source=reduction_source,
+            parent_files=source_closure.parent_files,
+            agent_derivation=source_closure.derivation,
+            sanitation_report=source_closure.sanitation_report,
+        )
+
+    @staticmethod
+    def _composition_source_root(candidate_id: str) -> str:
+        require_content_id(candidate_id, "composition provenance candidate")
+        return f"{_COMPOSITION_SOURCE_PROVENANCE_ROOT}/{candidate_id.rsplit(':', 1)[1]}"
 
     @staticmethod
     def _parse_contract_tuple(

@@ -1380,6 +1380,7 @@ class ExpertSettings(StrictContract):
     generalizer_role: str
     generalizer: CodingAgentSettings
     composition_policy_version: str
+    composition_source_limit: int
     triggers: ExpertTriggerSettings
     task_adapters: TaskAdapterStoreSettings
     validation: ExpertValidationSettings
@@ -1446,6 +1447,10 @@ class ExpertSettings(StrictContract):
         _require_positive(
             self.sensitive_file_glob_scan_max_depth,
             "expert.sensitive_file_glob_scan_max_depth",
+        )
+        _require_positive(
+            self.composition_source_limit,
+            "expert.composition_source_limit",
         )
         for value, name in (
             (self.architect_id, "expert.architect_id"),

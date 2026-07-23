@@ -12,6 +12,8 @@ from kapso.cross_run.canonical import (
 )
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
+    CrossRunTaskBindingSettings,
+    ExpertCandidateDerivationKind,
     ExpertCandidatePatch,
     ExpertCandidatePatchChange,
     ExpertSourceTreeManifest,
@@ -35,6 +37,7 @@ from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionMaterialization,
     ExpertCompositionPlan,
     ExpertCompositionSourceReference,
+    expert_composition_configuration_fingerprint,
 )
 from test_expert_triggers import expert_records
 
@@ -94,11 +97,18 @@ def _source_reference(scope, module, *, label):
         proposed_map_id,
         module.module_contract_id,
     }
+    derivation_ref = _id("expert-agent-proposal-derivation", label)
+    validation_context_ref = _id("expert-candidate-validation-context", label)
+    authorities.update({derivation_ref, validation_context_ref})
     return ExpertCompositionSourceReference.mint(
         candidate_id=candidate_id,
         candidate_commit_record_id=commit_id,
         scope_contract_id=scope.scope_contract_id,
         change_kind=CandidateChangeKind.CAPABILITY,
+        derivation_kind=ExpertCandidateDerivationKind.AGENT_PROPOSAL,
+        derivation_ref=derivation_ref,
+        validation_context_ref=validation_context_ref,
+        origin_principal_ids=("expert.generalizer",),
         parent_release_id=parent_release_id,
         parent_repository_map_id=parent_map_id,
         parent_tree_hash=_digest(f"{label} parent tree"),
@@ -136,12 +146,33 @@ def _plan(scope, base, sources):
             key=lambda source: (source.candidate_id, source.source_reference_id),
         )
     )
+    adapter_contract = scope.task_adapter_contract[0]
+    active_task_bindings = (
+        CrossRunTaskBindingSettings(
+            scope_id=scope.scope_id,
+            task_family_id=adapter_contract.task_family_id,
+            task_adapter_id=adapter_contract.task_adapter_ids[0],
+        ),
+    )
+    candidate_entry_limit = 1000
+    candidate_byte_limit = 1_000_000
+    composition_policy_version = "kapso.expert_composition.v1"
+    composition_source_limit = len(sources)
     return ExpertCompositionPlan.mint(
         scope_contract=scope,
         current_base=base,
         sources=sources,
-        composition_policy_version="kapso.expert_composition.v1",
-        configuration_fingerprint=_digest("composition configuration"),
+        active_task_bindings=active_task_bindings,
+        composition_policy_version=composition_policy_version,
+        composition_source_limit=composition_source_limit,
+        candidate_entry_limit=candidate_entry_limit,
+        candidate_byte_limit=candidate_byte_limit,
+        configuration_fingerprint=expert_composition_configuration_fingerprint(
+            composition_policy_version=composition_policy_version,
+            composition_source_limit=composition_source_limit,
+            candidate_entry_limit=candidate_entry_limit,
+            candidate_byte_limit=candidate_byte_limit,
+        ),
         stable_authority_ids=_plan_authorities(scope, base, sources),
     )
 
@@ -491,6 +522,36 @@ def test_plan_requires_canonical_unique_sources_in_one_scope(composition_case):
         _remint(plan, sources=(first, first))
     with pytest.raises(ExpertCompositionContractError, match="one exact scope"):
         _plan(plan.scope_contract, plan.current_base, (foreign_source,))
+
+
+def test_plan_rejects_more_sources_than_its_bound(composition_case):
+    plan = composition_case.plan
+    sources = tuple(
+        sorted(
+            (
+                *plan.sources,
+                _source_reference(
+                    plan.scope_contract,
+                    composition_case.module,
+                    label="third",
+                ),
+            ),
+            key=lambda source: (source.candidate_id, source.source_reference_id),
+        )
+    )
+    bounded_plan = _plan(plan.scope_contract, plan.current_base, sources)
+
+    with pytest.raises(ExpertCompositionContractError, match="configured source limit"):
+        _remint(
+            bounded_plan,
+            composition_source_limit=len(sources) - 1,
+            configuration_fingerprint=expert_composition_configuration_fingerprint(
+                composition_policy_version=bounded_plan.composition_policy_version,
+                composition_source_limit=len(sources) - 1,
+                candidate_entry_limit=bounded_plan.candidate_entry_limit,
+                candidate_byte_limit=bounded_plan.candidate_byte_limit,
+            ),
+        )
 
 
 def test_plan_deliberately_accepts_sources_from_stale_parents(

@@ -390,6 +390,7 @@ class ExpertCandidateOperationKind(str, Enum):
 
 class ExpertCandidateDerivationKind(str, Enum):
     AGENT_PROPOSAL = "agent_proposal"
+    DETERMINISTIC_COMPOSITION = "deterministic_composition"
 
 
 class ExpertCandidateSanitationStatus(str, Enum):
@@ -2684,7 +2685,14 @@ class ExpertCandidateManifest(StrictContract):
             raise ContractValidationError(
                 "candidate validation context uses the wrong namespace"
             )
-        expected_derivation_namespace = "expert-agent-proposal-derivation"
+        expected_derivation_namespace = {
+            ExpertCandidateDerivationKind.AGENT_PROPOSAL: (
+                "expert-agent-proposal-derivation"
+            ),
+            ExpertCandidateDerivationKind.DETERMINISTIC_COMPOSITION: (
+                "expert-deterministic-composition-derivation"
+            ),
+        }[self.derivation_kind]
         if self.derivation_ref.split(":sha256:", 1)[0] != (
             expected_derivation_namespace
         ):

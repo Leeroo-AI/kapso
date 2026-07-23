@@ -9,12 +9,15 @@ from pathlib import PurePosixPath
 from typing import ClassVar
 
 from kapso.cross_run.canonical import (
+    canonical_json_bytes,
     require_content_id,
     require_identifier,
     tree_or_blob_digest,
 )
 from kapso.cross_run.contracts import (
     CandidateChangeKind,
+    CrossRunTaskBindingSettings,
+    ExpertCandidateDerivationKind,
     ExpertCandidatePatch,
     ExpertCandidatePatchChange,
     ExpertModuleContract,
@@ -135,6 +138,39 @@ def _require_digest(value: str, name: str) -> None:
         raise ExpertCompositionContractError(f"{name} must be a sha256 digest")
 
 
+def expert_composition_configuration_fingerprint(
+    *,
+    composition_policy_version: str,
+    composition_source_limit: int,
+    candidate_entry_limit: int,
+    candidate_byte_limit: int,
+) -> str:
+    """Identify every configured input that can change pure composition."""
+
+    require_identifier(composition_policy_version, "composition policy version")
+    if (
+        type(composition_source_limit) is not int
+        or composition_source_limit <= 0
+        or type(candidate_entry_limit) is not int
+        or candidate_entry_limit <= 0
+        or type(candidate_byte_limit) is not int
+        or candidate_byte_limit <= 0
+    ):
+        raise ExpertCompositionContractError(
+            "composition limits must be positive integers"
+        )
+    return tree_or_blob_digest(
+        canonical_json_bytes(
+            {
+                "candidate_byte_limit": candidate_byte_limit,
+                "candidate_entry_limit": candidate_entry_limit,
+                "composition_policy_version": composition_policy_version,
+                "composition_source_limit": composition_source_limit,
+            }
+        )
+    )
+
+
 def _require_sorted_content_ids(
     values: tuple[str, ...],
     name: str,
@@ -246,6 +282,10 @@ class ExpertCompositionSourceReference(StrictContract):
     candidate_commit_record_id: str
     scope_contract_id: str
     change_kind: CandidateChangeKind
+    derivation_kind: ExpertCandidateDerivationKind
+    derivation_ref: str
+    validation_context_ref: str
+    origin_principal_ids: tuple[str, ...]
     parent_release_id: str
     parent_repository_map_id: str
     parent_tree_hash: str
@@ -274,6 +314,16 @@ class ExpertCompositionSourceReference(StrictContract):
                 "composition source scope contract",
             ),
             (
+                self.derivation_ref,
+                "expert-agent-proposal-derivation",
+                "composition source derivation",
+            ),
+            (
+                self.validation_context_ref,
+                "expert-candidate-validation-context",
+                "composition source validation context",
+            ),
+            (
                 self.parent_release_id,
                 "expert-base-release",
                 "composition source parent release",
@@ -291,6 +341,18 @@ class ExpertCompositionSourceReference(StrictContract):
             ),
         ):
             _require_namespaced_id(value, namespace, name)
+        if self.derivation_kind is not ExpertCandidateDerivationKind.AGENT_PROPOSAL:
+            raise ExpertCompositionContractError(
+                "composition sources must be direct agent proposals"
+            )
+        if not self.origin_principal_ids or self.origin_principal_ids != tuple(
+            sorted(set(self.origin_principal_ids))
+        ):
+            raise ExpertCompositionContractError(
+                "composition source origin principals must be canonical and non-empty"
+            )
+        for principal_id in self.origin_principal_ids:
+            require_identifier(principal_id, "composition source origin principal")
         for value, name in (
             (self.parent_tree_hash, "composition source parent tree"),
             (self.candidate_tree_hash, "composition source candidate tree"),
@@ -318,6 +380,8 @@ class ExpertCompositionSourceReference(StrictContract):
             self.candidate_id,
             self.candidate_commit_record_id,
             self.scope_contract_id,
+            self.derivation_ref,
+            self.validation_context_ref,
             self.parent_release_id,
             self.parent_repository_map_id,
             self.patch_id,
@@ -338,7 +402,11 @@ class ExpertCompositionPlan(StrictContract):
     scope_contract: ExpertScopeContract
     current_base: ExpertCompositionBaseReference
     sources: tuple[ExpertCompositionSourceReference, ...]
+    active_task_bindings: tuple[CrossRunTaskBindingSettings, ...]
     composition_policy_version: str
+    composition_source_limit: int
+    candidate_entry_limit: int
+    candidate_byte_limit: int
     configuration_fingerprint: str
     stable_authority_ids: tuple[str, ...]
 
@@ -354,6 +422,11 @@ class ExpertCompositionPlan(StrictContract):
                 type(source) is not ExpertCompositionSourceReference
                 for source in self.sources
             )
+            or type(self.active_task_bindings) is not tuple
+            or any(
+                type(binding) is not CrossRunTaskBindingSettings
+                for binding in self.active_task_bindings
+            )
         ):
             raise ExpertCompositionContractError(
                 "composition plan requires exact typed stable authorities"
@@ -361,10 +434,22 @@ class ExpertCompositionPlan(StrictContract):
         require_identifier(
             self.composition_policy_version, "composition policy version"
         )
+        expected_configuration_fingerprint = (
+            expert_composition_configuration_fingerprint(
+                composition_policy_version=self.composition_policy_version,
+                composition_source_limit=self.composition_source_limit,
+                candidate_entry_limit=self.candidate_entry_limit,
+                candidate_byte_limit=self.candidate_byte_limit,
+            )
+        )
         _require_digest(
             self.configuration_fingerprint,
             "composition configuration fingerprint",
         )
+        if self.configuration_fingerprint != expected_configuration_fingerprint:
+            raise ExpertCompositionContractError(
+                "composition configuration fingerprint is not exact"
+            )
         source_keys = tuple(
             (source.candidate_id, source.source_reference_id) for source in self.sources
         )
@@ -373,10 +458,22 @@ class ExpertCompositionPlan(StrictContract):
             or source_keys != tuple(sorted(set(source_keys)))
             or len({source.candidate_id for source in self.sources})
             != len(self.sources)
+            or len(self.sources) > self.composition_source_limit
         ):
             raise ExpertCompositionContractError(
-                "composition sources must be non-empty, canonical, and unique"
+                "composition sources must be non-empty, canonical, and unique "
+                "within the configured source limit"
             )
+        binding_keys = tuple(
+            (binding.task_family_id, binding.task_adapter_id)
+            for binding in self.active_task_bindings
+        )
+        if not binding_keys or binding_keys != tuple(sorted(set(binding_keys))):
+            raise ExpertCompositionContractError(
+                "composition active task bindings must be canonical and non-empty"
+            )
+        for binding in self.active_task_bindings:
+            self.scope_contract.validate_binding(binding)
         base = self.current_base
         if (
             base.scope_contract_id != self.scope_contract.scope_contract_id

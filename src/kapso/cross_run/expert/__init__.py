@@ -19,12 +19,16 @@ from kapso.cross_run.expert.candidate_context import (
     ExpertCandidateContextError,
     ExpertCandidateReplayEvidence,
     ExpertCandidateValidationContext,
+    compose_candidate_replay_evidence,
     project_agent_candidate_validation_context,
 )
 from kapso.cross_run.expert.candidate_derivations import (
     ExpertAgentProposalDerivation,
     ExpertAgentProposalDerivationRecord,
     ExpertCandidateDerivationError,
+    ExpertCompositionSourceProvenance,
+    ExpertDeterministicCompositionDerivation,
+    ExpertDeterministicCompositionDerivationRecord,
 )
 from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionAssessment,
@@ -59,6 +63,11 @@ from kapso.cross_run.expert.composition import (
     ExpertCompositionError,
     ExpertCompositionReducer,
     ExpertCompositionReduction,
+    ExpertCompositionReductionSource,
+)
+from kapso.cross_run.expert.composition_candidate import (
+    ExpertCompositionCandidateError,
+    project_deterministic_composition_candidate,
 )
 from kapso.cross_run.expert.sanitation import ExpertCandidateSanitizer
 from kapso.cross_run.expert.generalizer import ExpertCapabilityGeneralizer
@@ -317,14 +326,19 @@ __all__ = [
     "ExpertCandidateDerivationError",
     "ExpertCandidateReplayEvidence",
     "ExpertCandidateValidationContext",
+    "compose_candidate_replay_evidence",
     "ExpertAgentProposalDerivation",
     "ExpertAgentProposalDerivationRecord",
+    "ExpertCompositionSourceProvenance",
+    "ExpertDeterministicCompositionDerivation",
+    "ExpertDeterministicCompositionDerivationRecord",
     "ExpertCandidateAncestorInput",
     "ExpertCandidateProposalEngine",
     "ExpertCandidateProposalResult",
     "ExpertCandidateValidationError",
     "ExpertCandidateValidator",
     "ExpertCompositionAssessment",
+    "ExpertCompositionCandidateError",
     "ExpertCompositionBaseClosure",
     "ExpertCompositionBaseError",
     "ExpertCompositionBaseProviderError",
@@ -339,6 +353,7 @@ __all__ = [
     "ExpertCompositionPlan",
     "ExpertCompositionReducer",
     "ExpertCompositionReduction",
+    "ExpertCompositionReductionSource",
     "ExpertCompositionSourceError",
     "ExpertCompositionSourceReference",
     "ExpertCompositionSourceResolver",
@@ -476,6 +491,7 @@ __all__ = [
     "publication_eligibility_task_adapter_trust_observations",
     "project_expert_composition_source_reference",
     "project_agent_candidate_validation_context",
+    "project_deterministic_composition_candidate",
     "project_prepared_task_evaluation_cases",
     "task_evaluation_adapter_trust_observations",
     "task_evaluation_allocation_case_leg",

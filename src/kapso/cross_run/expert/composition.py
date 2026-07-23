@@ -18,6 +18,9 @@ from kapso.cross_run.contracts import (
     ExpertSourceTreeManifest,
     SourceFileDescriptor,
 )
+from kapso.cross_run.expert.candidate_context import (
+    ExpertCandidateValidationContext,
+)
 from kapso.cross_run.expert.book import (
     EXPERT_BOOK_PATH,
     EXPERT_REPOSITORY_MAP_PATH,
@@ -37,9 +40,7 @@ from kapso.cross_run.expert.composition_contracts import (
     ExpertCompositionDisposition,
     ExpertCompositionMaterialization,
     ExpertCompositionPlan,
-)
-from kapso.cross_run.expert.composition_source import (
-    ApprovedExpertCompositionSource,
+    ExpertCompositionSourceReference,
 )
 from kapso.cross_run.expert.topology import (
     validate_expert_repository_topology,
@@ -102,6 +103,80 @@ class ExpertCompositionReduction:
 
 
 @dataclass(frozen=True)
+class ExpertCompositionReductionSource:
+    """Stable source closure sufficient to replay the pure reducer."""
+
+    source_reference: ExpertCompositionSourceReference
+    validation_context: ExpertCandidateValidationContext
+    patch: ExpertCandidatePatch
+    candidate_tree: ExpertSourceTreeManifest
+    repository_map: ExpertRepositoryMap
+    module_contracts: tuple[ExpertModuleContract, ...]
+    candidate_contents: Mapping[str, bytes]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.source_reference) is not ExpertCompositionSourceReference
+            or type(self.validation_context) is not ExpertCandidateValidationContext
+            or type(self.patch) is not ExpertCandidatePatch
+            or type(self.candidate_tree) is not ExpertSourceTreeManifest
+            or type(self.repository_map) is not ExpertRepositoryMap
+            or type(self.module_contracts) is not tuple
+            or any(
+                type(module) is not ExpertModuleContract
+                for module in self.module_contracts
+            )
+            or not isinstance(self.candidate_contents, Mapping)
+        ):
+            raise ExpertCompositionError(
+                "composition reduction source requires exact typed records"
+            )
+        contents = MappingProxyType(dict(self.candidate_contents))
+        object.__setattr__(self, "candidate_contents", contents)
+        source = self.source_reference
+        parent_release = self.validation_context.parent_release
+        parent_map = self.validation_context.parent_repository_map
+        module_contract_ids = tuple(
+            sorted(module.module_contract_id for module in self.module_contracts)
+        )
+        descriptors = {
+            descriptor.relative_path: descriptor
+            for descriptor in self.candidate_tree.files
+        }
+        if (
+            parent_release is None
+            or parent_map is None
+            or source.validation_context_ref
+            != self.validation_context.validation_context_id
+            or source.scope_contract_id
+            != self.validation_context.scope_contract.scope_contract_id
+            or source.parent_release_id != parent_release.release_id
+            or source.parent_repository_map_id != parent_map.repository_map_id
+            or source.parent_tree_hash != self.validation_context.parent_tree_hash
+            or source.candidate_tree_hash != self.candidate_tree.tree_hash
+            or source.patch_id != self.patch.patch_id
+            or source.patch_digest != tree_or_blob_digest(self.patch.to_json_bytes())
+            or source.proposed_repository_map_id
+            != self.repository_map.repository_map_id
+            or source.module_contract_ids != module_contract_ids
+            or set(contents) != set(descriptors)
+        ):
+            raise ExpertCompositionError(
+                "composition reduction source differs from its stable reference"
+            )
+        for path, descriptor in descriptors.items():
+            payload = contents[path]
+            if (
+                type(payload) is not bytes
+                or len(payload) != descriptor.size
+                or tree_or_blob_digest(payload) != descriptor.digest
+            ):
+                raise ExpertCompositionError(
+                    f"composition reduction source bytes differ: {path}"
+                )
+
+
+@dataclass(frozen=True)
 class _ModuleEffect:
     module_id: str
     before: ExpertModuleContract
@@ -110,7 +185,7 @@ class _ModuleEffect:
 
 @dataclass(frozen=True)
 class _SourceEffect:
-    source: ApprovedExpertCompositionSource
+    source: ExpertCompositionReductionSource
     editable_changes: tuple[ExpertCandidatePatchChange, ...]
     module_effects: tuple[_ModuleEffect, ...]
     already_present: bool
@@ -157,12 +232,12 @@ class ExpertCompositionReducer:
         *,
         plan: ExpertCompositionPlan,
         current_base: ExpertCompositionBaseClosure,
-        approved_sources: tuple[ApprovedExpertCompositionSource, ...],
+        sources: tuple[ExpertCompositionReductionSource, ...],
     ) -> ExpertCompositionReduction:
         self._require_exact_runtime_closure(
             plan=plan,
             current_base=current_base,
-            approved_sources=approved_sources,
+            sources=sources,
         )
         current_files = {
             descriptor.relative_path: descriptor
@@ -178,7 +253,7 @@ class ExpertCompositionReducer:
                 current_files=current_files,
                 current_modules=current_modules,
             )
-            for source in approved_sources
+            for source in sources
         )
         conflicts = [
             conflict for effect in effects for conflict in effect.individual_conflicts
@@ -344,15 +419,15 @@ class ExpertCompositionReducer:
         *,
         plan: ExpertCompositionPlan,
         current_base: ExpertCompositionBaseClosure,
-        approved_sources: tuple[ApprovedExpertCompositionSource, ...],
+        sources: tuple[ExpertCompositionReductionSource, ...],
     ) -> None:
         if (
             type(plan) is not ExpertCompositionPlan
             or type(current_base) is not ExpertCompositionBaseClosure
-            or type(approved_sources) is not tuple
+            or type(sources) is not tuple
             or any(
-                type(source) is not ApprovedExpertCompositionSource
-                for source in approved_sources
+                type(source) is not ExpertCompositionReductionSource
+                for source in sources
             )
         ):
             raise ExpertCompositionError(
@@ -365,9 +440,7 @@ class ExpertCompositionReducer:
             raise ExpertCompositionError(
                 "composition base differs from its exact plan reference"
             )
-        source_references = tuple(
-            source.source_reference for source in approved_sources
-        )
+        source_references = tuple(source.source_reference for source in sources)
         if source_references != plan.sources:
             raise ExpertCompositionError(
                 "approved composition sources differ from the canonical plan"
@@ -376,19 +449,18 @@ class ExpertCompositionReducer:
     def _classify_source(
         self,
         *,
-        source: ApprovedExpertCompositionSource,
+        source: ExpertCompositionReductionSource,
         current_base: ExpertCompositionBaseClosure,
         current_files: Mapping[str, SourceFileDescriptor],
         current_modules: Mapping[str, ExpertModuleContract],
     ) -> _SourceEffect:
-        closure = source.stored_candidate.closure
         source_reference = source.source_reference
         if source_reference.change_kind is CandidateChangeKind.REPOSITORY_ARCHITECTURE:
             already_present = (
                 source_reference.candidate_tree_hash
                 == current_base.reference.source_tree_hash
-                and closure.repository_map == current_base.repository_map
-                and closure.module_contracts == current_base.module_contracts
+                and source.repository_map == current_base.repository_map
+                and source.module_contracts == current_base.module_contracts
             )
             conflicts = (
                 ()
@@ -413,17 +485,17 @@ class ExpertCompositionReducer:
             raise ExpertCompositionError(
                 "composition source uses an unknown candidate change kind"
             )
-        parent_map = closure.validation_context.parent_repository_map
+        parent_map = source.validation_context.parent_repository_map
         if parent_map is None:
             raise ExpertCompositionError(
                 "capability composition source lacks parent topology"
             )
         parent_modules = {
             module.module_id: module
-            for module in closure.validation_context.parent_module_contracts
+            for module in source.validation_context.parent_module_contracts
         }
         candidate_modules = {
-            module.module_id: module for module in closure.module_contracts
+            module.module_id: module for module in source.module_contracts
         }
         if set(parent_modules) != set(candidate_modules):
             raise ExpertCompositionError(
@@ -439,12 +511,12 @@ class ExpertCompositionReducer:
             if parent_modules[module_id] != candidate_modules[module_id]
         )
         parent_controls = set(
-            expert_control_paths(closure.validation_context.parent_module_contracts)
+            expert_control_paths(source.validation_context.parent_module_contracts)
         )
-        candidate_controls = set(expert_control_paths(closure.module_contracts))
+        candidate_controls = set(expert_control_paths(source.module_contracts))
         editable_changes = tuple(
             change
-            for change in closure.patch.changes
+            for change in source.patch.changes
             if change.relative_path not in parent_controls | candidate_controls
         )
         if not editable_changes or not module_effects:
@@ -789,9 +861,7 @@ class ExpertCompositionReducer:
             module.module_id: module for module in current_base.module_contracts
         }
         for effect in effects:
-            candidate_contents = (
-                effect.source.stored_candidate.closure.candidate_contents
-            )
+            candidate_contents = effect.source.candidate_contents
             for change in effect.editable_changes:
                 current = composed_files.get(change.relative_path)
                 if current == change.after:

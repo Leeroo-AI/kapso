@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, Mapping
+from typing import ClassVar, Mapping, TypeVar
 
 from kapso.cross_run.canonical import (
     require_content_id,
@@ -441,6 +441,135 @@ class ExpertCandidateValidationContext(StrictContract):
         return tuple(
             sorted({binding.task_family_id for binding in self.active_task_bindings})
         )
+
+
+_ReplayRecord = TypeVar(
+    "_ReplayRecord",
+    KnowledgeSnapshotManifest,
+    ExpertScopeContract,
+    TransferEpisode,
+)
+
+
+def _exact_replay_record_union(
+    records: tuple[_ReplayRecord, ...],
+    *,
+    identity_field: str,
+    name: str,
+) -> tuple[_ReplayRecord, ...]:
+    by_id: dict[str, _ReplayRecord] = {}
+    for record in records:
+        record_id = getattr(record, identity_field)
+        existing = by_id.get(record_id)
+        if existing is not None and existing != record:
+            raise ExpertCandidateContextError(
+                f"candidate replay {name} reuse one ID with unequal content"
+            )
+        by_id[record_id] = record
+    return tuple(by_id[record_id] for record_id in sorted(by_id))
+
+
+def compose_candidate_replay_evidence(
+    source_contexts: tuple[ExpertCandidateValidationContext, ...],
+) -> ExpertCandidateReplayEvidence:
+    """Union source replay closures without trimming or weakening provenance."""
+
+    if not source_contexts or any(
+        type(context) is not ExpertCandidateValidationContext
+        for context in source_contexts
+    ):
+        raise ExpertCandidateContextError(
+            "composed replay requires exact non-empty source contexts"
+        )
+    snapshots = _exact_replay_record_union(
+        tuple(
+            manifest
+            for context in source_contexts
+            for manifest in context.replay_evidence.knowledge_snapshot_manifests
+        ),
+        identity_field="snapshot_id",
+        name="knowledge snapshots",
+    )
+    scope_contracts = _exact_replay_record_union(
+        tuple(
+            scope_contract
+            for context in source_contexts
+            for scope_contract in context.replay_evidence.scope_contracts
+        ),
+        identity_field="scope_contract_id",
+        name="scope contracts",
+    )
+    episodes = _exact_replay_record_union(
+        tuple(
+            episode
+            for context in source_contexts
+            for episode in context.replay_evidence.episodes
+        ),
+        identity_field="episode_id",
+        name="episodes",
+    )
+    reason_codes: dict[str, set[str]] = {}
+    for context in source_contexts:
+        for (
+            episode_id,
+            reasons,
+        ) in context.replay_evidence.causal_episode_reason_codes.items():
+            reason_codes.setdefault(episode_id, set()).update(reasons)
+    causal_episode_ids = tuple(
+        sorted(
+            {
+                episode_id
+                for context in source_contexts
+                for episode_id in context.replay_evidence.causal_episode_ids
+            }
+        )
+    )
+    evidence_authority_ids = tuple(
+        sorted(
+            {
+                *(context.validation_context_id for context in source_contexts),
+                *(
+                    authority_id
+                    for context in source_contexts
+                    for authority_id in (context.replay_evidence.evidence_authority_ids)
+                ),
+            }
+        )
+    )
+    proof_reference_ids = tuple(
+        sorted(
+            {
+                proof_id
+                for context in source_contexts
+                for proof_id in context.replay_evidence.proof_reference_ids
+            }
+        )
+    )
+    stable_dependency_ids = tuple(
+        sorted(
+            {
+                *(manifest.snapshot_id for manifest in snapshots),
+                *(scope.scope_contract_id for scope in scope_contracts),
+                *(episode.episode_id for episode in episodes),
+                *(episode.source_bundle_id for episode in episodes),
+                *evidence_authority_ids,
+                *proof_reference_ids,
+            }
+        )
+    )
+    return ExpertCandidateReplayEvidence.mint(
+        knowledge_snapshot_manifests=snapshots,
+        scope_contracts=scope_contracts,
+        episodes=episodes,
+        causal_episode_ids=causal_episode_ids,
+        causal_episode_reason_codes={
+            episode_id: tuple(sorted(reason_codes[episode_id]))
+            for episode_id in causal_episode_ids
+        },
+        evidence_authority_ids=evidence_authority_ids,
+        proof_reference_ids=proof_reference_ids,
+        stable_dependency_ids=stable_dependency_ids,
+    )
 
 
 def project_agent_candidate_validation_context(
